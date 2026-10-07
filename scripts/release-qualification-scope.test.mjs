@@ -973,10 +973,27 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     );
     expect(misses).toEqual([]);
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 150,
-      persistentCount: 146,
+      discovered: 154,
+      persistentCount: 150,
       ruledCount: 4,
     });
+  });
+
+  it.each([
+    "bounded-contexts/identity/support/seed-support/market-following-verification.ts",
+    "bounded-contexts/pricing/server.ts",
+  ])("discovers and classifies the retained market-following seed caller %s as persistent_required", (filePath) => {
+    expect(discovered).toContain(filePath);
+    const record = classifyReleaseQualificationScope({
+      base: DUMMY_BASE,
+      candidate: DUMMY_CANDIDATE,
+      changedFiles: [{ path: filePath, status: "modified" }],
+      readFileAt: realReadFileAt,
+      releaseWorkflowScriptReferences,
+      now: () => 1753100000000,
+    });
+    expect(record.class).toBe("persistent_required");
+    expect(record.reasonCodes).toContain("seed_bootstrap_import_reconciliation");
   });
 
   it("AC8 compares every discovered path across two valid registries without emitted applicability", () => {

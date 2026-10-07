@@ -45,6 +45,7 @@ export type OfferMatchRow = MarketplaceOfferListRow &
     seller_available_quantity: number;
     seller_listing_availability_status: "available" | "unavailable";
     can_fulfill: boolean;
+    managed_status?: "unavailable" | "held" | "refresh_required" | null;
   }>;
 
 export type OfferBuyerMuteRow = Readonly<{
@@ -214,6 +215,27 @@ function sellerExactListingJoinSql(sellerAccountSql: string, listingIdSql: strin
 
 function sellerOfferControlsJoinSql(sellerAccountSql: string) {
   return `
+    LEFT JOIN LATERAL (
+      SELECT offer_id, policy_id FROM marketplace_buyer_offer_policy_memberships WHERE offer_id = offer.offer_id
+      UNION
+      SELECT offer.offer_id, binding.payload->>'policyId' FROM event_store_events AS binding
+      WHERE binding.stream_id = 'marketplace.offer-' || offer.offer_id
+        AND binding.event_type = 'marketplace.offer.buyer-policy-bound'
+      LIMIT 1
+    ) AS membership ON TRUE
+    LEFT JOIN marketplace_buyer_offer_policy_pages AS policy ON policy.policy_id = membership.policy_id
+    LEFT JOIN event_store_streams AS policy_stream ON policy_stream.stream_id = 'marketplace.offer-policy-' || membership.policy_id
+    LEFT JOIN marketplace_managed_offer_audit AS evaluation ON evaluation.offer_id = offer.offer_id
+    LEFT JOIN LATERAL (
+      SELECT selected.value->'result' AS result
+      FROM event_store_events AS consent
+      CROSS JOIN LATERAL jsonb_array_elements(consent.payload->'outcomes') AS selected(value)
+      WHERE consent.stream_id = 'marketplace.offer-policy-' || membership.policy_id
+        AND consent.event_type = 'marketplace.offer-policy.authorized'
+        AND consent.payload->>'revision' = policy.state->>'revision'
+        AND selected.value->>'offerId' = offer.offer_id
+      ORDER BY consent.stream_version DESC LIMIT 1
+    ) AS consent_target ON TRUE
     LEFT JOIN marketplace_offer_seller_controls AS seller_offer_control
       ON seller_offer_control.seller_account_id = ${sellerAccountSql}
      AND seller_offer_control.buyer_account_id = offer.buyer_account_id
@@ -259,13 +281,35 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
       THEN ROUND((offer.price_amount / matched_listing.listing_price_amount) * 10000)::integer
     ELSE 0
   END AS offer_to_listing_price_bps,
-  COALESCE(availability.status, 'available') AS seller_listing_availability_status`;
+  COALESCE(availability.status, 'available') AS seller_listing_availability_status,
+  CASE
+    WHEN membership.offer_id IS NULL THEN NULL
+    WHEN policy.state->>'status' IS DISTINCT FROM 'active' THEN 'unavailable'
+    WHEN policy.last_stream_version IS DISTINCT FROM policy_stream.current_version THEN 'refresh_required'
+    WHEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(policy.state->'authority'->'offers') selected
+                     WHERE selected->>'offerId' = offer.offer_id) THEN 'unavailable'
+    WHEN (policy.state->'authority'->>'itemCommitmentAllowance')::numeric - (policy.state->>'consumedItemAmount')::numeric
+         < offer.price_amount * offer.quantity_requested THEN 'held'
+    WHEN evaluation.evidence->>'policyRevision' = policy.state->>'revision'
+         AND evaluation.status = 'held' THEN 'held'
+    WHEN evaluation.evidence->>'policyRevision' = policy.state->>'revision'
+         AND evaluation.status = 'applied' AND evaluation.reason = 'market-price-target'
+         AND evaluation.last_stream_version = offer.last_stream_version
+         AND (evaluation.evidence->'marketPrice'->>'freshUntil')::timestamptz > now() THEN NULL
+    WHEN consent_target.result->>'status' = 'held' THEN 'held'
+    WHEN consent_target.result->>'status' = 'target'
+         AND consent_target.result->>'unitItemAmount' = offer.price_amount::numeric(12,2)::text
+         AND (consent_target.result->'evidence'->'marketPrice'->>'freshUntil')::timestamptz > now()
+         AND (evaluation.offer_id IS NULL OR evaluation.evidence->>'policyRevision' IS DISTINCT FROM policy.state->>'revision') THEN NULL
+    ELSE 'refresh_required'
+  END AS managed_status`;
 }
 
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
   return `
     (seller_offer.status = 'submitted'
       AND seller_offer.seller_listing_availability_status = 'available'
+      AND seller_offer.managed_status IS NULL
       AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested) DESC,
     seller_offer.offer_to_listing_price_bps DESC,
     seller_offer.price_currency_code ASC,
@@ -288,6 +332,7 @@ type OfferMatchPageRow = MarketplaceOfferPageRow & {
   buyer_review_count: number;
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable" | null | undefined;
+  managed_status?: "unavailable" | "held" | "refresh_required" | null;
 };
 
 type OfferMatchForSellerPageRow = OfferMatchPageRow & {
@@ -312,7 +357,9 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
     buyer_review_count: row.buyer_review_count,
     seller_available_quantity: row.seller_available_quantity,
     seller_listing_availability_status: row.seller_listing_availability_status ?? "available",
+    managed_status: row.managed_status ?? null,
     can_fulfill:
+      row.managed_status == null &&
       (row.seller_listing_availability_status ?? "available") === "available" &&
       offer.status === "submitted" &&
       row.seller_available_quantity >= offer.quantity_requested,
@@ -416,6 +463,7 @@ export async function listOfferMatches(
   const fulfillableWhere =
     params.canFulfill === true
       ? `seller_offer.seller_listing_availability_status = 'available'
+         AND seller_offer.managed_status IS NULL
          AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested`
       : `TRUE`;
   const innerSql = `

@@ -1,3 +1,7 @@
+import {
+  assertMeasurePublicationConsumer,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -310,6 +314,7 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
+    if (sql.includes("DELETE FROM event_projection_measure_publication_parts")) return { rows: [], rowCount: 0 };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }
@@ -1014,5 +1019,21 @@ describe("marketplace listing projection", () => {
       away_window_ends_at: null,
       away_window_reason_category: null,
     });
+  });
+});
+
+it("stages 85 Products without partial visibility, rejects mismatch without mutation, and selects from the last part", async () => {
+  const db = new ProjectionDb();
+  const staging = withMeasurePublicationStaging(db);
+  const handlers = buildMarketplaceListingProjectionHandlers(staging.db);
+  db.listings.set("lst_1", listingPage());
+  await assertMeasurePublicationConsumer({
+    handlers,
+    staging,
+    visible: () => ({ rows: [...db.listings.values()], patches: db.realtimePayloads }),
+    assertProducts: (products) =>
+      expect(db.listings.get("lst_1")!.product_measure_snapshot).toEqual(
+        products.find((product) => product.productId === "prd_1") ?? null,
+      ),
   });
 });

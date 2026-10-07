@@ -1,5 +1,14 @@
 import { t } from "@chase-sets/localization";
-import { HiddenInput, Form, Button, ModalDialog, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
+import {
+  HiddenInput,
+  Form,
+  Banner,
+  Button,
+  ModalDialog,
+  NativeSelect,
+  Stack,
+  TextInput,
+} from "@chase-sets/design-system";
 import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages";
 import type { Membership } from "./contracts";
 import type { Invitation } from "../../invitations/ui/contracts";
@@ -25,35 +34,40 @@ function invitationAccountLabel(invitation: Invitation) {
 export function TeamPage({
   invitations,
   memberships,
+  errorMessage,
 }: {
   invitations: readonly Invitation[];
   memberships: readonly Membership[];
+  errorMessage?: string;
 }) {
   return (
     <CustomerSummaryPage
       title={t("identity.features.memberships.ui.accountTeamPage.team")}
       description={t("identity.features.memberships.ui.accountTeamPage.manage.the.people.who.can.act")}
       controls={
-        <Form spacing="none" method="post">
-          <Stack direction="row" align="end" gap={2}>
-            <HiddenInput type="hidden" name="intent" value="create-invitation" readOnly />
-            <TextInput
-              name="email"
-              label={t("identity.features.memberships.ui.accountTeamPage.email")}
-              type="email"
-              required
-            />
-            <NativeSelect
-              name="roleKey"
-              label={t("identity.features.memberships.ui.accountTeamPage.role")}
-              defaultValue="viewer"
-              items={grantableRoleSelectItems}
-            />
-            <Button type="submit" tone="primary">
-              {t("identity.features.memberships.ui.accountTeamPage.invite")}
-            </Button>
-          </Stack>
-        </Form>
+        <>
+          {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
+          <Form spacing="none" method="post">
+            <Stack direction="row" align="end" gap={2}>
+              <HiddenInput type="hidden" name="intent" value="create-invitation" readOnly />
+              <TextInput
+                name="email"
+                label={t("identity.features.memberships.ui.accountTeamPage.email")}
+                type="email"
+                required
+              />
+              <NativeSelect
+                name="roleKey"
+                label={t("identity.features.memberships.ui.accountTeamPage.role")}
+                defaultValue="viewer"
+                items={grantableRoleSelectItems}
+              />
+              <Button type="submit" tone="primary">
+                {t("identity.features.memberships.ui.accountTeamPage.invite")}
+              </Button>
+            </Stack>
+          </Form>
+        </>
       }
       sections={[
         ...memberships.map((membership) => ({

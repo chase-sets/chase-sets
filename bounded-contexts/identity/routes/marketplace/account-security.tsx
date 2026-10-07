@@ -15,8 +15,12 @@ import {
   type ApiKeySecretMutationResult,
   type OneTimeApiKeySecret,
 } from "../../features/api-keys/api/one-time-secret";
+import {
+  createAccountActionErrorHandling,
+  type AccountActionFailureResult,
+} from "../../support/route-support/account-action-errors";
 
-type SecurityActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }>;
+type SecurityActionData = Readonly<{ oneTimeSecret: OneTimeApiKeySecret }> | AccountActionFailureResult;
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({
@@ -36,6 +40,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const action = defineFormAction({
+  ...createAccountActionErrorHandling().options,
   authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "security.manage" }),
   intents: {
     "update-user": async ({ request, actor, formData }) =>
@@ -79,6 +84,13 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountSecurityRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as SecurityActionData | undefined;
-  return <SecurityPage user={data.user} apiKeys={data.apiKeys} oneTimeSecret={actionData?.oneTimeSecret} />;
+  const actionData = useActionData<SecurityActionData>();
+  return (
+    <SecurityPage
+      user={data.user}
+      apiKeys={data.apiKeys}
+      oneTimeSecret={actionData && "oneTimeSecret" in actionData ? actionData.oneTimeSecret : undefined}
+      errorMessage={actionData && "failure" in actionData ? actionData.failure.message : undefined}
+    />
+  );
 }

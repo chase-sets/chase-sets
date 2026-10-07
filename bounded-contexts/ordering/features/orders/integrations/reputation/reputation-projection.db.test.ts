@@ -2,6 +2,22 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { toTransportEvent } from "@chase-sets/event-core";
+import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { Hono } from "hono";
+import type { OrderingApiEnv } from "../../../../api";
+import { createAccountPurchaseOrderRoutes } from "../../api/route";
+import { eventSubscriptionSchemaSql } from "@chase-sets/bounded-context-runtime";
+import {
+  markProjectionBlockedStreamRetrying,
+  recordProjectionPoisonEvent,
+  resolveProjectionBlockedStream,
+} from "../../../../../../infrastructure/bounded-context-runtime/subscription-store";
+import {
+  reviewOpportunityFactType,
+  type ReviewOpportunityChangedV1,
+} from "@chase-sets/event-core/review-opportunity-facts";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -11,7 +27,8 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as orderingModule } from "../../../../index";
 import { buildOrderingReputationProjectionHandlers } from "./reputation-projection";
-import { getOrderingOrderDeliverySummary } from "./reputation-queries";
+import { orderingOpportunitySchemaSql, orderingOpportunitySchemaMigrations } from "./opportunity-schema";
+import { getOrderingOrderDeliverySummary, getOrderingOrderReviewOpportunity } from "./reputation-queries";
 import { createCheckpointStore, createOrderingOrderRuntimeForTest } from "../../api/runtime-test-harness";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -19,7 +36,7 @@ if (!databaseBaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = databaseBaseUrl ? describe : describe.skip;
-const contextNames = ["ordering"] as const;
+const contextNames = ["ordering", "marketplace"] as const;
 
 let sequence = 0;
 
@@ -69,6 +86,9 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await pools.ordering.query(orderingModule.schemaSql);
+    await pools.ordering.query(eventSubscriptionSchemaSql);
+    await pools.marketplace.query(marketplaceModule.schemaSql);
+    await pools.marketplace.query(eventSubscriptionSchemaSql);
   });
 
   afterAll(async () => {
@@ -137,86 +157,328 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     expect(stored.rows).toEqual([{ status: "ready-for-fulfillment" }]);
   });
 
-  it("applies the refund-class eligibility matrix against the live schema", async () => {
-    const pool = pools.ordering;
-    const handlers = buildOrderingReputationProjectionHandlers(pool);
-    await insertOrderPage(pool, "ord_1");
+  async function current() {
+    const name = "ordering-order-review-opportunity-projection";
+    await pools.ordering.query(
+      `INSERT INTO event_projection_group_generations
+      (target_context_name,projection_name,state,updated_at) VALUES ('ordering',$1,'active',now())
+      ON CONFLICT (target_context_name,projection_name) DO UPDATE SET state='active'`,
+      [name],
+    );
+    await pools.ordering.query(
+      `INSERT INTO event_projection_group_revisions
+      (target_context_name,projection_name,projection_revision,updated_at) VALUES ('ordering',$1,2,now())
+      ON CONFLICT (target_context_name,projection_name) DO UPDATE SET projection_revision=2`,
+      [name],
+    );
+    for (const source of ["ordering", "fulfillment", "platform-operations", "marketplace"]) {
+      const key = `${name}:${source}:v2`;
+      await pools.ordering.query(
+        `INSERT INTO event_subscription_checkpoints
+        (checkpoint_key,projection_name,source_context_name,subscription_version,last_global_position,updated_at)
+        VALUES ($1,$2,$3,2,10000,now()) ON CONFLICT (checkpoint_key) DO UPDATE SET last_global_position=10000`,
+        [key, name, source],
+      );
+      await pools.ordering.query(
+        `INSERT INTO event_projection_recovery_markers
+        (projection_kind,projection_key,last_global_position,updated_at) VALUES ('subscription',$1,10000,now())
+        ON CONFLICT (projection_kind,projection_key) DO UPDATE SET last_global_position=10000`,
+        [key],
+      );
+    }
+  }
+  function fact(generation = "1"): ReviewOpportunityChangedV1 {
+    return {
+      factSchemaVersion: 1,
+      orderId: "ord_1",
+      buyerAccountId: "acc_buyer",
+      sellerAccountId: "acc_seller",
+      generation,
+      sourceGeneration: "1",
+      generatedAt: "2026-04-02T00:00:00.000Z",
+      provenance: { ordering: "1000", fulfillment: "1000", support: "1000", marketplace: "1000" },
+      buyerToSeller: {
+        authorRole: "buyer",
+        eligibleAt: "2026-04-02T00:00:00.000Z",
+        effectiveDeadlineAt: "2026-06-01T00:00:00.000Z",
+        submissionState: "allowed",
+        held: false,
+        activeReviewId: null,
+        activeReviewRevealedAt: null,
+      },
+      sellerToBuyer: null,
+    };
+  }
+  const read = (account = "acc_buyer", now = new Date("2026-05-01T00:00:00Z")) =>
+    getOrderingOrderReviewOpportunity(pools.ordering, { orderId: "ord_1", authorAccountId: account, now });
 
-    await handlers["fulfillment.shipment.created"]!(
+  it("atomically replaces both directions, fences stale/duplicate delivery and retains absence across restart", async () => {
+    await insertOrderPage(pools.ordering, "ord_1");
+    await current();
+    const handler = () => buildOrderingReputationProjectionHandlers(pools.ordering)[reviewOpportunityFactType]!;
+    const first = event(reviewOpportunityFactType, fact());
+    await handler()(first);
+    expect(await read()).toMatchObject({
+      status: "ready",
+      opportunity: { author_role: "buyer", submission_state: "allowed" },
+    });
+    expect(await read("acc_seller")).toEqual({ status: "ready", opportunity: null });
+    expect(await read("acc_foreign")).toEqual({ status: "unavailable", opportunity: null });
+    const absent = event(reviewOpportunityFactType, { ...fact("2"), buyerToSeller: null });
+    await Promise.all([handler()(absent), handler()(first)]);
+    await handler()(absent);
+    expect(await read()).toEqual({ status: "ready", opportunity: null });
+    await handler()(event(reviewOpportunityFactType, fact()));
+    expect(await read()).toEqual({ status: "ready", opportunity: null });
+    const rows = await pools.ordering.query<{ generation: string }>(
+      "SELECT generation::text AS generation FROM ordering_order_review_opportunity_pages WHERE order_id='ord_1'",
+    );
+    expect(rows.rows).toEqual([{ generation: "2" }]);
+  });
+
+  it("keeps current absence distinct from missing, malformed, known lag and incomplete recovery", async () => {
+    await insertOrderPage(pools.ordering, "ord_1");
+    await current();
+    expect((await read()).status).toBe("unavailable");
+    const handlers = buildOrderingReputationProjectionHandlers(pools.ordering);
+    await handlers[reviewOpportunityFactType]!(event(reviewOpportunityFactType, fact()));
+    await pools.ordering.query(
+      `INSERT INTO ordering_order_review_opportunity_sources VALUES ('ord_1','platform-operations',1001)`,
+    );
+    expect((await read()).status).toBe("unavailable");
+    await handlers[reviewOpportunityFactType]!(
+      event(reviewOpportunityFactType, { ...fact("2"), provenance: { ...fact().provenance, support: "1001" } }),
+    );
+    expect((await read()).status).toBe("ready");
+    await pools.ordering.query("UPDATE event_projection_group_generations SET state='rebuilding'");
+    expect((await read()).status).toBe("unavailable");
+    await current();
+    await pools.ordering.query("DELETE FROM event_projection_recovery_markers");
+    expect((await read()).status).toBe("unavailable");
+    await current();
+    await handlers[reviewOpportunityFactType]!(
+      event(reviewOpportunityFactType, { ...fact("3"), factSchemaVersion: 2 }),
+    );
+    expect((await read()).status).toBe("unavailable");
+  });
+
+  it.each(["buyer", "seller"] as const)(
+    "recovers %s opportunity and opposite absence after retained blocks resolve",
+    async (authorRole) => {
+      const pool = pools.ordering;
+      await insertOrderPage(pool, "ord_1");
+      await current();
+      const snapshot = fact();
+      const slot = { ...snapshot.buyerToSeller!, authorRole };
+      await buildOrderingReputationProjectionHandlers(pool)[reviewOpportunityFactType]!(
+        event(reviewOpportunityFactType, {
+          ...snapshot,
+          buyerToSeller: authorRole === "buyer" ? slot : null,
+          sellerToBuyer: authorRole === "seller" ? slot : null,
+        }),
+      );
+      const author = authorRole === "buyer" ? "acc_buyer" : "acc_seller";
+      const opposite = authorRole === "buyer" ? "acc_seller" : "acc_buyer";
+      const expectReady = async () => {
+        expect(await read(author)).toMatchObject({
+          status: "ready",
+          opportunity: { author_role: authorRole, submission_state: "allowed" },
+        });
+        expect(await read(opposite)).toEqual({ status: "ready", opportunity: null });
+        expect(await read("acc_foreign")).toEqual({ status: "unavailable", opportunity: null });
+      };
+      const expectUnavailable = async () => {
+        for (const account of [author, opposite])
+          expect(await read(account)).toEqual({ status: "unavailable", opportunity: null });
+      };
+      await expectReady();
+      const projectionName = "ordering-order-review-opportunity-projection";
+      for (const sourceContextName of ["ordering", "fulfillment", "platform-operations", "marketplace"]) {
+        const projectionKey = `${projectionName}:${sourceContextName}:v2`;
+        for (const streamId of ["stream_recovery", "stream_unresolved_control"]) {
+          await recordProjectionPoisonEvent(pool, {
+            projectionKey,
+            projectionName,
+            targetContextName: "ordering",
+            sourceContextName,
+            subscriptionVersion: 2,
+            streamId,
+            streamVersion: 1,
+            eventId: `evt_${sourceContextName}_${streamId}`,
+            eventType: reviewOpportunityFactType,
+            globalPosition: parseGlobalPosition("1"),
+            error: new Error("Synthetic recovery fixture"),
+          });
+        }
+        await expectUnavailable();
+        await markProjectionBlockedStreamRetrying(pool, projectionKey, "stream_recovery");
+        await expectUnavailable();
+        await resolveProjectionBlockedStream(pool, projectionKey, "stream_recovery");
+        await expectUnavailable();
+        await markProjectionBlockedStreamRetrying(pool, projectionKey, "stream_unresolved_control");
+        await expectUnavailable();
+        await resolveProjectionBlockedStream(pool, projectionKey, "stream_unresolved_control");
+        const history = await pool.query<{ stream_id: string; state: string }>(
+          "SELECT stream_id, state FROM event_projection_blocked_streams WHERE projection_key = $1 ORDER BY stream_id",
+          [projectionKey],
+        );
+        expect(history.rows).toEqual([
+          { stream_id: "stream_recovery", state: "resolved" },
+          { stream_id: "stream_unresolved_control", state: "resolved" },
+        ]);
+        await expectReady();
+      }
+    },
+  );
+
+  it("carries a real Marketplace publication through persistent Ordering projection and the authorized HTTP DTO", async () => {
+    await insertOrderPage(pools.ordering, "ord_1");
+    await current();
+    const marketplace = marketplaceModule.createServices(pools.marketplace, {});
+    const subscriptions = marketplaceModule.buildSubscriptions!(marketplace);
+    const sourceNames = [
+      "marketplace-review-order-source-projection",
+      "marketplace-review-shipment-source-projection",
+      "marketplace-review-support-source-projection",
+      "marketplace-review-hold-reaction",
+      "marketplace-review-scoring-reaction",
+      "marketplace-review-moderation-reaction",
+    ];
+    const sources = [
+      ...subscriptions.filter((item) => sourceNames.includes(item.projectionName)),
+      ...["marketplace-review-projection", "marketplace-review-hold-projection"].map((projectionName) => ({
+        projectionName,
+        sourceContextName: "marketplace",
+        subscriptionVersion: 1,
+      })),
+    ];
+    expect(sources).toHaveLength(8);
+    // Synthetic checkpoint fixture, with the real module's subscription versions.
+    for (const source of sources) {
+      const name = source.projectionName;
+      const key = `${name}:${source.sourceContextName}:v${source.subscriptionVersion}`;
+      await pools.marketplace.query(
+        `INSERT INTO event_subscription_checkpoints
+        (checkpoint_key,projection_name,source_context_name,subscription_version,last_global_position,updated_at)
+        VALUES ($1,$2,$3,$4,1000,now())`,
+        [key, name, source.sourceContextName, source.subscriptionVersion],
+      );
+      await pools.marketplace.query(
+        `INSERT INTO event_projection_recovery_markers
+        (projection_kind,projection_key,last_global_position,updated_at) VALUES ('subscription',$1,1000,now())`,
+        [key],
+      );
+      await pools.marketplace.query(
+        `INSERT INTO event_projection_group_generations
+        (target_context_name,projection_name,state,updated_at) VALUES ('marketplace',$1,'active',now())`,
+        [name],
+      );
+      await pools.marketplace.query(
+        `INSERT INTO event_projection_group_revisions
+        (target_context_name,projection_name,projection_revision,updated_at) VALUES ('marketplace',$1,$2,now())`,
+        [name, name === "marketplace-review-projection" ? 2 : 1],
+      );
+    }
+    await subscriptions.find((item) => item.projectionName === "marketplace-review-order-source-projection")!.handlers[
+      "ordering.order.created"
+    ]!(
+      event("ordering.order.created", { orderId: "ord_1", buyerAccountId: "acc_buyer", sellerAccountId: "acc_seller" }),
+    );
+    const context = {
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_buyer" },
+    } as EventStoreContext;
+    expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(1);
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const consumeLatest = async () => {
+      const published = (await store.readAll({ eventTypes: [reviewOpportunityFactType], limit: 10 })).at(-1)!;
+      await buildOrderingReputationProjectionHandlers(pools.ordering)[reviewOpportunityFactType]!(
+        toTransportEvent(published),
+      );
+    };
+    await consumeLatest();
+    expect(await read()).toEqual({ status: "ready", opportunity: null });
+    const shipment = subscriptions.find(
+      (item) => item.projectionName === "marketplace-review-shipment-source-projection",
+    )!.handlers;
+    await shipment["fulfillment.shipment.created"]!(
       event("fulfillment.shipment.created", {
         shipmentId: "shp_1",
         orderId: "ord_1",
-        createdAt: "2026-04-02T00:00:00.000Z",
+        createdAt: "2026-04-01T00:00:00Z",
       }),
     );
-    await handlers["fulfillment.shipment.delivered"]!(
-      event("fulfillment.shipment.delivered", { shipmentId: "shp_1", deliveredAt: "2026-04-03T00:00:00.000Z" }),
-    );
-
-    const delivered = await pool.query(`SELECT 1 FROM ordering_order_review_eligibility_pages`);
-    expect(delivered.rowCount).toBe(2);
-
-    await handlers["support.support-request.opened"]!(
-      event("support.support-request.opened", {
-        supportRequestId: "sup_1",
-        orderId: "ord_1",
-        openedAt: "2026-04-04T00:00:00.000Z",
+    await shipment["fulfillment.shipment.delivered"]!(
+      event("fulfillment.shipment.delivered", {
+        shipmentId: "shp_1",
+        deliveredAt: "2026-04-02T00:00:00Z",
       }),
     );
-    const suspended = await pool.query(`SELECT 1 FROM ordering_order_review_eligibility_pages`);
-    expect(suspended.rowCount).toBe(0);
-
-    await handlers["support.support-request.resolved"]!(
-      event("support.support-request.resolved", {
-        supportRequestId: "sup_1",
-        orderId: "ord_1",
-        flowType: "product-not-as-described",
-        resolution: { resolutionType: "partial-refund", resolvedAt: "2026-04-06T00:00:00.000Z" },
-      }),
-    );
-
-    const rows = await pool.query<{ author_account_id: string; author_role: string }>(
-      `SELECT author_account_id, author_role
-       FROM ordering_order_review_eligibility_pages
-       WHERE order_id = 'ord_1'`,
-    );
-    expect(rows.rows).toEqual([{ author_account_id: "acc_buyer", author_role: "buyer" }]);
-
-    const supportSource = await pool.query<{ flow_type: string | null }>(
-      `SELECT flow_type
-       FROM ordering_order_review_support_request_sources
-       WHERE support_request_id = 'sup_1'`,
-    );
-    expect(supportSource.rows[0]).toEqual({ flow_type: "product-not-as-described" });
+    expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(1);
+    await consumeLatest();
+    expect(await read()).toMatchObject({
+      status: "ready",
+      opportunity: { author_role: "buyer", active_review_id: null },
+    });
+    const runtime = createOrderingOrderRuntimeForTest({
+      db: pools.ordering,
+      eventStore: createPostgresEventStore({ pool: pools.ordering }),
+      checkpointStore: createCheckpointStore(),
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "0.00", discountAmount: "0.00", chargeAmount: "0.00" }),
+      },
+    });
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "reputation.view", "reputation.manage"],
+      });
+      await next();
+    });
+    app.route("/account", createAccountPurchaseOrderRoutes(runtime));
+    const response = await app.request("/account/purchases/ord_1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      order_id: "ord_1",
+      delivery_summary: { shipment_count: 0 },
+      reviewOutcome: { status: "ready", opportunity: { author_role: "buyer", active_review_revealed_at: null } },
+    });
   });
 
-  it("restores the buyer hint without a delivery for a seller-caused cancellation", async () => {
-    const pool = pools.ordering;
-    const handlers = buildOrderingReputationProjectionHandlers(pool);
-    await insertOrderPage(pool, "ord_2");
+  it("upgrades a populated Ordering schema without deriving an opportunity from old eligibility rows", async () => {
+    await resetMultiContextTestSchemas(pools);
+    const previousSchema = orderingModule.schemaSql.replace(orderingOpportunitySchemaSql, "");
+    expect(previousSchema).not.toContain("CREATE TABLE IF NOT EXISTS ordering_order_review_opportunity_pages");
+    await pools.ordering.query(previousSchema);
+    await pools.ordering.query(eventSubscriptionSchemaSql);
+    await insertOrderPage(pools.ordering, "ord_1");
+    for (const migration of orderingOpportunitySchemaMigrations)
+      for (const sql of migration.statements) await pools.ordering.query(sql);
+    await current();
+    expect(await read()).toEqual({ status: "unavailable", opportunity: null });
+    await buildOrderingReputationProjectionHandlers(pools.ordering)[reviewOpportunityFactType]!(
+      event(reviewOpportunityFactType, fact()),
+    );
+    expect((await read()).status).toBe("ready");
+  });
 
-    await handlers["support.support-request.opened"]!(
-      event("support.support-request.opened", {
-        supportRequestId: "sup_2",
-        orderId: "ord_2",
-        openedAt: "2026-04-02T12:00:00.000Z",
-      }),
+  it("evaluates deadline passage without new events and keeps an old quiescent snapshot current", async () => {
+    await insertOrderPage(pools.ordering, "ord_1");
+    await current();
+    await buildOrderingReputationProjectionHandlers(pools.ordering)[reviewOpportunityFactType]!(
+      event(reviewOpportunityFactType, fact()),
     );
-    await handlers["support.support-request.resolved"]!(
-      event("support.support-request.resolved", {
-        supportRequestId: "sup_2",
-        orderId: "ord_2",
-        flowType: "seller-cannot-fulfill",
-        resolution: { resolutionType: "cancel-order", resolvedAt: "2026-04-04T00:00:00.000Z" },
-      }),
-    );
-
-    const rows = await pool.query<{ author_role: string; eligible_at: Date }>(
-      `SELECT author_role, eligible_at
-       FROM ordering_order_review_eligibility_pages
-       WHERE order_id = 'ord_2'`,
-    );
-    expect(rows.rows).toHaveLength(1);
-    expect(rows.rows[0]?.author_role).toBe("buyer");
+    expect(await read()).toMatchObject({ opportunity: { submission_state: "allowed" } });
+    expect(await read("acc_buyer", new Date("2026-06-01T00:00:00Z"))).toMatchObject({
+      opportunity: { submission_state: "expired" },
+    });
+    expect(await read("acc_seller", new Date("2036-01-01T00:00:00Z"))).toEqual({ status: "ready", opportunity: null });
+    expect((await pools.ordering.query("SELECT 1 FROM ordering_order_review_eligibility_pages")).rowCount).toBe(0);
   });
 });

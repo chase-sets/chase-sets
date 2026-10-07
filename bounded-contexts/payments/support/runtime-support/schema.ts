@@ -1,4 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { walletFundingSchemaSql, walletFundingSchemaMigrations } from "../../features/wallet-funding/read-model/schema";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import {
   paymentsCardDeclineSchemaSql,
@@ -44,6 +46,8 @@ CREATE INDEX IF NOT EXISTS payments_work_claims_eligible_idx
 `;
 
 export const paymentsSchemaSql = [
+  walletFundingSchemaSql,
+  platformPolicySchemaSql,
   eventCorePostgresSchemaSql,
   notificationOutboxSchemaSql,
   paymentsOrderInputSchemaSql,
@@ -58,6 +62,7 @@ export const paymentsSchemaSql = [
 
 export const paymentsSchemaMigrations = [
   ...paymentsCardDeclineSchemaMigrations,
+  ...walletFundingSchemaMigrations,
   ...paymentsOrderInputSchemaMigrations,
   ...paymentsDisputeEvidenceSourceSchemaMigrations,
   ...paymentsPaymentSchemaMigrations,

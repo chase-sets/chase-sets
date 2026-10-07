@@ -6,6 +6,7 @@ import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
 import {
@@ -44,9 +45,15 @@ import {
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
-import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
+import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
+import {
+  createIdentityTermsAcceptanceResolver,
+  createIdentityWalletFundingEligibilityResolver,
+  identityTermsOfServicePolicy,
+} from "@chase-sets/identity/server";
+import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/server";
+import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
   createImportResolutionAttentionSourceFromReadModel,
@@ -106,6 +113,7 @@ import {
   getTopCatalogItemsByGmv,
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
+  demandCurvePolicy,
   marketStatHygienePolicy,
   economicsPolicy,
   priceSignalPolicy,
@@ -313,6 +321,7 @@ export function createPlatformApiHost(
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
+  const paymentsPool = getPlatformApiPool(options.pools.payments);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
@@ -386,6 +395,9 @@ export function createPlatformApiHost(
         }
       : undefined;
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
+  const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
+    ? createIdentityWalletFundingEligibilityResolver(identityPool)
+    : undefined;
   const balanceCreditResolver = settlementPool
     ? createSettlementBalanceCreditResolver(settlementPool, {
         termsAcceptanceResolver,
@@ -432,6 +444,14 @@ export function createPlatformApiHost(
       : {}),
   };
   const policyConsoleCrossContextSources: PolicyConsoleCrossContextPort["sources"][number][] = [];
+  if (paymentsPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "payments",
+      db: paymentsPool,
+      definitions: [walletFundingLimitsPolicy],
+      write: lazyPolicyConsoleWritePort(() => runtime?.services.payments as PaymentsServices | undefined),
+    });
+  }
   if (identityPool) {
     policyConsoleCrossContextSources.push({
       contextName: "identity",
@@ -491,6 +511,7 @@ export function createPlatformApiHost(
         marketStatHygienePolicy,
         marketAnalyticsDisplayPolicy,
         marketEstimatePolicy,
+        demandCurvePolicy,
         economicsPolicy,
         priceSignalPolicy,
         providerObservationPolicy,
@@ -665,6 +686,7 @@ export function createPlatformApiHost(
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
@@ -684,6 +706,11 @@ export function createPlatformApiHost(
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
+      connectorOAuth: createConnectorOAuthService(() => {
+        const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
+        if (!auth) throw new Error("Connector authentication is unavailable.");
+        return auth;
+      }),
       ...(pricingHostPorts ?? {}),
     },
   });
@@ -1002,6 +1029,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
+  const connectorChannels = runtime.services.channels;
+  if (isChannelsServices(connectorChannels)) app.use("/api/channels/*", connectorAuditMiddleware(connectorChannels.db));
   app.route(
     "/health",
     createHealthRoutes({

@@ -12,8 +12,10 @@ import {
   SubmittedOfferDetailErrorBoundary,
 } from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
+import type { BuyerOfferPolicyListSnapshot } from "../features/offer-policy/api/runtime";
 
 export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
+export { action } from "./account-offers-submitted";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
 const SUBMITTED_OFFER_POST_WRITE_TELEMETRY = {
@@ -54,8 +56,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.not.found"), { status: 404 });
   }
 
+  const policies = (await api.listBuyerOfferPolicies([params.offerId!])) as BuyerOfferPolicyListSnapshot;
   return {
-    submittedOffer: submittedOfferDestination.data,
+    submittedOffer: {
+      ...submittedOfferDestination.data,
+      authoritativeOfferVersion: policies.offerVersions?.[params.offerId!],
+    },
+    policies: policies.items,
   };
 }
 
@@ -78,5 +85,7 @@ export default function MarketplaceAccountSubmittedOfferRoute() {
     );
   }
 
-  return <MarketplaceSubmittedOfferDetailPage offer={data.submittedOffer as SubmittedOfferDetail} />;
+  return (
+    <MarketplaceSubmittedOfferDetailPage offer={data.submittedOffer as SubmittedOfferDetail} policies={data.policies} />
+  );
 }

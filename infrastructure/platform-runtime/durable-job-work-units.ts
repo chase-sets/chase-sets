@@ -95,6 +95,22 @@ export function isDurableJobWorkUnitTerminalAccepted(outcome: boolean | DurableJ
 }
 
 export type DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult> = Readonly<{
+  checkpoint: (input: {
+    jobId: string;
+    unitId: string;
+    claimOwnerId: string;
+    claimToken: string;
+    claimTtlMs: number;
+    resolveProgress: (queryable: PgQueryable, progress: TJobProgress) => Promise<TJobProgress>;
+  }) => Promise<TJobProgress | null>;
+  requeueFailed: (input: {
+    jobId: string;
+    unitId: string;
+    expectedPayload: TJobPayload;
+    expectedProgress: TJobProgress;
+    payload: TJobPayload;
+    progress: TJobProgress;
+  }) => Promise<boolean>;
   enqueue: (input: {
     jobId: string;
     units: readonly Readonly<{ unitId: string; unitKind?: string; payload: TUnitPayload }>[];
@@ -105,6 +121,8 @@ export type DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnit
     workflowMaxActiveClaims: number;
     jobMaxActiveClaims: number;
     jobKinds?: readonly string[];
+    jobId?: string;
+    unitId?: string;
     laneName?: string | null;
   }) => Promise<DurableJobWorkUnitClaimResult<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult>>;
   renewClaim: (input: {
@@ -131,6 +149,7 @@ export type DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnit
     parentProgress: TJobProgress;
     parentResult?: TJobResult | null;
     completeJob?: boolean;
+    failJob?: boolean;
     resolveParentUpdate?: (queryable: PgQueryable) => Promise<
       Readonly<{
         parentProgress: TJobProgress;
@@ -295,6 +314,69 @@ export function createPostgresDurableJobWorkUnitStore<
   }
 
   return {
+    checkpoint: async (input) =>
+      runDurableWorkUnitWrite(db, async (queryable) => {
+        const locked = await queryable.query<{ progress: TJobProgress }>(
+          `SELECT job.progress FROM ${workUnitsTable} AS unit
+         JOIN ${jobsTable} AS job ON job.job_id = unit.job_id
+         WHERE unit.job_id = $1 AND unit.unit_id = $2
+           AND unit.claim_owner_id = $3 AND unit.claim_token = $4
+           AND unit.state = 'running' AND unit.claimed_until > clock_timestamp()
+           AND job.status = 'running'
+         FOR UPDATE OF unit, job`,
+          [input.jobId, input.unitId, input.claimOwnerId, input.claimToken],
+        );
+        if (!locked.rows[0]) return null;
+        const progress = await input.resolveProgress(queryable, readJson<TJobProgress>(locked.rows[0].progress));
+        const renewed = await queryable.query(
+          `UPDATE ${workUnitsTable} SET claimed_until = clock_timestamp() + ($5::text || ' milliseconds')::interval,
+           updated_at = clock_timestamp()
+         WHERE job_id = $1 AND unit_id = $2 AND claim_owner_id = $3 AND claim_token = $4
+           AND state = 'running' AND claimed_until > clock_timestamp()`,
+          [input.jobId, input.unitId, input.claimOwnerId, input.claimToken, input.claimTtlMs],
+        );
+        if (Number(renewed.rowCount ?? 0) !== 1) throw new Error("Durable work-unit claim expired during checkpoint.");
+        const result = await queryable.query<PrefixedJobRow>(
+          `UPDATE ${jobsTable} AS job SET progress = $2::jsonb, updated_at = clock_timestamp()
+         WHERE job.job_id = $1 AND job.status = 'running'
+         RETURNING ${prefixedJobColumns("job")}`,
+          [input.jobId, JSON.stringify(progress)],
+        );
+        if (!result.rows[0]) throw new Error("Durable work-unit parent changed during checkpoint.");
+        await appendEvent(queryable, mapPrefixedJobRow<TJobPayload, TJobProgress, TJobResult>(result.rows[0]));
+        return progress;
+      }),
+    requeueFailed: async (input) =>
+      runDurableWorkUnitWrite(db, async (queryable) => {
+        const locked = await queryable.query(
+          `SELECT unit.unit_id FROM ${workUnitsTable} AS unit
+         JOIN ${jobsTable} AS job ON job.job_id = unit.job_id
+         WHERE unit.job_id = $1 AND unit.unit_id = $2 AND unit.state = 'failed'
+           AND job.status = 'failed' AND job.payload = $3::jsonb
+           AND job.progress = $4::jsonb
+           AND (unit.claimed_until IS NULL OR unit.claimed_until <= clock_timestamp())
+         FOR UPDATE OF unit, job`,
+          [input.jobId, input.unitId, JSON.stringify(input.expectedPayload), JSON.stringify(input.expectedProgress)],
+        );
+        if (Number(locked.rowCount ?? 0) !== 1) return false;
+        const requeued = await queryable.query(
+          `UPDATE ${workUnitsTable} SET state = 'queued', error_message = NULL, claim_owner_id = NULL,
+           claim_token = NULL, claimed_until = NULL, completed_at = NULL, updated_at = now()
+         WHERE job_id = $1 AND unit_id = $2 AND state = 'failed'`,
+          [input.jobId, input.unitId],
+        );
+        if (Number(requeued.rowCount ?? 0) !== 1)
+          throw new Error("Durable work-unit state changed during reactivation.");
+        const result = await queryable.query<PrefixedJobRow>(
+          `UPDATE ${jobsTable} AS job SET status = 'queued', payload = $2::jsonb, progress = $3::jsonb,
+           error_message = NULL, completed_at = NULL, updated_at = now()
+         WHERE job.job_id = $1 AND job.status = 'failed' RETURNING ${prefixedJobColumns("job")}`,
+          [input.jobId, JSON.stringify(input.payload), JSON.stringify(input.progress)],
+        );
+        if (!result.rows[0]) throw new Error("Durable work-unit parent changed during reactivation.");
+        await appendEvent(queryable, mapPrefixedJobRow<TJobPayload, TJobProgress, TJobResult>(result.rows[0]));
+        return true;
+      }),
     enqueue: async (input) => {
       if (input.units.length === 0) {
         return 0;
@@ -339,6 +421,8 @@ export function createPostgresDurableJobWorkUnitStore<
       const jobMaxActiveClaims = positiveInt(input.jobMaxActiveClaims);
       const jobKinds = input.jobKinds?.length ? [...new Set(input.jobKinds)] : null;
       const laneName = input.laneName ?? null;
+      const jobId = input.jobId ?? null;
+      const unitId = input.unitId ?? null;
 
       const claim = await runDurableWorkUnitWrite(db, async (queryable) => {
         const result = await queryable.query<ClaimedRow>(
@@ -365,6 +449,8 @@ export function createPostgresDurableJobWorkUnitStore<
              CROSS JOIN workflow_budget
              WHERE job.status IN ('queued', 'running')
                AND ($6::text[] IS NULL OR job.job_kind = ANY($6::text[]))
+               AND ($7::text IS NULL OR job.job_id = $7)
+               AND ($8::text IS NULL OR unit.unit_id = $8)
                AND (
                  unit.state = 'queued'
                  OR (
@@ -404,7 +490,16 @@ export function createPostgresDurableJobWorkUnitStore<
            FROM parent_job
            JOIN claimed_unit
              ON claimed_unit.job_id = parent_job.job_job_id`,
-          [input.claimOwnerId, claimToken, input.claimTtlMs, workflowMaxActiveClaims, jobMaxActiveClaims, jobKinds],
+          [
+            input.claimOwnerId,
+            claimToken,
+            input.claimTtlMs,
+            workflowMaxActiveClaims,
+            jobMaxActiveClaims,
+            jobKinds,
+            jobId,
+            unitId,
+          ],
         );
         const row = result.rows[0];
         if (!row) {
@@ -445,20 +540,22 @@ export function createPostgresDurableJobWorkUnitStore<
           workflowMaxActiveClaims,
           jobMaxActiveClaims,
           jobKinds,
+          jobId,
+          unitId,
         }),
       };
     },
     renewClaim: async (input) => {
       const result = await db.query(
         `UPDATE ${workUnitsTable}
-         SET claimed_until = now() + ($4::text || ' milliseconds')::interval,
-             updated_at = now()
+         SET claimed_until = clock_timestamp() + ($4::text || ' milliseconds')::interval,
+             updated_at = clock_timestamp()
          WHERE job_id = $1
            AND unit_id = $2
            AND claim_owner_id = $3
            AND claim_token = $5
            AND state = 'running'
-           AND claimed_until > now()`,
+           AND claimed_until > clock_timestamp()`,
         [input.jobId, input.unitId, input.claimOwnerId, input.claimTtlMs, input.claimToken],
       );
       return Number(result.rowCount ?? 0) > 0;
@@ -522,12 +619,12 @@ export function createPostgresDurableJobWorkUnitStore<
         const parentUpdate = input.resolveParentUpdate ? await input.resolveParentUpdate(queryable) : input;
         const result = await queryable.query<PrefixedJobRow>(
           `UPDATE ${jobsTable} AS job
-           SET status = CASE WHEN $4::boolean THEN 'completed' ELSE 'running' END,
+           SET status = CASE WHEN $5::boolean THEN 'failed' WHEN $4::boolean THEN 'completed' ELSE 'running' END,
                progress = $2::jsonb,
                result = COALESCE($3::jsonb, result),
-               error_message = CASE WHEN $4::boolean THEN NULL ELSE error_message END,
+               error_message = CASE WHEN $5::boolean THEN $6::text WHEN $4::boolean THEN NULL ELSE error_message END,
                claimed_until = NULL,
-               completed_at = CASE WHEN $4::boolean THEN now() ELSE completed_at END,
+               completed_at = CASE WHEN $4::boolean OR $5::boolean THEN now() ELSE completed_at END,
                updated_at = now()
            WHERE job.job_id = $1
              AND job.status IN ('queued', 'running')
@@ -537,6 +634,8 @@ export function createPostgresDurableJobWorkUnitStore<
             JSON.stringify(parentUpdate.parentProgress),
             parentUpdate.parentResult === undefined ? null : JSON.stringify(parentUpdate.parentResult),
             parentUpdate.completeJob === true,
+            input.failJob === true,
+            input.errorMessage ?? null,
           ],
         );
         const row = result.rows[0];
@@ -629,6 +728,8 @@ async function resolveClaimMissOutcome(
     workflowMaxActiveClaims: number;
     jobMaxActiveClaims: number;
     jobKinds: readonly string[] | null;
+    jobId: string | null;
+    unitId: string | null;
   }>,
 ): Promise<DurableJobWorkUnitClaimOutcome> {
   const result = await db.query<Readonly<{ pending: number | string; active_claims: number | string }>>(
@@ -636,6 +737,8 @@ async function resolveClaimMissOutcome(
        count(*) FILTER (
          WHERE job.status IN ('queued', 'running')
            AND ($1::text[] IS NULL OR job.job_kind = ANY($1::text[]))
+           AND ($2::text IS NULL OR job.job_id = $2)
+           AND ($3::text IS NULL OR unit.unit_id = $3)
            AND (
              unit.state = 'queued'
              OR (
@@ -651,7 +754,7 @@ async function resolveClaimMissOutcome(
      FROM ${workUnitsTable} AS unit
      JOIN ${jobsTable} AS job
        ON job.job_id = unit.job_id`,
-    [input.jobKinds],
+    [input.jobKinds, input.jobId, input.unitId],
   );
   const activeClaims = Number(result.rows[0]?.active_claims ?? 0);
   const pending = Number(result.rows[0]?.pending ?? 0);

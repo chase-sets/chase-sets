@@ -2,7 +2,13 @@ import {
   createCheckpointReadinessRecorder,
   createProjectionGroupWorkerRunner,
   createWorkerRunnerLeaseName,
+  createWorkerRunnerLoop,
 } from "./worker";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import type { WorkerHolderLifecycleEvent, WorkerRuntimeObserver } from "./worker";
+import type { ProjectorHandler } from "@chase-sets/event-core/projector";
 import {
   attachReadConsistencyMiddleware,
   bootstrapContextDatabase,
@@ -11,10 +17,18 @@ import {
   syncProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import { Hono } from "hono";
-import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  type PgQueryFunction,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMountedContextTestRuntime,
@@ -1270,6 +1284,624 @@ describe("platform runtime Postgres concurrency guards", () => {
       "SELECT COUNT(*)::integer AS total_count FROM evidence_window",
     );
     expect(retained.rows[0]).toEqual({ total_count: 2 });
+  });
+});
+
+describe("busy-group-pass-attribution Postgres", () => {
+  let pools: Readonly<Record<"platform" | "inventory" | "catalog" | "marketplace", PgTransactionalPool>>;
+
+  beforeAll(async () => {
+    if (!adminDatabaseUrl) throw new Error("TEST_DATABASE_URL is required for busy-group attribution.");
+    const urls = createMultiContextTestDatabaseUrls(
+      adminDatabaseUrl,
+      ["platform", "inventory", "catalog", "marketplace"],
+      "busy_group_attribution",
+    );
+    await ensureMultiContextTestDatabases(adminDatabaseUrl, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+    await pools.platform.query(platformControlPlaneSchemaSql);
+  });
+
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it.each([
+    {
+      shape: "applicable-receipt",
+      sourceContextName: "marketplace" as const,
+      projectionName: "receipt-projection",
+      subscriptionVersion: 1,
+      order: 1,
+      initialCount: 1,
+      concurrentCount: 1,
+      createdType: "marketplace.item.created",
+      changedType: "marketplace.item.changed",
+      timeoutMs: 2500,
+      pollIntervalMs: 75,
+    },
+    {
+      shape: "filtered-idle-settlement",
+      sourceContextName: "marketplace" as const,
+      projectionName: "receipt-projection",
+      subscriptionVersion: 1,
+      order: 1,
+      initialCount: 1,
+      concurrentCount: 1,
+      createdType: "marketplace.item.created",
+      changedType: "marketplace.unrelated.changed",
+      timeoutMs: 2500,
+      pollIntervalMs: 75,
+    },
+  ])("busy-group-exact-receipt-read $shape", async (fixture) => {
+    const startedAt = performance.now();
+    const startedAtUtc = new Date().toISOString();
+    const traceLimit = 5 * 1024 * 1024;
+    let traceBytes = 0;
+    let omittedRecords = 0;
+    let sequence = 0;
+    const trace = (phase: string, fields: Readonly<Record<string, unknown>> = {}) => {
+      const line = JSON.stringify({
+        attribution: "busy-group-pass-attribution",
+        case: fixture.shape,
+        targetGroup: fixture.projectionName,
+        sequence: ++sequence,
+        elapsedMs: performance.now() - startedAt,
+        timestamp: new Date().toISOString(),
+        phase,
+        ...fields,
+      });
+      const bytes = Buffer.byteLength(line + "\n", "utf8");
+      // Reserve space for the terminal completeness record, even if a noisy runner fills the cap.
+      if (traceBytes + bytes > traceLimit - 1024) {
+        omittedRecords += 1;
+        return;
+      }
+      traceBytes += bytes;
+      console.info(line);
+    };
+    trace("execution-identity", {
+      checkout: execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { encoding: "utf8" }).trim(),
+      trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+        encoding: "utf8",
+      }).trim(),
+      fixtureSha256: createHash("sha256")
+        .update(readFileSync(new URL(import.meta.url)))
+        .digest("hex"),
+      runId: process.env.GITHUB_RUN_ID ?? null,
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+      job: process.env.GITHUB_JOB ?? null,
+      workflowHead: process.env.GITHUB_SHA ?? null,
+      startedAtUtc,
+      monotonicOrigin: performance.timeOrigin,
+      fixture,
+    });
+    let connectionId = 0;
+    const committedPositions = new Map<string, string>();
+    const observedPool = (contextName: "inventory" | "catalog" | "marketplace"): PgTransactionalPool => ({
+      ...pools[contextName],
+      query: <Row = Record<string, unknown>>(...[sql, values]: Parameters<PgQueryFunction>) =>
+        pools[contextName].query<Row>(sql, values),
+      connect: async () => {
+        const connection = ++connectionId;
+        trace("connection-request", { contextName, connection });
+        const client = await pools[contextName].connect();
+        trace("connection-acquired", { contextName, connection });
+        let checkpoint: Readonly<{ checkpointKey: unknown; position: unknown }> | undefined;
+        const query: PgQueryFunction = async <Row = Record<string, unknown>>(
+          ...[sql, values]: Parameters<PgQueryFunction>
+        ) => {
+          const command = sql.trim().toUpperCase();
+          const checkpointWrite = command.includes("INSERT INTO EVENT_SUBSCRIPTION_CHECKPOINTS");
+          const ownedWrite = command.includes("INSERT INTO BUSY_GROUP_OWNED_ITEMS");
+          const kind = checkpointWrite
+            ? "checkpoint-write"
+            : command.includes("PG_ADVISORY_XACT_LOCK")
+              ? "advisory-lock"
+              : ["BEGIN", "COMMIT", "ROLLBACK"].includes(command)
+                ? command
+                : "statement";
+          const identity = {
+            contextName,
+            connection,
+            kind,
+            ...(ownedWrite ? { position: values?.[1], eventId: values?.[2] } : {}),
+          };
+          trace("db-request", identity);
+          try {
+            const result = await client.query<Row>(sql, values);
+            trace("db-returned", identity);
+            if (checkpointWrite) checkpoint = { checkpointKey: values?.[0], position: values?.[4] };
+            if (command === "COMMIT" && checkpoint) {
+              committedPositions.set(`${contextName}:${String(checkpoint.checkpointKey)}`, String(checkpoint.position));
+              trace("checkpoint-committed", { contextName, connection, ...checkpoint });
+            }
+            if (command === "COMMIT" || command === "ROLLBACK") checkpoint = undefined;
+            return result;
+          } catch (error) {
+            trace("db-failed", { contextName, connection, kind });
+            throw error;
+          }
+        };
+        return {
+          query,
+          release: (error) => {
+            trace("connection-release", { contextName, connection, failed: error !== undefined });
+            client.release(error);
+          },
+        };
+      },
+    });
+    const targetPool = observedPool("marketplace");
+    const apply: ProjectorHandler = async (event, context) => {
+      const identity = { eventId: event.id, position: event.globalPosition, streamId: event.streamId };
+      trace("apply-start", identity);
+      try {
+        await context!.db!.query(
+          `INSERT INTO busy_group_owned_items (stream_id, position, event_id)
+           VALUES ($1, $2::bigint, $3)
+           ON CONFLICT (stream_id) DO UPDATE SET position = EXCLUDED.position, event_id = EXCLUDED.event_id`,
+          [event.streamId, event.globalPosition, event.id],
+        );
+        trace("apply-end", identity);
+      } catch (error) {
+        trace("apply-failed", identity);
+        throw error;
+      }
+    };
+    const subscriptions = [
+      {
+        sourceContextName: fixture.sourceContextName,
+        projectionName: fixture.projectionName,
+        subscriptionName: "marketplace.receipt-projection",
+        subscriptionVersion: fixture.subscriptionVersion,
+        filterToEventTypes: true,
+        eventTypes: [fixture.createdType, "marketplace.item.changed"],
+        order: fixture.order,
+        handlers: { [fixture.createdType]: apply, "marketplace.item.changed": apply },
+      },
+    ];
+    const sourceModule = (contextName: "inventory" | "catalog") => {
+      const projectionName = `${contextName}-attribution-projection`;
+      const eventTypes = ["inventory.item.created", "inventory.item.adjusted"];
+      const subscription = {
+        sourceContextName: "inventory",
+        projectionName,
+        subscriptionName: `${contextName}.attribution-projection`,
+        subscriptionVersion: 1,
+        order: 1,
+        filterToEventTypes: true,
+        eventTypes,
+      };
+      const applyCompetitor: ProjectorHandler = async (event, context) => {
+        const identity = { contextName, projectionName, eventId: event.id, position: event.globalPosition };
+        trace("apply-start", identity);
+        await context!.db!.query(
+          `INSERT INTO busy_group_owned_items (stream_id, position, event_id)
+           VALUES ($1, $2::bigint, $3)
+           ON CONFLICT (stream_id) DO UPDATE SET position = EXCLUDED.position, event_id = EXCLUDED.event_id`,
+          [event.streamId, event.globalPosition, event.id],
+        );
+        trace("apply-end", identity);
+      };
+      return defineBoundedContextModule({
+        manifest: {
+          contextName,
+          apiBasePath: `/${contextName}`,
+          streamPrefix: `${contextName}.`,
+          eventSubscriptions: [{ ...subscription, projectionHandlerSetNames: [projectionName] }],
+          projectionGroups: [
+            {
+              projectionName,
+              sourceContextNames: ["inventory"],
+              ownedTables: ["busy_group_owned_items"],
+              resetStrategy: "truncate-owned-tables",
+            },
+          ],
+        },
+        schemaSql:
+          "CREATE TABLE busy_group_owned_items (stream_id text PRIMARY KEY, position bigint NOT NULL, event_id text NOT NULL)",
+        createServices: () => ({}),
+        buildApis: () => [],
+        buildSubscriptions: () => [
+          {
+            ...subscription,
+            handlers: Object.fromEntries(eventTypes.map((eventType) => [eventType, applyCompetitor])),
+          },
+        ],
+      });
+    };
+    const marketplace = defineBoundedContextModule({
+      manifest: {
+        contextName: "marketplace",
+        apiBasePath: "/marketplace",
+        streamPrefix: "marketplace.",
+        eventSubscriptions: subscriptions.map(({ handlers: _handlers, ...subscription }) => ({
+          ...subscription,
+          projectionHandlerSetNames: [fixture.projectionName],
+        })),
+        projectionGroups: [
+          {
+            projectionName: fixture.projectionName,
+            sourceContextNames: subscriptions.map((subscription) => subscription.sourceContextName),
+            ownedTables: ["busy_group_owned_items"],
+            resetStrategy: "truncate-owned-tables",
+          },
+        ],
+      },
+      schemaSql:
+        "CREATE TABLE busy_group_owned_items (stream_id text PRIMARY KEY, position bigint NOT NULL, event_id text NOT NULL)",
+      createServices: () => ({}),
+      buildApis: () => [],
+      buildSubscriptions: () => subscriptions,
+    });
+    const inventory = sourceModule("inventory");
+    const catalog = sourceModule("catalog");
+    let pollLoop: ReturnType<typeof createWorkerRunnerLoop> | undefined;
+    let wakeLoop: ReturnType<typeof createWorkerRunnerLoop> | undefined;
+    let clientTimer: ReturnType<typeof setTimeout> | undefined;
+    let onHandoff: (() => void) | undefined;
+    let passed = false;
+    try {
+      await bootstrapContextDatabase(inventory, pools.inventory);
+      await bootstrapContextDatabase(catalog, pools.catalog);
+      await bootstrapContextDatabase(marketplace, pools.marketplace);
+      const runtime = createMountedContextTestRuntime([
+        { contextName: "marketplace", module: marketplace, pool: targetPool, ports: {} },
+        { contextName: "inventory", module: inventory, pool: observedPool("inventory"), ports: {} },
+        { contextName: "catalog", module: catalog, pool: observedPool("catalog"), ports: {} },
+      ]);
+      const group = runtime.projectionGroups.find((candidate) => candidate.projectionName === fixture.projectionName)!;
+      const worker = createProjectionGroupWorkerRunner(group);
+      const workers = [
+        worker,
+        ...runtime.projectionGroups
+          .filter((candidate) => candidate !== group)
+          .map((mountedGroup) => createProjectionGroupWorkerRunner(mountedGroup)),
+      ];
+      const competitorEventCount = 200;
+      const activeHolders = new Map<string, WorkerHolderLifecycleEvent>();
+      const lifecycle: WorkerHolderLifecycleEvent[] = [];
+      const wakeDeferrals: unknown[] = [];
+      const wakeCompletions: unknown[] = [];
+      let resolveWakeCompleted!: () => void;
+      const wakeCompleted = new Promise<void>((resolve) => {
+        resolveWakeCompleted = resolve;
+      });
+      let retainedPass: WorkerHolderLifecycleEvent | undefined;
+      let handoffSequence: number | undefined;
+      let firstWakeAttempt:
+        | Readonly<{
+            sequence: number;
+            targetActive: boolean;
+            targetPasses: number;
+            released: boolean;
+            competitorBacklogs: string[];
+          }>
+        | undefined;
+      const realControlPlane = createPostgresPlatformControlPlane(pools.platform);
+      const controlPlane: typeof realControlPlane = {
+        ...realControlPlane,
+        acquireLease: async (input) => {
+          if (
+            input.ownerId.startsWith("attribution-wake-") &&
+            input.leaseName === createWorkerRunnerLeaseName(worker) &&
+            !firstWakeAttempt
+          ) {
+            firstWakeAttempt = {
+              sequence: sequence + 1,
+              targetActive: activeHolders.has(worker.name),
+              targetPasses: lifecycle.filter(
+                (event) => event.runnerName === worker.name && event.phase === "pass-start",
+              ).length,
+              released: lifecycle.some(
+                (event) => event.phase === "released" && event.leaseIntervalId === retainedPass?.leaseIntervalId,
+              ),
+              competitorBacklogs: runtime.projectionGroups
+                .filter((candidate) => candidate !== group)
+                .map((candidate) => {
+                  const subscription = candidate.subscriptionRunners[0];
+                  const committed =
+                    committedPositions.get(`${candidate.targetContextName}:${subscription.checkpointKey}`) ?? "0";
+                  return String(BigInt(competitorEventCount) - BigInt(committed));
+                }),
+            };
+            trace("first-wake-attempt", firstWakeAttempt);
+          }
+          const identity = { leaseName: input.leaseName, ownerId: input.ownerId };
+          trace("lease-request", identity);
+          const lease = await realControlPlane.acquireLease(input);
+          trace(lease ? "lease-acquired" : "lease-busy", { ...identity, fencingToken: lease?.fencingToken });
+          return lease;
+        },
+        releaseLease: async (lease) => {
+          const identity = { leaseName: lease.leaseName, ownerId: lease.ownerId, fencingToken: lease.fencingToken };
+          trace("lease-release-request", identity);
+          await realControlPlane.releaseLease(lease);
+          trace("lease-released", identity);
+        },
+        renewLease: async (lease, ttlMs) => {
+          const renewed = await realControlPlane.renewLease(lease, ttlMs);
+          trace("lease-renewed", { ...lease, renewed });
+          return renewed;
+        },
+      };
+      const signals = createPostgresWorkSignalStore(pools.platform, {
+        readConsistencyGateway: {},
+        observer: { projectionWakeIntentEnqueued: () => wakeLoop!.nudge() },
+      });
+      const observer: WorkerRuntimeObserver = {
+        runnerCompleted: (event) => trace("runner-completed", event),
+        runnerFailed: (event) => trace("runner-failed", { runnerName: event.runnerName }),
+        holderLifecycle: (event) => {
+          lifecycle.push(event);
+          trace("holder-lifecycle", { event });
+          if (event.phase === "pass-start") activeHolders.set(event.runnerName, event);
+          if (event.phase === "pass-end") activeHolders.delete(event.runnerName);
+          if (event.runnerName === worker.name && !retainedPass) {
+            if (
+              event.phase === "pass-end" &&
+              event.outcome === "success" &&
+              event.disposition === "retained" &&
+              (event.processed ?? 0) > 0
+            ) {
+              retainedPass = event;
+              trace("target-drained", { priority: String(worker.priority!()), retainedPass });
+            }
+          }
+          if (retainedPass && event.phase === "pass-start" && event.runnerName !== worker.name && !handoffSequence) {
+            handoffSequence = sequence;
+            onHandoff?.();
+            onHandoff = undefined;
+          }
+        },
+      };
+      const loopOptions = {
+        controlPlane,
+        maxConcurrentRunners: Math.min(2, 4),
+        priorityRefreshIntervalMs: 5000,
+        leaseTtlMs: 30_000,
+        leaseRenewIntervalMs: 10_000,
+        pollIntervalMs: 1000,
+        observer,
+      };
+      pollLoop = createWorkerRunnerLoop({
+        ...loopOptions,
+        workerId: `attribution-poll-${fixture.shape}`,
+        runners: workers,
+      });
+      wakeLoop = createWorkerRunnerLoop({
+        ...loopOptions,
+        workerId: `attribution-wake-${fixture.shape}`,
+        runners: createProjectionWakeSchedulerRunners({
+          workerId: `attribution-wake-${fixture.shape}`,
+          controlPlane,
+          workSignalStore: signals,
+          projectionGroups: runtime.projectionGroups,
+          observer: {
+            wakeIntentClaimed: (event) => trace("wake-claimed", event),
+            wakeIntentDeferred: (event) => {
+              wakeDeferrals.push(event);
+              trace("wake-deferred", event);
+            },
+            wakeIntentCompleted: (event) => {
+              wakeCompletions.push(event);
+              trace("wake-completed", event);
+              resolveWakeCompleted();
+            },
+            wakeIntentNotReady: (event) => trace("wake-not-ready", event),
+            wakeIntentRunFailed: () => trace("wake-failed"),
+          },
+        }),
+      });
+      const store = createPostgresEventStore({ pool: pools[fixture.sourceContextName] });
+      const eventContext = {
+        tenantId: "tenant_attribution" as never,
+        audit: { performedByUserId: "user_attribution" as never, forAccountId: "account_attribution" as never },
+      };
+      const streamId = `${fixture.sourceContextName}.attribution`;
+      const initial = await store.appendToStream({
+        streamId,
+        expectedVersion: "no_stream",
+        events: Array.from({ length: fixture.initialCount }, (_, index) => ({
+          eventType: index === 0 ? fixture.createdType : fixture.changedType,
+          payload: {},
+        })),
+        context: eventContext,
+      });
+      trace("initial-appended", { position: initial.at(-1)!.globalPosition, count: initial.length });
+      // Both competitors consume Inventory's finite backlog, independently of the target.
+      {
+        const backlog = await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+          streamId: "inventory.attribution",
+          expectedVersion: "no_stream",
+          context: eventContext,
+          events: Array.from({ length: competitorEventCount }, (_, index) => ({
+            eventType: index === 0 ? "inventory.item.created" : "inventory.item.adjusted",
+            payload: {},
+          })),
+        });
+        trace("competitor-appended", {
+          contextName: "inventory",
+          count: backlog.length,
+          position: backlog.at(-1)!.globalPosition,
+        });
+      }
+      trace("composition", {
+        slots: loopOptions.maxConcurrentRunners,
+        priorityRefreshIntervalMs: loopOptions.priorityRefreshIntervalMs,
+        leaseTtlMs: loopOptions.leaseTtlMs,
+        leaseRenewIntervalMs: loopOptions.leaseRenewIntervalMs,
+        pollIntervalMs: loopOptions.pollIntervalMs,
+        groups: runtime.projectionGroups.map((mountedGroup, index) => ({
+          runner: workers.find(
+            (candidate) => candidate.name === `${mountedGroup.targetContextName}.${mountedGroup.projectionName}`,
+          )!.name,
+          targetContextName: mountedGroup.targetContextName,
+          projectionName: mountedGroup.projectionName,
+          priority: String(
+            workers.find(
+              (candidate) => candidate.name === `${mountedGroup.targetContextName}.${mountedGroup.projectionName}`,
+            )!.priority!(),
+          ),
+          subscriptions: mountedGroup.subscriptionRunners.map((subscription) => subscription.getStatus()),
+        })),
+      });
+      expect(workers.length).toBeGreaterThan(loopOptions.maxConcurrentRunners);
+      const handoff = new Promise<void>((resolve) => {
+        onHandoff = resolve;
+      });
+      pollLoop.start();
+      await handoff;
+      expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
+      expect(worker.priority!()).toBe(0n);
+      expect(activeHolders.has(worker.name)).toBe(false);
+      trace("retained-triggered-append", { retainedPass, handoffSequence });
+      const appended = await store.appendToStream({
+        streamId,
+        expectedVersion: fixture.initialCount,
+        events: Array.from({ length: fixture.concurrentCount }, () => ({
+          eventType: fixture.changedType,
+          payload: {},
+        })),
+        context: eventContext,
+      });
+      const position = appended.at(-1)!.globalPosition;
+      const eventIds = appended.map((event) => event.eventId);
+      const observedAtMs = Date.now();
+      const receipt = encodeFreshWriteReceipt({
+        observedAtMs,
+        sources: [{ sourceContextName: fixture.sourceContextName, maxGlobalPosition: position, eventIds }],
+      });
+      trace("receipt", {
+        sourceContextName: fixture.sourceContextName,
+        maxGlobalPosition: position,
+        eventIds,
+        observedAtMs,
+        receiptSha256: createHash("sha256").update(receipt).digest("hex"),
+      });
+      const app = new Hono();
+      attachReadConsistencyMiddleware(
+        app,
+        [
+          {
+            contextName: "marketplace",
+            mountPath: "/api/marketplace",
+            readFreshnessRoutes: [{ routePath: "/owned", dependencies: [{ projectionName: fixture.projectionName }] }],
+          },
+        ],
+        runtime.projectionGroups,
+        {
+          timeoutMs: fixture.timeoutMs,
+          pollIntervalMs: fixture.pollIntervalMs,
+          workSignalGateway: signals.readConsistencyGateway,
+          recordReadConsistencyAudit: (record) =>
+            trace("read-audit", {
+              outcome: record.outcome,
+              durationMs: record.durationMs,
+              waitMode: record.waitMode,
+              pending: record.pending,
+            }),
+        },
+      );
+      app.get("/api/marketplace/owned", async (context) => {
+        const result = await pools.marketplace.query<{ position: string; event_id: string }>(
+          "SELECT position::text, event_id FROM busy_group_owned_items WHERE stream_id = $1",
+          [streamId],
+        );
+        trace("owned-query-visible", { requiredPosition: position, rows: result.rows });
+        return context.json(result.rows);
+      });
+      const checkpointKey = group.subscriptionRunners.find(
+        (subscription) => subscription.sourceContextName === fixture.sourceContextName,
+      )!.checkpointKey;
+      const durableBeforeRead = await pools.marketplace.query<{ last_global_position: string }>(
+        "SELECT last_global_position::text FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+        [checkpointKey],
+      );
+      expect(durableBeforeRead.rows).toEqual([{ last_global_position: initial.at(-1)!.globalPosition }]);
+      expect(BigInt(durableBeforeRead.rows[0].last_global_position)).toBeLessThan(BigInt(position));
+      const readStartedAt = performance.now();
+      trace("read-start", {
+        position,
+        checkpointKey,
+        durableBeforeRead: durableBeforeRead.rows,
+        retainedPass,
+        handoffSequence,
+      });
+      const read = Promise.resolve(
+        app.request("/api/marketplace/owned", {
+          headers: {
+            [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt,
+            [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
+          },
+        }),
+      );
+      const response = await Promise.race([
+        Promise.all([read, wakeCompleted]).then(([response]) => response),
+        new Promise<never>((_resolve, reject) => {
+          clientTimer = setTimeout(
+            () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
+            5000,
+          );
+        }),
+      ]);
+      const elapsedMs = performance.now() - readStartedAt;
+      trace("read-end", { status: response.status, requestDurationMs: elapsedMs, position });
+      expect(firstWakeAttempt).toBeDefined();
+      expect(firstWakeAttempt!.sequence).toBeGreaterThan(handoffSequence!);
+      expect(firstWakeAttempt!.targetActive).toBe(false);
+      expect(firstWakeAttempt!.targetPasses).toBe(1);
+      expect(firstWakeAttempt!.competitorBacklogs.every((count) => BigInt(count) > 0n)).toBe(true);
+      expect(wakeDeferrals).toEqual([]);
+      expect(firstWakeAttempt!.released).toBe(true);
+      expect(wakeCompletions).toEqual([expect.objectContaining({ outcome: "ran" })]);
+      expect(response.status).toBe(200);
+      const expectedEvent = fixture.shape === "filtered-idle-settlement" ? initial.at(-1)! : appended.at(-1)!;
+      expect(await response.json()).toEqual([
+        { position: expectedEvent.globalPosition, event_id: expectedEvent.eventId },
+      ]);
+      const durableAfterRead = await pools.marketplace.query<{ last_global_position: string }>(
+        "SELECT last_global_position::text FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+        [checkpointKey],
+      );
+      expect(durableAfterRead.rows).toEqual([{ last_global_position: position }]);
+      expect(elapsedMs).toBeLessThan(fixture.timeoutMs);
+      expect(elapsedMs).toBeLessThan(5000);
+      expect(omittedRecords).toBe(0);
+      passed = true;
+    } catch (error) {
+      trace("case-failed", { error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      onHandoff = undefined;
+      if (clientTimer) clearTimeout(clientTimer);
+      try {
+        trace("read-bound-snapshot-start", { passed });
+        const checkpoints = await pools.marketplace.query(
+          "SELECT checkpoint_key, last_global_position::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
+        );
+        const visible = await pools.marketplace.query("SELECT position::text, event_id FROM busy_group_owned_items");
+        trace("read-bound-durable-state", { checkpoints: checkpoints.rows, visible: visible.rows });
+      } finally {
+        trace("cleanup-start", { passed });
+        await Promise.all([pollLoop?.stop(), wakeLoop?.stop()]);
+        console.info(
+          JSON.stringify({
+            attribution: "busy-group-pass-attribution",
+            case: fixture.shape,
+            phase: "trace-complete",
+            passed,
+            traceBytes,
+            omittedRecords,
+          }),
+        );
+      }
+    }
   });
 });
 

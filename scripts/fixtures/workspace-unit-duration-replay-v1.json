@@ -2,6 +2,15 @@
   "schemaVersion": "workspace-unit-duration-replay/v1",
   "observations": [
     {
+      "runId": 37457120754,
+      "runAttempt": 1,
+      "jobId": 112247581049,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/ordering",
+      "script": "test:unit",
+      "observedDurationMs": 69754
+    },
+    {
       "runId": 37353357078,
       "runAttempt": 1,
       "jobId": 111909665235,

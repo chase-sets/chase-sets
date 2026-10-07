@@ -1,3 +1,5 @@
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
@@ -16,6 +18,13 @@ import type {
 } from "@chase-sets/product-measures";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { listProductMeasureProfiles, listResolvedProductMeasures } from "../read-model/queries";
+
+export const catalogProductMeasureSubscription = {
+  projectionName: "catalog-product-measures-projection",
+  sourceContextName: "catalog",
+  subscriptionVersion: 1,
+} as const;
+const measurePublicationCheckpointKey = createCheckpointKey(catalogProductMeasureSubscription);
 
 type ProductMeasureProfileInput = Readonly<{
   profileId: string;
@@ -76,16 +85,20 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
     listResolvedProductMeasures: (catalogItemId) => listResolvedProductMeasures(deps.db, catalogItemId),
     projectors: [
       createProjectionHandlerSet({
-        projectionName: "catalog-product-measures-projection",
+        projectionName: catalogProductMeasureSubscription.projectionName,
         handlers: {
-          "catalog.catalog-item.product-measures-resolved": async (event, context) => {
-            const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
-            await replaceResolvedProductMeasures(
-              resolveProjectionDb(context, deps.db),
-              data.catalogItemId,
-              data.products,
-            );
-          },
+          ...buildProductMeasurePublicationHandlers(
+            deps.db,
+            measurePublicationCheckpointKey,
+            async (event, context) => {
+              const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
+              await replaceResolvedProductMeasures(
+                resolveProjectionDb(context, deps.db),
+                data.catalogItemId,
+                data.products,
+              );
+            },
+          ),
         },
       }),
     ],

@@ -8,6 +8,8 @@ import { createManualSyncRoutes } from "./features/manual-sync/api/route";
 import type { ManualSyncServices } from "./features/manual-sync/api/runtime";
 import { createConnectionAttentionRoutes } from "./features/connection-attention/api/route";
 import { createChannelDriftRoutes } from "./features/reconciliation/api/route";
+import { createSellerConnectorRoutes } from "./features/connector-feed/api/routes";
+import type { ConnectorIdentity, ConnectorAuditReason } from "./features/connector-feed/domain/contracts";
 
 export type ChannelsActor = Readonly<{
   accountId: string;
@@ -18,6 +20,8 @@ export type ChannelsApiEnv = {
   Variables: {
     actor: ChannelsActor;
     context: EventStoreContext;
+    connectorIdentity: ConnectorIdentity | null;
+    connectorReason: ConnectorAuditReason;
   };
 };
 
@@ -42,6 +46,7 @@ export function buildChannelsApi(
   app.route("/connections", channelConnectionRoutes(services.connections));
   app.route("/connections", createConnectionAttentionRoutes(services.connectionAttention));
   app.route("/connections", createChannelDriftRoutes(services.reconciliation));
+  app.route("/connections", createSellerConnectorRoutes(services.connectorFeed));
   app.route("/connections", createOutboundOperationRoutes(services.connections, services.outboundSync));
   app.route("/publication", channelListingCompositionRoutes(services.listingComposition));
   if (services.manualSync) app.route("/connections", createManualSyncRoutes(services.manualSync));

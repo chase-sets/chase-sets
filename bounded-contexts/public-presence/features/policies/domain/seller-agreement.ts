@@ -203,7 +203,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/public-presence/features/help/domain/articles/getting-paid.en.md",
-          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-payments/index.ts:1670-1694",
           "infrastructure/stripe-connect/index.ts:1100-1160",
           "bounded-contexts/public-presence/features/help/domain/articles/order-protection.en.md",
           "bounded-contexts/settlement/features/payouts/api/runtime.ts:1498,1600 (payout requests blocked while readiness is not ready)",
