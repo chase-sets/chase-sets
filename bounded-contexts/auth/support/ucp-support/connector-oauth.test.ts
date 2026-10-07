@@ -10,7 +10,13 @@ import {
   normalizeAgentOAuthScopes,
   resolveAgentOAuthScopedPermissions,
 } from "@chase-sets/auth-context";
-import { compareConnectorSecret, connectorRecord, connectorSecretDigest, connectorString } from "./connector-oauth";
+import {
+  compareConnectorSecret,
+  connectorRecord,
+  connectorSecretDigest,
+  connectorString,
+  createConnectorOAuthService,
+} from "./connector-oauth";
 import { UCP_OAUTH_SCOPE_FAMILIES, UCP_OAUTH_SUPPORTED_SCOPES, resolveUcpScopedPermissions } from "./oauth";
 import { resolveAuthSecurityLifetimesMs } from "../../features/sessions/domain/auth-flow";
 import { MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED } from "@chase-sets/platform-runtime/mcp";
@@ -75,5 +81,54 @@ describe("connector-secret-comparison", () => {
     for (const value of [null, [], "x", { code: "x", unknown: { secret: "sentinel" } }])
       expect(() => connectorRecord(value, ["code"])).toThrow();
     for (const value of [null, {}, 5, "", "x".repeat(513), "x\ny"]) expect(() => connectorString(value)).toThrow();
+  });
+});
+
+describe("connector-redirect-pin", () => {
+  const callback = "https://fixed.chromiumapp.org/ucp/oauth/callback";
+  const unavailableAuth = () => {
+    throw new Error("Auth must not be read for invalid configuration or redirect");
+  };
+  it("requires a closed nonempty pin configuration", () => {
+    for (const options of [
+      undefined,
+      null,
+      {},
+      { connectorRedirectUris: [] },
+      { connectorRedirectUris: "uri" },
+      { connectorRedirectUris: [callback], unknown: true },
+      { connectorRedirectUris: [null] },
+      { connectorRedirectUris: ["javascript:sentinel"] },
+    ]) {
+      expect(() => Reflect.apply(createConnectorOAuthService, undefined, [unavailableAuth, options])).toThrow(
+        "invalid-request",
+      );
+    }
+  });
+  it.each([
+    "https://other.example/callback",
+    callback + "/",
+    callback + "?extra=1",
+    callback + "#fragment",
+    callback.replace("https://", "HTTPS://"),
+    callback.replace("/ucp/", "/%75cp/"),
+    callback.replace(".org/", ".org:443/"),
+  ])("rejects byte-different registration and authorization: %s", async (redirect_uri) => {
+    const service = createConnectorOAuthService(unavailableAuth, { connectorRedirectUris: [callback] });
+    await expect(
+      service.register({
+        redirect_uri,
+        scope: CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.join(" "),
+        token_endpoint_auth_method: "none",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-request" });
+    await expect(
+      service.validateAuthorization({
+        client_id: "client",
+        redirect_uri,
+        code_challenge: "x".repeat(43),
+        code_challenge_method: "S256",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-request" });
   });
 });

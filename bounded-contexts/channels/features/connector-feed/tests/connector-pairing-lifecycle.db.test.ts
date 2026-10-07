@@ -11,10 +11,11 @@ import {
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as authModule } from "@chase-sets/auth";
 import { createConnectorOAuthService, type ConnectorOAuthService } from "@chase-sets/auth/server";
-import { CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
+import { CHANNEL_CONNECTOR_SCOPE_FAMILY, type ResolvedActor } from "@chase-sets/auth-context";
 import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import { module as channelsModule } from "../../../index";
 import { createConnectorFeedRuntime } from "../api/runtime";
+import { createConnectorCredentialRoutes } from "../api/routes";
 import { testContext } from "../../connections/tests/test-support";
 import { createChannelConnectionRuntime } from "../../connections/api/runtime";
 import type { ChannelConnectionHostPorts } from "../../connections/domain/contracts";
@@ -92,9 +93,8 @@ async function client() {
 async function pair() {
   const registration = await client();
   const pairing = await code();
-  const authorized = await feed().consumePairingCode(
+  const authorized = await feed().authorizePairing(
     {
-      pairing_code: pairing.code,
       client_id: registration.client_id,
       redirect_uri: registration.redirect_uri,
       code_challenge: challenge,
@@ -110,6 +110,67 @@ async function pair() {
     code_verifier: verifier,
   });
   return { registration, pairing, authorized, tokens };
+}
+
+function authorizeHttp(registration: Awaited<ReturnType<typeof client>>, service = oauth, actor = seller) {
+  const resolved: ResolvedActor = {
+    ...actor,
+    sessionId: "ses_connector",
+    tenantId: "tnt_channels",
+    membershipId: "membership_connector",
+    roleKey: "seller",
+  };
+  const runtime = feed({ ...service, resolveSeller: async () => resolved });
+  return createConnectorCredentialRoutes(runtime, pools.channels).request(
+    `http://localhost/authorize?${new URLSearchParams({
+      response_type: "code",
+      client_id: registration.client_id,
+      redirect_uri: registration.redirect_uri,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      state: "binding-state-sentinel",
+    })}`,
+  );
+}
+async function refuseHttp(
+  registration: Awaited<ReturnType<typeof client>>,
+  reason: string,
+  description = "pairing_code_missing",
+  actor = seller,
+  identity: { connection_id: string | null; pairing_id: string | null } = { connection_id: null, pairing_id: null },
+) {
+  const before = await pools.channels.query("SELECT * FROM channel_connector_pairings ORDER BY created_sequence");
+  const grants = await pools.auth.query("SELECT * FROM auth_connector_grants ORDER BY grant_id");
+  const audit = await pools.channels.query<{ request_id: string }>("SELECT request_id FROM channel_connector_audit");
+  const response = await authorizeHttp(registration, oauth, actor);
+  expect(response.status).toBe(302);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(Object.fromEntries(new URL(response.headers.get("location")!).searchParams)).toEqual({
+    error: "access_denied",
+    state: "binding-state-sentinel",
+    error_description: description,
+  });
+  const rows = await pools.channels.query("SELECT * FROM channel_connector_audit");
+  const added = rows.rows.filter((row) => !audit.rows.some((old) => old.request_id === row.request_id));
+  expect(added).toHaveLength(1);
+  expect(added[0]).toMatchObject({ route: "authorize", outcome: "refused", reason, ...identity });
+  expect(
+    (await pools.channels.query("SELECT * FROM channel_connector_pairings ORDER BY created_sequence")).rows,
+  ).toEqual(before.rows);
+  expect((await pools.auth.query("SELECT * FROM auth_connector_grants ORDER BY grant_id")).rows).toEqual(grants.rows);
+}
+async function secondConnection(connectionId: string, accountId = seller.accountId) {
+  const second = { accountId, connectionId };
+  await channels.connections.connectChannel(
+    { ...second, providerKey: "fixture-connector" },
+    { deploymentEnvironment: "test" },
+    testContext,
+  );
+  await channels.connections.activateChannelConnection(
+    { ...second, bindings: [{ storageLocationId: "location_connector", revision: 1 }] },
+    testContext,
+  );
+  return second;
 }
 
 describeDb("connector-pairing-lifecycle", () => {
@@ -130,6 +191,7 @@ describeDb("connector-pairing-lifecycle", () => {
     auth = authModule.createServices(pools.auth, {});
     oauth = createConnectorOAuthService(
       () => auth,
+      { connectorRedirectUris: ["https://connector.example/callback"] },
       () => clock,
     );
     channels = channelsModule.createServices(pools.channels, {
@@ -162,24 +224,272 @@ describeDb("connector-pairing-lifecycle", () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
+  it("connector-live-code-binding: missing, expired and consumed codes refuse without writes and audit once", async () => {
+    const registration = await client();
+    await refuseHttp(registration, "invalid-credential");
+    const generated = await code();
+    clock = new Date(clock.getTime() + 600_000);
+    await refuseHttp(registration, "pairing-expired", "pairing_code_missing", seller, {
+      connection_id: target.connectionId,
+      pairing_id: generated.pairingId,
+    });
+    await code();
+    const accepted = await authorizeHttp(registration);
+    expect(accepted.status).toBe(302);
+    expect(new URL(accepted.headers.get("location")!).searchParams.has("code")).toBe(true);
+    await refuseHttp(registration, "invalid-credential");
+  });
+
+  it("connector-live-code-binding: two own live codes are ambiguous; expired siblings are not candidates", async () => {
+    const registration = await client();
+    const second = await secondConnection("second-connector");
+    await feed().createPairingCode(second, seller);
+    clock = new Date(clock.getTime() + 1);
+    const current = await code();
+    await refuseHttp(registration, "conflict", "pairing_code_ambiguous");
+    clock = new Date(clock.getTime() + 599_999);
+    const accepted = await authorizeHttp(registration);
+    expect(new URL(accepted.headers.get("location")!).searchParams.has("code")).toBe(true);
+    const grants = await pools.auth.query("SELECT connection_id, pairing_id, user_id FROM auth_connector_grants");
+    expect(grants.rows).toEqual([
+      { connection_id: target.connectionId, pairing_id: current.pairingId, user_id: seller.userId },
+    ]);
+  });
+
+  it("connector-live-code-binding: another member's code never grants the requesting user", async () => {
+    const registration = await client();
+    const other = { ...seller, userId: "usr_other" };
+    await pools.auth.query(
+      `INSERT INTO auth_identity_user_memberships
+      (membership_id, user_id, account_id, role_key, role_permissions, status)
+      VALUES ('other_member', $1, $2, 'seller', '["channels.manage"]', 'active')`,
+      [other.userId, other.accountId],
+    );
+    await feed().createPairingCode(target, other);
+    await refuseHttp(registration, "invalid-credential");
+    const accepted = await authorizeHttp(registration, oauth, other);
+    expect(new URL(accepted.headers.get("location")!).searchParams.has("code")).toBe(true);
+    expect((await pools.auth.query("SELECT user_id FROM auth_connector_grants")).rows).toEqual([
+      { user_id: other.userId },
+    ]);
+  });
+
+  it("connector-live-code-binding: another account's code is not a candidate even for the same user", async () => {
+    const registration = await client();
+    const other = { ...seller, accountId: "acc_other" };
+    await pools.auth.query(
+      `INSERT INTO auth_identity_accounts (account_id, name, display_name, account_type, status, updated_at)
+      VALUES ($1, '', 'Other', 'personal', 'active', now())`,
+      [other.accountId],
+    );
+    await pools.auth.query(
+      `INSERT INTO auth_identity_user_memberships
+      (membership_id, user_id, account_id, role_key, role_permissions, status)
+      VALUES ('other_account_member', $1, $2, 'seller', '["channels.manage"]', 'active')`,
+      [other.userId, other.accountId],
+    );
+    await feed().createPairingCode(await secondConnection("other-account-connector", other.accountId), other);
+    await refuseHttp(registration, "invalid-credential");
+  });
+
+  it("connector-live-code-binding: permission and current membership are independent gates", async () => {
+    const registration = await client();
+    await code();
+    const input = {
+      client_id: registration.client_id,
+      redirect_uri: registration.redirect_uri,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    };
+    const denied = { ...seller, permissions: [] };
+    await refuseHttp(registration, "authorization-refused", "authorization_refused", denied);
+    await expect(feed().authorizePairing(input, denied)).rejects.toMatchObject({ code: "authorization-refused" });
+    await pools.auth.query("UPDATE auth_identity_user_memberships SET status = 'revoked' WHERE user_id = $1", [
+      seller.userId,
+    ]);
+    await refuseHttp(registration, "authorization-refused", "authorization_refused");
+    await expect(feed().authorizePairing(input, seller)).rejects.toMatchObject({ code: "authorization-refused" });
+  });
+
+  it("connector-live-code-binding: concurrent HTTP authorization has one grant and one conflict audit", async () => {
+    const registration = await client();
+    const generated = await code();
+    const entered = signal();
+    const release = signal();
+    const first = authorizeHttp(registration, {
+      ...oauth,
+      authorize: async (...args) => {
+        entered.resolve();
+        await release.promise;
+        return oauth.authorize(...args);
+      },
+    });
+    await entered.promise;
+    const second = authorizeHttp(registration);
+    await releaseAfterConnectionLockWaiter(release.resolve);
+    const responses = await Promise.all([first, second]);
+    expect(responses.map((response) => response.status)).toEqual([302, 302]);
+    expect(Object.fromEntries(new URL(responses[1]!.headers.get("location")!).searchParams)).toEqual({
+      error: "access_denied",
+      state: "binding-state-sentinel",
+      error_description: "pairing_code_missing",
+    });
+    const rows = await pools.channels.query(
+      "SELECT outcome, reason, connection_id, pairing_id FROM channel_connector_audit ORDER BY occurred_at",
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows).toEqual(
+      expect.arrayContaining([
+        {
+          outcome: "accepted",
+          reason: "accepted",
+          connection_id: target.connectionId,
+          pairing_id: generated.pairingId,
+        },
+        { outcome: "refused", reason: "conflict", connection_id: null, pairing_id: null },
+      ]),
+    );
+    expect((await pools.auth.query("SELECT * FROM auth_connector_grants")).rows).toHaveLength(1);
+  });
+
+  it("connector-live-code-binding: consume CAS refuses a changed read revision before publishing", async () => {
+    const registration = await client();
+    const generated = await code();
+    const db: PgTransactionalPool = {
+      query: pools.channels.query.bind(pools.channels),
+      async connect() {
+        const connection = await pools.channels.connect();
+        return {
+          release: connection.release.bind(connection),
+          async query<Row>(text: string, values?: readonly unknown[]) {
+            if (text.includes("UPDATE channel_connector_pairings SET state = 'paired'")) {
+              await connection.query(
+                "UPDATE channel_connector_pairings SET revision = revision + 1 WHERE pairing_id = $1",
+                [generated.pairingId],
+              );
+            }
+            return connection.query<Row>(text, values);
+          },
+        };
+      },
+    };
+    const runtime = createConnectorFeedRuntime({
+      db,
+      eventStore: createPostgresEventStore({ pool: db }),
+      oauth,
+      now: () => clock,
+    });
+    await expect(
+      runtime.authorizePairing(
+        {
+          client_id: registration.client_id,
+          redirect_uri: registration.redirect_uri,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        },
+        seller,
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      (
+        await pools.channels.query("SELECT state, revision FROM channel_connector_pairings WHERE pairing_id = $1", [
+          generated.pairingId,
+        ])
+      ).rows,
+    ).toEqual([{ state: "code", revision: 1 }]);
+    expect(
+      (
+        await pools.channels.query("SELECT event_type FROM event_store_events WHERE stream_id = $1", [
+          `channels.connector-pairing-${generated.pairingId}`,
+        ])
+      ).rows,
+    ).toEqual([{ event_type: "channels.connector-pairing.code-created" }]);
+  });
+
+  it("connector-live-code-binding: paused connection binds both exact token responses and supersession revokes", async () => {
+    const second = await secondConnection("token-identity-connector");
+    await channels.connections.pauseChannelConnection(second, testContext);
+    const registration = await client();
+    const generated = await feed().createPairingCode(second, seller);
+    const response = await authorizeHttp(registration);
+    const authorizationCode = new URL(response.headers.get("location")!).searchParams.get("code");
+    const tokens = await feed().exchange({
+      grant_type: "authorization_code",
+      client_id: registration.client_id,
+      redirect_uri: registration.redirect_uri,
+      code: authorizationCode,
+      code_verifier: verifier,
+    });
+    const refreshed = await feed().exchange({
+      grant_type: "refresh_token",
+      client_id: registration.client_id,
+      refresh_token: tokens.refresh_token,
+    });
+    for (const result of [tokens, refreshed]) {
+      expect(Object.keys(result).sort()).toEqual([
+        "access_token",
+        "connection_id",
+        "expires_in",
+        "refresh_token",
+        "scope",
+        "token_type",
+      ]);
+      expect(result.connection_id).toBe(second.connectionId);
+    }
+    const safe = JSON.stringify({
+      audits: (await pools.channels.query("SELECT * FROM channel_connector_audit")).rows,
+      events: (await pools.channels.query("SELECT payload, metadata FROM event_store_events")).rows,
+      authEvents: (await pools.auth.query("SELECT payload, metadata FROM event_store_events")).rows,
+    });
+    for (const secret of [
+      generated.code,
+      authorizationCode!,
+      verifier,
+      tokens.access_token,
+      tokens.refresh_token,
+      refreshed.access_token,
+      refreshed.refresh_token,
+      "binding-state-sentinel",
+    ])
+      expect(safe).not.toContain(secret);
+    await feed().createPairingCode(second, seller);
+    expect(await oauth.resolveToken(refreshed.access_token)).toBeNull();
+    await expect(
+      feed().exchange({
+        grant_type: "refresh_token",
+        client_id: registration.client_id,
+        refresh_token: refreshed.refresh_token,
+      }),
+    ).rejects.toMatchObject({ code: "invalid-credential" });
+  });
+
+  it("connector-live-code-binding: disconnected and closed pairings never become candidates", async () => {
+    const registration = await client();
+    const generated = await code();
+    await feed().unpair(target, generated.pairingId, generated.revision, seller);
+    await refuseHttp(registration, "invalid-credential");
+    await code();
+    await channels.connections.disconnectChannelConnection(target, testContext);
+    await refuseHttp(registration, "invalid-credential");
+  });
+
   it("consumes one ten-minute code once with one concurrent winner", async () => {
     const registration = await client();
     const pairing = await code();
     expect(Date.parse(pairing.expiresAt) - clock.getTime()).toBe(600_000);
     const request = {
-      pairing_code: pairing.code,
       client_id: registration.client_id,
       redirect_uri: registration.redirect_uri,
       code_challenge: challenge,
       code_challenge_method: "S256",
     };
     const results = await Promise.allSettled([
-      feed().consumePairingCode(request, seller),
-      feed().consumePairingCode(request, seller),
+      feed().authorizePairing(request, seller),
+      feed().authorizePairing(request, seller),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    await expect(feed().consumePairingCode(request, seller)).rejects.toMatchObject({ code: "invalid-credential" });
+    await expect(feed().authorizePairing(request, seller)).rejects.toMatchObject({ code: "invalid-credential" });
     const count = await pools.channels.query("SELECT * FROM channel_connector_pairings WHERE state = 'paired'");
     expect(count.rows).toHaveLength(1);
     expect((await feed().detail(target)).lastSeenAt).toBeNull();
@@ -187,12 +497,11 @@ describeDb("connector-pairing-lifecycle", () => {
 
   it("refuses expired codes without publishing a grant and remains inert the next day", async () => {
     const registration = await client();
-    const pairing = await code();
+    await code();
     clock = new Date(clock.getTime() + 600_000);
     await expect(
-      feed().consumePairingCode(
+      feed().authorizePairing(
         {
-          pairing_code: pairing.code,
           client_id: registration.client_id,
           redirect_uri: registration.redirect_uri,
           code_challenge: challenge,
@@ -210,10 +519,9 @@ describeDb("connector-pairing-lifecycle", () => {
 
   it("rotates PKCE and refresh credentials and refuses wrong verifiers without consuming the code", async () => {
     const registration = await client();
-    const pairing = await code();
-    const authorized = await feed().consumePairingCode(
+    await code();
+    const authorized = await feed().authorizePairing(
       {
-        pairing_code: pairing.code,
         client_id: registration.client_id,
         redirect_uri: registration.redirect_uri,
         code_challenge: challenge,
@@ -281,9 +589,8 @@ describeDb("connector-pairing-lifecycle", () => {
     const paired = await pair();
     const replacement = await code();
     expect(await oauth.resolveToken(paired.tokens.access_token)).toBeNull();
-    await feed().consumePairingCode(
+    await feed().authorizePairing(
       {
-        pairing_code: replacement.code,
         client_id: paired.registration.client_id,
         redirect_uri: paired.registration.redirect_uri,
         code_challenge: challenge,
@@ -332,9 +639,8 @@ describeDb("connector-pairing-lifecycle", () => {
 
   it.each(["consume-first", "disconnect-first"])("consume and disconnect race: %s", async (order) => {
     const registration = await client();
-    const pairing = await code();
+    await code();
     const input = {
-      pairing_code: pairing.code,
       client_id: registration.client_id,
       redirect_uri: registration.redirect_uri,
       code_challenge: challenge,
@@ -356,7 +662,7 @@ describeDb("connector-pairing-lifecycle", () => {
       },
     };
     if (order === "consume-first") {
-      const consuming = feed(service).consumePairingCode(input, seller);
+      const consuming = feed(service).authorizePairing(input, seller);
       await entered.promise;
       const disconnecting = channels.connections.disconnectChannelConnection(target, testContext);
       await releaseAfterConnectionLockWaiter(release.resolve);
@@ -364,8 +670,8 @@ describeDb("connector-pairing-lifecycle", () => {
     } else {
       const disconnecting = feed(service).disconnectChannelConnection(target, testContext);
       await entered.promise;
-      const refusal = expect(feed().consumePairingCode(input, seller)).rejects.toMatchObject({
-        code: "invalid-credential",
+      const refusal = expect(feed().authorizePairing(input, seller)).rejects.toMatchObject({
+        code: "conflict",
       });
       await releaseAfterConnectionLockWaiter(release.resolve);
       await Promise.all([disconnecting, refusal]);
@@ -538,7 +844,6 @@ describeDb("connector-pairing-lifecycle", () => {
     const registration = await client();
     const pairing = await code();
     const input = {
-      pairing_code: pairing.code,
       client_id: registration.client_id,
       redirect_uri: registration.redirect_uri,
       code_challenge: challenge,
@@ -560,7 +865,7 @@ describeDb("connector-pairing-lifecycle", () => {
       },
     };
     if (order === "consume-first") {
-      const consuming = feed(service).consumePairingCode(input, seller);
+      const consuming = feed(service).authorizePairing(input, seller);
       await entered.promise;
       const replacing = code();
       release.resolve();
@@ -568,10 +873,10 @@ describeDb("connector-pairing-lifecycle", () => {
     } else {
       const replacing = feed(service).createPairingCode(target, seller);
       await entered.promise;
-      const refusal = expect(feed().consumePairingCode(input, seller)).rejects.toMatchObject({
-        code: "invalid-credential",
+      const refusal = expect(feed().authorizePairing(input, seller)).rejects.toMatchObject({
+        code: "conflict",
       });
-      release.resolve();
+      await releaseAfterConnectionLockWaiter(release.resolve);
       await Promise.all([replacing, refusal]);
     }
     const current = await feed().detail(target);
@@ -587,30 +892,29 @@ describeDb("connector-pairing-lifecycle", () => {
 
   it("cleans an Auth-committed grant after Channels rollback before allowing regeneration", async () => {
     const registration = await client();
-    const pairing = await code();
+    await code();
     const eventStore = createPostgresEventStore({ pool: pools.channels });
     vi.spyOn(eventStore, "appendToStreamInTransaction").mockRejectedValueOnce(
       new Error("connector-secret-sentinel-rollback"),
     );
     const failed = createConnectorFeedRuntime({ db: pools.channels, eventStore, oauth, now: () => clock });
     const input = {
-      pairing_code: pairing.code,
       client_id: registration.client_id,
       redirect_uri: registration.redirect_uri,
       code_challenge: challenge,
       code_challenge_method: "S256",
     };
-    await expect(failed.consumePairingCode(input, seller)).rejects.toThrow("connector-secret-sentinel-rollback");
+    await expect(failed.authorizePairing(input, seller)).rejects.toThrow("connector-secret-sentinel-rollback");
     expect((await feed().readAuthority(target)).inbound).toBe("absent");
     expect((await pools.auth.query("SELECT * FROM auth_connector_grants WHERE revoked_at IS NULL")).rows).toHaveLength(
       1,
     );
-    await expect(feed().consumePairingCode(input, seller)).rejects.toMatchObject({ code: "invalid-credential" });
-    const replacement = await code();
+    await expect(feed().authorizePairing(input, seller)).rejects.toMatchObject({ code: "invalid-credential" });
+    await code();
     expect((await pools.auth.query("SELECT * FROM auth_connector_grants WHERE revoked_at IS NULL")).rows).toHaveLength(
       0,
     );
-    await feed().consumePairingCode({ ...input, pairing_code: replacement.code }, seller);
+    await feed().authorizePairing(input, seller);
     expect((await feed().readAuthority(target)).inbound).toBe("live");
     expect((await pools.auth.query("SELECT * FROM auth_connector_grants WHERE revoked_at IS NULL")).rows).toHaveLength(
       1,
@@ -726,7 +1030,6 @@ describeDb("connector-pairing-lifecycle", () => {
     const registration = await client();
     const pairing = await code();
     const valid = {
-      pairing_code: pairing.code,
       client_id: registration.client_id,
       redirect_uri: registration.redirect_uri,
       code_challenge: challenge,
@@ -741,11 +1044,11 @@ describeDb("connector-pairing-lifecycle", () => {
       { ...valid, code_challenge_method: "plain" },
       { ...valid, unknown: { nested: "sentinel" } },
     ]) {
-      await expect(feed().consumePairingCode(input, seller)).rejects.toMatchObject({ code: "invalid-request" });
+      await expect(feed().authorizePairing(input, seller)).rejects.toMatchObject({ code: "invalid-request" });
       expect((await pools.auth.query("SELECT * FROM auth_connector_grants")).rows).toHaveLength(0);
       expect(await feed().detail(target)).toMatchObject({ pairingId: pairing.pairingId, revision: 1, state: "code" });
     }
-    await feed().consumePairingCode(valid, seller);
+    await feed().authorizePairing(valid, seller);
     expect((await feed().readAuthority(target)).inbound).toBe("live");
   });
 });

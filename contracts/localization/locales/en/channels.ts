@@ -241,7 +241,7 @@ export const channelsEnglishTranslations = {
   "channels.connector.expires": "Expires {at}",
   "channels.connector.lastSeen": "Last seen {at}",
   "channels.connector.notSeen": "Not seen yet",
-  "channels.connector.codeHidden": "The code is shown only when generated. Generate a new code to replace it.",
+  "channels.connector.toolbarHelp": "Click the connector in your browser toolbar within ten minutes to finish pairing.",
   "channels.connector.generate": "Generate pairing code",
   "channels.connector.unpair": "Unpair connector",
   "channels.connector.pending": "Updating connector pairing...",

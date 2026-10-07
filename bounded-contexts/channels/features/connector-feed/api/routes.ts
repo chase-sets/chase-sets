@@ -29,9 +29,11 @@ export function connectorAuditMiddleware(db: PgQueryable, credentialMount = fals
     if (!route) return next();
     c.set("connectorIdentity", null);
     c.set("connectorReason", "unavailable");
+    c.set("connectorOutcome", null);
     await next();
     const identity = c.get("connectorIdentity");
-    const accepted = c.res.status >= 200 && c.res.status < 300;
+    const outcome = c.get("connectorOutcome");
+    const accepted = outcome ? outcome === "accepted" : c.res.status >= 200 && c.res.status < 300;
     const reason = accepted
       ? "accepted"
       : c.res.status === 401 || c.res.status === 403
@@ -93,15 +95,64 @@ async function seller(services: ConnectorFeedServices, request: Request) {
 export function createConnectorCredentialRoutes(services: ConnectorFeedServices, db: PgQueryable) {
   const app = new Hono<ChannelsApiEnv>();
   installConnectorAudit(app, db, true);
-  for (const route of connectorOAuthRoutes) {
+  app.get("/authorize", async (c) => {
+    c.set("connectorOutcome", "refused");
+    if (c.req.method !== "GET") {
+      c.set("connectorReason", "invalid-request");
+      return c.body(null, 405);
+    }
+    let callback: URL | null = null;
+    let state: string | null = null;
+    try {
+      const query = new URL(c.req.url).searchParams;
+      const keys = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "state"];
+      if ([...query.keys()].some((key) => !keys.includes(key)) || keys.some((key) => query.getAll(key).length !== 1))
+        throw new ConnectorPairingError("invalid-request");
+      if (query.get("response_type") !== "code") throw new ConnectorPairingError("invalid-request");
+      state = connectorString(query.get("state"));
+      const authorization = await services.validateAuthorization({
+        client_id: query.get("client_id"),
+        redirect_uri: query.get("redirect_uri"),
+        code_challenge: query.get("code_challenge"),
+        code_challenge_method: query.get("code_challenge_method"),
+      });
+      callback = new URL(authorization.redirect_uri);
+      const actor = await seller(services, c.req.raw);
+      const authorized = await services.authorizePairing(authorization, actor, (identity) =>
+        c.set("connectorIdentity", identity),
+      );
+      callback.searchParams.set("code", authorized.code);
+      callback.searchParams.set("state", state);
+      c.set("connectorOutcome", "accepted");
+      c.set("connectorReason", "accepted");
+      return c.redirect(callback.href, 302);
+    } catch (error) {
+      const refusal = safeError(error);
+      c.set("connectorReason", refusal.code);
+      if (
+        callback &&
+        state &&
+        error instanceof ConnectorPairingError &&
+        ["authorization-refused", "invalid-credential", "pairing-expired", "conflict"].includes(error.code)
+      ) {
+        callback.searchParams.set("error", "access_denied");
+        callback.searchParams.set("state", state);
+        callback.searchParams.set(
+          "error_description",
+          error.code === "authorization-refused"
+            ? "authorization_refused"
+            : (error.authorizationDescription ?? "pairing_code_missing"),
+        );
+        return c.redirect(callback.href, 302);
+      }
+      return refusal.response;
+    }
+  });
+  for (const route of connectorOAuthRoutes.filter((route) => route !== "authorize")) {
     app.post(`/${route}`, async (c) => {
       try {
         const identify = (identity: ConnectorIdentity) => c.set("connectorIdentity", identity);
         if (route === "register") return c.json(await services.register(await body(c.req.raw)));
-        if (route === "authorize") {
-          const actor = await seller(services, c.req.raw);
-          return c.json(await services.consumePairingCode(await body(c.req.raw), actor, identify));
-        }
         if (route === "token") return c.json(await services.exchange(await body(c.req.raw), identify));
         const input = connectorRecord(await body(c.req.raw), ["token"]);
         await services.revoke(connectorString(input.token), identify);

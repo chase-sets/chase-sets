@@ -9,7 +9,6 @@ import {
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
 import {
-  compareConnectorSecret,
   connectorRecord,
   connectorSecretDigest,
   connectorString,
@@ -156,7 +155,7 @@ export function createConnectorFeedRuntime(
       ],
     });
   }
-  async function sellerAllowed(seller: Seller, input: ConnectionQuery): Promise<void> {
+  async function sellerAllowed(seller: Seller, input: Pick<ConnectionQuery, "accountId">): Promise<void> {
     if (
       seller.accountId !== input.accountId ||
       !seller.permissions.includes("channels.manage") ||
@@ -265,37 +264,39 @@ export function createConnectorFeedRuntime(
       return { pairingId, revision: 1, code, expiresAt };
     });
   }
-  async function consumePairingCode(input: unknown, seller: Seller, identify: Identify = ignoreIdentity) {
-    const body = connectorRecord(input, [
-      "pairing_code",
-      "client_id",
-      "redirect_uri",
-      "code_challenge",
-      "code_challenge_method",
-    ]);
-    const code = connectorString(body.pairing_code);
-    const result = await deps.db.query<PairingRow>("SELECT * FROM channel_connector_pairings WHERE code_hash = $1", [
-      connectorSecretDigest(code),
-    ]);
-    const found = result.rows[0];
-    if (
-      !compareConnectorSecret(code, found?.code_hash ?? "0".repeat(64)) ||
-      !found ||
-      found.account_id !== seller.accountId ||
-      found.user_id !== seller.userId
-    )
-      throw new ConnectorPairingError("invalid-credential");
+  async function authorizePairing(input: unknown, seller: Seller, identify: Identify = ignoreIdentity) {
+    const body = await oauth().validateAuthorization(input);
+    await sellerAllowed(seller, { accountId: seller.accountId });
+    async function candidates(expired: boolean) {
+      return deps.db.query<PairingRow>(
+        `SELECT p.* FROM channel_connections c
+         JOIN channel_connector_pairings p ON p.connection_id = c.connection_id AND p.account_id = c.account_id
+         WHERE c.account_id = $1 AND p.user_id = $2 AND p.state = 'code'
+           AND c.status IN ('active', 'paused')
+           AND (p.code_expires_at <= $3) = $4
+           AND NOT EXISTS (SELECT 1 FROM channel_connector_pairings newer
+             WHERE newer.connection_id = p.connection_id AND newer.created_sequence > p.created_sequence)
+         ORDER BY p.created_sequence DESC LIMIT 2`,
+        [seller.accountId, seller.userId, now().toISOString(), expired],
+      );
+    }
+    const result = await candidates(false);
+    if (result.rows.length > 1) throw new ConnectorPairingError("conflict", "pairing_code_ambiguous");
+    const found = result.rows[0] ?? (await candidates(true)).rows[0];
+    if (!found) throw new ConnectorPairingError("invalid-credential");
     const target = { accountId: found.account_id, connectionId: found.connection_id };
-    await sellerAllowed(seller, target);
     return transact(target, async (db, state) => {
+      await sellerAllowed(seller, target);
       const pairing = await latest(db, target.connectionId);
       if (
         !pairing ||
         pairing.pairing_id !== found.pairing_id ||
         pairing.state !== "code" ||
-        !compareConnectorSecret(code, pairing.code_hash ?? "0".repeat(64))
+        pairing.revision !== found.revision ||
+        pairing.user_id !== seller.userId ||
+        pairing.account_id !== seller.accountId
       )
-        throw new ConnectorPairingError("invalid-credential");
+        throw new ConnectorPairingError("conflict");
       identify({ connectionId: target.connectionId, pairingId: pairing.pairing_id });
       if (new Date(pairing.code_expires_at).getTime() <= now().getTime())
         throw new ConnectorPairingError("pairing-expired");
@@ -308,7 +309,7 @@ export function createConnectorFeedRuntime(
           code_challenge: body.code_challenge,
           code_challenge_method: body.code_challenge_method,
         },
-        { ...target, pairingId: pairing.pairing_id, userId: pairing.user_id },
+        { ...target, pairingId: pairing.pairing_id, userId: seller.userId },
       );
       const updated = await db.query(
         `UPDATE channel_connector_pairings SET state = 'paired', code_hash = NULL,
@@ -408,7 +409,7 @@ export function createConnectorFeedRuntime(
     if (authority.inbound !== "live" || authority.grant?.grantId !== exchanged.grant.grantId)
       throw new ConnectorPairingError("invalid-credential");
     identify({ connectionId: authority.connectionId, pairingId: authority.pairingId });
-    return exchanged.tokens;
+    return { ...exchanged.tokens, connection_id: authority.connectionId };
   }
   async function revoke(token: string, identify: Identify = ignoreIdentity) {
     const grant = await oauth().resolveToken(token);
@@ -426,7 +427,8 @@ export function createConnectorFeedRuntime(
     withAuthority,
     detail,
     createPairingCode,
-    consumePairingCode,
+    authorizePairing,
+    validateAuthorization: (input: unknown) => oauth().validateAuthorization(input),
     unpair,
     disconnectChannelConnection,
     exchange,

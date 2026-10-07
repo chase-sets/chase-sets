@@ -46,6 +46,7 @@ import {
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
 import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } from "@chase-sets/channels/server";
+import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import {
   createIdentityTermsAcceptanceResolver,
@@ -706,11 +707,14 @@ export function createPlatformApiHost(
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
-      connectorOAuth: createConnectorOAuthService(() => {
-        const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
-        if (!auth) throw new Error("Connector authentication is unavailable.");
-        return auth;
-      }),
+      connectorOAuth: createConnectorOAuthService(
+        () => {
+          const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
+          if (!auth) throw new Error("Connector authentication is unavailable.");
+          return auth;
+        },
+        { connectorRedirectUris: [TCGPLAYER_CONNECTOR_REDIRECT_URI] },
+      ),
       ...(pricingHostPorts ?? {}),
     },
   });

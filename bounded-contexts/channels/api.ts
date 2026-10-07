@@ -22,6 +22,7 @@ export type ChannelsApiEnv = {
     context: EventStoreContext;
     connectorIdentity: ConnectorIdentity | null;
     connectorReason: ConnectorAuditReason;
+    connectorOutcome: "accepted" | "refused" | null;
   };
 };
 

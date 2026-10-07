@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { module as authModule } from "@chase-sets/auth";
-import { module as channelsModule } from "@chase-sets/channels";
+import { module as channelsModule, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import { createConnectorOAuthService, resolveActorFromRequest } from "@chase-sets/auth/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
@@ -40,9 +40,22 @@ function request(path: string, input: unknown, authenticated = false) {
     body: JSON.stringify(input),
   });
 }
+function authorize(registration: { client_id: string; redirect_uri: string }, authenticated = true) {
+  return app.request(
+    `http://localhost/channel-connector/oauth/authorize?${new URLSearchParams({
+      response_type: "code",
+      client_id: registration.client_id,
+      redirect_uri: registration.redirect_uri,
+      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256",
+      state: "connector-state-sentinel",
+    })}`,
+    { headers: authenticated ? { cookie } : {} },
+  );
+}
 async function pairThroughHttp() {
   const registrationResponse = await request("/channel-connector/oauth/register", {
-    redirect_uri: "https://connector.example/callback",
+    redirect_uri: TCGPLAYER_CONNECTOR_REDIRECT_URI,
     token_endpoint_auth_method: "none",
     scope: CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.join(" "),
   });
@@ -52,19 +65,13 @@ async function pairThroughHttp() {
   expect(codeResponse.status).toBe(200);
   const pairing = await codeResponse.json();
   seenSecrets.push(pairing.code);
-  const authorizationResponse = await request(
-    "/channel-connector/oauth/authorize",
-    {
-      pairing_code: pairing.code,
-      client_id: registration.client_id,
-      redirect_uri: registration.redirect_uri,
-      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
-      code_challenge_method: "S256",
-    },
-    true,
-  );
-  expect(authorizationResponse.status).toBe(200);
-  const authorized = await authorizationResponse.json();
+  const authorizationResponse = await authorize(registration);
+  expect(authorizationResponse.status).toBe(302);
+  const redirect = new URL(authorizationResponse.headers.get("location")!);
+  expect(redirect.origin + redirect.pathname).toBe(TCGPLAYER_CONNECTOR_REDIRECT_URI);
+  expect([...redirect.searchParams.keys()].sort()).toEqual(["code", "state"]);
+  expect(redirect.searchParams.get("state")).toBe("connector-state-sentinel");
+  const authorized = { code: redirect.searchParams.get("code")! };
   seenSecrets.push(authorized.code);
   const tokenResponse = await request("/channel-connector/oauth/token", {
     grant_type: "authorization_code",
@@ -75,8 +82,17 @@ async function pairThroughHttp() {
   });
   expect(tokenResponse.status).toBe(200);
   const tokens = await tokenResponse.json();
+  expect(Object.keys(tokens).sort()).toEqual([
+    "access_token",
+    "connection_id",
+    "expires_in",
+    "refresh_token",
+    "scope",
+    "token_type",
+  ]);
+  expect(tokens.connection_id).toBe(connectionId);
   seenSecrets.push(tokens.access_token, tokens.refresh_token);
-  return { tokens, pairing };
+  return { tokens, pairing, registration };
 }
 
 describe("connector-mount-gate-isolation", () => {
@@ -92,7 +108,9 @@ describe("connector-mount-gate-isolation", () => {
     await bootstrapContextDatabase(identityModule, pools.identity);
     await bootstrapContextDatabase(channelsModule, pools.channels);
     auth = authModule.createServices(pools.auth, {});
-    const oauth = createConnectorOAuthService(() => auth);
+    const oauth = createConnectorOAuthService(() => auth, {
+      connectorRedirectUris: [TCGPLAYER_CONNECTOR_REDIRECT_URI],
+    });
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: { processorGateway: createFakePaymentProcessorGateway(), listingPhotoStorage },
@@ -198,6 +216,24 @@ describe("connector-mount-gate-isolation", () => {
 
   it("runs public registration, seller pairing, credential exchange and denies both principal substitutions", async () => {
     const paired = await pairThroughHttp();
+    const refresh = await request("/channel-connector/oauth/token", {
+      grant_type: "refresh_token",
+      client_id: paired.registration.client_id,
+      refresh_token: paired.tokens.refresh_token,
+    });
+    expect(refresh.status).toBe(200);
+    const refreshed = await refresh.json();
+    expect(Object.keys(refreshed).sort()).toEqual([
+      "access_token",
+      "connection_id",
+      "expires_in",
+      "refresh_token",
+      "scope",
+      "token_type",
+    ]);
+    expect(refreshed.connection_id).toBe(connectionId);
+    seenSecrets.push(refreshed.access_token, refreshed.refresh_token);
+    Object.assign(paired.tokens, refreshed);
     const sellerOnly = await request("/channel-connector/oauth/token", {}, true);
     expect(sellerOnly.status).toBe(400);
     expect(await sellerOnly.json()).toEqual({ error: "invalid-request" });
@@ -213,7 +249,11 @@ describe("connector-mount-gate-isolation", () => {
     expect(noSeller.status).toBe(401);
     const revoked = await request("/channel-connector/oauth/revoke", { token: paired.tokens.access_token });
     expect(revoked.status).toBe(200);
-    expect(await createConnectorOAuthService(() => auth).resolveToken(paired.tokens.access_token)).toBeNull();
+    expect(
+      await createConnectorOAuthService(() => auth, {
+        connectorRedirectUris: [TCGPLAYER_CONNECTOR_REDIRECT_URI],
+      }).resolveToken(paired.tokens.access_token),
+    ).toBeNull();
   });
 
   it("connector-feed-audit-completeness: one safe row per success/refusal, verified identities only", async () => {
@@ -273,11 +313,12 @@ describe("connector-mount-gate-isolation", () => {
 
   it("audits every OAuth refusal and malformed transport once with unresolved identity", async () => {
     for (const route of ["register", "authorize", "token", "revoke"]) {
-      const response = await request(
-        `/channel-connector/oauth/${route}`,
-        { unknown: { secret: secretSentinel } },
-        true,
-      );
+      const response =
+        route === "authorize"
+          ? await app.request("http://localhost/channel-connector/oauth/authorize?unknown=sentinel", {
+              headers: { cookie },
+            })
+          : await request(`/channel-connector/oauth/${route}`, { unknown: { secret: secretSentinel } }, true);
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ error: "invalid-request" });
     }
@@ -302,6 +343,113 @@ describe("connector-mount-gate-isolation", () => {
     for (const route of ["register", "authorize", "revoke"])
       expect(rows.rows.filter((row) => row.route === route)).toHaveLength(1);
     expect(rows.rows.filter((row) => row.route === "token")).toHaveLength(3);
+
+    // connector-redirect-pin: real composition must apply the pin before any seller/code lookup.
+    const callback = TCGPLAYER_CONNECTOR_REDIRECT_URI;
+    const registration = await (
+      await request("/channel-connector/oauth/register", {
+        redirect_uri: callback,
+        scope: CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.join(" "),
+        token_endpoint_auth_method: "none",
+      })
+    ).json();
+    const generated = await (
+      await request(`/api/channels/connections/${connectionId}/connector-pairing/code`, {}, true)
+    ).json();
+    seenSecrets.push(generated.code);
+    const valid = new URLSearchParams({
+      response_type: "code",
+      client_id: registration.client_id,
+      redirect_uri: callback,
+      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256",
+      state: "state-sentinel",
+    });
+    for (const redirect_uri of [
+      "https://connector.example/callback",
+      callback + "/",
+      callback + "?extra=1",
+      callback + "#fragment",
+      callback.replace("https://", "HTTPS://"),
+      callback.replace("/ucp/", "/%75cp/"),
+      callback.replace(".org/", ".org:443/"),
+    ]) {
+      const refused = await request("/channel-connector/oauth/register", {
+        redirect_uri,
+        scope: CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.join(" "),
+        token_endpoint_auth_method: "none",
+      });
+      expect(refused.status).toBe(400);
+      expect(refused.headers.get("location")).toBeNull();
+      const query = new URLSearchParams(valid);
+      query.set("redirect_uri", redirect_uri);
+      const authorization = await app.request(`http://localhost/channel-connector/oauth/authorize?${query}`, {
+        headers: { cookie },
+      });
+      expect(authorization.status).toBe(400);
+      expect(authorization.headers.get("location")).toBeNull();
+    }
+    const invalidQueries = [
+      new URLSearchParams([...valid, ["unknown", "sentinel"]]),
+      new URLSearchParams([...valid, ["state", "duplicate"]]),
+    ];
+    for (const key of [...valid.keys()]) {
+      const missing = new URLSearchParams(valid);
+      missing.delete(key);
+      invalidQueries.push(missing);
+      const duplicate = new URLSearchParams(valid);
+      duplicate.append(key, valid.get(key)!);
+      invalidQueries.push(duplicate);
+    }
+    for (const [key, value] of [
+      ["response_type", "token"],
+      ["client_id", "missing-client"],
+      ["state", ""],
+      ["state", "bad state"],
+      ["state", "s".repeat(513)],
+      ["code_challenge_method", "plain"],
+      ["code_challenge", "x".repeat(42)],
+      ["code_challenge", "x".repeat(42) + "."],
+    ]) {
+      const query = new URLSearchParams(valid);
+      query.set(key!, value!);
+      invalidQueries.push(query);
+    }
+    for (const query of invalidQueries) {
+      const response = await app.request(`http://localhost/channel-connector/oauth/authorize?${query}`, {
+        headers: { cookie },
+      });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("location")).toBeNull();
+      expect(await response.json()).toEqual({ error: "invalid-request" });
+    }
+    const beforePost = await pools.channels.query("SELECT pairing_id, state, revision FROM channel_connector_pairings");
+    const head = await app.request(`http://localhost/channel-connector/oauth/authorize?${valid}`, {
+      method: "HEAD",
+      headers: { cookie },
+    });
+    expect(head.status).toBe(405);
+    expect(head.headers.get("location")).toBeNull();
+    const removed = await request(
+      "/channel-connector/oauth/authorize",
+      {
+        pairing_code: generated.code,
+        client_id: registration.client_id,
+        redirect_uri: callback,
+        code_challenge: valid.get("code_challenge"),
+        code_challenge_method: "S256",
+      },
+      true,
+    );
+    expect(removed.status).toBe(404);
+    expect(removed.headers.get("location")).toBeNull();
+    expect(
+      (await pools.channels.query("SELECT pairing_id, state, revision FROM channel_connector_pairings")).rows,
+    ).toEqual(beforePost.rows);
+    expect((await pools.auth.query("SELECT * FROM auth_connector_grants")).rows).toHaveLength(0);
+    const accepted = await authorize(registration);
+    expect(accepted.status).toBe(302);
+    expect(new URL(accepted.headers.get("location")!).searchParams.has("code")).toBe(true);
   });
 
   it("audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity", async () => {
@@ -311,8 +459,13 @@ describe("connector-mount-gate-isolation", () => {
     });
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({ state: "paired", lastSeenAt: null });
-    const unauthorized = await request("/channel-connector/oauth/authorize", { pairing_code: secretSentinel });
-    expect(unauthorized.status).toBe(403);
+    const unauthorized = await authorize(paired.registration, false);
+    expect(unauthorized.status).toBe(302);
+    expect(Object.fromEntries(new URL(unauthorized.headers.get("location")!).searchParams)).toEqual({
+      error: "access_denied",
+      state: "connector-state-sentinel",
+      error_description: "authorization_refused",
+    });
     for (let attempt = 0; attempt < 2; attempt++) {
       const unpaired = await request(
         `/api/channels/connections/${connectionId}/connector-pairing/unpair`,

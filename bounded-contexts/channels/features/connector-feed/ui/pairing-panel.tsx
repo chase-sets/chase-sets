@@ -34,13 +34,16 @@ export function ConnectorPairingPanel({
           />
         ) : null}
         {pairing ? <Text>{t(`channels.connector.state.${pairing.state}`)}</Text> : null}
-        {currentCode ? (
+        {pairing?.state === "code" ? (
           <Stack gap={2}>
-            <Text>{currentCode.code}</Text>
-            <Text>{t("channels.connector.expires", { at: currentCode.expiresAt })}</Text>
+            <Text>{t("channels.connector.toolbarHelp")}</Text>
+            {currentCode?.expiresAt || pairing.codeExpiresAt ? (
+              <Text>
+                {t("channels.connector.expires", { at: currentCode?.expiresAt ?? pairing.codeExpiresAt ?? "" })}
+              </Text>
+            ) : null}
           </Stack>
         ) : null}
-        {pairing?.state === "code" && !currentCode ? <Text>{t("channels.connector.codeHidden")}</Text> : null}
         {pairing?.state === "paired" ? (
           <Text>
             {pairing.lastSeenAt
