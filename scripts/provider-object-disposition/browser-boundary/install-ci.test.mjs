@@ -1,0 +1,128 @@
+import { readFileSync } from "node:fs";
+import { expect, it } from "vitest";
+import { SOURCE_FILES } from "../test-window-browser.mjs";
+
+const read = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
+const launcher = read("launcher.c");
+const installer = read("install-ci.sh");
+
+it("source identity inventory is shared by setup and admission", () => {
+  const sources = /^sources=\(([^)]+)\)$/m.exec(installer)[1].split(" ");
+  expect(sources).toEqual(SOURCE_FILES);
+  for (const source of sources)
+    expect(readFileSync(new URL(`../${source}`, import.meta.url)).length).toBeGreaterThan(0);
+});
+
+it("B-prime has no self-map fallback; SF precedes dumpability", () => {
+  expect(launcher).not.toContain("unshare(CLONE_NEWUSER)");
+  expect(launcher).not.toContain("chroot(");
+  expect(launcher).toContain('syscall(SYS_pivot_root, ".", "old-root")');
+  expect(launcher).toContain('umount2("/old-root", MNT_DETACH)');
+  const seed = launcher.slice(launcher.indexOf("static void seed_main"), launcher.indexOf("static void seed_map"));
+  expect(seed.indexOf("SYS_close_range")).toBeLessThan(seed.indexOf("seed_fence();"));
+  expect(seed.indexOf("seed_fence();")).toBeLessThan(seed.indexOf("PR_SET_DUMPABLE"));
+  expect(launcher).toContain("AUDIT_ARCH_X86_64");
+  expect(launcher).toContain("0x40000000");
+  expect(launcher).toContain("SECCOMP_RET_KILL_PROCESS");
+});
+
+it("outer/nested protocol retains only named handles with finite, distinct budgets", () => {
+  expect(launcher).toContain("join_seed(false)");
+  expect(launcher).toContain("join_seed(true)");
+  expect(launcher).toContain("monotonic_ms() - started < 1000");
+  expect(launcher).toContain("poll(&dead, 1, 250)");
+  expect(launcher).toContain("monotonic_ms() - started < 1500");
+  expect(launcher).toContain("if (parent >= 0) close(parent)");
+  expect(launcher).toContain("close(seedfd)");
+  expect(launcher).toContain("close(user)");
+  expect(launcher.match(/unshare\(CLONE_NEWNET \| CLONE_NEWNS/g)).toHaveLength(1);
+});
+
+it("R1 and complete R2 precede any exact-name R3 deletion", () => {
+  const remove = installer.slice(
+    installer.indexOf("remove_installation()"),
+    installer.indexOf('if test "$1" = remove'),
+  );
+  expect(remove.indexOf("remove-target-symlink")).toBeLessThan(remove.indexOf("mark remove-ownership"));
+  expect(remove.indexOf("remove-profile-symlink")).toBeLessThan(remove.indexOf("mark remove-ownership"));
+  expect(remove.indexOf("refuse remove-ownership-census")).toBeLessThan(remove.indexOf("mark remove-profile"));
+  expect(remove).not.toContain("kill ");
+  expect(remove).not.toContain("find ");
+  expect(remove).toContain('rm -rf -- "$target"');
+});
+
+it("every direct native probe has its own 5s plus 1s kill deadline", () => {
+  const controls = installer.slice(installer.indexOf("direct_probe()"));
+  expect(controls.match(/runuser/g)).toHaveLength(1);
+  expect(controls).toContain("timeout --signal=TERM --kill-after=1s 5s runuser");
+  expect(controls).toContain("negative-$expected_stage-deadline");
+  expect(controls).toContain('result="${result%.}"');
+  expect(controls).toContain('test "$status" = 78');
+});
+
+it("operator, root and administrator boundaries have no runtime privilege fallback", () => {
+  expect(installer).toContain("RUNNER_ENVIRONMENT:-");
+  expect(installer).toContain("runner-administrator runuser");
+  expect(launcher).not.toContain('"--no-sandbox"');
+  expect(launcher).not.toContain('"/usr/bin/sudo"');
+  expect(launcher).toContain("prctl(PR_SET_DUMPABLE, 0)");
+  expect(launcher).toContain("PR_SET_NO_NEW_PRIVS");
+});
+
+it("cleanup completion requires exact-name and loaded-profile absence after admitted removal", () => {
+  const cleanup = read("ci-cleanup.sh");
+  expect(cleanup.indexOf("input-not-symlink")).toBeLessThan(cleanup.indexOf("mark remove-installation"));
+  expect(cleanup.indexOf("mark verify-exact-names")).toBeGreaterThan(cleanup.indexOf("mark remove-input"));
+  expect(cleanup).toContain('installer_status="$?"');
+  expect(cleanup).toContain('require remove-installation test "$installer_status" = 0');
+  for (const name of ["target-absent", "profile-absent", "input-absent", "profile-census", "profile-present"]) {
+    expect(cleanup.indexOf(name)).toBeGreaterThan(cleanup.indexOf("mark verify-exact-names"));
+    expect(cleanup.indexOf(name)).toBeLessThan(cleanup.indexOf("mark complete"));
+  }
+});
+
+it("native inputs remain exact-head while shared Static retains PR merge-ref provenance", () => {
+  const setup = read("ci-setup.sh");
+  expect(setup).toContain('git merge-base --is-ancestor "$BOUNDARY_HEAD_SHA" HEAD');
+  expect(setup).toContain('git diff --quiet "$BOUNDARY_HEAD_SHA" --');
+  expect(setup).toContain('git archive "$BOUNDARY_HEAD_SHA" --');
+  expect(setup.indexOf("checkout-boundary-bytes")).toBeLessThan(setup.indexOf("mark create-input"));
+  const workflow = read("../../../.github/workflows/platform-pr.yml");
+  const job = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
+  expect(job).toContain("BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}");
+  expect(job).not.toContain("          ref:");
+});
+
+it("required Static keeps the complete source gate and native matrix under unchanged job deadlines", () => {
+  const workflow = read("../../../.github/workflows/platform-pr.yml");
+  const source = workflow.slice(workflow.indexOf("  static-source:"), workflow.indexOf("  static:"));
+  const native = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
+  for (const job of [source, native]) {
+    expect(job).toContain("timeout-minutes: 20");
+    expect(job).toContain("needs['change-scope'].outputs.static_required == 'true'");
+    expect(job).not.toContain("continue-on-error");
+  }
+  expect(source).toContain("FORMAT_CHECK_SCOPE: full");
+  expect(source).toContain("run: pnpm run verify:static");
+  expect(native).toContain("needs: [change-scope, static-source]");
+  expect(native).toContain("if: always() && needs['change-scope'].result == 'success'");
+  expect(native).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs");
+  expect(native).toContain("name: Remove owned provider browser boundary\n        if: always()");
+  expect(native).toContain("name: Require full source checks\n        if: always()");
+  expect(native).toContain("SOURCE_RESULT: ${{ needs.static-source.result }}");
+  expect(native).toContain('run: test "$SOURCE_RESULT" = success');
+  expect(workflow).toContain('require_job "Static Checks" "${{ needs.static.result }}"');
+});
+
+it("missing-key survival binds its own pre-stimulus snapshot, not the preceding browser case", () => {
+  const controls = read("hosted-controls.mjs");
+  const missing = controls.slice(
+    controls.indexOf("async function missingOwnerKey("),
+    controls.indexOf("async function setupNamesAbsent("),
+  );
+  expect(missing).toContain("missingOwnerKey(contexts, mode)");
+  expect(missing).toContain("const owned = await tree();");
+  expect(missing.indexOf("const owned = await tree();")).toBeLessThan(missing.indexOf('await mutate("apply")'));
+  expect(missing).toContain('await ownerRefusal(contexts, owned, mode, "remove-ownership-census", "13d")');
+  expect(controls).toContain("assert.deepEqual(missing, []);");
+});

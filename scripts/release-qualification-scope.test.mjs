@@ -521,7 +521,7 @@ const freezeRows = [
 ];
 
 describe("reviewed-ruling applicability schema", () => {
-  it("AC1 preserves all four pre-edit ruling literals and only adds frozen grandfathering", () => {
+  it("AC1 preserves all four pre-edit ruling literals and pins the exact browser bootstrap ruling", () => {
     const rulings = releaseQualificationScopeRegistry.reviewedNonPersistentSurfaces;
     expect(
       rulings.map(({ pattern, expectedClass, rationale }) => ({ pattern: pattern.source, expectedClass, rationale })),
@@ -549,6 +549,12 @@ describe("reviewed-ruling applicability schema", () => {
         expectedClass: "isolated",
         rationale:
           "Import-to-promotion admin UI renders the import workflow; the import mutations live under the registered source-observations api surface.",
+      },
+      {
+        pattern: "^scripts\\/provider-object-disposition\\/browser-boundary\\/bootstrap\\.mjs$",
+        expectedClass: "not_applicable",
+        rationale:
+          "Memory-only browser bootstrap under parent-only exact GET; no persistent seed, import, reconciliation or environment mutation.",
       },
     ]);
     expect(Object.isFrozen(rulings)).toBe(true);
@@ -973,10 +979,54 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     );
     expect(misses).toEqual([]);
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 154,
-      persistentCount: 150,
-      ruledCount: 4,
+      discovered: 156,
+      persistentCount: 151,
+      ruledCount: 5,
     });
+  });
+
+  it("pins both browser bootstrap callers and discriminates the exact inventory ruling", () => {
+    const bootstrap = "scripts/provider-object-disposition/browser-boundary/bootstrap.mjs";
+    const controls = "scripts/provider-object-disposition/browser-boundary/bootstrap-controls.mjs";
+    const adjacent = "scripts/provider-object-disposition/browser-boundary/SYNTHETIC-bootstrap.mjs";
+    const classify = (filePath, readFileAt = realReadFileAt) =>
+      classifyReleaseQualificationScope({
+        base: DUMMY_BASE,
+        candidate: DUMMY_CANDIDATE,
+        changedFiles: [{ path: filePath, status: "modified" }],
+        readFileAt,
+        releaseWorkflowScriptReferences,
+        now: () => 1753100000000,
+      });
+    const rulings = releaseQualificationScopeRegistry.reviewedNonPersistentSurfaces;
+    const meetsInventory = (filePath, record, entries = rulings) => {
+      const expected = entries.find((entry) => entry.pattern.test(filePath))?.expectedClass ?? "persistent_required";
+      return record.class === expected || record.class === "persistent_required";
+    };
+    expect(discovered).toEqual(expect.arrayContaining([bootstrap, controls]));
+    const record = classify(bootstrap);
+    expect(record.class).toBe("not_applicable");
+    expect(classify(controls).class).toBe("persistent_required");
+    expect(rulings.some((entry) => entry.pattern.test(controls))).toBe(false);
+    expect(meetsInventory(bootstrap, record)).toBe(true);
+    expect(
+      meetsInventory(
+        bootstrap,
+        record,
+        rulings.filter((entry) => !entry.pattern.test(bootstrap)),
+      ),
+    ).toBe(false);
+    expect(pathTokenPattern.test(adjacent)).toBe(true);
+    expect(excludedPattern.test(adjacent)).toBe(false);
+    expect(
+      meetsInventory(
+        adjacent,
+        classify(adjacent, () => realReadFileAt("candidate", bootstrap)),
+      ),
+    ).toBe(false);
+    const persistent = classify(bootstrap, () => "CREATE TABLE synthetic_persistent_control (id integer);\n");
+    expect(persistent.class).toBe("persistent_required");
+    expect(meetsInventory(bootstrap, persistent)).toBe(true);
   });
 
   it.each([
