@@ -95,6 +95,7 @@ async function run() {
         control = "5-private-root";
         assert.equal(r.hostHelper, false);
         assert.equal(r.oldRootDetached, true);
+        assert.ok(["path-checked", "private-proc-fdinfo"].includes(r.rootObservation));
       }
       const parent = owned.find((p) => p.pid === r.parent);
       control = "11-binding";

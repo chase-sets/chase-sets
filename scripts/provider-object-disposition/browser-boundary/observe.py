@@ -13,6 +13,8 @@ sys.dont_write_bytecode = True
 from ownership import CensusError, bounded_read, parse_stat, snapshot
 
 stage = 'arguments'
+LAUNCHER = Path('/usr/local/lib/chase-sets-provider-window/launcher')
+FDINFO_ROOT = r'/proc/[0-9]+(?:/task/[0-9]+)?/fdinfo'
 
 
 def closed_errno(error):
@@ -35,7 +37,7 @@ def root_recheck(record):
         identity = 'unknown'
     try:
         link = os.readlink(path / 'root')
-        root = 'proc-fdinfo' if re.fullmatch(r'/proc/[0-9]+(?:/task/[0-9]+)?/fdinfo', link) else 'other'
+        root = 'proc-fdinfo' if re.fullmatch(FDINFO_ROOT, link) else 'other'
     except OSError:
         root = 'unreadable'
     try:
@@ -54,7 +56,8 @@ class RootInspectionError(Exception):
                 kind not in ('host-helper', 'old-root') or
                 any(type(n) is not int or not 0 <= n <= 9007199254740991 for n in numbers)):
             raise ValueError()
-        self.diagnostic = ':'.join((*map(str, numbers), image, kind, closed_errno(error), root_recheck(record)))
+        self.errno = closed_errno(error)
+        self.diagnostic = ':'.join((*map(str, numbers), image, kind, self.errno, root_recheck(record)))
         super().__init__()
 
 
@@ -63,6 +66,78 @@ def root_exists(path, record, kind):
         return path.exists()
     except OSError as error:
         raise RootInspectionError(record, kind, error) from None
+
+
+def same_identity(record):
+    path = Path('/proc') / str(record['pid'])
+    current = parse_stat(bounded_read(path / 'stat'), record['pid'])
+    image = (path / 'exe').stat()
+    return (current['start'] == record['start'] and current['parent'] == record['parent'] and
+            current['state'] != 'Z' and (image.st_dev, image.st_ino) == record['image'])
+
+
+def private_fdinfo_root(record, records):
+    # Chromium can chroot to a helper's proc fdinfo directory. After that helper
+    # exits, fdinfo permission returns ESRCH even while Chromium remains alive.
+    # A proc fdinfo directory has only numeric, regular-file children: neither
+    # usr nor old-root can exist. Bind its filesystem to the owned init's private
+    # proc mount, rather than treating ESRCH or a matching path alone as proof.
+    if Path(record['path']).name != 'chrome':
+        return False
+    try:
+        installed = LAUNCHER.stat()
+        launcher_image = (installed.st_dev, installed.st_ino)
+        current = record
+        visited = set()
+        while current['pid'] not in visited:
+            visited.add(current['pid'])
+            parent = records.get(current['parent'])
+            if parent is None or parent['start'] > current['start']:
+                return False
+            if parent['image'] == launcher_image and parent['path'] == str(LAUNCHER):
+                if parent['namespace'] == os.readlink('/proc/self/ns/pid') or not same_identity(parent):
+                    return False
+                init = parent
+                break
+            current = parent
+        else:
+            return False
+        root = Path('/proc') / str(record['pid']) / 'root'
+        link = os.readlink(root)
+        if not re.fullmatch(FDINFO_ROOT, link) or not same_identity(record):
+            return False
+        root_stat = root.stat()
+        proc = Path('/proc') / str(init['pid']) / 'root/proc'
+        proc_stat = proc.stat()
+        if not stat.S_ISDIR(root_stat.st_mode) or root_stat.st_dev != proc_stat.st_dev:
+            return False
+        mounts = bounded_read(Path('/proc') / str(init['pid']) / 'mountinfo').splitlines()
+        matches = []
+        for line in mounts:
+            before, after = line.split(' - ', 1)
+            fields, filesystem = before.split(), after.split()
+            if fields[4] == '/proc':
+                matches.append((fields[2], filesystem[0]))
+        device = f'{os.major(proc_stat.st_dev)}:{os.minor(proc_stat.st_dev)}'
+        if matches != [(device, 'proc')]:
+            return False
+        reread = root.stat()
+        return ((reread.st_dev, reread.st_ino) == (root_stat.st_dev, root_stat.st_ino) and
+                os.readlink(root) == link and same_identity(record) and same_identity(init))
+    except (CensusError, OSError, ValueError, KeyError, IndexError):
+        return False
+
+
+def inspect_root(record, records):
+    path = Path('/proc') / str(record['pid']) / 'root'
+    try:
+        helper = root_exists(path / 'usr/bin/sudo', record, 'host-helper')
+        detached = not root_exists(path / 'old-root/usr', record, 'old-root')
+        return dict(hostHelper=helper, oldRootDetached=detached, rootObservation='path-checked')
+    except RootInspectionError as error:
+        if error.errno != 'ESRCH' or not private_fdinfo_root(record, records):
+            raise
+        return dict(hostHelper=False, oldRootDetached=True, rootObservation='private-proc-fdinfo')
 
 
 def observe(parent):
@@ -101,8 +176,7 @@ def observe(parent):
         fields['network'] = 'host' if os.readlink(path / 'ns/net') == os.readlink('/proc/self/ns/net') else 'isolated'
         fields['pidNamespace'] = 'host' if os.readlink(path / 'ns/pid') == os.readlink('/proc/self/ns/pid') else 'isolated'
         stage = 'root'
-        fields['hostHelper'] = root_exists(path / 'root/usr/bin/sudo', r, 'host-helper')
-        fields['oldRootDetached'] = not root_exists(path / 'root/old-root/usr', r, 'old-root')
+        fields.update(inspect_root(r, records))
         result.append(dict(pid=pid, parent=r['parent'], start=r['start'], image=name, **fields))
     return result
 

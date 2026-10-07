@@ -4,7 +4,7 @@ import unittest
 import sys
 import io
 import errno
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from unittest import mock
 
 sys.dont_write_bytecode = True
@@ -125,6 +125,58 @@ class OwnershipControls(unittest.TestCase):
                 observer.RootInspectionError(changed, 'host-helper', OSError(errno.EACCES, 'PRIVATE'))
         with self.assertRaises(ValueError):
             observer.RootInspectionError(record(), 'PRIVATE', OSError(errno.EACCES, 'PRIVATE'))
+
+    def test_private_fdinfo_root_requires_owned_identity_proc_mount_and_exact_root(self):
+        parent = record(path=str(observer.LAUNCHER), namespace='pid:[2]')
+        chrome = record(pid=21, parent=20, start=101, image=(1, 3), path='/browser/chrome')
+        for mutation in ('none', 'mount-type', 'mount-device', 'duplicate-mount', 'root-device', 'root-link', 'identity', 'unowned', 'host-init'):
+            with self.subTest(mutation=mutation), ExitStack() as stack:
+                mount = '30 29 0:1 / /proc rw - proc proc rw\n'
+                if mutation == 'mount-type':
+                    mount = mount.replace(' - proc ', ' - tmpfs ')
+                if mutation == 'mount-device':
+                    mount = mount.replace('0:1', '0:2')
+                if mutation == 'duplicate-mount':
+                    mount += mount
+                records = {20: parent, 21: chrome} if mutation != 'unowned' else {21: chrome}
+                link = '/proc/7/fdinfo' if mutation != 'root-link' else '/PRIVATE'
+                def info(path):
+                    if path == observer.LAUNCHER:
+                        return mock.Mock(st_dev=1, st_ino=2)
+                    return mock.Mock(st_dev=3 if mutation == 'root-device' and path.name == 'root' else 2,
+                                     st_ino=4, st_mode=0o040755)
+                stack.enter_context(mock.patch.object(observer.Path, 'stat', autospec=True, side_effect=info))
+                stack.enter_context(mock.patch.object(observer.os, 'readlink', side_effect=lambda p: ('pid:[2]' if mutation == 'host-init' else 'pid:[1]') if str(p) == '/proc/self/ns/pid' else link))
+                stack.enter_context(mock.patch.object(observer, 'same_identity', return_value=mutation != 'identity'))
+                stack.enter_context(mock.patch.object(observer, 'bounded_read', return_value=mount))
+                stack.enter_context(mock.patch.object(observer.os, 'major', return_value=0, create=True))
+                stack.enter_context(mock.patch.object(observer.os, 'minor', return_value=1, create=True))
+                self.assertEqual(observer.private_fdinfo_root(chrome, records), mutation == 'none')
+
+    def test_private_root_never_converts_arbitrary_errno_or_missing_proof_to_absence(self):
+        for code, proved in ((errno.EACCES, True), (errno.ESRCH, False), (errno.EPERM, True)):
+            with self.subTest(code=code, proved=proved):
+                with mock.patch.object(observer.Path, 'exists', side_effect=OSError(code, 'PRIVATE')):
+                    with mock.patch.object(observer, 'root_recheck', return_value='same:proc-fdinfo:directory:none'):
+                        with mock.patch.object(observer, 'private_fdinfo_root', return_value=proved):
+                            with self.assertRaises(observer.RootInspectionError):
+                                observer.inspect_root(record(), {})
+
+    def test_private_fdinfo_proof_is_distinct_from_path_absence(self):
+        with mock.patch.object(observer.Path, 'exists', side_effect=OSError(errno.ESRCH, 'PRIVATE')):
+            with mock.patch.object(observer, 'root_recheck', return_value='same:proc-fdinfo:directory:none'):
+                with mock.patch.object(observer, 'private_fdinfo_root', return_value=True):
+                    self.assertEqual(observer.inspect_root(record(), {}), dict(hostHelper=False, oldRootDetached=True, rootObservation='private-proc-fdinfo'))
+
+    def test_identity_recheck_rejects_reuse_reparent_and_executable_drift(self):
+        for changes in ({}, {'start': 101}, {'parent': 2}, {'state': 'Z'}):
+            current = dict(start=100, parent=1, state='S')
+            current.update(changes)
+            with mock.patch.object(observer, 'bounded_read', return_value=''), mock.patch.object(observer, 'parse_stat', return_value=current):
+                with mock.patch.object(observer.Path, 'stat', return_value=mock.Mock(st_dev=1, st_ino=2)):
+                    self.assertEqual(observer.same_identity(record()), not changes)
+                with mock.patch.object(observer.Path, 'stat', return_value=mock.Mock(st_dev=1, st_ino=3)):
+                    self.assertFalse(observer.same_identity(record()))
 
 
 if __name__ == '__main__':
