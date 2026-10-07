@@ -39,7 +39,8 @@ describe("connector-feed-bootstrap-and-manifest", () => {
       { mountPath: "/channel-connector/oauth", contextMountOrdinal: 2 },
     ]);
     const credential = mounts.find((mount) => mount.mountPath === "/channel-connector/oauth");
-    expect(credential?.router.routes.filter((route) => route.method === "POST").map((route) => route.path)).toEqual([
+    if (!(credential?.router instanceof Hono)) throw new Error("missing-connector-router");
+    expect(credential.router.routes.filter((route) => route.method === "POST").map((route) => route.path)).toEqual([
       "/register",
       "/token",
       "/revoke",
@@ -48,7 +49,10 @@ describe("connector-feed-bootstrap-and-manifest", () => {
       "/connections/:connectionId/ingest",
     ]);
     const app = new Hono();
-    for (const mount of mounts) app.route(mount.mountPath, mount.router);
+    for (const mount of mounts) {
+      if (!(mount.router instanceof Hono)) throw new Error("invalid-context-router");
+      app.route(mount.mountPath, mount.router);
+    }
     const response = await app.request("/channel-connector/oauth/connections/connection_test/claim", {
       method: "POST",
       headers: { authorization: "Bearer synthetic-connector", "content-type": "application/json" },

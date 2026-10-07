@@ -260,13 +260,14 @@ describeDb("connector-ingest-replay / connector-ingest-admission-and-authority",
       ...status,
       order: 1,
       async runOnce() {
-        if (replayed) return { processed: 0, blockedStreams: 0, poisonEvents: 0 };
+        if (replayed)
+          return { processed: 0, lastGlobalPosition: status.lastGlobalPosition, blockedStreams: 0, poisonEvents: 0 };
         expect((await h.db.query("SELECT 1 FROM channel_connections")).rows).toEqual([]);
         expect((await h.effects()).e1).toEqual(before.e1);
         resetObserved += 1;
         await h.projectConnection();
         replayed = true;
-        return { processed: 1, blockedStreams: 0, poisonEvents: 0 };
+        return { processed: 1, lastGlobalPosition: status.lastGlobalPosition, blockedStreams: 0, poisonEvents: 0 };
       },
       getStatus: () => status,
       refreshStatus: async () => status,

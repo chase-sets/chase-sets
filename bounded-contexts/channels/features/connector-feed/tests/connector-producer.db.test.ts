@@ -62,6 +62,7 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
         connectionId: target.connectionId,
         claimant: { claimantKind: "connector", claimantId: h.pairingId },
         leaseMs: 1_800_000,
+        manualClaimLeasePolicySnapshot: null,
         resolvedPolicy: { maxRowsPerBatch: 100 },
         composedAt: new Date().toISOString(),
       },
