@@ -122,8 +122,12 @@ describeDb("staging-proof-credit atomicity and interleavings on real Postgres", 
       ).rejects.toThrow("proof_pin_immutable");
     }
     await expect(
-      s.policies.createPolicyDocument(stagingProofCreditPolicy, policyParams(otherAccountId), context),
-    ).rejects.toThrow();
+      s.policies.createPolicyDocument(
+        stagingProofCreditPolicy,
+        policyParams(pin.proofAccountId === accountId ? otherAccountId : accountId),
+        context,
+      ),
+    ).rejects.toThrow("proof_pin_immutable");
     await expect(
       s.policies.createPolicyDocumentWithId(
         stagingProofCreditPolicy,
@@ -209,7 +213,7 @@ describeDb("staging-proof-credit atomicity and interleavings on real Postgres", 
     const receipts = await Promise.all(
       Array.from({ length: 4 }, () => s.stagingProofCredits.post(input, actor(), context)),
     );
-    expect(new Set(receipts.map((r) => JSON.stringify(r))).size).toBe(1);
+    for (const receipt of receipts) expect(receipt).toEqual(receipts[0]);
     await s.wallets.postEntry(
       {
         accountId,
