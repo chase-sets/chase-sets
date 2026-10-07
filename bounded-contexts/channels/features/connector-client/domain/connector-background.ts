@@ -200,6 +200,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         const response = await ports.transport.request(
           new Request(`${origin.origin}/channel-connector/oauth/revoke`, {
             method: "POST",
+            redirect: "error",
             headers: {
               "Content-Type": "application/json",
               "X-Channel-Connection-Id": captured.credential.connectionId,
@@ -237,10 +238,17 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       if ((await advance(profile, "pairing-pending")) !== "committed") return null;
       await ports.alarms.clear(workAlarm);
       const fence = (await custody.capture(null)).fence;
-      const session = await createPairingSession(ports.clock.now());
-      await ports.session.set({ [pairingSessionKey]: session });
-      await display();
-      return { fence, session };
+      try {
+        const session = await createPairingSession(ports.clock.now());
+        await ports.session.set({ [pairingSessionKey]: session });
+        await display();
+        return { fence, session };
+      } catch {
+        const pending = await current(fence);
+        if (pending) await cleanup(pending, "unpaired", "unpair");
+        await display();
+        return null;
+      }
     });
     if (!pending) return;
     try {
@@ -275,6 +283,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       const response = await ports.transport.request(
         new Request(`${origin.origin}/channel-connector/oauth/token`, {
           method: "POST",
+          redirect: "error",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(input),
         }),

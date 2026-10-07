@@ -6,6 +6,23 @@ import { pairingSessionKey, pollWindow } from "../domain/connector-pairing";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "../domain/identity";
 
 describe("extension-security-day-after", () => {
+  it("pairing session-write failure ends pairing without opening authorization", async () => {
+    const f = backgroundFixture("unpaired");
+    vi.mocked(f.session.ports.local.set).mockRejectedValueOnce(new Error("session write failed"));
+    await f.command("start-pairing");
+    expect((await f.background.status()).state).toBe("unpaired");
+    expect(f.ports.identity.launchWebAuthFlow).not.toHaveBeenCalled();
+    expect(f.ports.transport.request).not.toHaveBeenCalled();
+    expect(f.session.rows()[pairingSessionKey]).toBeUndefined();
+  });
+  it("credential transport refuses redirects rather than forwarding credentials", async () => {
+    const f = backgroundFixture("unpaired");
+    await f.command("start-pairing");
+    await f.command("unpair");
+    const requests = vi.mocked(f.ports.transport.request).mock.calls.map(([request]) => request);
+    expect(requests).toHaveLength(2);
+    for (const request of requests) expect(request.redirect).toBe("error");
+  });
   it("pending action is a no-op and restart fences a late successful authorization", async () => {
     const f = backgroundFixture("unpaired");
     const callback = deferred<string>();
