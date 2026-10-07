@@ -70,9 +70,15 @@ jobs:
       EVIDENCE_DIR: artifacts/wake-drills/mixed-version
     steps:
       - name: Confirm mixed-version evidence evaluation
+        env:
+          PLATFORM_DEPLOY_RUN_ID: ${{ inputs.platform_deploy_run_id }}
         run: |
           set -euo pipefail
-          echo "Evaluating mixed-version wake evidence for deploy run ${{ inputs.platform_deploy_run_id }}."
+          [[ "$PLATFORM_DEPLOY_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "Platform deploy run id must contain only decimal digits and cannot be empty." >&2
+            exit 1
+          }
+          echo "Evaluating mixed-version wake evidence for deploy run $PLATFORM_DEPLOY_RUN_ID."
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -90,22 +96,38 @@ jobs:
           install: true
 
       - name: Download source evidence
+        env:
+          PLATFORM_DEPLOY_RUN_ID: ${{ inputs.platform_deploy_run_id }}
+          WAKE_DRILL_RUN_ID: ${{ inputs.wake_drill_run_id }}
+          SECONDARY_WAKE_DRILL_RUN_ID: ${{ inputs.secondary_wake_drill_run_id }}
         run: |
           set -euo pipefail
+          [[ "$PLATFORM_DEPLOY_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "Platform deploy run id must contain only decimal digits and cannot be empty." >&2
+            exit 1
+          }
+          [[ "$WAKE_DRILL_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "Wake drill run id must contain only decimal digits and cannot be empty." >&2
+            exit 1
+          }
+          [[ "$SECONDARY_WAKE_DRILL_RUN_ID" =~ ^([0-9]+)?$ ]] || {
+            echo "Secondary wake drill run id must be empty or contain only decimal digits." >&2
+            exit 1
+          }
           mkdir -p "$EVIDENCE_DIR/platform-deploy" "$EVIDENCE_DIR/wake-primary"
 
-          gh run view "${{ inputs.platform_deploy_run_id }}" \
+          gh run view "$PLATFORM_DEPLOY_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --json databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs \
             > "$EVIDENCE_DIR/platform-deploy/platform-deploy-run.json"
 
-          gh run download "${{ inputs.wake_drill_run_id }}" \
+          gh run download "$WAKE_DRILL_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --dir "$EVIDENCE_DIR/wake-primary"
 
-          if [ -n "${{ inputs.secondary_wake_drill_run_id }}" ]; then
+          if [ -n "$SECONDARY_WAKE_DRILL_RUN_ID" ]; then
             mkdir -p "$EVIDENCE_DIR/wake-secondary"
-            gh run download "${{ inputs.secondary_wake_drill_run_id }}" \
+            gh run download "$SECONDARY_WAKE_DRILL_RUN_ID" \
               --repo "$GITHUB_REPOSITORY" \
               --dir "$EVIDENCE_DIR/wake-secondary"
           fi

@@ -54,10 +54,10 @@ jobs:
           PLATFORM_IMAGE_DIGEST: ${{ inputs.platform_image_digest }}
         run: |
           set -euo pipefail
-          if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
             echo "Advisory evidence requires a full release commit SHA." >&2
             exit 1
-          fi
+          }
           if ! [[ "$PLATFORM_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Advisory evidence requires an immutable platform image digest." >&2
             exit 1

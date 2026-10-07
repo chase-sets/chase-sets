@@ -83,15 +83,15 @@ jobs:
           if [ -z "$TARGET_SHA" ]; then
             fail "target_sha is required and cannot be empty."
           fi
-          if ! printf '%s' "$TARGET_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             fail "target_sha must be a lowercase 40-character hexadecimal commit SHA (received '$TARGET_SHA')."
-          fi
+          }
           if [ -z "$EXPECTED_BASE_SHA" ]; then
             fail "expected_base_sha is required and cannot be empty."
           fi
-          if ! printf '%s' "$EXPECTED_BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+          [[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             fail "expected_base_sha must be a lowercase 40-character hexadecimal commit SHA (received '$EXPECTED_BASE_SHA')."
-          fi
+          }
 
           git init --quiet
           git remote add origin "$REPOSITORY_URL"
