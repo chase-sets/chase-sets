@@ -92,3 +92,16 @@ it("native inputs remain exact-head while shared Static retains PR merge-ref pro
   expect(job).toContain("BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}");
   expect(job).not.toContain("          ref:");
 });
+
+it("missing-key survival binds its own pre-stimulus snapshot, not the preceding browser case", () => {
+  const controls = read("hosted-controls.mjs");
+  const missing = controls.slice(
+    controls.indexOf("async function missingOwnerKey("),
+    controls.indexOf("async function setupNamesAbsent("),
+  );
+  expect(missing).toContain("missingOwnerKey(contexts, mode)");
+  expect(missing).toContain("const owned = await tree();");
+  expect(missing.indexOf("const owned = await tree();")).toBeLessThan(missing.indexOf('await mutate("apply")'));
+  expect(missing).toContain('await ownerRefusal(contexts, owned, mode, "remove-ownership-census", "13d")');
+  expect(controls).toContain("assert.deepEqual(missing, []);");
+});

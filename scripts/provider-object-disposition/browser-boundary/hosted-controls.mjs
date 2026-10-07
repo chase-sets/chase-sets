@@ -142,7 +142,9 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
   pass(`${id} ${mode} refusal${contexts.length ? " and functional survival" : ""}`);
 }
 
-async function missingOwnerKey(contexts, owned, mode) {
+async function missingOwnerKey(contexts, mode) {
+  control = `13d-${mode}-identity-baseline`;
+  const owned = await tree();
   const stimulus = `${input}/scripts/provider-object-disposition/browser-boundary/hosted-stimulus.py`;
   const mutate = async (action) => {
     const { stdout, stderr } = await execute("/usr/bin/sudo", ["-n", "/usr/bin/python3", stimulus, action], {
@@ -209,7 +211,7 @@ async function run() {
   }
   pass("1 CP-T/CP-A");
   control = "13d-missing-key-alone";
-  await missingOwnerKey([], [], "alone");
+  await missingOwnerKey([], "alone");
   control = "5-launch";
   const browser = await openConfinedBrowser();
   let owned = [];
@@ -252,7 +254,7 @@ async function run() {
     control = "13b-live-owner";
     await ownerRefusal([context], owned, "single-live", "remove-live-owner", "13b");
     control = "13d-missing-key-concurrent";
-    await missingOwnerKey([context], owned, "concurrent-live");
+    await missingOwnerKey([context], "concurrent-live");
     control = "13b-concurrent-live";
     concurrent = await openConfinedBrowser();
     const concurrentContext = await concurrent.newContext();
