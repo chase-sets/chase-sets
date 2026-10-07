@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { defineFormAction } from "@chase-sets/platform-runtime/http";
+import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
@@ -35,17 +36,20 @@ export function resolveSettlementMarketplaceOrigin() {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const actor = await resolveActorFromAuthApi({ request });
+  const canReconcile = actor?.permissions.includes("payouts.reconcile") ?? false;
   const settlementApi = createSettlementRequestApiClient(request);
   const requestUrl = new URL(request.url);
   const filter = requestUrl.searchParams.get("filter") ?? "all";
   const query = filter === "all" ? "" : `filter=${encodeURIComponent(filter)}`;
   const [payouts, idempotencyKeys, payoutReadiness] = await Promise.all([
     settlementApi.listPayoutsNeedingReconciliation(query),
-    settlementApi.listPayoutProviderIdempotencyKeys("limit=10"),
-    settlementApi.getPayoutReadiness(),
+    canReconcile ? settlementApi.listPayoutProviderIdempotencyKeys("limit=10") : null,
+    canReconcile ? settlementApi.getPayoutReadiness() : null,
   ]);
 
   return {
+    canReconcile,
     payouts,
     idempotencyKeys,
     payoutReadiness,
@@ -73,8 +77,9 @@ export default function AdminPayoutOperationsRoute() {
   return (
     <SettlementPayoutOperationsPage
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
-      idempotencyKeys={(data.idempotencyKeys.items ?? []) as SettlementProviderIdempotencyKeyRow[]}
-      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
+      canReconcile={data.canReconcile}
+      idempotencyKeys={data.idempotencyKeys?.items as SettlementProviderIdempotencyKeyRow[] | undefined}
+      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow | null}
       runResult={actionData}
       currentFilter={data.filter}
       lastCheckedAt={actionData ? new Date().toISOString() : null}

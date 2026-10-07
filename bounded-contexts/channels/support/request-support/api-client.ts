@@ -47,7 +47,9 @@ export function createChannelsConnectionsRequestApiClient(request: Request) {
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
     const body: unknown = await response.json().catch(() => null);
-    if (!response.ok) throw new ChannelsConnectionsApiError(response.status, body);
+    if (!response.ok || body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new ChannelsConnectionsApiError(response.status, body);
+    }
     return body as T;
   }
   return {

@@ -411,6 +411,10 @@ function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
   );
 }
 
+function fulfillmentPreviewRevisionRequired() {
+  return new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+}
+
 async function recordCheckoutFulfillmentPreviewSnapshot(
   request: Request,
   services: CheckoutSessionServices,
@@ -431,12 +435,13 @@ async function recordCheckoutFulfillmentPreviewSnapshot(
       shippingOption: options.shippingOption,
       shippingAddress: options.shippingAddress,
     }));
-  const fulfillmentPreviewRevision = String(
-    options.fulfillmentPreviewRevision ?? calculatedSnapshot?.revision ?? "",
-  ).trim();
+  // A blank caller revision falls back to the server-calculated revision, never to a caller-supplied snapshot's.
+  const fulfillmentPreviewRevision =
+    options.fulfillmentPreviewRevision?.trim() ||
+    (suppliedSnapshot ? "" : String(calculatedSnapshot?.revision ?? "").trim());
 
   if (!fulfillmentPreviewRevision) {
-    throw new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+    throw fulfillmentPreviewRevisionRequired();
   }
 
   return services.recordFulfillmentPreview(
@@ -1087,7 +1092,7 @@ export function createAccountCheckoutSessionRoutes(
     const parsedBody = await c.req.json().catch(() => ({}));
     const body = parsedBody && typeof parsedBody === "object" ? (parsedBody as Record<string, unknown>) : {};
     const fulfillmentPreviewRevision =
-      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : "";
+      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision.trim() : "";
 
     try {
       const session = await services.getSession(sessionId, access.actor.accountId);
@@ -1105,6 +1110,9 @@ export function createAccountCheckoutSessionRoutes(
 
       const suppliedPreview = body.fulfillmentPreviewSnapshot ?? body.fulfillmentPreview;
       const hasReviewInput = "shippingOption" in body || "shippingAddress" in body;
+      if (!fulfillmentPreviewRevision && !hasReviewInput) {
+        throw fulfillmentPreviewRevisionRequired();
+      }
       const result =
         fulfillmentPreviewRevision && !suppliedPreview && !hasReviewInput
           ? await services.recordFulfillmentPreview(

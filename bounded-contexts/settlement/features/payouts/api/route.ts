@@ -12,6 +12,7 @@ function requirePayoutAccess(
     get(key: "actor"): SettlementApiEnv["Variables"]["actor"];
   },
   permission: "payouts.view" | "payouts.request" | "payouts.reconcile" | "payouts.manage",
+  allowPlatformRead = false,
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -32,7 +33,8 @@ function requirePayoutAccess(
     };
   }
 
-  if (!actor.permissions.includes(permission)) {
+  const platformRead = allowPlatformRead && actor.permissions.includes("payouts.platform.view");
+  if (!platformRead && !actor.permissions.includes(permission)) {
     return {
       actor: null,
       response: new Response(
@@ -47,7 +49,7 @@ function requirePayoutAccess(
     };
   }
 
-  return { actor, response: null };
+  return { actor, accountId: platformRead ? null : actor.accountId, response: null };
 }
 
 function errorMessage(error: unknown) {
@@ -129,14 +131,14 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/payouts/reconciliation", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
 
     const limit = Number(c.req.query("limit") ?? 100);
     const filter = c.req.query("filter") ?? null;
-    const items = await services.listPayoutsNeedingReconciliation({ accountId: access.actor.accountId, limit, filter });
+    const items = await services.listPayoutsNeedingReconciliation({ accountId: access.accountId, limit, filter });
 
     return c.json({
       items,
@@ -146,7 +148,7 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/payouts/reconciliation/runs", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
@@ -173,7 +175,7 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/payouts/platform-balance-forecast", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
@@ -217,14 +219,14 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/money-health", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
 
     const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth, negativeBalanceAccounts] =
       await Promise.all([
-        services.listPayoutsNeedingReconciliation({ accountId: access.actor.accountId, limit: 25 }),
+        services.listPayoutsNeedingReconciliation({ accountId: access.accountId, limit: 25 }),
         services.listReconciliationRuns({ limit: 10 }),
         services.getPlatformBalanceForecast({ currencyCode: "usd" }),
         services.getProviderHealth(),
@@ -242,7 +244,7 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/provider-health", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
@@ -277,13 +279,13 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/payouts/reconciliation/jobs/:jobId", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
 
     const job = await services.getPayoutReconciliationJob(c.req.param("jobId"));
-    if (!job || job.payload.accountId !== access.actor.accountId) {
+    if (!job || (access.accountId !== null && job.payload.accountId !== access.accountId)) {
       return c.json(
         { error: { code: "not_found", message: t("settlement.features.payouts.api.route.job.not.found") } },
         404,
@@ -294,14 +296,14 @@ export function createPayoutRoutes(services: PayoutServices) {
   });
 
   app.get("/payouts/reconciliation/jobs/:jobId/events", async (c) => {
-    const access = requirePayoutAccess(c, "payouts.reconcile");
+    const access = requirePayoutAccess(c, "payouts.reconcile", true);
     if (access.response) {
       return access.response;
     }
 
     const jobId = c.req.param("jobId");
     const job = await services.getPayoutReconciliationJob(jobId);
-    if (!job || job.payload.accountId !== access.actor.accountId) {
+    if (!job || (access.accountId !== null && job.payload.accountId !== access.accountId)) {
       return c.json(
         { error: { code: "not_found", message: t("settlement.features.payouts.api.route.job.not.found") } },
         404,
@@ -320,7 +322,9 @@ export function createPayoutRoutes(services: PayoutServices) {
         })),
       loadCurrentSnapshot: async () => {
         const current = await services.getPayoutReconciliationJob(jobId);
-        return current?.payload.accountId === access.actor.accountId ? toPayoutReconciliationJobStatus(current) : null;
+        return current && (access.accountId === null || current.payload.accountId === access.accountId)
+          ? toPayoutReconciliationJobStatus(current)
+          : null;
       },
       waitForEvents: (_afterSequence, signal) => services.waitForPayoutReconciliationJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",

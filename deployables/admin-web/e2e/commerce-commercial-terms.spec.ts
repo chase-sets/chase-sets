@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
-  authenticateAdmin,
+  authenticatePlatformAdmin,
   expectAdminPageReady,
   expectPageOk,
   skipDeployedAdminE2e,
@@ -18,7 +18,7 @@ test.describe("commerce admin commercial terms", () => {
       "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
     );
 
-    await authenticateAdmin(page, "/commerce/terms", "/access/sign-in");
+    await authenticatePlatformAdmin(page, "/commerce/terms", "/access/sign-in");
     const suffix = Date.now().toString(36);
     await expectScheduleOverlapValidation(page, suffix);
     await createInactiveScheduleAndInspectHistory(page, suffix);

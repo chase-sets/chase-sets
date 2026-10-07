@@ -26,6 +26,7 @@ import {
   mockPublishListing,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockRemoveGuestSellListLine,
   readySellListReadinessResponse,
 } from "../tests/support/checkout-route-test-harness";
 
@@ -334,6 +335,8 @@ describe("checkout web routes: sell checkout session", () => {
     return form;
   }
 
+  const mockRemoveSellListLine = vi.fn();
+
   function mockSignedInSellCheckoutState() {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -341,6 +344,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      removeSellListLine: mockRemoveSellListLine,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
@@ -612,11 +616,53 @@ describe("checkout web routes: sell checkout session", () => {
         context: undefined,
       } as never);
       expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+      const detail =
+        "Acerola's Mischief: this Offer needs current pricing terms. Refresh the Match and review price, fees and evidence. Your Sell List selection was kept.";
+      expect(result).toMatchObject({ fieldErrors: { form: detail }, recovery: { detail } });
       expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
       expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
       expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+      expect(mockRemoveSellListLine).not.toHaveBeenCalled();
+      expect(mockRemoveGuestSellListLine).not.toHaveBeenCalled();
+      for (const key of [
+        "buyerOfferPolicyId",
+        "buyer_offer_policy_id",
+        "authority",
+        "preview",
+        "maximumUnitItemAmount",
+        "adjustmentBps",
+        "itemCommitmentAllowance",
+        "consumedItemAmount",
+        "remainingItemAllowance",
+      ])
+        expect(JSON.stringify(result)).not.toContain(`"${key}"`);
     },
   );
+
+  it("keeps the generic refresh message for fee_quote_stale", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockRejectedValueOnce(
+      new MockMarketplaceApiError(409, { error: { code: "fee_quote_stale" } }),
+    );
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    const detail = "Acerola's Mischief: offer terms need refresh.";
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { form: detail },
+      recovery: { kind: "readiness-stale", detail },
+    });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRemoveSellListLine).not.toHaveBeenCalled();
+  });
 
   it("surfaces a re-review recovery when Marketplace reports incomplete Listing Evidence at acceptance", async () => {
     mockSignedInSellCheckoutState();

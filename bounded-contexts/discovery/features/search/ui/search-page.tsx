@@ -1019,7 +1019,7 @@ export function SearchPage({
         {error ? (
           <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
         ) : null}
-        {bulkAdd?.error ? (
+        {bulkAdd?.error && !(bulkSheetOpen && bulkPreview) ? (
           <Banner
             tone="danger"
             title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
@@ -1341,6 +1341,13 @@ export function SearchPage({
           }
         >
           <Stack gap={4}>
+            {bulkAdd.error ? (
+              <Banner
+                tone="danger"
+                title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
+                description={bulkAdd.error}
+              />
+            ) : null}
             {bulkPreview.overLimit ? (
               <Banner
                 tone="warning"

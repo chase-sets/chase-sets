@@ -1,52 +1,81 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IdentityServices } from "../support/runtime-support/services";
 import {
   ADMIN_QA_ACTOR_FIXTURES,
   provisionAdminQaActorFixtures,
 } from "../support/runtime-support/admin-qa-actor-fixtures";
 
+// A forced Consent admission would read the activation authority; the spy
+// makes that read observable instead of letting it silently resolve.
+const activationAuthorityReads = vi.hoisted(() => vi.fn());
+vi.mock("@chase-sets/platform-policy/consent-activation-authority", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/platform-policy/consent-activation-authority")>()),
+  readConsentActivationAuthority: activationAuthorityReads,
+}));
+
 type CommandEnvelope = Readonly<{
   streamId?: unknown;
   command?: unknown;
 }>;
 
-function createCommandRecorder() {
+function createCommandRecorder(existingIds: Set<string>, idKey: "accountId" | "userId" | "membershipId") {
   const records: CommandEnvelope[] = [];
   const handler = vi.fn(async (envelope: unknown) => {
     records.push(envelope as CommandEnvelope);
+    const id = ((envelope as CommandEnvelope).command as Record<string, unknown> | undefined)?.[idKey];
+    if (typeof id === "string") existingIds.add(id);
     return { version: 1, state: {} };
   });
 
   return { handler, records };
 }
 
-function createServices(existingIds: ReadonlySet<string> = new Set()) {
-  const accounts = createCommandRecorder();
-  const users = createCommandRecorder();
-  const memberships = createCommandRecorder();
-  const consents = createCommandRecorder();
+/**
+ * The fake exposes no Consent service at all, so a restored Consent write
+ * throws instead of being recorded. Committed commands land in `existingIds`,
+ * which stands in for the retained projection the fixture's existence checks
+ * read, so a later run over the same set observes the earlier run's state.
+ */
+function createServices(existingIds: Set<string> = new Set()) {
+  const accounts = createCommandRecorder(existingIds, "accountId");
+  const users = createCommandRecorder(existingIds, "userId");
+  const memberships = createCommandRecorder(existingIds, "membershipId");
+  const queriedTables: string[] = [];
 
   return {
     services: {
       accounts: { commandHandler: accounts.handler },
       users: { commandHandler: users.handler },
       memberships: { commandHandler: memberships.handler },
-      consents: { commandHandler: consents.handler },
       db: {
-        query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
+        query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+          queriedTables.push(/FROM (\w+)/.exec(sql)?.[1] ?? sql);
           const value = String(params?.[0] ?? "");
           return { rows: existingIds.has(value) ? [{ exists: true }] : [] };
         }),
       },
     } as unknown as IdentityServices,
+    queriedTables,
     records: {
       accounts: accounts.records,
       users: users.records,
       memberships: memberships.records,
-      consents: consents.records,
     },
   };
 }
+
+function createdFlags(results: Awaited<ReturnType<typeof provisionAdminQaActorFixtures>>) {
+  return results.map(({ actorAlias, createdAccount, createdUser, createdMembership }) => [
+    actorAlias,
+    createdAccount,
+    createdUser,
+    createdMembership,
+  ]);
+}
+
+afterEach(() => {
+  activationAuthorityReads.mockClear();
+});
 
 describe("admin-qa actor fixtures", () => {
   it("defines exactly the actor aliases and sign-in hosts the staging QA actor matrix requires", () => {
@@ -127,12 +156,7 @@ describe("admin-qa actor fixtures", () => {
 
   it("is idempotent: skips already-provisioned fixtures", async () => {
     const { services, records } = createServices(
-      new Set([
-        "acc_admin_qa_platform_admin",
-        "usr_admin_qa_platform_admin",
-        "mbr_admin_qa_platform_admin",
-        "cns_admin_qa_platform_admin",
-      ]),
+      new Set(["acc_admin_qa_platform_admin", "usr_admin_qa_platform_admin", "mbr_admin_qa_platform_admin"]),
     );
 
     const results = await provisionAdminQaActorFixtures(services);
@@ -142,7 +166,6 @@ describe("admin-qa actor fixtures", () => {
       createdAccount: false,
       createdUser: false,
       createdMembership: false,
-      createdConsent: false,
     });
     expect(records.accounts).toHaveLength(5);
     expect(records.memberships).toHaveLength(5);
@@ -159,7 +182,6 @@ describe("admin-qa actor fixtures", () => {
           "actorAlias",
           "capabilities",
           "createdAccount",
-          "createdConsent",
           "createdMembership",
           "createdUser",
           "roleKey",
@@ -171,5 +193,58 @@ describe("admin-qa actor fixtures", () => {
     expect(serialized).not.toContain("@chasesets.test");
     expect(serialized).not.toContain("acc_admin_qa");
     expect(serialized).not.toContain("usr_admin_qa");
+  });
+
+  it("records no Consent and reads no activation authority across clean, repeated, retained and interrupted runs", async () => {
+    const retained = new Set<string>();
+    const boot = createServices(retained);
+    const allCreated = ADMIN_QA_ACTOR_FIXTURES.map(({ actorAlias }) => [actorAlias, true, true, true]);
+    const noneCreated = ADMIN_QA_ACTOR_FIXTURES.map(({ actorAlias }) => [actorAlias, false, false, false]);
+
+    // Clean boot, then a repeat inside the same boot.
+    expect(createdFlags(await provisionAdminQaActorFixtures(boot.services))).toEqual(allCreated);
+    expect(createdFlags(await provisionAdminQaActorFixtures(boot.services))).toEqual(noneCreated);
+    expect([boot.records.accounts, boot.records.users, boot.records.memberships].map((list) => list.length)).toEqual([
+      6, 12, 6,
+    ]);
+
+    // A fresh boot over the retained state authors nothing.
+    const rerun = createServices(retained);
+    expect(createdFlags(await provisionAdminQaActorFixtures(rerun.services))).toEqual(noneCreated);
+    expect([rerun.records.accounts, rerun.records.users, rerun.records.memberships].flat()).toEqual([]);
+
+    // A run interrupted after one Account resumes only that actor's User and Membership.
+    const interrupted = createServices(new Set(["acc_admin_qa_owner"]));
+    const resumed = createdFlags(await provisionAdminQaActorFixtures(interrupted.services));
+    expect(resumed.find(([actorAlias]) => actorAlias === "admin-qa-owner")).toEqual([
+      "admin-qa-owner",
+      false,
+      true,
+      true,
+    ]);
+    expect(interrupted.records.accounts).toHaveLength(5);
+    expect(interrupted.records.memberships).toHaveLength(6);
+
+    for (const run of [boot, rerun, interrupted]) {
+      expect(new Set(run.queriedTables)).toEqual(
+        new Set(["identity_accounts", "identity_users", "identity_memberships"]),
+      );
+      expect(JSON.stringify(run.records)).not.toMatch(/consent/i);
+    }
+    expect(activationAuthorityReads).not.toHaveBeenCalled();
+  });
+
+  it("would observe a restored Consent write and a forced activation-authority read", async () => {
+    const { services } = createServices();
+    // A restored write reaches for a Consent service the fake does not provide.
+    expect(() => (services as unknown as { consents: { commandHandler: unknown } }).consents.commandHandler).toThrow(
+      TypeError,
+    );
+
+    // A forced read through the real import specifier lands on the spy, so the
+    // zero-read assertion above is backed by a live observer.
+    const { readConsentActivationAuthority } = await import("@chase-sets/platform-policy/consent-activation-authority");
+    await readConsentActivationAuthority(undefined as never, "identity.terms-of-service-active-version" as never);
+    expect(activationAuthorityReads).toHaveBeenCalledTimes(1);
   });
 });

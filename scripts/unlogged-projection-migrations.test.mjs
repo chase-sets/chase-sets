@@ -40,6 +40,7 @@ const durableTables = [
   "payments_support_refund_effects",
   "payments_provider_idempotency_keys",
   "payments_provider_operations",
+  "payments_wallet_funding_creation_reservations",
   "payments_provider_webhook_events",
   "settlement_provider_idempotency_keys",
   "settlement_provider_operations",

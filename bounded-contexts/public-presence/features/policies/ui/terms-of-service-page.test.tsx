@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import { requiredTermsOfServiceSubjectIds } from "../domain/terms-of-service";
+import { requiredTermsOfServiceSubjectIds, termsOfServicePolicyArtifact } from "../domain/terms-of-service";
 import { TermsOfServicePage } from "./terms-of-service-page";
 
 function renderPage() {
@@ -49,5 +49,41 @@ describe("Terms of Service publication page", () => {
     await user.click(screen.getByRole("button", { name: "Print terms" }));
 
     expect(print).toHaveBeenCalledOnce();
+  });
+
+  it("links every policy reference inside its unchanged operative Terms paragraph, not just the footer", () => {
+    renderPage();
+    const article = screen.getByRole("article");
+    const referencesBySection: Record<string, readonly string[]> = {
+      "conduct-and-policy-incorporation": [
+        "seller-agreement",
+        "payments-terms",
+        "agent-terms",
+        "authenticity-terms",
+        "privacy",
+        "founders",
+      ],
+      "electronic-agents-and-automated-access": ["agent-terms"],
+      "disclaimers-and-liability-limits": ["authenticity-terms"],
+    };
+
+    for (const section of termsOfServicePolicyArtifact.sections) {
+      const region = within(article).getByRole("region", { name: section.title });
+      const paragraph = region.querySelector("p");
+      if (section.draftText.trim().length === 0) continue;
+      expect(paragraph?.textContent, section.id).toBe(section.draftText);
+      const expectedSlugs = referencesBySection[section.id] ?? [];
+      const links = within(paragraph!).queryAllByRole("link");
+      expect(
+        links.map((link) => [link.textContent, link.getAttribute("href")]),
+        section.id,
+      ).toEqual(expectedSlugs.map((slug) => [`chasesets.com/${slug}`, `/${slug}`]));
+    }
+    expect(within(article).getAllByRole("link")).toHaveLength(8);
+    expect(article.textContent).toContain("chasesets.com/developers");
+    expect(within(article).queryByRole("link", { name: "chasesets.com/developers" })).toBeNull();
+    expect(within(article).getAllByText("Counsel-approved language required")).toHaveLength(
+      requiredTermsOfServiceSubjectIds.length,
+    );
   });
 });

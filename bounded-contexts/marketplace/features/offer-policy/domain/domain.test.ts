@@ -9,6 +9,7 @@ import {
 import { buyerOfferPolicyCodec } from "./codec";
 import {
   assertBuyerOfferPolicyAdmission,
+  assertBuyerOfferPolicySelection,
   decideBuyerOfferPolicy,
   evolveBuyerOfferPolicy,
   initialBuyerOfferPolicyState,
@@ -43,6 +44,40 @@ const commands: Record<string, BuyerOfferPolicyCommand> = {
   stop: { type: "StopBuyerOfferPolicy", audit },
 };
 describe("Buyer Offer Policy lifecycle", () => {
+  it("compares option tuples independent of persisted object key order without relaxing selection", async () => {
+    const { store } = await fixture();
+    const state = (await store.readStream({ streamId: "marketplace.offer-off_one" }))
+      .map(createPassthroughDomainEventCodec<MarketplaceOfferEvent>().decode)
+      .reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
+    const selectedOptions = [
+      { dimensionId: "dim_condition", optionId: "opt_excellent" },
+      { dimensionId: "dim_form", optionId: "opt_regular" },
+    ];
+    const storedOptions = selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId }));
+    const selection = { ...terms, offers: [{ ...terms.offers[0]!, selectedOptions }] };
+    const offers = [{ state: { ...state, selectedOptions: storedOptions }, version: 1 }];
+    const check = (options: typeof selectedOptions) =>
+      assertBuyerOfferPolicySelection(
+        "bop_one",
+        "acc_buyer",
+        {
+          ...selection,
+          offers: [{ ...selection.offers[0]!, selectedOptions: options }],
+        },
+        offers,
+      );
+
+    expect(() => check(selectedOptions)).not.toThrow();
+    for (const options of [
+      [{ ...selectedOptions[0]!, optionId: "opt_other" }, selectedOptions[1]!],
+      [{ ...selectedOptions[0]!, dimensionId: "dim_other" }, selectedOptions[1]!],
+      [selectedOptions[0]!],
+      [...selectedOptions, { dimensionId: "dim_extra", optionId: "opt_extra" }],
+    ]) {
+      expect(() => check(options)).toThrow("Offer options must match exactly.");
+      expect(() => check(options)).toThrow(expect.objectContaining({ code: "invalid_authority" }));
+    }
+  });
   const transitions = {
     draft: { create: "reject", preview: "draft", authorize: "active", pause: "reject", stop: "stopped" },
     active: { create: "reject", preview: "active", authorize: "active", pause: "paused", stop: "stopped" },

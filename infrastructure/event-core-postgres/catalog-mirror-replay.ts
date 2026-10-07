@@ -54,7 +54,10 @@ type ReplayDb = Readonly<{
   snapshotState: () => CatalogMirrorReplayResult["finalState"];
 }>;
 
-export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
+export function createCatalogMirrorReplayDb(
+  tablePrefix: string,
+  onMeasureStagingPurge?: (effect: CatalogMirrorReplayEffect) => void,
+): ReplayDb {
   const tables = catalogMirrorTables(tablePrefix);
   const items = new Map<string, Record<string, unknown>>();
   const blueprints = new Map<string, Record<string, unknown>>();
@@ -103,6 +106,15 @@ export function createCatalogMirrorReplayDb(tablePrefix: string): ReplayDb {
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
     const sql = normalizeSql(sqlText);
+    // Keep serving SQL parity separate from the new, independently asserted transient cleanup.
+    if (
+      sql ===
+        "DELETE FROM event_projection_measure_publication_parts WHERE checkpoint_key = $1 AND stream_id = $2 AND stream_version <= $3" &&
+      onMeasureStagingPurge
+    ) {
+      onMeasureStagingPurge({ sql, params: [...values] });
+      return emptyResult<Row>();
+    }
     effects.push({ sql, params: [...values] });
 
     // Items.
@@ -606,9 +618,10 @@ export async function replayCatalogMirror(
     tablePrefix: string;
     buildHandlers: (db: PgQueryable) => ProjectorHandlerMap;
     events?: readonly TransportEvent[];
+    onMeasureStagingPurge?: (effect: CatalogMirrorReplayEffect) => void;
   }>,
 ): Promise<CatalogMirrorReplayResult> {
-  const replayDb = createCatalogMirrorReplayDb(options.tablePrefix);
+  const replayDb = createCatalogMirrorReplayDb(options.tablePrefix, options.onMeasureStagingPurge);
   const handlers = options.buildHandlers(replayDb.db);
   const events = options.events ?? catalogMirrorReplayEvents();
 

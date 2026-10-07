@@ -12,7 +12,7 @@ import type { AgreementServices } from "./runtime";
 
 function requireAccess(
   c: { get(key: "actor"): CommercialTermsApiEnv["Variables"]["actor"] },
-  permission: "commercial-terms.view" | "commercial-terms.manage",
+  permission: "commercial-terms.view" | "commercial-terms.agreements.manage",
 ) {
   const actor = c.get("actor");
   if (!actor) {
@@ -131,7 +131,7 @@ export function createAgreementRoutes(services: AgreementServices) {
   });
 
   app.post("/", async (c) => {
-    const access = requireAccess(c, "commercial-terms.manage");
+    const access = requireAccess(c, "commercial-terms.agreements.manage");
     if (access.response) {
       return access.response;
     }
@@ -167,7 +167,7 @@ export function createAgreementRoutes(services: AgreementServices) {
   });
 
   app.put("/:id", async (c) => {
-    const access = requireAccess(c, "commercial-terms.manage");
+    const access = requireAccess(c, "commercial-terms.agreements.manage");
     if (access.response) {
       return access.response;
     }

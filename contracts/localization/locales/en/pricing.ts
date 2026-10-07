@@ -217,6 +217,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count": "{count} trades",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings": "Active listings",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at": "Starting at {amount}",
+  "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.live.asks": "No live asks",
+  "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.unavailable": "Price unavailable",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.sell.through": "{rate} sell-through (30 days)",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.buy.or.sell": "Buy or sell this item",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.view.active.listings": "View active listings",

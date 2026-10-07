@@ -9,6 +9,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import type { InventoryServices } from "@chase-sets/inventory/server";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { isChannelsServices } from "@chase-sets/channels/server";
@@ -25,7 +26,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
-import { createRegisteredScheduledRunners, type RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
+import {
+  createInventoryProductResolutionMaintenanceRunners,
+  createRegisteredScheduledRunners,
+  type RegisteredScheduledRunnerConfig,
+} from "../src/scheduled-runners";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 import {
   createFakeMoneyMovementGateway,
@@ -214,6 +219,27 @@ describeDatabase("registered platform-worker scheduled runners", () => {
 
     expect(result.rows.map((row) => row.runner_name)).toEqual(registeredRunners.map((runner) => runner.name).sort());
     expect(result.rows.every((row) => row.last_completed_at !== null)).toBe(true);
+    expect(result.rows.some((row) => row.runner_name === "durable-jobs.retention")).toBe(true);
+    expect(
+      result.rows.some((row) => row.runner_name === "inventory.import-product-resolution-maintenance.enqueue"),
+    ).toBe(true);
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("runs the live Import Product worker to its durable receipt and refuses a missing service source", async () => {
+    expect(createInventoryProductResolutionMaintenanceRunners({}, scheduledRunnerConfig)).toEqual([]);
+    const services = runtime.services.inventory as InventoryServices;
+    await services.importBatches.enqueueProductResolutionMaintenanceJob();
+    const runners = createInventoryProductResolutionMaintenanceRunners(runtime.services, scheduledRunnerConfig);
+    expect(runners).toHaveLength(1);
+    expect((await runners[0]!.runOnce()).processed).toBe(1);
+    const job = await services.importBatches.getImportBatchJob("inventory-import-product-resolution-maintenance");
+    expect(job?.status).toBe("completed");
+    expect(job?.result?.maintenanceReceipt).toMatchObject({
+      complete: true,
+      unitId: "normalize-legacy-rejected-products-v1",
+    });
+    expect((await runners[0]!.runOnce()).processed).toBe(0);
     expect(externalFetch).not.toHaveBeenCalled();
   });
 

@@ -4,6 +4,7 @@ import {
   Form,
   ActorIdentityCue,
   Button,
+  Banner,
   InlineTextGroup,
   LinkButton,
   MarketplaceDashboardPanel,
@@ -54,9 +55,11 @@ function AccountNameWithBadges({
 export function AccountProfilePage({
   account,
   actorDisplay,
+  errorMessage,
 }: {
   account: Account;
   actorDisplay?: CurrentActorDisplay | null;
+  errorMessage?: string;
 }) {
   const updatedAt = account.updated_at
     ? formatDate(account.updated_at, { fallback: identityDateUnavailable() })
@@ -108,6 +111,7 @@ export function AccountProfilePage({
           </Stack>
         }
       />
+      {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       {actorDisplay ? (
         <ActorIdentityCue
           variant="panel"

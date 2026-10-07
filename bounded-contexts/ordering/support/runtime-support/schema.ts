@@ -5,6 +5,10 @@ import { orderingOrderSchemaMigrations, orderingOrderSchemaSql } from "../../fea
 import { orderingFulfillmentSourceSchemaSql } from "../../features/orders/integrations/fulfillment/fulfillment-source-schema";
 import { orderingReputationSourceSchemaSql } from "../../features/orders/integrations/reputation/reputation-source-schema";
 import {
+  orderingOpportunitySchemaSql,
+  orderingOpportunitySchemaMigrations,
+} from "../../features/orders/integrations/reputation/opportunity-schema";
+import {
   orderingSupplySourceSchemaMigrations,
   orderingSupplySourceSchemaSql,
 } from "../../features/orders/integrations/supply/supply-source-schema";
@@ -17,11 +21,13 @@ export const orderingSchemaSql = [
   orderingSupplySourceSchemaSql,
   orderingFulfillmentSourceSchemaSql,
   orderingReputationSourceSchemaSql,
+  orderingOpportunitySchemaSql,
   postagePolicySchemaSql,
   orderingOrderSchemaSql,
 ].join("\n\n");
 
 export const orderingSchemaMigrations = [
+  ...orderingOpportunitySchemaMigrations,
   ...orderingSupplySourceSchemaMigrations,
   ...orderingOrderSchemaMigrations,
 ] as const;

@@ -132,6 +132,15 @@ ${durableJobWorkUnitSchemaSql({
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20261006_inventory_import_product_resolution_scan",
+    description: "Index the bounded rejected/uncommitted Product resolution keyset scan.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
+  ON inventory_import_batch_rows (created_at, row_id)
+  WHERE status = 'rejected' AND committed_at IS NULL`,
+    ],
+  },
+  {
     migrationId: "20260908_inventory_import_acquisition_occurrence",
     description: "Preserve import-supplied acquisition occurrence through staged Inventory rows.",
     statements: [

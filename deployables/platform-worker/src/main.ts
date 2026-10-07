@@ -26,6 +26,7 @@ import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
+  InventoryServices,
 } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import type {
@@ -111,6 +112,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordProjectionInterestIndexLookup,
+  recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeRelayCatchUp,
@@ -135,7 +137,10 @@ import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import { createRegisteredScheduledRunners } from "./scheduled-runners";
+import {
+  createInventoryProductResolutionMaintenanceRunners,
+  createRegisteredScheduledRunners,
+} from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -435,7 +440,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   retryBackoffMaxMs: config.projectionOperations.retryBackoffMaxMs,
   leaseAcquireTimeoutMs: config.projectionOperations.leaseAcquireTimeoutMs,
   workSignalStore,
-  observer: createWorkerObserver(logger, workerKind),
+  observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
   ? createInventoryJobRunners(runtime.services, config)
@@ -575,7 +580,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
-    observer: createWorkerObserver(logger, workerKind, group.name),
+    observer: createWorkerObserver(logger, workerKind, group.name, recordProjectionStatus),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -1496,43 +1501,38 @@ function createInventoryJobRunners(
     | "inventoryImportBatchJobMaxActiveClaimsPerJob"
   >,
 ): readonly WorkerRunner[] {
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          processNextImportBatchJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
-    | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
+  const processNextProductResolutionMaintenanceJob =
+    inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
 
-  if (!processNextImportBatchJob) {
+  if (!processNextImportBatchJob && !processNextProductResolutionMaintenanceJob) {
     return [];
   }
 
-  return createDurableJobLaneRunners({
-    workflowName: "inventory.import-batch-jobs",
-    laneCount: input.inventoryImportBatchJobLaneCount,
-    runLane: async (lane) => ({
-      processed: await processNextImportBatchJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
-        jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
-        laneName: lane.laneName,
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+  const runners: WorkerRunner[] = [];
+  if (processNextImportBatchJob) {
+    runners.push(
+      ...createDurableJobLaneRunners({
+        workflowName: "inventory.import-batch-jobs",
+        laneCount: input.inventoryImportBatchJobLaneCount,
+        runLane: async (lane) => ({
+          processed: await processNextImportBatchJob({
+            claimOwnerId: `${input.workerId}:${lane.laneName}`,
+            claimTtlMs: input.leaseTtlMs * 4,
+            workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
+            jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
+            laneName: lane.laneName,
+            signal: lane.runnerContext?.signal,
+            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+          }),
+          lastGlobalPosition: "0" as never,
+        }),
       }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
+    );
+  }
+  runners.push(...createInventoryProductResolutionMaintenanceRunners(services, input));
+  return runners;
 }
 
 function createGoogleShoppingJobRunners(

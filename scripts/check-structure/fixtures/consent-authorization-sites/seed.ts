@@ -1,13 +1,7 @@
-import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
-
+// Provisioning consumes no Consent recording authorization (#8945), so the
+// seed surface carries no constructor reference.
 function buildScenarioIdentityReconcilers() {
-  const consentReconciler = (userId: unknown, accountId: unknown) => authorizeConsentForProvisioning(userId, accountId);
-  return consentReconciler;
-}
-
-async function reconcileRepresentativeConsent(userId: unknown, accountId: unknown) {
-  return authorizeConsentForProvisioning(userId, accountId);
+  return [];
 }
 
 void buildScenarioIdentityReconcilers;
-void reconcileRepresentativeConsent;

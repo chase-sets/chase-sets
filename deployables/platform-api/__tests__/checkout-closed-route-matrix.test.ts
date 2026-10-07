@@ -304,6 +304,8 @@ const preservedRoutes = [
     ":instrumentId/remove",
     "reconcile",
   ].map((suffix) => `POST /api/marketplace/account/payment-methods/${suffix}`),
+  "POST /api/marketplace/account/wallet-fundings",
+  "POST /api/marketplace/account/wallet-fundings/:fundingId/refunds",
   ...["", "/preview", "/:id/activate", "/:id/clone", "/:id/retire"].map(
     (suffix) => `POST /api/marketplace/admin/postage-policies${suffix}`,
   ),

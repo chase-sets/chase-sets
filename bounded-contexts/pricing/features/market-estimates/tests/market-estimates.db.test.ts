@@ -20,6 +20,8 @@ import { marketPriceEstimatedEventType } from "../domain/domain";
 import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
 import { evaluateBuyerOfferTarget } from "../../offer-targets/domain/evaluate";
 import { loadBuyerOfferMarketPrices } from "../../offer-targets/read-model/queries";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -83,6 +85,214 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
       runtime: createMarketEstimatesRuntime({ eventStore, db: pool, policies }),
     };
   }
+
+  const syntheticFixture = {
+    catalogItemId: "cat_synthetic_offer_controls",
+    productId: "cat_synthetic_offer_controls::synthetic-condition:synthetic-mint",
+    estimateVersion: "8346001",
+    amount: "130.00",
+  };
+  const syntheticStreamId = "pricing.market-price-synthetic-e2e-offer-controls";
+  const unrelatedProduct = { ...syntheticFixture, productId: "cat_synthetic_offer_controls::synthetic-unrelated" };
+  const unestimatedProduct = { ...syntheticFixture, productId: "cat_synthetic_offer_controls::synthetic-held" };
+
+  async function persistSyntheticEstimate(
+    fixture = unrelatedProduct,
+    streamId = "pricing.market-price-synthetic-unrelated-control",
+  ) {
+    const now = new Date();
+    const eventStore = createPostgresEventStore({ pool: pools.pricing });
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: 0,
+      context: {
+        tenantId: "tnt_synthetic_estimate_control" as never,
+        audit: {
+          forAccountId: "acc_synthetic_estimate_control" as never,
+          performedByUserId: "usr_synthetic_estimate_control" as never,
+        },
+      },
+      events: [
+        {
+          eventType: marketPriceEstimatedEventType,
+          payload: {
+            schemaVersion: 1,
+            ...fixture,
+            currencyCode: "USD",
+            band: null,
+            confidence: "low",
+            window: { startedAt: new Date(now.getTime() - 3600000).toISOString(), endedAt: now.toISOString() },
+            estimatedAt: now.toISOString(),
+            freshUntil: new Date(now.getTime() + 3600000).toISOString(),
+            disclosure: "internal",
+            previousAmount: null,
+            inputs: { platformVerifiedTradeCount: 0, platformTradeCount: 0, externalCompCount: 0 },
+            syntheticFixture: "8346-db-only-control",
+          },
+        },
+      ],
+    });
+    const [stored] = await eventStore.readStream({ streamId });
+    await buildPricingMarketEstimateProjectionHandlers(pools.pricing)[marketPriceEstimatedEventType]!(
+      toTransportEvent(stored!),
+    );
+    return stored!;
+  }
+
+  it("prepares the exact synthetic estimate without a worker, preserves stored-event duplicates and cleans only owned evidence", async () => {
+    const pool = pools.pricing;
+    const eventStore = createPostgresEventStore({ pool });
+    const unrelatedEvent = await persistSyntheticEstimate();
+    const [unrelatedBefore, absent] = await loadBuyerOfferMarketPrices(pool, [unrelatedProduct, syntheticFixture]);
+    expect(unrelatedBefore).not.toBeNull();
+    expect(absent).toBeNull();
+
+    const cleanup = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    try {
+      const stored = await eventStore.readStream({ streamId: syntheticStreamId });
+      expect(stored).toHaveLength(1);
+      expect(stored[0]!.eventType).toBe(marketPriceEstimatedEventType);
+      expect(stored[0]!.payload.syntheticFixture).toBe("8346-browser-only");
+      const [price, held] = await loadBuyerOfferMarketPrices(pool, [syntheticFixture, unestimatedProduct]);
+      expect(price).toEqual({
+        ...syntheticFixture,
+        currencyCode: "USD",
+        estimatedAt: stored[0]!.payload.estimatedAt,
+        freshUntil: stored[0]!.payload.freshUntil,
+      });
+      expect(Date.parse(price!.estimatedAt)).toBeLessThanOrEqual(Date.now());
+      expect(Date.parse(price!.freshUntil)).toBeGreaterThan(Date.now());
+      expect(held).toBeNull();
+      const beforeDuplicate = await pool.query("SELECT * FROM pricing_market_price_estimates ORDER BY product_id");
+      // Redeliver the actual persisted event before teardown, just as a background worker can.
+      await buildPricingMarketEstimateProjectionHandlers(pool)[marketPriceEstimatedEventType]!(
+        toTransportEvent(stored[0]!),
+      );
+      expect((await pool.query("SELECT * FROM pricing_market_price_estimates ORDER BY product_id")).rows).toEqual(
+        beforeDuplicate.rows,
+      );
+      expect(await eventStore.readStream({ streamId: syntheticStreamId })).toEqual(stored);
+    } finally {
+      await cleanup();
+    }
+    expect(await loadBuyerOfferMarketPrices(pool, [syntheticFixture, unestimatedProduct, unrelatedProduct])).toEqual([
+      null,
+      null,
+      unrelatedBefore,
+    ]);
+    expect(await eventStore.readStream({ streamId: syntheticStreamId })).toEqual([]);
+    expect(await eventStore.readStream({ streamId: unrelatedEvent.streamId })).toEqual([unrelatedEvent]);
+    const cleanupAgain = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    try {
+      await cleanup();
+      expect((await loadBuyerOfferMarketPrices(pool, [syntheticFixture]))[0]).toMatchObject(syntheticFixture);
+    } finally {
+      await cleanupAgain();
+    }
+    expect(await eventStore.readStream({ streamId: syntheticStreamId })).toEqual([]);
+    expect(await loadBuyerOfferMarketPrices(pool, [syntheticFixture, unrelatedProduct])).toEqual([
+      null,
+      unrelatedBefore,
+    ]);
+  });
+
+  it("refuses an existing estimate without changing its persisted event or projection", async () => {
+    const existing = await persistSyntheticEstimate(syntheticFixture);
+    const before = await pools.pricing.query("SELECT * FROM pricing_market_price_estimates");
+    await expect(seedSyntheticOfferMarketPrice(pools.pricing, syntheticFixture)).rejects.toThrow(
+      "refuses to replace an existing estimate",
+    );
+    expect((await pools.pricing.query("SELECT * FROM pricing_market_price_estimates")).rows).toEqual(before.rows);
+    const eventStore = createPostgresEventStore({ pool: pools.pricing });
+    expect(await eventStore.readStream({ streamId: existing.streamId })).toEqual([existing]);
+    expect(await eventStore.readStream({ streamId: syntheticStreamId })).toEqual([]);
+  });
+
+  it("fails closed and cleans the append when the exact projection is absent despite unrelated estimates", async () => {
+    const pool = pools.pricing;
+    await persistSyntheticEstimate();
+    const before = await pool.query("SELECT * FROM pricing_market_price_estimates");
+    await pool.query(`CREATE FUNCTION suppress_synthetic_estimate() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RETURN NULL; END $$;
+      CREATE TRIGGER suppress_synthetic_estimate BEFORE INSERT ON pricing_market_price_estimates
+      FOR EACH ROW EXECUTE FUNCTION suppress_synthetic_estimate()`);
+    try {
+      await expect(seedSyntheticOfferMarketPrice(pool, syntheticFixture)).rejects.toThrow(
+        "Synthetic Market Price preparation did not produce the exact fresh estimate.",
+      );
+      expect((await pool.query("SELECT * FROM pricing_market_price_estimates")).rows).toEqual(before.rows);
+      expect(await createPostgresEventStore({ pool }).readStream({ streamId: syntheticStreamId })).toEqual([]);
+    } finally {
+      await pool.query(
+        "DROP TRIGGER suppress_synthetic_estimate ON pricing_market_price_estimates; DROP FUNCTION suppress_synthetic_estimate()",
+      );
+    }
+    const cleanup = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    await cleanup();
+  });
+
+  it("cleans both partial event and estimate when the persisted projection has the wrong amount", async () => {
+    const pool = pools.pricing;
+    await pool.query(`CREATE FUNCTION corrupt_synthetic_estimate() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN NEW.amount := 1; RETURN NEW; END $$;
+      CREATE TRIGGER corrupt_synthetic_estimate BEFORE INSERT ON pricing_market_price_estimates
+      FOR EACH ROW EXECUTE FUNCTION corrupt_synthetic_estimate()`);
+    try {
+      await expect(seedSyntheticOfferMarketPrice(pool, syntheticFixture)).rejects.toThrow(
+        "Synthetic Market Price preparation did not produce the exact fresh estimate.",
+      );
+      expect(await loadBuyerOfferMarketPrices(pool, [syntheticFixture])).toEqual([null]);
+      expect(await createPostgresEventStore({ pool }).readStream({ streamId: syntheticStreamId })).toEqual([]);
+    } finally {
+      await pool.query(
+        "DROP TRIGGER corrupt_synthetic_estimate ON pricing_market_price_estimates; DROP FUNCTION corrupt_synthetic_estimate()",
+      );
+    }
+    const cleanup = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    await cleanup();
+  });
+
+  it("cleans the owned append when the projection handler throws and permits another invocation", async () => {
+    const pool = pools.pricing;
+    await pool.query(`CREATE FUNCTION reject_synthetic_estimate() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'synthetic projection failure'; END $$;
+      CREATE TRIGGER reject_synthetic_estimate BEFORE INSERT ON pricing_market_price_estimates
+      FOR EACH ROW EXECUTE FUNCTION reject_synthetic_estimate()`);
+    try {
+      await expect(seedSyntheticOfferMarketPrice(pool, syntheticFixture)).rejects.toThrow(
+        "synthetic projection failure",
+      );
+      expect(await loadBuyerOfferMarketPrices(pool, [syntheticFixture])).toEqual([null]);
+      expect(await createPostgresEventStore({ pool }).readStream({ streamId: syntheticStreamId })).toEqual([]);
+    } finally {
+      await pool.query(
+        "DROP TRIGGER reject_synthetic_estimate ON pricing_market_price_estimates; DROP FUNCTION reject_synthetic_estimate()",
+      );
+    }
+    const cleanup = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    await cleanup();
+  });
+
+  it("refuses to append over an existing unprojected synthetic stream without changing its history", async () => {
+    const pool = pools.pricing;
+    const existing = await persistSyntheticEstimate(syntheticFixture, syntheticStreamId);
+    await pool.query("DELETE FROM pricing_market_price_estimates");
+    await expect(seedSyntheticOfferMarketPrice(pool, syntheticFixture)).rejects.toThrow();
+    expect(await createPostgresEventStore({ pool }).readStream({ streamId: syntheticStreamId })).toEqual([existing]);
+    expect(await loadBuyerOfferMarketPrices(pool, [syntheticFixture])).toEqual([null]);
+  });
+
+  it("preserves a newer interleaved estimate during synthetic cleanup", async () => {
+    const pool = pools.pricing;
+    const cleanup = await seedSyntheticOfferMarketPrice(pool, syntheticFixture);
+    const newer = await persistSyntheticEstimate({ ...syntheticFixture, estimateVersion: "8346002", amount: "135.00" });
+    const before = await pool.query("SELECT * FROM pricing_market_price_estimates");
+    await cleanup();
+    expect((await pool.query("SELECT * FROM pricing_market_price_estimates")).rows).toEqual(before.rows);
+    const eventStore = createPostgresEventStore({ pool });
+    expect(await eventStore.readStream({ streamId: syntheticStreamId })).toEqual([]);
+    expect(await eventStore.readStream({ streamId: newer.streamId })).toEqual([newer]);
+  });
 
   /** Seeds one platform trade (order created + payment captured) for the shared test product. */
   async function seedTrade(

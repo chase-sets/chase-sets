@@ -133,7 +133,11 @@
       "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 11,
       "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
     },

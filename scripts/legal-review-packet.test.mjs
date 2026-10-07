@@ -276,6 +276,42 @@ describe("#5695 legal review corpus: closed membership and source authority", ()
       "Help Article 'sales-tax' cannot be both a reproduced compliance member and a summary-only incorporated reference.",
     );
   });
+
+  it("summarizes every registered artifact's Help Article incorporation without expanding Terms", () => {
+    expect(baseline.incorporatedHelpArticles.map(({ slug }) => slug)).toEqual([
+      "condition-and-photo-standards",
+      "order-protection",
+      "refunds-and-returns",
+      "getting-paid",
+    ]);
+    expect(renderCounselReviewPacket(baseline)).toContain("`getting-paid` (en)");
+    const terms = authorities.policyRegistry.find(
+      ({ artifact }) => artifact.metadata.policyKey === "terms-of-service",
+    ).artifact;
+    expect(terms.sections.find(({ id }) => id === TERMS_INCORPORATION_SECTION_ID).draftText).not.toMatch(
+      /getting.paid/i,
+    );
+    const droppedSummary = buildLegalReviewCorpus({
+      ...authorities,
+      incorporatedHelpArticleSlugs: incorporatedHelpArticleSlugs.filter((slug) => slug !== "getting-paid"),
+    });
+    expect(droppedSummary.ok).toBe(false);
+    expect(droppedSummary.errors).toContain(
+      "Help Article 'getting-paid' incorporated by 'seller-agreement/payouts-holds-and-reserves' is missing from the packet summaries.",
+    );
+    const droppedSiblingIncorporation = buildLegalReviewCorpus(
+      mapSection("seller-agreement", "payouts-holds-and-reserves", (section) => ({
+        ...section,
+        draftText: section.draftText.replaceAll("Getting paid", "payout guidance"),
+      })),
+    );
+    expect(droppedSiblingIncorporation.ok).toBe(false);
+    expect(
+      droppedSiblingIncorporation.errors.some((error) =>
+        error.includes("does not name incorporated Help Article 'getting-paid'"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("#5695 counsel review packet: deterministic bytes and lifecycle-stable identity", () => {
@@ -443,7 +479,12 @@ describe("#5695 counsel review packet: deterministic bytes and lifecycle-stable 
 
     const reorderedIncorporation = expectCorpus({
       ...authorities,
-      incorporatedHelpArticleSlugs: ["order-protection", "condition-and-photo-standards", "refunds-and-returns"],
+      incorporatedHelpArticleSlugs: [
+        "order-protection",
+        "condition-and-photo-standards",
+        "refunds-and-returns",
+        "getting-paid",
+      ],
     });
     expect(digestsByArticle(reorderedIncorporation)).toEqual(digestsByArticle(baseline));
     expect(reorderedIncorporation.identity.sha256).not.toBe(baseline.identity.sha256);

@@ -439,7 +439,15 @@ describe("shared CI gate plan", () => {
       head = commit();
       check(base, head, paths);
       base = head;
-      const rename = scopedCases.at(-1).changedFiles;
+      const renameCase = scopedCases.find(
+        ({ changedFiles }) =>
+          changedFiles.length === 2 &&
+          changedFiles[0] ===
+            "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts" &&
+          changedFiles[1] === "bounded-contexts/inventory/features/listings/ui/listing.tsx",
+      );
+      expect(renameCase, "Catalog-provider/Inventory-listing rename fixture must be present").toBeDefined();
+      const rename = renameCase.changedFiles;
       mkdirSync(path.dirname(path.join(temporary, rename[1])), { recursive: true });
       git(["mv", rename[0], rename[1]]);
       head = commit();

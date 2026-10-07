@@ -1,5 +1,7 @@
-import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, PaymentId, TypedUlid } from "@chase-sets/primitives/typed-ids";
 import type { ProviderWriteWindow, ProviderCancelGovernance } from "@chase-sets/evidence-window-provider-write";
+
+export type ProcessorPaymentId = PaymentId | TypedUlid<"wfp">;
 
 export type PaymentCurrencyCode = "usd";
 export type PaymentProcessorName = "stripe";
@@ -34,8 +36,9 @@ export type PaymentProcessorPublicConfig = Readonly<{
 }>;
 
 export type CreateProcessorPaymentInput = Readonly<{
+  paymentId: ProcessorPaymentId;
+  purpose?: "wallet-funding";
   evidenceWindow?: ProviderWriteWindow | null;
-  paymentId: PaymentId;
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
   amount: string;
@@ -231,7 +234,7 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
   processorStatus: string;
   outcome: ProcessorPaymentReconciliationOutcome;
   occurredAt: string;
-  internalPaymentId?: PaymentId | null;
+  internalPaymentId?: ProcessorPaymentId | null;
   failureCode?: string | null;
   failureMessage?: string | null;
   liabilityShiftOutcome?: ProcessorLiabilityShiftOutcome | null;
@@ -242,7 +245,9 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
 
 export type CreateProcessorRefundInput = Readonly<{
   refundId: string;
-  paymentId: PaymentId;
+  paymentId: ProcessorPaymentId;
+  purpose?: "wallet-funding";
+  idempotencyKey?: string;
   processorPaymentReference: string;
   orderIds: readonly OrderId[];
   amount: string;
@@ -254,6 +259,22 @@ export type CreatedProcessorRefund = Readonly<{
   processorName: PaymentProcessorName;
   processorRefundReference: string;
   processorStatus: string;
+}>;
+
+export type ProcessorRefundLookupInput = Readonly<{
+  fundingId: TypedUlid<"wfp">;
+  refundId: string;
+  processorPaymentReference: string;
+  processorRefundReference: string | null;
+}>;
+export type ProcessorRefundResult = Readonly<{
+  fundingId: TypedUlid<"wfp">;
+  refundId: string;
+  processorPaymentReference: string;
+  processorRefundReference: string;
+  amount: string;
+  currencyCode: PaymentCurrencyCode;
+  status: "succeeded" | "failed" | "cancelled" | "pending" | "unknown";
 }>;
 
 export type ProcessorDisputeEvidence = Readonly<{
@@ -312,7 +333,7 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   amount?: string | null;
   refundedAmount?: string | null;
   currencyCode?: PaymentCurrencyCode | null;
-  internalPaymentId?: PaymentId | null;
+  internalPaymentId?: ProcessorPaymentId | null;
   processorStatus: string;
   failureCode: string | null;
   failureMessage: string | null;
@@ -322,6 +343,7 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   disputeLifecycleState?: ProcessorPaymentDisputeLifecycleState | null;
   disputeStatus?: string | null;
   disputeReason?: string | null;
+  disputeFeeAmount?: string | null;
   disputeEvidenceDueAt?: string | null;
   fraudType?: string | null;
   fraudReviewReason?: string | null;
@@ -353,14 +375,21 @@ export interface PaymentProcessorGateway {
    * processor and the returned reference is the stable webhook lookup key.
    */
   createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment>;
+  retrieveWalletFundingConfirmation?(
+    fundingId: TypedUlid<"wfp">,
+    processorPaymentReference: string,
+  ): Promise<CreatedProcessorPayment | null>;
   createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
   cancelPayment(
     processorPaymentReference: string,
     governance: ProviderCancelGovernance,
   ): Promise<ProcessorPaymentReconciliationResult>;
   retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
-  retrievePaymentResultByPaymentId?(paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null>;
+  retrievePaymentResultByPaymentId?(
+    paymentId: ProcessorPaymentId,
+  ): Promise<ProcessorPaymentReconciliationResult | null>;
   createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;
+  retrieveWalletFundingRefund?(input: ProcessorRefundLookupInput): Promise<ProcessorRefundResult | null>;
   submitDisputeEvidence?(input: SubmitProcessorDisputeEvidenceInput): Promise<SubmittedProcessorDisputeEvidence>;
   parseWebhook(
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,

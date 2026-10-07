@@ -1,3 +1,7 @@
+import {
+  assertMeasurePublicationConsumer,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
@@ -537,5 +541,27 @@ describe("product measure runtime", () => {
       expect(resolvedFactCount(store.events) - before, testCase.name).toBe(1);
       expect(store.appended, testCase.name).toHaveLength(1);
     }
+  });
+});
+
+it("stages 85 Products without partial visibility, rejects mismatch without mutation, and replaces at completion", async () => {
+  const { db, resolved } = createMeasureDb({
+    catalog_item_id: "cat_1",
+    blueprint_id: null,
+    category_ids: [],
+    dimension_rules: [],
+    canonical_dimension_order: [],
+  });
+  const staging = withMeasurePublicationStaging(db);
+  const services = createProductMeasureRuntime({
+    db: staging.db,
+    eventStore: createEventStore().eventStore,
+    checkpointStore: createCheckpointStore(),
+  });
+  await assertMeasurePublicationConsumer({
+    handlers: services.projectors[0]!.handlers,
+    staging,
+    visible: () => [...resolved.values()],
+    assertProducts: (products) => expect([...resolved.values()].map((row) => row.measure_snapshot)).toEqual(products),
   });
 });

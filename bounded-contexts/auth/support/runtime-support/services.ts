@@ -27,6 +27,7 @@ import {
   getAuthIdentityUserByPhone,
   getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
+  listActiveAuthAccountIds,
   listActiveAuthMembershipsForUser,
   normalizeAuthEmail,
 } from "../auth-support/identity-projection";
@@ -430,8 +431,16 @@ async function startSessionForUser(
     publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<AuthSessionStartResult> {
-  const memberships =
-    params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
+  let memberships = params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
+  if (params.membershipsOverride) {
+    const activeAccountIds = await listActiveAuthAccountIds(
+      services.db,
+      memberships.map((membership) => membership.accountId),
+    );
+    memberships = memberships.filter(
+      (membership) => membership.status === "active" && activeAccountIds.has(membership.accountId),
+    );
+  }
   if (memberships.length === 0) {
     throw new Error("User has no active memberships.");
   }

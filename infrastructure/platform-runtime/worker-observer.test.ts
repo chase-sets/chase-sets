@@ -26,6 +26,19 @@ function collectingLogger() {
 }
 
 describe("worker observer holder lifecycle adapter", () => {
+  it("forwards the existing projection snapshot to the count publisher without logger filtering", () => {
+    const publish = vi.fn();
+    const observer = createWorkerObserver(collectingLogger(), "synthetic-worker", "synthetic-group", publish);
+    const status = {
+      targetContextName: "synthetic-context",
+      projectionName: "synthetic-projection",
+      blockedStreamCount: 1,
+      poisonEventCount: 0,
+    } as Parameters<NonNullable<typeof observer.projectionStatusObserved>>[0];
+    observer.projectionStatusObserved?.(status);
+    expect(publish).toHaveBeenCalledExactlyOnceWith(status);
+    expect(createWorkerObserver(collectingLogger(), "synthetic-worker").projectionStatusObserved).toBeUndefined();
+  });
   it("emits the allowlisted holder lifecycle log shape", () => {
     const logger = collectingLogger();
     const observer = createWorkerObserver(logger, "synthetic-worker", "synthetic-projections");

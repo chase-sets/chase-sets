@@ -6,7 +6,21 @@ import {
 } from "@chase-sets/http/responses";
 import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCommercialTermsRequestApiClient } from "./admin-api-client";
+import { createCommercialTermsPublicRequestApiClient, createCommercialTermsRequestApiClient } from "./admin-api-client";
+
+const publishedSchedule = {
+  value: {
+    label: "Synthetic revised seller terms",
+    marketplaceSalesFeePercentageBps: 625,
+    marketplaceSalesFeeFixedAmount: "0.42",
+    marketplaceSalesFeeCapAmount: "19.75",
+    shippingAllowancePercentageBps: 725,
+  },
+  source: "policy",
+  documentId: "pol_synthetic",
+  effectiveFrom: "2026-07-12T00:00:00.000Z",
+  resolvedAt: "2026-07-15T12:00:00.000Z",
+};
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -14,6 +28,29 @@ afterEach(() => {
 });
 
 describe("createCommercialTermsRequestApiClient", () => {
+  it("maps account names without replacing display names, types or ids", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        items: [
+          {
+            account_id: "acc_demo",
+            account_name: "Demo Account",
+            display_name: "Chase Sets",
+            account_type: "business",
+          },
+          { account_id: "acc_empty", account_name: "", display_name: "Display only", account_type: "personal" },
+        ],
+      }),
+    );
+    await expect(
+      createCommercialTermsRequestApiClient(
+        new Request("https://admin.chasesets.com/commerce/terms"),
+      ).listAccountOptions(),
+    ).resolves.toEqual([
+      { accountId: "acc_demo", name: "Demo Account", displayName: "Chase Sets", accountType: "business" },
+      { accountId: "acc_empty", name: "", displayName: "Display only", accountType: "personal" },
+    ]);
+  });
   it("forwards admin session credentials and read target context to platform-api", async () => {
     vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://platform-api.internal");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -120,5 +157,54 @@ describe("createCommercialTermsRequestApiClient", () => {
         },
       ],
     });
+  });
+});
+
+describe("published marketplace sales fee client", () => {
+  it.each([publishedSchedule, { ...publishedSchedule, source: "fallback", documentId: null, effectiveFrom: null }])(
+    "reads the public endpoint and preserves the $source envelope",
+    async (schedule) => {
+      vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://platform-api.internal");
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(schedule));
+      await expect(
+        createCommercialTermsPublicRequestApiClient(
+          new Request("https://admin.chasesets.com/commerce/terms"),
+        ).getMarketplaceSalesFeeSchedule(),
+      ).resolves.toEqual(schedule);
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "https://platform-api.internal/api/public/commercial-terms/marketplace-sales-fee-schedule",
+      );
+    },
+  );
+
+  it.each([
+    null,
+    {},
+    { ...publishedSchedule, value: null },
+    { ...publishedSchedule, source: "active" },
+    { ...publishedSchedule, documentId: null },
+    { ...publishedSchedule, effectiveFrom: null },
+    { ...publishedSchedule, effectiveFrom: "not-a-date" },
+    { ...publishedSchedule, effectiveFrom: "2026" },
+    { ...publishedSchedule, resolvedAt: "not-a-date" },
+    { ...publishedSchedule, source: "fallback" },
+    ...[
+      { label: "" },
+      { marketplaceSalesFeePercentageBps: "625" },
+      { marketplaceSalesFeePercentageBps: null },
+      { marketplaceSalesFeePercentageBps: 10001 },
+      { marketplaceSalesFeeFixedAmount: "NaN" },
+      { marketplaceSalesFeeCapAmount: undefined },
+      { marketplaceSalesFeeCapAmount: "0.00" },
+      { shippingAllowancePercentageBps: undefined },
+      { shippingAllowancePercentageBps: -1 },
+    ].map((value) => ({ ...publishedSchedule, value: { ...publishedSchedule.value, ...value } })),
+  ])("rejects malformed available-looking envelope %#", async (schedule) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json(schedule));
+    await expect(
+      createCommercialTermsPublicRequestApiClient(
+        new Request("https://admin.chasesets.com/commerce/terms"),
+      ).getMarketplaceSalesFeeSchedule(),
+    ).rejects.toThrow();
   });
 });

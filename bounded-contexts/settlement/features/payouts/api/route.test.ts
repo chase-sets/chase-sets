@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementApiEnv } from "../../../api";
 import { createMoneyMovementWebhookRoutes, createPayoutRoutes } from "./route";
-import type { PayoutServices } from "./runtime";
+import { toPayoutReconciliationJobStatus, type PayoutReconciliationJob, type PayoutServices } from "./runtime";
 import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
 
 const context = {
@@ -38,6 +38,22 @@ function createAuthenticatedApp(services: unknown, permissions: readonly string[
 }
 
 describe("settlement payout routes", () => {
+  it("allows platform-only readers to reconcile-read both accounts without claiming payouts", async () => {
+    const rows = [{ account_id: "acc_seller" }, { account_id: "acc_other" }];
+    const listPayoutsNeedingReconciliation = vi.fn(async ({ accountId }: { accountId: string | null }) =>
+      rows.filter((row) => accountId === null || row.account_id === accountId),
+    );
+    const app = createAuthenticatedApp({ listPayoutsNeedingReconciliation }, ["payouts.platform.view"]);
+    const response = await app.request("/payouts/reconciliation?accountId=acc_other&scope=account");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ items: rows, total: 2, count: 2 });
+    expect(listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
+      accountId: null,
+      limit: 100,
+      filter: null,
+    });
+  });
+
   it("submits confirmed payout requests through the payout runtime", async () => {
     const requestPayout = vi.fn(async () => ({
       payoutId: "pyo_test",
@@ -337,6 +353,226 @@ describe("settlement payout routes", () => {
     const response = await app.request("/payouts/reconciliation/jobs/job_other");
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("platform payout read authority", () => {
+  const readPaths = [
+    "/money-health",
+    "/provider-health",
+    "/payouts/reconciliation",
+    "/payouts/reconciliation/runs",
+    "/payouts/platform-balance-forecast",
+    "/payouts/reconciliation/jobs/job_other",
+    "/payouts/reconciliation/jobs/job_other/events",
+  ];
+
+  function job(accountId = "acc_other"): PayoutReconciliationJob {
+    return {
+      jobId: "job_other",
+      jobKind: "payout-reconciliation",
+      status: "completed",
+      payload: { accountId, limit: 25 },
+      progress: { phase: "completed", completed: 2, total: 2, message: null },
+      result: { checked: 2, reconciled: 2, ignored: 0, skipped: 0, errors: [] },
+      errorMessage: null,
+      eventContext: context,
+      claimOwnerId: null,
+      claimedUntil: null,
+      attemptCount: 1,
+      nextEligibleAt: "2026-10-01T00:00:00.000Z",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      startedAt: "2026-10-01T00:00:00.000Z",
+      completedAt: "2026-10-01T00:00:01.000Z",
+      updatedAt: "2026-10-01T00:00:01.000Z",
+    };
+  }
+
+  function services() {
+    const payouts = [
+      { payout_id: "pyo_a", account_id: "acc_seller" },
+      { payout_id: "pyo_b", account_id: "acc_other" },
+    ];
+    const runs = [{ run_id: "run_a" }, { run_id: "run_b" }];
+    const forecast = { currency_code: "usd", available_amount: "200.00" };
+    const provider = { provider_name: "fake", adapter_mode: "fake" };
+    const balances = [{ account_id: "acc_seller" }, { account_id: "acc_other" }];
+    return {
+      payouts,
+      runs,
+      forecast,
+      provider,
+      balances,
+      listPayoutsNeedingReconciliation: vi.fn(async ({ accountId }: { accountId: string | null }) =>
+        payouts.filter((payout) => accountId === null || payout.account_id === accountId),
+      ),
+      listReconciliationRuns: vi.fn(async () => runs),
+      getPlatformBalanceForecast: vi.fn(async () => forecast),
+      getProviderHealth: vi.fn(async () => provider),
+      listNegativeBalanceAccounts: vi.fn(async () => ({ items: balances, total: 2 })),
+      getPayoutReconciliationJob: vi.fn(async (id: string) => (id === "job_other" ? job() : null)),
+      listPayoutReconciliationJobEvents: vi.fn(async (_id: string, after: number) =>
+        after < 1 ? [{ sequence: 1, eventName: "status", job: toPayoutReconciliationJobStatus(job()) }] : [],
+      ),
+      waitForPayoutReconciliationJobEvents: vi.fn(async () => {
+        throw new Error("Terminal streams must not wait");
+      }),
+    };
+  }
+
+  it.each(["payouts.platform.view", "payouts.reconcile"])(
+    "preserves exact summary scope for %s despite forged parameters",
+    async (permission) => {
+      const s = services();
+      const app = createAuthenticatedApp(s, [permission]);
+      const accountId = permission === "payouts.platform.view" ? null : "acc_seller";
+      const expectedPayouts = accountId === null ? s.payouts : [s.payouts[0]];
+      const query = "?accountId=acc_other&scope=platform&claimOwnerId=forged";
+      const health = await app.request(`/money-health${query}`);
+      expect(health.status).toBe(200);
+      await expect(health.json()).resolves.toEqual({
+        payouts_needing_attention: expectedPayouts,
+        reconciliation_runs: s.runs,
+        platform_balance_forecast: s.forecast,
+        provider_health: s.provider,
+        negative_balance_accounts: s.balances,
+        negative_balance_total: 2,
+      });
+      expect(s.listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({ accountId, limit: 25 });
+      expect(s.listReconciliationRuns).toHaveBeenCalledExactlyOnceWith({ limit: 10 });
+      expect(s.getPlatformBalanceForecast).toHaveBeenCalledExactlyOnceWith({ currencyCode: "usd" });
+      expect(s.getProviderHealth).toHaveBeenCalledExactlyOnceWith();
+      expect(s.listNegativeBalanceAccounts).toHaveBeenCalledExactlyOnceWith({ limit: 25 });
+      s.listPayoutsNeedingReconciliation.mockClear();
+      const list = await app.request(`/payouts/reconciliation${query}&limit=7&filter=failed`);
+      await expect(list.json()).resolves.toEqual({
+        items: expectedPayouts,
+        count: expectedPayouts.length,
+        total: expectedPayouts.length,
+      });
+      expect(s.listPayoutsNeedingReconciliation).toHaveBeenCalledExactlyOnceWith({
+        accountId,
+        limit: 7,
+        filter: "failed",
+      });
+      for (const [path, expected] of [
+        ["/provider-health", s.provider],
+        ["/payouts/platform-balance-forecast", s.forecast],
+        ["/payouts/reconciliation/runs", { items: s.runs, count: 2, total: 2 }],
+      ] as const) {
+        const response = await app.request(`${path}${query}`);
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual(expected);
+      }
+      expect(s.listReconciliationRuns).toHaveBeenLastCalledWith({ limit: 25 });
+      expect(s.getPlatformBalanceForecast).toHaveBeenLastCalledWith({ currencyCode: "usd" });
+      expect(s.getProviderHealth).toHaveBeenLastCalledWith();
+    },
+  );
+
+  it.each(readPaths)("denies view-only and signed-out callers to %s before any service", async (path) => {
+    for (const permissions of [["payouts.view"], null]) {
+      const s = services();
+      const response = await createAuthenticatedApp(s, permissions).request(path);
+      expect(response.status).toBe(permissions === null ? 401 : 403);
+      for (const service of Object.values(s).filter(vi.isMockFunction)) expect(service).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["", "/events"])(
+    "keeps missing and foreign job%s indistinguishable for reconcile-only callers",
+    async (suffix) => {
+      const s = services();
+      const app = createAuthenticatedApp(s, ["payouts.reconcile"]);
+      const foreign = await app.request(
+        `/payouts/reconciliation/jobs/job_other${suffix}?accountId=acc_other&scope=platform`,
+      );
+      const missing = await app.request(`/payouts/reconciliation/jobs/job_missing${suffix}`);
+      expect(foreign.status).toBe(404);
+      expect(missing.status).toBe(404);
+      expect(await foreign.json()).toEqual(await missing.json());
+      expect(s.listPayoutReconciliationJobEvents).not.toHaveBeenCalled();
+    },
+  );
+
+  it("admits the reconcile holder's own job and completed replay", async () => {
+    const s = services();
+    s.getPayoutReconciliationJob.mockResolvedValue(job("acc_seller"));
+    const app = createAuthenticatedApp(s, ["payouts.reconcile"]);
+    expect((await app.request("/payouts/reconciliation/jobs/job_other")).status).toBe(200);
+    const response = await app.request("/payouts/reconciliation/jobs/job_other/events");
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("event: status");
+  });
+
+  it("admits foreign job detail and terminal replay to platform-only readers", async () => {
+    const s = services();
+    const app = createAuthenticatedApp(s, ["payouts.platform.view"]);
+    const response = await app.request("/payouts/reconciliation/jobs/job_other?scope=account");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(toPayoutReconciliationJobStatus(job()));
+    const events = await app.request("/payouts/reconciliation/jobs/job_other/events");
+    expect(events.status).toBe(200);
+    expect(await events.text()).toContain("event: status");
+    expect(s.listPayoutReconciliationJobEvents).toHaveBeenCalledExactlyOnceWith("job_other", 0);
+    const missing = await app.request("/payouts/reconciliation/jobs/job_missing");
+    expect(missing.status).toBe(404);
+  });
+
+  it("terminates a foreign terminal stream with a cursor past its last event using platform snapshot authority", async () => {
+    const s = services();
+    const response = await createAuthenticatedApp(s, ["payouts.platform.view"]).request(
+      "/payouts/reconciliation/jobs/job_other/events",
+      { headers: { "Last-Event-ID": "50" } },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("");
+    expect(s.listPayoutReconciliationJobEvents).toHaveBeenCalledExactlyOnceWith("job_other", 50);
+    expect(s.getPayoutReconciliationJob).toHaveBeenCalledTimes(2);
+    expect(s.waitForPayoutReconciliationJobEvents).not.toHaveBeenCalled();
+  });
+
+  it("terminates replay backpressure with the foreign platform-authorized snapshot", async () => {
+    const s = services();
+    s.listPayoutReconciliationJobEvents.mockResolvedValue(
+      Array.from({ length: 251 }, (_, index) => ({
+        sequence: index + 1,
+        eventName: "status",
+        job: { ...toPayoutReconciliationJobStatus(job()), status: "running" },
+      })),
+    );
+    const response = await createAuthenticatedApp(s, ["payouts.platform.view"]).request(
+      "/payouts/reconciliation/jobs/job_other/events",
+    );
+    expect(response.status).toBe(200);
+    const replay = await response.text();
+    expect(replay).toContain("event: sync.required");
+    expect(replay).toContain(
+      JSON.stringify({
+        kind: "sync.required",
+        reason: "replay-backpressure",
+        snapshot: toPayoutReconciliationJobStatus(job()),
+      }),
+    );
+    expect(s.getPayoutReconciliationJob).toHaveBeenCalledTimes(2);
+    expect(s.waitForPayoutReconciliationJobEvents).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["POST", "/payouts/reconciliation/run", "enqueuePayoutReconciliationJob"],
+    ["POST", "/payouts/preview", "previewPayoutRequest"],
+    ["POST", "/payouts", "requestPayout"],
+    ["GET", "/payouts/provider-idempotency", "listProviderIdempotencyKeys"],
+    ["GET", "/payouts", "listPayouts"],
+    ["GET", "/payouts/pyo_other", "getPayout"],
+    ["GET", "/payouts/pyo_other/timeline", "getPayoutMoneyTimeline"],
+  ])("denies platform-only readers %s %s without invoking %s", async (method, path, serviceName) => {
+    const service = vi.fn();
+    const response = await createAuthenticatedApp({ [serviceName]: service }, ["payouts.platform.view"]).request(path, {
+      method,
+    });
+    expect(response.status).toBe(403);
+    expect(service).not.toHaveBeenCalled();
   });
 });
 

@@ -313,6 +313,7 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.not.applicable": "N/A",
   "support.features.supportRequests.ui.supportOperationsPage.checklist.summary": "{satisfied}/{required} required",
   "support.features.supportRequests.ui.supportOperationsPage.no.requests": "No requests need support review",
+  "support.features.supportRequests.ui.supportOperationsPage.no.unresolvedRequests": "No unresolved support requests",
   "support.features.supportRequests.ui.supportOperationsPage.no.requests.description":
     "Urgent, overdue, and ready-for-support requests appear here when marketplace support needs operator attention.",
   "support.features.supportRequests.ui.supportOperationsPage.issue": "Issue",
@@ -381,7 +382,8 @@ export const supportEnglishTranslations = {
     "Search by request, order, or account ID",
   "support.features.supportRequests.ui.supportOperationsPage.apply.filters": "Apply filters",
   "support.features.supportRequests.ui.supportOperationsPage.clear.filters": "Clear filters",
-  "support.features.supportRequests.ui.supportOperationsPage.status.filter.all": "All statuses",
+  "support.features.supportRequests.ui.supportOperationsPage.status.filter.all": "Needs attention",
+  "support.features.supportRequests.ui.supportOperationsPage.status.filter.unresolved": "Unresolved",
   "support.features.supportRequests.ui.supportOperationsPage.status.filter.open": "Open",
   "support.features.supportRequests.ui.supportOperationsPage.status.filter.waitingOnBuyer": "Waiting on buyer",
   "support.features.supportRequests.ui.supportOperationsPage.status.filter.waitingOnSeller": "Waiting on seller",

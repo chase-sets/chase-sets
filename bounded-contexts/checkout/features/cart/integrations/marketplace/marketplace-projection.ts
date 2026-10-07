@@ -1,7 +1,46 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import {
+  buildProductMeasurePublicationHandlers,
+  resetProductMeasurePublicationParts,
+} from "@chase-sets/event-core-postgres";
+import { assertSqlIdentifier } from "@chase-sets/event-core-postgres/sql-identifier";
+import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recomputeCheckoutSellerOptionSupply } from "../inventory/inventory-projection";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" &&
+      subscription.projectionName === "checkout-marketplace-listing-options-projection",
+  )!,
+);
+
+export function withCheckoutProductMeasurePublicationReset(group: BcProjectionGroup): BcProjectionGroup {
+  return group.projectionName === "checkout-marketplace-listing-options-projection"
+    ? {
+        ...group,
+        reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+          await resetProductMeasurePublicationParts(
+            db,
+            createCheckpointKey(
+              contextManifest.eventSubscriptions.find(
+                (subscription) =>
+                  subscription.sourceContextName === "catalog" && subscription.projectionName === group.projectionName,
+              )!,
+            ),
+          );
+          if (group.resetStrategy === "truncate-owned-tables" && group.ownedTables.length > 0) {
+            await db.query(`TRUNCATE TABLE ${group.ownedTables.map(assertSqlIdentifier).join(", ")}`);
+          }
+        }),
+      }
+    : group;
+}
 
 function productMeasureSnapshotFromUnknown(value: unknown) {
   return value && typeof value === "object" ? JSON.stringify(value) : null;
@@ -229,13 +268,14 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         ],
       );
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      await db.query(
+      await projectionDb.query(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -255,7 +295,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
           event.timing.recordedAt,
         ],
       );
-    },
+    }),
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 

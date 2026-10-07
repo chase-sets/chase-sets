@@ -116,6 +116,10 @@ Provider access tokens, client secrets, and raw provider payloads are integratio
 
 ## OAuth Authorization
 
+Connection-scoped Connector authorization uses Auth's separate `channel-connector`
+scope family and does not create delegated agent access. Channels owns Connector
+Pairing; Auth issues and revokes the bound grant and its rotating credentials.
+
 An **OAuth Authorization** is the Auth-owned user journey that lets a user select an account and grant delegated UCP access to an external platform.
 
 Notes:

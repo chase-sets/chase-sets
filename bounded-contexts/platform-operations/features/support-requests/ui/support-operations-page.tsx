@@ -59,6 +59,7 @@ type SupportOperationsPageProps = Readonly<{
 
 const SUPPORT_OPERATIONS_QUEUE_STATUS_FILTERS = [
   "all",
+  "unresolved",
   "open",
   "waiting-on-buyer",
   "waiting-on-seller",
@@ -81,6 +82,8 @@ function queueFlowTypeLabel(flowType: string) {
 
 function queueStatusFilterLabel(status: string) {
   switch (status) {
+    case "unresolved":
+      return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.unresolved");
     case "open":
       return t("support.features.supportRequests.ui.supportOperationsPage.status.filter.open");
     case "waiting-on-buyer":
@@ -186,17 +189,27 @@ function SupportOperationsQueue({
   now,
   marketplaceOrigin,
   searchParams,
+  status,
 }: Readonly<{
   requests: readonly SupportRequestListItem[];
   now: string;
   marketplaceOrigin?: string | null;
   searchParams: URLSearchParams;
+  status: string;
 }>) {
   if (requests.length === 0) {
     return (
       <EmptyState
-        title={t("support.features.supportRequests.ui.supportOperationsPage.no.requests")}
-        description={t("support.features.supportRequests.ui.supportOperationsPage.no.requests.description")}
+        title={
+          status === "unresolved"
+            ? t("support.features.supportRequests.ui.supportOperationsPage.no.unresolvedRequests")
+            : t("support.features.supportRequests.ui.supportOperationsPage.no.requests")
+        }
+        description={
+          status === "unresolved"
+            ? undefined
+            : t("support.features.supportRequests.ui.supportOperationsPage.no.requests.description")
+        }
       />
     );
   }
@@ -496,6 +509,7 @@ export function SupportOperationsPage({
             now={queueNow}
             marketplaceOrigin={marketplaceOrigin}
             searchParams={searchParams}
+            status={filters.status}
           />
           {showPagination ? (
             <Pagination

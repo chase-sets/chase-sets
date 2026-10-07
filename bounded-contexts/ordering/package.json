@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude '**/*.db.test.ts' --exclude '**/*.db.test.tsx'",
     "test:db": "vitest run --config ./tests/vitest.config.mjs features/orders/api/purchase-limits.db.test.ts features/orders/api/order-capacity.db.test.ts features/orders/api/cancel-sale.db.test.ts features/orders/api/evidence-window-source-release.db.test.ts features/orders/integrations/reputation/reputation-projection.db.test.ts features/orders/read-model/queries.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },

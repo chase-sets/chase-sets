@@ -1,5 +1,11 @@
 # Marketplace Domain Glossary
 
+## Review Opportunity Fact
+
+A **Review Opportunity Fact** is Marketplace's versioned, content-free snapshot of both review directions for one Order. Each slot is explicitly absent or carries the canonical eligibility instant, effective deadline, submission and hold state, active Review id, and nullable active reveal instant. The active reveal instant records publication of the active Review; a hold still suppresses its visibility. No rating, feedback, response or private Support reason crosses this contract.
+
+Durable publication generations, source checkpoints and rebuild generations identify the snapshot's provenance. Publication and acknowledgement commit together; historical backfill and later canonical writes use the same publication path. Consumers compare the published absolute deadline to server time, without owning review-window or hold policy.
+
 This glossary defines the canonical terminology for the Marketplace bounded context.
 
 Browse, search, filters, and item detail terminology are owned by the Discovery bounded context.
@@ -269,6 +275,10 @@ A **Review Response** is the single public response the reviewed account may att
 
 **Review Eligibility** is the order-lifecycle fact that determines whether a transaction can support directional feedback. Delivery establishes eligibility by default. A seller-responsible cancellation can establish buyer-to-seller eligibility without delivery once the cancellation is recorded; a buyer-caused, mutually agreed, external, or indeterminate cancellation does not automatically establish it.
 
+## Review Opportunity
+
+A **Review Opportunity** is Marketplace's canonical state for one direction of feedback on an Order. It combines Review Eligibility, the effective submission deadline, submission and hold state, and the active Review and its reveal instant when present. A Review Opportunity Fact publishes both directions without transferring ownership of eligibility, clock, hold, or reveal policy to consumers.
+
 ## Review Hold
 
 A **Review Hold** is Marketplace's order-scoped record that one or more review-affecting Support requests are open. Each request is identified by its stable Support request id and holds both review directions unless Support explicitly identifies narrower directions. The first open request places the affected directions on hold; further concurrent requests extend that hold without pausing time again; the final terminal request releases it. Duplicate, reordered, and replayed facts converge, including a terminal fact that arrives before its open fact. Reopening a terminal request with a later open timestamp starts a new hold.
@@ -397,3 +407,14 @@ Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reaso
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.
+
+## Listing Enforcement Action
+
+A **Listing Enforcement Action** is one immutable Marketplace fact that removes an active Listing from sale and has a never-reused `lea_` identity. It is distinct from Identity's Account Enforcement Action and never changes the Account.
+
+Notes:
+
+- The Listing aggregate owns removal. Each action records its closed source: `automatic-report-threshold` names the triggering `rpt_` Report, and `operator-unlist` names the `rca_` Reported Content action. The source is provenance only and grants no permission.
+- The action is attributed to the Listing owner taken from the aggregate, never from a caller. Its time is the auto-unlist timestamp or the operator action's recorded time.
+- A source removes a Listing at most once. A redelivered source is inert even after republish, a distinct later source removes again, and an identity is never reused for another source. Draft, paused and withdrawn Listings are not removed.
+- The latest action stays current across republish and pause. Historical automated unlisting without an action identity remains valid and records none.

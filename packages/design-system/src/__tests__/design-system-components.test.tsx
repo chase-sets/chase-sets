@@ -2550,6 +2550,19 @@ describe("design system components", () => {
     // Different lucide glyphs produce different path geometry.
     expect(keyhole).not.toBe(plain);
   });
+
+  it("renders mail as an accessible envelope distinct from the message glyph", () => {
+    const mail = renderToString(<Icon name="mail" label="Email sign-in link" />);
+    const message = renderToString(<Icon name="message" label="Phone code" />);
+
+    expect(mail).toContain('aria-label="Email sign-in link"');
+    expect(mail).toContain('aria-hidden="false"');
+    expect(mail).toContain("lucide-mail");
+    expect(message).toContain("lucide-message-square");
+    const paths = (markup: string) => [...markup.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
+    expect(paths(mail)).not.toHaveLength(0);
+    expect(paths(mail)).not.toEqual(paths(message));
+  });
 });
 
 // Immutable oracle for the default/mount Stagger output, captured from base

@@ -26,6 +26,7 @@ import {
   loader as accountShippingAddressesLoader,
 } from "../routes/marketplace/account-shipping-addresses";
 import { action as accountTeamAction } from "../routes/marketplace/account-team";
+import { IdentityApiError } from "../client";
 
 const actor = {
   sessionId: "ses_identity",
@@ -113,6 +114,144 @@ function expectLocationPath(location: string, expectedPath: string | RegExp) {
 describe("Identity mutation consistency route actions", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("preserves all ten marketplace successes and executes each request once", async () => {
+    const cases = [
+      {
+        action: accountAction,
+        path: "/account",
+        form: { intent: "update-profile", name: "Store", displayName: "Store" },
+      },
+      {
+        action: accountSecurityAction,
+        path: "/account/security",
+        form: { intent: "update-user", displayName: "Alex" },
+      },
+      { action: accountSecurityAction, path: "/account/security", form: { intent: "create-api-key", name: "Ops" } },
+      {
+        action: accountSecurityAction,
+        path: "/account/security",
+        form: { intent: "rotate-api-key", apiKeyId: "key_1" },
+      },
+      {
+        action: accountSecurityAction,
+        path: "/account/security",
+        form: { intent: "revoke-api-key", apiKeyId: "key_1" },
+      },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
+        form: { intent: "create-invitation", email: "invitee@example.com", roleKey: "viewer" },
+      },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
+        form: { intent: "change-role", membershipId: "mbr_1", roleKey: "viewer" },
+      },
+      { action: accountTeamAction, path: "/account/team", form: { intent: "revoke", membershipId: "mbr_1" } },
+      { action: accountTeamAction, path: "/account/team", form: { intent: "reinstate", membershipId: "mbr_1" } },
+      {
+        action: accountTeamAction,
+        path: "/account/team",
+        form: { intent: "cancel-invitation", invitationId: "ivt_1" },
+      },
+    ] as const;
+    for (const testCase of cases) {
+      const requests: string[] = [];
+      const fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = requestUrl(input);
+        requests.push(url);
+        return url.includes("/api/auth/session")
+          ? jsonResponse({ actor })
+          : jsonResponse(
+              {
+                id: "key_written",
+                version: 7,
+                status: "active",
+                keyPrefix: "key_test",
+                secret: "synthetic-secret",
+              },
+              200,
+              commitHeaders("79"),
+            );
+      });
+      vi.stubGlobal("fetch", fetch);
+      const response = await testCase.action({
+        request: formRequest(testCase.path, testCase.form),
+        params: {},
+        context: undefined,
+      });
+      expect(response).toBeInstanceOf(Response);
+      const result = response as Response;
+      if (["create-api-key", "rotate-api-key"].includes(testCase.form.intent)) {
+        expect(result.status).toBe(testCase.form.intent === "create-api-key" ? 201 : 200);
+        expect(result.headers.get("Location")).toBeNull();
+        expect(await result.json()).toEqual({
+          oneTimeSecret: {
+            apiKeyId: "key_written",
+            keyPrefix: "key_test",
+            secret: "synthetic-secret",
+            action: testCase.form.intent === "create-api-key" ? "created" : "rotated",
+          },
+        });
+      } else {
+        expect(result.status).toBe(302);
+        const location = result.headers.get("Location")!;
+        expectLocationPath(location, testCase.path);
+        expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("79");
+      }
+      expect(requests.filter((url) => url.includes("/api/identity/"))).toHaveLength(1);
+      expect(requests.filter((url) => url.includes("/acceptance-link/request"))).toHaveLength(
+        testCase.form.intent === "create-invitation" ? 1 : 0,
+      );
+      expect(fetch).toHaveBeenCalledTimes(testCase.form.intent === "create-invitation" ? 3 : 2);
+    }
+  });
+
+  it("throws invitation delivery failures after one committed write even for admitted API lookalikes", async () => {
+    const failures = [
+      ...[400, 422].flatMap((status) =>
+        ["validation_failed", "validation_error"].map((code) => new IdentityApiError(status, { error: { code } })),
+      ),
+      new IdentityApiError(404, { error: { code: "not_found" } }),
+      new IdentityApiError(409, { error: { code: "conflict" } }),
+      new TypeError("synthetic-delivery-network-error"),
+    ];
+    for (const failure of [...failures, null]) {
+      const requests: Request[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = input instanceof Request ? input : new Request(input, init);
+          requests.push(request);
+          if (request.url.includes("/api/auth/session")) return jsonResponse({ actor });
+          if (request.url.includes("/acceptance-link/request")) {
+            if (failure) throw failure;
+            return jsonResponse({ error: { code: "conflict" } }, 409);
+          }
+          return jsonResponse({ id: "invitation_written", version: 7, status: "pending" }, 201, commitHeaders("80"));
+        }),
+      );
+      const call = accountTeamAction({
+        request: formRequest("/account/team", {
+          intent: "create-invitation",
+          email: "invitee@example.com",
+          roleKey: "viewer",
+        }),
+        params: {},
+        context: undefined,
+      });
+      if (failure) await expect(call).rejects.toBe(failure);
+      else await expect(call).rejects.toThrow("The invitation was saved, but its acceptance email could not be sent.");
+      const writes = requests.filter((request) => request.url.includes("/api/identity/invitations"));
+      const deliveries = requests.filter((request) => request.url.includes("/acceptance-link/request"));
+      expect(writes).toHaveLength(1);
+      expect(deliveries).toHaveLength(1);
+      expect(requests).toHaveLength(3);
+      const written = await writes[0].clone().json();
+      expect(await deliveries[0].clone().json()).toMatchObject({ invitationId: written.invitationId });
+    }
   });
 
   it("carries command receipts from owned post forms into fresh-read redirects", async () => {

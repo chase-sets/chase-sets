@@ -723,6 +723,60 @@ describeDb("marketplace review double-blind reveal SQL persistence boundary (m10
     expect(opportunity?.window_expired).toBe(true);
     expect(opportunity?.active_review_id).toBeNull();
   });
+
+  it.each(["buyer", "seller"])(
+    "selects the %s active reveal timestamp as text, never a withdrawn review",
+    async (role) => {
+      const pool = pools.marketplace;
+      const authorAccountId = `acc_${role}`;
+      const subjectAccountId = role === "buyer" ? "acc_seller" : "acc_buyer";
+      const orderHandlers = buildReviewOrderSourceProjectionHandlers(pool);
+      const reviewHandlers = buildReviewProjectionHandlers(pool);
+      await orderHandlers["ordering.order.created"]!(
+        event("ordering.order.created", {
+          orderId: "ord_1",
+          buyerAccountId: "acc_buyer",
+          sellerAccountId: "acc_seller",
+        }),
+      );
+      await pool.query(
+        `INSERT INTO marketplace_review_eligibility_pages (
+         order_id, author_account_id, subject_account_id, author_role, eligible_at,
+         effective_deadline_at, submission_state, reminder_armed_at, updated_at
+       ) VALUES ('ord_1', $1, $2, $3, '2026-04-02', '2026-06-01', 'allowed', '2026-04-02', '2026-04-02')`,
+        [authorAccountId, subjectAccountId, role],
+      );
+      const read = () => getOrderReviewOpportunity(pool, { orderId: "ord_1", authorAccountId });
+      expect(await read()).toMatchObject({ active_review_id: null, active_review_revealed_at: null });
+      await reviewHandlers["marketplace.review.submitted"]!(
+        submittedEvent({
+          reviewId: "rev_1",
+          orderId: "ord_1",
+          authorAccountId,
+          subjectAccountId,
+          authorRole: role,
+          rating: 5,
+          feedback: "Private until revealed",
+          submittedAt: "2026-04-02T00:00:00.000Z",
+          reviewWindowExpiresAt: "2026-06-01T00:00:00.000Z",
+        }),
+      );
+      expect(await read()).toMatchObject({ active_review_id: "rev_1", active_review_revealed_at: null });
+      await reviewHandlers["marketplace.review.revealed"]!(
+        revealedEvent("rev_1", "2026-04-05T00:00:00.000Z", "counterpart-submitted"),
+      );
+      const revealed = await read();
+      expect(revealed?.active_review_id).toBe("rev_1");
+      expect(typeof revealed?.active_review_revealed_at).toBe("string");
+      expect(new Date(revealed!.active_review_revealed_at!).toISOString()).toBe("2026-04-05T00:00:00.000Z");
+      await pool.query("UPDATE marketplace_review_pages SET status = 'withdrawn' WHERE review_id = 'rev_1'");
+      expect(await read()).toMatchObject({
+        active_review_id: null,
+        active_review_revealed_at: null,
+        window_expired: false,
+      });
+    },
+  );
 });
 
 describeDb("marketplace post-delivery review nudges SQL persistence boundary (m108 #4270)", () => {

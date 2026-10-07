@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/agreements/read-model/queries.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/agreements/read-model/queries.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
@@ -18,6 +20,7 @@
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
+    "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
@@ -33,5 +36,8 @@
   },
   "devDependencies": {
     "vitest": "^4.1.4"
+  },
+  "chaseSets": {
+    "testProfile": "db"
   }
 }

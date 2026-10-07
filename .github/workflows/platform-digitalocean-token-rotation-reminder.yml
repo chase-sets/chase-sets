@@ -83,3 +83,24 @@ jobs:
               --label "kind:ops" \
               --label "area:infrastructure"
           fi
+
+  reporter:
+    name: Report Token Rotation Reminder Failure
+    needs: remind
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report workflow failure
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform DigitalOcean Token Rotation Reminder
+          alert-status: failure
+          alert-summary: DigitalOcean token rotation reminder publication failed. See this run's jobs.

@@ -241,6 +241,11 @@ const policyLinks = [
   { href: "/order-protection", label: t("publicPresence.nav.buyerProtection") },
   { href: "/sales-fees", label: t("publicPresence.nav.sellerFees") },
   { href: "/founders", label: t("publicPresence.nav.foundersTerms") },
+  { href: "/seller-agreement", label: t("publicPresence.info.sellerAgreement.eyebrow") },
+  { href: "/payments-terms", label: t("publicPresence.info.paymentsTerms.eyebrow") },
+  { href: "/authenticity-terms", label: t("publicPresence.info.authenticityTerms.eyebrow") },
+  { href: "/agent-terms", label: t("publicPresence.info.agentTerms.eyebrow") },
+  { href: "/press", label: t("publicPresence.nav.press") },
 ];
 
 function trackCtaClick(

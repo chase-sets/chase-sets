@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
 import {
   classifyFreshWriteReadError,
   postWriteRecoveryKindForFreshWriteReadError,
@@ -13,6 +13,10 @@ import { requestWithoutFreshWrite, requireActorFromIdentityApi } from "../../sup
 import { IdentityApiError, type Account, type CurrentActorDisplay } from "../../support/request-support/api-client";
 import { AccountProfilePage } from "../../features/accounts/ui/account-profile-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
+import {
+  createAccountActionErrorHandling,
+  type AccountActionFailureResult,
+} from "../../support/route-support/account-action-errors";
 
 type AccountLoaderRecovery = Readonly<{
   kind: "temporary-actor-account-fallback";
@@ -96,6 +100,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const action = defineFormAction({
+  ...createAccountActionErrorHandling().options,
   authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
   intents: {
     "update-profile": async ({ request, actor, formData }) =>
@@ -115,5 +120,12 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountRoute() {
   const data = useLoaderData<typeof loader>();
-  return <AccountProfilePage account={data.account} actorDisplay={data.actorDisplay} />;
+  const actionData = useActionData<AccountActionFailureResult>();
+  return (
+    <AccountProfilePage
+      account={data.account}
+      actorDisplay={data.actorDisplay}
+      errorMessage={actionData?.failure.message}
+    />
+  );
 }

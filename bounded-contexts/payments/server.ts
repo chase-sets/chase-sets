@@ -1,4 +1,14 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export type { WalletFundingServices, WalletFundingEligibilityResolver } from "./features/wallet-funding/api/runtime";
+export { walletFundingLimitsPolicy } from "./features/wallet-funding/api/limits-policy";
+export type {
+  PrepaidRefundAuthority,
+  PrepaidRefundIdentity,
+  PrepaidRefundReservation,
+  PrepaidRefundSuccess,
+  PrepaidRefundNonExecution,
+} from "./features/wallet-funding/api/prepaid-refund-authority";
+export type { WalletFundingRefundFact, WalletFundingDisputeFact } from "./features/wallet-funding/domain/domain";
 export { preflightPaymentStart } from "./features/payments/api/route";
 export type { BalanceCreditResolver, BalanceCreditResolution } from "./features/payments/api/balance-credit-resolver";
 export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/balance-credit-request";

@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CardProps } from "@chase-sets/design-system";
+import { Icon, type IconName } from "@chase-sets/design-system/icons";
+import { resolveActorFromSessionId } from "@chase-sets/auth/server";
 
 const { mockUseLoaderData, mockUseLocation, futureCardElevationDefault } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
@@ -148,6 +150,61 @@ function mobileBottomNavMarkup(html: string) {
 }
 
 describe("admin web section layouts", () => {
+  it("renders the support section navigation for a reported-content operator", async () => {
+    for (const roleKey of ["platform-admin", "owner", "manager", "fulfillment", "viewer"] as const) {
+      const actor = await resolveActorFromSessionId(
+        {
+          sessions: {
+            readAuthenticatedSession: async () => ({
+              state: {
+                id: "ses_synthetic_support",
+                userId: "usr_synthetic_support",
+                accountId: "acc_synthetic_support",
+                availableAccountIds: ["acc_synthetic_support"],
+                authenticationMethod: "password",
+                status: "active",
+                expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              },
+              authenticatedAt: new Date().toISOString(),
+            }),
+            getSession: async () => null,
+          },
+          identity: {
+            getActiveMembershipForUserAccount: async () => ({
+              membership_id: "mbr_synthetic_support",
+              role_key: roleKey,
+              role_permissions: [],
+              status: "active",
+            }),
+            getUser: async () => ({ primary_email: null, contact_methods: [] }),
+          },
+        } as unknown as Parameters<typeof resolveActorFromSessionId>[0],
+        "ses_synthetic_support",
+      );
+      expect(actor).not.toBeNull();
+      mockUseLoaderData.mockReturnValue({ actor });
+      mockUseLocation.mockReturnValue({ pathname: "/support/reported-content" });
+      const html = ssr(<SupportLayout />);
+      const document = new DOMParser().parseFromString(html, "text/html");
+      for (const href of ["/support/reported-content", "/support/risk-alerts"]) {
+        const links = document.querySelectorAll(`a[href="${href}"]`);
+        if (roleKey === "platform-admin") {
+          expect(links.length).toBeGreaterThan(0);
+          expect(links[0]?.querySelector("svg")).not.toBeNull();
+          if (href === "/support/reported-content") {
+            expect(links[0]?.querySelector("svg.lucide-flag")).not.toBeNull();
+            expect(links[0]?.textContent).toContain("Reported Content");
+          }
+        } else {
+          expect(links).toHaveLength(0);
+        }
+      }
+    }
+  });
+
+  it("fails closed when only the icon name is unmapped", () => {
+    expect(() => ssr(<Icon name={"__unmapped_icon_probe__" as IconName} />)).toThrow("Element type is invalid");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });

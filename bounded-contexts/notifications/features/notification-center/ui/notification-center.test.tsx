@@ -83,6 +83,8 @@ beforeEach(() => {
     "GET /api/notifications/center": () => json(feedSnapshot(null, 1)),
     "GET /api/notifications/preferences": () => json({ items: [{ key: "email", enabled: true }] }),
     "GET /api/marketplace/account/product-alerts": () => json({ items: [productAlert] }),
+    "POST /account/product-alerts": () =>
+      Response.redirect("http://localhost/account/notifications?view=settings&section=product-alerts", 302),
   };
   vi.stubGlobal(
     "fetch",
@@ -114,7 +116,7 @@ const productAlertSubmissions: Array<Record<string, string>> = [];
 
 async function productAlertAction({ request }: ActionFunctionArgs) {
   productAlertSubmissions.push(Object.fromEntries((await request.formData()).entries()) as Record<string, string>);
-  return Response.redirect("http://localhost/account/notifications?view=settings&section=product-alerts", 302);
+  return responders["POST /account/product-alerts"]!();
 }
 
 function CurrentLocation() {
@@ -263,12 +265,31 @@ describe("notification center route", () => {
       ),
     );
     expect(await screen.findByText("paused")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Resume" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    let releaseResume: (response: Response) => void = () => undefined;
+    const resumeResponse = new Promise<Response>((resolve) => (releaseResume = resolve));
+    respond("POST /account/product-alerts", () => resumeResponse);
+    respond("GET /api/marketplace/account/product-alerts", () => json({ items: [productAlert] }));
 
     await user.click(screen.getByRole("button", { name: "Resume" }));
     await waitFor(() => expect(productAlertSubmissions).toHaveLength(2));
+    expect((screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement).disabled).toBe(true);
+
+    releaseResume(
+      Response.redirect("http://localhost/account/notifications?view=settings&section=product-alerts", 302),
+    );
+    expect(await screen.findByText("active")).toBeTruthy();
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(productAlertSubmissions).toHaveLength(3));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement).disabled).toBe(false),
+    );
 
     expect(productAlertSubmissions).toEqual([
       { intent: "pause", alertId: "pal_1" },

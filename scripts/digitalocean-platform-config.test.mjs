@@ -1,6 +1,9 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
@@ -12,6 +15,456 @@ import {
 } from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+
+// These are the finite input contracts in #8993, executed by Bash's own ERE
+// implementation, not a second regex classifier or a provider integration.
+const operatorSha = "a".repeat(40);
+const operatorBlocks = [
+  {
+    file: "platform-compose-boot-smoke.yml",
+    step: "Validate immutable target provenance",
+    bindings: [
+      ["target_sha", "TARGET_SHA", operatorSha, "target_sha must be a lowercase 40-character"],
+      ["expected_base_sha", "EXPECTED_BASE_SHA", operatorSha, "expected_base_sha must be a lowercase 40-character"],
+    ],
+  },
+  {
+    file: "platform-staging-advisory-evidence.yml",
+    step: "Check out applied staging release",
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  },
+  ...["Summarize staging advisory evidence", "Create, update, or resolve advisory evidence incident"].map((step) => ({
+    file: "platform-staging-advisory-evidence.yml",
+    step,
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  })),
+  {
+    file: "platform-rollback-readiness.yml",
+    step: "Validate rollback target evidence",
+    bindings: [
+      ["target_commit", "target_commit", operatorSha, "Target commit must be a lowercase 40-character"],
+      ["release_tag", "release_tag", "release-20261007071150-aaaaaaaa-123", "Release tag must start with release-"],
+      [
+        "image_ref",
+        "image_ref",
+        "registry.digitalocean.com/example/chase-sets-platform:release-20261007071150-aaaaaaaa-123",
+        "Image reference must start with registry.digitalocean.com/",
+      ],
+    ],
+  },
+  {
+    file: "platform-staging-mixed-version-wake-drills.yml",
+    step: "Confirm mixed-version evidence evaluation",
+    bindings: [
+      [
+        "platform_deploy_run_id",
+        "PLATFORM_DEPLOY_RUN_ID",
+        "123",
+        "Platform deploy run id must contain only decimal digits",
+      ],
+    ],
+  },
+  {
+    file: "platform-staging-mixed-version-wake-drills.yml",
+    step: "Download source evidence",
+    bindings: [
+      [
+        "platform_deploy_run_id",
+        "PLATFORM_DEPLOY_RUN_ID",
+        "123",
+        "Platform deploy run id must contain only decimal digits",
+      ],
+      ["wake_drill_run_id", "WAKE_DRILL_RUN_ID", "456", "Wake drill run id must contain only decimal digits"],
+      [
+        "secondary_wake_drill_run_id",
+        "SECONDARY_WAKE_DRILL_RUN_ID",
+        "789",
+        "Secondary wake drill run id must be empty or contain only decimal digits",
+      ],
+    ],
+  },
+].map((block) => {
+  const workflow = parse(readFileSync(resolve(".github/workflows", block.file), "utf8"));
+  const step = Object.values(workflow.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .find((step) => step.name === block.step);
+  if (!step?.run) throw new Error(`Missing operator block: ${block.file}::${block.step}`);
+  return { ...block, workflow, source: step };
+});
+
+const operatorCases = operatorBlocks.flatMap((block) =>
+  block.bindings.map(([input, name, valid, message]) => ({ block, input, name, valid, message })),
+);
+const operatorBash =
+  process.platform === "win32"
+    ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+    : "bash";
+
+function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
+  const root = mkdtempSync(join(tmpdir(), "operator-input-control-"));
+  const env = {
+    ...process.env,
+    ...Object.fromEntries(block.bindings.map(([, name, value]) => [name, value])),
+    REPOSITORY_URL: "https://example.invalid/synthetic.git",
+    GITHUB_REPOSITORY: "synthetic/operator-input-control",
+    GITHUB_OUTPUT: "output",
+    GITHUB_STEP_SUMMARY: "summary",
+    EVIDENCE_DIR: "evidence",
+    TRIGGER_EVENT: "workflow_dispatch",
+    TRIGGER_REF: "refs/heads/main",
+    TRIGGER_SHA: operatorSha,
+    PLATFORM_IMAGE: `registry.digitalocean.com/example/chase-sets-platform:${operatorSha}`,
+    PLATFORM_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
+    CONTROL_SHA: operatorSha,
+    CONTROL_FAILURE: "",
+    CONTROL_NAME: "",
+    SCENARIO_SEED_OUTCOME: "success",
+    MARKETPLACE_E2E_OUTCOME: "success",
+    ADVISORY_RESULT: "failure",
+    SCENARIO_SEED_ERROR: "",
+    RUN_URL: "https://example.invalid/synthetic-run",
+    ARTIFACTS_URL: "https://example.invalid/synthetic-artifacts",
+    ...overrides,
+  };
+  // Functions intercept every provider-facing command in these extracted
+  // blocks. Trace goes to a file so the real block's redirections cannot hide it.
+  const stubs = `
+    trace() { printf '%s' "$1" >> trace; shift; printf ' <%s>' "$@" >> trace; printf '\\n' >> trace; }
+    git() {
+      trace git "$@"
+      case "$1" in
+        fetch) [[ "$CONTROL_FAILURE" != fetch ]] ;;
+        cat-file) [[ "$CONTROL_FAILURE" != object ]] ;;
+        merge-base) [[ "$CONTROL_FAILURE" != ancestry ]] ;;
+        rev-list) printf '%s\\n' "$CONTROL_SHA" ;;
+        rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
+      esac
+    }
+    gh() { trace gh "$@"; }
+    doctl() { trace doctl "$@"; }
+    docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
+    jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
+    date() { printf '2026-10-07T00:00:00Z'; }
+    control_use() {
+      [[ "$1" == *'=~'* || "$1" == '[ -z '* || "$1" == 'fail '* || "$1" == "$CONTROL_NAME="* ]] && return 0
+      if [[ "$1" == *"\\$$CONTROL_NAME"* || "$1" == *"\\\${$CONTROL_NAME}"* ]]; then
+        trace consume "\${!CONTROL_NAME}"
+      fi
+    }
+    if [[ -n "$CONTROL_NAME" ]]; then trap 'control_use "$BASH_COMMAND"' DEBUG; fi
+  `;
+  try {
+    run = run
+      .replaceAll("\${{ inputs.platform_image }}", env.PLATFORM_IMAGE)
+      .replaceAll("\${{ inputs.platform_image_digest }}", env.PLATFORM_IMAGE_DIGEST);
+    const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], { cwd: root, env, encoding: "utf8" });
+    if (result.error) throw result.error;
+    const read = (name) => (existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : "");
+    return {
+      status: result.status,
+      output: `${result.stdout}${result.stderr}`,
+      trace: read("trace"),
+      injected: existsSync(join(root, "marker")),
+      evidence: read("output"),
+      summary: read("summary"),
+    };
+  } finally {
+    if (!root.startsWith(join(tmpdir(), "operator-input-control-"))) throw new Error("Unexpected control cleanup root");
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function operatorGuard(run, name) {
+  const start = run.indexOf(`[[ "$${name}" =~ `);
+  if (start < 0) throw new Error(`Missing guard for ${name}`);
+  const end = run.indexOf("\n}", start);
+  if (end < 0) throw new Error(`Missing refusal block for ${name}`);
+  return run.slice(start, end + 2);
+}
+
+describe("operator inputs before shell parsing (#8993)", () => {
+  it("reproduces the frozen Compose line-oriented guard bypass without provider effects", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-compose-boot-smoke.yml");
+    const old = parse(
+      execFileSync("git", ["show", `595ea3a666b4a9c92a66cd1b5136230e132277f3:.github/workflows/${block.file}`], {
+        encoding: "utf8",
+      }),
+    );
+    const run = old.jobs.verify.steps.find((step) => step.name === block.step).run;
+    const overrides = { TARGET_SHA: `${operatorSha}\n-e` };
+    const baseline = executeOperatorBlock(block, overrides, run);
+    expect(baseline.status, baseline.output).toBe(0);
+    expect(baseline.trace).toContain(`${operatorSha}\n-e`);
+    const candidate = executeOperatorBlock(block, overrides);
+    expect(candidate.status).toBe(1);
+    expect(candidate.output).toContain("target_sha must be a lowercase 40-character");
+    expect(candidate.trace).toBe("");
+  });
+
+  it("inventories every named run/env occurrence, including the earlier echo and optional condition", () => {
+    for (const block of operatorBlocks) {
+      for (const [input, name] of block.bindings) {
+        expect(block.source.env[name]).toBe(`\${{ inputs.${input} }}`);
+        expect(block.source.run).toContain(`$${name}`);
+      }
+      const inputs = new Set(
+        operatorCases.filter((entry) => entry.block.file === block.file).map((entry) => entry.input),
+      );
+      for (const job of Object.values(block.workflow.jobs)) {
+        for (const step of job.steps ?? []) {
+          for (const input of inputs) {
+            expect(step.run ?? "").not.toMatch(new RegExp(`\\$\\{\\{\\s*inputs\\.${input}\\b`, "u"));
+          }
+        }
+      }
+    }
+  });
+
+  it.each(operatorBlocks)("preserves the valid effect trace: $step", (block) => {
+    const result = executeOperatorBlock(block);
+    expect(result.status, result.output).toBe(0);
+    if (block.step.startsWith("Confirm")) {
+      expect(result.output).toBe("Evaluating mixed-version wake evidence for deploy run 123.\n");
+    } else if (block.file === "platform-compose-boot-smoke.yml") {
+      expect(result.trace).toBe(
+        [
+          "git <init> <--quiet>",
+          "git <remote> <add> <origin> <https://example.invalid/synthetic.git>",
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <${operatorSha}>`,
+          "",
+        ].join("\n"),
+      );
+    } else if (block.step === "Check out applied staging release") {
+      expect(result.trace).toBe(
+        `git <fetch> <origin> <main>\ngit <merge-base> <--is-ancestor> <${operatorSha}> <origin/main>\ngit <checkout> <--detach> <${operatorSha}>\n`,
+      );
+    } else if (block.file === "platform-rollback-readiness.yml") {
+      const [, , tag] = block.bindings[1];
+      const [, , image] = block.bindings[2];
+      expect(result.trace).toBe(
+        [
+          "git <fetch> <origin> <production> <--tags>",
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <origin/production>`,
+          `git <rev-parse> <--verify> <--quiet> <refs/tags/${tag}^{commit}>`,
+          `git <rev-list> <-n> <1> <${tag}>`,
+          "doctl <registry> <login> <--expiry-seconds> <3600>",
+          `docker <buildx> <imagetools> <inspect> <${image}>`,
+          "git <rev-parse> <origin/production>",
+          "",
+        ].join("\n"),
+      );
+      expect(result.evidence).toContain(`last_known_good_commit=${operatorSha}`);
+    } else if (block.step === "Summarize staging advisory evidence") {
+      expect(result.trace).toContain(
+        `jq <-n> <--arg> <checkedAt> <2026-10-07T00:00:00Z> <--arg> <releaseCommit> <${operatorSha}>`,
+      );
+      expect(result.summary).toContain(`Release: ${operatorSha}@sha256:${"b".repeat(64)}`);
+      expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
+    } else if (block.step === "Create, update, or resolve advisory evidence incident") {
+      expect(result.trace).toContain("gh <issue> <list>");
+      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
+    } else {
+      expect(result.trace).toBe(
+        "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\ngh <run> <download> <789> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-secondary>\n",
+      );
+    }
+    if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(operatorCases)(
+    "rejects malformed/option inputs before effects: $input in $block.step",
+    ({ block, input, name, valid, message }) => {
+      const invalid = ["--help", "-e", "-- x", "\n--help", "malformed"];
+      if (input !== "secondary_wake_drill_run_id") invalid.push("");
+      if (valid === operatorSha || /run_id$/u.test(input)) invalid.push(`${valid}\n-e`, `${valid} `, `${valid}\r`);
+      for (const value of invalid) {
+        const result = executeOperatorBlock(block, { [name]: value });
+        expect(result.status, `${input}=${JSON.stringify(value)}: ${result.output}`).toBe(1);
+        expect(result.trace).toBe("");
+        expect(result.output).toContain(
+          value === "" && block.file === "platform-compose-boot-smoke.yml"
+            ? `${input} is required and cannot be empty.`
+            : message,
+        );
+      }
+    },
+  );
+
+  it.each(operatorCases)(
+    "keeps shell syntax inert in env and detects interpolation-before-guard: $input in $block.step",
+    ({ block, name, input }) => {
+      for (const value of [
+        "$(printf injected > marker)",
+        "`printf injected > marker`",
+        '\"; printf injected > marker; #',
+        '\"\nprintf injected > marker\n#',
+      ]) {
+        const candidate = executeOperatorBlock(block, { [name]: value });
+        expect(candidate.status).toBe(1);
+        expect(candidate.injected).toBe(false);
+        expect(candidate.trace).toBe("");
+        const raw = block.source.run.replace(
+          "set -euo pipefail",
+          `set -euo pipefail\n${name}="\${{ inputs.${input} }}"`,
+        );
+        const bypass = executeOperatorBlock(block, { [name]: value }, raw.replace(`\${{ inputs.${input} }}`, value));
+        expect(bypass.injected, `${input}: ${JSON.stringify(value)}: ${bypass.output}`).toBe(true);
+      }
+    },
+  );
+
+  it.each(operatorCases)(
+    "discriminates deleted, rebound, nullable and alternation guards: $input in $block.step",
+    ({ block, name }) => {
+      const guard = operatorGuard(block.source.run, name);
+      const candidate = executeOperatorBlock(block, { [name]: "-e", CONTROL_NAME: name });
+      expect(candidate.status).toBe(1);
+      expect(candidate.trace).toBe("");
+      const mutants = [
+        block.source.run.replace(guard, ""),
+        block.source.run.replace(guard, `${guard}\n${name}="-e"`),
+        block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^[0-9]*-e$ ]]")),
+        block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^a|-e$ ]]")),
+      ];
+      for (const [index, run] of mutants.entries()) {
+        const result = executeOperatorBlock(
+          block,
+          { ...(index === 1 ? {} : { [name]: "-e" }), CONTROL_NAME: name },
+          run,
+        );
+        expect(result.trace, result.output).toContain("consume <-e>");
+        if (block.step === "Check out applied staging release") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("release commit's SHA-tagged platform image");
+          expect(result.trace).not.toContain("git <checkout>");
+        } else if (name === "target_commit") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("expected -e");
+          expect(result.trace).not.toContain("docker");
+        } else {
+          expect(result.status, result.output).toBe(0);
+        }
+      }
+    },
+  );
+
+  it("retains the optional secondary nonempty-use condition and decimal argv", () => {
+    const block = operatorBlocks.find((entry) => entry.step === "Download source evidence");
+    const result = executeOperatorBlock(block, { SECONDARY_WAKE_DRILL_RUN_ID: "" });
+    expect(result.status).toBe(0);
+    expect(result.trace).toBe(
+      "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\n",
+    );
+    const bypass = executeOperatorBlock(
+      block,
+      { SECONDARY_WAKE_DRILL_RUN_ID: "" },
+      block.source.run.replace('[ -n "$SECONDARY_WAKE_DRILL_RUN_ID" ]', "true"),
+    );
+    expect(bypass.trace).toContain("gh <run> <download> <>");
+    for (const value of ["0", "000123", "9".repeat(32)]) {
+      const result = executeOperatorBlock(block, {
+        PLATFORM_DEPLOY_RUN_ID: value,
+        WAKE_DRILL_RUN_ID: value,
+        SECONDARY_WAKE_DRILL_RUN_ID: value,
+      });
+      expect(result.status).toBe(0);
+      expect(result.trace).toContain(`gh <run> <view> <${value}>`);
+      expect(result.trace.match(new RegExp(`<${value}>`, "gu"))).toHaveLength(3);
+    }
+  });
+
+  it("accepts producer prefixes without claiming suffix identity or evaluating suffix shell text", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-rollback-readiness.yml");
+    const suffix = "$(printf injected > marker)";
+    const result = executeOperatorBlock(block, {
+      release_tag: `release-${suffix}`,
+      image_ref: `registry.digitalocean.com/${suffix}`,
+    });
+    expect(result.status).toBe(0);
+    expect(result.injected).toBe(false);
+    expect(result.trace).toContain(`git <rev-list> <-n> <1> <release-${suffix}>`);
+    expect(result.trace).toContain(`docker <buildx> <imagetools> <inspect> <registry.digitalocean.com/${suffix}>`);
+    for (const [name, value] of [
+      ["release_tag", "release-"],
+      ["image_ref", "registry.digitalocean.com/"],
+      ["image_ref", "registryXdigitaloceanXcom/example"],
+    ]) {
+      const refused = executeOperatorBlock(block, { [name]: value });
+      expect(refused.status).toBe(1);
+      expect(refused.trace).toBe("");
+    }
+  });
+
+  it("preserves advisory digest, image and ancestry refusals", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-staging-advisory-evidence.yml");
+    for (const [overrides, message, reachedFetch] of [
+      [{ PLATFORM_IMAGE_DIGEST: "sha256:bad" }, "immutable platform image digest", false],
+      [
+        { PLATFORM_IMAGE: `registry.digitalocean.com/example/chase-sets-platform:${"c".repeat(40)}` },
+        "release commit's SHA-tagged platform image",
+        false,
+      ],
+      [{ CONTROL_FAILURE: "ancestry" }, "release commit must be contained in origin/main", true],
+    ]) {
+      const result = executeOperatorBlock(block, overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(message);
+      expect(result.trace.includes("git <fetch>")).toBe(reachedFetch);
+      expect(result.trace).not.toContain("git <checkout>");
+    }
+  });
+
+  it("preserves rollback object, production ancestry, tag association and image-existence behavior", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-rollback-readiness.yml");
+    for (const [overrides, message] of [
+      [{ CONTROL_FAILURE: "object" }, "does not exist in repository history"],
+      [{ CONTROL_FAILURE: "ancestry" }, "not reachable from the smoke-verified production marker"],
+      [{ CONTROL_FAILURE: "tag" }, "does not exist locally after fetching tags"],
+      [{ CONTROL_SHA: "c".repeat(40) }, `expected ${operatorSha}`],
+    ]) {
+      const result = executeOperatorBlock(block, overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(message);
+      expect(result.trace).not.toContain("doctl");
+      expect(result.trace).not.toContain("docker");
+    }
+    const missingImage = executeOperatorBlock(block, { CONTROL_FAILURE: "image" });
+    expect(missingImage.status).toBe(0);
+    expect(missingImage.evidence).toContain("image_exists=false");
+  });
+});
+
+it("maps the optional wallet funding smoke and fail-closed production runtime gates", () => {
+  for (const workflow of ["platform-production.yml", "platform-staging-representative-commerce-state.yml"]) {
+    const source = readFileSync(resolve(".github/workflows", workflow), "utf8");
+    expect(source).toContain(
+      "STAGING_SMOKE_WALLET_FUNDING_AMOUNT: ${{ vars.STAGING_SMOKE_WALLET_FUNDING_AMOUNT || '' }}",
+    );
+  }
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const deployProduction = production.slice(
+    production.indexOf("  deploy-production:"),
+    production.indexOf("  dispatch-ephemeral-verification:"),
+  );
+  for (const name of [
+    "PRODUCTION_WALLET_FUNDING_APPROVED",
+    "PRODUCTION_WALLET_FUNDING_REFERENCE",
+    "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST",
+  ]) {
+    expect(deployProduction).toContain(`vars.${name}`);
+    expect(deployProduction).toContain(`add_optional_runtime_env "${name}"`);
+  }
+});
 const platformVersions = readFileSync(resolve("infrastructure/digitalocean/platform/versions.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
@@ -1613,8 +2066,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
-    expect(platformProductionWorkflow).toContain(
-      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    expect(
+      workflowStep(workflowJob(platformProductionWorkflow, "deploy-production"), "Mark production release"),
+    ).toContain("node ./scripts/production-release-marker.mjs publish");
+    expect(readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8")).toMatch(
+      /"docker",\s*\["buildx",\s*"imagetools",\s*"create",\s*"--tag",\s*image,/,
     );
     expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
@@ -1921,12 +2377,65 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
+    expect(dbProfileJob).toContain("id: platform-api-selected");
+    const idIdx = dbProfileJob.indexOf("id: platform-api-selected");
+    const runIdx = dbProfileJob.indexOf("- name: Run DB-profile tests");
+    expect(idIdx).toBeGreaterThan(-1);
+    expect(runIdx).toBeGreaterThan(-1);
+    expect(idIdx).toBeLessThan(runIdx);
+    const selection = dbProfileJob.slice(dbProfileJob.lastIndexOf("- name:", idIdx), runIdx);
+    expect(selection).not.toContain("if:");
+    expect(selection).toContain("AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}");
+    expect(selection).toContain(
+      'if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then',
+    );
+    expect(dbProfileJob).toContain("if: always() && steps.platform-api-selected.outputs.selected == 'true'");
+    expect(dbProfileJob).toContain("name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
+    expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
     );
+  });
+
+  it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
+    const job = parse(platformPrWorkflow).jobs["db-tests"];
+    expect(job.name).toBe("DB Profile Tests (${{ matrix.db-workspace-group }})");
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      "max-parallel": 2,
+      matrix: { "db-workspace-group": ["api", "other"] },
+    });
+    expect(job["continue-on-error"]).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(30);
+    const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
+    expect(execution).toHaveLength(1);
+    expect(execution[0].if).toBeUndefined();
+    expect(execution[0]["continue-on-error"]).toBeUndefined();
+    const prerequisite = workflowPrerequisite(
+      workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke"),
+      "db_tests_required",
+      "db-tests",
+    );
+    const call = workflowRequiredCall(workflowJob(platformPrWorkflow, "pr-required"), "DB Profile Tests");
+    for (const api of ["success", "failure", "cancelled", "skipped", ""]) {
+      for (const other of ["success", "failure", "cancelled", "skipped", ""]) {
+        // Actions aggregates a non-optional matrix dependency; only a complete
+        // all-success pair may supply success. A zero-task cell still executes.
+        const aggregate = [api, other].every((result) => result === "success") ? "success" : "failure";
+        const values = {
+          "needs['db-tests'].result": aggregate,
+          "needs['change-scope'].outputs.db_tests_required": "true",
+        };
+        expect(evaluateWorkflowBooleanExpression(prerequisite, values)).toBe(api === "success" && other === "success");
+        expect(evaluateRequiredWorkflowCall(call, { targetedHeavyRequired: false, templateValues: values })).toBe(
+          api === "success" && other === "success",
+        );
+      }
+    }
   });
 
   it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {
@@ -2975,6 +3484,39 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
+    );
+  });
+
+  it("binds production marker recovery callers and handoff outputs to the verified producer", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const recoveryStep = workflowStep(productionJob, "Capture production rollback target");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const transitionStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    for (const step of [recoveryStep, markerStep, transitionStep]) {
+      expect(step).toContain("GITHUB_TOKEN: ${{ github.token }}");
+      expect(step).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+      expect(step).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    }
+    expect(recoveryStep).toContain("production-release-marker.mjs reconcile");
+    expect(recoveryStep.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
+      recoveryStep.indexOf("git fetch origin production --tags"),
+    );
+    expect(markerStep).toContain("production-release-marker.mjs publish");
+    expect(transitionStep).toContain("production-release-marker.mjs retain-identity");
+    expect(recoveryStep).not.toContain("id: production_marker");
+    for (const name of ["Write promoted release handoff", "Upload promoted release handoff"]) {
+      expect(workflowStep(productionJob, name)).toContain(
+        "if: steps.production_marker.outputs.marker_updated == 'true'",
+      );
+    }
+    expect(workflowStep(productionJob, "Write promoted release handoff")).toContain(
+      '--producer-run-attempt "${{ github.run_attempt }}"',
+    );
+    expect(workflowStep(productionJob, "Resolve terminal release state")).toContain(
+      "steps.production_marker.outputs.marker_updated || 'false'",
+    );
+    expect(workflowStep(productionJob, "Write release health summary")).toContain(
+      "steps.production_marker.outputs.marker_mismatch == 'true'",
     );
   });
 

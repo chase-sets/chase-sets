@@ -88,6 +88,7 @@ export async function resolveActorFromRequest(
   request: Request,
   options: AuthRequestActorResolverOptions = {},
 ): Promise<ResolvedActor | null> {
+  if (readBearerToken(request)?.startsWith("cc_")) return null;
   const linkedActor = await resolveLinkedPlatformActor(services, request, options.linkedPlatformAuthorizations ?? null);
   if (linkedActor) {
     return linkedActor;

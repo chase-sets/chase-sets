@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { Card, Text } from "@chase-sets/design-system";
+import { formatDateTime } from "@chase-sets/localization";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { OrderingOrderDetailPage } from "./order-detail-page";
 
@@ -44,6 +45,13 @@ const order = {
   protection_allowance_amount: "0.20",
   protection_overage_amount: "0.00",
   shipping_charge_amount: "4.99",
+  shipping_allowance_percentage_bps: 500,
+  tax_jurisdiction_country: "US",
+  tax_jurisdiction_state: "IL",
+  tax_rate_bps: 700,
+  tax_provider_name: "local-tax-stub",
+  tax_provider_quote_reference: null,
+  tax_quoted_at: "2026-04-02T00:00:00.000Z",
   sales_tax_amount: "1.75",
   taxable_amount: "24.99",
   total_amount: "26.74",
@@ -95,6 +103,13 @@ const order = {
       unit_price_amount: "20.00",
       quantity: 1,
       line_total_amount: "20.00",
+      marketplace_sales_fee_percentage_bps: 1000,
+      marketplace_sales_fee_fixed_amount: "0.00",
+      marketplace_sales_fee_cap_amount: null,
+      marketplace_sales_fee_unit_amount: "2.00",
+      marketplace_sales_fee_total_amount: "2.00",
+      seller_net_unit_amount: "18.00",
+      seller_net_total_amount: "18.00",
     },
   ],
   inventory_holds: [
@@ -148,6 +163,66 @@ function expectSurfaceChrome(
 }
 
 describe("ordering order detail page", () => {
+  const latestDelivery = "2026-04-09T17:42:00.000Z";
+  const packedOrder = {
+    ...order,
+    status: "ready-for-fulfillment",
+    self_service_cancellation_available: false,
+    cancellation_unavailable_reason: "fulfillment-started" as const,
+  };
+  const deliveredSummary = { shipment_count: 2, delivered_count: 2, latest_delivered_at: latestDelivery };
+
+  it("shows recorded completion and latest delivery without packing or cancellation actions", () => {
+    render(
+      <OrderingOrderDetailPage
+        role="buyer"
+        backHref="/account/purchases"
+        supportHref="/account/support?orderId=ord_1&flow=buyer-cancel-request"
+        order={{ ...packedOrder, delivery_summary: deliveredSummary }}
+      />,
+    );
+
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.getByText(formatDateTime(latestDelivery))).toBeTruthy();
+    expect(screen.queryByText(/The seller has started packing/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Ask to cancel" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel purchase" })).toBeNull();
+  });
+
+  it.each([
+    { state: "partial", summary: { ...deliveredSummary, delivered_count: 1 } },
+    { state: "zero", summary: { shipment_count: 0, delivered_count: 0, latest_delivered_at: null } },
+    { state: "missing", summary: undefined },
+  ])("preserves packing and cancellation content for a $state summary", ({ summary }) => {
+    render(
+      <OrderingOrderDetailPage
+        role="buyer"
+        backHref="/account/purchases"
+        supportHref="/account/support?orderId=ord_1&flow=buyer-cancel-request"
+        order={{ ...packedOrder, delivery_summary: summary }}
+      />,
+    );
+
+    expect(screen.queryByText("Delivered")).toBeNull();
+    expect(screen.queryByText(formatDateTime(latestDelivery))).toBeNull();
+    expect(screen.getByText(/The seller has started packing/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Ask to cancel" })).toBeTruthy();
+    expect(screen.getAllByText("ready-for-fulfillment").length).toBeGreaterThan(0);
+  });
+
+  it("leaves the seller sale unchanged even when given the same delivered purchase summary", () => {
+    const renderSale = (withSummary: boolean) =>
+      renderToString(
+        <OrderingOrderDetailPage
+          role="seller"
+          backHref="/account/sales"
+          supportHref="/account/support?orderId=ord_1"
+          order={{ ...packedOrder, ...(withSummary ? { delivery_summary: deliveredSummary } : {}) }}
+        />,
+      );
+    expect(renderSale(true)).toBe(renderSale(false));
+  });
+
   it.each(destinationCases)(
     "renders one postal-only shipping destination section for $role $status detail",
     ({ role, status }) => {

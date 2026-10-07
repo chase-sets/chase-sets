@@ -3,6 +3,7 @@ import type { ClientLoaderFunctionArgs, LoaderFunctionArgs, MetaFunction } from 
 import {
   type ActionFunctionArgs,
   redirect,
+  useFetcher,
   useLoaderData,
   useLocation,
   useNavigate,
@@ -302,6 +303,68 @@ type BulkAddActionData =
       requestedLineCount: number;
     }>;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isBulkPreview(value: unknown): value is DiscoveryBulkCartPreview {
+  if (!isRecord(value)) return false;
+  return (
+    (value.totalMatches === null || isCount(value.totalMatches)) &&
+    isCount(value.eligibleCount) &&
+    isCount(value.skippedCount) &&
+    typeof value.overLimit === "boolean" &&
+    isCount(value.limit) &&
+    value.limit > 0 &&
+    Array.isArray(value.lines) &&
+    value.lines.every(
+      (line: unknown) =>
+        isRecord(line) &&
+        ["catalog_item_id", "slug", "title", "product_id"].every((key) => typeof line[key] === "string") &&
+        [
+          "subtitle",
+          "image_url",
+          "image_srcset",
+          "image_loading_url",
+          "image_loading_alt",
+          "image_loading_srcset",
+          "product_summary",
+        ].every((key) => line[key] === null || typeof line[key] === "string") &&
+        isCount(line.quantity) &&
+        line.quantity > 0 &&
+        Array.isArray(line.selected_options) &&
+        line.selected_options.every(
+          (option: unknown) =>
+            isRecord(option) && typeof option.dimensionId === "string" && typeof option.optionId === "string",
+        ),
+    ) &&
+    Array.isArray(value.skippedItems) &&
+    value.skippedItems.every(
+      (item: unknown) =>
+        isRecord(item) &&
+        ["catalog_item_id", "slug", "title", "message"].every((key) => typeof item[key] === "string") &&
+        (item.reason === "product-options-required" || item.reason === "invalid-product-selection"),
+    )
+  );
+}
+
+function isBulkAddActionData(
+  value: unknown,
+  intent: "preview-bulk-add" | "commit-bulk-add",
+): value is BulkAddActionData {
+  if (!isRecord(value) || !isBulkPreview(value.preview)) return false;
+  if (value.status === "bulk-preview") return true;
+  return (
+    intent === "commit-bulk-add" &&
+    value.status === "bulk-added" &&
+    ["addedLineCount", "mergedLineCount", "failedLineCount", "requestedLineCount"].every((key) => isCount(value[key]))
+  );
+}
+
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   if (intent === "commit-saved-list") {
     return commitSavedListAddition(request, formData);
@@ -435,6 +498,12 @@ export const action = defineFormAction({
     "commit-bulk-add": (context) => handleAction("commit-bulk-add", context),
   },
   onUnknownIntent: (context) => handleAction("", context),
+  onError: (error, { intent }) => {
+    if (intent === "preview-bulk-add" || intent === "commit-bulk-add") {
+      return Response.json({ status: "bulk-error" }, { status: 500 });
+    }
+    throw error;
+  },
 });
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
@@ -521,6 +590,14 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   }>({ status: "idle" });
   const loadMoreInFlightRef = useRef(false);
   const bulkAddRequestIdRef = useRef(0);
+  const bulkFetcher = useFetcher<unknown>();
+  const { reset: resetBulkFetcher } = bulkFetcher;
+  const activeBulkRequestRef = useRef<{
+    id: number;
+    key: string;
+    intent: "preview-bulk-add" | "commit-bulk-add";
+    pending: boolean;
+  } | null>(null);
   let draftSearch = draftSearchState.value;
   let draftPriceMin = draftPriceState.min;
   let draftPriceMax = draftPriceState.max;
@@ -553,8 +630,31 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         : { key: resultSetKey, pageCount: restoration.pages.length, scrollY: restoration.scrollY };
     setExtraPageState({ key: resultSetKey, pages: restoration.pages });
     setLoadMoreState({ loading: false, error: null });
+    bulkAddRequestIdRef.current += 1;
+    activeBulkRequestRef.current = null;
+    resetBulkFetcher();
     setBulkAddState({ status: "idle" });
-  }, [resultSetKey]);
+  }, [resultSetKey, resetBulkFetcher]);
+
+  useEffect(() => {
+    const request = activeBulkRequestRef.current;
+    if (!request || request.key !== resultSetKey || request.id !== bulkAddRequestIdRef.current) return;
+    if (bulkFetcher.state !== "idle") {
+      request.pending = true;
+      return;
+    }
+    if (!request.pending) return;
+    activeBulkRequestRef.current = null;
+    if (isBulkAddActionData(bulkFetcher.data, request.intent)) {
+      setBulkAddState({ status: "idle", data: bulkFetcher.data });
+    } else {
+      setBulkAddState((current) => ({
+        ...current,
+        status: "idle",
+        error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
+      }));
+    }
+  }, [bulkFetcher.data, bulkFetcher.state, resultSetKey]);
 
   useEffect(() => {
     const pending = pendingScrollRestorationRef.current;
@@ -1005,47 +1105,39 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     visibleData?.nextCursor,
   ]);
 
-  const submitBulkAddIntent = useCallback(async (intent: "preview-bulk-add" | "commit-bulk-add") => {
-    if (typeof window === "undefined") {
-      return;
-    }
+  const submitBulkAddIntent = useCallback(
+    async (intent: "preview-bulk-add" | "commit-bulk-add") => {
+      if (activeBulkRequestRef.current) return;
+      const request = {
+        id: ++bulkAddRequestIdRef.current,
+        key: resultSetKeyRef.current,
+        intent,
+        pending: false,
+      };
+      activeBulkRequestRef.current = request;
+      const formData = new FormData();
+      formData.set("intent", intent);
+      setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
 
-    const requestId = bulkAddRequestIdRef.current + 1;
-    const requestKey = resultSetKeyRef.current;
-    bulkAddRequestIdRef.current = requestId;
-    const formData = new FormData();
-    formData.set("intent", intent);
-    setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
-
-    try {
-      const response = await fetch(window.location.href, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
-        throw new Error(`Bulk cart request failed with ${response.status}.`);
-      }
-
-      const data = (await response.json()) as BulkAddActionData;
-      if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
-        setBulkAddState({
-          status: "idle",
-          data,
+      try {
+        await bulkFetcher.submit(formData, {
+          method: "post",
+          defaultShouldRevalidate: false,
+          preventScrollReset: true,
         });
+      } catch {
+        if (activeBulkRequestRef.current === request && resultSetKeyRef.current === request.key) {
+          activeBulkRequestRef.current = null;
+          setBulkAddState((current) => ({
+            ...current,
+            status: "idle",
+            error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
+          }));
+        }
       }
-    } catch (error) {
-      console.error("Bulk add search results failed.", error);
-      if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
-        setBulkAddState((current) => ({
-          ...current,
-          status: "idle",
-          error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
-        }));
-      }
-    }
-  }, []);
+    },
+    [bulkFetcher],
+  );
 
   return (
     <SearchPage

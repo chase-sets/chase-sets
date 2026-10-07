@@ -1,8 +1,19 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" && subscription.projectionName === "marketplace-listing-projection",
+  )!,
+);
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
@@ -277,13 +288,14 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       );
       await emitListingPatch(db, event, data.listingId);
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      const updated = await db.query<{ listing_id: string }>(
+      const updated = await projectionDb.query<{ listing_id: string }>(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -306,9 +318,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
       );
 
       for (const row of updated.rows) {
-        await emitListingPatch(db, event, row.listing_id);
+        await emitListingPatch(projectionDb, event, row.listing_id);
       }
-    },
+    }),
     "marketplace.listing.photos-added": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const { evidence } = event.data as { evidence: unknown };

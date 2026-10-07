@@ -767,6 +767,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   );
 
   const checkout = await runCheckoutProbe(baseUrl, { env, fetchImpl, headers });
+  const walletFunding = await runWalletFundingProbe(baseUrl, { env, fetchImpl, headers });
 
   const setupPage = await getRouteOk(
     fetchImpl,
@@ -828,6 +829,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
     providerIdempotencySurfaces: "ok",
     platformBalanceForecast: "ok",
     checkout,
+    walletFunding,
     readiness: "ok",
     setupPage,
     embeddedSetupSession,
@@ -937,6 +939,57 @@ async function maybeRequestPayout(baseUrl, options) {
   return {
     status: "ok",
     payoutId: requested.body?.id ?? null,
+  };
+}
+
+export async function runWalletFundingProbe(baseUrl, options = {}) {
+  const env = options.env ?? process.env;
+  const amount = readEnv("STAGING_SMOKE_WALLET_FUNDING_AMOUNT", env);
+  if (!amount) return "skipped";
+  assert(resolveStripeKeyMode(env) === "test", "Wallet funding smoke requires Stripe test mode.");
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const headers = new Headers(options.headers ?? (await resolveAuthHeaders(env, fetchImpl)));
+  headers.set("Content-Type", "application/json");
+  const input = { requestedAmount: amount, currencyCode: "usd", paymentMethodCategory: "card" };
+  const quote = await requestJson(
+    `${baseUrl}/api/marketplace/account/wallet-fundings`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input),
+    },
+    fetchImpl,
+  );
+  assert(quote.response.status === 200 && quote.body?.outcome === "quoted", "Wallet funding quote failed.");
+  const created = await requestJson(
+    `${baseUrl}/api/marketplace/account/wallet-fundings`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        ...input,
+        fundingId: quote.body.fundingId,
+        quoteFingerprint: quote.body.quote.quote_fingerprint,
+      }),
+    },
+    fetchImpl,
+  );
+  assert(
+    created.response.status === 201 &&
+      created.body?.outcome === "created" &&
+      created.body.funding?.processorPaymentReference,
+    "Wallet funding creation failed.",
+  );
+  return {
+    fundingId: created.body.fundingId,
+    processorPaymentReference: created.body.funding.processorPaymentReference,
+    requestedAmount: amount,
+    feeAmount: created.body.quote.marketplace_checkout_fee_amount,
+    grossAmount: created.body.quote.processor_amount,
+    create: "observed",
+    capture: "requires-client-confirmation",
+    dispute: "not-yet-observed",
+    integratedRefundProof: "owed-by-7813",
   };
 }
 

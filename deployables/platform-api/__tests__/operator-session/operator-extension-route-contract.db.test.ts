@@ -1,7 +1,8 @@
 import { expect, it } from "vitest";
 import { contextManifest as catalogManifest } from "@chase-sets/catalog";
 import { createOperatorTransport, createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
-import { admin, adminPath, database, describeDb, keyring, mint, mounted, session } from "./fixture";
+import { admin, adminPath, keyring, mint, mounted, session } from "./fixture";
+import { database, describeDb } from "./db-fixture";
 
 describeDb("operator-extension-route-contract: real mounted grants and retained custody", () => {
   const db = database("operator_extension_route");

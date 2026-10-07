@@ -12,6 +12,19 @@ A **Sales Channel** is an external or native commerce surface connected to an Ac
 
 A **Channel Connection** is the linked relationship between a Chase Sets Account and a Sales Channel.
 
+## Connector
+
+A **Connector** is a client authorized for one Channel Connection through a
+separate Auth-issued grant. It is neither an agent nor a seller actor. Current
+pairing and connection state constrain every operation.
+
+## Connector Pairing
+
+A **Connector Pairing** binds one Connector grant to one Channel Connection after
+a seller consumes a one-use, ten-minute pairing code. Channels owns its identity
+and lifecycle. Unpairing, replacement, expiry, and disconnect invalidate authority;
+closed pairing identities never reopen.
+
 ## BYO Channel
 
 A **BYO Channel** is an account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.

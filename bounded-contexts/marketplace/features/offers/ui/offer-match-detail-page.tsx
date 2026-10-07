@@ -112,6 +112,14 @@ export function MarketplaceOfferMatchDetailPage({
         />
       ) : null}
 
+      {offer.managed_status ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}
+          description={t(`marketplace.marketFollowing.seller.${offer.managed_status}`)}
+        />
+      ) : null}
+
       {offer.seller_listing_availability_status === "unavailable" ? (
         <MarketplaceNotice
           tone="warning"

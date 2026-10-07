@@ -212,9 +212,11 @@ export function MarketplaceOfferMatchListPage({
                   <Badge tone={row.can_fulfill ? "success" : "warning"}>
                     {row.seller_listing_availability_status === "unavailable"
                       ? t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")
-                      : row.can_fulfill
-                        ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
-                        : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
+                      : row.managed_status
+                        ? t(`marketplace.marketFollowing.seller.${row.managed_status}`)
+                        : row.can_fulfill
+                          ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
+                          : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
                   </Badge>
                 </Stack>
               ),

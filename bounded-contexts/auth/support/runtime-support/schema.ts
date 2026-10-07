@@ -2,6 +2,7 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";
+import { connectorOAuthSchemaSql } from "../ucp-support/connector-oauth-schema";
 import { agentWebhookOutboxSchemaSql } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
 import { agentWebhookRegistrationSchemaSql } from "../ucp-support/agent-webhooks/agent-webhook-registration";
 
@@ -195,6 +196,7 @@ export const authSchemaSql = [
   notificationOutboxSchemaSql,
   authIdentityProjectionSchemaSql,
   authUcpOAuthSchemaSql,
+  connectorOAuthSchemaSql,
   agentWebhookRegistrationSchemaSql,
   agentWebhookOutboxSchemaSql,
   authSessionSchemaSql,

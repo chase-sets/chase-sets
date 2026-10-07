@@ -80,9 +80,27 @@ function isGuestCheckoutActor(actor?: Readonly<{ roleKey?: string | null }> | nu
   return actor?.roleKey === "guest-buyer";
 }
 
-const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
+const accountChildKeys = new Set([
+  "account",
+  "payment-methods",
+  "security",
+  "consents",
+  "wallet",
+  "payouts",
+  "submitted-offers",
+  "reviews",
+]);
 const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
-const accountChildNavOrder = ["account", "wallet", "payouts", "submitted-offers", "reviews"];
+const accountChildNavOrder = [
+  "account",
+  "payment-methods",
+  "security",
+  "consents",
+  "wallet",
+  "payouts",
+  "submitted-offers",
+  "reviews",
+];
 const sellingNavOrder = [
   "inventory",
   "inventory-imports",
@@ -108,6 +126,9 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   listings: {
     label: t("marketplace.app.host.listings"),
     icon: "store",
+  },
+  money: {
+    label: t("marketplace.app.host.seller.money"),
   },
   "offer-matches": {
     label: t("marketplace.app.host.offer.matches"),

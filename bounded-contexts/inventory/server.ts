@@ -8,6 +8,7 @@ export type {
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
+export type { InventoryServices } from "./support/runtime-support/services";
 export type {
   CommittedExternalChannelSale,
   ExternalChannelSaleConflictField,

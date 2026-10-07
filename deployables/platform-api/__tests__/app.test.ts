@@ -2527,6 +2527,8 @@ describe("platform API payment provider mode observation", () => {
     expect(paymentsServiceCallSites.sort()).toEqual([
       "bounded-contexts/payments/features/payments/api/evidence-window-disposition.test.ts",
       "bounded-contexts/payments/features/payments/api/webhook-inbox.db.test.ts",
+      "bounded-contexts/payments/features/wallet-funding/api/capture.db.test.ts",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts",
       "bounded-contexts/payments/index.ts",
       "bounded-contexts/payments/support/runtime-support/seed.ts",
       "bounded-contexts/payments/tests/provider-journal.db.test.ts",

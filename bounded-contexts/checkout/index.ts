@@ -1,3 +1,4 @@
+import type { BcProjectionGroup } from "@chase-sets/bounded-context-module";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -9,7 +10,10 @@ import { createCheckoutCartMcpHandlers } from "./features/cart/api/mcp";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
 import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "./features/cart/integrations/identity/identity-projection";
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/integrations/inventory/inventory-projection";
-import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
+import {
+  buildCheckoutMarketplaceSellerOptionsProjectionHandlers,
+  withCheckoutProductMeasurePublicationReset,
+} from "./features/cart/integrations/marketplace/marketplace-projection";
 import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./features/cart/integrations/reputation/reputation-projection";
 import { buildCheckoutSellListProjectionHandlers } from "./features/sell-list/read-model/projection";
 import { buildCheckoutPaymentAffordanceProjectionHandlers } from "./features/sessions/integrations/payments/payment-affordance-projection";
@@ -23,7 +27,7 @@ import { checkoutSchemaMigrations, checkoutSchemaSql } from "./support/runtime-s
 import { checkoutUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectCheckoutSeedState, seedCheckoutDatabase } from "./support/runtime-support/seed";
 
-export const module = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
+const baseModule = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
   manifest: contextManifest,
   schemaSql: checkoutSchemaSql,
   schemaMigrations: [
@@ -81,3 +85,9 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
       },
     }),
 });
+
+export const module = {
+  ...baseModule,
+  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
+    (baseModule.projectionGroups ?? []).map(withCheckoutProductMeasurePublicationReset),
+};

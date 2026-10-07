@@ -19,7 +19,7 @@ import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy,
  * decrement/increment icon buttons around a centered text input. Colocating
  * this here keeps the three numeric controls (this pair, plus
  * `QuantityStepper` in its own file for the cart/order-entry density variant)
- * from re-deriving the same grid/icon-button markup.
+ * from re-deriving the same wrapping control/icon-button markup.
  */
 function NumberFieldControlGroup({
   error,
@@ -39,7 +39,7 @@ function NumberFieldControlGroup({
   inputRef?: Ref<HTMLInputElement>;
   /**
    * Decorative content flowed in-line before/after the input, inside the same
-   * middle grid cell as the input itself (for example a currency symbol). Kept
+   * flexible middle cell as the input itself (for example a currency symbol). Kept
    * in normal flex flow rather than absolutely positioned, so no fixed-width
    * padding assumption is ever needed regardless of the adornment's width.
    */
@@ -57,13 +57,13 @@ function NumberFieldControlGroup({
         compoundControlClass,
         !!error && controlErrorClass,
         disabledChrome && "cursor-not-allowed opacity-60",
-        "grid grid-cols-[var(--control-sm-height)_minmax(0,1fr)_var(--control-sm-height)] items-center gap-1",
+        "flex flex-wrap items-center justify-between gap-1",
       )}
     >
       <NumberFieldPrimitive.Decrement aria-label={decrementLabel} className={iconButtonClass}>
         <Icon name="minus" size="sm" />
       </NumberFieldPrimitive.Decrement>
-      <span className="flex min-w-0 items-center justify-center gap-1 px-2">
+      <span className="flex min-w-min flex-1 items-center justify-center gap-1 px-2">
         {prefixAdornment ? (
           <span aria-hidden="true" className="text-secondary">
             {prefixAdornment}
@@ -73,7 +73,7 @@ function NumberFieldControlGroup({
           role="spinbutton"
           {...inputProps}
           ref={inputRef}
-          className="min-w-0 flex-1 bg-transparent py-[var(--control-sm-py)] text-center outline-none"
+          className="w-0 min-w-[var(--control-md-height)] flex-1 bg-transparent py-[var(--control-sm-py)] text-center outline-none"
         />
         {suffixAdornment ? (
           <span aria-hidden="true" className="text-secondary">

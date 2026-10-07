@@ -16,7 +16,6 @@ import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type {
   AccountId,
-  ConsentId,
   EnforcementActionId,
   MembershipId,
   ShippingAddressId,
@@ -38,15 +37,6 @@ import {
   type ApiKeyEvent,
   type ApiKeyState,
 } from "../../features/api-keys/domain/domain";
-import {
-  decideConsent,
-  evolveConsent,
-  initialConsentState,
-  type ConsentCommand,
-  type ConsentEvent,
-  type ConsentState,
-} from "../../features/consents/domain/domain";
-import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
 import {
   decideInvitation,
   evolveInvitation,
@@ -97,7 +87,6 @@ const representativeAccounts = [
     accountId: "acc_repr_staging_collector_account",
     userId: "usr_repr_staging_collector_user",
     membershipId: "mbr_repr_staging_collector_owner",
-    consentId: "cns_repr_staging_collector_terms",
     shippingAddressId: "adr_repr_staging_collector_home",
     contactMethodId: "ctm_repr_staging_collector_email",
     name: "Staging Collector",
@@ -124,7 +113,6 @@ const representativeAccounts = [
     accountId: "acc_repr_value_buyer_account",
     userId: "usr_repr_value_buyer_user",
     membershipId: "mbr_repr_value_buyer_owner",
-    consentId: "cns_repr_value_buyer_terms",
     shippingAddressId: "adr_repr_value_buyer_home",
     contactMethodId: "ctm_repr_value_buyer_email",
     name: "Value Buyer",
@@ -151,7 +139,6 @@ const representativeAccounts = [
     accountId: "acc_repr_card_vault_account",
     userId: "usr_repr_card_vault_user",
     membershipId: "mbr_repr_card_vault_owner",
-    consentId: "cns_repr_card_vault_terms",
     shippingAddressId: "adr_repr_card_vault_receiving",
     contactMethodId: "ctm_repr_card_vault_email",
     name: "Card Vault",
@@ -178,7 +165,6 @@ const representativeAccounts = [
     accountId: "acc_repr_sealed_stockroom_account",
     userId: "usr_repr_sealed_stockroom_user",
     membershipId: "mbr_repr_sealed_stockroom_owner",
-    consentId: "cns_repr_sealed_stockroom_terms",
     shippingAddressId: "adr_repr_sealed_stockroom_receiving",
     contactMethodId: "ctm_repr_sealed_stockroom_email",
     name: "Sealed Stockroom",
@@ -205,7 +191,6 @@ const representativeAccounts = [
     accountId: "acc_repr_support_ops_account",
     userId: "usr_repr_support_ops_user",
     membershipId: "mbr_repr_support_ops_owner",
-    consentId: "cns_repr_support_ops_terms",
     shippingAddressId: "adr_repr_support_ops_office",
     contactMethodId: "ctm_repr_support_ops_email",
     name: "Support Ops",
@@ -294,18 +279,7 @@ function buildScenarioIdentityReconcilers(
   services: IdentityServices,
   context: IdentityBootstrapContext,
 ): readonly SeedAggregateReconciler[] {
-  const {
-    demo,
-    collector,
-    valueTrader,
-    highRollerTrader,
-    cardVault,
-    sealedStockroom,
-    support,
-    suspended,
-    invitations,
-    apiKeys,
-  } = identitySeedIds;
+  const { demo, collector, support, suspended, invitations, apiKeys } = identitySeedIds;
 
   const accountReconciler = (id: string, key: string, steps: readonly AccountCommand[]) =>
     createSeedAggregateReconciler<AccountState, AccountCommand, AccountEvent>({
@@ -353,34 +327,6 @@ function buildScenarioIdentityReconcilers(
       evolve: evolveMembership,
       steps,
       send: (streamId, command) => services.memberships.commandHandler({ streamId, command, context }),
-    });
-
-  const consentReconciler = (
-    id: string,
-    key: string,
-    userId: UserId,
-    accountId: AccountId,
-    steps: readonly ConsentCommand[],
-  ) =>
-    createSeedAggregateReconciler<ConsentState, ConsentCommand, ConsentEvent>({
-      db: services.db,
-      contextName: "identity",
-      bootstrapLabel: IDENTITY_BOOTSTRAP_LABEL,
-      aggregateName: "Consent",
-      id,
-      key,
-      streamId: `identity.consent-${id}`,
-      initialState: initialConsentState,
-      decide: decideConsent,
-      evolve: evolveConsent,
-      steps,
-      send: (streamId, command) =>
-        services.consents.commandHandler({
-          streamId,
-          command,
-          context,
-          authorization: authorizeConsentForProvisioning(userId, accountId),
-        }),
     });
 
   const invitationReconciler = (id: string, key: string, steps: readonly InvitationCommand[]) =>
@@ -690,21 +636,6 @@ function buildScenarioIdentityReconcilers(
       ]),
     ),
 
-    ...[demo, collector, valueTrader, highRollerTrader, cardVault, sealedStockroom].map((consent) =>
-      consentReconciler(consent.consentId, `terms-of-service ${consent.userId}`, consent.userId, consent.accountId, [
-        {
-          type: "RecordConsent",
-          consentId: consent.consentId,
-          subjectType: "user",
-          userId: consent.userId,
-          accountId: consent.accountId,
-          policyKey: "terms-of-service",
-          policyVersion: "v1",
-          recordedAt: isoDate("2026-03-03T12:00:00.000Z"),
-        },
-      ]),
-    ),
-
     invitationReconciler(support.invitationId, "support@chasesets.test", [
       {
         type: "CreateInvitation",
@@ -804,6 +735,11 @@ export async function inspectIdentitySeedState(
   return reconcileSeedAggregates(buildScenarioIdentityReconcilers(services, createIdentityBootstrapContext()), false);
 }
 
+/**
+ * Seeds Identity state for the selected data profiles. No profile records
+ * Consent: no human affirms anything during seeding, so provisioning
+ * authors no synthetic Consent fact.
+ */
 export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createIdentityServices(pool);
   const context = createIdentityBootstrapContext();
@@ -845,7 +781,6 @@ async function seedRepresentativeIdentityAccounts(
     await reconcileRepresentativeAccount(services, context, account);
     await reconcileRepresentativeUser(services, context, account);
     await reconcileRepresentativeMembership(services, context, account);
-    await reconcileRepresentativeConsent(services, context, account);
     await reconcileRepresentativeShippingAddress(services, context, account);
   }
 }
@@ -987,54 +922,6 @@ async function reconcileRepresentativeMembership(
     status: existing.status,
   };
   assertMatchingRepresentativeProfile("Membership", account.membershipId, existingProfile, requestedProfile);
-}
-
-async function reconcileRepresentativeConsent(
-  services: ReturnType<typeof createIdentityServices>,
-  context: ReturnType<typeof createIdentityBootstrapContext>,
-  account: (typeof representativeAccounts)[number],
-): Promise<void> {
-  const existing = await services.consents.getConsentState(account.consentId);
-  if (!existing) {
-    await services.consents.commandHandler({
-      streamId: `identity.consent-${account.consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId: account.consentId as ConsentId,
-        subjectType: "user",
-        userId: account.userId as UserId,
-        accountId: account.accountId as AccountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
-        recordedAt: REPRESENTATIVE_SEEDED_AT,
-      },
-      context,
-      authorization: authorizeConsentForProvisioning(account.userId as UserId, account.accountId as AccountId),
-    });
-    return;
-  }
-
-  const requestedProfile = {
-    consentId: account.consentId,
-    subjectType: "user",
-    userId: account.userId,
-    accountId: account.accountId,
-    policyKey: "terms-of-service",
-    policyVersion: "v1",
-    recordedAt: REPRESENTATIVE_SEEDED_AT,
-    status: "recorded",
-  } as const;
-  const existingProfile = {
-    consentId: existing.id,
-    subjectType: existing.subjectType,
-    userId: existing.userId,
-    accountId: existing.accountId,
-    policyKey: existing.policyKey,
-    policyVersion: existing.policyVersion,
-    recordedAt: existing.recordedAt,
-    status: existing.status,
-  };
-  assertMatchingRepresentativeProfile("Consent", account.consentId, existingProfile, requestedProfile);
 }
 
 async function reconcileRepresentativeShippingAddress(

@@ -74,6 +74,7 @@ import {
 import type {
   ProviderAdapter,
   ProviderOptionAlias,
+  ProviderOptionItem,
   ProviderOptionQueryResult,
 } from "../provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
@@ -634,7 +635,11 @@ export async function listTcgdexExpansionOptionRecordsThroughAdapter(
     optionKind: "expansions",
     parentValues: { languageCode: input.languageCode, seriesId: input.seriesId ?? "" },
   });
-  return result.items.map((item) => ({
+  return result.items.map(tcgdexExpansionOptionRecord);
+}
+
+export function tcgdexExpansionOptionRecord(item: ProviderOptionItem): JsonValue {
+  return {
     expansionId: item.value,
     name: item.label,
     seriesId: item.parentValue ?? null,
@@ -644,7 +649,7 @@ export async function listTcgdexExpansionOptionRecordsThroughAdapter(
     symbolUrl: item.metadata?.symbolUrl ?? null,
     cardCount: numberFromString(item.metadata?.cardCount),
     officialCardCount: numberFromString(item.metadata?.officialCardCount),
-  }));
+  };
 }
 
 export function requireTcgdexAdapter(
@@ -1104,7 +1109,11 @@ export async function listTcgplayerSetNameOptionRecordsThroughAdapter(
     optionKind: "set-names",
     parentValues: { productLineId: String(input.productLineId) },
   });
-  return result.items.map((item) => ({
+  return result.items.map(tcgplayerSetNameOptionRecord);
+}
+
+export function tcgplayerSetNameOptionRecord(item: ProviderOptionItem): JsonValue {
+  return {
     setNameId: numberFromString(item.metadata?.setNameId),
     categoryId: numberFromString(item.metadata?.categoryId),
     name: item.label,
@@ -1114,7 +1123,7 @@ export async function listTcgplayerSetNameOptionRecordsThroughAdapter(
     releaseDate: item.metadata?.releaseDate ?? null,
     isSupplemental: booleanFromString(item.metadata?.isSupplemental),
     active: booleanFromString(item.metadata?.active),
-  }));
+  };
 }
 
 export async function listTcgplayerProductOptionRecordsThroughAdapter(

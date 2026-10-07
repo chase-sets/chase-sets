@@ -13,6 +13,7 @@ import type {
 import { objectValue, stringValue } from "./sell-checkout-form";
 import { reviewedListingId } from "./sell-checkout-readiness";
 import {
+  staleManagedOfferReviewError,
   staleReviewPlanError,
   type MarketplaceRequestApiClient,
   type SellListMarketplaceHandoff,
@@ -162,6 +163,13 @@ async function acceptOfferMatchWithRecovery(
       return null;
     }
     if (OFFER_ACCEPTANCE_STALE_CODES.has(code)) {
+      if (
+        code === "managed_offer_held" ||
+        code === "managed_offer_refresh_required" ||
+        code === "managed_offer_conflict"
+      ) {
+        throw staleManagedOfferReviewError(itemTitle);
+      }
       throw staleReviewPlanError(itemTitle);
     }
     throw error;

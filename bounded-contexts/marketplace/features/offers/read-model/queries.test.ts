@@ -1,8 +1,40 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { getPublicOffer, listOfferMatches } from "./queries";
+import { getPublicOffer, getOfferMatch, listOfferMatches } from "./queries";
 
 describe("marketplace offer read-model queries", () => {
+  it.each([null, "unavailable", "held", "refresh_required"] as const)(
+    "maps the closed managed Match status %s into actionability",
+    async (managed_status) => {
+      const statements: string[] = [];
+      const db: PgQueryable = {
+        async query<Row>(sql: string) {
+          statements.push(sql);
+          return {
+            rows: [
+              {
+                offer_id: "off_one",
+                status: "submitted",
+                quantity_requested: 1,
+                seller_available_quantity: 2,
+                seller_listing_availability_status: "available",
+                managed_status,
+              },
+            ] as Row[],
+          };
+        },
+      };
+      expect(await getOfferMatch(db, "off_one", "acc_seller")).toMatchObject({
+        managed_status,
+        can_fulfill: managed_status === null,
+      });
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain("policy.state->>'status' IS DISTINCT FROM 'active'");
+      expect(statements[0]).toContain("policy.last_stream_version IS DISTINCT FROM policy_stream.current_version");
+      expect(statements[0]).toContain("'marketplace.offer.buyer-policy-bound'");
+      expect(statements[0]).toContain("consent_target.result->>'unitItemAmount' = offer.price_amount");
+    },
+  );
   it("resolves public offer facts by id without requiring seller supply", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const db: PgQueryable = {

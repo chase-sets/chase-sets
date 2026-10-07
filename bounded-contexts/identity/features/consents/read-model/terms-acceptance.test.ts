@@ -10,9 +10,41 @@ import {
 } from "../../../tests/consent-activation-authority-fixtures";
 import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { identityConsentActiveVersionPolicies } from "../domain/terms-of-service-policy";
-import { resolveTermsAcceptanceStatus } from "./terms-acceptance";
+import { resolveTermsAcceptanceStatus, resolvePaymentsTermsAcceptanceStatus } from "./terms-acceptance";
 
 const TERMS_ACTIVE_VERSION_POLICY_KEY = identityConsentActiveVersionPolicies["terms-of-service"].policyKey;
+
+describe("wallet-funding-eligibility Payments Terms authority", () => {
+  const key = identityConsentActiveVersionPolicies["payments-terms"].policyKey;
+  it("does not evaluate consent while the payments-terms authority is inactive", async () => {
+    const db = fakeDb([]);
+    const authority = recordingAuthorityReader({ [key]: () => registeredNeverActivatedSnapshot(key) });
+    expect(await resolvePaymentsTermsAcceptanceStatus(db, authority, { accountId: "acc_synthetic" })).toEqual({
+      evaluation: "not-active",
+      acceptance: null,
+    });
+    expect(authority.reads).toEqual([key]);
+    expect(db.query).not.toHaveBeenCalled();
+  });
+  it("active and unaccepted never becomes an inactive bypass, including unpublished terms", async () => {
+    const authority = recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v-synthetic") });
+    const result = await resolvePaymentsTermsAcceptanceStatus(fakeDb([]), authority, { accountId: "acc_synthetic" });
+    expect(result.evaluation).toBe("active");
+    expect(result.acceptance?.accepted).toBe(false);
+    expect(result.acceptance?.policyKey).toBe("payments-terms");
+    expect(authority.reads).toEqual([key]);
+  });
+  it("unreadable authority refuses rather than claiming no activation", async () => {
+    const authority: ConsentActivationAuthorityReader = {
+      read: async () => {
+        throw new Error("synthetic-unavailable");
+      },
+    };
+    await expect(
+      resolvePaymentsTermsAcceptanceStatus(fakeDb([]), authority, { accountId: "acc_synthetic" }),
+    ).rejects.toThrow("synthetic-unavailable");
+  });
+});
 
 function fakeDb(rows: readonly Record<string, unknown>[]) {
   return { query: vi.fn(async () => ({ rows: [...rows], rowCount: rows.length })) } as unknown as PgQueryable;

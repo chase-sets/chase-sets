@@ -11,6 +11,8 @@
     "catalog.catalog-item.category-removed",
     "catalog.catalog-item.created",
     "catalog.catalog-item.display-identity-resolved",
+    "catalog.catalog-item.product-measures-publication-completed",
+    "catalog.catalog-item.product-measures-publication-part-recorded",
     "catalog.catalog-item.product-measures-resolved",
     "catalog.catalog-item.published",
     "catalog.catalog-item.retired",

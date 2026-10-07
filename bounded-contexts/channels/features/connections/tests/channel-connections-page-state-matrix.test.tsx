@@ -10,12 +10,17 @@ import AccountChannelsConnectionRoute, {
   loader as detailLoader,
 } from "../../../routes/marketplace/account-channels-connection";
 import { allowedChannelConnectionActions } from "../ui/connection-pages";
-import { channelConnectionStatuses, type ChannelConnectionStatus } from "../domain/contracts";
+import {
+  channelConnectionStatuses,
+  type ChannelConnectionPage,
+  type ChannelConnectionStatus,
+} from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const fixedCreatedAt = "2026-09-01T00:00:00.000Z";
@@ -32,6 +37,75 @@ function fixtureFor(status: ChannelConnectionStatus) {
 }
 
 describe("channel-connections-page-state-matrix", () => {
+  it("renders a valid API-shaped list through the real client", async () => {
+    vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "http://localhost:6412");
+    const page: ChannelConnectionPage = { items: [fixtureFor("active")] };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { accountId: routeAccountId, permissions: ["channels.view"] } }))
+      .mockResolvedValueOnce(Response.json(page));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request("http://localhost:6403/account/channels");
+    const data = await listLoader({
+      request,
+      params: {},
+      context: {},
+      url: new URL(request.url),
+      pattern: "/account/channels",
+    });
+    expect(data).toEqual({ kind: "ready", page, statusFilter: "default" });
+    const router = createMemoryRouter(
+      [{ path: "/account/channels", loader: () => data, Component: AccountChannelsRoute }],
+      { initialEntries: ["/account/channels"] },
+    );
+    render(
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+    expect(await screen.findByRole("link", { name: "View connection" })).toBeTruthy();
+    expect(screen.queryByText("Connections could not be loaded")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections");
+    router.dispose();
+  });
+
+  it.each([
+    ["HTML", "<!DOCTYPE html><html></html>"],
+    ["null", "null"],
+    ["array", "[]"],
+  ])("renders the existing error state for a successful %s response through the real client", async (_name, body) => {
+    vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "http://localhost:6412");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: { accountId: routeAccountId, permissions: ["channels.view"] } }))
+      .mockResolvedValueOnce(new Response(body, { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request("http://localhost:6403/account/channels");
+    const data = await listLoader({
+      request,
+      params: {},
+      context: {},
+      url: new URL(request.url),
+      pattern: "/account/channels",
+    });
+    expect(data).toEqual({ kind: "error", message: "Channels API error 200" });
+    const router = createMemoryRouter(
+      [{ path: "/account/channels", loader: () => data, Component: AccountChannelsRoute }],
+      { initialEntries: ["/account/channels"] },
+    );
+    render(
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+    expect(await screen.findByText("Connections could not be loaded")).toBeTruthy();
+    expect(await screen.findByText("Channels API error 200")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections");
+    router.dispose();
+  });
+
   it("shows the canonical empty state when the account has no connections", async () => {
     mountConnectionRouteHarness(createFakeConnectionServices([]).services);
     const router = createMemoryRouter(

@@ -61,6 +61,13 @@ aspirational suggestion.
     no named ledger defect class justifying it, is a finding. The registered
     prediction is that median mandated-evidence lines per slice will fall while
     ledger defect classes remain covered; review this rule by 2026-09-01.
+13. **Supersession completeness.** Check only existing paths the planned change
+    itself replaces or makes redundant. Flag an omitted path, a removal lacking
+    an owning acceptance criterion and evidence method, or a removal deferred
+    outside the committed outcome. Such removal is required acceptance, not
+    unrelated debt or a SCOPE too-much finding. Unrelated cleanup remains outside
+    scope; G0 still minimizes the implementation and evidence needed to satisfy
+    that acceptance.
 
 Report findings ranked by rework-risk: a missed decision, false parallel
 claim, or unprobed authority-timing assumption outranks a fuzzy AC.

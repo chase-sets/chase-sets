@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/cart/read-model/seller-options-readiness.db.test.ts",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs features/cart/read-model/seller-options-readiness.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/cart/read-model/seller-options-readiness.db.test.ts --exclude features/sessions/read-model/checkout-preview-lifecycle.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/cart/read-model/seller-options-readiness.db.test.ts features/sessions/read-model/checkout-preview-lifecycle.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
@@ -21,6 +21,7 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",

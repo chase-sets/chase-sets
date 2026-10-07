@@ -11,6 +11,7 @@ import { createPriceSignalRuntime } from "../../features/price-signals/api/runti
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
 import { createMarketEstimatesRuntime } from "../../features/market-estimates/api/runtime";
+import { createDemandCurveCloser } from "../../features/market-estimates/api/demand-curve-closer";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
@@ -35,6 +36,7 @@ export type PricingServices = Readonly<{
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
+  demandCurves: ReturnType<typeof createDemandCurveCloser>;
   repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> &
     ReturnType<typeof createRepricingPolicyActivationServices>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
@@ -89,6 +91,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   });
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
+  const demandCurves = createDemandCurveCloser({ pool, eventStore, policies });
   const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
   const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
   /**
@@ -107,6 +110,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     runDailyRollupCloser: async (params) => {
       const result = await marketRollupsBase.runDailyRollupCloser(params);
       await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
+      await demandCurves.runDemandCurveCloser({ now: params?.now, limit: params?.limit });
       await repricingEngine.enqueueDailyDriftSweep({ now: params?.now, limit: params?.limit });
       await runRepricingActivityDigest({ now: params?.now });
       return result;
@@ -124,6 +128,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     recommendations,
     marketRollups,
     marketEstimates,
+    demandCurves,
     repricingPolicies,
     repricingEngine,
     publicMarketPages,

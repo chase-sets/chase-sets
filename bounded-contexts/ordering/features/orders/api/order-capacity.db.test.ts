@@ -14,8 +14,15 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { OrderId, AccountId } from "@chase-sets/primitives/typed-ids";
+import { Hono } from "hono";
 import { module as orderingModule } from "../../../index";
+import type { OrderingApiEnv } from "../../../api";
+import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
+import { buildOrderingFulfillmentCancellationProjectionHandlers } from "../integrations/fulfillment/fulfillment-projection";
+import { createAccountSaleOrderRoutes } from "./route";
 import { orderingOrderSchemaMigrations } from "../read-model/schema";
 import { claimOrderSource, compensatePendingOrderSourceClaim, getOrderSourceClaim } from "./order-source-claims";
 import { bindEvidenceWindowSource } from "./evidence-window-source-release";
@@ -81,10 +88,10 @@ describeDb("ordering seller order capacity db", () => {
     await closeMultiContextTestPools(pools);
   });
 
-  async function supply(listingId = "lst_a") {
+  async function supply(listingId = "lst_a", sellerAccountId = `acc_${listingId}`) {
     const candidate: SupplyCandidate = {
       listingId,
-      sellerAccountId: `acc_${listingId}`,
+      sellerAccountId,
       inventoryItemId: `inv_${listingId}`,
       catalogItemId: `cat_${listingId}`,
       productId: `cat_${listingId}::`,
@@ -186,6 +193,175 @@ describeDb("ordering seller order capacity db", () => {
   async function signalTypes(store: EventStore, seller = "acc_lst_a") {
     return (await store.readStream({ streamId: `ordering.seller-capacity-${seller}` })).map((event) => event.eventType);
   }
+
+  it("9013 AC1 compares fresh checkout, single and batched offers across retained runtime and first dispatch", async () => {
+    const sellerAccountId = "acc_9013_fresh";
+    const listingIds = ["lst_checkout", "lst_offer", "lst_batch_a", "lst_batch_b"];
+    for (const listingId of listingIds) await supply(listingId, sellerAccountId);
+    await setSellerCap(pools.ordering, sellerAccountId, null);
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    const services = runtime(store);
+    const offer = (listingId: string) => ({
+      offerId: `off_${listingId}`,
+      buyerAccountId: context.audit.forAccountId,
+      sellerAccountId: sellerAccountId as AccountId,
+      listingId,
+      inventoryItemId: `inv_${listingId}`,
+      listingVersion: 1,
+      catalogItemId: `cat_${listingId}`,
+      productId: `cat_${listingId}::`,
+      itemTitle: "Card",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      priceAmount: "150.00",
+      marketplaceSalesFeePercentageBps: 0,
+      marketplaceSalesFeeFixedAmount: "1.00",
+      marketplaceSalesFeeCapAmount: null,
+      marketplaceSalesFeeUnitAmount: "1.00",
+      sellerNetUnitAmount: "149.00",
+      termsScheduleId: null,
+      termsAgreementId: null,
+      termsResolvedAt: "2026-09-01T00:00:00.000Z",
+      feeQuoteFingerprint: "sha256:9013-synthetic-control",
+      listingEvidencePolicyId: null,
+      listingEvidencePolicyVersion: null,
+      listingEvidencePolicyHash: "sha256:9013-synthetic-control",
+      listingEvidenceSnapshot: {
+        schemaVersion: 1 as const,
+        policyHash: "sha256:9013-synthetic-control",
+        snapshotHash: "sha256:9013-synthetic-control",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        evidence: [],
+      },
+      shippingDestinationSnapshot: shippingAddress,
+      quantityRequested: 1,
+    });
+    const checkoutResult = await services.createOrdersFromCheckout(
+      checkout("chk_9013_fresh", [listingIds[0]!]),
+      context,
+    );
+    const singleResult = await services.createOrdersFromAcceptedOffer(offer(listingIds[1]!), context);
+    const batchResult = await services.createOrdersFromAcceptedOfferBatch(
+      { acceptanceBatchId: "ofb_9013_fresh", offers: listingIds.slice(2).map(offer) },
+      context,
+    );
+    expect(checkoutResult.orderIds).toHaveLength(1);
+    expect(singleResult.orderIds).toHaveLength(1);
+    expect(batchResult.orderIds).toHaveLength(1);
+    const orderIds = [...checkoutResult.orderIds, ...singleResult.orderIds, ...batchResult.orderIds];
+    const orderProjection = buildOrderingOrderProjectionHandlers(pools.ordering);
+    for (const orderId of orderIds) {
+      const streamId = `ordering.order-${orderId}`;
+      const created = (await store.readStream({ streamId })).find(
+        (event) => event.eventType === "ordering.order.created",
+      )!;
+      const requests = created.payload.reservationRequests;
+      expect(Array.isArray(requests)).toBe(true);
+      if (!Array.isArray(requests)) throw new Error("Created order must contain reservation requests.");
+      for (const request of requests) {
+        if (
+          !request ||
+          typeof request !== "object" ||
+          Array.isArray(request) ||
+          typeof request.reservationRequestId !== "string"
+        ) {
+          throw new Error("Created order must identify each reservation request.");
+        }
+        await services.commandHandler({
+          streamId,
+          command: {
+            type: "RecordReservationConfirmed",
+            reservationRequestId: request.reservationRequestId,
+            holdId: `hld_${request.reservationRequestId}`,
+            confirmedAt: "2026-09-01T01:00:00.000Z",
+          },
+          context,
+        });
+      }
+      await services.commandHandler({
+        streamId,
+        command: { type: "MarkReadyForFulfillment", readyForFulfillmentAt: "2026-09-01T02:00:00.000Z" },
+        context,
+      });
+      for (const event of await store.readStream({ streamId })) {
+        await orderProjection[event.eventType]?.(toTransportEvent(event));
+      }
+    }
+    const observe = async (stage: string) => {
+      const facts = await pools.ordering.query<{
+        order_id: string;
+        source_type: string;
+        status: string;
+        claim_status: string | null;
+        shipment_status: string | null;
+      }>(
+        `SELECT orders.order_id, orders.source_type, orders.status,
+                claims.status AS claim_status, shipment.shipment_status
+         FROM ordering_order_pages AS orders
+         LEFT JOIN ordering_seller_open_order_claims AS claims ON claims.order_id = orders.order_id
+         LEFT JOIN ordering_fulfillment_cancellation_inputs AS shipment ON shipment.order_id = orders.order_id
+         WHERE orders.seller_account_id = $1 ORDER BY orders.order_id`,
+        [sellerAccountId],
+      );
+      const retainedServices = runtime(store);
+      const app = new Hono<OrderingApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", {
+          sessionId: "ses_9013_control",
+          tenantId: context.tenantId,
+          userId: context.audit.performedByUserId,
+          accountId: sellerAccountId,
+          membershipId: "mem_9013_control",
+          roleKey: "owner",
+          permissions: ["orders.view"],
+        });
+        await next();
+      });
+      app.route("/account", createAccountSaleOrderRoutes(retainedServices));
+      const response = await app.request("/account/sales/order-capacity");
+      expect(response.status).toBe(200);
+      const endpoint = await response.json();
+      const openFacts = facts.rows.filter((row) => row.status !== "cancelled" && row.shipment_status !== "dispatched");
+      const claims = await openClaimCount(pools.ordering, sellerAccountId);
+      const sales = await retainedServices.listSales({ sellerAccountId });
+      console.info(
+        "9013 AC1 synthetic fresh/retained-runtime control",
+        JSON.stringify({ stage, orderIds, endpoint, claims, facts: facts.rows }),
+      );
+      expect(facts.rows.map((row) => row.order_id).sort()).toEqual([...orderIds].sort());
+      expect(sales.items.map((row) => row.order_id).sort()).toEqual([...orderIds].sort());
+      expect(facts.rows.every((row) => row.status === "ready-for-fulfillment")).toBe(true);
+      expect(endpoint).toEqual({ open_order_count: openFacts.length });
+      expect(claims).toBe(openFacts.length);
+      return facts.rows;
+    };
+    const before = await observe("before-first-dispatch");
+    expect(before).toHaveLength(3);
+    expect(before.every((row) => row.claim_status === "claimed" && row.shipment_status === null)).toBe(true);
+    expect(before.filter((row) => row.source_type === "offer-acceptance")).toHaveLength(2);
+    const fulfillment = buildOrderingFulfillmentCancellationProjectionHandlers(pools.ordering);
+    const dispatchedOrderId = orderIds[0]!;
+    await fulfillment["fulfillment.shipment.created"]!(
+      buildTransportEvent("fulfillment.shipment.created", {
+        orderId: dispatchedOrderId,
+        shipmentId: "shp_9013_control",
+        createdAt: "2026-09-01T03:00:00.000Z",
+      }),
+    );
+    const dispatch = buildTransportEvent("fulfillment.shipment.dispatched", {
+      shipmentId: "shp_9013_control",
+      dispatchedAt: "2026-09-01T04:00:00.000Z",
+    });
+    await fulfillment[dispatch.type]!(dispatch);
+    const after = await observe("after-first-dispatch");
+    expect(after.find((row) => row.order_id === dispatchedOrderId)).toMatchObject({
+      claim_status: "released",
+      shipment_status: "dispatched",
+    });
+    await fulfillment[dispatch.type]!(dispatch);
+    expect(await observe("after-dispatch-replay")).toEqual(after);
+  });
 
   it("F1 reconciles and completes zero-Order compensation with a one-connection Postgres pool", async () => {
     const pool = createPgPool(databaseUrls.ordering, { max: 1, connectionTimeoutMillis: 1000 });

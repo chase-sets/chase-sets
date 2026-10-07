@@ -2,6 +2,30 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Demand Curve
+
+A **Demand Curve** is an immutable, Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one variant, language, and condition. The same card-wide Condition Ladder rescales all conditions; a missing or superseded curve is not a positive estimate.
+
+## Buyer Arrival Interval
+
+The **Buyer Arrival Interval** is the effective decayed exposure days divided by decayed sales at or above a curve price. Its exposure starts at the history window, sales cap, or known availability, whichever is latest.
+
+## Store Win Share
+
+**Store Win Share** is `1/(competing sellers + 1)` when Pooled Supply is observed. An unavailable or truncated seller count never implies full share.
+
+## Sell-Time Forecast
+
+The **Sell-Time Forecast** is `ln(2) × Buyer Arrival Interval / Store Win Share`. A forecast beyond the policy horizon carries a hopeless marker, not a forced sale date.
+
+## Condition Ladder
+
+The **Condition Ladder** is a card-wide monotone condition-value scale. It selects a time-controlled Zipf fit when evidence supports it, otherwise sibling market ratios, otherwise neutral scaling; unknown provider conditions do not enter its ordering.
+
+## Pooled Supply
+
+**Pooled Supply** counts distinct capture-local sellers at or below the curve price only after each condition's ask is rescaled by the Condition Ladder. Its status distinguishes observed-empty, truncated, unavailable, and disabled; an ordinal is never a seller identity across captures.
+
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from

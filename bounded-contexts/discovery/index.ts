@@ -1,3 +1,5 @@
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -77,7 +79,23 @@ function buildDiscoveryProjectionGroups(services: DiscoveryServices): readonly B
           ...group,
           reset: defineBcProjectionGroupReset(services.items.search.rebuildSearchIndex),
         }
-      : group,
+      : group.projectionName === "discovery-market-projection"
+        ? {
+            ...group,
+            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              await resetProductMeasurePublicationParts(
+                db,
+                createCheckpointKey(
+                  contextManifest.eventSubscriptions.find(
+                    (subscription) =>
+                      subscription.sourceContextName === "catalog" &&
+                      subscription.projectionName === group.projectionName,
+                  )!,
+                ),
+              );
+            }),
+          }
+        : group,
   );
 }
 

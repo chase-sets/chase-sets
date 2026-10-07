@@ -1,5 +1,9 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceListingPublicGalleryImage } from "../../../support/request-support/listing-evidence";
+import type { OrderingOrderDeliverySummary } from "../integrations/reputation/reputation-queries";
+import type { OrderingOrderReviewOutcome } from "../integrations/reputation/reputation-queries";
+
+export type { OrderingOrderReviewOpportunity } from "../integrations/reputation/reputation-queries";
 
 export interface OrderingOrderProjection {
   order_id: string;
@@ -116,21 +120,6 @@ export interface OrderingOrderMoneyTimeline {
   currency_code: string;
 }
 
-export interface OrderingOrderReviewOpportunity {
-  order_id: string;
-  subject_account_id: string;
-  subject_display_name: string | null;
-  author_role: string;
-  eligible_at: string;
-  active_review_id: string | null;
-  submission_state?: "allowed" | "held" | "expired";
-  hold_reason?: "feedback-on-hold" | null;
-  window_expired?: boolean;
-  response?: string | null;
-  revealed?: boolean;
-  scoring_disposition?: "included" | "context-only" | null;
-}
-
 export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {
   lines: readonly OrderingOrderProjectionLine[];
   inventory_holds: readonly OrderingOrderProjectionHold[];
@@ -139,11 +128,12 @@ export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {
 
 export interface PurchaseListItem extends OrderingOrderProjection {}
 export interface PurchaseDetail extends OrderingOrderProjectionDetail {
-  reviewOpportunity?: OrderingOrderReviewOpportunity | null;
+  delivery_summary?: OrderingOrderDeliverySummary;
+  reviewOutcome?: OrderingOrderReviewOutcome;
 }
 export interface SaleListItem extends OrderingOrderProjection {}
 export interface SaleDetail extends OrderingOrderProjectionDetail {
-  reviewOpportunity?: OrderingOrderReviewOpportunity | null;
+  reviewOutcome?: OrderingOrderReviewOutcome;
 }
 
 export interface OrderListSummary {

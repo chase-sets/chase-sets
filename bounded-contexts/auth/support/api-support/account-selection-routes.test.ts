@@ -67,5 +67,6 @@ describe("account selection auth routes", () => {
       ],
     });
     expect(query).toHaveBeenCalledWith(expect.stringContaining("INNER JOIN auth_identity_accounts"), ["usr_seller"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("accounts.status = 'active'"), ["usr_seller"]);
   });
 });

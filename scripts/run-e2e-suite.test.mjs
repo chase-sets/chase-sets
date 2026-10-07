@@ -204,6 +204,20 @@ describe("run e2e suite", () => {
     ]);
   });
 
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("shared sandbox runtime %s covers account and seller in normal suite batches", (file) => {
+    const selected = e2eSuiteIdsForChangedFile(file);
+    const batched = batchE2eSuiteIds(selected).flatMap((batch) => batch.split(","));
+    expect(selected).toContain("marketplace_account");
+    expect(selected).toContain("marketplace_seller");
+    expect(batched).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(new Set(batched).size).toBe(selected.length);
+  });
+
   it("routes the marketplace index route to browse coverage", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
   });
@@ -276,6 +290,32 @@ describe("run e2e suite", () => {
       "marketplace_account",
       "admin_auth",
     ]);
+  });
+
+  it("routes the Auth seed to its owning suites without widening runtime support", () => {
+    const seedPath = "bounded-contexts/auth/support/runtime-support/seed.ts";
+    const owningSuites = ["marketplace_account", "admin_auth"];
+    expect(e2eSuiteIdsForChangedFile(seedPath)).toEqual(owningSuites);
+    expect(e2eSuiteIdsForChangedFile(seedPath.replaceAll("/", "\\"))).toEqual(owningSuites);
+
+    for (const filePath of [
+      "bounded-contexts/auth/support/runtime-support/seed.db.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.ts.bak",
+      "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
+      "bounded-contexts/unknown/support/runtime-support/seed.ts",
+      "bounded-contexts/auth/features/sessions/ui/session-list-page.test.tsx",
+      "bounded-contexts/auth/routes/access-admin/sessions.test.ts",
+      "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(filePath), filePath).toEqual([]);
+    }
+
+    expect(e2eSuiteIdsForChangedFile("scripts/e2e-suites.mjs")).toEqual(
+      e2eSuites
+        .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+        .map((suite) => suite.id),
+    );
   });
 
   it("routes shared responsive evidence contract changes to every browser suite", () => {

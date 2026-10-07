@@ -65,20 +65,12 @@ export function AccountPaymentPage({
             value: formatMoney(payment.processor_amount, "USD"),
           },
           {
-            label: t("payments.routes.marketplace.accountPayment.marketplace.sales.fee"),
-            value: formatMoney(payment.marketplace_sales_fee_amount, "USD"),
-          },
-          {
             label: t("payments.routes.marketplace.accountPayment.marketplace.checkout.fee"),
             value: formatMoney(payment.marketplace_checkout_fee_amount, "USD"),
           },
           {
             label: t("payments.routes.marketplace.accountPayment.payment.method"),
             value: payment.payment_method_category ?? "card",
-          },
-          {
-            label: t("payments.routes.marketplace.accountPayment.seller.payout"),
-            value: formatMoney(payment.seller_payout_amount, "USD"),
           },
           {
             label: t("payments.routes.marketplace.accountPayment.processor"),
@@ -360,7 +352,7 @@ export function AccountPaymentPage({
                 {orders.map((order: AccountPaymentOrderView) => (
                   <Surface key={order.order_id} elevation="outlined">
                     <Stack gap={3}>
-                      <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Grid columns={{ base: 1, md: 2 }} gap={3}>
                         <Stack gap={1}>
                           <Text weight="semibold">
                             {t("payments.routes.marketplace.accountPayment.purchase")}
@@ -373,12 +365,6 @@ export function AccountPaymentPage({
                             {t("payments.routes.marketplace.accountPayment.total")}
                           </Text>
                           <Text weight="semibold">{formatMoney(order.total_amount, "USD")}</Text>
-                        </Stack>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
-                            {t("payments.routes.marketplace.accountPayment.seller.payout")}
-                          </Text>
-                          <Text>{formatMoney(order.seller_payout_amount, "USD")}</Text>
                         </Stack>
                       </Grid>
                       <Divider />

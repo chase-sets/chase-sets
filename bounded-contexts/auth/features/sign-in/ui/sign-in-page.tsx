@@ -36,7 +36,7 @@ type SocialLoginLink = Readonly<{
 const SIGN_IN_METHOD_ITEMS = [
   { value: "password", labelKey: "auth.features.signIn.ui.signInPage.password", icon: "lock" },
   { value: "phone-code", labelKey: "auth.features.signIn.ui.signInPage.phone.code", icon: "message" },
-  { value: "magic-link", labelKey: "auth.features.signIn.ui.signInPage.magic.link", icon: "message" },
+  { value: "magic-link", labelKey: "auth.features.signIn.ui.signInPage.magic.link", icon: "mail" },
   { value: "passkey", labelKey: "auth.features.signIn.ui.signInPage.passkey", icon: "shield" },
 ] as const satisfies readonly Readonly<{
   value: SignInMethod;
@@ -260,21 +260,39 @@ export function SignInPage(
           </Card>
 
           <Card elevation="elevated">
-            <Form spacing="none" onSubmit={handleIdentifierSubmit}>
-              <Stack gap={3}>
-                {props.returnTo ? <HiddenInput type="hidden" name="returnTo" value={props.returnTo} readOnly /> : null}
-                {signInMethods.includes("password") ? (
-                  <HiddenInput type="hidden" name="signInMethod" value="password" readOnly />
-                ) : null}
-                <TextInput
-                  label={t("auth.features.signIn.ui.signInPage.email.or.phone")}
-                  name="signInIdentifier"
-                  autoComplete="username"
-                  required
-                />
-                <Button type="submit">{t("auth.features.signIn.ui.signInPage.continue")}</Button>
-              </Stack>
-            </Form>
+            <Stack gap={4}>
+              {signInMethods.length > 0 ? (
+                <Stack gap={2}>
+                  <Text size="sm" tone="secondary">
+                    {t("auth.features.signIn.ui.signInPage.you.can.sign.in.with")}
+                  </Text>
+                  <Stack gap={1} role="list">
+                    {SIGN_IN_METHOD_ITEMS.filter((item) => signInMethods.includes(item.value)).map((item) => (
+                      <Text key={item.value} size="sm" role="listitem">
+                        {t(item.labelKey)}
+                      </Text>
+                    ))}
+                  </Stack>
+                </Stack>
+              ) : null}
+              <Form spacing="none" onSubmit={handleIdentifierSubmit}>
+                <Stack gap={3}>
+                  {props.returnTo ? (
+                    <HiddenInput type="hidden" name="returnTo" value={props.returnTo} readOnly />
+                  ) : null}
+                  {signInMethods.includes("password") ? (
+                    <HiddenInput type="hidden" name="signInMethod" value="password" readOnly />
+                  ) : null}
+                  <TextInput
+                    label={t("auth.features.signIn.ui.signInPage.email.or.phone")}
+                    name="signInIdentifier"
+                    autoComplete="username"
+                    required
+                  />
+                  <Button type="submit">{t("auth.features.signIn.ui.signInPage.continue")}</Button>
+                </Stack>
+              </Form>
+            </Stack>
           </Card>
         </>
       ) : null}
@@ -381,12 +399,15 @@ export function SignInPage(
       signInMethods.includes("magic-link") ? (
         <Card elevation="elevated">
           <Stack gap={4}>
+            <Text size="sm" tone="secondary">
+              {t("auth.features.signIn.ui.signInPage.magic.link.description")}
+            </Text>
             <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <HiddenInput type="hidden" name="intent" value="magic-link-request" readOnly />
                 <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-                <Button type="submit" leadingIcon="message">
+                <Button type="submit" leadingIcon="mail">
                   {t("auth.features.signIn.ui.signInPage.send.magic.link")}
                 </Button>
               </Stack>

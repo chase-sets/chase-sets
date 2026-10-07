@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 
 // Charter scope: this spec owns the payment-confirmation composition wiring real
 // browsers exercise on the decomposed `account/payments/:paymentId` (signed-in) and
@@ -26,11 +26,6 @@ const configuredMarketplaceAccount = {
   password: process.env.MARKETPLACE_E2E_PASSWORD?.trim() ?? "",
 };
 
-const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${process.pid}`)
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-")
-  .slice(0, 12);
-const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
 const authProjectionTimeoutMs = 90_000;
 
 // New accounts become authorized for orders.view only after the auth projection
@@ -82,12 +77,7 @@ function marketplaceAccountFor(testInfo: TestInfo) {
     };
   }
 
-  return {
-    email: `account-payment-${syntheticAccountRunId}-${syntheticAccountNonce}-${testInfo.workerIndex}-${testInfo.retry}@chasesets.test`,
-    password: `account-payment-${syntheticAccountRunId}-${testInfo.workerIndex}-${testInfo.retry}`,
-    displayName: `Account Payment ${syntheticAccountRunId} ${syntheticAccountNonce} ${testInfo.workerIndex} ${testInfo.retry}`,
-    shouldRegister: true,
-  };
+  return syntheticAccountFor(testInfo);
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
@@ -97,7 +87,7 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   const credentials = marketplaceAccountFor(testInfo);
 
   if (credentials.shouldRegister) {
-    await registerOrSignInSyntheticAccount(page, origin, credentials);
+    await registerSyntheticAccount(page, origin, credentials);
     return;
   }
 

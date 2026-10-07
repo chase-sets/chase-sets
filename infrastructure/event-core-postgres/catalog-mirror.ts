@@ -591,13 +591,22 @@ export function buildCatalogMirrorProjectionHandlers(db: PgQueryable, spec: Cata
     "catalog.blueprint.published": async (event) => {
       const blueprintId = extractIdFromStreamId(event.streamId, CATALOG_BLUEPRINT_STREAM_PREFIX);
 
-      await db.query(
-        `UPDATE ${tables.blueprints}
-         SET status = 'active',
-             updated_at = $2
-         WHERE blueprint_id = $1`,
-        [blueprintId, event.timing.recordedAt],
-      );
+      if (blueprintDraftStatusOnUpsert) {
+        await db.query(
+          `UPDATE ${tables.blueprints}
+           SET status = 'active',
+               updated_at = $2
+           WHERE blueprint_id = $1`,
+          [blueprintId, event.timing.recordedAt],
+        );
+      } else {
+        await db.query(
+          `UPDATE ${tables.blueprints}
+           SET updated_at = $2
+           WHERE blueprint_id = $1`,
+          [blueprintId, event.timing.recordedAt],
+        );
+      }
 
       await refreshCatalogMirrorItemsByBlueprint(db, tables, blueprintId);
     },

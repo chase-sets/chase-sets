@@ -15,6 +15,7 @@ import {
 } from "../../features/sessions/domain/domain";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import type { AccountId, SessionId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
+import { isoUtcFromDate } from "@chase-sets/primitives/iso-utc-timestamp";
 
 function createAuthSeedContext(): EventStoreContext {
   return {
@@ -73,8 +74,12 @@ async function ensureSessionStarted(
 
 export async function seedAuthDatabase(pool: PgTransactionalPool) {
   const db = pool;
+  const now = new Date();
+  const dayMs = 24 * 60 * 60 * 1_000;
+  const activeExpiresAt = new Date(now.getTime() + 30 * dayMs).toISOString();
+  let recordedAt = isoUtcFromDate(now);
 
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({ pool, now: () => recordedAt });
   const checkpointStore = createPostgresProjectionStore({ db });
   const sessions = createSessionRuntime({ eventStore, checkpointStore, db });
   const auth = createAuthSecretAdapters();
@@ -87,7 +92,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     accountId: demo.accountId,
     availableAccountIds: [demo.accountId],
     authenticationMethod: "password",
-    expiresAt: new Date("2026-05-10T00:00:00.000Z").toISOString(),
+    expiresAt: activeExpiresAt,
   });
 
   const supportSession = await ensureSessionStarted(sessions, context, {
@@ -96,7 +101,7 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     accountId: support.accountId,
     availableAccountIds: [support.accountId, demo.accountId],
     authenticationMethod: "magic-link",
-    expiresAt: new Date("2026-05-10T00:00:00.000Z").toISOString(),
+    expiresAt: activeExpiresAt,
   });
   if (supportSession.accountId !== demo.accountId) {
     await sessions.commandHandler({
@@ -106,14 +111,16 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
     });
   }
 
+  recordedAt = isoUtcFromDate(new Date(now.getTime() - 2 * dayMs));
   const collectorSession = await ensureSessionStarted(sessions, context, {
     sessionId: collector.sessionId,
     userId: collector.userId,
     accountId: collector.accountId,
     availableAccountIds: [collector.accountId],
     authenticationMethod: "password",
-    expiresAt: new Date("2026-04-15T00:00:00.000Z").toISOString(),
+    expiresAt: new Date(now.getTime() - dayMs).toISOString(),
   });
+  recordedAt = isoUtcFromDate(now);
   if (collectorSession.status !== "expired") {
     await sessions.commandHandler({
       streamId: toSessionStreamId(collector.sessionId),

@@ -269,6 +269,7 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier": "Shipping evidence tier",
   "fulfillment.features.shipments.ui.shipmentDetailPage.shipping.method": "Shipping method: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.shipping.option": "Shipping option: ",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.delivered.at": "Delivered at",
   "fulfillment.features.shipments.ui.shipmentDetailPage.standard": "Standard",
   "fulfillment.features.shipments.ui.shipmentDetailPage.summary": "Summary",
   "fulfillment.features.shipments.ui.shipmentDetailPage.tracking": "Tracking: ",

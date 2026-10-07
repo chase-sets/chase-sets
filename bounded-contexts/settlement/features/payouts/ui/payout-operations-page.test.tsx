@@ -65,9 +65,30 @@ function payout(): SettlementPayoutRow {
 }
 
 describe("payout operations page setup signals", () => {
+  it.each([false, true])("renders only authorized operations for canReconcile=%s", (canReconcile) => {
+    const html = renderToStaticMarkup(
+      <SettlementPayoutOperationsPage canReconcile={canReconcile} payouts={[payout()]} payoutReadiness={readiness()} />,
+    );
+    for (const text of [
+      "Run reconciliation",
+      "Recent Provider Attempts",
+      "Payout setup blocked",
+      "Open setup requirements",
+      "Stale payout setup status",
+      "Setup status",
+      "Payout destination",
+      "Setup last updated",
+    ]) {
+      expect(html.includes(text), text).toBe(canReconcile);
+    }
+    expect(html.includes('name="intent"')).toBe(canReconcile);
+    expect(html).toContain("$12.50");
+    expect(html).toContain("Needs Attention");
+  });
   it("renders queued reconciliation state as an outlined entity", () => {
     const html = renderToStaticMarkup(
       <SettlementPayoutOperationsPage
+        canReconcile
         payouts={[]}
         payoutReadiness={readiness()}
         runResult={{
@@ -100,6 +121,7 @@ describe("payout operations page setup signals", () => {
 
     const html = renderToStaticMarkup(
       <SettlementPayoutOperationsPage
+        canReconcile
         payouts={[]}
         payoutReadiness={readiness({
           status: "ready",
@@ -122,7 +144,7 @@ describe("payout operations page setup signals", () => {
   });
 
   it("payout-fee-reader-inventory shows requested, fee, and net amounts to payout operators", () => {
-    const html = renderToStaticMarkup(<SettlementPayoutOperationsPage payouts={[payout()]} />);
+    const html = renderToStaticMarkup(<SettlementPayoutOperationsPage canReconcile payouts={[payout()]} />);
 
     expect(html).toContain("Requested amount");
     expect(html).toContain("Payout fee");
@@ -160,7 +182,7 @@ describe("SettlementPayoutOperationsPage mono market-data role carriers", () => 
   });
 
   it("roles the requested, fee, and net columns in both the desktop table and the mobile cards", () => {
-    const rendered = parse(renderToStaticMarkup(<SettlementPayoutOperationsPage payouts={[payout()]} />));
+    const rendered = parse(renderToStaticMarkup(<SettlementPayoutOperationsPage canReconcile payouts={[payout()]} />));
     const carriers = numericValues(rendered);
 
     expect(textsOf(carriers)).toEqual(["$0.29", "$0.29", "$12.21", "$12.21", "$12.50", "$12.50"]);

@@ -7,6 +7,8 @@ import { context, terms } from "../../offer-policy/tests/fixtures";
 describe("managed Offer application and commitment", () => {
   it("batches a Product page into one Pricing read and writes no allowance for repricing", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
+    expect(f.evaluateTargets).toHaveBeenCalledTimes(2);
+    f.evaluateTargets.mockClear();
     f.setTarget({ status: "target", unitItemAmount: "12.00", evidence: {} });
     await f.store.appendToStream({
       streamId: "marketplace.offer-work-batch",

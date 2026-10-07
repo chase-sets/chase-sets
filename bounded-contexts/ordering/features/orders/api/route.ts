@@ -4,6 +4,7 @@ import { parseCheckoutOrderingSourceType } from "@chase-sets/checkout-order-sour
 import { normalizeShippingOption } from "../domain/common";
 import type { OrderingApiEnv } from "../../../api";
 import type { OrderingOrderServices } from "./runtime";
+import type { OrderingOrderReviewOutcome } from "../integrations/reputation/reputation-queries";
 import type { OrderCleanupAuthorityReport } from "./cleanup-authority";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
@@ -80,6 +81,19 @@ function requireCheckoutAccess(c: { get(key: "actor"): OrderingApiEnv["Variables
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
+}
+
+async function readOrderReviewOutcome(
+  services: OrderingOrderServices,
+  orderId: string,
+  actor: OrderingApiEnv["Variables"]["actor"],
+): Promise<OrderingOrderReviewOutcome> {
+  if (!actor || !canViewReviewOpportunity(actor)) return { status: "unavailable", opportunity: null };
+  try {
+    return await services.getOrderReviewOpportunity(orderId, actor.accountId);
+  } catch {
+    return { status: "unavailable", opportunity: null };
+  }
 }
 
 function refuseEvidenceWindowSourceAdmission(): never {
@@ -429,11 +443,8 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
       );
     }
 
-    const reviewOpportunity = canViewReviewOpportunity(access.actor)
-      ? await services.getOrderReviewOpportunity(order.order_id, access.actor.accountId)
-      : null;
-
-    return c.json({ ...order, reviewOpportunity });
+    const reviewOutcome = await readOrderReviewOutcome(services, order.order_id, access.actor);
+    return c.json({ ...order, reviewOutcome });
   });
 
   /**
@@ -607,11 +618,8 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
       );
     }
 
-    const reviewOpportunity = canViewReviewOpportunity(access.actor)
-      ? await services.getOrderReviewOpportunity(order.order_id, access.actor.accountId)
-      : null;
-
-    return c.json({ ...order, reviewOpportunity });
+    const reviewOutcome = await readOrderReviewOutcome(services, order.order_id, access.actor);
+    return c.json({ ...order, reviewOutcome });
   });
 
   app.post("/sales/:id/cancel", async (c) => {

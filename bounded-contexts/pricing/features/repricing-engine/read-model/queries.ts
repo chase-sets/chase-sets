@@ -120,9 +120,10 @@ export async function loadRepricingRoundInputsPage(
   }
   if (!products.length) return rounds;
   const keys = [products.map((key) => key.catalogItemId), products.map((key) => key.productId)];
-  const [listings, asks, estimates, sales] = await Promise.all([
-    db.query<ListingRow>(
-      `WITH ${productKeysCte}, ${repricingCandidateCte}
+  const reads = [
+    Promise.resolve().then(() =>
+      db.query<ListingRow>(
+        `WITH ${productKeysCte}, ${repricingCandidateCte}
        SELECT listing.listing_id, listing.seller_account_id, listing.inventory_item_id,
          listing.catalog_catalog_item_id, listing.product_id, listing.price_amount::text,
          listing.price_currency_code, listing.quantity_cap, listing.last_stream_version,
@@ -149,18 +150,20 @@ export async function loadRepricingRoundInputsPage(
          AND ((candidate.seller_account_id IS NULL AND policy.status = 'active')
            OR (${candidateAssignmentSql}))
        ORDER BY policy_id, listing.listing_id`,
-      [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
+        [...keys, input.candidate ? JSON.stringify(input.candidate) : null],
+      ),
     ),
-    db.query<
-      ProductRow & {
-        listing_id: string;
-        seller_account_id: string;
-        amount: string;
-        price_currency_code: string | null;
-        pricing_mode: "hard" | "derived";
-      }
-    >(
-      `WITH ${productKeysCte}
+    Promise.resolve().then(() =>
+      db.query<
+        ProductRow & {
+          listing_id: string;
+          seller_account_id: string;
+          amount: string;
+          price_currency_code: string | null;
+          pricing_mode: "hard" | "derived";
+        }
+      >(
+        `WITH ${productKeysCte}
        SELECT listing.catalog_catalog_item_id, listing.product_id, listing.listing_id,
          listing.seller_account_id, listing.price_amount::text AS amount, listing.price_currency_code,
          CASE WHEN assignment.listing_id IS NULL THEN 'hard' ELSE 'derived' END AS pricing_mode
@@ -168,26 +171,35 @@ export async function loadRepricingRoundInputsPage(
        JOIN pricing_market_listing_inputs AS listing USING (catalog_catalog_item_id, product_id)
        LEFT JOIN pricing_repricing_policy_assignments AS assignment ON assignment.listing_id = listing.listing_id
        WHERE listing.status = 'active' ORDER BY listing.listing_id`,
-      keys,
+        keys,
+      ),
     ),
-    db.query<ProductRow & { amount: string; currency_code: string; fresh_until: string }>(
-      `WITH ${productKeysCte}
+    Promise.resolve().then(() =>
+      db.query<ProductRow & { amount: string; currency_code: string; fresh_until: string }>(
+        `WITH ${productKeysCte}
        SELECT estimate.catalog_catalog_item_id, estimate.product_id, estimate.amount::text,
          UPPER(estimate.currency_code) AS currency_code, estimate.fresh_until::text
        FROM products JOIN pricing_market_price_estimates AS estimate USING (catalog_catalog_item_id, product_id)`,
-      keys,
+        keys,
+      ),
     ),
-    db.query<ProductRow & { unit_price_amount: string; currency_code: string | null; sold_at: string }>(
-      `WITH ${productKeysCte}
+    Promise.resolve().then(() =>
+      db.query<ProductRow & { unit_price_amount: string; currency_code: string | null; sold_at: string }>(
+        `WITH ${productKeysCte}
        SELECT DISTINCT ON (trade.catalog_catalog_item_id, trade.product_id)
          trade.catalog_catalog_item_id, trade.product_id, trade.unit_price_amount::text,
          NULL::text AS currency_code, trade.sold_at::text
        FROM products JOIN pricing_market_trades AS trade USING (catalog_catalog_item_id, product_id)
        WHERE trade.sold_at IS NOT NULL AND trade.excluded = false
        ORDER BY trade.catalog_catalog_item_id, trade.product_id, trade.sold_at DESC, trade.order_id DESC, trade.line_id DESC`,
-      keys,
+        keys,
+      ),
     ),
-  ]);
+  ] as const;
+  const [listings, asks, estimates, sales] = await Promise.all(reads).catch(async (error: unknown) => {
+    await Promise.allSettled(reads);
+    throw error;
+  });
   const partition = (row: ProductRow) =>
     rounds.get(
       repricingProductKey({

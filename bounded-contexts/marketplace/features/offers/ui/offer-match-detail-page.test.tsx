@@ -4,6 +4,8 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchDetailPage } from "./offer-match-detail-page";
 import type { OfferMatchDetail } from "./contracts";
+import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
+import { omitPrivateOfferResponseFields } from "../api/response-shape";
 
 const offer: OfferMatchDetail = {
   offer_id: "off_1",
@@ -42,6 +44,29 @@ const offer: OfferMatchDetail = {
 afterEach(cleanup);
 
 describe("MarketplaceOfferMatchDetailPage", () => {
+  it.each(["unavailable", "held", "refresh_required"] as const)(
+    "renders safe %s terms without private DOM or hydration data",
+    (managed_status) => {
+      const loaderData = omitPrivateOfferResponseFields({
+        ...offer,
+        ...privatePolicyFields,
+        policyId: "private",
+        evidence: { marketPrice: "private" },
+        managed_status,
+      });
+      const dom = renderToString(<MarketplaceOfferMatchDetailPage offer={loaderData} canAccept />);
+      const hydration = JSON.stringify(loaderData);
+      for (const key of [...Object.keys(privatePolicyFields), "policyId", "marketPrice"]) {
+        expect(dom).not.toContain(key);
+        expect(hydration).not.toContain(key);
+      }
+      expect(loaderData.can_fulfill).toBe(false);
+      expect(dom).toContain("disabled");
+      expect(dom).toContain(
+        managed_status === "held" ? "held" : managed_status === "unavailable" ? "unavailable" : "refreshing",
+      );
+    },
+  );
   it("renders the offer-match overview as an elevated entity", () => {
     render(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
 

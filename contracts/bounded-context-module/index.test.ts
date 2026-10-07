@@ -10,12 +10,62 @@ import {
   normalizeContextManifest,
   type BcApiEntry,
   type BcContextManifest,
+  type BcShellContribution,
+  type BcShellContributionItem,
   type BcEventReactionHandlerRegistrations,
   type BcEventSubscriptionHandler,
   type BcEventSubscriptionHandlerRegistrations,
 } from "./index";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+
+describe("shell contribution contract", () => {
+  const base = {
+    key: "account",
+    label: "Account",
+    icon: "user",
+    order: 1,
+    visibility: "always",
+    requiredPermissions: [],
+  } as const;
+  it("accepts legacy href/groups and additive route/action declarations", () => {
+    const legacy = [
+      { ...base, href: "/account" },
+      { ...base, children: [{ ...base, href: "/account" }] },
+    ] satisfies BcShellContributionItem[];
+    const action = {
+      ...base,
+      activation: "action",
+      deployable: "marketplace-web",
+      slot: "account-menu",
+      parentKey: "menu",
+      placement: "utility",
+      packingPriority: 20,
+      excludedRoleKeys: ["suspended"],
+      badge: { valueKey: "unread", max: 99, hideWhenEmptyForSignedOut: true },
+    } satisfies BcShellContribution;
+    const route = {
+      ...base,
+      activation: "route",
+      href: "/account",
+      activePathPatterns: ["/profile"],
+    } satisfies BcShellContributionItem;
+    expect(legacy).toHaveLength(2);
+    expect(action.activation).toBe("action");
+    expect(route.activePathPatterns).toEqual(["/profile"]);
+  });
+  it("makes explicit actions and routes disjoint at compile time", () => {
+    // @ts-expect-error An action has no href.
+    const hrefAction: BcShellContributionItem = { ...base, activation: "action", href: "/account" };
+    // @ts-expect-error Even empty action children are prohibited.
+    const childAction: BcShellContributionItem = { ...base, activation: "action", children: [] };
+    // @ts-expect-error Actions do not participate in path matching.
+    const activeAction: BcShellContributionItem = { ...base, activation: "action", activePathPatterns: ["/account"] };
+    // @ts-expect-error Explicit routes must be href leaves.
+    const routeGroup: BcShellContributionItem = { ...base, activation: "route", href: "/account", children: [] };
+    expect([hrefAction, childAction, activeAction, routeGroup]).toHaveLength(4);
+  });
+});
 
 const manifest: BcContextManifest = {
   contextName: "inventory",

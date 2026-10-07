@@ -7,6 +7,7 @@ import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
+  insertCreatedAuthIdentityAccountMirror,
   upsertActiveAuthIdentityMembershipMirror,
   upsertRegisteredAuthIdentityUserMirror,
 } from "../auth-support/identity-projection";
@@ -92,6 +93,10 @@ export function registerRegistrationRoutes(app: AuthApiApp, services: AuthServic
     }
 
     const registeredAt = new Date().toISOString();
+    await insertCreatedAuthIdentityAccountMirror(services.db, {
+      accountId: identity.accountId,
+      displayName: String(body.displayName ?? "").trim() || email,
+    });
     await upsertRegisteredAuthIdentityUserMirror(services.db, {
       userId: identity.userId,
       displayName: String(body.displayName ?? ""),

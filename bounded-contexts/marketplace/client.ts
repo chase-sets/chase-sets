@@ -2,6 +2,9 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildMarketplaceApi } from "./api";
+import type { BuyerOfferPolicyRequest } from "./features/offer-policy/domain/contracts";
+import type { serializeBuyerOfferPolicy } from "./features/offer-policy/api/runtime";
+export type BuyerOfferPolicySnapshot = ReturnType<typeof serializeBuyerOfferPolicy>;
 export type { BuyerOfferPolicyRequest, BuyerOfferPolicyTerms } from "./features/offer-policy/domain/contracts";
 
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
@@ -177,6 +180,37 @@ export function createMarketplaceApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async listBuyerOfferPolicies(
+      offerIds: readonly string[] = [],
+    ): Promise<{ items: BuyerOfferPolicySnapshot[]; nextCursor: string | null }> {
+      const query = new URLSearchParams();
+      for (const offerId of offerIds) query.append("offerId", offerId);
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/offer-policies?${query}`), { headers }),
+      );
+    },
+    async getBuyerOfferPolicy(policyId: string): Promise<BuyerOfferPolicySnapshot> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/offer-policies/${encodeURIComponent(policyId)}`), {
+          headers,
+        }),
+      );
+    },
+    async commandBuyerOfferPolicy(
+      policyId: string,
+      command: BuyerOfferPolicyRequest,
+    ): Promise<BuyerOfferPolicySnapshot> {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(baseUrl, `/account/offer-policies/${encodeURIComponent(policyId)}/commands`),
+          {
+            method: "POST",
+            headers: { ...headersToRecord(headers), "content-type": "application/json" },
+            body: JSON.stringify(command),
+          },
+        ),
+      );
+    },
     async getMarketSummary(productId: string): Promise<MarketplaceMarketSummary> {
       return parseJsonResponse(
         await client["products"][":productId"]["market-summary"].$get({

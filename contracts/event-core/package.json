@@ -22,6 +22,7 @@
     "./platform-coverage-facts": "./platform-coverage-facts.ts",
     "./projector": "./projector.ts",
     "./review-scoring-facts": "./review-scoring-facts.ts",
+    "./review-opportunity-facts": "./review-opportunity-facts.ts",
     "./public-event-payloads": "./public-event-payloads/index.ts",
     "./public-event-payloads/inventory": "./public-event-payloads/inventory.ts",
     "./storage": "./storage.ts",

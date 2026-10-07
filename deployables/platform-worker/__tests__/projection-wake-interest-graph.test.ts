@@ -166,9 +166,18 @@ describe("platform worker projection wake interest graph", () => {
         }),
       ]),
     );
-    expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
+    const fundingProjectionNames = ["payments-wallet-funding-projection", "platform-policy-document-projection"];
+    const fundingRunners = runtime.subscriptionRunners.filter(
+      (runner) => runner.targetContextName === "payments" && fundingProjectionNames.includes(runner.projectionName),
+    );
+    const inheritedRunners = runtime.subscriptionRunners.filter((runner) => !fundingRunners.includes(runner));
+    expect(fundingRunners.map((runner) => runner.checkpointKey).sort()).toEqual([
+      "payments-wallet-funding-projection:payments:v1",
+      "platform-policy-document-projection:payments:v1",
+    ]);
+    expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 250,
-      sha256: "3b0d6b9404360baa199278cb52db3e4a64e9207ca2ee2c7ad0732a5ef1cb302c",
+      sha256: "716e5e66a87f506c5789a0dd0fd841aba23228465f9cc201320f3d467bc218eb",
     });
     expect(
       fingerprint(
@@ -179,18 +188,18 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 155,
-      sha256: "9b4461f420d16ed28083dd86a7cd9d90f9ce267d31a74b9c04eb9ddd9699bb0e",
+      sha256: "785c0191fe64f887dc7be64548425888dd7f2901a083aa44978a3723537a9137",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
       count: 155,
-      sha256: "6712691e9b494e358c6c69a84215989f43dd2255281196761503eaa0326a05b6",
+      sha256: "664bd2d6f9a37a84c0e2243b8e3573ff5fb975df8f90804f490838a318b37c7d",
     });
-    expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
+    expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
       count: 250,
-      sha256: "8be9d41e4f325089806798f5e4bd17163d07c06eef8374f6ff2f0d5506f2f074",
+      sha256: "a655aa3aec7d130199810affdb7e46fb0248cc6fc259bad42b23dc80345e35ee",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 120,
@@ -219,6 +228,75 @@ describe("platform worker projection wake interest graph", () => {
         "public-presence:public-presence-waitlist-projection",
       ]),
     );
+  });
+
+  it("mounts the Payments funding and policy checkpoints with their exact interests and disable precedence", () => {
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const targets = [
+      {
+        projectionName: "payments-wallet-funding-projection",
+        streamPrefixes: ["payments."],
+        ownedTables: ["payments_wallet_funding_pages"],
+        eventTypes: [
+          "payments.wallet-funding-authorized",
+          "payments.wallet-funding-cancelled",
+          "payments.wallet-funding-captured",
+          "payments.wallet-funding-created",
+          "payments.wallet-funding-dispute-recorded",
+          "payments.wallet-funding-failed",
+          "payments.wallet-funding-fraud-warning-recorded",
+          "payments.wallet-funding-quoted",
+          "payments.wallet-funding-refund-attention-recorded",
+          "payments.wallet-funding-refund-operation-recorded",
+          "payments.wallet-funding-refunded",
+          "payments.wallet-funding-submission-claimed",
+        ],
+      },
+      {
+        projectionName: "platform-policy-document-projection",
+        streamPrefixes: ["platform-policy.document-"],
+        ownedTables: ["platform_policy_document_history", "platform_policy_documents"],
+        eventTypes: ["platform-policy.document.created", "platform-policy.document.revised"],
+      },
+    ];
+    const disabled = buildPlatformWorkerProjectionWakeRelayInterestIndex(
+      targets.map(({ projectionName }) => `payments:${projectionName}`),
+    );
+    for (const target of targets) {
+      const entries = index.entries.filter(
+        (entry) => entry.targetContextName === "payments" && entry.projectionName === target.projectionName,
+      );
+      expect(entries).toHaveLength(1);
+      const [entry] = entries;
+      expect(entry).toMatchObject({
+        ...target,
+        sourceContextName: "payments",
+        targetContextName: "payments",
+        checkpointKey: `${target.projectionName}:payments:v1`,
+        subscriptionName: `payments.${target.projectionName}`,
+        subscriptionVersion: 1,
+        owner: "Payments",
+        enabled: true,
+        priorityLane: "standard",
+        optOutReason: null,
+      });
+      expect(entry.eventTypes).toEqual(target.eventTypes);
+      expect(entry.streamPrefixes).toEqual(target.streamPrefixes);
+      for (const eventType of target.eventTypes) {
+        expect(lookupProjectionInterests(index, { sourceContextName: "payments", eventType })).toContain(entry);
+        expect(lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType })).not.toContain(
+          entry,
+        );
+      }
+      expect(
+        lookupProjectionInterests(index, { sourceContextName: "payments", eventType: "payments.payment-captured" }),
+      ).not.toContain(entry);
+      expect(disabled.entries.find((candidate) => candidate.entryId === entry.entryId)).toMatchObject({
+        checkpointKey: entry.checkpointKey,
+        enabled: false,
+        optOutReason: "Disabled by WORKER_WAKE_DISABLED_PROJECTIONS.",
+      });
+    }
   });
 
   it("wires ordering.order.created to the Inventory order reservation workflow checkpoint", () => {

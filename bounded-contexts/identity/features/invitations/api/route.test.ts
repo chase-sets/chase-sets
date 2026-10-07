@@ -83,6 +83,31 @@ function buildServices(overrides: Partial<InvitationServices> = {}) {
 }
 
 describe("invitation API route", () => {
+  it.each(["owner", "platform-admin"])(
+    "rejects platform-admin invitations even from %s before command dispatch",
+    async (roleKey) => {
+      const services = buildServices();
+      const response = await buildApp(services, buildAccounts(), { ...actor, roleKey }).request("/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invitationId: "ivt_1",
+          accountId: "acc_1",
+          email: "invitee@example.com",
+          roleKey: "platform-admin",
+          expiresAt: "2026-12-08T00:00:00.000Z",
+        }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: "validation_failed",
+          message: "Role key is invalid. Valid role keys: owner, manager, fulfillment, viewer.",
+        },
+      });
+      expect(services.commandHandler).not.toHaveBeenCalled();
+    },
+  );
   it("rejects malformed account IDs before issuing create commands", async () => {
     const services = buildServices();
     const accounts = buildAccounts();

@@ -298,6 +298,32 @@ afterEach(() => {
 });
 
 describe("SQL execution fixture matrix through the real guard entrypoint", () => {
+  it("closes all ten wallet funding SQL obligations through the unchanged tracked-source owner", () => {
+    const queries = "bounded-contexts/payments/features/wallet-funding/read-model/queries.ts";
+    const projection = "bounded-contexts/payments/features/wallet-funding/read-model/projection.ts";
+    const runtime = "bounded-contexts/payments/features/wallet-funding/api/runtime.ts";
+    const obligations = [
+      { role: "creation identity under account lock", file: queries, lines: [12, 15], receiver: "db" },
+      { role: "rolling creation amount", file: queries, lines: [28], receiver: "db" },
+      { role: "per-attempt creation reservation", file: queries, lines: [41], receiver: "db" },
+      { role: "creation reservation release", file: queries, lines: [49], receiver: "db" },
+      { role: "account funding history", file: queries, lines: [54], receiver: "db" },
+      { role: "provider funding correlation", file: queries, lines: [61], receiver: "db" },
+      { role: "projection current version", file: projection, lines: [30], receiver: "db" },
+      { role: "projection version-fenced upsert", file: projection, lines: [41], receiver: "db" },
+      { role: "bounded non-refused sweep", file: runtime, lines: [534], receiver: "deps.pool" },
+      { role: "sweep scheduling progress", file: runtime, lines: [648], receiver: "deps.pool" },
+    ];
+    expect(obligations).toHaveLength(10);
+    const result = classify([queries, projection, runtime]);
+    expect(result.violations).toEqual([]);
+    expect(result.modules.map(({ outcome }) => outcome)).toEqual(["sql-executing", "sql-executing", "sql-executing"]);
+    expect(result.modules.flatMap(({ calls }) => calls)).toHaveLength(11);
+    for (const { file, lines, receiver } of obligations) {
+      for (const line of lines) expectSql(result, file, line, receiver);
+    }
+  });
+
   it("classifies P1-P10 and P12-P18 as SQL-executing at their named anchors", () => {
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
@@ -305,10 +331,10 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["infrastructure/event-core-postgres/types.ts", 40, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
-      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 145, "deps.db"],
+      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 158, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 283, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 284, "db"],
+      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
       ["bounded-contexts/catalog/features/catalog-items/read-model/projection.ts", 28, "projectionDb"],
       [
@@ -355,7 +381,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 284],
+      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255],
       [fixtureFile, 29],
       [fixtureFile, 37],
     ];

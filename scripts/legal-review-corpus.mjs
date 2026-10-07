@@ -169,6 +169,7 @@ export async function loadLegalReviewMembershipAuthorities(options = {}) {
     publicPolicyHrefsByKey: corpusVocabularyModule.publicPolicyHrefsByKey,
     complianceArticleSlugs: complianceManifestModule.complianceLegalReviewArticleSlugs,
     incorporatedHelpArticleSlugs: complianceManifestModule.incorporatedHelpArticleSlugs,
+    helpArticleIncorporations: complianceManifestModule.helpArticleIncorporations,
     complianceLocale: complianceManifestModule.complianceLegalReviewLocale,
     dmcaComplianceArticleSlug: complianceManifestModule.dmcaComplianceArticleSlug,
     dmcaUnverifiedRegistrationMarker: complianceManifestModule.dmcaUnverifiedRegistrationMarker,
@@ -488,6 +489,7 @@ export function buildLegalReviewCorpus(authorities) {
   const incorporatedHelpArticles = buildIncorporatedReferences(authorities, errors);
   const consentBundles = buildConsentSurfaces(authorities, membership, errors);
   validateTermsIncorporationCrossReference(authorities, errors);
+  validateHelpArticleIncorporations(authorities, errors);
 
   if (errors.length > 0) {
     return { ok: false, errors: dedupe(errors) };
@@ -793,7 +795,7 @@ function buildConsentSurfaces(authorities, membership, errors) {
 /**
  * AC6's cross-reference closure: the Terms subject that incorporates sibling
  * policies by reference must actually name every registered sibling route and
- * every declared incorporated Help Article identity, so an added corpus
+ * its declared incorporated Help Article identities, so an added corpus
  * document or a renamed operational standard cannot silently fall out of the
  * incorporating clause.
  */
@@ -825,10 +827,34 @@ function validateTermsIncorporationCrossReference(authorities, errors) {
       );
     }
   }
-  for (const slug of authorities.incorporatedHelpArticleSlugs ?? []) {
-    if (!containsSlugIdentity(prose, slug)) {
+}
+
+function validateHelpArticleIncorporations(authorities, errors) {
+  const incorporations = authorities.helpArticleIncorporations;
+  if (!Array.isArray(incorporations) || incorporations.length === 0) {
+    errors.push("Help Article incorporations must name their registered policy sections.");
+    return;
+  }
+  for (const { policyKey, sectionId, articleSlugs } of incorporations) {
+    const artifact = authorities.policyRegistry.find(
+      (entry) => entry.artifact.metadata.policyKey === policyKey,
+    )?.artifact;
+    const section = artifact?.sections.find((candidate) => candidate.id === sectionId);
+    if (!section || !isStringArray(articleSlugs) || articleSlugs.length === 0) {
       errors.push(
-        `Terms of Service subject '${TERMS_INCORPORATION_SECTION_ID}' does not name incorporated Help Article '${slug}'.`,
+        `Help Article incorporation '${policyKey}/${sectionId}' must resolve to a registered section and non-empty article slugs.`,
+      );
+      continue;
+    }
+    for (const slug of articleSlugs) {
+      if (!(authorities.incorporatedHelpArticleSlugs ?? []).includes(slug)) {
+        errors.push(
+          `Help Article '${slug}' incorporated by '${policyKey}/${sectionId}' is missing from the packet summaries.`,
+        );
+      }
+      if (containsSlugIdentity(section.draftText, slug)) continue;
+      errors.push(
+        `${artifact.title === "Terms of service" ? "Terms of Service" : artifact.title} subject '${sectionId}' does not name incorporated Help Article '${slug}'.`,
       );
     }
   }
@@ -1075,7 +1101,7 @@ export function renderCounselReviewPacket(corpus) {
     renderList(
       corpus.incorporatedHelpArticles,
       (reference) =>
-        `- \`${reference.slug}\` (${reference.locale}) — ${reference.title} at \`${reference.href}\`; incorporated by reference from the Terms of Service and not reproduced in this packet.`,
+        `- \`${reference.slug}\` (${reference.locale}) — ${reference.title} at \`${reference.href}\`; incorporated by reference from the registered policy corpus and not reproduced in this packet.`,
     ),
   );
 

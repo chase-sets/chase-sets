@@ -158,6 +158,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 
 ## Planned Term Ownership
 
+Wallet Funding Payment, Wallet Funding Fee and Wallet Funding Refund belong to [Payments](../bounded-contexts/payments/GLOSSARY.md). Prepaid Balance and its lots belong to Settlement. A Refund Reservation is Settlement money authority consumed by Payments; the external charge workflow does not own or write the wallet ledger.
+
 These sections pre-register upcoming milestone vocabulary so future slices have one canonical term and owning context before implementation. Planned terms do not imply shipped behavior; they reserve language for the owning context and prevent drift in issues, docs, APIs, and UI copy.
 
 | Milestone family | Owning source | Planned terms |

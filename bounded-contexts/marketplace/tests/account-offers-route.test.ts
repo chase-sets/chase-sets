@@ -1,11 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { Hono } from "hono";
+import { resolveActorFromSessionId } from "../../auth/server";
+import SubmittedOffersRoute, { action as submittedOffersAction } from "../routes/account-offers-submitted";
+import { fixture, context as policyContext, terms, privatePolicyFields } from "../features/offer-policy/tests/fixtures";
+import { createBuyerOfferPolicyRoutes } from "../features/offer-policy/api/route";
+import type { MarketplaceApiEnv } from "../api";
+import { omitPrivateOfferResponseFields } from "../features/offers/api/response-shape";
+import { action as itemDetailAction } from "../../discovery/routes/item-detail";
 import {
   appendFreshWriteToken,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
-import { loader as submittedOfferLoader } from "../routes/account-offer-submitted";
+import SubmittedOfferRoute, { loader as submittedOfferLoader } from "../routes/account-offer-submitted";
 import { loader as submittedOffersLoader } from "../routes/account-offers-submitted";
 import { action as offerMatchAction, loader as offerMatchLoader } from "../routes/account-offer-match";
 import { loader as offerMatchesLoader } from "../routes/account-offer-matches";
@@ -31,6 +43,442 @@ function marketplaceCommit(position = "42", eventId = "evt_marketplace_offer") {
     ],
   };
 }
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("market-following Submitted Offer real router", () => {
+  it.each([false, true])(
+    "enforces verified email through the real Preview permission guard (verified=%s)",
+    async (verified) => {
+      const services = {
+        sessions: {
+          readAuthenticatedSession: async () => ({
+            state: {
+              id: "ses_test",
+              userId: "usr_buyer",
+              accountId: "acc_buyer",
+              availableAccountIds: ["acc_buyer"],
+              authenticationMethod: "password",
+              status: "active",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+            },
+            authenticatedAt: "2026-09-28T00:00:00.000Z",
+          }),
+          getSession: async () => null,
+        },
+        identity: {
+          getActiveMembershipForUserAccount: async () => ({
+            membership_id: "mbr_test",
+            role_key: "owner",
+            role_permissions: [],
+          }),
+          getUser: async () => ({
+            primary_email: "collector@chasesets.test",
+            contact_methods: [
+              {
+                type: "email",
+                value: "collector@chasesets.test",
+                verifiedAt: verified ? "2026-09-28T00:00:00.000Z" : null,
+              },
+            ],
+          }),
+        },
+      } as unknown as Parameters<typeof resolveActorFromSessionId>[0];
+      const actor = await resolveActorFromSessionId(services, "ses_test");
+      const f = await fixture();
+      const app = new Hono<MarketplaceApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", actor!);
+        c.set("context", policyContext);
+        await next();
+      });
+      app.route("/api/marketplace/account/offer-policies", createBuyerOfferPolicyRoutes(f.runtime));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+          return app.request(new Request(url, init));
+        }),
+      );
+      expect(actor?.permissions).toContain("offers.view");
+      expect(actor?.permissions.includes("offers.manage")).toBe(verified);
+      const action = submittedOffersAction({
+        request: new Request("http://localhost/account/offers/submitted.data", {
+          method: "POST",
+          body: new URLSearchParams({
+            policyId: "bop_verified_buyer",
+            command: JSON.stringify({
+              type: "PreviewBuyerOfferPolicy",
+              expectedVersion: 0,
+              operationId: "preview_buyer",
+              terms,
+            }),
+          }),
+        }),
+        params: {},
+        context: undefined,
+      } as never);
+      if (!verified) {
+        await expect(action).rejects.toMatchObject({ status: 403 });
+        await expect(f.runtime.get("bop_verified_buyer", "acc_buyer")).rejects.toMatchObject({ code: "not_found" });
+        return;
+      }
+      const result = (await action).data;
+      expect(result.error).toBeNull();
+      expect(result.policy?.preview?.outcomes).toHaveLength(1);
+    },
+  );
+
+  it("keeps fixed Offer item-detail intent, Submitted detail and seller Match free of required policy limits", async () => {
+    const fixed = {
+      offer_id: "off_fixed",
+      buyer_account_id: "acc_buyer",
+      catalog_catalog_item_id: "cat_one",
+      product_id: "cat_one::",
+      item_title: "Item",
+      selected_options: [],
+      price_amount: "10.00",
+      price_currency_code: "USD",
+      quantity_requested: 2,
+      last_stream_version: 1,
+      status: "submitted",
+      listing_id: "lst_one",
+      can_fulfill: true,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session"))
+          return jsonResponse({
+            actor: {
+              sessionId: "ses_test",
+              tenantId: "tnt_test",
+              userId: "usr_buyer",
+              accountId: "acc_buyer",
+              membershipId: "mbr_test",
+              roleKey: "owner",
+              permissions: ["offers.view", "offers.manage", "listings.view"],
+            },
+          });
+        if (url.includes("offer-policies")) return jsonResponse({ items: [] });
+        if (url.includes("/items/"))
+          return jsonResponse({
+            catalog_item_id: "cat_one",
+            title: "Item",
+            subtitle: null,
+            product_schema: null,
+            market_listings: [],
+            field_values: [],
+            categories: [],
+            tags: [],
+            image_urls: [],
+          });
+        return jsonResponse(fixed);
+      }),
+    );
+    const form = new URLSearchParams({
+      intent: "submit-offer",
+      productId: "cat_one::",
+      selectedOptions: "[]",
+      productSummary: "",
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      quantityRequested: "2",
+    });
+    const redirect = (await itemDetailAction({
+      request: new Request("http://localhost/items/cat_one", { method: "POST", body: form }),
+      params: { id: "cat_one" },
+      context: undefined,
+    } as never)) as Response;
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get("Location")).toContain("/checkout/buy/readiness?source=offer-intent");
+    for (const field of Object.keys(privatePolicyFields)) expect(redirect.headers.get("Location")).not.toContain(field);
+    const detail = await submittedOfferLoader({
+      request: new Request("http://localhost/account/offers/submitted/off_fixed"),
+      params: { offerId: "off_fixed" },
+      context: undefined,
+    } as never);
+    expect(detail.submittedOffer).toMatchObject(fixed);
+    const match = await offerMatchLoader({
+      request: new Request("http://localhost/account/offers/matches/off_fixed"),
+      params: { offerId: "off_fixed" },
+      context: undefined,
+    } as never);
+    expect(match.offerMatch).toMatchObject({ can_fulfill: true, price_amount: "10.00" });
+  });
+  async function routed(laggingProjection = false, initialDrift = false) {
+    const f = await fixture();
+    if (initialDrift)
+      await f.store.appendToStream({
+        streamId: "marketplace.offer-off_one",
+        expectedVersion: 1,
+        context: policyContext,
+        events: [
+          {
+            eventType: "marketplace.offer.price-updated",
+            payload: {
+              offerId: "off_one",
+              buyerAccountId: "acc_buyer",
+              priceAmount: "10.00",
+              priceCurrencyCode: "USD",
+            },
+          },
+        ],
+      });
+    const app = new Hono<MarketplaceApiEnv>();
+    const actor = {
+      sessionId: "ses_test",
+      tenantId: "tnt_test",
+      userId: "usr_buyer",
+      accountId: "acc_buyer",
+      membershipId: "mbr_test",
+      roleKey: "owner",
+      permissions: ["offers.view", "offers.manage"],
+    };
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      c.set("context", policyContext);
+      await next();
+    });
+    app.route("/api/marketplace/account/offer-policies", createBuyerOfferPolicyRoutes(f.runtime));
+    let accepted = false;
+    const commands: Record<string, unknown>[] = [];
+    const responses: { status: number; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+        if (url.includes("/offer-policies")) {
+          if (init?.body) commands.push(JSON.parse(String(init.body)));
+          const response = await app.request(new Request(url, init));
+          if (init?.body) responses.push({ status: response.status, body: await response.clone().json() });
+          return response;
+        }
+        const events = await f.store.readStream({ streamId: "marketplace.offer-off_one" });
+        const offer = {
+          offer_id: "off_one",
+          buyer_account_id: "acc_buyer",
+          catalog_catalog_item_id: "cat_one",
+          product_id: "cat_one::",
+          item_title: "Item",
+          selected_options: [],
+          product_summary: null,
+          price_amount: "10.00",
+          price_currency_code: "USD",
+          last_stream_version: laggingProjection ? 1 : events.length,
+          quantity_requested: 2,
+          status: accepted ? "accepted" : "submitted",
+          updated_at: "2026-09-28T00:00:00.000Z",
+        };
+        return jsonResponse(new URL(url).pathname.endsWith("/off_one") ? offer : { items: [offer], total: 1 });
+      }),
+    );
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/account/offers/submitted",
+          loader: submittedOffersLoader,
+          action: submittedOffersAction,
+          Component: SubmittedOffersRoute,
+        },
+        {
+          path: "/account/offers/submitted/:offerId",
+          loader: submittedOfferLoader,
+          action: submittedOffersAction,
+          Component: SubmittedOfferRoute,
+        },
+      ],
+      { initialEntries: ["/account/offers/submitted"] },
+    );
+    render(createElement(RouterProvider, { router }));
+    await screen.findByRole("switch", { name: "Follow the market for selected Offers" });
+    return {
+      ...f,
+      router,
+      commands,
+      responses,
+      accept: () => {
+        accepted = true;
+      },
+    };
+  }
+
+  it.each([false, true])(
+    "walks draft, review, consent, pause, fresh resume/increase and permanent stop (lag=%s)",
+    async (lag) => {
+      const f = await routed(lag);
+      fireEvent.click(screen.getByRole("switch"));
+      expect((screen.getByRole("checkbox", { name: "Select Item (off_one)" }) as HTMLInputElement).checked).toBe(true);
+      fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+        target: { value: "100.00" },
+      });
+      expect(screen.getByRole("button", { name: "Advanced adjustment" }).getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
+      await screen.findByText("Review exact Offer authority");
+      expect(screen.getByText("Held: a Market Price is not available for this Product yet.")).toBeTruthy();
+      const authorize = screen.getByRole("button", { name: "Authorize reviewed Offers" });
+      expect(authorize.hasAttribute("disabled")).toBe(true);
+      fireEvent.click(screen.getByRole("checkbox", { name: /^I authorize/ }));
+      fireEvent.click(authorize);
+      fireEvent.click(authorize);
+      await screen.findByText("Active", { selector: "span" });
+      expect(f.commands.filter((command) => command.type === "AuthorizeBuyerOfferPolicy")).toHaveLength(1);
+      expect(f.commands.find((command) => command.type === "AuthorizeBuyerOfferPolicy")?.consent).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Pause market following" }));
+      await screen.findByText("Paused", { selector: "span" });
+      fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+        target: { value: "120.00" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Preview to resume" }));
+      await waitFor(() => expect(f.responses).toHaveLength(5));
+      expect(f.responses.at(-1), JSON.stringify(f.responses.at(-1))).toMatchObject({ status: 200 });
+      await screen.findByText("Review exact Offer authority");
+      fireEvent.click(screen.getByRole("checkbox", { name: /^I authorize/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Authorize reviewed Offers" }));
+      await screen.findByText("Active", { selector: "span" });
+      expect(f.commands.filter((command) => command.type === "PreviewBuyerOfferPolicy")).toHaveLength(2);
+      expect(screen.getByRole("button", { name: "Stop market following" }).hasAttribute("disabled")).toBe(true);
+      fireEvent.click(screen.getByRole("checkbox", { name: /^Stop is permanent/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Stop market following" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Authorize reviewed Offers" })).toBeNull());
+      expect(f.commands.at(-1)?.type).toBe("StopBuyerOfferPolicy");
+      const previews = f.commands.filter((command) => command.type === "PreviewBuyerOfferPolicy");
+      expect(previews[1]).toMatchObject({ terms: { offers: [{ offerId: "off_one", offerVersion: 2 }] } });
+      await act(() => f.router.navigate("/account/offers/submitted/off_one"));
+      const manageStopped = await screen.findByRole("button", { name: /^Manage Stopped/ });
+      expect(manageStopped.hasAttribute("disabled")).toBe(false);
+      fireEvent.click(manageStopped);
+      await screen.findByText("Stopped", { selector: "span" });
+      expect(screen.queryByRole("button", { name: "Preview to resume" })).toBeNull();
+      f.router.dispose();
+    },
+  );
+
+  it("takes the first Preview version from an authoritative owner read, not the projected Offer", async () => {
+    const f = await routed(true, true);
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+      target: { value: "99.00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
+    await screen.findByText("Review exact Offer authority");
+    expect(f.commands.at(-1)).toMatchObject({ terms: { offers: [{ offerVersion: 2 }] } });
+    f.router.dispose();
+  });
+
+  it("keeps selection, caps, allowance and adjustment while clearing consent on interleaved resume drift", async () => {
+    const f = await routed(true);
+    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.change(screen.getByLabelText("Maximum unit item amount: Item"), { target: { value: "20.00" } });
+    fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+      target: { value: "99.00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Advanced adjustment" }));
+    fireEvent.change(screen.getByLabelText("Market Price adjustment (%)", { exact: true }), {
+      target: { value: "-5" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
+    await screen.findByText("Review exact Offer authority");
+    fireEvent.click(screen.getByRole("checkbox", { name: /^I authorize/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Authorize reviewed Offers" }));
+    await screen.findByText("Active", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Pause market following" }));
+    await screen.findByText("Paused", { selector: "span" });
+    await f.store.appendToStream({
+      streamId: "marketplace.offer-off_one",
+      expectedVersion: 2,
+      context: policyContext,
+      events: [
+        {
+          eventType: "marketplace.offer.price-updated",
+          payload: {
+            offerId: "off_one",
+            buyerAccountId: "acc_buyer",
+            priceAmount: "11.00",
+            priceCurrencyCode: "USD",
+          },
+        },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview to resume" }));
+    await screen.findByText("Review your Offer controls");
+    expect(f.responses.at(-1)).toEqual({ status: 409, body: { error: { code: "stale_preview" } } });
+    expect((screen.getByRole("checkbox", { name: "Select Item (off_one)" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Maximum unit item amount: Item") as HTMLInputElement).value).toBe("20.00");
+    expect(
+      (screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }) as HTMLInputElement).value,
+    ).toBe("99.00");
+    expect((screen.getByLabelText("Market Price adjustment (%)", { exact: true }) as HTMLInputElement).value).toBe(
+      "-5",
+    );
+    expect(screen.queryByRole("checkbox", { name: /^I authorize/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Authorize reviewed Offers" })).toBeNull();
+    const staleCommand = f.commands.at(-1)!;
+    const policyId = (f.responses.find((response) => response.status === 200)?.body as { policyId: string }).policyId;
+    const diagnostic = await submittedOffersAction({
+      request: new Request("http://localhost/account/offers/submitted", {
+        method: "POST",
+        body: new URLSearchParams({ policyId, command: JSON.stringify(staleCommand) }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    const headers = new Headers(diagnostic.init?.headers);
+    expect(headers.get("X-Marketplace-Command-Status")).toBe("409");
+    expect(headers.get("X-Marketplace-Command-Code")).toBe("stale_preview");
+    f.router.dispose();
+  });
+
+  it("keeps limits and associates errors when stale consent refreshes the policy", async () => {
+    const f = await routed();
+    fireEvent.click(screen.getByRole("switch"));
+    expect((screen.getByRole("checkbox", { name: "Select Item (off_one)" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }), {
+      target: { value: "99.00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview selected Offers" }));
+    await screen.findByText("Review exact Offer authority");
+    await f.store.appendToStream({
+      streamId: "marketplace.offer-off_one",
+      expectedVersion: 1,
+      context: policyContext,
+      events: [
+        {
+          eventType: "marketplace.offer.price-updated",
+          payload: { offerId: "off_one", buyerAccountId: "acc_buyer", priceAmount: "11.00", priceCurrencyCode: "USD" },
+        },
+      ],
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /^I authorize/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Authorize reviewed Offers" }));
+    await screen.findByText("Review your Offer controls");
+    const allowance = screen.getByLabelText("Lifetime Item Commitment Allowance", { exact: false }) as HTMLInputElement;
+    expect(allowance.value).toBe("99.00");
+    expect(allowance.getAttribute("aria-invalid")).toBe("true");
+    expect(allowance.getAttribute("aria-describedby")).toContain("error");
+    expect(screen.queryByRole("button", { name: "Authorize reviewed Offers" })).toBeNull();
+    f.router.dispose();
+  });
+
+  it("keeps every private policy key out of seller loader and hydration snapshots", () => {
+    const data = omitPrivateOfferResponseFields({
+      offer_id: "off_one",
+      price_amount: "10.00",
+      quantity_requested: 2,
+      ...privatePolicyFields,
+      managed_status: "outside-allowlist",
+      can_fulfill: true,
+    });
+    for (const key of Object.keys(privatePolicyFields)) expect(JSON.stringify(data)).not.toContain(key);
+    expect(data).toMatchObject({ managed_status: "unavailable", can_fulfill: false });
+  });
+});
 
 describe("marketplace offer routes", () => {
   it("loads submitted offers through the marketplace API", async () => {

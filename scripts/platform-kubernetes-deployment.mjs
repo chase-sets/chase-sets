@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
+import { parse as parseYaml } from "yaml";
 import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
@@ -850,6 +851,90 @@ export function selectStableStalePendingUpgrade(history, options = {}) {
 
 const activeActionsRunStatuses = ["requested", "pending", "queued", "in_progress", "waiting"];
 const productionHelmWriterWorkflows = new Set(["Platform Deploy", "Platform Production Stale Helm Recovery"]);
+const serializedProductionWriterWorkflows = new Map([
+  [
+    "Platform Deploy",
+    {
+      path: ".github/workflows/platform-production.yml",
+      group:
+        "${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
+    },
+  ],
+  [
+    "Platform Production Stale Helm Recovery",
+    { path: ".github/workflows/platform-production-stale-helm-recovery.yml", group: "platform-registry-mutation" },
+  ],
+]);
+
+async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
+  const current = runs.find((run) => String(run.id) === String(currentRunId));
+  const contract = serializedProductionWriterWorkflows.get(current?.name);
+  const hasWorkflowIdentity = (run) =>
+    run.path === contract.path &&
+    Number.isSafeInteger(run.workflowId) &&
+    run.workflowId > 0 &&
+    Number.isSafeInteger(run.runAttempt) &&
+    run.runAttempt > 0 &&
+    /^[0-9a-f]{40}$/.test(run.headSha ?? "") &&
+    run.headBranch === "main" &&
+    run.event === "workflow_dispatch";
+  if (!contract || current.status !== "in_progress" || !hasWorkflowIdentity(current)) return [];
+  const candidates = runs.filter(
+    (run) =>
+      run.id !== current.id &&
+      run.name === current.name &&
+      run.workflowId === current.workflowId &&
+      ["pending", "queued"].includes(run.status) &&
+      hasWorkflowIdentity(run),
+  );
+  if (candidates.length === 0) return [];
+
+  const source = readFileSync(new URL(`../${contract.path}`, import.meta.url), "utf8").replaceAll("\r\n", "\n");
+  const workflow = parseYaml(source);
+  if (
+    workflow?.name !== current.name ||
+    workflow.concurrency?.group !== contract.group ||
+    workflow.concurrency?.["cancel-in-progress"] !== false
+  )
+    return [];
+
+  const sources = new Map();
+  async function matchesWorkflowSource(run) {
+    if (!sources.has(run.headSha)) {
+      const body = await readApi(`contents/${contract.path}?ref=${run.headSha}`, "workflow source");
+      if (body?.type !== "file" || body.encoding !== "base64" || typeof body.content !== "string") {
+        throw new Error("GitHub Actions workflow source census returned an invalid response.");
+      }
+      sources.set(run.headSha, Buffer.from(body.content, "base64").toString("utf8").replaceAll("\r\n", "\n"));
+    }
+    return sources.get(run.headSha) === source;
+  }
+  // Both immutable workflow definitions must match the checked contract. The
+  // deploy workflow's alternate group is read-only decommission planning; all
+  // writers hold platform-registry-mutation for the whole workflow. No clock or
+  // run_started_at inference can prove this. Definition drift stays conflicting.
+  if (!(await matchesWorkflowSource(current))) return [];
+  const queued = [];
+  for (const run of candidates) {
+    if (!(await matchesWorkflowSource(run))) continue;
+    const body = await readApi(
+      `actions/runs/${run.id}/attempts/${run.runAttempt}/jobs?per_page=100&page=1`,
+      "job census",
+    );
+    if (
+      !Array.isArray(body?.jobs) ||
+      !Number.isSafeInteger(body.total_count) ||
+      body.total_count < 0 ||
+      body.jobs.length !== Math.min(body.total_count, 100)
+    ) {
+      throw new Error("GitHub Actions job census returned malformed or incomplete evidence.");
+    }
+    // Zero jobs is stronger than zero started jobs and needs no pagination.
+    // Even queued/skipped job records remain conflicting, as do prior attempts.
+    if (body.total_count === 0 && run.runAttempt === 1) queued.push(run);
+  }
+  return queued;
+}
 
 export function assertExclusiveProductionHelmWriter(census, options = {}) {
   if (!census || census.schemaVersion !== "github-actions-production-writer-census/v1") {
@@ -958,15 +1043,13 @@ export function assertNoActiveHelmOperation(census) {
   }
 }
 
-export async function readGitHubProductionWriterCensus(options = {}) {
-  const env = options.env ?? process.env;
-  const token = requiredOption(env.GITHUB_TOKEN, "GITHUB_TOKEN");
-  const repository = requiredOption(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
-  const currentRunId = requiredOption(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
-  const apiUrl = requiredOption(env.GITHUB_API_URL ?? "https://api.github.com", "GITHUB_API_URL").replace(/\/$/, "");
-  const fetchImpl = options.fetch ?? globalThis.fetch;
-  const runsById = new Map();
+// Runs start and finish while pages are read; a pass that observed that movement is unknown, never a census.
+class MovingRunCensusError extends Error {}
+const productionWriterCensusPassLimit = 5;
+const productionWriterCensusRetryDelayMs = 1_000;
 
+async function readActiveRunCensusPass(readApi) {
+  const runsById = new Map();
   for (const status of activeActionsRunStatuses) {
     let page = 1;
     let collected = 0;
@@ -975,31 +1058,23 @@ export async function readGitHubProductionWriterCensus(options = {}) {
       if (page > 10) {
         throw new Error(`GitHub Actions ${status} run census exceeded the bounded 10-page limit.`);
       }
-      const response = await fetchImpl(
-        `${apiUrl}/repos/${repository}/actions/runs?status=${status}&per_page=100&page=${page}`,
-        {
-          headers: {
-            Accept: "application/vnd.github+json",
-            Authorization: `Bearer ${token}`,
-            "X-GitHub-Api-Version": "2022-11-28",
-          },
-        },
-      );
-      if (!response.ok) {
-        throw new Error(`GitHub Actions ${status} run census failed with HTTP ${response.status}.`);
-      }
-      const body = await response.json();
-      if (!Array.isArray(body.workflow_runs) || !Number.isSafeInteger(body.total_count) || body.total_count < 0) {
+      const body = await readApi(`actions/runs?status=${status}&per_page=100&page=${page}`, `${status} run census`);
+      if (!Array.isArray(body?.workflow_runs) || !Number.isSafeInteger(body.total_count) || body.total_count < 0) {
         throw new Error(`GitHub Actions ${status} run census returned an invalid response.`);
       }
       totalCount ??= body.total_count;
       if (body.total_count !== totalCount) {
-        throw new Error(`GitHub Actions ${status} run census total moved during pagination.`);
+        throw new MovingRunCensusError(`GitHub Actions ${status} run census total moved during pagination.`);
       }
       for (const run of body.workflow_runs) {
-        runsById.set(String(run.id), {
+        if (!Number.isSafeInteger(run?.id) || run.id <= 0 || typeof run.name !== "string" || !run.name) {
+          throw new Error(`GitHub Actions ${status} run census returned a malformed run identity.`);
+        }
+        const record = {
           id: run.id,
           name: run.name,
+          workflowId: run.workflow_id,
+          path: run.path,
           status: run.status,
           event: run.event,
           headSha: run.head_sha,
@@ -1010,19 +1085,63 @@ export async function readGitHubProductionWriterCensus(options = {}) {
           runStartedAt: run.run_started_at,
           updatedAt: run.updated_at,
           htmlUrl: run.html_url,
-        });
+        };
+        if (runsById.has(String(run.id))) {
+          throw new MovingRunCensusError(`GitHub Actions run census returned duplicate or moving run ${run.id}.`);
+        }
+        runsById.set(String(run.id), record);
       }
       collected += body.workflow_runs.length;
       page += 1;
+      // An empty page before the total is reached means runs shifted between pages.
+      if (body.workflow_runs.length === 0) break;
     } while (collected < totalCount);
     if (collected !== totalCount) {
-      throw new Error(
+      throw new MovingRunCensusError(
         `GitHub Actions ${status} run census pagination was incomplete; collected ${collected} of ${totalCount}.`,
       );
     }
   }
+  return [...runsById.values()].sort((left, right) => Number(left.id) - Number(right.id));
+}
 
-  const runs = [...runsById.values()].sort((left, right) => Number(left.id) - Number(right.id));
+// Re-reads every status from scratch; only a whole pass with stable pagination is trusted.
+async function readStableActiveRunCensus(readApi, sleep) {
+  for (let pass = 1; ; pass += 1) {
+    try {
+      return await readActiveRunCensusPass(readApi);
+    } catch (error) {
+      if (!(error instanceof MovingRunCensusError) || pass >= productionWriterCensusPassLimit) throw error;
+      await sleep(productionWriterCensusRetryDelayMs * pass);
+    }
+  }
+}
+
+export async function readGitHubProductionWriterCensus(options = {}) {
+  const env = options.env ?? process.env;
+  const token = requiredOption(env.GITHUB_TOKEN, "GITHUB_TOKEN");
+  const repository = requiredOption(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+  const currentRunId = requiredOption(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
+  const apiUrl = requiredOption(env.GITHUB_API_URL ?? "https://api.github.com", "GITHUB_API_URL").replace(/\/$/, "");
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  async function readApi(path, label) {
+    const response = await fetchImpl(`${apiUrl}/repos/${repository}/${path}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub Actions ${label} failed with HTTP ${response.status}.`);
+    }
+    return response.json();
+  }
+
+  const runs = await readStableActiveRunCensus(readApi, sleep);
+  const concurrencyQueuedRuns = await readConcurrencyQueuedWriters(runs, currentRunId, readApi);
+  const queuedIds = new Set(concurrencyQueuedRuns.map((run) => run.id));
   return {
     schemaVersion: "github-actions-production-writer-census/v1",
     capturedAt: options.checkedAt ?? new Date().toISOString(),
@@ -1030,7 +1149,8 @@ export async function readGitHubProductionWriterCensus(options = {}) {
     currentRunId: String(currentRunId),
     statuses: [...activeActionsRunStatuses],
     runs,
-    writerRuns: runs.filter((run) => productionHelmWriterWorkflows.has(run.name)),
+    concurrencyQueuedRuns,
+    writerRuns: runs.filter((run) => productionHelmWriterWorkflows.has(run.name) && !queuedIds.has(run.id)),
   };
 }
 

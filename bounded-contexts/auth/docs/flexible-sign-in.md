@@ -4,7 +4,7 @@ Auth owns the interactive registration and sign-in journeys. Identity owns the d
 
 ## Two-Step Sign-In
 
-Sign-in uses progressive disclosure so the first screen does not present every authentication method at once.
+The first sign-in screen lists the host-configured methods as static information. Method selection follows the identifier step; the list does not reveal account-specific enrollment.
 
 1. The user either starts Social Login or enters one Sign-In Identifier.
 2. Auth infers only the identifier kind and presents the strongest compatible host-enabled method first, with secondary methods available after that step.

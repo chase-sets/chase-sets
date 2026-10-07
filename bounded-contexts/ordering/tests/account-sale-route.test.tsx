@@ -143,6 +143,31 @@ describe("marketplace account sale route", () => {
     vi.clearAllMocks();
   });
 
+  it.each(["ready", "unavailable"] as const)(
+    "retains the order and local %s outcome with zero Marketplace review requests",
+    async (status) => {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestUrl(input);
+          calls.push(url);
+          if (!url.includes("/account/sales/ord_1")) throw new Error("Foreign review request forbidden");
+          return jsonResponse({ ...order, reviewOutcome: { status, opportunity: null } });
+        }),
+      );
+      const result = await loader({
+        request: new Request("http://localhost/account/sales/ord_1"),
+        params: { orderId: "ord_1" },
+        context: undefined,
+      } as never);
+      expect(result.sale.order_id).toBe("ord_1");
+      expect(result.reviewOutcome).toEqual({ status, opportunity: null });
+      expect(calls).toEqual([expect.stringContaining("/account/sales/ord_1")]);
+      expect(calls.some((url) => url.includes("/reviews/"))).toBe(false);
+    },
+  );
+
   it("loads the sale and matching review opportunity", async () => {
     const fetchCalls: string[] = [];
     vi.stubGlobal(
@@ -155,13 +180,16 @@ describe("marketplace account sale route", () => {
           return Promise.resolve(
             jsonResponse({
               ...order,
-              reviewOpportunity: {
-                order_id: "ord_1",
-                subject_account_id: "acc_buyer",
-                subject_display_name: "Buyer",
-                author_role: "seller",
-                eligible_at: "2026-04-02T00:00:00.000Z",
-                active_review_id: null,
+              reviewOutcome: {
+                status: "ready",
+                opportunity: {
+                  order_id: "ord_1",
+                  subject_account_id: "acc_buyer",
+                  subject_display_name: "Buyer",
+                  author_role: "seller",
+                  eligible_at: "2026-04-02T00:00:00.000Z",
+                  active_review_id: null,
+                },
               },
             }),
           );

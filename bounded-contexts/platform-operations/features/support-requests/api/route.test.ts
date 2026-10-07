@@ -382,6 +382,22 @@ describe("support request routes", () => {
     });
   });
 
+  it("AC5 forwards unresolved and its page window unchanged", async () => {
+    const listSupportOperationsQueue = vi.fn(async () => ({ items: [], total: 5 }));
+    const response = await buildApp(createServices({ listSupportOperationsQueue })).request(
+      "/support-requests/ops?status=unresolved&limit=2&offset=2",
+    );
+    expect(response.status).toBe(200);
+    expect(listSupportOperationsQueue).toHaveBeenCalledWith({
+      status: "unresolved",
+      limit: 2,
+      offset: 2,
+      priority: undefined,
+      search: undefined,
+    });
+    await expect(response.json()).resolves.toEqual({ items: [], total: 5, count: 0 });
+  });
+
   it.each([
     [
       "submitEvidence",
