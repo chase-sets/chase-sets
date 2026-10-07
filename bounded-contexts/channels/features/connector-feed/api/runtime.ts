@@ -269,10 +269,12 @@ export function createConnectorFeedRuntime(
     await sellerAllowed(seller, { accountId: seller.accountId });
     async function candidates(expired: boolean) {
       return deps.db.query<PairingRow>(
-        `SELECT p.* FROM channel_connections c
-         JOIN channel_connector_pairings p ON p.connection_id = c.connection_id AND p.account_id = c.account_id
-         WHERE c.account_id = $1 AND p.user_id = $2 AND p.state = 'code'
-           AND c.status IN ('active', 'paused')
+        `SELECT p.* FROM channel_connector_pairings p
+         WHERE p.account_id = $1 AND p.user_id = $2 AND p.state = 'code'
+           AND (SELECT event_type FROM event_store_events
+             WHERE stream_id = 'channels.connection-' || p.connection_id
+             ORDER BY stream_version DESC LIMIT 1)
+             IN ('channels.connection.activated', 'channels.connection.paused', 'channels.connection.resumed')
            AND (p.code_expires_at <= $3) = $4
            AND NOT EXISTS (SELECT 1 FROM channel_connector_pairings newer
              WHERE newer.connection_id = p.connection_id AND newer.created_sequence > p.created_sequence)

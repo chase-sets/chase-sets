@@ -225,6 +225,7 @@ describeDb("connector-pairing-lifecycle", () => {
   });
 
   it("connector-live-code-binding: missing, expired and consumed codes refuse without writes and audit once", async () => {
+    expect((await pools.channels.query("SELECT * FROM channel_connections")).rows).toEqual([]);
     const registration = await client();
     await refuseHttp(registration, "invalid-credential");
     const generated = await code();
@@ -469,7 +470,14 @@ describeDb("connector-pairing-lifecycle", () => {
     await feed().unpair(target, generated.pairingId, generated.revision, seller);
     await refuseHttp(registration, "invalid-credential");
     await code();
-    await channels.connections.disconnectChannelConnection(target, testContext);
+    const connectionsWithoutCleanup = createChannelConnectionRuntime(
+      { db: pools.channels, eventStore: createPostgresEventStore({ pool: pools.channels }) },
+      ports,
+    );
+    await connectionsWithoutCleanup.disconnectChannelConnection(target, testContext);
+    expect(
+      (await pools.channels.query("SELECT state FROM channel_connector_pairings WHERE state = 'code'")).rows,
+    ).toHaveLength(1);
     await refuseHttp(registration, "invalid-credential");
   });
 
@@ -765,6 +773,7 @@ describeDb("connector-pairing-lifecycle", () => {
     }
     const boot = await shape();
     expect(boot.columns.length).toBeGreaterThan(15);
+    expect(boot.indexes.some((index) => index.indexname === "channel_connector_pairings_actor_code_idx")).toBe(true);
     await resetMultiContextTestSchemas({ channels: pools.channels });
     for (const migration of connectorFeedSchemaMigrations)
       for (const statement of migration.statements) await pools.channels.query(statement);

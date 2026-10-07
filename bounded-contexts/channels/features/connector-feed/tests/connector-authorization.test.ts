@@ -3,6 +3,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { createConnectorFeedRuntime } from "../api/runtime";
 import { createConnectorCredentialRoutes } from "../api/routes";
 import { ConnectorPairingError } from "../domain/contracts";
+import { ConnectorOAuthError } from "../../../support/request-support/connector-oauth";
 
 const callback = "https://fixed.chromiumapp.org/ucp/oauth/callback";
 const authorization = {
@@ -109,5 +110,19 @@ describe("connector-live-code-binding route contract", () => {
     expect(h.validate).not.toHaveBeenCalled();
     expect(h.authorize).not.toHaveBeenCalled();
     expect(h.audits).toHaveLength(2);
+  });
+
+  it("maps an Auth grant refusal after a Channels rollback to the same safe missing-code redirect", async () => {
+    const h = harness();
+    h.authorize.mockRejectedValue(new ConnectorOAuthError("invalid-credential"));
+    const response = await h.app.request(`http://localhost/authorize?${query}`);
+    expect(response.status).toBe(302);
+    expect(Object.fromEntries(new URL(response.headers.get("location")!).searchParams)).toEqual({
+      error: "access_denied",
+      state: "state-sentinel",
+      error_description: "pairing_code_missing",
+    });
+    expect(h.audits).toHaveLength(1);
+    expect(h.audits[0]?.slice(1, 6)).toEqual([null, null, "authorize", "refused", "invalid-credential"]);
   });
 });

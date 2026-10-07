@@ -95,7 +95,7 @@ async function pairThroughHttp() {
   return { tokens, pairing, registration };
 }
 
-describe("connector-mount-gate-isolation", () => {
+describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
   createPlatformApiBootstrapTestHarness(
     "connector_composed_7993",
     (state) => {

@@ -132,7 +132,7 @@ export function createConnectorCredentialRoutes(services: ConnectorFeedServices,
       if (
         callback &&
         state &&
-        error instanceof ConnectorPairingError &&
+        (error instanceof ConnectorPairingError || error instanceof ConnectorOAuthError) &&
         ["authorization-refused", "invalid-credential", "pairing-expired", "conflict"].includes(error.code)
       ) {
         callback.searchParams.set("error", "access_denied");
@@ -141,7 +141,9 @@ export function createConnectorCredentialRoutes(services: ConnectorFeedServices,
           "error_description",
           error.code === "authorization-refused"
             ? "authorization_refused"
-            : (error.authorizationDescription ?? "pairing_code_missing"),
+            : error instanceof ConnectorPairingError
+              ? (error.authorizationDescription ?? "pairing_code_missing")
+              : "pairing_code_missing",
         );
         return c.redirect(callback.href, 302);
       }
