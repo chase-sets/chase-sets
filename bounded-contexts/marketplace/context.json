@@ -1186,15 +1186,22 @@
       "owner": "marketplace",
       "risk": "important",
       "strategy": "snapshot-return",
-      "surfaces": ["api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands"],
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H866d6ce86bc5#1",
+        "route-action:bounded-contexts/marketplace/routes/account-offers-submitted.tsx",
+        "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:H0093c9d7d3b9#1",
+        "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:Hd927c539992e#1"
+      ],
       "visibleDestination": {
-        "description": "Account policy commands return the authoritative policy snapshot, stream version and exact preview, without depending on the account-list projection."
+        "description": "Submitted Offer list/detail controls render the authoritative command or detail snapshot, stream version and exact preview. Route revalidation refreshes Offer summaries but never replaces the reviewed policy snapshot with a projected list row."
       },
       "proof": {
         "authoritativeResponse": "The runtime folds committed events into the loaded aggregate, or reloads authoritative state for an exact operation retry. Detail reads also load the stream; lists are explicitly projected summaries.",
         "tests": [
           "bounded-contexts/marketplace/features/offer-policy/api/route.test.ts",
-          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts"
+          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
         ]
       }
     },

@@ -39,6 +39,7 @@ export interface OfferMatchListItem extends MarketplaceOffer {
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable";
   can_fulfill: boolean;
+  managed_status?: "unavailable" | "held" | "refresh_required" | null;
 }
 
 export interface OfferMatchDetail extends OfferMatchListItem {}

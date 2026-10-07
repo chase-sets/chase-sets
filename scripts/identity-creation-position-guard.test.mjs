@@ -78,7 +78,7 @@ describe("identity creation position guard real discovery", () => {
     expect(result.report).not.toHaveProperty("excluded");
     expect(result.report.tokens).toEqual([
       { command: "CreateAccount", anchorId: "C1", hitCount: 21, registeredCount: 21, violationCount: 0 },
-      { command: "CreateUser", anchorId: "C2", hitCount: 15, registeredCount: 15, violationCount: 0 },
+      { command: "CreateUser", anchorId: "C2", hitCount: 16, registeredCount: 16, violationCount: 0 },
       {
         command: "GrantMembership",
         anchorId: "C3",

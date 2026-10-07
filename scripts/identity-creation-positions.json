@@ -172,6 +172,13 @@
       "ownerIssue": 5684
     },
     {
+      "path": "bounded-contexts/identity/support/seed-support/market-following-verification.test.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This in-memory fixture creates an unmistakably synthetic user so the buyer verification helper can exercise unverified and already-verified contact states."
+    },
+    {
       "path": "bounded-contexts/identity/support/runtime-support/seed.ts",
       "command": "CreateAccount",
       "occurrences": 6,

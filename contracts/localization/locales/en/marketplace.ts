@@ -1,4 +1,66 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.marketFollowing.title": "Market-following Offers",
+  "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
+  "marketplace.marketFollowing.itemOnly":
+    "Item-only limits. Checkout fees, shipping, tax and later amounts are not capped.",
+  "marketplace.marketFollowing.effects":
+    "The lifetime Item Commitment Allowance tracks accepted item commitments, not payments. Payment failure, cancellation and refunds never restore it. Pause or stop prevents new managed price changes and seller acceptance after it is saved. Already accepted Orders remain commitments at their accepted amount.",
+  "marketplace.marketFollowing.status.draft": "Draft",
+  "marketplace.marketFollowing.status.active": "Active",
+  "marketplace.marketFollowing.status.paused": "Paused",
+  "marketplace.marketFollowing.status.stopped": "Stopped",
+  "marketplace.marketFollowing.manage": "Manage {status}: {offers}",
+  "marketplace.marketFollowing.pending": "Saving and refreshing current authority...",
+  "marketplace.marketFollowing.errorTitle": "Review your Offer controls",
+  "marketplace.marketFollowing.error":
+    "Check the selected Offers, matching currency and item limits, then request a fresh preview. Your inputs have been kept.",
+  "marketplace.marketFollowing.stale":
+    "The Offer or Market Price evidence changed. Your inputs have been kept. Request a fresh preview and review it before consenting again.",
+  "marketplace.marketFollowing.select": "Select {title} ({offer})",
+  "marketplace.marketFollowing.current": "Current unit amount: {amount}. Quantity: {quantity}. Currency: {currency}.",
+  "marketplace.marketFollowing.maximum": "Maximum unit item amount: {title}",
+  "marketplace.marketFollowing.allowance": "Lifetime Item Commitment Allowance",
+  "marketplace.marketFollowing.allowanceValue": "Lifetime Item Commitment Allowance: {amount}",
+  "marketplace.marketFollowing.consumed": "Accepted item commitments: {amount}",
+  "marketplace.marketFollowing.remaining": "Remaining item commitment allowance: {amount}",
+  "marketplace.marketFollowing.empty": "Select an eligible submitted Offer. Accepted Offers cannot be repriced.",
+  "marketplace.marketFollowing.advanced": "Advanced adjustment",
+  "marketplace.marketFollowing.adjustment": "Market Price adjustment (%)",
+  "marketplace.marketFollowing.adjustmentHelp": "Defaults to 0%. Choose from 0% to -25%, in steps of 0.01%.",
+  "marketplace.marketFollowing.preview": "Preview selected Offers",
+  "marketplace.marketFollowing.resumePreview": "Preview to resume",
+  "marketplace.marketFollowing.review": "Review exact Offer authority",
+  "marketplace.marketFollowing.reviewTerms":
+    "Currency: {currency}. Adjustment: {adjustment}%. Lifetime Item Commitment Allowance: {allowance}.",
+  "marketplace.marketFollowing.selection":
+    "Offer {offer}. Product {product}. Quantity: {quantity}. Maximum unit item amount: {amount}.",
+  "marketplace.marketFollowing.evidence": "Market Price: {amount}. Estimate version: {version}. Fresh until: {until}.",
+  "marketplace.marketFollowing.target": "Proposed unit item amount: {amount}",
+  "marketplace.marketFollowing.held.market-price-unavailable":
+    "Held: a Market Price is not available for this Product yet.",
+  "marketplace.marketFollowing.held.market-price-invalid":
+    "Held: a valid Market Price is not available for this Product yet.",
+  "marketplace.marketFollowing.held.market-price-product-mismatch":
+    "Held: the Market Price does not match this Product.",
+  "marketplace.marketFollowing.held.market-price-currency-mismatch":
+    "Held: the Market Price currency does not match this Offer.",
+  "marketplace.marketFollowing.held.market-price-stale": "Held: the Market Price needs to be refreshed.",
+  "marketplace.marketFollowing.held.evaluation-time-invalid": "Held: a valid evaluation time is unavailable.",
+  "marketplace.marketFollowing.held.target-below-minimum":
+    "Held: the adjustment is below the minimum unit item amount.",
+  "marketplace.marketFollowing.consent":
+    "I authorize these exact selected Offers, quantities, currency, adjustment, maximum unit item amounts and lifetime Item Commitment Allowance. Increasing the allowance or resuming requires a fresh preview and consent.",
+  "marketplace.marketFollowing.authorize": "Authorize reviewed Offers",
+  "marketplace.marketFollowing.pause": "Pause market following",
+  "marketplace.marketFollowing.stop": "Stop market following",
+  "marketplace.marketFollowing.stopEffects":
+    "Stop is permanent. These Offer IDs cannot resume or transfer to another policy. Continuing requires a new Offer. Already accepted Orders are unaffected.",
+  "marketplace.marketFollowing.seller.unavailable":
+    "This Offer is currently unavailable for acceptance. Already accepted Orders are unaffected.",
+  "marketplace.marketFollowing.seller.held":
+    "This Offer is held and cannot currently be accepted. Check again for current terms.",
+  "marketplace.marketFollowing.seller.refresh_required":
+    "Offer terms need refreshing. Review the current price, fees and evidence in Sell List before accepting.",
   "marketplace.features.listings.api.route.error.unknownField": "Remove unrecognized fields and try again.",
   "marketplace.features.listings.api.route.error.priceCurrencyInvalid": "Choose a valid three-letter currency code.",
   "marketplace.features.listings.api.route.error.availabilityReasonInvalid": "Choose a valid availability reason.",

@@ -397,6 +397,7 @@
     "bounded-contexts/pricing/features/repricing-policies/read-model/halt-projection.ts",
     "bounded-contexts/pricing/features/repricing-policies/read-model/projection.ts",
     "bounded-contexts/pricing/features/repricing-policies/read-model/queries.ts",
+    "bounded-contexts/pricing/support/runtime-support/seed.ts",
     "bounded-contexts/public-presence/features/promo-bar/api/seed.ts",
     "bounded-contexts/public-presence/features/promo-bar/read-model/queries.ts",
     "bounded-contexts/public-presence/features/waitlist/api/seed.ts",
