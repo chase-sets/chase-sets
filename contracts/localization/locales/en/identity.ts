@@ -443,8 +443,7 @@ export const identityEnglishTranslations = {
     "Some details are invalid. Check the information you provided.",
   "identity.support.routeSupport.accountActionErrors.notFound":
     "We couldn't find the information needed to complete this action.",
-  "identity.support.routeSupport.accountActionErrors.conflict":
-    "This action conflicts with the current information.",
+  "identity.support.routeSupport.accountActionErrors.conflict": "This action conflicts with the current information.",
   "identity.support.shellSupport.layout.identity.ops": "Identity Ops",
   "identity.support.shellSupport.ui.useFetch.unknown.error": "Unknown error",
   "identity.features.consents.ui.consentHistoryPage.policy.title": "{policy} · {version}",
