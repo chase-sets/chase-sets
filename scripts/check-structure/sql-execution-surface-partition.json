@@ -236,6 +236,7 @@
     "bounded-contexts/inventory/features/holds/api/runtime.ts",
     "bounded-contexts/inventory/features/holds/read-model/projection.ts",
     "bounded-contexts/inventory/features/holds/read-model/queries.ts",
+    "bounded-contexts/inventory/features/import-batches/api/product-resolution-maintenance.ts",
     "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
     "bounded-contexts/inventory/features/import-batches/read-model/account-sku-mappings.ts",
     "bounded-contexts/inventory/features/import-batches/read-model/queries.ts",
