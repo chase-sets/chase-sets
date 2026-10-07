@@ -138,10 +138,17 @@ describe("connector-feed-malformed-payload", () => {
           rows: payload.parsed.rows.map((row) => ({ ...row, rowNumber: Number.MAX_SAFE_INTEGER + 1 })),
         },
       },
-    ])
+    ]) {
       expect(() =>
         assertDerivedTcgplayerSnapshot(invalid, { maxBytes: manualSyncIngestContract.maxBytes, maxRecords: 1 }),
       ).toThrow();
+      expect(() =>
+        assertConnectorInbound(
+          { inboundKind: "export", externalReference: "export.v1:invalid", payload: invalid },
+          connectorPolicyDefaults,
+        ),
+      ).toThrow();
+    }
   });
   it("enforces logical rows, increasing unique row numbers, reference grammar and exact byte ceiling", () => {
     const payload = snapshot();
