@@ -8,7 +8,7 @@ export async function reserveWalletFundingCreation(
   quote: WalletFundingQuote,
   limits: WalletFundingLimits,
 ) {
-  return withPgTransaction(pool, async (db) => {
+  return withPgTransaction(pool, async (db: PgQueryable) => {
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       `payments.wallet-funding-limits:${quote.accountId}`,
     ]);
