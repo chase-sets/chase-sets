@@ -11,6 +11,14 @@ SOURCE = Path(__file__).with_name('launcher.c').read_text()
 
 
 class NativeVariantFixtures(unittest.TestCase):
+    def test_native_clients_run_after_isolation_with_no_external_parent_sender(self):
+        changed = variants.variant(SOURCE, 'direct-clients')
+        self.assertIn('            no_network();\n            synthetic_egress();', changed)
+        self.assertIn('result == -1 && observed == ENETUNREACH', changed)
+        self.assertIn('SOCK_NONBLOCK | SOCK_CLOEXEC', changed)
+        self.assertIn('198.51.100.1', changed)
+        self.assertIn('2001:db8::1', changed)
+        self.assertEqual(changed.count('unshare(CLONE_NEWNET | CLONE_NEWNS'), 1)
     def test_exact_mutation_anchors_refuse_drift(self):
         for source in ('', 'a a'):
             with self.assertRaises(ValueError):

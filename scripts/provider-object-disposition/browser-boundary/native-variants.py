@@ -27,6 +27,10 @@ def replace_once(source, old, new):
 
 
 def variant(source, name):
+    if name == 'direct-clients':
+        source = replace_once(source, '#include <net/if.h>', '#include <net/if.h>\n#include <arpa/inet.h>')
+        source = replace_once(source, 'int main(int argc, char **argv) {', Path(__file__).with_name('native-egress.c').read_text() + '\nint main(int argc, char **argv) {')
+        return replace_once(source, '            no_network();\n            _exit(0);', '            no_network();\n            synthetic_egress();\n            _exit(0);')
     if name in ('ready-outer', 'ready-nested'):
         source = replace_once(source, 'seed_main(int guardian)', 'seed_main(int guardian, bool nested)')
         source = replace_once(source, 'seed_main(guardian);', 'seed_main(guardian, nested);')

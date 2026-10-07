@@ -4,10 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 int main(int argc, char **argv) {
     if (argc != 2) return 1;
     const char *mode = argv[1];
+    if (strcmp(mode, "stall-term") == 0 || strcmp(mode, "stall-ignore") == 0) {
+        if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0) return 1;
+        if (strcmp(mode, "stall-ignore") == 0) signal(SIGTERM, SIG_IGN);
+        for (;;) pause();
+    }
     if (strcmp(mode, "empty") == 0) return 78;
     if (strcmp(mode, "signal-kill") == 0) { raise(SIGKILL); return 1; }
     if (strcmp(mode, "signal-term") == 0) { raise(SIGTERM); return 1; }

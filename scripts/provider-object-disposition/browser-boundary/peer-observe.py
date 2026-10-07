@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import sys
 import time
 
@@ -92,6 +93,37 @@ def census(namespaces):
     return {'scanned': scanned, 'complete': complete, 'unknown': unknown, 'peerHolders': holders}
 
 
+def hold(owner):
+    pid, start = owner
+    fd = None
+    try:
+        if parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)['start'] != start:
+            raise ProcessLookupError(errno.ESRCH, '')
+        fd = os.open(f'/proc/{pid}/ns/user', os.O_RDONLY | os.O_CLOEXEC)
+        if parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)['start'] != start:
+            raise ProcessLookupError(errno.ESRCH, '')
+        info = os.fstat(fd)
+    except OSError as error:
+        if fd is not None:
+            os.close(fd)
+        reason = {errno.EACCES: 'EACCES', errno.EPERM: 'EPERM', errno.ESRCH: 'ESRCH', errno.ENOENT: 'ENOENT'}.get(error.errno, 'unknown')
+        print(json.dumps({'constructed': False, 'reason': reason}), flush=True)
+        return
+    try:
+        own = parse_stat(bounded_read(Path('/proc') / str(os.getpid()) / 'stat'), os.getpid())
+        print(json.dumps({'constructed': True, 'device': info.st_dev, 'inode': info.st_ino,
+                          'pid': os.getpid(), 'start': own['start']}), flush=True)
+        ready, _, _ = select.select([sys.stdin], [], [], 5)
+        if not ready or sys.stdin.buffer.read(1) != b'':
+            raise ValueError()
+        after = os.fstat(fd)
+        if (after.st_dev, after.st_ino) != (info.st_dev, info.st_ino):
+            raise ValueError()
+    finally:
+        os.close(fd)
+    print('provider-boundary-peer-holder:released;namespace-valid=true', flush=True)
+
+
 def main():
     try:
         if len(sys.argv) != 3 or os.getuid() == 0:
@@ -101,6 +133,9 @@ def main():
             result = reach(values)
         elif sys.argv[1] == 'census':
             result = census(set(values))
+        elif sys.argv[1] == 'hold' and len(values) == 1:
+            hold(values[0])
+            return 0
         else:
             raise ValueError()
         print(json.dumps(result))

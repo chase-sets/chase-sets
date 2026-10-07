@@ -4,7 +4,7 @@ import { readFile, lstat, stat, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
-import { assertBrowserAdmission, openConfinedBrowser } from "../test-window-browser.mjs";
+import { assertBrowserAdmission, BROWSER_LAUNCHER, openConfinedBrowser } from "../test-window-browser.mjs";
 import { browserCapabilityProof, removalRefusal, mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
 import { bootstrapControls } from "./bootstrap-controls.mjs";
 import { nativeDiagnosticControls } from "./native-diagnostics.mjs";
@@ -321,6 +321,101 @@ async function ownershipCases() {
   );
 }
 
+async function partialRemovalCase() {
+  await withInstallationCycle("18-partial-R3", async () => {
+    const before = await installationIdentity();
+    const admission = await assertBrowserAdmission();
+    const mutate = async (action) => {
+      const { stdout, stderr } = await execute(
+        "/usr/bin/sudo",
+        [
+          "-n",
+          "/usr/bin/python3",
+          `${input}/scripts/provider-object-disposition/browser-boundary/r3-stimulus.py`,
+          action,
+        ],
+        {
+          env: environment,
+          timeout: 7000,
+          maxBuffer: 4096,
+        },
+      );
+      assert.equal(stderr, "");
+      assert.equal(
+        stdout,
+        action === "apply"
+          ? "provider-boundary-r3-stimulus:apply;installer-signal=SIGKILL;exact-output=true\n"
+          : "provider-boundary-r3-stimulus:restore\n",
+      );
+    };
+    let applied = false;
+    let primary;
+    try {
+      control = "18-R3-interrupt";
+      await mutate("apply");
+      applied = true;
+      let native;
+      try {
+        await execute(BROWSER_LAUNCHER, ["probe", admission.sourceDigest], {
+          env: environment,
+          timeout: 5000,
+          maxBuffer: 4096,
+          encoding: "buffer",
+        });
+      } catch (error) {
+        native = error;
+      }
+      const exact =
+        native?.code === 78 &&
+        !native.signal &&
+        native.stdout.equals(Buffer.alloc(0)) &&
+        native.stderr.equals(Buffer.from("provider-boundary-refused:attachment\n"));
+      console.log(
+        `installed-boundary partial-R3 native:${JSON.stringify({ status: Number.isInteger(native?.code) ? native.code : null, exact, stdoutBytes: native?.stdout?.length ?? null, stderrBytes: native?.stderr?.length ?? null, redacted: true })}`,
+      );
+      assert.equal(exact, true);
+      await assert.rejects(
+        assertBrowserAdmission(),
+        (error) => mediationDiagnostic(error)?.nativeStage === "attachment",
+      );
+      let cleanup;
+      try {
+        await execute("/bin/bash", [`${input}/scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh`], {
+          env: environment,
+          timeout: 5000,
+          maxBuffer: 4096,
+          encoding: "buffer",
+        });
+      } catch (error) {
+        cleanup = error;
+      }
+      assert.equal(removalRefusal(cleanup, "remove-ownership-census"), true);
+      for (const path of [
+        `${install}/source/browser-boundary/installation.h`,
+        "/etc/apparmor.d/chase-sets-provider-window",
+      ])
+        await assert.rejects(lstat(path), (error) => error.code === "ENOENT");
+      assert.ok((await lstat(input)).isDirectory());
+      console.log(
+        "installed-boundary control 17/18 partial R3: inadmissible; next remove exact census refusal; externally disposed / unknown until explicit restoration",
+      );
+    } catch (error) {
+      primary = error;
+    } finally {
+      if (applied) {
+        try {
+          await mutate("restore");
+        } catch (error) {
+          primary ??= error;
+        }
+      }
+    }
+    if (primary) throw primary;
+    assert.deepEqual(await installationIdentity(), before);
+    await assertBrowserAdmission();
+  });
+}
+
 async function run() {
   assert.equal(process.platform, "linux");
   assert.equal(process.env.GITHUB_ACTIONS, "true");
@@ -408,6 +503,7 @@ async function run() {
   pass("12 launch host temporaries absent");
   await installationCycle("CP-B");
   await ownershipCases();
+  await partialRemovalCase();
   control = "B2-bootstrap-transport";
   await bootstrapControls((stage) => {
     control = `B2-${stage}`;

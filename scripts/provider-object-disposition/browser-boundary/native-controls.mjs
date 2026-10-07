@@ -4,8 +4,9 @@ import { readFile, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { assertBrowserAdmission, BROWSER_LAUNCHER } from "../test-window-browser.mjs";
-import { TRANSITION, nativeRefusal } from "./protocol.mjs";
+import { ADMISSION, TRANSITION, nativeRefusal } from "./protocol.mjs";
 import { installationCycle } from "./installation-cycle.mjs";
+import { withPeerHolder } from "./peer-controls.mjs";
 
 const execute = promisify(execFile);
 const helper =
@@ -224,6 +225,33 @@ export async function nativeControls(stage) {
       "namespace-seed",
     ]),
   ];
+  await runCase("direct-clients", async (digest) => {
+    const actual = await launch(digest).result;
+    const expected =
+      TRANSITION +
+      [2, 10].flatMap((family) => [1, 2].map((kind) => `SYNTHETIC_EGRESS:${family}:${kind}:101\n`)).join("") +
+      ADMISSION;
+    const exact =
+      actual.code === 0 &&
+      actual.signal === null &&
+      !actual.overflow &&
+      actual.stdout.equals(Buffer.from(expected)) &&
+      actual.stderr.length === 0;
+    console.log(
+      `installed-boundary native-egress:${JSON.stringify({
+        expectedStatus: 0,
+        actualStatus: actual.code,
+        signal: actual.signal,
+        exact,
+        parentSends: 0,
+        stdoutBytes: actual.stdout.length,
+        stderrBytes: actual.stderr.length,
+        redacted: true,
+        truncated: actual.overflow,
+      })}`,
+    );
+    assert.equal(exact, true);
+  });
   for (const [name, stdout, refusal] of refusalCases) {
     stage(name);
     await runCase(name, async (digest) => {
@@ -287,7 +315,7 @@ export async function nativeControls(stage) {
       stage(name);
       await runCase(name, async (digest) => {
         await withConcurrentBrowser(digest, async (survives) => {
-          for (const signal of ["SIGKILL", "SIGTERM"]) {
+          for (const signal of ["SIGKILL", "SIGTERM", "deadline"]) {
             const running = launch(digest);
             let records = [];
             let primary;
@@ -299,14 +327,15 @@ export async function nativeControls(stage) {
               records = await identities(running.child.pid);
               assert.ok(records.length >= (scope === "nested" ? 4 : 2));
               console.log(`installed-boundary transition-identities:${JSON.stringify({ name, signal, records })}`);
-              assert.equal(running.child.kill(signal), true);
+              if (signal !== "deadline") assert.equal(running.child.kill(signal), true);
               const actual = await running.result;
-              const handled = signal === "SIGTERM" && scope === "nested";
+              const expectedSignal = signal === "deadline" ? "SIGTERM" : signal;
+              const handled = expectedSignal === "SIGTERM" && scope === "nested";
               console.log(
-                `installed-boundary termination:${JSON.stringify({ name, expectedSignal: handled ? null : signal, expectedStatus: handled ? 143 : null, actualSignal: actual.signal, actualStatus: actual.code, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
+                `installed-boundary termination:${JSON.stringify({ name, expectedSignal: handled ? null : expectedSignal, expectedStatus: handled ? 143 : null, actualSignal: actual.signal, actualStatus: actual.code, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
               );
               assert.equal(actual.code, handled ? 143 : null);
-              assert.equal(actual.signal, handled ? null : signal);
+              assert.equal(actual.signal, handled ? null : expectedSignal);
               assert.equal(actual.overflow, false);
               assert.equal(actual.stdout.equals(Buffer.from(expected)), true);
               assert.equal(actual.stderr.length, 0);
@@ -336,4 +365,40 @@ export async function nativeControls(stage) {
     stage(failures[0]);
     throw new Error("native-controls-failed");
   }
+  stage("15-peer-holder");
+  await withVariant("stall-outer-B3", async (digest) => {
+    const running = launch(digest);
+    let records = [];
+    let primary;
+    try {
+      const expected = Buffer.from("SYNTHETIC_TRANSITION:stall-outer-B3\n");
+      const until = performance.now() + 2000;
+      while (!running.output().equals(expected) && performance.now() < until) await delay(10);
+      assert.equal(running.output().equals(expected), true);
+      records = await identities(running.child.pid);
+      const seed = records.find((record) => record.parent === running.child.pid);
+      assert.ok(seed);
+      await withPeerHolder(seed, async () => {
+        assert.equal(running.child.kill("SIGKILL"), true);
+        const result = await running.result;
+        assert.equal(result.code, null);
+        assert.equal(result.signal, "SIGKILL");
+        assert.equal(result.stdout.equals(expected), true);
+        assert.equal(result.stderr.length, 0);
+        await absent(records);
+      });
+    } catch (error) {
+      primary = error;
+    } finally {
+      if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+      await running.result;
+      try {
+        await absent(records);
+      } catch (error) {
+        primary ??= error;
+        primary.cleanupUnknown = true;
+      }
+    }
+    if (primary) throw primary;
+  });
 }
