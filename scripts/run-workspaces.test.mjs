@@ -845,7 +845,8 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(47);
+    expect(census.entries).toHaveLength(48);
+    expect(census.entries).toContain("__tests__/connector-transport-composition.test.ts");
     expect(census.dbEntries).toHaveLength(18);
     expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
