@@ -29,10 +29,12 @@ import { buildPackageManagerInvocation, runCommand, terminateProcessTree } from 
 import { runObservedBrowserE2eBootstrap } from "./browser-e2e-bootstrap-observation.mjs";
 import {
   applySandboxEnv,
+  assertSandboxPostgresSettings,
   buildDockerComposeArgs,
   ensureWorktreeSandboxEnvironment,
   getContextDatabaseEnvName,
   listSandboxDatabases,
+  readSandboxPostgresSettings,
 } from "./lib/sandbox.mjs";
 
 const mode = process.argv[2] ?? "dev";
@@ -466,6 +468,16 @@ async function ensureDevDatabase() {
   await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "up", "-d"], {
     env: sandboxEnv,
     prefix: "docker",
+  });
+  await withAdminPool(async () => {
+    const effective = readSandboxPostgresSettings({
+      invocation: dockerComposeInvocation,
+      env: { ...process.env, ...sandboxEnv },
+    });
+    assertSandboxPostgresSettings(effective, readFileSync(path.join(rootDir, "docker-compose.dev.yml"), "utf8"));
+    for (const [name, value] of Object.entries(effective)) {
+      prefixedConsole("postgres", `SHOW ${name} = ${value} (configured = effective; before client fan-out)`);
+    }
   });
   prefixedConsole("dev", `Provisioning sandbox databases for ${sandbox.id}...`);
   await preparePlatformDatabase();

@@ -148,6 +148,9 @@ const defaultSuiteBatchSize = 2;
 const fallbackEstimatedSuiteDurationSeconds = 300;
 
 const browserRuntimePatterns = [
+  /^docker-compose\.dev\.yml$/,
+  /^scripts\/lib\/sandbox\.mjs$/,
+  /^scripts\/dev-system\.mjs$/,
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
