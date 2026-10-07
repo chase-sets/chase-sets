@@ -506,7 +506,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
           </PageSection>
 
           <StickyCtaBar
-            price={formatMoney(selectedCheckoutFee.total_amount)}
+            total={formatMoney(selectedCheckoutFee.total_amount)}
             context={t("payments.routes.marketplace.accountPaymentNew.final.totals.before.payment")}
             primaryAction={
               <Button

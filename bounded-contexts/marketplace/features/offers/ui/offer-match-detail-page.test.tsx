@@ -70,6 +70,8 @@ describe("MarketplaceOfferMatchDetailPage", () => {
   it("renders the offer-match overview as an elevated entity", () => {
     render(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
 
+    expect(screen.getByRole("region", { name: "Checkout" }).textContent).toContain("$20.00");
+
     const root = screen.getByText("Ash Ketchum").closest(".rounded-tokenLg");
     expect(root).not.toBeNull();
     const tokens = new Set((root as HTMLElement).className.split(/\s+/));
