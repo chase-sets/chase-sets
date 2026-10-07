@@ -108,6 +108,19 @@ export {
   marketEstimatePolicy,
   type MarketEstimatePolicyValue,
 } from "./features/market-estimates/domain/estimate-policy";
+export { demandCurvePolicy, type DemandCurvePolicyValue } from "./features/market-estimates/domain/demand-curve-policy";
+export {
+  getDemandCurve,
+  listDemandCurvePoints,
+  type DemandCurveRecord,
+  type DemandCurvePoint,
+} from "./features/market-estimates/read-model/demand-curve-queries";
+export {
+  createCurveBuilderRegistry,
+  registerCurveBuilder,
+  type CurveBuilderDefinition,
+} from "./features/market-estimates/domain/demand-curve/curve-builder-registry";
+export { liquidityEstimatedEventType, type LiquidityEstimatedPayload } from "./features/market-estimates/read-model";
 export { repricingEnginePolicy, type RepricingEnginePolicyValue } from "./features/repricing-engine/domain/policy";
 export { repricingManagementPolicy } from "./features/repricing-engine/domain/management-policy";
 export { createRepricingAttentionSourceFromReadModel } from "./features/repricing-engine/read-model/seller-attention-source";

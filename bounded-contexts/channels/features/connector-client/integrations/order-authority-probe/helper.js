@@ -38,20 +38,34 @@
   }
   function countRecord(searchRange) {
     const portalLabel = searchRange === "LastTwoYears" ? "Last 2 years" : "Last 90 days";
+    let dateFilter = prompt(
+      `Expected date filter: ${portalLabel} (${searchRange}). Confirm the visible filter as LastTwoYears or LastThreeMonths before reading the count. No identifiers; Cancel stops.`,
+    );
+    if (dateFilter === null) throw new Error("canceled");
+    const reprompted = dateFilter !== searchRange;
+    if (reprompted) {
+      dateFilter = prompt(
+        `Re-select ${portalLabel} in the portal, wait for the count to update, then confirm the visible filter`,
+      );
+      if (dateFilter === null) throw new Error("canceled");
+      if (dateFilter !== searchRange) {
+        return {
+          count: null,
+          dateFilter: ["LastTwoYears", "LastThreeMonths"].includes(dateFilter) ? dateFilter : null,
+          reprompted,
+        };
+      }
+    }
     const input = prompt(
-      `Set the portal date filter to ${portalLabel} (${searchRange}), then record the visible Orders Ready to Ship quick-filter count now. Digits only; Cancel stops.`,
+      `Confirmed date filter: ${portalLabel} (${searchRange}). Record the visible Orders Ready to Ship quick-filter count now, once. Digits only; Cancel stops.`,
     );
     if (input === null || !/^\d{1,9}$/.test(input)) throw new Error("canceled");
-    const dateFilter = prompt(
-      `Expected date filter: ${portalLabel} (${searchRange}). Record the visible filter as LastTwoYears or LastThreeMonths. Any other filter stops. No identifiers.`,
-    );
-    if (!["LastTwoYears", "LastThreeMonths"].includes(dateFilter)) throw new Error("canceled");
-    return { count: Number(input), dateFilter };
+    return { count: Number(input), dateFilter, reprompted };
   }
   async function exportReceipt(receipt) {
     const text = JSON.stringify(receipt, null, 2) + "\n";
     const inventory = {
-      format: "order-authority-inventory/v2",
+      format: "order-authority-inventory/v3",
       evidence: receipt.evidence,
       head: receipt.head,
       extensionId: chrome.runtime.id,
@@ -119,11 +133,6 @@
           return exportReceipt(qualification.receipt);
         }
         if (qualification.code !== "fallback_available") break;
-      }
-      if (qualification?.code !== "selector_qualified") {
-        const response = await send({ kind: "finish" });
-        finished = true;
-        return exportReceipt(response.receipt);
       }
       for (const listStatus of BUCKETS) {
         if (!confirm(`Is a privately selected ${listStatus} order available? No means absent/unqualified.`)) {

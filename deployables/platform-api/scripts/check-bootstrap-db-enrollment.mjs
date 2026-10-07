@@ -89,12 +89,12 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
         referenceDurationMs: 1330,
-        identity: "ab68f4b84303d9ef",
+        identity: "90b195ccf8bfe4d8",
       }),
       Object.freeze({
         name: "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
         referenceDurationMs: 708,
-        identity: "ec6d52932ca711b2",
+        identity: "5faa4bae78495bc7",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative Account profile with actionable detail",
@@ -114,7 +114,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
         referenceDurationMs: 36939,
-        identity: "4994a619e1d95849",
+        identity: "18b6a50d157754d5",
       }),
     ]),
   }),
@@ -353,7 +353,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
         referenceDurationMs: 104512,
-        identity: "3bd4154a13acf332",
+        identity: "309fc59ff41d9ee4",
       }),
       Object.freeze({
         name: "enumerates stream-sourced seed-state coverage from the runtime mount list",

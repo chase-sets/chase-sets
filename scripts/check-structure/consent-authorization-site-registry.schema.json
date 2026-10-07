@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Consent authorization site registry",
-  "description": "Frozen semantic authority for the six Consent recording authorization consumption sites. A consent authorization site is one call of one canonical constructor; its semantic identity is (repository-relative file, owner, constructor, ordinal) and never a line number; the partition digest is the sha256 of that identity set; partition drift is any change to it.",
+  "description": "Frozen semantic authority for the three Consent recording authorization consumption sites. A consent authorization site is one call of one canonical constructor; its semantic identity is (repository-relative file, owner, constructor, ordinal) and never a line number; the partition digest is the sha256 of that identity set; partition drift is any change to it.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "partitionDigest", "sites"],

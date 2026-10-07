@@ -2189,7 +2189,7 @@ export function collectConsentAuthorizationRegistryViolations(registry, schema) 
   }
   if (!registry || !Array.isArray(registry.sites)) return violations;
   if (registry.version !== 1) violations.push("registry version must equal 1");
-  if (registry.sites.length !== 6) violations.push("registry must contain exactly six sites");
+  if (registry.sites.length !== 3) violations.push("registry must contain exactly three sites");
 
   const seen = new Set();
   const ordinals = new Map();
@@ -2213,8 +2213,8 @@ export function collectConsentAuthorizationRegistryViolations(registry, schema) 
     values.push(site.ordinal);
     ordinals.set(group, values);
   }
-  if (JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 3 })) {
-    violations.push("registry partition must be exactly 2 actor / 1 self-registration / 3 provisioning");
+  if (JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 0 })) {
+    violations.push("registry partition must be exactly 2 actor / 1 self-registration / 0 provisioning");
   }
   for (const values of ordinals.values()) {
     const ordered = values.toSorted((left, right) => left - right);
