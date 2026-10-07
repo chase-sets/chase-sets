@@ -1,10 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { derivePullWindow, isRunnableRefined } from "./dispatch-window.mjs";
 
-const wave1 = { id: "synthetic-wave-1", number: 1, title: "Wave 1", state: "open" };
-const wave2 = { id: "synthetic-wave-2", number: 2, title: "Wave 2", state: "open" };
-const mobile1 = { id: "synthetic-mobile-1", number: 3, title: "Mobile 1", state: "open" };
-const mobile2 = { id: "synthetic-mobile-2", number: 4, title: "Mobile 2", state: "open" };
+const description = (track, order) =>
+  `<!-- outcome: ${JSON.stringify({ version: 1, track, order, status: "committed" })} -->`;
+const wave1 = {
+  id: "synthetic-wave-1",
+  number: 1,
+  title: "Wave 1",
+  description: description("wave", 1),
+  state: "open",
+};
+const wave2 = {
+  id: "synthetic-wave-2",
+  number: 2,
+  title: "Wave 2",
+  description: description("wave", 2),
+  state: "open",
+};
+const mobile1 = {
+  id: "synthetic-mobile-1",
+  number: 3,
+  title: "Mobile 1",
+  description: description("mobile", 1),
+  state: "open",
+};
+const mobile2 = {
+  id: "synthetic-mobile-2",
+  number: 4,
+  title: "Mobile 2",
+  description: description("mobile", 2),
+  state: "open",
+};
 
 function issue(number, milestone, labels, overrides = {}) {
   return {
@@ -20,6 +46,13 @@ function issue(number, milestone, labels, overrides = {}) {
 }
 
 describe("dispatch pull window", () => {
+  it.each(["Wave 9", "Mobile 4"])("excludes an untagged %s from runnable selection and the pull window", (title) => {
+    const untagged = { id: "synthetic-untagged", number: 99, title, state: "open" };
+    const candidate = issue(99, untagged, ["priority:p1", "area:ops", "kind:ops"]);
+    expect(isRunnableRefined(candidate)).toBe(false);
+    expect(derivePullWindow({ milestones: [untagged], issues: [candidate] })).toEqual([]);
+  });
+
   it("uses managed order across insertion and rename while excluding candidates", () => {
     const outcome = (id, number, title, order, status = "committed") => ({
       id,

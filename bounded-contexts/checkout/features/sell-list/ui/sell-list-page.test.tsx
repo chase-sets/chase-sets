@@ -767,6 +767,7 @@ describe("checkout sell list page", () => {
     expect(screen.getByText("Estimated sales fees")).toBeTruthy();
     expect(screen.getByText("$70.00")).toBeTruthy();
     expect(screen.getAllByText("$630.00").length).toBeGreaterThan(0);
+    expect(screen.getByRole("region", { name: "Checkout" }).textContent).toContain("$630.00");
     for (const label of screen.getAllByText("Expected seller payout")) {
       expect(label.parentElement?.textContent).toContain("$630.00");
       expect(label.parentElement?.textContent).not.toContain("$700.00");

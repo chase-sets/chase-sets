@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { act, useState, type ReactNode } from "react";
+import { act, createRef, useState, type ReactNode } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import tailwindConfig from "../../../../tailwind.config";
 import {
   Button,
@@ -56,6 +56,7 @@ import {
 import { Icon, type IconName } from "../icons";
 import {
   Checkbox,
+  CurrencyInput,
   Combobox,
   Autocomplete,
   NativeSelect,
@@ -139,6 +140,328 @@ beforeEach(() => {
 });
 
 const expectedSpacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] satisfies SpaceToken[];
+
+describe("6110 accessible compositions", () => {
+  it("6110 numeric label ownership preserves client form, refs, conversion and state", async () => {
+    const quantity = createRef<HTMLInputElement>();
+    const amount = createRef<HTMLInputElement>();
+    const onQuantity = vi.fn();
+    const onAmount = vi.fn();
+    const fixture = (disabled: boolean, readOnly: boolean) => (
+      <ChaseRoot>
+        <form id="6110-order" />
+        <NumberField
+          ref={quantity}
+          label="Quantity to buy"
+          name="quantity"
+          form="6110-order"
+          value={2}
+          onValueChange={onQuantity}
+          disabled={disabled}
+          readOnly={readOnly}
+          required
+        />
+        <CurrencyInput
+          ref={amount}
+          label="Unit price"
+          aria-label="Price in US dollars"
+          currencyCode="USD"
+          name="price"
+          form="6110-order"
+          value="2.50"
+          onValueChange={onAmount}
+          disabled={disabled}
+          readOnly={readOnly}
+          required
+        />
+      </ChaseRoot>
+    );
+    const view = render(fixture(false, false));
+    expect(quantity.current).toBe(screen.getByRole("spinbutton", { name: "Quantity to buy" }));
+    expect(amount.current).toBe(screen.getByRole("spinbutton", { name: "Unit price" }));
+    expect(amount.current!.getAttribute("aria-label")).toBe("Price in US dollars");
+    expect(new FormData(document.getElementById("6110-order") as HTMLFormElement).get("quantity")).toBe("2");
+    expect(new FormData(document.getElementById("6110-order") as HTMLFormElement).get("price")).toBe("2.5");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Increase value" }));
+    await user.click(screen.getByRole("button", { name: "Increase amount" }));
+    expect(onQuantity).toHaveBeenLastCalledWith(3);
+    expect(onAmount).toHaveBeenLastCalledWith("2.51");
+    for (const [disabled, readOnly] of [
+      [true, false],
+      [false, true],
+    ]) {
+      view.rerender(fixture(disabled!, readOnly!));
+      for (const input of [quantity.current!, amount.current!]) {
+        expect(input.disabled).toBe(disabled);
+        expect(input.readOnly).toBe(readOnly);
+        expect(input.required).toBe(true);
+      }
+      expectReferences(view.container);
+    }
+  });
+
+  function expectReferences(container: HTMLElement) {
+    const owners = Array.from(container.querySelectorAll("[id]"));
+    expect(new Set(owners.map((owner) => owner.id)).size).toBe(owners.length);
+    for (const element of container.querySelectorAll("*")) {
+      for (const attribute of [
+        "for",
+        "form",
+        "list",
+        "headers",
+        "itemref",
+        "popovertarget",
+        "commandfor",
+        "aria-labelledby",
+        "aria-describedby",
+        "aria-controls",
+        "aria-owns",
+        "aria-activedescendant",
+        "aria-details",
+        "aria-errormessage",
+        "aria-flowto",
+      ]) {
+        for (const id of element.getAttribute(attribute)?.trim().split(/\s+/).filter(Boolean) ?? []) {
+          expect(
+            owners.filter((owner) => owner.id === id),
+            `${element.tagName}[${attribute}=${id}]`,
+          ).toHaveLength(1);
+        }
+      }
+    }
+  }
+
+  function renderPhase(ui: ReactNode, phase: "SSR" | "client") {
+    const container = document.createElement("div");
+    document.body.append(container);
+    if (phase === "SSR") {
+      container.innerHTML = renderToString(<ChaseRoot>{ui}</ChaseRoot>);
+      return { container, dispose: () => container.remove() };
+    }
+    const view = render(<ChaseRoot>{ui}</ChaseRoot>, { container });
+    return {
+      container,
+      dispose: () => {
+        view.unmount();
+        container.remove();
+      },
+    };
+  }
+
+  for (const phase of ["SSR", "client"] as const) {
+    it(`6110 disclosure heading level: default h3 and contextual h2 ${phase}`, () => {
+      const view = renderPhase(
+        <>
+          <ProgressiveDisclosure title="Shipping defaults" defaultOpen>
+            Default content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure title="Choose packaging" headingLevel={2} defaultOpen>
+            Packaging content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosureGroup
+            defaultValue={["delivery"]}
+            items={[{ value: "delivery", title: "Delivery preferences", content: "Delivery content" }]}
+          />
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        for (const [name, level] of [
+          ["Shipping defaults", 3],
+          ["Choose packaging", 2],
+          ["Delivery preferences", 3],
+        ] as const) {
+          const heading = within(container).getByRole("heading", { level, name });
+          const trigger = within(heading).getByRole("button", { name });
+          expect(trigger.parentElement).toBe(heading);
+          expect(heading.tagName).toBe(`H${level}`);
+          expect(heading.hasAttribute("aria-level")).toBe(false);
+          const panel = within(container).getByRole("region", { name });
+          expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
+        }
+        expect(container.querySelectorAll("h2")).toHaveLength(1);
+        expect(container.querySelectorAll("h3")).toHaveLength(2);
+        expect(container.querySelectorAll("[headinglevel]")).toHaveLength(0);
+        expectReferences(container);
+      } finally {
+        view.dispose();
+      }
+    });
+
+    for (const idKind of ["generated", "explicit"] as const) {
+      for (const control of ["NumberField", "CurrencyInput"] as const) {
+        it(`6110 numeric label ownership: ${control} ${idKind} ${phase}`, () => {
+          const props = {
+            id: idKind === "explicit" ? "6110-quantity" : undefined,
+            label: "Available quantity",
+            description: "Enter the available amount",
+            error: "Review this amount",
+            status: "Not yet saved",
+            counter: "One amount",
+            required: true,
+            name: "amount",
+            form: "6110-form",
+          };
+          const view = renderPhase(
+            <>
+              <form id="6110-form" />
+              {control === "NumberField" ? (
+                <NumberField {...props} defaultValue={2} />
+              ) : (
+                <CurrencyInput
+                  {...props}
+                  currencyCode="USD"
+                  defaultValue="2.00"
+                  currencyAccessibleDescription="US dollars"
+                />
+              )}
+            </>,
+            phase,
+          );
+          try {
+            const { container } = view;
+            const labels = container.querySelectorAll<HTMLLabelElement>("label[for]");
+            expect(labels).toHaveLength(1);
+            const owners = Array.from(container.querySelectorAll("[id]")).filter(
+              (element) => element.id === labels[0]!.htmlFor,
+            );
+            const input = within(container).getByRole("spinbutton") as HTMLInputElement;
+            const steppers = within(container).getAllByRole("button");
+            expect(
+              {
+                labelOwners: owners.map((owner) => owner === input),
+                stepperOwners: steppers.map((stepper) =>
+                  Array.from(container.querySelectorAll("[id]"))
+                    .filter((owner) => owner.id === stepper.getAttribute("aria-controls"))
+                    .map((owner) => owner === input),
+                ),
+              },
+              "label and both steppers must resolve to the same unique input",
+            ).toEqual({
+              labelOwners: [true],
+              stepperOwners: [[true], [true]],
+            });
+            expect(within(container).getByRole("spinbutton", { name: "Available quantity" })).toBe(input);
+            expect(owners[0]).toBe(input);
+            expect(input.tagName).toBe("INPUT");
+            expect(input.type).not.toBe("hidden");
+            expect(input.required).toBe(true);
+            expect(input.getAttribute("aria-invalid")).toBe("true");
+            const descriptions = input
+              .getAttribute("aria-describedby")!
+              .split(/\s+/)
+              .map((id) => Array.from(container.querySelectorAll("[id]")).find((owner) => owner.id === id)?.textContent)
+              .join(" ");
+            for (const text of [props.description, props.error, props.status, props.counter])
+              expect(descriptions).toContain(text);
+            if (control === "CurrencyInput") expect(descriptions).toContain("US dollars");
+            expect(steppers).toHaveLength(2);
+            for (const stepper of steppers) expect(stepper.getAttribute("aria-controls")).toBe(input.id);
+            expectReferences(container);
+          } finally {
+            view.dispose();
+          }
+        });
+      }
+    }
+
+    it(`6110 panel names: sibling, grouped and mixed compositions ${phase}`, () => {
+      const onAccordionChange = vi.fn();
+      const onDisclosureChange = vi.fn();
+      const items = ["Shipping choices", "Payment preferences"].map((title, index) => ({
+        value: `section-${index}`,
+        title,
+        trigger: title,
+        content: <p>{title} content</p>,
+        triggerProps: { id: `6110-explicit-trigger-${index}` },
+      }));
+      const view = renderPhase(
+        <>
+          <Accordion
+            data-testid="6110-accordion"
+            id="6110-accordion"
+            type="multiple"
+            defaultValue={items.map((item) => item.value)}
+            items={items}
+          />
+          <Accordion
+            data-testid="6110-sibling"
+            value={[]}
+            onValueChange={onAccordionChange}
+            items={[{ value: "sibling", trigger: "Collection notes", content: "Notes" }]}
+          />
+          <ProgressiveDisclosure data-testid="6110-disclosure" title="Delivery instructions" defaultOpen>
+            Delivery content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure
+            data-testid="6110-disclosure-sibling"
+            title="Packing instructions"
+            open={false}
+            onOpenChange={onDisclosureChange}
+          >
+            Packing content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosureGroup
+            data-testid="6110-group"
+            defaultValue={["returns", "stock"]}
+            items={[
+              { value: "returns", title: "Return preferences", content: "Returns" },
+              { value: "stock", title: "Stock preferences", content: "Stock" },
+            ]}
+          />
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        for (const id of ["6110-accordion", "6110-sibling", "6110-disclosure", "6110-disclosure-sibling"]) {
+          expect(within(container).getByTestId(id).getAttribute("role"), `${id} is not a landmark`).toBe("group");
+        }
+        expect(within(within(container).getByTestId("6110-group")).getAllByRole("group")).toHaveLength(1);
+        const regions = Array.from(container.querySelectorAll('[role="region"]'));
+        expect(regions).toHaveLength(7);
+        const names = [];
+        for (const panel of regions) {
+          const trigger = Array.from(container.querySelectorAll("button")).find(
+            (element) => element.id === panel.getAttribute("aria-labelledby"),
+          );
+          expect(trigger, "each panel is named by its own trigger").toBeTruthy();
+          expect(trigger!.parentElement?.parentElement?.contains(panel)).toBe(true);
+          names.push(trigger!.textContent);
+          if (trigger!.getAttribute("aria-expanded") === "true")
+            expect(trigger!.getAttribute("aria-controls")).toBe(panel.id);
+        }
+        expect(new Set(names).size).toBe(names.length);
+        expectReferences(container);
+        if (phase === "client") {
+          for (const item of items)
+            expect(within(container).getByRole("button", { name: item.title }).id).toBe(item.triggerProps.id);
+          for (const [id, name] of [
+            ["6110-sibling", "Collection notes"],
+            ["6110-disclosure-sibling", "Packing instructions"],
+          ]) {
+            const controlled = within(within(container).getByTestId(id!)).getByRole("button", { name: name! });
+            fireEvent.click(controlled);
+            expect(controlled.getAttribute("aria-expanded")).toBe("false");
+          }
+          expect(onAccordionChange).toHaveBeenCalledWith("sibling");
+          expect(onDisclosureChange).toHaveBeenCalledWith(true);
+          const disclosure = within(container).getByTestId("6110-disclosure");
+          const trigger = within(disclosure).getByRole("button", { name: "Delivery instructions" });
+          fireEvent.click(trigger);
+          expect(trigger.getAttribute("aria-expanded")).toBe("false");
+          fireEvent.click(trigger);
+          expect(trigger.getAttribute("aria-expanded")).toBe("true");
+          expectReferences(container);
+        }
+      } finally {
+        view.dispose();
+      }
+    });
+  }
+});
 
 describe("composed Surface treatments", () => {
   it.each([
@@ -1962,6 +2285,84 @@ describe("design system components", () => {
     );
 
     expect(screen.getByText("Copy ID")).toBeTruthy();
+  });
+
+  describe("CopyButton reset timer", () => {
+    beforeEach(() => {
+      userEvent.setup();
+      vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      cleanup();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it("clears the pending reset on unmount without later errors", async () => {
+      const consoleError = vi.spyOn(console, "error");
+      const windowError = vi.fn();
+      window.addEventListener("error", windowError);
+      try {
+        const { unmount } = render(
+          <ChaseRoot reducedMotion="always">
+            <CopyButton value="test-value" label="Copy ID" />
+          </ChaseRoot>,
+        );
+        act(() => vi.runOnlyPendingTimers());
+        expect(vi.getTimerCount()).toBe(0);
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+        });
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith("test-value");
+        expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+        expect(vi.getTimerCount()).toBe(1);
+
+        unmount();
+        expect(vi.getTimerCount()).toBe(0);
+        act(() => vi.advanceTimersByTime(2001));
+        expect(vi.getTimerCount()).toBe(0);
+        expect(consoleError).not.toHaveBeenCalled();
+        expect(windowError).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("error", windowError);
+      }
+    });
+
+    it("reverts after 2000 ms while mounted and restarts on another copy", async () => {
+      render(
+        <ChaseRoot reducedMotion="always">
+          <CopyButton value="test-value" label="Copy ID" />
+        </ChaseRoot>,
+      );
+      act(() => vi.runOnlyPendingTimers());
+      expect(vi.getTimerCount()).toBe(0);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+      });
+      act(() => vi.advanceTimersByTime(1999));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+      });
+      act(() => vi.advanceTimersByTime(1000));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copied" }));
+      });
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => vi.advanceTimersByTime(1999));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(3);
+    });
   });
 
   it("renders TagInput with tag values", () => {

@@ -32,8 +32,13 @@ export function readSandboxPostgresSettings({ invocation, env, execute = spawnSy
     ],
     { env: buildMinimalProcessEnvironment(env), encoding: "utf8", windowsHide: true },
   );
-  if (result.error || result.status !== 0)
-    throw new Error("Unable to SHOW owned sandbox Postgres settings.", { cause: result.error });
+  if (result.error || result.status !== 0) {
+    const composeDiagnostic = "docker: unknown command: docker compose";
+    const diagnostic = result.stderr?.includes(composeDiagnostic) ? composeDiagnostic : "Diagnostic text omitted.";
+    throw new Error(`Unable to SHOW owned sandbox Postgres settings. Exit status: ${result.status}. ${diagnostic}`, {
+      cause: result.error,
+    });
+  }
   const values = result.stdout.trim().split(/\r?\n/);
   if (values.length !== settings.length || values.some((value) => !/^\d+$/.test(value)))
     throw new Error("Missing or invalid sandbox Postgres SHOW settings.");
