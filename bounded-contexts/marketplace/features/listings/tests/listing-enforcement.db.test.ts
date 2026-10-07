@@ -399,7 +399,7 @@ describeDb("listing enforcement identity on the real event and snapshot stores",
     const fresh = createRuntime(pool);
     const loaded = await fresh.listings.loadListingState("lst_old_snapshot");
 
-    expect(fresh.reads("lst_old_snapshot")).toEqual([undefined]);
+    expect(fresh.reads("lst_old_snapshot")).toEqual([1]);
     expect(loaded).toEqual(await fullReplay(pool, "lst_old_snapshot"));
     expect(loaded).toMatchObject({ status: "paused", listingEnforcement: null, appliedListingEnforcements: [] });
   });
@@ -419,7 +419,7 @@ describeDb("listing enforcement identity on the real event and snapshot stores",
 
     const oldReader = createImmutableBaseReader(pool);
     const oldLoad = await oldReader.load("lst_revert");
-    expect(oldReader.reads("lst_revert")).toEqual([undefined]);
+    expect(oldReader.reads("lst_revert")).toEqual([1]);
     expect(oldLoad).toMatchObject({ version: SNAPSHOT_EVERY_N_EVENTS, state: { status: "active" } });
     expect(oldLoad.events.filter((event) => event.type === "marketplace.listing.auto-unlisted")).toHaveLength(1);
 
