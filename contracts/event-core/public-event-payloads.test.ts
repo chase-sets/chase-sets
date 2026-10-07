@@ -9,6 +9,9 @@ import {
   inventoryHoldReleaseReasons,
   inventoryOfflineSaleChannels,
   inventoryRestockDecisionOutcomes,
+  marketplaceListingEnforcementSources,
+  parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingOperatorUnlistedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
   AuthSessionStartedPayload,
@@ -32,8 +35,14 @@ import type {
   InventoryExternalChannelSaleRecordedPayload,
   InventoryItemCreatedPayload,
   InventoryItemOfflineSaleRecordedPayload,
+  MarketplaceAutomaticListingEnforcementData,
+  MarketplaceListingAutoUnlistedEnforcedPayload,
+  MarketplaceListingAutoUnlistedLegacyPayload,
+  MarketplaceListingAutoUnlistedPayload,
   MarketplaceListingCreatedPayload,
+  MarketplaceListingOperatorUnlistedPayload,
   MarketplaceListingPriceUpdatedPayload,
+  MarketplaceOperatorListingEnforcementData,
   MarketplaceSalesFeeLineSnapshotPayload,
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
@@ -97,6 +106,47 @@ const missingClosedVersion: IdentityAccountClosedPayload = {
     enforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAX",
     reason: "operator-other",
     reference: null,
+  },
+};
+
+const enforcedAutoUnlistedPayload: MarketplaceListingAutoUnlistedEnforcedPayload = {
+  reportId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  reportCount: 3,
+  threshold: 3,
+  autoUnlistedAt: "2026-10-06T12:00:00.000Z",
+  listingEnforcement: {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "automatic-report-threshold",
+    sourceActionId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T12:00:00.000Z",
+  },
+};
+const legacyAutoUnlistedPayload: MarketplaceListingAutoUnlistedPayload = {
+  reportId: "rpt_legacy",
+  reportCount: 3,
+  threshold: 3,
+  autoUnlistedAt: "2026-07-01T00:00:00.000Z",
+};
+const operatorUnlistedPayload: MarketplaceListingOperatorUnlistedPayload = {
+  listingEnforcement: {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "operator-unlist",
+    sourceActionId: "rca_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T07:30:00.000-05:00",
+  },
+};
+const missingOperatorVersion: MarketplaceListingOperatorUnlistedPayload = {
+  // @ts-expect-error a partial listing enforcement record is corrupt.
+  listingEnforcement: {
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "operator-unlist",
+    sourceActionId: "rca_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T07:30:00.000-05:00",
   },
 };
 
@@ -195,6 +245,110 @@ describe("Order Group post-Fulfillment-shard registration", () => {
   });
 });
 
+describe("marketplace listing enforcement payloads", () => {
+  const automatic = enforcedAutoUnlistedPayload.listingEnforcement;
+  const operator = operatorUnlistedPayload.listingEnforcement;
+  const auto = (overrides: Readonly<Record<string, unknown>>) => ({ ...enforcedAutoUnlistedPayload, ...overrides });
+  const autoEnforcement = (overrides: Readonly<Record<string, unknown>>) =>
+    auto({ listingEnforcement: { ...automatic, ...overrides } });
+  const operatorEnforcement = (overrides: Readonly<Record<string, unknown>>) => ({
+    listingEnforcement: { ...operator, ...overrides },
+  });
+  const without = (value: Readonly<Record<string, unknown>>, key: string) =>
+    Object.fromEntries(Object.entries(value).filter(([candidate]) => candidate !== key));
+
+  it("types each source with its own typed ULID and keeps the operator payload closed", () => {
+    expectTypeOf<MarketplaceAutomaticListingEnforcementData["sourceActionId"]>().toEqualTypeOf<`rpt_${string}`>();
+    expectTypeOf<MarketplaceOperatorListingEnforcementData["sourceActionId"]>().toEqualTypeOf<`rca_${string}`>();
+    expectTypeOf<
+      MarketplaceOperatorListingEnforcementData["listingEnforcementActionId"]
+    >().toEqualTypeOf<`lea_${string}`>();
+    expectTypeOf(
+      parseMarketplaceListingAutoUnlistedPayload,
+    ).returns.toEqualTypeOf<MarketplaceListingAutoUnlistedPayload>();
+    expect(missingOperatorVersion).toHaveProperty("listingEnforcement");
+  });
+
+  it("round-trips modern payloads and returns historical automatic payloads unchanged", () => {
+    expect(parseMarketplaceListingAutoUnlistedPayload(enforcedAutoUnlistedPayload)).toEqual(
+      enforcedAutoUnlistedPayload,
+    );
+    expect(parseMarketplaceListingOperatorUnlistedPayload(operatorUnlistedPayload)).toEqual(operatorUnlistedPayload);
+    expect(parseMarketplaceListingAutoUnlistedPayload(legacyAutoUnlistedPayload)).toBe(legacyAutoUnlistedPayload);
+  });
+
+  it.each([
+    ...["reportId", "reportCount", "threshold", "autoUnlistedAt"].map(
+      (key) => [`missing ${key}`, without(enforcedAutoUnlistedPayload, key)] as const,
+    ),
+    ...Object.keys(automatic).map(
+      (key) => [`missing nested ${key}`, auto({ listingEnforcement: without(automatic, key) })] as const,
+    ),
+    ["an extra field", auto({ note: "free text" })],
+    ["an extra nested field", autoEnforcement({ reason: "spam" })],
+    ["null enrichment", auto({ listingEnforcement: null })],
+    ["array enrichment", auto({ listingEnforcement: [automatic] })],
+    ["an unknown version", autoEnforcement({ version: 2 })],
+    ["a string version", autoEnforcement({ version: "1" })],
+    ["the operator source", autoEnforcement({ source: "operator-unlist", sourceActionId: operator.sourceActionId })],
+    ["an unknown source", autoEnforcement({ source: "manual" })],
+    ["a source differing from the report", autoEnforcement({ sourceActionId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAW" })],
+    ["a time differing from the removal", autoEnforcement({ occurredAt: "2026-10-06T12:00:01.000Z" })],
+    [
+      "an account enforcement identity",
+      autoEnforcement({ listingEnforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV" }),
+    ],
+    ["a lowercase identity", autoEnforcement({ listingEnforcementActionId: "lea_01aryz6s41tsv4rrffq69g5fav" })],
+    ["an empty owner", autoEnforcement({ accountId: "" })],
+    ["a padded owner", autoEnforcement({ accountId: " acc_01ARYZ6S41TSV4RRFFQ69G5FAV" })],
+    [
+      "a non-canonical report",
+      auto({ reportId: "rpt_1", listingEnforcement: { ...automatic, sourceActionId: "rpt_1" } }),
+    ],
+    ["a below-threshold count", auto({ reportCount: 2 })],
+    ["a zero threshold", auto({ reportCount: 0, threshold: 0 })],
+    ["a fractional count", auto({ reportCount: 3.5 })],
+    [
+      "a date-only time",
+      auto({ autoUnlistedAt: "2026-10-06", listingEnforcement: { ...automatic, occurredAt: "2026-10-06" } }),
+    ],
+    [
+      "a zoneless time",
+      auto({
+        autoUnlistedAt: "2026-10-06T12:00:00",
+        listingEnforcement: { ...automatic, occurredAt: "2026-10-06T12:00:00" },
+      }),
+    ],
+    [
+      "an impossible calendar day",
+      auto({
+        autoUnlistedAt: "2026-02-30T12:00:00Z",
+        listingEnforcement: { ...automatic, occurredAt: "2026-02-30T12:00:00Z" },
+      }),
+    ],
+  ])("rejects an automatic payload with %s", (_case, payload) => {
+    expect(() => parseMarketplaceListingAutoUnlistedPayload(payload)).toThrow();
+  });
+
+  it.each([
+    ["an empty payload", {}],
+    ["an extra field", { ...operatorUnlistedPayload, reportId: automatic.sourceActionId }],
+    ...Object.keys(operator).map(
+      (key) => [`missing nested ${key}`, { listingEnforcement: without(operator, key) }] as const,
+    ),
+    ["an extra nested field", operatorEnforcement({ note: "free text" })],
+    ["an unknown version", operatorEnforcement({ version: 0 })],
+    ["the automatic source", { listingEnforcement: automatic }],
+    ["a report prefix under the operator source", operatorEnforcement({ sourceActionId: automatic.sourceActionId })],
+    ["an operator source id under the automatic source", operatorEnforcement({ source: "automatic-report-threshold" })],
+    ["an out-of-range hour", operatorEnforcement({ occurredAt: "2026-10-06T24:00:00Z" })],
+    ["an out-of-range offset", operatorEnforcement({ occurredAt: "2026-10-06T07:30:00+24:00" })],
+    ["a date-only time", operatorEnforcement({ occurredAt: "2026-10-06" })],
+  ])("rejects an operator payload with %s", (_case, payload) => {
+    expect(() => parseMarketplaceListingOperatorUnlistedPayload(payload)).toThrow();
+  });
+});
+
 function listShardModules(directory: string): readonly string[] {
   return readdirSync(directory)
     .filter((entry) => entry.endsWith(".ts") && entry !== aggregateFileName)
@@ -278,6 +432,10 @@ describe("public event payload runtime value exports", () => {
     ]).toHaveLength(5);
   });
 
+  it("exports the closed listing enforcement source vocabulary", () => {
+    expect(marketplaceListingEnforcementSources).toEqual(["operator-unlist", "automatic-report-threshold"]);
+  });
+
   it("exports the inventory hold purposes unchanged through the aggregate", () => {
     expect(inventoryHoldPurposes).toEqual(["order", "manual", "checkout", "pos", "channel", "transfer"]);
   });
@@ -333,6 +491,14 @@ const aggregateTypeIdentity = {
   "identity.account.closed": true satisfies IsExactly<
     ChaseSetsEventPayloads["identity.account.closed"],
     IdentityAccountClosedPayload
+  >,
+  "marketplace.listing.auto-unlisted": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.auto-unlisted"],
+    MarketplaceListingAutoUnlistedLegacyPayload | MarketplaceListingAutoUnlistedEnforcedPayload
+  >,
+  "marketplace.listing.operator-unlisted": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.operator-unlisted"],
+    MarketplaceListingOperatorUnlistedPayload
   >,
   "checkout.session.cancelled": true satisfies IsExactly<
     ChaseSetsEventPayloads["checkout.session.cancelled"],

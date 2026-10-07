@@ -3,10 +3,16 @@ import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
+  type AutoUnlistListingCommand,
   type CreateListingCommand,
+  type MarketplaceListingCommand,
+  type MarketplaceListingEvent,
   type MarketplaceListingFeeLock,
+  type MarketplaceListingState,
+  type OperatorUnlistListingCommand,
   type PublishListingCommand,
 } from "./domain";
+import { MarketplaceListingDomainError } from "./listing-error";
 
 const shipFromAddress = {
   name: "Seller Shipping",
@@ -387,10 +393,11 @@ describe("marketplace listing no-op suppression", () => {
       const resumed = decideMarketplaceListing(paused, publishListingCommand).reduce(evolveMarketplaceListing, paused);
       const autoUnlisted = decideMarketplaceListing(resumed, {
         type: "AutoUnlistListing",
-        reportId: "rpt_1",
+        reportId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
         reportCount: 3,
         threshold: 3,
         autoUnlistedAt: "2026-07-12T13:00:00.000Z",
+        listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAV",
       }).reduce(evolveMarketplaceListing, resumed);
 
       for (const state of [withPhoto, active, paused, resumed, autoUnlisted]) {
@@ -870,5 +877,401 @@ describe("marketplace graded-card validation", () => {
         },
       }),
     ).toThrow("Grading company must be one of PSA, BGS, CGC, SGC.");
+  });
+});
+
+describe("listing enforcement actions", () => {
+  const ids = {
+    leaA: "lea_01ARYZ6S41TSV4RRFFQ69G5FA0",
+    leaB: "lea_01ARYZ6S41TSV4RRFFQ69G5FA1",
+    leaC: "lea_01ARYZ6S41TSV4RRFFQ69G5FA2",
+    rptA: "rpt_01ARYZ6S41TSV4RRFFQ69G5FA0",
+    rptB: "rpt_01ARYZ6S41TSV4RRFFQ69G5FA1",
+    rcaA: "rca_01ARYZ6S41TSV4RRFFQ69G5FA0",
+    rcaB: "rca_01ARYZ6S41TSV4RRFFQ69G5FA1",
+  } as const;
+
+  function autoUnlist(overrides: Partial<Record<keyof AutoUnlistListingCommand, unknown>> = {}) {
+    return {
+      type: "AutoUnlistListing",
+      reportId: ids.rptA,
+      reportCount: 3,
+      threshold: 3,
+      autoUnlistedAt: "2026-07-12T13:00:00.000Z",
+      listingEnforcementActionId: ids.leaA,
+      ...overrides,
+    } as AutoUnlistListingCommand;
+  }
+
+  function operatorUnlist(overrides: Partial<Record<keyof OperatorUnlistListingCommand, unknown>> = {}) {
+    return {
+      type: "OperatorUnlistListing",
+      reportedContentActionId: ids.rcaA,
+      listingEnforcementActionId: ids.leaA,
+      recordedAt: "2026-07-12T14:00:00.000-05:00",
+      ...overrides,
+    } as OperatorUnlistListingCommand;
+  }
+
+  function run(state: MarketplaceListingState, ...commands: MarketplaceListingCommand[]) {
+    return commands.reduce(
+      (current, command) => decideMarketplaceListing(current, command).reduce(evolveMarketplaceListing, current),
+      state,
+    );
+  }
+
+  function eventsFor(...commands: MarketplaceListingCommand[]): MarketplaceListingEvent[] {
+    const events: MarketplaceListingEvent[] = [];
+    commands.reduce((state, command) => {
+      const decided = decideMarketplaceListing(state, command);
+      events.push(...decided);
+      return decided.reduce(evolveMarketplaceListing, state);
+    }, initialMarketplaceListingState);
+    return events;
+  }
+
+  const created = (accountId = "acc_seller") =>
+    run(initialMarketplaceListingState, { ...createListingCommand, accountId: accountId as never });
+  const active = (accountId = "acc_seller") => run(created(accountId), publishListingCommand);
+
+  it("records the owner-attributed automatic removal from the report fields", () => {
+    const listing = active();
+    const events = decideMarketplaceListing(listing, autoUnlist());
+
+    expect(events).toEqual([
+      {
+        type: "marketplace.listing.auto-unlisted",
+        data: {
+          reportId: ids.rptA,
+          reportCount: 3,
+          threshold: 3,
+          autoUnlistedAt: "2026-07-12T13:00:00.000Z",
+          listingEnforcement: {
+            version: 1,
+            listingEnforcementActionId: ids.leaA,
+            accountId: "acc_seller",
+            source: "automatic-report-threshold",
+            sourceActionId: ids.rptA,
+            occurredAt: "2026-07-12T13:00:00.000Z",
+          },
+        },
+      },
+    ]);
+    expect(events.reduce(evolveMarketplaceListing, listing)).toMatchObject({
+      status: "paused",
+      pauseReason: null,
+      listingEnforcement: { listingEnforcementActionId: ids.leaA, sourceActionId: ids.rptA },
+      appliedListingEnforcements: [{ sourceActionId: ids.rptA, listingEnforcementActionId: ids.leaA }],
+    });
+  });
+
+  it("records the owner-attributed operator removal at the caller-supplied recorded time", () => {
+    const listing = active();
+
+    expect(decideMarketplaceListing(listing, operatorUnlist())).toEqual([
+      {
+        type: "marketplace.listing.operator-unlisted",
+        data: {
+          listingEnforcement: {
+            version: 1,
+            listingEnforcementActionId: ids.leaA,
+            accountId: "acc_seller",
+            source: "operator-unlist",
+            sourceActionId: ids.rcaA,
+            occurredAt: "2026-07-12T14:00:00.000-05:00",
+          },
+        },
+      },
+    ]);
+    expect(run(listing, operatorUnlist())).toMatchObject({ status: "paused", pauseReason: null });
+  });
+
+  it.each([
+    ["non-canonical identity", { listingEnforcementActionId: "lea_01aryz6s41tsv4rrffq69g5fa0" }],
+    ["account enforcement identity", { listingEnforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FA0" }],
+    ["empty identity", { listingEnforcementActionId: "" }],
+    ["operator source on the automatic path", { reportId: ids.rcaA }],
+    ["non-canonical report", { reportId: "rpt_1" }],
+    ["padded report", { reportId: ` ${ids.rptA}` }],
+    ["date-only time", { autoUnlistedAt: "2026-07-12" }],
+    ["zoneless time", { autoUnlistedAt: "2026-07-12T13:00:00" }],
+    ["impossible calendar day", { autoUnlistedAt: "2026-02-30T13:00:00Z" }],
+    ["out-of-range hour", { autoUnlistedAt: "2026-07-12T24:00:00Z" }],
+  ])("rejects an automatic removal with %s", (_case, overrides) => {
+    expect(() => decideMarketplaceListing(active(), autoUnlist(overrides))).toThrow(MarketplaceListingDomainError);
+  });
+
+  it.each([
+    ["non-canonical identity", { listingEnforcementActionId: "lea_not-a-ulid" }],
+    ["report source on the operator path", { reportedContentActionId: ids.rptA }],
+    ["non-canonical action", { reportedContentActionId: "rca_1" }],
+    ["date-only time", { recordedAt: "2026-07-12" }],
+    ["invalid offset", { recordedAt: "2026-07-12T13:00:00+24:00" }],
+  ])("rejects an operator removal with %s", (_case, overrides) => {
+    expect(() => decideMarketplaceListing(active(), operatorUnlist(overrides))).toThrow(MarketplaceListingDomainError);
+  });
+
+  it("requires a created listing for both removal commands", () => {
+    for (const command of [autoUnlist(), operatorUnlist()]) {
+      expect(() => decideMarketplaceListing(initialMarketplaceListingState, command)).toThrow(
+        "Listing must be created first.",
+      );
+    }
+  });
+
+  it("preserves the report count and threshold checks on active listings", () => {
+    expect(() => decideMarketplaceListing(active(), autoUnlist({ reportCount: 2 }))).toThrow(
+      "Report threshold has not been reached.",
+    );
+    expect(() => decideMarketplaceListing(active(), autoUnlist({ reportCount: 0, threshold: 0 }))).toThrow(
+      "Report count must be positive.",
+    );
+  });
+
+  it("attributes each removal to its own listing owner and never to a caller", () => {
+    const sellerEvents = decideMarketplaceListing(active("acc_seller"), autoUnlist());
+    const otherEvents = decideMarketplaceListing(active("acc_other"), {
+      ...operatorUnlist(),
+      // @ts-expect-error removal commands carry no owner; the aggregate supplies it.
+      accountId: "acc_seller",
+    });
+
+    expect(sellerEvents[0]?.data).toMatchObject({ listingEnforcement: { accountId: "acc_seller" } });
+    expect(otherEvents[0]?.data).toMatchObject({ listingEnforcement: { accountId: "acc_other" } });
+    expect(() => sellerEvents.reduce(evolveMarketplaceListing, active("acc_other"))).toThrow(
+      "Stored listing removal owner does not match the listing.",
+    );
+  });
+
+  it.each([
+    ["draft", () => created()],
+    ["seller-paused", () => run(active(), { type: "PauseListing" })],
+    ["withdrawn", () => run(active(), { type: "WithdrawListing" })],
+  ])("is a no-op on a %s listing", (_status, listing) => {
+    expect(decideMarketplaceListing(listing(), autoUnlist())).toEqual([]);
+    expect(decideMarketplaceListing(listing(), operatorUnlist())).toEqual([]);
+  });
+
+  it("suppresses a redelivered source after republish and removes again for a distinct source", () => {
+    const republished = run(active(), autoUnlist(), publishListingCommand);
+
+    expect(decideMarketplaceListing(republished, autoUnlist({ listingEnforcementActionId: ids.leaB }))).toEqual([]);
+    expect(decideMarketplaceListing(republished, autoUnlist())).toEqual([]);
+
+    const removedAgain = run(
+      republished,
+      operatorUnlist({ reportedContentActionId: ids.rcaB, listingEnforcementActionId: ids.leaB }),
+    );
+    expect(removedAgain).toMatchObject({
+      status: "paused",
+      listingEnforcement: { listingEnforcementActionId: ids.leaB, source: "operator-unlist" },
+      appliedListingEnforcements: [
+        { sourceActionId: ids.rptA, listingEnforcementActionId: ids.leaA },
+        { sourceActionId: ids.rcaB, listingEnforcementActionId: ids.leaB },
+      ],
+    });
+    expect(
+      decideMarketplaceListing(
+        run(removedAgain, publishListingCommand),
+        operatorUnlist({ reportedContentActionId: ids.rcaB, listingEnforcementActionId: ids.leaC }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("rejects reusing an identity for another source in every status", () => {
+    const removed = run(active(), autoUnlist());
+    const republished = run(removed, publishListingCommand);
+
+    for (const [state, command] of [
+      [removed, autoUnlist({ reportId: ids.rptB })],
+      [republished, autoUnlist({ reportId: ids.rptB })],
+      [republished, operatorUnlist()],
+    ] as const) {
+      expect(() => decideMarketplaceListing(state, command)).toThrow(
+        "Listing enforcement action id has already been used.",
+      );
+    }
+  });
+
+  it.each([
+    ["automatic then operator", autoUnlist(), operatorUnlist({ listingEnforcementActionId: ids.leaB })],
+    ["operator then automatic", operatorUnlist(), autoUnlist({ listingEnforcementActionId: ids.leaB })],
+  ])("yields one action for %s without republish", (_order, first, second) => {
+    const events = eventsFor(createListingCommand, publishListingCommand, first, second);
+
+    expect(events.filter((event) => event.type.endsWith("-unlisted"))).toHaveLength(1);
+    expect(events.reduce(evolveMarketplaceListing, initialMarketplaceListingState)).toMatchObject({
+      status: "paused",
+      listingEnforcement: { listingEnforcementActionId: ids.leaA },
+    });
+  });
+
+  it("preserves the identity through unrelated and day-after commands", () => {
+    const removed = run(active(), operatorUnlist());
+    const states = [removed];
+    for (const command of [
+      { type: "UpdateListingPurchaseLimits", purchaseLimits: { maxUnitsPerOrder: 1 } },
+      { type: "AddListingPhotos", photos: [listingPhoto] },
+      { type: "PauseListing" },
+      publishListingCommand,
+      { type: "PauseListing", reason: "policy-input-missing" },
+      publishListingCommand,
+      { type: "WithdrawListing" },
+    ] satisfies MarketplaceListingCommand[]) {
+      states.push(run(states.at(-1)!, command));
+    }
+
+    for (const state of states) {
+      expect(state.listingEnforcement).toEqual(removed.listingEnforcement);
+      expect(state.appliedListingEnforcements).toEqual(removed.appliedListingEnforcements);
+    }
+    expect(states.map((state) => state.status)).toEqual([
+      "paused",
+      "paused",
+      "paused",
+      "paused",
+      "active",
+      "paused",
+      "active",
+      "withdrawn",
+    ]);
+  });
+
+  describe("replay", () => {
+    const fold = (events: readonly MarketplaceListingEvent[]) =>
+      events.reduce(evolveMarketplaceListing, initialMarketplaceListingState);
+    const modernHistory = eventsFor(
+      createListingCommand,
+      publishListingCommand,
+      autoUnlist(),
+      publishListingCommand,
+      operatorUnlist({ listingEnforcementActionId: ids.leaB }),
+    );
+    const [createdEvent, publishedEvent, autoEvent, , operatorEvent] = modernHistory as [
+      MarketplaceListingEvent,
+      MarketplaceListingEvent,
+      MarketplaceListingEvent,
+      MarketplaceListingEvent,
+      MarketplaceListingEvent,
+    ];
+    const autoData = autoEvent.data as Readonly<Record<string, unknown>> & {
+      listingEnforcement: Readonly<Record<string, unknown>>;
+    };
+    const operatorEnforcement = (operatorEvent.data as { listingEnforcement: Readonly<Record<string, unknown>> })
+      .listingEnforcement;
+    const legacyAutoUnlisted: MarketplaceListingEvent = {
+      type: "marketplace.listing.auto-unlisted",
+      data: { reportId: "rpt_1", reportCount: 3, threshold: 3, autoUnlistedAt: "2026-07-01T00:00:00.000Z" },
+    };
+    const stored = (type: MarketplaceListingEvent["type"], data: unknown) =>
+      ({ type, data: JSON.parse(JSON.stringify(data)) }) as MarketplaceListingEvent;
+
+    it("folds modern history into JSON-native state identical to incremental decisions", () => {
+      const replayed = fold(modernHistory);
+
+      expect(replayed).toEqual(
+        run(active(), autoUnlist(), publishListingCommand, operatorUnlist({ listingEnforcementActionId: ids.leaB })),
+      );
+      expect(JSON.parse(JSON.stringify(replayed))).toEqual(replayed);
+      expect(replayed.appliedListingEnforcements).toEqual([
+        { sourceActionId: ids.rptA, listingEnforcementActionId: ids.leaA },
+        { sourceActionId: ids.rcaA, listingEnforcementActionId: ids.leaB },
+      ]);
+    });
+
+    it("reads legacy automatic removals without minting or replacing an identity", () => {
+      expect(fold([createdEvent, publishedEvent, legacyAutoUnlisted])).toMatchObject({
+        status: "paused",
+        listingEnforcement: null,
+        appliedListingEnforcements: [],
+      });
+      const mixed = fold([...modernHistory, publishedEvent, legacyAutoUnlisted]);
+      expect(mixed).toMatchObject({
+        status: "paused",
+        listingEnforcement: { listingEnforcementActionId: ids.leaB, sourceActionId: ids.rcaA },
+      });
+      expect(mixed.appliedListingEnforcements).toHaveLength(2);
+      expect(fold([createdEvent, publishedEvent, legacyAutoUnlisted, publishedEvent, autoEvent])).toMatchObject({
+        status: "paused",
+        listingEnforcement: { listingEnforcementActionId: ids.leaA },
+      });
+    });
+
+    it.each([
+      ["an empty history", [autoEvent]],
+      ["removal of a paused listing", [createdEvent, publishedEvent, autoEvent, operatorEvent]],
+      ["a repeated source after republish", [createdEvent, publishedEvent, autoEvent, publishedEvent, autoEvent]],
+      [
+        "an identity reused for another source",
+        [
+          createdEvent,
+          publishedEvent,
+          autoEvent,
+          publishedEvent,
+          stored("marketplace.listing.operator-unlisted", {
+            listingEnforcement: { ...operatorEnforcement, listingEnforcementActionId: ids.leaA },
+          }),
+        ],
+      ],
+    ])("fails on %s", (_case, events) => {
+      expect(() => fold(events)).toThrow();
+    });
+
+    it.each([
+      ["null enrichment", { ...autoData, listingEnforcement: null }],
+      ["partial enrichment", { ...autoData, listingEnforcement: { version: 1 } }],
+      ["an unknown version", { ...autoData, listingEnforcement: { ...autoData.listingEnforcement, version: 2 } }],
+      [
+        "a missing nested field",
+        { ...autoData, listingEnforcement: { ...autoData.listingEnforcement, occurredAt: undefined } },
+      ],
+      [
+        "an extra nested field",
+        { ...autoData, listingEnforcement: { ...autoData.listingEnforcement, reason: "spam" } },
+      ],
+      ["an extra field", { ...autoData, note: "free text" }],
+      ["a missing report field", { ...autoData, threshold: undefined }],
+      [
+        "the operator source",
+        {
+          ...autoData,
+          listingEnforcement: { ...autoData.listingEnforcement, source: "operator-unlist", sourceActionId: ids.rcaA },
+        },
+      ],
+      [
+        "a mismatched source",
+        { ...autoData, listingEnforcement: { ...autoData.listingEnforcement, sourceActionId: ids.rptB } },
+      ],
+      [
+        "a mismatched time",
+        { ...autoData, listingEnforcement: { ...autoData.listingEnforcement, occurredAt: "2026-07-12T13:00:01.000Z" } },
+      ],
+      [
+        "a spoofed owner",
+        { ...autoData, listingEnforcement: { ...autoData.listingEnforcement, accountId: "acc_other" } },
+      ],
+      [
+        "a date-only time",
+        {
+          ...autoData,
+          autoUnlistedAt: "2026-07-12",
+          listingEnforcement: { ...autoData.listingEnforcement, occurredAt: "2026-07-12" },
+        },
+      ],
+    ])("fails on a poisoned automatic payload with %s", (_case, data) => {
+      expect(() => fold([createdEvent, publishedEvent, stored("marketplace.listing.auto-unlisted", data)])).toThrow();
+    });
+
+    it.each([
+      ["missing enrichment", {}],
+      ["the automatic source", { listingEnforcement: autoData.listingEnforcement }],
+      ["a report prefix", { listingEnforcement: { ...operatorEnforcement, sourceActionId: ids.rptA } }],
+      ["an extra field", { listingEnforcement: operatorEnforcement, reportId: ids.rptA }],
+      ["an invalid instant", { listingEnforcement: { ...operatorEnforcement, occurredAt: "2026-04-31T10:00:00Z" } }],
+    ])("fails on a poisoned operator payload with %s", (_case, data) => {
+      expect(() =>
+        fold([createdEvent, publishedEvent, stored("marketplace.listing.operator-unlisted", data)]),
+      ).toThrow();
+    });
   });
 });

@@ -1,9 +1,25 @@
 import { MarketplaceListingDomainError } from "./listing-error";
-import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import {
+  parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingEnforcementData,
+  parseMarketplaceListingOperatorUnlistedPayload,
+  type AggregateDecider,
+  type AggregateEvolver,
+  type DomainEvent,
+  type MarketplaceListingAutoUnlistedPayload,
+  type MarketplaceListingEnforcementData,
+  type MarketplaceListingOperatorUnlistedPayload,
+} from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import { centsToMoneyAmount, moneyToCents, roundRational, tryMoneyToCents } from "@chase-sets/primitives/money";
-import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
+import type {
+  AccountId,
+  CatalogItemId,
+  ListingEnforcementActionId,
+  ListingId,
+  ReportedContentActionId,
+} from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
@@ -351,6 +367,15 @@ export type MarketplaceListingState = Readonly<{
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
   pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark" | null;
+  /** The latest Listing Enforcement Action, retained across republish and pause. */
+  listingEnforcement: MarketplaceListingEnforcementData | null;
+  /** Every applied removal source and its identity, replay-derived and JSON-native for snapshots. */
+  appliedListingEnforcements: readonly AppliedListingEnforcement[];
+}>;
+
+export type AppliedListingEnforcement = Readonly<{
+  sourceActionId: string;
+  listingEnforcementActionId: ListingEnforcementActionId;
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
@@ -389,6 +414,8 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   evidence: [],
   status: "draft",
   pauseReason: null,
+  listingEnforcement: null,
+  appliedListingEnforcements: [],
 };
 
 export type CreateListingCommand = Readonly<{
@@ -487,12 +514,21 @@ export type PauseListingCommand = Readonly<{
   type: "PauseListing";
   reason?: "seller" | "policy-input-missing" | "channel-inbound-dark";
 }>;
+/** The dispatcher mints `listingEnforcementActionId` once; the report is the removal source. */
 export type AutoUnlistListingCommand = Readonly<{
   type: "AutoUnlistListing";
   reportId: string;
   reportCount: number;
   threshold: number;
   autoUnlistedAt: string;
+  listingEnforcementActionId: ListingEnforcementActionId;
+}>;
+/** Removal decided by one Reported Content action; its `recordedAt` is the removal time. */
+export type OperatorUnlistListingCommand = Readonly<{
+  type: "OperatorUnlistListing";
+  reportedContentActionId: ReportedContentActionId;
+  listingEnforcementActionId: ListingEnforcementActionId;
+  recordedAt: string;
 }>;
 export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
@@ -510,6 +546,7 @@ export type MarketplaceListingCommand =
   | PublishListingCommand
   | PauseListingCommand
   | AutoUnlistListingCommand
+  | OperatorUnlistListingCommand
   | WithdrawListingCommand;
 
 export type ListingCreatedEvent = DomainEvent<
@@ -636,12 +673,11 @@ export type ListingPausedEvent = DomainEvent<
 >;
 export type ListingAutoUnlistedEvent = DomainEvent<
   "marketplace.listing.auto-unlisted",
-  Readonly<{
-    reportId: string;
-    reportCount: number;
-    threshold: number;
-    autoUnlistedAt: string;
-  }>
+  MarketplaceListingAutoUnlistedPayload
+>;
+export type ListingOperatorUnlistedEvent = DomainEvent<
+  "marketplace.listing.operator-unlisted",
+  MarketplaceListingOperatorUnlistedPayload
 >;
 export type ListingWithdrawnEvent = DomainEvent<"marketplace.listing.withdrawn", Readonly<Record<string, never>>>;
 export type ListingOfferCommitmentRecordedEvent = DomainEvent<
@@ -668,6 +704,7 @@ export type MarketplaceListingEvent =
   | ListingPublishedEvent
   | ListingPausedEvent
   | ListingAutoUnlistedEvent
+  | ListingOperatorUnlistedEvent
   | ListingWithdrawnEvent
   | ListingOfferCommitmentRecordedEvent;
 
@@ -906,25 +943,45 @@ export const decideMarketplaceListing: AggregateDecider<
       }
       assert(state.status === "active", "Only active listings can be paused.");
       return [{ type: "marketplace.listing.paused", data: { reason: command.reason ?? "seller" } }];
-    case "AutoUnlistListing":
-      assert(state.listingId !== null, "Listing must be created first.");
-      if (state.status !== "active") {
+    case "AutoUnlistListing": {
+      const listingEnforcement = decideListingRemoval(state, {
+        listingEnforcementActionId: command.listingEnforcementActionId,
+        source: "automatic-report-threshold",
+        sourceActionId: command.reportId,
+        occurredAt: command.autoUnlistedAt,
+      });
+      if (!listingEnforcement) {
         return [];
       }
       assert(Number.isInteger(command.reportCount) && command.reportCount > 0, "Report count must be positive.");
       assert(Number.isInteger(command.threshold) && command.threshold > 0, "Report threshold must be positive.");
       assert(command.reportCount >= command.threshold, "Report threshold has not been reached.");
-      return [
-        {
-          type: "marketplace.listing.auto-unlisted",
-          data: {
-            reportId: normalizeRequiredText(command.reportId, "Report id is required."),
-            reportCount: command.reportCount,
-            threshold: command.threshold,
-            autoUnlistedAt: normalizeRequiredText(command.autoUnlistedAt, "Auto-unlist timestamp is required."),
-          },
-        },
-      ];
+      const data = rejectInvalidListingEnforcement(() =>
+        parseMarketplaceListingAutoUnlistedPayload({
+          reportId: command.reportId,
+          reportCount: command.reportCount,
+          threshold: command.threshold,
+          autoUnlistedAt: command.autoUnlistedAt,
+          listingEnforcement,
+        }),
+      );
+      return [{ type: "marketplace.listing.auto-unlisted", data }];
+    }
+    case "OperatorUnlistListing": {
+      const listingEnforcement = decideListingRemoval(state, {
+        listingEnforcementActionId: command.listingEnforcementActionId,
+        source: "operator-unlist",
+        sourceActionId: command.reportedContentActionId,
+        occurredAt: command.recordedAt,
+      });
+      if (!listingEnforcement) {
+        return [];
+      }
+      const data = rejectInvalidListingEnforcement(() =>
+        parseMarketplaceListingOperatorUnlistedPayload({ listingEnforcement }),
+      );
+      return [{ type: "marketplace.listing.operator-unlisted", data }];
+    }
     case "WithdrawListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Listing has already been withdrawn.");
@@ -972,6 +1029,8 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
         evidence: hydrateStoredListingPhotos(event.data.evidence),
         status: "draft",
         pauseReason: null,
+        listingEnforcement: null,
+        appliedListingEnforcements: [],
       };
     case "marketplace.listing.price-updated":
       return {
@@ -1064,8 +1123,17 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       };
     case "marketplace.listing.paused":
       return { ...state, status: "paused", pauseReason: event.data.reason ?? "seller" };
-    case "marketplace.listing.auto-unlisted":
-      return { ...state, status: "paused" };
+    case "marketplace.listing.auto-unlisted": {
+      const data = parseMarketplaceListingAutoUnlistedPayload(event.data);
+      return "listingEnforcement" in data
+        ? applyListingEnforcement(state, data.listingEnforcement)
+        : { ...state, status: "paused" };
+    }
+    case "marketplace.listing.operator-unlisted":
+      return applyListingEnforcement(
+        state,
+        parseMarketplaceListingOperatorUnlistedPayload(event.data).listingEnforcement,
+      );
     case "marketplace.listing.withdrawn":
       return { ...state, status: "withdrawn" };
     case "marketplace.listing.offer-commitment-recorded":
@@ -1074,6 +1142,78 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return assertNever(event);
   }
 };
+
+/**
+ * Shared removal preconditions in decided order: a created, owned listing and a valid
+ * identity; then source deduplication before status, so a redelivered source is inert
+ * even after republish; then identity reuse; then only active listings are removed.
+ * Returns the owner-attributed record to append, or null for a no-op.
+ */
+function decideListingRemoval(
+  state: MarketplaceListingState,
+  input: Readonly<{
+    listingEnforcementActionId: string;
+    source: MarketplaceListingEnforcementData["source"];
+    sourceActionId: string;
+    occurredAt: string;
+  }>,
+): MarketplaceListingEnforcementData | null {
+  assert(state.listingId !== null, "Listing must be created first.");
+  assert(state.accountId !== null, "Listing removal requires a listing owner.");
+  const listingEnforcement = rejectInvalidListingEnforcement(() =>
+    parseMarketplaceListingEnforcementData({ version: 1, ...input, accountId: state.accountId }),
+  );
+  if (state.appliedListingEnforcements.some(({ sourceActionId }) => sourceActionId === input.sourceActionId)) {
+    return null;
+  }
+  assert(
+    !state.appliedListingEnforcements.some(
+      ({ listingEnforcementActionId }) => listingEnforcementActionId === input.listingEnforcementActionId,
+    ),
+    "Listing enforcement action id has already been used.",
+  );
+  return state.status === "active" ? listingEnforcement : null;
+}
+
+/** Replays one identity-bearing removal, failing on any history the decider could not have produced. */
+function applyListingEnforcement(
+  state: MarketplaceListingState,
+  listingEnforcement: MarketplaceListingEnforcementData,
+): MarketplaceListingState {
+  assert(
+    state.listingId !== null && state.status === "active",
+    "Stored listing removal is invalid for the current status.",
+  );
+  assert(listingEnforcement.accountId === state.accountId, "Stored listing removal owner does not match the listing.");
+  assert(
+    !state.appliedListingEnforcements.some(
+      ({ sourceActionId, listingEnforcementActionId }) =>
+        sourceActionId === listingEnforcement.sourceActionId ||
+        listingEnforcementActionId === listingEnforcement.listingEnforcementActionId,
+    ),
+    "Stored listing removal repeats an applied source or identity.",
+  );
+  return {
+    ...state,
+    status: "paused",
+    listingEnforcement,
+    appliedListingEnforcements: [
+      ...state.appliedListingEnforcements,
+      {
+        sourceActionId: listingEnforcement.sourceActionId,
+        listingEnforcementActionId: listingEnforcement.listingEnforcementActionId,
+      },
+    ],
+  };
+}
+
+function rejectInvalidListingEnforcement<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    throw new MarketplaceListingDomainError("command-rejected", error instanceof Error ? error.message : String(error));
+  }
+}
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
