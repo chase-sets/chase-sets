@@ -94,6 +94,7 @@ export type PermissionKey =
   | "recovered-inventory.evidence"
   | "recovered-inventory.manage"
   | "recovered-inventory.view"
+  | "reported-content.view"
   | "reputation.manage"
   | "reputation.view"
   | "support.manage"

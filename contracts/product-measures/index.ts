@@ -1,3 +1,5 @@
+export * from "./publication";
+
 export type ProductPhysicalFlag =
   | "raw-card"
   | "slab"

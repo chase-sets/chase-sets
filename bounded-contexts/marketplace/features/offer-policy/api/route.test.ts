@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
-import { context, fixture, preview, privateLimitTerms, seedOffer, terms } from "../tests/fixtures";
+import { activate, context, fixture, preview, privateLimitTerms, seedOffer, terms } from "../tests/fixtures";
 import { createBuyerOfferPolicyRoutes } from "./route";
 import type { BuyerOfferPolicyServices } from "./runtime";
 
@@ -35,6 +35,60 @@ const post = (body: unknown): RequestInit => ({
 });
 
 describe("Buyer Offer Policy real account routes", () => {
+  it("exposes fresh versions only to the owner and rejects stale resume Preview with its actual 409 code", async () => {
+    const { runtime, store } = await fixture();
+    const active = await activate(runtime);
+    const paused = await runtime.execute(
+      "bop_one",
+      {
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: active.version,
+        operationId: "pause_route",
+      },
+      context,
+    );
+    const owner = await app(runtime).request("/policies?offerId=off_one");
+    expect(await owner.json()).toMatchObject({
+      offerVersions: { off_one: 2 },
+      items: [{ status: "paused", version: paused.version, offerVersions: { off_one: 2 } }],
+    });
+    const foreign = await app(runtime, "acc_other").request("/policies?offerId=off_one");
+    expect(await foreign.json()).toEqual({ items: [], offerVersions: {}, nextCursor: null });
+    const before = await store.readAll();
+    const response = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: paused.version,
+        operationId: "stale_resume",
+        terms,
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: { code: "stale_preview" } });
+    expect(await store.readAll()).toEqual(before);
+  });
+  it("returns per-selection held Preview evidence on the actual command response", async () => {
+    const { runtime } = await fixture();
+    const response = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview_evidence", terms }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "draft",
+      preview: {
+        terms,
+        outcomes: [
+          {
+            offerId: "off_one",
+            currentUnitItemAmount: "10.00",
+            result: { status: "held", reason: "market-price-unavailable", evidence: { marketPrice: null } },
+          },
+        ],
+      },
+    });
+  });
   it("retains private-limit sentinels only in owner reads throughout the lifecycle", async () => {
     const { runtime } = await fixture();
     const p = await preview(runtime, privateLimitTerms);

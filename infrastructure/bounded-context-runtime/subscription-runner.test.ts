@@ -93,6 +93,15 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
 });
 
 import { createProjectionGroupRuntime } from "./index-test-runtime-helpers";
+import {
+  stageProductMeasurePublicationPart,
+  takeProductMeasurePublication,
+} from "@chase-sets/event-core-postgres/measure-publication-staging";
+import {
+  syntheticPublication,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
+import { createCheckpointKey } from "./subscription-store";
 
 import {
   compactRuntimeSubscriptionLedgers,
@@ -108,6 +117,63 @@ import {
 } from "./index";
 
 describe("bounded context subscription runner", () => {
+  it("blocks an incomplete Product Measure Publication as poison and retries without partial serving mutation", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const publication = await syntheticPublication();
+    const subscription = {
+      sourceContextName: "catalog",
+      projectionName: "synthetic-measure-projection",
+      subscriptionVersion: 1,
+    };
+    const key = createCheckpointKey(subscription);
+    const staging = withMeasurePublicationStaging({ query: async () => ({ rows: [] }) });
+    let serving: unknown = "prior-complete";
+    let observedError: unknown;
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent(
+        String(publication.completion.streamVersion),
+        publication.completion.type,
+        publication.completion.data,
+        publication.completion.streamId,
+      ),
+    ]);
+    const runner = createSubscriptionRunner("marketplace", targetPool as never, sourcePool as never, {
+      ...subscription,
+      subscriptionName: "synthetic.measure-publication",
+      handlers: {
+        [publication.completion.type]: async (event) => {
+          try {
+            const complete = await takeProductMeasurePublication(staging.db, key, event);
+            serving = complete.products;
+          } catch (error) {
+            observedError = error;
+            throw error;
+          }
+        },
+      },
+      eventTypes: [publication.completion.type],
+      streamPrefixes: ["catalog.product-measures-"],
+    });
+    await expect(runner.runOnce()).resolves.toMatchObject({ state: "degraded", blockedStreams: 1, poisonEvents: 1 });
+    expect(serving).toBe("prior-complete");
+    expect(observedError).toMatchObject({
+      name: "ProductMeasurePublicationError",
+      code: "invalid_product_measure_publication",
+      reason: "missing or duplicate part",
+    });
+    expect(getPoisonEventStore(targetPool).has(`${key}:evt_${publication.completion.streamVersion}`)).toBe(true);
+    expect(getBlockedStreamStore(targetPool).get(`${key}:${publication.completion.streamId}`)).toMatchObject({
+      state: "blocked",
+    });
+    for (const part of publication.parts) await stageProductMeasurePublicationPart(staging.db, key, part);
+    await expect(
+      retryProjectionBlockedStream({ subscriptionRunners: [runner] }, key, publication.completion.streamId),
+    ).resolves.toMatchObject({ state: "resolved", appliedEvents: 1 });
+    expect(serving).toEqual(publication.products);
+    expect(staging.staged()).toEqual([]);
+  });
+
   beforeEach(() => {
     resetMockPoolState();
     readStreamCallsByPool.clear();

@@ -22,6 +22,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Flag,
   Flame,
   Grid2X2,
   Heart,
@@ -80,6 +81,7 @@ export type IconName =
   | "close"
   | "check"
   | "warning"
+  | "flag"
   | "chevronDown"
   | "chevronUp"
   | "chevronLeft"
@@ -170,6 +172,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   close: X,
   check: Check,
   warning: TriangleAlert,
+  flag: Flag,
   chevronDown: ChevronDown,
   chevronUp: ChevronUp,
   chevronLeft: ChevronLeft,

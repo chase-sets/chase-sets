@@ -688,6 +688,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "account-payment-stripe-embed.uat.spec.ts": [0, 3, 0, 0, "configured"],
   "listing-evidence-readiness.spec.ts": [0, 1, 0, 0, "configured/seeded"],
   "notifications.spec.ts": [0, 1, 0, 0, "seeded"],
+  "market-following-offers.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; receipted Identity-to-Auth session"],
   "payout-connect-appearance.uat.spec.ts": [0, 1, 0, 0, "configured"],
   "support-case-detail.spec.ts": [0, 2, 0, 0, "seeded"],
   "buyer-purchase-journey.spec.ts": [0, 0, 2, 0, "seeded-form"],
@@ -709,6 +710,24 @@ const authExports = [
   "signInThroughMarketplaceForm",
   "syntheticAccountFor",
 ];
+const marketFollowingSpec = "deployables/marketplace/e2e/market-following-offers.spec.ts";
+const receiptedSessionCall = `page.request.get("/api/auth/session", {
+  headers: {
+    [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [identityCommit],
+    }),
+    [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "auth",
+  },
+})`;
+const censusPrinter = ts.createPrinter({ removeComments: true });
+function printedExpression(text: string) {
+  const parsed = ts.createSourceFile("census.ts", text, ts.ScriptTarget.Latest, true);
+  const statement = parsed.statements[0];
+  if (!statement || !ts.isExpressionStatement(statement)) throw new Error("auth census: invalid call shape");
+  return censusPrinter.printNode(ts.EmitHint.Expression, statement.expression, parsed);
+}
+const expectedReceiptedSessionCall = printedExpression(receiptedSessionCall);
 
 function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusRoots) {
   if (JSON.stringify(roots) !== JSON.stringify(censusRoots)) throw new Error("auth census: dropped discovery root");
@@ -779,6 +798,7 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
   }
   const consumers = new Map<string, number[]>();
   const direct: string[] = [];
+  let receiptedSessionReads = 0;
   for (const file of files.keys()) {
     const parsed = program.getSourceFile(virtualName(file));
     if (!parsed) throw new Error(`auth census: unparsed ${file}`);
@@ -814,7 +834,14 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
         if (node.arguments[0] && (transport === "fetch" || /\.(?:get|post|put|patch|delete|fetch)$/.test(transport))) {
           const endpoint = pathText(node.arguments[0], source);
           if (endpoint?.includes("/api/auth/")) {
-            if (file !== helper && file !== unit) throw new Error(`auth census: unclassified direct auth ${file}`);
+            if (file !== helper && file !== unit) {
+              if (
+                file !== marketFollowingSpec ||
+                printedExpression(node.getText(source)) !== expectedReceiptedSessionCall
+              )
+                throw new Error(`auth census: unclassified direct auth ${file}`);
+              receiptedSessionReads++;
+            }
             if (file === helper) direct.push(endpoint.slice(endpoint.indexOf("/api/auth/")));
           }
         }
@@ -851,6 +878,7 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
     JSON.stringify(["/api/auth/password-sign-in", "/api/auth/register", "/api/auth/registration-consent"].sort())
   )
     throw new Error("auth census: incomplete direct auth/consent graph");
+  if (receiptedSessionReads !== 1) throw new Error("auth census: expected one receipted session read");
   if (consumers.size !== Object.keys(expectedConsumers).length)
     throw new Error("auth census: unclassified/omitted consumer");
   for (const [file, expected] of Object.entries(expectedConsumers))
@@ -860,7 +888,8 @@ function discoverAuthCallers(files: ReadonlyMap<string, string>, roots = censusR
     scanned: files.size,
     totalRuntime: consumers.size,
     synthetic: 4,
-    direct: 8,
+    direct: 9,
+    receiptedSessionReads,
     form: 5,
     helper: 1,
     unit: 1,
@@ -873,9 +902,10 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 17,
+      totalRuntime: 18,
       synthetic: 4,
-      direct: 8,
+      direct: 9,
+      receiptedSessionReads: 1,
       form: 5,
       helper: 1,
       unit: 1,
@@ -884,7 +914,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=17 synthetic=4 direct=8 seeded-form=5 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=18 synthetic=4 direct=9 receipted-session=1 seeded-form=5 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
@@ -907,7 +937,33 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(17);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(18);
+    }
+  });
+  it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {
+    const original = sources.get(marketFollowingSpec)!;
+    for (const [before, after] of [
+      ['page.request.get("/api/auth/session",', 'page.request.post("/api/auth/session",'],
+      ['"/api/auth/session"', '"/api/auth/register"'],
+      ['"/api/auth/session"', '"/api/omitted"'],
+      ["[CHASE_SETS_READ_AFTER_WRITE_HEADER]", '"omitted-receipt"'],
+      ["[CHASE_SETS_READ_TARGET_CONTEXT_HEADER]", '"omitted-target"'],
+      ['[CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "auth"', '[CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity"'],
+      ["sources: [identityCommit]", "sources: []"],
+      ["encodeFreshWriteReceipt({", "JSON.stringify({"],
+    ]) {
+      expect(original).toContain(before);
+      const variant = new Map(sources);
+      variant.set(marketFollowingSpec, original.replace(before, after));
+      expect(() => discoverAuthCallers(variant)).toThrow(/auth census:/);
+    }
+    for (const call of [receiptedSessionCall, 'page.request.get("/api/auth/session")']) {
+      const duplicate = new Map(sources);
+      duplicate.set(marketFollowingSpec, `${original}\n${call};`);
+      expect(() => discoverAuthCallers(duplicate)).toThrow(/auth census:/);
+      const sibling = new Map(sources);
+      sibling.set("deployables/marketplace/e2e/unclassified-session.spec.ts", `${call};`);
+      expect(() => discoverAuthCallers(sibling)).toThrow("unclassified direct auth");
     }
   });
   it("refuses sibling, re-export, bare constant, unclassified, arbitrary-path, escaped helper and dropped-root mutants through discovery", () => {

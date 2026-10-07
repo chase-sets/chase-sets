@@ -50,6 +50,7 @@ import {
   verifyKubernetesDeploymentTransition,
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
+import { assertExclusiveMarkerWriter } from "./production-release-marker.mjs";
 
 const sampleValues = {
   components: {
@@ -1880,6 +1881,7 @@ describe("platform Kubernetes deployment", () => {
       });
       const census = await readGitHubProductionWriterCensus({
         fetch,
+        sleep: async () => {},
         env: {
           GITHUB_TOKEN: "synthetic-token",
           GITHUB_REPOSITORY: "synthetic/repository",
@@ -1981,6 +1983,134 @@ describe("platform Kubernetes deployment", () => {
       ["duplicate run identity", { successor: { id: 91001 } }, /duplicate or moving run/],
     ])("fails closed for %s", async (_label, overrides, error) => {
       await expect(collect(overrides)).rejects.toThrow(error);
+    });
+  });
+
+  describe("moving active run census", () => {
+    // Synthetic identities; reproduces #8982's moving in_progress total, not its live evidence.
+    const deploy = { id: 98201, name: "Platform Deploy", status: "in_progress" };
+    const recovery = { id: 98202, name: "Platform Production Stale Helm Recovery", status: "in_progress" };
+    const ci = (id, status = "in_progress") => ({ id, name: "Synthetic CI", status });
+    const ciBatch = (from, count) => Array.from({ length: count }, (_, index) => ci(from + index));
+    const page = (total, runs) => ({ total_count: total, workflow_runs: runs });
+    const movingPass = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(102, [ci(150), ci(151)])] };
+    const stablePass = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [ci(200)])] };
+    const passRequests = (pass, inProgressPages = 1) => [
+      `${pass}:requested:1`,
+      `${pass}:pending:1`,
+      `${pass}:queued:1`,
+      ...Array.from({ length: inProgressPages }, (_, index) => `${pass}:in_progress:${index + 1}`),
+      `${pass}:waiting:1`,
+    ];
+
+    // Each pass is a status -> pages script; the last pass repeats once the script runs out.
+    async function readPasses(passes) {
+      let pass = 0;
+      const requests = [];
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        const status = request.searchParams.get("status");
+        const pageNumber = Number(request.searchParams.get("page"));
+        if (status === "requested" && pageNumber === 1) pass += 1;
+        requests.push(`${pass}:${status}:${pageNumber}`);
+        const body = (passes[Math.min(pass, passes.length) - 1][status] ?? [page(0, [])])[pageNumber - 1];
+        if (body?.httpStatus) return { ok: false, status: body.httpStatus };
+        return { ok: true, status: 200, json: async () => body };
+      });
+      const sleep = vi.fn(async () => {});
+      try {
+        const census = await readGitHubProductionWriterCensus({
+          fetch,
+          sleep,
+          env: {
+            GITHUB_TOKEN: "synthetic-token",
+            GITHUB_REPOSITORY: "synthetic/repository",
+            GITHUB_RUN_ID: String(deploy.id),
+            GITHUB_API_URL: "https://api.example.invalid",
+          },
+        });
+        return { census, requests, sleep };
+      } catch (error) {
+        return { error, requests, sleep };
+      }
+    }
+
+    it("discards a pass whose total moved and returns only the next complete stable pass", async () => {
+      const { census, error, requests, sleep } = await readPasses([movingPass, stablePass]);
+      expect(error).toBeUndefined();
+      expect(requests).toEqual([
+        ...passRequests(1).slice(0, 3),
+        "1:in_progress:1",
+        "1:in_progress:2",
+        ...passRequests(2, 2),
+      ]);
+      expect(sleep.mock.calls).toEqual([[1_000]]);
+      const ids = census.runs.map(({ id }) => id);
+      expect(ids).toHaveLength(101);
+      expect(ids).toContain(200);
+      expect(ids).not.toContain(150);
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).not.toThrow();
+    });
+
+    it.each([
+      [
+        "a duplicate or moving run",
+        { queued: [page(1, [ci(300, "queued")])], in_progress: [page(2, [deploy, ci(300)])] },
+        { in_progress: [page(2, [deploy, ci(300)])] },
+        1,
+      ],
+      [
+        "an empty page under a stable total",
+        { in_progress: [page(102, [deploy, ...ciBatch(1, 99)]), page(102, [])] },
+        { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [ci(300)])] },
+        2,
+      ],
+    ])("re-reads the whole census after %s and trusts only the stable pass", async (_label, moving, stable, pages) => {
+      const { census, error, requests, sleep } = await readPasses([moving, stable]);
+      expect(error).toBeUndefined();
+      expect(requests.filter((request) => request.startsWith("2:"))).toEqual(passRequests(2, pages));
+      expect(sleep.mock.calls).toEqual([[1_000]]);
+      expect(census.runs.find(({ id }) => id === 300)).toMatchObject({ status: "in_progress" });
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id]);
+    });
+
+    it("keeps refusing with the original error when every bounded pass moves", async () => {
+      const { census, error, requests, sleep } = await readPasses([movingPass]);
+      expect(census).toBeUndefined();
+      expect(error.message).toBe("GitHub Actions in_progress run census total moved during pagination.");
+      expect(requests.filter((request) => request.endsWith(":requested:1"))).toHaveLength(5);
+      expect(requests.at(-1)).toBe("5:in_progress:2");
+      expect(sleep.mock.calls).toEqual([[1_000], [2_000], [3_000], [4_000]]);
+    });
+
+    it("still refuses a conflicting writer that only the stable pass observed", async () => {
+      const conflicting = { in_progress: [page(101, [deploy, ...ciBatch(1, 99)]), page(101, [recovery])] };
+      const { census, error } = await readPasses([movingPass, conflicting]);
+      expect(error).toBeUndefined();
+      expect(census.writerRuns.map(({ id }) => id)).toEqual([deploy.id, recovery.id]);
+      expect(() => assertExclusiveMarkerWriter(census, String(deploy.id))).toThrow(
+        "active or conflicting production writer",
+      );
+      expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: String(deploy.id) })).toThrow(
+        /only active writer; observed 2/,
+      );
+    });
+
+    it.each([
+      ["a malformed run identity", [page(1, [{ id: 0, name: "Synthetic CI" }])], /malformed run identity/],
+      ["an invalid response", [{ total_count: 1 }], /in_progress run census returned an invalid response/],
+      ["an HTTP failure", [{ httpStatus: 502 }], /in_progress run census failed with HTTP 502/],
+      [
+        "an exceeded page bound",
+        Array.from({ length: 10 }, (_, index) => page(1001, ciBatch(1 + index * 100, 100))),
+        /exceeded the bounded 10-page limit/,
+      ],
+    ])("does not retry %s", async (_label, inProgress, message) => {
+      const { error, requests, sleep } = await readPasses([{ in_progress: inProgress }, stablePass]);
+      expect(error.message).toMatch(message);
+      expect(requests.every((request) => request.startsWith("1:"))).toBe(true);
+      expect(sleep).not.toHaveBeenCalled();
     });
   });
 

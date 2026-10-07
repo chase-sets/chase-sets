@@ -120,6 +120,25 @@ function recentlyAuthenticated(authenticatedAt: string | null | undefined) {
 }
 
 describe("resolveActorFromSessionId on a session-projection miss", () => {
+  it("resolveActorFromSessionId uses the current reported-content platform-admin preset", async () => {
+    const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+    const membership = await services.identity.getActiveMembershipForUserAccount(
+      SYNTHETIC_USER_ID,
+      SYNTHETIC_ACCOUNT_ID,
+    );
+    for (const roleKey of ["platform-admin", "owner", "manager", "fulfillment", "viewer", "synthetic-no-grants"]) {
+      vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+        ...membership!,
+        role_key: roleKey,
+        role_permissions: [],
+      });
+      const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+      expect(actor).not.toBeNull();
+      expect(actor?.roleKey).toBe(roleKey);
+      expect(actor?.permissions.includes("reported-content.view")).toBe(roleKey === "platform-admin");
+      if (roleKey === "synthetic-no-grants") expect(actor?.permissions).toEqual([]);
+    }
+  });
   it("preserves explicit stored pricing grants separately from the preset matrix", async () => {
     const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
     const membership = await services.identity.getActiveMembershipForUserAccount(
