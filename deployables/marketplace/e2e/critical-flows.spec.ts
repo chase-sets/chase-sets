@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
+import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -42,6 +43,72 @@ async function expectPageOk(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "domcontentloaded" });
   expect(response, `${path} did not return a page response`).not.toBeNull();
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
+}
+
+async function submitSignInIdentifier(page: Page, onUnready?: () => void) {
+  const identifier = page.getByLabel(/Email or phone/);
+  const form = page.locator("form").filter({ has: identifier });
+  await expect
+    .poll(
+      async () => {
+        const ready = await form.evaluate(hasIdentifierSubmitHandler);
+        if (!ready) onUnready?.();
+        return ready;
+      },
+      { message: "Identifier form must have a callable client submit handler" },
+    )
+    .toBe(true);
+  await identifier.fill("evidence@example.com");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/sign-in" && url.search === "" && url.hash === "");
+}
+
+async function expectSelectedEmailOption(page: Page) {
+  const emailOption = page.getByRole("radio", { name: "Email me a sign-in link", exact: true });
+  await emailOption.click();
+  await expect(emailOption).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("radiogroup").evaluate(async (group) => {
+    await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
+  });
+  await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
+  const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
+  await expect(emailButton).toBeEnabled();
+  await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+  await expect(page).toHaveURL((url) => url.pathname === "/sign-in" && url.search === "" && url.hash === "");
+}
+
+async function withholdSignInHydration(page: Page) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let scriptBlocked = false;
+  const identifierDocumentGets: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.isNavigationRequest() &&
+      request.method() === "GET" &&
+      new URL(request.url()).searchParams.has("signInIdentifier")
+    ) {
+      identifierDocumentGets.push(request.url());
+    }
+  });
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() === "script") {
+      scriptBlocked = true;
+      await released;
+    }
+    await route.continue();
+  });
+  return {
+    hasBlockedScript: () => scriptBlocked,
+    release,
+    identifierDocumentGets,
+    async dispose() {
+      release();
+      await page.unrouteAll({ behavior: "wait" });
+    },
+  };
 }
 
 async function expectAccountRouteReady(page: Page, route: AccountRoute) {
@@ -186,22 +253,11 @@ test.describe("marketplace critical flows", () => {
       "Passkey",
     ]);
     await expect(page.getByRole("radiogroup")).toHaveCount(0);
+    await expect(page).toHaveURL((url) => url.pathname === "/sign-in" && url.search === "" && url.hash === "");
     await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-methods-mobile" });
 
-    await page.getByLabel(/Email or phone/).fill("evidence@example.com");
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
-    await expect(page.getByRole("radio", { name: "Email me a sign-in link", exact: true })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    await page.getByRole("radiogroup").evaluate(async (group) => {
-      await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
-    });
-    await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
-    const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
-    await expect(emailButton).toBeEnabled();
-    await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+    await submitSignInIdentifier(page);
+    await expectSelectedEmailOption(page);
     await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-email-option-mobile" });
   });
 
@@ -216,24 +272,100 @@ test.describe("marketplace critical flows", () => {
       "Passkey",
     ]);
     await expect(page.getByRole("radiogroup")).toHaveCount(0);
+    await expect(page).toHaveURL((url) => url.pathname === "/sign-in" && url.search === "" && url.hash === "");
     await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-methods-desktop" });
 
-    await page.getByLabel(/Email or phone/).fill("evidence@example.com");
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
-    await expect(page.getByRole("radio", { name: "Email me a sign-in link", exact: true })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    await page.getByRole("radiogroup").evaluate(async (group) => {
-      await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
-    });
-    await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
-    const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
-    await expect(emailButton).toBeEnabled();
-    await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+    await submitSignInIdentifier(page);
+    await expectSelectedEmailOption(page);
     await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-email-option-desktop" });
   });
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1280, height: 900 },
+  ]) {
+    const dimensions = `${viewport.width}x${viewport.height}`;
+
+    test(`unhydrated identifier submits native GET without readiness at ${dimensions} @marketplace-account`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport);
+      const hydration = await withholdSignInHydration(page);
+      try {
+        // Module scripts hold DOMContentLoaded; commit still exposes the SSR form.
+        await page.goto("/sign-in", { waitUntil: "commit" });
+        await expect.poll(hydration.hasBlockedScript).toBe(true);
+        await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+        await expect(page.getByRole("radiogroup")).toHaveCount(0);
+        await page.getByLabel(/Email or phone/).fill("evidence@example.com");
+        await page.getByRole("button", { name: "Continue", exact: true }).click({ noWaitAfter: true });
+        await expect.poll(() => hydration.identifierDocumentGets.length).toBe(1);
+        await page.waitForURL((url) => url.searchParams.has("signInIdentifier"), { waitUntil: "commit" });
+        const submittedUrl = new URL(page.url());
+        expect(submittedUrl.pathname).toBe("/sign-in");
+        expect(submittedUrl.searchParams.get("signInIdentifier")).toBe("evidence@example.com");
+        expect(submittedUrl.searchParams.get("signInMethod")).toBe("password");
+        expect(submittedUrl.search).not.toBe("");
+        await testInfo.attach("native-identifier-get", {
+          body: JSON.stringify({ viewport, request: hydration.identifierDocumentGets[0], route: page.url() }),
+          contentType: "application/json",
+        });
+      } finally {
+        await hydration.dispose();
+      }
+    });
+
+    test(`identifier waits for delayed hydration at ${dimensions} @marketplace-account`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const hydration = await withholdSignInHydration(page);
+      let result: Promise<unknown> | undefined;
+      try {
+        await page.goto("/sign-in", { waitUntil: "commit" });
+        await expect.poll(hydration.hasBlockedScript).toBe(true);
+        await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+        await expect(page.getByRole("radiogroup")).toHaveCount(0);
+        let observedUnready = false;
+        const interaction = submitSignInIdentifier(page, () => {
+          observedUnready = true;
+        });
+        // Observe rejection immediately, including if a fixture assertion fails.
+        result = interaction.then(
+          () => null,
+          (error: unknown) => error,
+        );
+        await expect.poll(() => observedUnready).toBe(true);
+        await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+        expect(hydration.identifierDocumentGets).toEqual([]);
+        hydration.release();
+        expect(await result).toBeNull();
+        await expectSelectedEmailOption(page);
+        expect(hydration.identifierDocumentGets).toEqual([]);
+      } finally {
+        await hydration.dispose();
+        await result;
+      }
+    });
+
+    test(`never-ready identifier fails without submission at ${dimensions} @marketplace-account`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const hydration = await withholdSignInHydration(page);
+      try {
+        await page.goto("/sign-in", { waitUntil: "commit" });
+        await expect.poll(hydration.hasBlockedScript).toBe(true);
+        await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+        await expect(submitSignInIdentifier(page)).rejects.toThrow(
+          "Identifier form must have a callable client submit handler",
+        );
+        expect(hydration.identifierDocumentGets).toEqual([]);
+        await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+        await expect(page.getByRole("radiogroup")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Email me a sign-in link", exact: true })).toHaveCount(0);
+        await expect(page).toHaveURL((url) => url.pathname === "/sign-in" && url.search === "" && url.hash === "");
+      } finally {
+        await hydration.dispose();
+      }
+    });
+  }
 
   test("protected account routes preserve the requested return path @marketplace-account", async ({ page }) => {
     for (const route of protectedAccountRoutes) {
