@@ -225,6 +225,6 @@ describe("Platform PR install composition", () => {
     );
     const gate = bash(rendered);
     expect(gate.status).toBe(1);
-    expect(gate.stdout).toContain("E2E Tests was required but finished with result 'failure'");
+    expect(gate.stderr).toContain("E2E Tests was required but finished with result 'failure'");
   });
 });
