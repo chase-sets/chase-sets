@@ -272,7 +272,7 @@ export const VERIFY_STATIC_SURFACES = {
   "check:structure": {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",
-    evidence: ["scripts/check-structure/run.mjs:40-55,1344-1353,3370-3378"],
+    evidence: ["scripts/check-structure/run.mjs:40-55,1261-1270,3238-3246"],
   },
   "check:localization": {
     classification: MAY_NARROW,
