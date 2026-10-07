@@ -277,7 +277,7 @@ describe("marketplace listing enforcement payloads", () => {
     expect(parseMarketplaceListingAutoUnlistedPayload(legacyAutoUnlistedPayload)).toBe(legacyAutoUnlistedPayload);
   });
 
-  it.each([
+  it.each<readonly [string, unknown]>([
     ...["reportId", "reportCount", "threshold", "autoUnlistedAt"].map(
       (key) => [`missing ${key}`, without(enforcedAutoUnlistedPayload, key)] as const,
     ),
@@ -330,7 +330,7 @@ describe("marketplace listing enforcement payloads", () => {
     expect(() => parseMarketplaceListingAutoUnlistedPayload(payload)).toThrow();
   });
 
-  it.each([
+  it.each<readonly [string, unknown]>([
     ["an empty payload", {}],
     ["an extra field", { ...operatorUnlistedPayload, reportId: automatic.sourceActionId }],
     ...Object.keys(operator).map(
