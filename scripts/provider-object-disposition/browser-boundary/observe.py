@@ -227,6 +227,9 @@ def observe(parent):
         fields['userNamespace'] = user_namespace_scope(r, launch_owner(r, records))
         stage = 'root'
         fields.update(inspect_root(r, records))
+        stage = 'identity-recheck'
+        if not same_identity(r):
+            raise ValueError()
         result.append(dict(pid=pid, parent=r['parent'], start=r['start'], image=name, **fields))
     return result
 

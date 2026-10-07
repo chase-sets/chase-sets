@@ -13,8 +13,13 @@ if test -e "$input"; then
 fi
 mark remove-installation
 if test -f "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh"; then
+  set +e
   sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash \
-    "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh" remove || refuse remove-installation
+    "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh" remove
+  installer_status="$?"
+  set -e
+  printf 'provider-boundary-cleanup-installer-status:%s\n' "$installer_status"
+  require remove-installation test "$installer_status" = 0
 else
   require remove-installation test ! -e /usr/local/lib/chase-sets-provider-window
   require remove-installation test ! -e /etc/apparmor.d/chase-sets-provider-window

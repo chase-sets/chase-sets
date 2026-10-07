@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { assertBrowserAdmission, openConfinedBrowser } from "../test-window-browser.mjs";
-import { browserCapabilityProof, liveRemovalRefusal, mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
+import { browserCapabilityProof, removalRefusal, mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -71,7 +71,7 @@ async function installationIdentity() {
   return { files, inputDevice: directory.dev, inputInode: directory.ino };
 }
 
-async function liveOwnerRefusal(contexts, owned, mode) {
+async function ownerRefusal(contexts, owned, mode, stage, id) {
   const before = await installationIdentity();
   let failure;
   try {
@@ -84,11 +84,12 @@ async function liveOwnerRefusal(contexts, owned, mode) {
   } catch (error) {
     failure = error;
   }
-  const exact = liveRemovalRefusal(failure);
+  const exact = removalRefusal(failure, stage);
   console.log(
-    `installed-boundary control 13b refusal:${JSON.stringify({
+    `installed-boundary control ${id} refusal:${JSON.stringify({
       expectedStatus: 1,
       actualStatus: Number.isInteger(failure?.code) ? failure.code : null,
+      installerStatus: exact ? 1 : null,
       exact,
       stdoutBytes: failure?.stdout?.length ?? null,
       stderrBytes: failure?.stderr?.length ?? null,
@@ -113,7 +114,41 @@ async function liveOwnerRefusal(contexts, owned, mode) {
     assert.equal(await page.title(), "SYNTHETIC_LIVE_OWNER_SURVIVES");
     await page.close();
   }
-  pass(`13b ${mode} refusal and functional survival`);
+  pass(`${id} ${mode} refusal${contexts.length ? " and functional survival" : ""}`);
+}
+
+async function missingOwnerKey(contexts, owned, mode) {
+  const stimulus = `${input}/scripts/provider-object-disposition/browser-boundary/hosted-stimulus.py`;
+  const mutate = async (action) => {
+    const { stdout, stderr } = await execute("/usr/bin/sudo", ["-n", "/usr/bin/python3", stimulus, action], {
+      env: environment,
+      timeout: 1000,
+      maxBuffer: 1024,
+    });
+    assert.equal(stdout, `provider-boundary-stimulus:missing-key-${action}\n`);
+    assert.equal(stderr, "");
+  };
+  let primary;
+  let applied = false;
+  try {
+    await mutate("apply");
+    applied = true;
+    await ownerRefusal(contexts, owned, mode, "remove-ownership-census", "13d");
+  } catch (error) {
+    primary = error;
+  } finally {
+    if (applied) {
+      try {
+        await mutate("restore");
+      } catch (error) {
+        console.error("installed-boundary control 13d restore: FAIL; raw output redacted");
+        primary ??= error;
+      }
+    }
+  }
+  if (primary) throw primary;
+  await assertBrowserAdmission();
+  pass(`13d ${mode} restored admission`);
 }
 
 async function setupNamesAbsent() {
@@ -147,6 +182,8 @@ async function run() {
     console.log(`installed-boundary ${name}:${value}`);
   }
   pass("1 CP-T/CP-A");
+  control = "13d-missing-key-alone";
+  await missingOwnerKey([], [], "alone");
   control = "5-launch";
   const browser = await openConfinedBrowser();
   let owned = [];
@@ -187,7 +224,9 @@ async function run() {
       if (parent) assert.ok(parent.start <= r.start);
     }
     control = "13b-live-owner";
-    await liveOwnerRefusal([context], owned, "single-live");
+    await ownerRefusal([context], owned, "single-live", "remove-live-owner", "13b");
+    control = "13d-missing-key-concurrent";
+    await missingOwnerKey([context], owned, "concurrent-live");
     control = "13b-concurrent-live";
     concurrent = await openConfinedBrowser();
     const concurrentContext = await concurrent.newContext();
@@ -196,7 +235,7 @@ async function run() {
     assert.equal(await concurrentPage.title(), "SYNTHETIC_CONCURRENT_OWNER");
     owned = await tree();
     console.log(`installed-boundary concurrent-identities:${JSON.stringify(owned)}`);
-    await liveOwnerRefusal([context, concurrentContext], owned, "concurrent-live");
+    await ownerRefusal([context, concurrentContext], owned, "concurrent-live", "remove-live-owner", "13b");
   } catch (error) {
     primary = { error, control };
   } finally {

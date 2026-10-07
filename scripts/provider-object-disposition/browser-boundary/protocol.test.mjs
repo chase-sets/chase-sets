@@ -8,7 +8,7 @@ import {
   nativeRefusal,
   observerDiagnostic,
   browserCapabilityProof,
-  liveRemovalRefusal,
+  removalRefusal,
 } from "./protocol.mjs";
 
 const dropped = {
@@ -35,12 +35,12 @@ const liveRemoval = {
   code: 1,
   signal: null,
   stdout:
-    "provider-boundary-cleanup-stage:remove-installation\nprovider-boundary-installer-stage:source-location\nprovider-boundary-installer-stage:remove-ownership\n",
+    "provider-boundary-cleanup-stage:remove-installation\nprovider-boundary-installer-stage:source-location\nprovider-boundary-installer-stage:remove-ownership\nprovider-boundary-cleanup-installer-status:1\n",
   stderr:
     "provider-boundary-installer-refused:remove-live-owner\nprovider-boundary-cleanup-refused:remove-installation\n",
 };
 it("control 13b compares both emitters' complete bytes with installer/wrapper status 1", () => {
-  expect(liveRemovalRefusal(liveRemoval)).toBe(true);
+  expect(removalRefusal(liveRemoval, "remove-live-owner")).toBe(true);
   for (const changed of [
     { code: 0 },
     { code: 78 },
@@ -53,8 +53,22 @@ it("control 13b compares both emitters' complete bytes with installer/wrapper st
     { stdout: liveRemoval.stdout + "PRIVATE" },
     { stderr: liveRemoval.stderr.replace("remove-live-owner", "remove-orphan-owner") },
     { stdout: liveRemoval.stdout + "provider-boundary-installer-stage:remove-profile\n" },
+    { stdout: liveRemoval.stdout.replace("installer-status:1", "installer-status:78") },
+    { stdout: liveRemoval.stdout.replace("installer-status:1", "installer-status:137") },
+    { stdout: liveRemoval.stdout.replace("provider-boundary-cleanup-installer-status:1\n", "") },
   ])
-    expect(liveRemovalRefusal({ ...liveRemoval, ...changed })).toBe(false);
+    expect(removalRefusal({ ...liveRemoval, ...changed }, "remove-live-owner")).toBe(false);
+});
+
+it("control 13d requires its own census refusal, not live-owner or an open stage", () => {
+  const missingKey = {
+    ...liveRemoval,
+    stderr: liveRemoval.stderr.replace("remove-live-owner", "remove-ownership-census"),
+  };
+  expect(removalRefusal(missingKey, "remove-ownership-census")).toBe(true);
+  expect(removalRefusal(liveRemoval, "remove-ownership-census")).toBe(false);
+  expect(removalRefusal(missingKey, "remove-live-owner")).toBe(false);
+  expect(removalRefusal(missingKey, "PRIVATE")).toBe(false);
 });
 
 it("CP-B distinguishes dropped launch authority from proved nested sandbox authority", () => {

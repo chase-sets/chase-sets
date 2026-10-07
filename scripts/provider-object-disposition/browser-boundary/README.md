@@ -32,7 +32,7 @@ Capability observations distinguish the launch user namespace (all sets dropped)
 from a proved descendant user namespace. Only the sealed-root Chromium sandbox's
 scoped CAP_SYS_ADMIN form is accepted there, with no-new-privileges and no
 inheritable or ambient capabilities. Host, unrelated and unreadable namespace
-ancestry refuse. Observer namespace descriptors are read-only inspection handles,
+ancestry refuse. Observer namespace descriptors are used only for inspection and
 closed in the observer; none is transferred to the workload or its launcher.
 
 SF constrains seed syscalls, not peer-side namespace acquisition. B-H1 remains
@@ -66,7 +66,10 @@ exec/descendant labels, PID/start observations and normal owned drain. The
 installer includes governing-only network mutation and admission negatives.
 Hosted controls also check exact setup/launch temporary names and attempt removal
 with one and two live browsers, comparing both emitters' complete refusal bytes,
-installation identity and functional browser survival. Cleanup completion requires
+their separate statuses, installation identity and functional browser survival.
+A root-only synthetic missing-key stimulus checks census refusal alone and with
+a live browser, restores the exact header and requires fresh admission. It is
+never part of the workload root. Cleanup completion requires
 the exact names and loaded profile to be absent.
 The complete AC-D3 matrix is not yet discharged: transition force-kill/stall
 controls, hostile seed/FD-import controls, native census stimuli, PID reuse,

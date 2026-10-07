@@ -4,6 +4,7 @@ import unittest
 import sys
 import io
 import errno
+import tempfile
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from unittest import mock
 
@@ -15,6 +16,9 @@ spec.loader.exec_module(ownership)
 observer_spec = importlib.util.spec_from_file_location('observer', Path(__file__).with_name('observe.py'))
 observer = importlib.util.module_from_spec(observer_spec)
 observer_spec.loader.exec_module(observer)
+stimulus_spec = importlib.util.spec_from_file_location('stimulus', Path(__file__).with_name('hosted-stimulus.py'))
+stimulus = importlib.util.module_from_spec(stimulus_spec)
+stimulus_spec.loader.exec_module(stimulus)
 
 
 def record(pid=20, parent=1, start=100, uid=1001, image=(1, 2), namespace='pid:[1]', path='/usr/local/lib/chase-sets-provider-window/launcher'):
@@ -26,6 +30,44 @@ def classify(previous, current):
 
 
 class OwnershipControls(unittest.TestCase):
+    def test_missing_key_stimulus_preserves_an_exclusive_exact_restoration_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            header = Path(directory) / 'installation.h'
+            backup = header.with_name('installation.h.original')
+            original = b'#define ADMITTED_UID 1001\n#define ADMITTED_GID 1001\n'
+            header.write_bytes(original)
+            with mock.patch.object(stimulus, 'HEADER', header), mock.patch.object(stimulus, 'BACKUP', backup), mock.patch.object(stimulus, 'regular', return_value=mock.Mock(st_mode=0o100644)):
+                stimulus.missing_key('apply')
+                self.assertEqual(header.read_bytes(), b'#define ADMITTED_GID 1001\n')
+                self.assertEqual(backup.read_bytes(), original)
+                with self.assertRaises(ValueError):
+                    stimulus.missing_key('apply')
+                self.assertEqual(backup.read_bytes(), original)
+                stimulus.missing_key('restore')
+                self.assertEqual(header.read_bytes(), original)
+                self.assertFalse(backup.exists())
+
+    def test_missing_or_duplicate_uid_is_not_a_valid_stimulus(self):
+        for original in (b'#define ADMITTED_GID 1001\n', b'#define ADMITTED_UID 1001\n' * 2):
+            with tempfile.TemporaryDirectory() as directory:
+                header = Path(directory) / 'installation.h'
+                backup = header.with_name('installation.h.original')
+                header.write_bytes(original)
+                with mock.patch.object(stimulus, 'HEADER', header), mock.patch.object(stimulus, 'BACKUP', backup), mock.patch.object(stimulus, 'regular'):
+                    with self.assertRaises(ValueError):
+                        stimulus.missing_key('apply')
+                self.assertEqual(header.read_bytes(), original)
+                self.assertFalse(backup.exists())
+
+    def test_stimulus_errors_and_arguments_are_closed(self):
+        for action in ('apply', 'PRIVATE'):
+            output, error = io.StringIO(), io.StringIO()
+            with mock.patch.object(stimulus.os, 'getuid', return_value=0, create=True), mock.patch.object(sys, 'argv', ['hosted-stimulus.py', action]), mock.patch.object(stimulus, 'missing_key', side_effect=OSError('PRIVATE_PATH')):
+                with redirect_stdout(output), redirect_stderr(error):
+                    self.assertEqual(stimulus.main(), 1)
+            self.assertEqual(output.getvalue(), '')
+            self.assertEqual(error.getvalue(), 'provider-boundary-stimulus-refused:missing-key\n')
+
     def test_n2_own_pid_parent_and_start_are_distinct(self):
         fields = ['S', '17'] + ['0'] * 50
         fields[19] = '12345'
@@ -82,6 +124,24 @@ class OwnershipControls(unittest.TestCase):
                 self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
         self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\n')
+
+    def test_observer_identity_drift_after_root_inspection_publishes_no_partial_records(self):
+        status = ''.join(f'{key}:\t0\n' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'))
+        output, error = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(observer.os, 'getuid', return_value=0, create=True))
+            stack.enter_context(mock.patch.object(sys, 'argv', ['observe.py', '1']))
+            stack.enter_context(mock.patch.object(observer, 'snapshot', return_value={20: record()}))
+            stack.enter_context(mock.patch.object(observer.Path, 'read_text', autospec=True, side_effect=lambda p: status if p.name == 'status' else 'chase-sets-provider-window (unconfined)'))
+            stack.enter_context(mock.patch.object(observer.os, 'readlink', return_value='SYNTHETIC_NAMESPACE'))
+            stack.enter_context(mock.patch.object(observer, 'launch_owner', return_value=record()))
+            stack.enter_context(mock.patch.object(observer, 'user_namespace_scope', return_value='launch'))
+            stack.enter_context(mock.patch.object(observer, 'inspect_root', return_value={}))
+            stack.enter_context(mock.patch.object(observer, 'same_identity', return_value=False))
+            with redirect_stdout(output), redirect_stderr(error):
+                self.assertEqual(observer.main(), 1)
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:identity-recheck\n')
 
     def test_observer_root_error_retains_closed_identity_path_kind_and_errno(self):
         for kind in ('host-helper', 'old-root'):

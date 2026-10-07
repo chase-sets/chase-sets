@@ -156,7 +156,8 @@ export function browserCapabilityProof(record) {
   );
 }
 
-export function liveRemovalRefusal(error) {
+export function removalRefusal(error, stage) {
+  if (!["remove-live-owner", "remove-ownership-census"].includes(stage)) return false;
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
   return (
@@ -168,13 +169,13 @@ export function liveRemovalRefusal(error) {
       Buffer.from(
         "provider-boundary-cleanup-stage:remove-installation\n" +
           "provider-boundary-installer-stage:source-location\n" +
-          "provider-boundary-installer-stage:remove-ownership\n",
+          "provider-boundary-installer-stage:remove-ownership\n" +
+          "provider-boundary-cleanup-installer-status:1\n",
       ),
     ) &&
     stderr.equals(
       Buffer.from(
-        "provider-boundary-installer-refused:remove-live-owner\n" +
-          "provider-boundary-cleanup-refused:remove-installation\n",
+        `provider-boundary-installer-refused:${stage}\n` + "provider-boundary-cleanup-refused:remove-installation\n",
       ),
     )
   );
@@ -192,6 +193,7 @@ export function observerDiagnostic(error) {
     "label",
     "namespaces",
     "user-namespace",
+    "identity-recheck",
     "root",
   ];
   let stage =

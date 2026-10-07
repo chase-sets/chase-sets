@@ -73,6 +73,8 @@ it("cleanup completion requires exact-name and loaded-profile absence after admi
   const cleanup = read("ci-cleanup.sh");
   expect(cleanup.indexOf("input-not-symlink")).toBeLessThan(cleanup.indexOf("mark remove-installation"));
   expect(cleanup.indexOf("mark verify-exact-names")).toBeGreaterThan(cleanup.indexOf("mark remove-input"));
+  expect(cleanup).toContain('installer_status="$?"');
+  expect(cleanup).toContain('require remove-installation test "$installer_status" = 0');
   for (const name of ["target-absent", "profile-absent", "input-absent", "profile-census", "profile-present"]) {
     expect(cleanup.indexOf(name)).toBeGreaterThan(cleanup.indexOf("mark verify-exact-names"));
     expect(cleanup.indexOf(name)).toBeLessThan(cleanup.indexOf("mark complete"));
