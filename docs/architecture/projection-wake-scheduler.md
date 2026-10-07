@@ -52,7 +52,7 @@ The effective reservation is observable: each loop's status (in `/internal/worke
 Before enabling an additional hot-path source context (registry `priorityLane: "hot"`) or raising lane throughput, walk the chain:
 
 1. **Worker loop:** `WORKER_WAKE_MAX_CONCURRENT_RUNNERS >= WORKER_WAKE_HOT_LANE_RUNNER_COUNT + 1`. Raise the hot lane runner count when the hot-lane queue age p95 alert (`platform-worker-wake-alerts`) fires or the wake-intent summary shows sustained queued hot intents with idle standard/bulk lanes; raise wake concurrency alongside it to keep the reservation real.
-2. **Worker database pool:** the sum of all runner group concurrencies (projections, operations, jobs, inventory import, dispatch, scheduled, wakes) must stay at or below `DATABASE_POOL_MAX`; the worker capacity assertion fails startup and the Terraform `worker_runner_capacity` check fails the plan otherwise. DOKS staging uses the compact runner baseline plus wake headroom, so its generated staging Helm overlay sets pool 9. Production runs wake concurrency 2 with 1/1/1 lane runners and a worker pool maximum of 8, so any production wake increase needs `worker_database_pool_max` raised first.
+2. **Worker database pool:** the sum of all runner group concurrencies (projections, operations, jobs, inventory import, dispatch, scheduled, wakes) must stay at or below `DATABASE_POOL_MAX`; the worker capacity assertion fails startup and the Terraform `worker_runner_capacity` check fails the plan otherwise. The renderer's `doksStagingWorkerEnvOverrides` sets staging pool `12` for four projection runners and wake concurrency `3`. Production runs wake concurrency `2` with `1`/`1`/`1` lane runners and a worker pool maximum of `8`; any production wake increase needs the Helm worker `DATABASE_POOL_MAX` (platform-worker base env in `infrastructure/helm/platform/runtime-values.json`) raised alongside it; the worker capacity assertion refuses startup otherwise.
 3. **Control-plane wake store:** every lane runner adds one claim query per poll interval plus claim/complete/fail traffic per intent against `platform_projection_wake_intents`; the registry's `wakeStoreLoadEstimate` for the new source context indicates expected intent volume. Watch the wake-intent summary (stale claims, oldest ages) after enabling.
 4. **Cluster connection budget and deployment overlap:** pool maxima, relay listener connections, and rolling-deploy doubling are modeled in the plan-time `wake_connection_budget` check; see `docs/architecture/push-wake-connection-budget.md` before changing pool sizes or instance counts.
 
@@ -68,11 +68,14 @@ A scheduled `work-signals.cleanup` runner claims a control-plane scheduled-runne
 
 ## Configuration
 
-Platform worker environment variables, all with safe defaults:
+Platform worker environment variables, all with safe defaults. Helm's base worker env in `infrastructure/helm/platform/runtime-values.json` pins wake concurrency `2`, lane counts `1`/`1`/`1`, and statement timeout `30000` ms for previews and production. `doksStagingWorkerEnvOverrides` in `scripts/render-platform-helm-values.mjs` overrides staging concurrency to `3` and the standard lane to `2`; the other pinned values are unchanged. The renderer generates `infrastructure/helm/platform/values.yaml`, `infrastructure/helm/platform/values.staging.yaml`, and `infrastructure/helm/platform/values.production.yaml`. Edit the applicable source, re-render with `node scripts/render-platform-helm-values.mjs`, check with `--check`, and ship through a Platform Deploy; a source edit alone does not change running configuration.
+
+Variables other than those named above are unset in Helm in every environment; their effective defaults come from the consuming reader, `deployables/platform-worker/src/config.ts`. No Helm scheduler or push-dispatch flag is declared.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED` | `true` | Consumer-side kill switch for the wake scheduler runners. |
+| `WORKER_WAKE_PUSH_DISPATCH_ENABLED` | `true` | Enables push nudges and the wake-store listener in `deployables/platform-worker/src/main.ts`; disabling it leaves scheduler polling intact. |
 | `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` | `2` (`3` in staging) | Concurrency budget for the `wakes` runner group (counted by the worker capacity assertion and the Terraform worker capacity check). Keep it at least the hot lane runner count + 1 so the hot-lane reservation is effective. |
 | `WORKER_WAKE_POLL_INTERVAL_MS` | `1000` | Poll cadence of the `wakes` runner group loop. |
 | `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` | `1` | Hot lane runner instances; also the requested reserved-slot count for the wakes loop (clamped to wake concurrency - 1 while other lanes exist). |
@@ -80,6 +83,7 @@ Platform worker environment variables, all with safe defaults:
 | `WORKER_WAKE_BULK_LANE_RUNNER_COUNT` | `1` | Bulk lane runner instances. |
 | `WORKER_WAKE_MAX_CLAIMS_PER_RUN` | `10` | Bounded claims per runner pass. |
 | `WORKER_WAKE_CLAIM_TTL_MS` | `120000` | Wake-intent claim TTL; expired claims become reclaimable. |
+| `WORKER_WAKE_STATEMENT_TIMEOUT_MS` | `30000` | Helm-pinned statement timeout for wake queries. |
 | `WORKER_WAKE_RETRY_BACKOFF_BASE_MS` | `1000` | Per-intent retry backoff base. |
 | `WORKER_WAKE_RETRY_BACKOFF_MAX_MS` | `60000` | Per-intent retry backoff ceiling. |
 | `WORKER_WAKE_MAX_ATTEMPTS` | `10` | Attempt budget before attempts-exhausted alerting. |
@@ -105,7 +109,7 @@ Read-after-write freshness waits integrate with the work-signal store through a 
 4. API processes only write wake-intent rows through pooled control-database queries; they hold no listener connections. Durable checkpoint-waiter registration exists in the gateway but stays off by default until the readiness-notification wait path that consumes waiter rows lands.
 5. Checkpoint readiness is recorded from durable checkpoints only: wake-driven scheduler completions record it, and polling-path projection runs record it for subscriptions whose checkpoints advanced. Empty-batch skip-ahead checkpoint advances do not record readiness; the durable poll covers that gap. Readiness rows are cleared when a projection group resets for a revision rebuild or an operator rebuild so stale positions cannot outlive their checkpoints, and bounded readiness TTLs reap anything cleared out-of-band.
 6. Wake-request counts and work-signal errors appear in the read-after-write freshness audit records for dashboards. Public freshness-timeout responses redact raw projection errors and internal checkpoint topology; the audit record keeps the detail.
-7. Rollout: `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` defaults off and rides a staging-first ramp in Terraform; production enablement follows the milestone rollout-control gates and the post-deploy synthetic probe and freshness-SLO evidence.
+7. Rollout: Helm pins `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` and `READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED` to `false` in the base API env in `infrastructure/helm/platform/runtime-values.json`, with no staging or production override. Changes go through `scripts/render-platform-helm-values.mjs` and a Platform Deploy, not Terraform flag locals. Both remain under the in-flight #2512 rollout; production enablement follows the milestone rollout-control gates and the post-deploy synthetic probe and freshness-SLO evidence. See the [per-environment controls](../runbooks/push-wake-rollout-controls.md#kill-switch-matrix).
 
 ## Boundaries
 

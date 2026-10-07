@@ -199,7 +199,7 @@ export function CheckoutSellListPage({
 
         {isSignedIn ? <LatestSellListConfirmationPanel confirmation={latestConfirmation} /> : null}
 
-        {sellListLines.length === 0 && recoveryState?.kind === "pending-fresh-write" ? (
+        {recoveryState?.kind === "pending-fresh-write" ? (
           <Surface tone="subtle" elevation="tinted">
             <Stack gap={3}>
               <Badge tone="neutral">
@@ -216,6 +216,7 @@ export function CheckoutSellListPage({
               <LinkButton href={recoveryState.refreshHref} tone="secondary">
                 {t("checkout.features.sellList.ui.sellListPage.refresh.sell.list")}
               </LinkButton>
+              {sellListLines.length > 0 ? <Button disabled>{model.primarySellerCheckoutLabel}</Button> : null}
             </Stack>
           </Surface>
         ) : sellListLines.length === 0 && recoveryState?.kind === "missing-after-fresh-write" ? (

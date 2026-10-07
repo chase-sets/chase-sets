@@ -58,6 +58,7 @@ export class ConnectorPairingError extends Error {
       | "invalid-request"
       | "invalid-credential"
       | "unavailable",
+    readonly authorizationDescription?: "pairing_code_ambiguous",
   ) {
     super(code);
   }

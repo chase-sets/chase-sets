@@ -8,6 +8,7 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.60.0"
   }
 }

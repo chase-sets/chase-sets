@@ -107,11 +107,18 @@ quality-v2 below. Shape is mechanical; the pressure test judges truth.
 6. **Contract compatibility.** `Contract compatibility` contains either the
    exact line `none — no schema, event, or contract changes.` or a Markdown
    table with exact ordered columns `Changed contract`, `Compatibility posture`,
-   and `Removed path`, plus a fully populated row for every changed contract.
+   plus a fully populated row for every changed contract.
 7. **Glossary impact.** `Glossary impact` contains either the exact line
    `none — no new or renamed public names.` or a Markdown table with exactly
    `Public term | Owning glossary or contract` and a fully populated row for
    every new or renamed public name.
+8. **Superseded paths.** `Superseded paths` contains either the exact line
+   `none — no existing path is replaced or made redundant.` or a Markdown table
+   with exactly `Superseded path | Replacement | Removal` and a fully populated
+   row for every existing path this change replaces or makes redundant. Removal
+   is `this issue` or the native successor `#N`, identifying the owning slice.
+   Each declared removal must be an explicit acceptance criterion with a named
+   evidence method in its owning slice.
 
 Declaration headings may use ATX, setext, or standalone-label Markdown beneath
 any valid parent. Each heading and `QUALITY_PROFILE` appears exactly once. A

@@ -75,36 +75,6 @@ const TIMELINE_CONCURRENCY = 8;
 const EPIC_SUB_ISSUE_CAPACITY = 100;
 const EPIC_SUB_ISSUE_WARNING_THRESHOLD = 90;
 const MILESTONE_EVENTS = new Set(["milestoned", "demilestoned"]);
-const FORECAST_WINDOW_DAYS = 14;
-const FORECAST_SCHEMA_VERSION = "roadmap-forecast-inputs/v1";
-const FORECAST_RECORD_PREFIX = "<!-- roadmap-forecast-inputs:";
-const FORECAST_RECORD_SUFFIX = " -->";
-const THROUGHPUT_TITLE = /^(Wave|Mobile)\s+(\d+)\b/;
-const FORECAST_RECORD_KEYS = [
-  "schemaVersion",
-  "generatedAt",
-  "windowDays",
-  "closures7",
-  "closures14",
-  "closureDays14",
-  "milestones",
-];
-const FORECAST_MILESTONE_KEYS = [
-  "number",
-  "title",
-  "state",
-  "cumulativeOpen",
-  "forecastDays",
-  "openEligibleIssueNumbers",
-  "closedEligibleIssueNumbers",
-  "openIneligibleIssueNumbers",
-  "closedIneligibleIssueNumbers",
-];
-const FORECAST_IDENTITY_KEYS = FORECAST_MILESTONE_KEYS.slice(5);
-export const FORECAST_TABLE_HEADER =
-  "| Outcome | Forecast | Drift | Slices | Done | Open | Refined | Parentless _(reported)_ | Tracking | Added (7d) | Epics done |";
-export const FORECAST_TABLE_SEPARATOR = "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|";
-
 function authorityError(code, message = code) {
   return new RoadmapIssueEnumerationError(code, message);
 }
@@ -561,14 +531,6 @@ export async function produceRefinedInventoryProbe({
   return payload;
 }
 
-function throughputIdentity(title) {
-  if (typeof title !== "string") return null;
-  const match = THROUGHPUT_TITLE.exec(title);
-  if (!match) return null;
-  const ordinal = Number(match[2]);
-  return Number.isSafeInteger(ordinal) ? { family: match[1], ordinal } : null;
-}
-
 function validateOpenMilestoneShapes(milestones) {
   for (const milestone of milestones) {
     const dueMs =
@@ -599,49 +561,6 @@ function validateOpenMilestoneDueDates(milestones) {
   }
 }
 
-function assertCatalogOrder(catalog) {
-  const numbers = new Set();
-  const titles = new Set();
-  const previousOrdinal = new Map();
-  for (const milestone of catalog) {
-    const identity = throughputIdentity(milestone.title);
-    if (!identity || numbers.has(milestone.number) || titles.has(milestone.title)) {
-      throw authorityError("MILESTONE_CATALOG_DRIFT", "Wave/Mobile milestone catalog identity drifted.");
-    }
-    const previous = previousOrdinal.get(identity.family);
-    if (previous !== undefined && identity.ordinal <= previous) {
-      throw authorityError("MILESTONE_CATALOG_DRIFT", "Wave/Mobile milestone ordinals are not strictly increasing.");
-    }
-    numbers.add(milestone.number);
-    titles.add(milestone.title);
-    previousOrdinal.set(identity.family, identity.ordinal);
-  }
-}
-
-export function buildForecastMilestoneCatalog(openMilestones, closedMilestones) {
-  for (const milestone of closedMilestones) {
-    if (
-      !milestone ||
-      !isPositiveSafeInteger(milestone.number) ||
-      typeof milestone.title !== "string" ||
-      milestone.title.length === 0 ||
-      !Object.hasOwn(milestone, "state") ||
-      milestone.state !== "closed"
-    ) {
-      throw authorityError("MILESTONE_CATALOG_DRIFT", "Closed milestone authority has an invalid base shape.");
-    }
-  }
-  const catalog = [...openMilestones, ...closedMilestones]
-    // Forecast v1 is calibrated only for the legacy provider-number sequence.
-    // Managed ordering is deliberately reported as unavailable until the
-    // gate-chain forecast owns a stable-ID representation.
-    .filter((milestone) => readOutcomePolicy(milestone)?.source === "legacy-title")
-    .map(({ number, title, state }) => ({ number, title, state }))
-    .sort((left, right) => left.number - right.number);
-  assertCatalogOrder(catalog);
-  return catalog;
-}
-
 export function reconcileForecastIssueSources(restIssues, issueFacts) {
   const restNumbers = restIssues.map((issue) => issue?.number);
   const graphNumbers = Array.isArray(issueFacts?.sourceNumbers) ? issueFacts.sourceNumbers : [...issueFacts.keys()];
@@ -661,409 +580,6 @@ export function reconcileForecastIssueSources(restIssues, issueFacts) {
       `REST and GraphQL issue identities did not reconcile exactly (${restNumbers.length} REST, ${graphNumbers.length} GraphQL).`,
     );
   }
-}
-
-export function normalizeForecastIssue(issue, catalogByNumber, nowMs) {
-  const labels = Array.isArray(issue?.labels)
-    ? issue.labels.map((label) => (typeof label === "string" ? label : label?.name))
-    : null;
-  const type = issue?.issueTypeName;
-  const state = issue?.state;
-  const createdAtMs = parseTimezoneInstant(issue?.created_at);
-  const closedAtMs = issue?.closed_at === null ? null : parseTimezoneInstant(issue?.closed_at);
-  const rawMilestone = issue?.milestone;
-  let milestone = null;
-  if (rawMilestone !== null) {
-    if (
-      !rawMilestone ||
-      !isPositiveSafeInteger(rawMilestone.number) ||
-      typeof rawMilestone.title !== "string" ||
-      rawMilestone.title.length === 0 ||
-      (rawMilestone.state !== "open" && rawMilestone.state !== "closed")
-    ) {
-      throw authorityError(
-        "FORECAST_ISSUE_AUTHORITY_INVALID",
-        `Issue #${issue?.number ?? "?"} has an invalid milestone.`,
-      );
-    }
-    milestone = { number: rawMilestone.number, title: rawMilestone.title, state: rawMilestone.state };
-  }
-  const catalogMilestone = milestone ? catalogByNumber.get(milestone.number) : null;
-  if (
-    !isPositiveSafeInteger(issue?.number) ||
-    (state !== "open" && state !== "closed") ||
-    !(type === null || (typeof type === "string" && type.length > 0)) ||
-    labels === null ||
-    labels.some((label) => typeof label !== "string" || label.length === 0) ||
-    new Set(labels).size !== labels.length ||
-    createdAtMs === null ||
-    createdAtMs > nowMs ||
-    (state === "open" && issue.closed_at !== null) ||
-    (state === "closed" && (closedAtMs === null || closedAtMs < createdAtMs || closedAtMs > nowMs)) ||
-    (catalogMilestone && (catalogMilestone.title !== milestone.title || catalogMilestone.state !== milestone.state))
-  ) {
-    throw authorityError(
-      "FORECAST_ISSUE_AUTHORITY_INVALID",
-      `Issue #${issue?.number ?? "?"} has invalid forecast authority.`,
-    );
-  }
-  const normalized = {
-    number: issue.number,
-    state,
-    type,
-    labels,
-    milestone,
-    created_at: issue.created_at,
-    closed_at: issue.closed_at,
-  };
-  return { issue: normalized, eligible: type !== "Epic" && !labels.includes("status:tracking-only") };
-}
-
-export function evaluateForecastEstimator(closureDays14) {
-  const closures14 = closureDays14.reduce((sum, day) => sum + day.count, 0);
-  const closures7 = closureDays14.slice(-7).reduce((sum, day) => sum + day.count, 0);
-  const activeDays = closureDays14.filter((day) => day.count > 0).length;
-  const maxDaily = Math.max(0, ...closureDays14.map((day) => day.count));
-  const diagnostics = [];
-  if (closures14 < 14) diagnostics.push("FORECAST_SAMPLE_BELOW_14");
-  if (activeDays < 7) diagnostics.push("FORECAST_ACTIVE_DAYS_BELOW_7");
-  if (maxDaily * 4 > closures14) diagnostics.push("FORECAST_DAY_SHARE_ABOVE_25_PERCENT");
-  if (Math.abs(2 * closures7 - closures14) * 4 > closures14) {
-    diagnostics.push("FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT");
-  }
-  return {
-    admissible: diagnostics.length === 0,
-    diagnostics,
-    closures7,
-    closures14,
-    activeDays,
-    maxDaily,
-    ratePerDay: diagnostics.length === 0 ? closures14 / FORECAST_WINDOW_DAYS : null,
-  };
-}
-
-function ascendingUniquePositiveIntegers(value) {
-  return (
-    Array.isArray(value) &&
-    value.every(isPositiveSafeInteger) &&
-    value.every((number, index) => index === 0 || value[index - 1] < number)
-  );
-}
-
-function utcDayStart(nowMs) {
-  const now = new Date(nowMs);
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-}
-
-export function deriveForecastInputs({ catalog, normalizedIssues, nowMs, managedMilestoneNumbers = [] }) {
-  const todayUtcMs = utcDayStart(nowMs);
-  const catalogByNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
-  const identitiesByMilestone = new Map(
-    catalog.map((milestone) => [milestone.number, Object.fromEntries(FORECAST_IDENTITY_KEYS.map((key) => [key, []]))]),
-  );
-  const closureDays14 = Array.from({ length: FORECAST_WINDOW_DAYS }, (_, index) => ({
-    date: new Date(todayUtcMs - (FORECAST_WINDOW_DAYS - index) * DAY_MS).toISOString().slice(0, 10),
-    count: 0,
-  }));
-
-  for (const entry of normalizedIssues) {
-    const issue = entry.issue;
-    const catalogMilestone = issue.milestone ? catalogByNumber.get(issue.milestone.number) : null;
-    if (!catalogMilestone) continue;
-    const identityKey = `${issue.state}${entry.eligible ? "Eligible" : "Ineligible"}IssueNumbers`;
-    identitiesByMilestone.get(catalogMilestone.number)[identityKey].push(issue.number);
-    if (entry.eligible && issue.state === "closed") {
-      const closedAtMs = Date.parse(issue.closed_at);
-      const index = Math.floor((closedAtMs - (todayUtcMs - FORECAST_WINDOW_DAYS * DAY_MS)) / DAY_MS);
-      if (index >= 0 && index < FORECAST_WINDOW_DAYS) closureDays14[index].count += 1;
-    }
-  }
-  for (const identities of identitiesByMilestone.values()) {
-    for (const key of FORECAST_IDENTITY_KEYS) identities[key].sort((left, right) => left - right);
-  }
-
-  const estimator = evaluateForecastEstimator(closureDays14);
-  let cumulativeOpen = 0;
-  const milestones = catalog.map((milestone) => {
-    const identities = identitiesByMilestone.get(milestone.number);
-    if (milestone.state === "closed") {
-      return { ...milestone, cumulativeOpen: null, forecastDays: null, ...identities };
-    }
-    cumulativeOpen += identities.openEligibleIssueNumbers.length;
-    const forecastDays =
-      cumulativeOpen === 0 ? 0 : estimator.admissible ? Math.ceil(cumulativeOpen / estimator.ratePerDay) : null;
-    return { ...milestone, cumulativeOpen, forecastDays, ...identities };
-  });
-  const record = {
-    schemaVersion: FORECAST_SCHEMA_VERSION,
-    generatedAt: new Date(nowMs).toISOString(),
-    windowDays: FORECAST_WINDOW_DAYS,
-    closures7: estimator.closures7,
-    closures14: estimator.closures14,
-    closureDays14,
-    milestones,
-  };
-  return {
-    record,
-    estimator,
-    managedMilestoneNumbers: [...new Set(managedMilestoneNumbers)].sort((left, right) => left - right),
-  };
-}
-
-function validateForecastRecord(record, nowMs) {
-  if (!hasExactKeys(record, FORECAST_RECORD_KEYS) || record.schemaVersion !== FORECAST_SCHEMA_VERSION) return false;
-  const generatedAtMs = parseTimezoneInstant(record.generatedAt);
-  if (
-    generatedAtMs === null ||
-    new Date(generatedAtMs).toISOString() !== record.generatedAt ||
-    generatedAtMs > nowMs ||
-    record.windowDays !== FORECAST_WINDOW_DAYS ||
-    !isNonNegativeSafeInteger(record.closures7) ||
-    !isNonNegativeSafeInteger(record.closures14) ||
-    !Array.isArray(record.closureDays14) ||
-    record.closureDays14.length !== FORECAST_WINDOW_DAYS ||
-    !Array.isArray(record.milestones)
-  )
-    return false;
-  const priorTodayUtcMs = utcDayStart(generatedAtMs);
-  for (let index = 0; index < record.closureDays14.length; index += 1) {
-    const day = record.closureDays14[index];
-    if (
-      !hasExactKeys(day, ["date", "count"]) ||
-      day.date !== new Date(priorTodayUtcMs - (FORECAST_WINDOW_DAYS - index) * DAY_MS).toISOString().slice(0, 10) ||
-      !isNonNegativeSafeInteger(day.count)
-    )
-      return false;
-  }
-  const estimator = evaluateForecastEstimator(record.closureDays14);
-  if (record.closures14 !== estimator.closures14 || record.closures7 !== estimator.closures7) return false;
-
-  const allIdentities = new Set();
-  const catalog = [];
-  let previousNumber = 0;
-  let cumulativeOpen = 0;
-  for (const milestone of record.milestones) {
-    if (
-      !hasExactKeys(milestone, FORECAST_MILESTONE_KEYS) ||
-      !isPositiveSafeInteger(milestone.number) ||
-      milestone.number <= previousNumber ||
-      typeof milestone.title !== "string" ||
-      milestone.title.length === 0 ||
-      (milestone.state !== "open" && milestone.state !== "closed") ||
-      FORECAST_IDENTITY_KEYS.some((key) => !ascendingUniquePositiveIntegers(milestone[key]))
-    )
-      return false;
-    previousNumber = milestone.number;
-    catalog.push({ number: milestone.number, title: milestone.title, state: milestone.state });
-    for (const key of FORECAST_IDENTITY_KEYS) {
-      for (const number of milestone[key]) {
-        if (allIdentities.has(number)) return false;
-        allIdentities.add(number);
-      }
-    }
-    if (milestone.state === "closed") {
-      if (milestone.cumulativeOpen !== null || milestone.forecastDays !== null) return false;
-    } else {
-      cumulativeOpen += milestone.openEligibleIssueNumbers.length;
-      const expectedForecast =
-        cumulativeOpen === 0 ? 0 : estimator.admissible ? Math.ceil(cumulativeOpen / estimator.ratePerDay) : null;
-      if (milestone.cumulativeOpen !== cumulativeOpen || milestone.forecastDays !== expectedForecast) return false;
-    }
-  }
-  try {
-    assertCatalogOrder(catalog);
-  } catch {
-    return false;
-  }
-  return true;
-}
-
-export function readPriorForecastRecord(body, nowMs) {
-  const text = String(body ?? "");
-  const starts = [];
-  let cursor = 0;
-  while (cursor < text.length) {
-    const index = text.indexOf(FORECAST_RECORD_PREFIX, cursor);
-    if (index === -1) break;
-    starts.push(index);
-    cursor = index + FORECAST_RECORD_PREFIX.length;
-  }
-  if (starts.length === 0) return { status: "absent", record: null };
-  if (starts.length !== 1) return { status: "invalid", record: null };
-  const jsonStart = starts[0] + FORECAST_RECORD_PREFIX.length;
-  const end = text.indexOf(FORECAST_RECORD_SUFFIX, jsonStart);
-  if (end === -1) return { status: "invalid", record: null };
-  const encoded = text.slice(jsonStart, end);
-  if (encoded.includes("-->")) return { status: "invalid", record: null };
-  try {
-    const record = JSON.parse(encoded);
-    return validateForecastRecord(record, nowMs) ? { status: "valid", record } : { status: "invalid", record: null };
-  } catch {
-    return { status: "invalid", record: null };
-  }
-}
-
-function identityMap(record) {
-  const identities = new Map();
-  for (const milestone of record.milestones) {
-    for (const key of FORECAST_IDENTITY_KEYS) {
-      const eligible = key.includes("Eligible");
-      const state = key.startsWith("open") ? "open" : "closed";
-      for (const number of milestone[key])
-        identities.set(number, { number, state, eligible, milestoneNumber: milestone.number });
-    }
-  }
-  return identities;
-}
-
-function currentCatalogMilestone(issue, currentByNumber) {
-  return issue.milestone && currentByNumber.has(issue.milestone.number)
-    ? currentByNumber.get(issue.milestone.number)
-    : null;
-}
-
-export function classifyForecastDrift({ current, priorAuthority, normalizedIssues, nowMs }) {
-  const currentRows = current.record.milestones.filter((milestone) => milestone.state === "open");
-  const rowResults = new Map();
-  let unavailableRows = 0;
-  const alerts = [];
-  let priorDiagnostic = null;
-  let unobservableIdentityCount = 0;
-  if (priorAuthority.status !== "valid") {
-    priorDiagnostic =
-      priorAuthority.status === "invalid" ? "FORECAST_PRIOR_RECORD_INVALID" : "FORECAST_PRIOR_RECORD_ABSENT";
-    for (const row of currentRows) {
-      if (row.cumulativeOpen === 0)
-        rowResults.set(row.number, { driftCell: "—", driftDays: null, transitionClass: null });
-      else {
-        unavailableRows += 1;
-        rowResults.set(row.number, { driftCell: "?", driftDays: null, transitionClass: null });
-      }
-    }
-    return { rowResults, alerts, unavailableRows, unobservableIdentityCount, priorDiagnostic };
-  }
-
-  const prior = priorAuthority.record;
-  const managedMilestoneNumbers = new Set(current.managedMilestoneNumbers ?? []);
-  const currentByNumber = new Map(current.record.milestones.map((milestone) => [milestone.number, milestone]));
-  const priorByNumber = new Map(prior.milestones.map((milestone) => [milestone.number, milestone]));
-  for (const priorMilestone of prior.milestones) {
-    const currentMilestone = currentByNumber.get(priorMilestone.number);
-    if (!currentMilestone && managedMilestoneNumbers.has(priorMilestone.number)) continue;
-    if (!currentMilestone || currentMilestone.title !== priorMilestone.title) {
-      throw authorityError("MILESTONE_CATALOG_DRIFT", "A retained Wave/Mobile milestone changed title or disappeared.");
-    }
-  }
-  const completionInputChanged = JSON.stringify(prior.closureDays14) !== JSON.stringify(current.record.closureDays14);
-  const scopeThresholds = new Set();
-  const unknownThresholds = new Map();
-  const priorIdentities = identityMap(prior);
-  const currentIssues = new Map(normalizedIssues.map((entry) => [entry.issue.number, entry]));
-
-  for (const [number, priorIdentity] of priorIdentities) {
-    if (managedMilestoneNumbers.has(priorIdentity.milestoneNumber)) continue;
-    const currentEntry = currentIssues.get(number);
-    if (!currentEntry) {
-      unknownThresholds.set(number, priorIdentity.milestoneNumber);
-      continue;
-    }
-    const currentMilestone = currentCatalogMilestone(currentEntry.issue, currentByNumber);
-    const priorThreshold = priorIdentity.milestoneNumber;
-    const currentThreshold = currentMilestone?.number ?? null;
-    if (
-      priorIdentity.eligible !== currentEntry.eligible ||
-      currentThreshold === null ||
-      currentThreshold !== priorThreshold
-    ) {
-      scopeThresholds.add(priorThreshold);
-      if (currentThreshold !== null) scopeThresholds.add(currentThreshold);
-    }
-  }
-  for (const entry of normalizedIssues) {
-    if (priorIdentities.has(entry.issue.number)) continue;
-    const currentMilestone = currentCatalogMilestone(entry.issue, currentByNumber);
-    if (!currentMilestone) continue;
-    if (Date.parse(entry.issue.created_at) < Date.parse(prior.generatedAt)) {
-      unknownThresholds.set(entry.issue.number, currentMilestone.number);
-    } else if (entry.issue.state === "open") {
-      scopeThresholds.add(currentMilestone.number);
-    }
-  }
-  for (const priorMilestone of prior.milestones) {
-    const currentMilestone = currentByNumber.get(priorMilestone.number);
-    if (!currentMilestone) continue;
-    if (
-      priorMilestone.state === "open" &&
-      currentMilestone.state === "closed" &&
-      priorMilestone.openEligibleIssueNumbers.length > 0
-    )
-      scopeThresholds.add(priorMilestone.number);
-    if (
-      priorMilestone.state === "closed" &&
-      currentMilestone.state === "open" &&
-      currentMilestone.openEligibleIssueNumbers.length > 0
-    )
-      scopeThresholds.add(currentMilestone.number);
-  }
-  const reachedUnknownIdentities = new Set();
-  for (const row of currentRows) {
-    if (row.cumulativeOpen === 0) {
-      rowResults.set(row.number, { driftCell: "—", driftDays: null, transitionClass: null });
-      continue;
-    }
-    const priorRow = priorByNumber.get(row.number);
-    const reachedUnknown = [...unknownThresholds].filter(([, threshold]) => threshold <= row.number);
-    if (reachedUnknown.length > 0) {
-      reachedUnknown.forEach(([number]) => reachedUnknownIdentities.add(number));
-      unavailableRows += 1;
-      rowResults.set(row.number, { driftCell: "?", driftDays: null, transitionClass: null });
-      continue;
-    }
-    if (!Number.isSafeInteger(priorRow?.forecastDays) || !Number.isSafeInteger(row.forecastDays)) {
-      unavailableRows += 1;
-      rowResults.set(row.number, { driftCell: "?", driftDays: null, transitionClass: null });
-      continue;
-    }
-    const scopeChanged = [...scopeThresholds].some((threshold) => threshold <= row.number);
-    const transitionClass = completionInputChanged
-      ? scopeChanged
-        ? "scope+completion"
-        : "completion"
-      : scopeChanged
-        ? "scope"
-        : "no-transition";
-    const driftDays = row.forecastDays - priorRow.forecastDays;
-    const sign = driftDays > 0 ? "+" : "";
-    const driftCell = `${sign}${driftDays}d · ${transitionClass}`;
-    rowResults.set(row.number, { driftCell, driftDays, transitionClass });
-    if (Math.abs(driftDays) >= 7) alerts.push({ title: row.title, driftCell });
-  }
-  unobservableIdentityCount = reachedUnknownIdentities.size;
-  return { rowResults, alerts, unavailableRows, unobservableIdentityCount, priorDiagnostic };
-}
-
-export function createForecastPresentation({ current, drift, nowMs }) {
-  const rows = new Map();
-  for (const milestone of current.record.milestones.filter((item) => item.state === "open")) {
-    const forecastCell =
-      milestone.cumulativeOpen === 0
-        ? "—"
-        : milestone.forecastDays === null
-          ? "?"
-          : new Date(nowMs + milestone.forecastDays * DAY_MS).toISOString().slice(0, 10);
-    rows.set(milestone.title, {
-      number: milestone.number,
-      forecastCell,
-      driftCell: drift.rowResults.get(milestone.number)?.driftCell ?? "?",
-    });
-  }
-  const json = JSON.stringify(current.record).replaceAll("-->", "--\\u003e");
-  return {
-    ...drift,
-    rows,
-    estimator: current.estimator,
-    retainedComment: `${FORECAST_RECORD_PREFIX}${json}${FORECAST_RECORD_SUFFIX}`,
-  };
 }
 
 export class RoadmapIssueEnumerationError extends Error {
@@ -1745,7 +1261,6 @@ export function summarizeWaves({
     return {
       title: milestone.title,
       milestoneNumber: milestone.number,
-      managedOrder: policy?.source === "description",
       dueOn: milestone.due_on ? milestone.due_on.slice(0, 10) : "—",
       executable,
       total: mine.length,
@@ -1772,17 +1287,6 @@ export function summarizeWaves({
 }
 
 export function renderRoadmapStatus(summary) {
-  const forecast = summary.forecast ?? {
-    rows: new Map(),
-    estimator: evaluateForecastEstimator(
-      Array.from({ length: FORECAST_WINDOW_DAYS }, (_, index) => ({ date: String(index), count: 0 })),
-    ),
-    alerts: [],
-    unavailableRows: 0,
-    unobservableIdentityCount: 0,
-    priorDiagnostic: "FORECAST_PRIOR_RECORD_ABSENT",
-    retainedComment: null,
-  };
   const lines = [
     START_MARKER,
     "",
@@ -1791,8 +1295,8 @@ export function renderRoadmapStatus(summary) {
     "Generated by `scripts/roadmap-status.mjs`. Do not edit by hand — edits are overwritten.",
     "Contract: [`docs/contributing/backlog-model.md`](../blob/main/docs/contributing/backlog-model.md).",
     "",
-    FORECAST_TABLE_HEADER,
-    FORECAST_TABLE_SEPARATOR,
+    "| Outcome | Slices | Done | Open | Refined | Parentless _(reported)_ | Tracking | Added (7d) | Epics done |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
   ];
 
   for (const row of summary.rows) {
@@ -1812,30 +1316,10 @@ export function renderRoadmapStatus(summary) {
         : row.addedRecently > 0
           ? `+${row.addedRecently}`
           : "0";
-    const forecastRow = forecast.rows.get(row.title);
-    const forecastCell = forecastRow?.forecastCell ?? (row.managedOrder ? "unavailable (managed order)" : "—");
-    const driftCell = forecastRow?.driftCell ?? "—";
     lines.push(
-      `| ${label} | ${forecastCell} | ${driftCell} | ${row.total} | ${row.closed} (${row.percent}%) | ${row.open} | ${refinedRatio} | ${parentless} | ${row.tracking} | ${growth} | ${epics} |`,
+      `| ${label} | ${row.total} | ${row.closed} (${row.percent}%) | ${row.open} | ${refinedRatio} | ${parentless} | ${row.tracking} | ${growth} | ${epics} |`,
     );
   }
-
-  const estimatorLine = forecast.estimator.admissible
-    ? `Forecast estimator: 14 completed UTC days; closures14=${forecast.estimator.closures14}; closures7=${forecast.estimator.closures7}; activeDays14=${forecast.estimator.activeDays}; maxDaily=${forecast.estimator.maxDaily}; maxSharePercent=${((forecast.estimator.maxDaily * 100) / forecast.estimator.closures14).toFixed(1)}%; ratePerDay=${forecast.estimator.ratePerDay.toFixed(2)}. Derived forecast, not commitment; milestone exit gates remain closure authority.`
-    : `Forecast estimator: ? (${forecast.estimator.diagnostics.join(", ")}). Derived forecast, not commitment; milestone exit gates remain closure authority.`;
-  const alertLine =
-    forecast.alerts.length > 0
-      ? `Drift alert (≥7d): ${forecast.alerts.map((alert) => `${alert.title}: ${alert.driftCell}`).join("; ")}.`
-      : "Drift alert (≥7d): none.";
-  lines.push(
-    "",
-    estimatorLine,
-    "",
-    alertLine,
-    "",
-    `Drift unavailable: **${forecast.unavailableRows} row(s)**; **${forecast.unobservableIdentityCount} unobservable identity transition(s)**.`,
-  );
-  if (forecast.priorDiagnostic) lines.push("", `Drift diagnostics: ${forecast.priorDiagnostic}.`);
 
   const hygiene = summary.prioritizationHygiene;
   if (hygiene) {
@@ -1918,8 +1402,7 @@ export function renderRoadmapStatus(summary) {
     "**Refined ≡ classified** = open, non-Epic, executable milestone + `priority:*` + `area:*` + `kind:*`, excluding `status:tracking-only`. Unrefined far-horizon work is expected, not a defect.",
   );
   if (refinedInventory) lines.push("", renderRefinedInventoryCapMarker(refinedInventory.record));
-  if (forecast.retainedComment) lines.push("", forecast.retainedComment, END_MARKER);
-  else lines.push("", END_MARKER);
+  lines.push("", END_MARKER);
 
   return lines.join("\n");
 }
@@ -2174,7 +1657,6 @@ export async function main({
   }
 
   const openMilestones = await paginate(`/repos/${repo}/milestones?state=open&per_page=100`, token, request);
-  const closedMilestones = await paginate(`/repos/${repo}/milestones?state=closed&per_page=100`, token, request);
   const milestones = openMilestones.slice().sort(compareOutcomeMilestones);
   const raw = await paginate(`/repos/${repo}/issues?state=all&per_page=100`, token, request);
   const [owner, name, extra] = repo.split("/");
@@ -2220,14 +1702,9 @@ export async function main({
     loadTimeline: (issue) => paginate(`/repos/${repo}/issues/${issue.number}/timeline?per_page=100`, token, request),
   });
 
-  let catalog;
-  let normalizedIssues;
   try {
     validateOpenMilestoneShapes(openMilestones);
     validateOpenMilestoneDueDates(openMilestones);
-    catalog = buildForecastMilestoneCatalog(openMilestones, closedMilestones);
-    const catalogByNumber = new Map(catalog.map((milestone) => [milestone.number, milestone]));
-    normalizedIssues = issues.map((issue) => normalizeForecastIssue(issue, catalogByNumber, nowMs));
   } catch (error) {
     if (!(error instanceof RoadmapIssueEnumerationError)) throw error;
     writeError(`${error.code}: ${error.message}`);
@@ -2240,19 +1717,6 @@ export async function main({
     scopeGrowthByIssue: scopeGrowth.byIssue,
     nowMs,
   });
-  const managedMilestoneNumbers = [...openMilestones, ...closedMilestones]
-    .filter((milestone) => readOutcomePolicy(milestone)?.source === "description")
-    .map((milestone) => milestone.number);
-  const currentForecast = deriveForecastInputs({ catalog, normalizedIssues, nowMs, managedMilestoneNumbers });
-  const priorAuthority = readPriorForecastRecord(currentRoadmap?.body ?? "", nowMs);
-  let drift;
-  try {
-    drift = classifyForecastDrift({ current: currentForecast, priorAuthority, normalizedIssues, nowMs });
-  } catch (error) {
-    if (!(error instanceof RoadmapIssueEnumerationError)) throw error;
-    writeError(`${error.code}: ${error.message}`);
-    return 1;
-  }
   let windowAuthority;
   try {
     windowAuthority = await collectLiveRoadmapWindowAuthority({ owner, name, token, request });
@@ -2262,7 +1726,6 @@ export async function main({
     return 1;
   }
   summary.prioritizationHygiene = summarizePrioritizationHygiene(windowAuthority.authority);
-  summary.forecast = createForecastPresentation({ current: currentForecast, drift, nowMs });
   if (roadmapIssue) {
     let record = priorRefinedInventory.record;
     if (priorRefinedInventory.status !== "current") {
