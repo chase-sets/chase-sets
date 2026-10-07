@@ -1,4 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import ts from "@chase-sets/typescript-compiler-api";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -156,7 +158,7 @@ const knownRuntimeDeployables = new Set(["platform-worker"]);
 const knownShellDeployables = new Set(["admin-web", "marketplace-web"]);
 const knownShellDeployableSlots = new Map([
   ["admin-web", new Set(["primary-nav"])],
-  ["marketplace-web", new Set(["top-nav", "bottom-nav"])],
+  ["marketplace-web", new Set(["top-nav", "bottom-nav", "account-menu"])],
 ]);
 const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const domainFacingImportHeuristic =
@@ -1477,17 +1479,91 @@ function buildManifestHostRouteIdentity(deployable, sourceContext, route) {
   };
 }
 
-export function validateShellContributionEntries({ manifest, root }) {
-  const diagnostics = [];
-  const routesByDeployable = new Map(
-    (manifest.deployableContributions ?? []).map((contribution) => [
-      contribution.deployable,
-      contribution.routes ?? [],
-    ]),
-  );
+function isShellObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
-  function addViolation(path, message) {
-    diagnostics.push({ path, message });
+function classifyShellManifest({ manifest, root, manifestPath = `${root}/context.json` }) {
+  const diagnostics = [];
+  const nodes = [];
+  function visit(node, nodePath, owner, inlineParent) {
+    if (!isShellObject(node)) {
+      diagnostics.push({ code: "SHELL_NODE_SHAPE", path: nodePath, message: "shell contribution must be an object" });
+      return;
+    }
+    const record = { node, path: nodePath, owner: owner ?? node, inlineParent };
+    nodes.push(record);
+    if (node.children !== undefined && !Array.isArray(node.children)) {
+      diagnostics.push({
+        code: "SHELL_CHILDREN_SHAPE",
+        path: nodePath,
+        message: "children must be an array when provided",
+      });
+    }
+    for (const [index, child] of (Array.isArray(node.children) ? node.children : []).entries()) {
+      visit(child, `${nodePath}.children[${index}]`, owner ?? node, record);
+    }
+  }
+  if (!Array.isArray(manifest.shellContributions)) {
+    diagnostics.push({
+      code: "SHELL_ARRAY_SHAPE",
+      path: `${manifestPath} shellContributions`,
+      message: "shellContributions must be an array",
+    });
+  } else {
+    manifest.shellContributions.forEach((node, index) => visit(node, `${manifestPath} shellContributions[${index}]`));
+  }
+  return { manifest, root, manifestPath, nodes, diagnostics };
+}
+
+export async function discoverShellContributionManifests({ repoRoot: rootDir = repoRoot } = {}) {
+  const files = execFileSync("git", ["ls-files", "-z", "--", "*.json"], { cwd: rootDir, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+  const manifests = [];
+  const diagnostics = [];
+  for (const file of files) {
+    let manifest;
+    try {
+      const parsed = ts.parseConfigFileTextToJson(file, await readFile(path.join(rootDir, file), "utf8"));
+      if (parsed.error) throw new Error("Invalid JSON");
+      manifest = parsed.config;
+    } catch {
+      diagnostics.push({
+        code: "SHELL_MANIFEST_JSON",
+        path: file,
+        message: "tracked JSON could not be read or parsed for shell discovery",
+      });
+      continue;
+    }
+    if (isShellObject(manifest) && Object.hasOwn(manifest, "shellContributions")) {
+      manifests.push(classifyShellManifest({ manifest, root: path.posix.dirname(file), manifestPath: file }));
+    }
+  }
+  return { scanned: files.length, candidates: manifests.length, manifests, diagnostics };
+}
+
+function isLiteralShellPath(value) {
+  return typeof value === "string" && value.startsWith("/") && !/[?#*:[\]{}()\\\s]/.test(value);
+}
+
+function normalizeShellPath(value) {
+  return `/${value.split("/").filter(Boolean).join("/")}`;
+}
+
+export function validateShellContributionEntries(context) {
+  const { manifest, nodes, diagnostics: shapeDiagnostics } = context.nodes ? context : classifyShellManifest(context);
+  const diagnostics = [...shapeDiagnostics];
+  const routesByDeployable = new Map();
+  for (const contribution of Array.isArray(manifest.deployableContributions) ? manifest.deployableContributions : []) {
+    if (!isShellObject(contribution)) continue;
+    const routes = routesByDeployable.get(contribution.deployable) ?? [];
+    routes.push(...(Array.isArray(contribution.routes) ? contribution.routes.filter(isShellObject) : []));
+    routesByDeployable.set(contribution.deployable, routes);
+  }
+
+  function addViolation(path, message, code = "SHELL_ENTRY_INVALID") {
+    diagnostics.push({ path, message, code });
   }
 
   function validateShellContributionNode(contribution, contributionLabel, deployable) {
@@ -1505,15 +1581,12 @@ export function validateShellContributionEntries({ manifest, root }) {
 
     const hasChildren = Array.isArray(contribution.children) && contribution.children.length > 0;
 
-    if (
-      contribution.href !== undefined &&
-      (typeof contribution.href !== "string" || !contribution.href.startsWith("/"))
-    ) {
+    if (contribution.href !== undefined && !isLiteralShellPath(contribution.href)) {
       addViolation(contributionLabel, "href must be an absolute path");
     }
 
-    if (typeof contribution.order !== "number") {
-      addViolation(contributionLabel, "order must be a number");
+    if (!Number.isFinite(contribution.order)) {
+      addViolation(contributionLabel, "order must be a finite number", "SHELL_ORDER_INVALID");
     }
 
     if (
@@ -1536,15 +1609,16 @@ export function validateShellContributionEntries({ manifest, root }) {
       addViolation(contributionLabel, "requiredPermissionsMatch must be 'all' or 'any' when provided");
     }
 
-    if (contribution.children !== undefined && !Array.isArray(contribution.children)) {
-      addViolation(contributionLabel, "children must be an array when provided");
-    }
-
-    if (contribution.href === undefined && !hasChildren) {
+    if (
+      contribution.href === undefined &&
+      !hasChildren &&
+      contribution.activation !== "action" &&
+      !Array.isArray(contribution.children)
+    ) {
       addViolation(contributionLabel, "href is required when children are not provided");
     }
 
-    const normalizedHref = contribution.href?.replace(/^\//, "");
+    const normalizedHref = typeof contribution.href === "string" ? contribution.href.replace(/^\//, "") : undefined;
     const ownedRoutes = routesByDeployable.get(deployable) ?? [];
     const hasOwnedRoute =
       normalizedHref === undefined || ownedRoutes.some((route) => route.routePath === normalizedHref);
@@ -1555,14 +1629,73 @@ export function validateShellContributionEntries({ manifest, root }) {
       );
     }
 
-    const children = Array.isArray(contribution.children) ? contribution.children : [];
-    for (const [childIndex, child] of children.entries()) {
-      validateShellContributionNode(child, `${contributionLabel}.children[${childIndex}]`, deployable);
+    if (
+      contribution.activation !== undefined &&
+      contribution.activation !== "action" &&
+      contribution.activation !== "route"
+    ) {
+      addViolation(contributionLabel, "activation must be 'route' or 'action'", "SHELL_ACTIVATION_INVALID");
+    }
+    if (
+      contribution.activation === "action" &&
+      (contribution.href !== undefined ||
+        contribution.children !== undefined ||
+        contribution.activePathPatterns !== undefined)
+    ) {
+      addViolation(
+        contributionLabel,
+        "action must not declare href, children, or activePathPatterns",
+        "SHELL_ACTION_INVALID",
+      );
+    }
+    if (
+      contribution.activation === "route" &&
+      (!isLiteralShellPath(contribution.href) || contribution.children !== undefined)
+    ) {
+      addViolation(contributionLabel, "route must be an href leaf", "SHELL_ROUTE_INVALID");
+    }
+    if (contribution.placement !== undefined && !["primary", "utility"].includes(contribution.placement)) {
+      addViolation(contributionLabel, "placement must be 'primary' or 'utility'", "SHELL_PLACEMENT_INVALID");
+    }
+    if (contribution.packingPriority !== undefined && !Number.isFinite(contribution.packingPriority)) {
+      addViolation(contributionLabel, "packingPriority must be finite", "SHELL_PRIORITY_INVALID");
+    }
+    if (contribution.excludedRoleKeys !== undefined && !isStringArray(contribution.excludedRoleKeys)) {
+      addViolation(contributionLabel, "excludedRoleKeys must be an array of strings", "SHELL_ROLES_INVALID");
+    }
+    if (
+      contribution.activePathPatterns !== undefined &&
+      (!Array.isArray(contribution.activePathPatterns) ||
+        !contribution.activePathPatterns.every(isLiteralShellPath) ||
+        hasChildren ||
+        !isLiteralShellPath(contribution.href))
+    ) {
+      addViolation(
+        contributionLabel,
+        "activePathPatterns must be literal absolute paths on an href leaf",
+        "SHELL_ACTIVE_PATH_INVALID",
+      );
+    }
+    if (
+      contribution.badge !== undefined &&
+      (!isShellObject(contribution.badge) ||
+        typeof contribution.badge.valueKey !== "string" ||
+        !contribution.badge.valueKey ||
+        !Number.isFinite(contribution.badge.max) ||
+        contribution.badge.max <= 0 ||
+        typeof contribution.badge.hideWhenEmptyForSignedOut !== "boolean")
+    ) {
+      addViolation(
+        contributionLabel,
+        "badge requires valueKey, a positive finite max, and hideWhenEmptyForSignedOut",
+        "SHELL_BADGE_INVALID",
+      );
     }
   }
 
-  for (const [index, contribution] of (manifest.shellContributions ?? []).entries()) {
-    const contributionLabel = `${root}/context.json shellContributions[${index}]`;
+  for (const { node: contribution, path: contributionLabel, owner, inlineParent } of nodes) {
+    validateShellContributionNode(contribution, contributionLabel, owner.deployable);
+    if (inlineParent) continue;
 
     if (!knownShellDeployables.has(contribution.deployable)) {
       addViolation(contributionLabel, `deployable must be one of ${[...knownShellDeployables].join(", ")}`);
@@ -1570,6 +1703,16 @@ export function validateShellContributionEntries({ manifest, root }) {
     }
 
     const allowedSlots = knownShellDeployableSlots.get(contribution.deployable) ?? new Set();
+    if (
+      contribution.deployable === "admin-web" &&
+      !["access", "catalog", "commerce", "growth", "support", "platform"].includes(contribution.section)
+    ) {
+      addViolation(
+        contributionLabel,
+        "admin-web section must be access, catalog, commerce, growth, support, or platform",
+        "SHELL_SECTION_INVALID",
+      );
+    }
     if (!allowedSlots.has(contribution.slot)) {
       addViolation(contributionLabel, `slot must be one of ${[...allowedSlots].sort().join(", ")}`);
     }
@@ -1581,16 +1724,168 @@ export function validateShellContributionEntries({ manifest, root }) {
       addViolation(contributionLabel, "placements must be a non-empty array when provided");
     }
 
-    for (const placement of contribution.placements ?? []) {
+    for (const placement of Array.isArray(contribution.placements) ? contribution.placements : []) {
       if (!allowedSlots.has(placement)) {
         addViolation(contributionLabel, `placements must only use ${[...allowedSlots].sort().join(", ")}`);
       }
     }
-
-    validateShellContributionNode(contribution, contributionLabel, contribution.deployable);
   }
 
   return diagnostics;
+}
+
+function shellAccessWidens(child, parent) {
+  if (parent.visibility !== "always" && child.visibility !== parent.visibility) return true;
+  if ((parent.excludedRoleKeys ?? []).some((role) => !(child.excludedRoleKeys ?? []).includes(role))) return true;
+  const required = parent.requiredPermissions ?? [];
+  const granted = child.requiredPermissions ?? [];
+  if (!required.length) return false;
+  if (!granted.length) return true;
+  if (parent.requiredPermissionsMatch === "any")
+    return child.requiredPermissionsMatch === "any"
+      ? granted.some((permission) => !required.includes(permission))
+      : !granted.some((permission) => required.includes(permission));
+  return child.requiredPermissionsMatch === "any"
+    ? granted.some((permission) => required.some((item) => item !== permission))
+    : required.some((permission) => !granted.includes(permission));
+}
+
+export function validateDeployableShellOwnership(contexts) {
+  const diagnostics = [];
+  const scopes = new Map();
+  for (const context of contexts.values()) {
+    const classified = context.nodes ? context : classifyShellManifest(context);
+    diagnostics.push(...classified.diagnostics);
+    for (const record of classified.nodes) {
+      const { owner, node } = record;
+      const placements = Array.isArray(owner.placements) && owner.placements.length ? owner.placements : [owner.slot];
+      for (const slot of placements) {
+        if (!knownShellDeployableSlots.get(owner.deployable)?.has(slot)) continue;
+        const scope = `${owner.deployable}:${slot}`;
+        const entries = scopes.get(scope) ?? [];
+        const prefix = owner.deployable === "admin-web" ? `/${owner.section}` : "";
+        entries.push({
+          ...record,
+          prefix,
+          href: isLiteralShellPath(node.href) ? normalizeShellPath(`${prefix}${node.href}`) : undefined,
+        });
+        scopes.set(scope, entries);
+      }
+    }
+  }
+  for (const entries of scopes.values()) {
+    const keys = new Map();
+    const hrefs = new Map();
+    const badges = new Map();
+    const activePaths = new Map();
+    const parents = new Map();
+    const add = (entry, code, message) => diagnostics.push({ code, path: entry.path, message });
+    for (const entry of entries) {
+      const { node } = entry;
+      if (keys.has(node.key))
+        add(entry, "SHELL_DUPLICATE_KEY", `shell contribution keys must be unique per slot (${node.key})`);
+      keys.set(node.key, entry);
+      if (entry.href) {
+        if (hrefs.has(entry.href))
+          add(entry, "SHELL_DUPLICATE_HREF", `shell contribution hrefs must be unique per slot (${entry.href})`);
+        hrefs.set(entry.href, entry);
+      }
+      if (isShellObject(node.badge) && typeof node.badge.valueKey === "string") {
+        if (badges.has(node.badge.valueKey))
+          add(entry, "SHELL_DUPLICATE_BADGE", `badge valueKey must have one owner per slot (${node.badge.valueKey})`);
+        badges.set(node.badge.valueKey, entry);
+      }
+      if (node.activation !== "action" && !node.children?.length && entry.href) {
+        for (const value of [
+          node.href,
+          ...(Array.isArray(node.activePathPatterns) ? node.activePathPatterns : []),
+        ].filter(isLiteralShellPath)) {
+          const activePath = normalizeShellPath(`${entry.prefix}${value}`);
+          const existing = activePaths.get(activePath);
+          if (existing && existing !== node.key)
+            add(entry, "SHELL_ACTIVE_PATH_AMBIGUOUS", `active path belongs to different keys (${activePath})`);
+          activePaths.set(activePath, node.key);
+        }
+      }
+    }
+    for (const entry of entries) {
+      const { node } = entry;
+      if (node.parentKey !== undefined && (typeof node.parentKey !== "string" || !node.parentKey)) {
+        add(entry, "SHELL_PARENT_INVALID", "parentKey must be a non-empty string");
+        continue;
+      }
+      if (node.parentKey !== undefined && entry.inlineParent) {
+        add(entry, "SHELL_PARENT_INVALID", "inline children must not also declare parentKey");
+        continue;
+      }
+      const parentKey = node.parentKey ?? entry.inlineParent?.node.key;
+      if (parentKey === undefined) continue;
+      const parent = keys.get(parentKey);
+      if (!parent) {
+        add(entry, "SHELL_PARENT_MISSING", `parentKey does not exist in this host and slot (${parentKey})`);
+        continue;
+      }
+      if (parent === entry) {
+        add(entry, "SHELL_PARENT_SELF", "parentKey must not reference itself");
+        continue;
+      }
+      if (
+        node.parentKey !== undefined &&
+        (parent.node.activation !== undefined || parent.node.href !== undefined || !Array.isArray(parent.node.children))
+      ) {
+        add(entry, "SHELL_PARENT_INVALID", "parentKey must reference a group");
+      }
+      if (parent.owner.deployable === "admin-web" && parent.owner.section !== entry.owner.section) {
+        add(entry, "SHELL_PARENT_SECTION", "parentKey must stay within the admin-web section");
+      }
+      parents.set(entry, parent);
+      // Inline children retain their legacy inherited access; attached children declare their restrictions explicitly.
+      if (
+        node.parentKey !== undefined &&
+        isStringArray(node.requiredPermissions) &&
+        isStringArray(parent.node.requiredPermissions) &&
+        (node.excludedRoleKeys === undefined || isStringArray(node.excludedRoleKeys)) &&
+        (parent.node.excludedRoleKeys === undefined || isStringArray(parent.node.excludedRoleKeys)) &&
+        shellAccessWidens(node, parent.node)
+      ) {
+        add(
+          entry,
+          "SHELL_PARENT_WIDENING",
+          "parentKey child must not widen parent visibility, permissions, or excludedRoleKeys",
+        );
+      }
+    }
+    for (const entry of entries) {
+      const visited = new Set();
+      for (let current = entry; current; current = parents.get(current)) {
+        if (visited.has(current)) {
+          add(entry, "SHELL_PARENT_CYCLE", "parentKey must not form a cycle");
+          break;
+        }
+        visited.add(current);
+      }
+    }
+  }
+  return diagnostics;
+}
+
+export async function validateDiscoveredShellContributions(options = {}) {
+  const discovered = await discoverShellContributionManifests(options);
+  const diagnostics = [
+    ...discovered.diagnostics,
+    ...discovered.manifests.flatMap(validateShellContributionEntries),
+    ...validateDeployableShellOwnership(discovered.manifests),
+  ];
+  return {
+    scanned: discovered.scanned,
+    candidates: discovered.candidates,
+    diagnostics: diagnostics.filter(
+      (item, index) =>
+        diagnostics.findIndex(
+          (other) => other.code === item.code && other.path === item.path && other.message === item.message,
+        ) === index,
+    ),
+  };
 }
 
 export async function runStructureCheck(options = {}) {
@@ -1795,10 +2090,6 @@ export async function runStructureCheck(options = {}) {
         `${root}/context.json`,
         "contexts must not export ./integration/*; cross-context access belongs on ./server or through published events",
       );
-    }
-
-    for (const diagnostic of validateShellContributionEntries({ manifest, root })) {
-      addPathViolation(diagnostic.path, diagnostic.message);
     }
 
     for (const dependency of manifest.allowedContextDependencies ?? []) {
@@ -2502,81 +2793,6 @@ export async function runStructureCheck(options = {}) {
     }
   }
 
-  async function validateDeployableShellOwnership(contexts) {
-    const contributionsByDeployable = new Map([...knownShellDeployables].map((deployable) => [deployable, []]));
-
-    function collectPlacedShellContributionNodes(contribution) {
-      const placements =
-        Array.isArray(contribution.placements) && contribution.placements.length > 0
-          ? contribution.placements
-          : [contribution.slot];
-      const { children: rawChildren, ...contributionNode } = contribution;
-      const children = Array.isArray(rawChildren) ? rawChildren : [];
-      const ownNodes = placements.map((placement) => ({
-        ...contributionNode,
-        slot: placement,
-      }));
-      const childNodes = children.flatMap((child) =>
-        collectPlacedShellContributionNodes({
-          ...child,
-          deployable: contribution.deployable,
-          slot: contribution.slot,
-          placements,
-          sourceContext: contribution.sourceContext,
-          packageName: contribution.packageName,
-        }),
-      );
-
-      return [...ownNodes, ...childNodes];
-    }
-
-    for (const context of contexts.values()) {
-      for (const contribution of context.manifest.shellContributions ?? []) {
-        contributionsByDeployable.get(contribution.deployable)?.push({
-          ...contribution,
-          sourceContext: context.manifest.contextName,
-          packageName: context.packageName,
-        });
-      }
-    }
-
-    for (const [deployable, unsortedContributions] of contributionsByDeployable.entries()) {
-      const contributions = unsortedContributions
-        .flatMap((contribution) => collectPlacedShellContributionNodes(contribution))
-        .sort((left, right) =>
-          left.slot === right.slot
-            ? left.order === right.order
-              ? left.key.localeCompare(right.key)
-              : left.order - right.order
-            : left.slot.localeCompare(right.slot),
-        );
-      const contributionKeys = new Set();
-      const contributionHrefs = new Set();
-
-      for (const contribution of contributions) {
-        const key = `${contribution.slot}:${contribution.key}`;
-        if (contributionKeys.has(key)) {
-          addPathViolation(
-            `deployables/${deployable}/app`,
-            `shell contribution keys must be unique per slot (${contribution.slot}:${contribution.key})`,
-          );
-        }
-        contributionKeys.add(key);
-
-        if (contribution.href) {
-          const href = `${contribution.slot}:${contribution.href}`;
-          if (contributionHrefs.has(href)) {
-            addPathViolation(
-              `deployables/${deployable}/app`,
-              `shell contribution hrefs must be unique per slot (${contribution.slot}:${contribution.href})`,
-            );
-          }
-          contributionHrefs.add(href);
-        }
-      }
-    }
-  }
-
   async function validateDeployableLifecycleOwnership(contexts) {
     for (const context of contexts.values()) {
       const contextDeployables = new Set(context.manifest.runtimeDeployables ?? context.manifest.apiDeployables ?? []);
@@ -2960,7 +3176,12 @@ export async function runStructureCheck(options = {}) {
     validateDeployableApiMountOwnership,
     validateDeployableRuntimeOwnership,
     validateDeployableLifecycleOwnership,
-    validateDeployableShellOwnership,
+    validateDeployableShellOwnership: async () => {
+      const result = await validateDiscoveredShellContributions();
+      for (const diagnostic of result.diagnostics) {
+        addPathViolation(diagnostic.path, `${diagnostic.code}: ${diagnostic.message}`);
+      }
+    },
   });
 
   const topLevelEntries = await readdir(repoRoot, { withFileTypes: true });

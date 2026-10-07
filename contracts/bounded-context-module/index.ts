@@ -202,7 +202,7 @@ export type BcDeployableContribution = Readonly<{
   readonly routes: readonly BcRouteModule[];
 }>;
 
-export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav";
+export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav" | "account-menu";
 export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out";
 
 export type BcShellContributionItemBase = Readonly<{
@@ -215,15 +215,40 @@ export type BcShellContributionItemBase = Readonly<{
   readonly requiredPermissions: readonly string[];
   /** Defaults to all; an empty permission list passes in either mode. */
   readonly requiredPermissionsMatch?: "all" | "any";
+  readonly parentKey?: string;
+  readonly placement?: "primary" | "utility";
+  readonly packingPriority?: number;
+  readonly excludedRoleKeys?: readonly string[];
+  readonly badge?: Readonly<{
+    valueKey: string;
+    max: number;
+    hideWhenEmptyForSignedOut: boolean;
+  }>;
 }>;
 
 export type BcShellContributionItem = BcShellContributionItemBase &
   Readonly<
     | {
+        readonly activation: "action";
+        readonly href?: never;
+        readonly children?: never;
+        readonly activePathPatterns?: never;
+      }
+    | {
+        readonly activation: "route";
+        readonly href: string;
+        readonly children?: never;
+        readonly activePathPatterns?: readonly string[];
+      }
+    | {
+        readonly activation?: undefined;
+        readonly activePathPatterns?: readonly string[];
         readonly href: string;
         readonly children?: readonly BcShellContributionItem[];
       }
     | {
+        readonly activation?: undefined;
+        readonly activePathPatterns?: readonly string[];
         readonly href?: string;
         readonly children: readonly BcShellContributionItem[];
       }
