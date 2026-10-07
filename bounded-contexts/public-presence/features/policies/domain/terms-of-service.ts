@@ -101,7 +101,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/settlement/GLOSSARY.md:5-7",
-          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-payments/index.ts:1670-1694",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
@@ -303,7 +303,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:12-13",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:39-40",
         ],
         openQuestions: [],
         assumptions: [
@@ -347,7 +347,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Describe Chase Sets' marketplace-operator role, that sellers and buyers contract with each other, and the platform-held fund flow; leave limited-payments-agent framing for counsel.",
         decisionRefs: [],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-payments/index.ts:1670-1694",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
@@ -358,7 +358,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             assertion:
               "Buyer payment requests use the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
             evidenceRef:
-              "infrastructure/stripe-payments/index.ts:1616-1640; infrastructure/stripe-connect/index.ts:1100-1160",
+              "infrastructure/stripe-payments/index.ts:1670-1694; infrastructure/stripe-connect/index.ts:1100-1160",
           },
         ],
       },
@@ -660,14 +660,14 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
           "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:26-28",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:53-55",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion:
               "The active-required-version policy and read model fail closed on missing or outdated acceptance, gating per-version re-acceptance.",
-            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:19-30",
+            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:46-57",
           },
         ],
       },
