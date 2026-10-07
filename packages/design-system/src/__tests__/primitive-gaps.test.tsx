@@ -932,9 +932,9 @@ describe("Unified sticky CTA bar + reassurance (#1853)", () => {
     expect(markup).toContain("Not charged yet");
   });
 
-  it("keeps the deprecated price alias working for existing consumers", () => {
+  it("renders the headline total without optional labels or context", () => {
     const markup = renderToString(
-      <StickyCtaBar price="$472.19" primaryAction={<button type="submit">Continue</button>} />,
+      <StickyCtaBar total="$472.19" primaryAction={<button type="submit">Continue</button>} />,
     );
 
     expect(markup).toContain("$472.19");
