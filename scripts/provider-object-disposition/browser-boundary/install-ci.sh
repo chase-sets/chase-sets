@@ -175,6 +175,21 @@ refusal() {
   set -e
   result="${result%.}"
   printf 'provider-boundary-control:%s,status=%s,bytes=%s,redacted=true,truncated=false\n' "$expected_stage" "$status" "${#result}"
+  local actual=unknown candidate="$result" literal
+  if [[ "$candidate" == "$transition"$'\n'* ]]; then candidate="${candidate#"$transition"$'\n'}"; fi
+  for literal in arguments source-identity principal attachment executable ownership file-capability \
+    launcher-identity inventory-identity dependency-identity automation-pipes namespace-seed seed-deadline \
+    seed-reap mapping-write namespace-identity user-namespace mapping-identity child-namespaces host-rejoin \
+    external-interface interfaces loopback private-mounts private-tmp private-shm private-proc private-root \
+    private-profile securebits bounding-capabilities capabilities no-new-privileges nested-network-namespace \
+    nested-sandbox namespace-attachment; do
+    if test "$candidate" = "provider-boundary-refused:$literal"$'\n' ||
+       test "$candidate" = "provider-boundary-refused:$literal"$'\nprovider-boundary-refused:nested-sandbox\n'; then
+      actual="$literal"
+      break
+    fi
+  done
+  printf 'provider-boundary-control-actual:%s,native-stage=%s\n' "$expected_stage" "$actual"
   if test "$status" = 124 || test "$status" = 137; then refuse "negative-$expected_stage-deadline"; fi
   require "negative-$expected_stage-status" test "$status" = 78
   local expected="provider-boundary-refused:$expected_stage"$'\n'

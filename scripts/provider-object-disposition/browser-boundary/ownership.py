@@ -28,7 +28,7 @@ def bounded_read(path, limit=16384):
 
 
 def parse_stat(text, pid):
-    match = re.fullmatch(r'(\d+) \(.*\) ([A-Z]) (\d+) (.+)\n', text, re.DOTALL)
+    match = re.fullmatch(r'(\d+) \(.*\) ([A-Ztx]) (\d+) (.+)\n', text, re.DOTALL)
     if not match or int(match[1]) != pid:
         raise CensusError()
     fields = text[text.rfind(') ') + 2:].strip().split()
@@ -123,8 +123,10 @@ def census():
     launcher = TARGET / 'launcher'
     if header.is_symlink() or launcher.is_symlink():
         raise CensusError()
-    matches = re.findall(r'^#define ADMITTED_UID ([0-9]+)$', bounded_read(header), re.MULTILINE)
-    if len(matches) != 1 or int(matches[0]) == 0:
+    text = bounded_read(header)
+    definitions = re.findall(r'^\s*#\s*define\s+ADMITTED_UID\b.*$', text, re.MULTILINE)
+    matches = re.findall(r'^#define ADMITTED_UID ([0-9]+)$', text, re.MULTILINE)
+    if len(definitions) != 1 or len(matches) != 1 or int(matches[0]) == 0:
         raise CensusError()
     identity = launcher.stat()
     if not stat.S_ISREG(identity.st_mode):

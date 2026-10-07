@@ -58,6 +58,7 @@ it.each([
   expect(fields.redacted).toBe(true);
   expect(fields.nativeStage).toBeNull();
   expect(fields.truncated).toBe(error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER");
+  expect(fields.stderrBytes).toBe(typeof error.stderr === "string" ? Buffer.byteLength(error.stderr) : null);
   expect(fields.complete).toBe(
     typeof error.stdout === "string" && typeof error.stderr === "string" && !fields.truncated,
   );
