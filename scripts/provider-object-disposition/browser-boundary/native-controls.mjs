@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { assertBrowserAdmission, BROWSER_LAUNCHER } from "../test-window-browser.mjs";
 import { TRANSITION, nativeRefusal } from "./protocol.mjs";
+import { installationCycle } from "./installation-cycle.mjs";
 
 const execute = promisify(execFile);
 const helper =
@@ -127,6 +128,7 @@ async function withVariant(name, test) {
       assert.equal(await command("restore"), "provider-boundary-variant:restored\n");
       await assertBrowserAdmission();
       assert.deepEqual(await readdir("/usr/local/lib/chase-sets-provider-window/root/tmp"), []);
+      await installationCycle(name);
       recovered = !primary?.cleanupUnknown;
     } catch (error) {
       console.error("installed-boundary synthetic-build restore: FAIL; raw output redacted");

@@ -9,11 +9,15 @@ mark runner-identity
 require hosted-runner test "$GITHUB_ACTIONS:$RUNNER_ENVIRONMENT:$ImageOS" = true:github-hosted:ubuntu24
 printf 'Runner image: %s / %s\n' "$ImageOS" "$ImageVersion"
 uname -srvm
-mark install-chromium
-pnpm exec playwright install --with-deps chromium
-mark install-native-dependencies
-sudo apt-get update
-sudo apt-get install --yes gcc libc6-dev libssl-dev pax-utils apparmor
+if test "$#" = 0; then
+  mark install-chromium
+  pnpm exec playwright install --with-deps chromium
+  mark install-native-dependencies
+  sudo apt-get update
+  sudo apt-get install --yes gcc libc6-dev libssl-dev pax-utils apparmor
+else
+  require reinstall-arguments test "$#:$1" = 1:reinstall
+fi
 mark resolve-browser
 browser="$(node --input-type=module -e "import { chromium } from '@playwright/test'; import { dirname } from 'node:path'; console.log(dirname(chromium.executablePath()))")"
 input=/usr/local/lib/chase-sets-provider-window-input

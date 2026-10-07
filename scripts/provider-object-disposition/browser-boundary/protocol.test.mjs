@@ -88,6 +88,32 @@ it("CP-B distinguishes dropped launch authority from proved nested sandbox autho
   expect(browserCapabilityProof({ ...scoped, CapPrm: dropped.CapPrm, CapEff: dropped.CapEff })).toBe(true);
 });
 
+it.each(["remove-target-symlink", "remove-target-path", "remove-profile-symlink", "input-not-symlink", "input-path"])(
+  "R1 %s refuses before census and preserves its own emitter status",
+  (stage) => {
+    const input = stage.startsWith("input-");
+    const actual = {
+      code: 1,
+      signal: null,
+      stdout: input
+        ? ""
+        : "provider-boundary-cleanup-stage:remove-installation\nprovider-boundary-installer-stage:source-location\nprovider-boundary-cleanup-installer-status:1\n",
+      stderr: input
+        ? `provider-boundary-cleanup-refused:${stage}\n`
+        : `provider-boundary-installer-refused:${stage}\nprovider-boundary-cleanup-refused:remove-installation\n`,
+    };
+    expect(removalRefusal(actual, stage)).toBe(true);
+    for (const mutation of [
+      { code: 0 },
+      { code: 78 },
+      { signal: "SIGTERM" },
+      { stdout: actual.stdout + "provider-boundary-installer-stage:remove-ownership\n" },
+      { stderr: actual.stderr + "SYNTHETIC_PRIVATE" },
+    ])
+      expect(removalRefusal({ ...actual, ...mutation }, stage)).toBe(false);
+  },
+);
+
 it.each([
   { ...scoped, userNamespace: "launch" },
   { ...scoped, userNamespace: "host" },

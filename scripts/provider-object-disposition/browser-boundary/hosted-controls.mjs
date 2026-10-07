@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, lstat, readdir } from "node:fs/promises";
+import { readFile, lstat, stat, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
@@ -12,6 +12,7 @@ import { nativeControls } from "./native-controls.mjs";
 import { peerControls } from "./peer-controls.mjs";
 import { withOwnershipStimulus } from "./ownership-controls.mjs";
 import { browserLifecycleControls } from "./browser-lifecycle-controls.mjs";
+import { installationCycle, withInstallationCycle } from "./installation-cycle.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -57,11 +58,11 @@ async function drained(owned) {
   throw new Error("owned-drain-incomplete");
 }
 
-async function installationIdentity() {
+async function installationIdentity(inputLink = false) {
   const files = await Promise.all(
     ["launcher.sha256", "files.sha256", "source.sha256"].map((name) => readFile(`${install}/${name}`)),
   );
-  const directory = await lstat(input);
+  const directory = await (inputLink ? stat(input) : lstat(input));
   assert.ok(directory.isDirectory() && !directory.isSymbolicLink());
   const { stdout, stderr } = await execute(
     "/usr/bin/sudo",
@@ -92,7 +93,7 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
       )
       .map(({ pid, start, parent, image }) => ({ pid, start, parent, image }));
   control = `${id}-${mode}-installation-before`;
-  const before = await installationIdentity();
+  const before = await installationIdentity(stage === "input-not-symlink");
   control = `${id}-${mode}-identity-before`;
   const missingBeforeRemoval = missingFrom(await tree());
   control = `${id}-${mode}-refusal`;
@@ -112,7 +113,7 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
     `installed-boundary control ${id} refusal:${JSON.stringify({
       expectedStatus: 1,
       actualStatus: Number.isInteger(failure?.code) ? failure.code : null,
-      installerStatus: exact ? 1 : null,
+      installerStatus: exact && !stage.startsWith("input-") ? 1 : null,
       exact,
       stdoutBytes: failure?.stdout?.length ?? null,
       stderrBytes: failure?.stderr?.length ?? null,
@@ -122,7 +123,7 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
   );
   assert.ok(exact);
   control = `${id}-${mode}-installation-after`;
-  assert.deepEqual(await installationIdentity(), before);
+  assert.deepEqual(await installationIdentity(stage === "input-not-symlink"), before);
   control = `${id}-${mode}-identity-survival`;
   const after = await tree();
   const missing = missingFrom(after);
@@ -198,24 +199,126 @@ async function setupNamesAbsent() {
   }
 }
 
-async function syntheticOwnerCases(contexts, mode) {
-  for (const [stimulus, stage, id] of [
-    ["orphan", "remove-orphan-owner", "13c"],
-    ["foreign", "remove-ambiguous-owner", "13e"],
-    ["cap", "remove-ownership-census", "13g"],
-  ]) {
-    control = `${id}-${mode}-baseline`;
-    const owned = await tree();
-    control = `${id}-${mode}-stimulus`;
-    const constructed = await withOwnershipStimulus(stimulus, async () => {
-      await ownerRefusal(contexts, owned, mode, stage, id);
-    });
-    control = `${id}-${mode}-restored-admission`;
-    await assertBrowserAdmission();
-    if (constructed) pass(`${id} ${mode} stimulus retired and admission restored`);
-    else
-      console.log(`installed-boundary control ${id} ${mode}: NOT CONSTRUCTED; cleanup and restored admission verified`);
+async function ownerCase(id, count, test) {
+  await withInstallationCycle(id, async () => {
+    const browsers = [];
+    const contexts = [];
+    let owned = [];
+    let primary;
+    try {
+      for (let index = 0; index < count; index++) {
+        const browser = await openConfinedBrowser();
+        browsers.push(browser);
+        const context = await browser.newContext();
+        contexts.push(context);
+        const page = await context.newPage();
+        await page.setContent("<!doctype html><title>SYNTHETIC_OWNER_CASE</title>");
+      }
+      owned = await tree();
+      await test(contexts, owned);
+    } catch (error) {
+      primary = error;
+    } finally {
+      for (const browser of browsers.reverse()) {
+        try {
+          await browser.close();
+        } catch (error) {
+          primary ??= error;
+        }
+      }
+      try {
+        await drained(owned);
+      } catch (error) {
+        primary ??= error;
+      }
+    }
+    if (primary) throw primary;
+  });
+}
+
+async function malformedPath(contexts, owned, mode, name, stage) {
+  const before = await installationIdentity();
+  const mutate = async (action) => {
+    const { stdout, stderr } = await execute(
+      "/usr/bin/sudo",
+      [
+        "-n",
+        "/usr/bin/python3",
+        `${input}/scripts/provider-object-disposition/browser-boundary/path-stimulus.py`,
+        name,
+        action,
+      ],
+      {
+        env: environment,
+        timeout: 1000,
+        maxBuffer: 1024,
+      },
+    );
+    assert.equal(stdout, `provider-boundary-path-stimulus:${name}-${action}\n`);
+    assert.equal(stderr, "");
+  };
+  let applied = false;
+  let primary;
+  try {
+    await mutate("apply");
+    applied = true;
+    await ownerRefusal(contexts, owned, mode, stage, "13h");
+  } catch (error) {
+    primary = error;
+  } finally {
+    if (applied) {
+      try {
+        await mutate("restore");
+      } catch (error) {
+        primary ??= error;
+      }
+    }
   }
+  if (primary) throw primary;
+  assert.deepEqual(await installationIdentity(), before);
+  await assertBrowserAdmission();
+}
+
+async function ownershipCases() {
+  for (const count of [1, 2]) {
+    const mode = count === 1 ? "single-live" : "concurrent-live";
+    await ownerCase(`13b-${mode}`, count, (contexts, owned) =>
+      ownerRefusal(contexts, owned, mode, "remove-live-owner", "13b"),
+    );
+  }
+  for (const count of [0, 1]) {
+    const mode = count ? "concurrent-live" : "alone";
+    await ownerCase(`13d-${mode}`, count, (contexts) => missingOwnerKey(contexts, mode));
+    for (const [stimulus, stage, id] of [
+      ["orphan", "remove-orphan-owner", "13c"],
+      ["foreign", "remove-ambiguous-owner", "13e"],
+      ["cap", "remove-ownership-census", "13g"],
+    ]) {
+      await ownerCase(`${id}-${mode}`, count, async (contexts, owned) => {
+        control = `${id}-${mode}-stimulus`;
+        const constructed = await withOwnershipStimulus(stimulus, () => ownerRefusal(contexts, owned, mode, stage, id));
+        await assertBrowserAdmission();
+        if (constructed) pass(`${id} ${mode} stimulus retired and admission restored`);
+        else
+          console.log(
+            `installed-boundary control ${id} ${mode}: NOT CONSTRUCTED; cleanup and restored admission verified`,
+          );
+      });
+    }
+    for (const [name, stage] of [
+      ["target", "remove-target-symlink"],
+      ["profile", "remove-profile-symlink"],
+      ["input", "input-not-symlink"],
+    ]) {
+      if (name === "target" && count) continue;
+      await ownerCase(`13h-${name}-${mode}`, count, (contexts, owned) =>
+        malformedPath(contexts, owned, mode, name, stage),
+      );
+    }
+  }
+  console.log(
+    "installed-boundary control 13h ancestor realpath mismatch: NOT CONSTRUCTED; ancestor-mutation-outside-footprint; closed parser fixtures only",
+  );
 }
 
 async function run() {
@@ -236,14 +339,10 @@ async function run() {
     console.log(`installed-boundary ${name}:${value}`);
   }
   pass("1 CP-T/CP-A");
-  control = "13d-missing-key-alone";
-  await missingOwnerKey([], "alone");
-  await syntheticOwnerCases([], "alone");
   control = "5-launch";
   const browser = await openConfinedBrowser();
   let owned = [];
   let primary;
-  let concurrent;
   let observeHolders;
   try {
     control = "5-context";
@@ -279,34 +378,11 @@ async function run() {
       control = "11-binding";
       if (parent) assert.ok(parent.start <= r.start);
     }
-    control = "13b-live-owner";
-    await ownerRefusal([context], owned, "single-live", "remove-live-owner", "13b");
-    control = "13d-missing-key-concurrent";
-    await missingOwnerKey([context], "concurrent-live");
-    await syntheticOwnerCases([context], "concurrent-live");
-    control = "13b-concurrent-live";
-    concurrent = await openConfinedBrowser();
-    const concurrentContext = await concurrent.newContext();
-    const concurrentPage = await concurrentContext.newPage();
-    await concurrentPage.setContent("<!doctype html><title>SYNTHETIC_CONCURRENT_OWNER</title>");
-    assert.equal(await concurrentPage.title(), "SYNTHETIC_CONCURRENT_OWNER");
-    owned = await tree();
-    console.log(`installed-boundary concurrent-identities:${JSON.stringify(owned)}`);
-    await ownerRefusal([context, concurrentContext], owned, "concurrent-live", "remove-live-owner", "13b");
     control = "7-peer-reach";
     observeHolders = await peerControls(await tree());
   } catch (error) {
     primary = { error, control };
   } finally {
-    if (concurrent) {
-      try {
-        await concurrent.close();
-        console.log("installed-boundary concurrent-browser-close: completed");
-      } catch (error) {
-        console.log("installed-boundary concurrent-browser-close: failed; raw output redacted");
-        primary ??= { error, control: "13b-concurrent-close" };
-      }
-    }
     try {
       await browser.close();
       console.log("installed-boundary browser-close: completed");
@@ -330,6 +406,8 @@ async function run() {
   control = "12-launch-temporaries";
   assert.deepEqual(await readdir(`${install}/root/tmp`), []);
   pass("12 launch host temporaries absent");
+  await installationCycle("CP-B");
+  await ownershipCases();
   control = "B2-bootstrap-transport";
   await bootstrapControls((stage) => {
     control = `B2-${stage}`;

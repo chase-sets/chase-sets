@@ -157,10 +157,15 @@ export function browserCapabilityProof(record) {
 }
 
 export function removalRefusal(error, stage) {
-  if (
-    !["remove-live-owner", "remove-orphan-owner", "remove-ambiguous-owner", "remove-ownership-census"].includes(stage)
-  )
-    return false;
+  const census = [
+    "remove-live-owner",
+    "remove-orphan-owner",
+    "remove-ambiguous-owner",
+    "remove-ownership-census",
+  ].includes(stage);
+  const path = ["remove-target-symlink", "remove-target-path", "remove-profile-symlink"].includes(stage);
+  const input = ["input-not-symlink", "input-path"].includes(stage);
+  if (!census && !path && !input) return false;
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
   return (
@@ -170,15 +175,20 @@ export function removalRefusal(error, stage) {
     stderr !== null &&
     stdout.equals(
       Buffer.from(
-        "provider-boundary-cleanup-stage:remove-installation\n" +
-          "provider-boundary-installer-stage:source-location\n" +
-          "provider-boundary-installer-stage:remove-ownership\n" +
-          "provider-boundary-cleanup-installer-status:1\n",
+        input
+          ? ""
+          : "provider-boundary-cleanup-stage:remove-installation\n" +
+              "provider-boundary-installer-stage:source-location\n" +
+              (census ? "provider-boundary-installer-stage:remove-ownership\n" : "") +
+              "provider-boundary-cleanup-installer-status:1\n",
       ),
     ) &&
     stderr.equals(
       Buffer.from(
-        `provider-boundary-installer-refused:${stage}\n` + "provider-boundary-cleanup-refused:remove-installation\n",
+        input
+          ? `provider-boundary-cleanup-refused:${stage}\n`
+          : `provider-boundary-installer-refused:${stage}\n` +
+              "provider-boundary-cleanup-refused:remove-installation\n",
       ),
     )
   );
