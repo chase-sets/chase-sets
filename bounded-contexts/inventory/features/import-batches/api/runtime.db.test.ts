@@ -124,6 +124,19 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
     return (await runtime().getImportBatchJob(PRODUCT_RESOLUTION_JOB_ID))!;
   }
 
+  it("AC-04 bootstraps a valid keyset scan index through an idempotent migration", async () => {
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    const indexes = await pools.inventory.query<{ valid: boolean; definition: string }>(
+      `SELECT indisvalid AS valid, pg_get_indexdef(indexrelid) AS definition
+       FROM pg_index
+       WHERE indexrelid = 'inventory_import_batch_rows_product_resolution_scan_idx'::regclass`,
+    );
+    expect(indexes.rows).toHaveLength(1);
+    expect(indexes.rows[0]?.valid).toBe(true);
+    expect(indexes.rows[0]?.definition).toContain("(created_at, row_id)");
+    expect(indexes.rows[0]?.definition).toContain("(status = 'rejected'::text) AND (committed_at IS NULL)");
+  });
+
   it("AC-04 persists inclusive microsecond high-water and 250-row checkpoints across restart; replay writes nothing", async () => {
     await seedRows(301);
     const abort = new AbortController();

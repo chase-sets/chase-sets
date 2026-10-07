@@ -13,7 +13,7 @@ import {
   serializeCreateBatchInputForIdempotency,
   shouldDeferImportBatchParentClaimForCreateUnitMiss,
 } from "./runtime";
-import { inventoryImportBatchSchemaSql } from "../read-model/schema";
+import { inventoryImportBatchSchemaSql, inventoryImportBatchSchemaMigrations } from "../read-model/schema";
 import { inventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import { readFileSync } from "node:fs";
 
@@ -896,6 +896,18 @@ describe("inventory import batch runtime", () => {
         .filter(({ sql }) => /(?:INSERT INTO|UPDATE) inventory_import_account_sku_mappings/.test(sql)),
     ).toHaveLength(0);
   });
+  it("creates the Product resolution scan index only through the concurrent migration", () => {
+    expect(inventoryImportBatchSchemaSql).not.toContain("inventory_import_batch_rows_product_resolution_scan_idx");
+    const migration = inventoryImportBatchSchemaMigrations.find(
+      ({ migrationId }) => migrationId === "20261006_inventory_import_product_resolution_scan",
+    );
+    expect(migration?.statements).toEqual([
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
+  ON inventory_import_batch_rows (created_at, row_id)
+  WHERE status = 'rejected' AND committed_at IS NULL`,
+    ]);
+  });
+
   it("keeps import batch schema additive for existing staging databases", () => {
     expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS source_filename text NULL");
     expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS seller_sku text NULL");

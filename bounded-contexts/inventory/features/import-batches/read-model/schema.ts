@@ -88,10 +88,6 @@ CREATE TABLE IF NOT EXISTS inventory_import_account_sku_mappings (
 CREATE INDEX IF NOT EXISTS inventory_import_account_sku_mappings_lookup_idx
   ON inventory_import_account_sku_mappings (account_id, normalized_seller_sku, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
-  ON inventory_import_batch_rows (created_at, row_id)
-  WHERE status = 'rejected' AND committed_at IS NULL;
-
 ALTER TABLE inventory_import_batches
   ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
   ADD COLUMN IF NOT EXISTS adapter_version integer NOT NULL DEFAULT 1,
@@ -139,7 +135,7 @@ export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] 
     migrationId: "20261006_inventory_import_product_resolution_scan",
     description: "Index the bounded rejected/uncommitted Product resolution keyset scan.",
     statements: [
-      `CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
   ON inventory_import_batch_rows (created_at, row_id)
   WHERE status = 'rejected' AND committed_at IS NULL`,
     ],
