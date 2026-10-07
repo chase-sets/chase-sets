@@ -112,6 +112,7 @@ function launch(sourceDigest) {
 
 async function withVariant(name, test) {
   let primary;
+  let recovered = false;
   try {
     const identity = JSON.parse(await command("apply", name));
     assert.match(identity.sourceDigest, /^[a-f0-9]{64}$/);
@@ -125,12 +126,16 @@ async function withVariant(name, test) {
       assert.equal(await command("restore"), "provider-boundary-variant:restored\n");
       await assertBrowserAdmission();
       assert.deepEqual(await readdir("/usr/local/lib/chase-sets-provider-window/root/tmp"), []);
+      recovered = !primary?.cleanupUnknown;
     } catch (error) {
       console.error("installed-boundary synthetic-build restore: FAIL; raw output redacted");
       primary ??= error;
     }
   }
-  if (primary) throw primary;
+  if (primary) {
+    primary.recovered = recovered;
+    throw primary;
+  }
   pass(`${name} restored admission and exact host temporary absence`);
 }
 
@@ -182,12 +187,26 @@ async function withConcurrentBrowser(sourceDigest, test) {
       await absent(roots);
     } catch (error) {
       primary ??= error;
+      primary.cleanupUnknown = true;
     }
   }
   if (primary) throw primary;
 }
 
 export async function nativeControls(stage) {
+  const failures = [];
+  const runCase = async (name, test) => {
+    stage(name);
+    try {
+      await withVariant(name, test);
+    } catch (error) {
+      console.error(
+        `installed-boundary control ${name}: FAIL; raw output redacted; restored=${error.recovered === true}`,
+      );
+      if (error.recovered !== true) throw error;
+      failures.push(name);
+    }
+  };
   const refusalCases = [
     ["ready-outer", "", "seed-deadline"],
     ["reap-outer", "", "seed-reap"],
@@ -198,13 +217,13 @@ export async function nativeControls(stage) {
     ["b3-failure", "", "namespace-identity"],
     ...["open", "socket", "connect", "recvmsg", "setns", "unshare", "mount", "clone", "prctl", "x32"].map((name) => [
       `sf-${name}`,
-      "SYNTHETIC_SF:SIGSYS\n",
+      "SYNTHETIC_SF:1:0:2:31\nSYNTHETIC_SF:SIGSYS\n",
       "namespace-seed",
     ]),
   ];
   for (const [name, stdout, refusal] of refusalCases) {
     stage(name);
-    await withVariant(name, async (digest) => {
+    await runCase(name, async (digest) => {
       const { child, result } = launch(digest);
       let records = [];
       let primary;
@@ -221,6 +240,17 @@ export async function nativeControls(stage) {
           console.log(`installed-boundary seed-identities:${JSON.stringify({ name, records })}`);
         }
         const actual = await result;
+        const seedMatch = /^SYNTHETIC_SF:(-1|0|1):(-1|0):([0-9]{1,2}):([0-9]{1,3})\n/.exec(
+          actual.stdout.toString("ascii"),
+        );
+        const seedTermination = seedMatch
+          ? {
+              poll: Number(seedMatch[1]),
+              wait: Number(seedMatch[2]),
+              code: Number(seedMatch[3]),
+              signal: Number(seedMatch[4]),
+            }
+          : null;
         const stderr = `provider-boundary-refused:${refusal}\n${name.endsWith("nested") ? "provider-boundary-refused:nested-sandbox\n" : ""}`;
         const exact =
           actual.code === 78 &&
@@ -229,7 +259,7 @@ export async function nativeControls(stage) {
           actual.stdout.equals(Buffer.from(stdout)) &&
           actual.stderr.equals(Buffer.from(stderr));
         console.log(
-          `installed-boundary native-control:${JSON.stringify({ name, expectedStatus: 78, actualStatus: actual.code, signal: actual.signal, nativeStage: nativeRefusal(actual.stdout, actual.stderr, actual.code), stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, exact, redacted: true, truncated: actual.overflow })}`,
+          `installed-boundary native-control:${JSON.stringify({ name, expectedStatus: 78, actualStatus: actual.code, signal: actual.signal, seedTermination, nativeStage: nativeRefusal(actual.stdout, actual.stderr, actual.code), stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, exact, redacted: true, truncated: actual.overflow })}`,
         );
         assert.equal(exact, true);
       } catch (error) {
@@ -241,6 +271,7 @@ export async function nativeControls(stage) {
           await absent(records);
         } catch (error) {
           primary ??= error;
+          primary.cleanupUnknown = true;
         }
       }
       if (primary) throw primary;
@@ -251,7 +282,7 @@ export async function nativeControls(stage) {
     for (let transition = 1; transition <= 6; transition++) {
       const name = `stall-${scope}-B${transition}`;
       stage(name);
-      await withVariant(name, async (digest) => {
+      await runCase(name, async (digest) => {
         await withConcurrentBrowser(digest, async (survives) => {
           for (const signal of ["SIGKILL", "SIGTERM"]) {
             const running = launch(digest);
@@ -285,6 +316,7 @@ export async function nativeControls(stage) {
                 await absent(records);
               } catch (error) {
                 primary ??= error;
+                primary.cleanupUnknown = true;
               }
             }
             if (primary) throw primary;
@@ -295,5 +327,10 @@ export async function nativeControls(stage) {
         });
       });
     }
+  }
+  if (failures.length) {
+    console.error(`installed-boundary failed native controls:${JSON.stringify(failures)}`);
+    stage(failures[0]);
+    throw new Error("native-controls-failed");
   }
 }

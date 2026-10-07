@@ -9,6 +9,8 @@ import { browserCapabilityProof, removalRefusal, mediationDiagnostic, observerDi
 import { bootstrapControls } from "./bootstrap-controls.mjs";
 import { nativeDiagnosticControls } from "./native-diagnostics.mjs";
 import { nativeControls } from "./native-controls.mjs";
+import { peerControls } from "./peer-controls.mjs";
+import { withOwnershipStimulus } from "./ownership-controls.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -195,6 +197,23 @@ async function setupNamesAbsent() {
   }
 }
 
+async function syntheticOwnerCases(contexts, mode) {
+  for (const [stimulus, stage, id] of [
+    ["orphan", "remove-orphan-owner", "13c"],
+    ["foreign", "remove-ambiguous-owner", "13e"],
+  ]) {
+    control = `${id}-${mode}-baseline`;
+    const owned = await tree();
+    control = `${id}-${mode}-stimulus`;
+    await withOwnershipStimulus(stimulus, async () => {
+      await ownerRefusal(contexts, owned, mode, stage, id);
+    });
+    control = `${id}-${mode}-restored-admission`;
+    await assertBrowserAdmission();
+    pass(`${id} ${mode} stimulus retired and admission restored`);
+  }
+}
+
 async function run() {
   assert.equal(process.platform, "linux");
   assert.equal(process.env.GITHUB_ACTIONS, "true");
@@ -215,11 +234,13 @@ async function run() {
   pass("1 CP-T/CP-A");
   control = "13d-missing-key-alone";
   await missingOwnerKey([], "alone");
+  await syntheticOwnerCases([], "alone");
   control = "5-launch";
   const browser = await openConfinedBrowser();
   let owned = [];
   let primary;
   let concurrent;
+  let observeHolders;
   try {
     control = "5-context";
     const context = await browser.newContext();
@@ -258,6 +279,7 @@ async function run() {
     await ownerRefusal([context], owned, "single-live", "remove-live-owner", "13b");
     control = "13d-missing-key-concurrent";
     await missingOwnerKey([context], "concurrent-live");
+    await syntheticOwnerCases([context], "concurrent-live");
     control = "13b-concurrent-live";
     concurrent = await openConfinedBrowser();
     const concurrentContext = await concurrent.newContext();
@@ -267,6 +289,8 @@ async function run() {
     owned = await tree();
     console.log(`installed-boundary concurrent-identities:${JSON.stringify(owned)}`);
     await ownerRefusal([context, concurrentContext], owned, "concurrent-live", "remove-live-owner", "13b");
+    control = "7-peer-reach";
+    observeHolders = await peerControls(await tree());
   } catch (error) {
     primary = { error, control };
   } finally {
@@ -297,6 +321,8 @@ async function run() {
   control = "16-close";
   await drained(owned);
   pass("16-close owned drain");
+  control = "15-holder-census";
+  await observeHolders();
   control = "12-launch-temporaries";
   assert.deepEqual(await readdir(`${install}/root/tmp`), []);
   pass("12 launch host temporaries absent");

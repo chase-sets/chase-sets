@@ -171,6 +171,8 @@ jobs:
         run: |
           python3 scripts/provider-object-disposition/browser-boundary/ownership.test.py
           python3 scripts/provider-object-disposition/browser-boundary/native-variants.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
           pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-policy.test.mjs scripts/provider-object-disposition/browser-boundary/bootstrap.test.mjs scripts/provider-object-disposition/browser-boundary/protocol.test.mjs
           node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs
 

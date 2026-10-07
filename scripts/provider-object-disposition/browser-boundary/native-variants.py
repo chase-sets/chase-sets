@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-from ownership import snapshot
+from ownership import snapshot, bounded_read, parse_stat
 
 TARGET = Path('/usr/local/lib/chase-sets-provider-window')
 BACKUP = TARGET / 'synthetic-original'
@@ -91,8 +91,10 @@ def variant(source, name):
         observation = '''
     struct pollfd synthetic_dead = {seedfd, POLLIN, 0};
     siginfo_t synthetic_status = {0};
-    require(poll(&synthetic_dead, 1, 1000) == 1 &&
-            waitid(P_PIDFD, seedfd, &synthetic_status, WEXITED | WNOHANG | WNOWAIT) == 0 &&
+    int synthetic_poll = poll(&synthetic_dead, 1, 1000);
+    int synthetic_wait = waitid(P_PIDFD, seedfd, &synthetic_status, WEXITED | WNOHANG | WNOWAIT);
+    dprintf(STDOUT_FILENO, "SYNTHETIC_SF:%d:%d:%d:%d\\n", synthetic_poll, synthetic_wait, synthetic_status.si_code, synthetic_status.si_status);
+    require(synthetic_poll == 1 && synthetic_wait == 0 &&
             synthetic_status.si_code == CLD_KILLED && synthetic_status.si_status == SIGSYS, "namespace-seed");
     dprintf(STDOUT_FILENO, "SYNTHETIC_SF:SIGSYS\\n");'''
         return replace_once(source, '    active_seed = seedfd;', '    active_seed = seedfd;' + observation)
@@ -215,6 +217,37 @@ def owned(ancestor):
     print(json.dumps(result))
 
 
+def namespaces(text):
+    global stage
+    stage = 'owned'
+    if len(text) > 16384 or not re.fullmatch(r'[0-9]+:[0-9]+(?:,[0-9]+:[0-9]+)*', text):
+        raise ValueError()
+    owners = [tuple(map(int, item.split(':'))) for item in text.split(',')]
+    if len(owners) > 256:
+        raise ValueError()
+    found = set()
+    unknown = 0
+    for pid, start in owners:
+        try:
+            before = parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)
+            if before['start'] != start:
+                unknown += 1
+                continue
+            fd = os.open(f'/proc/{pid}/ns/user', os.O_RDONLY | os.O_CLOEXEC)
+            try:
+                info = os.fstat(fd)
+                after = parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)
+                if after['start'] == start:
+                    found.add((info.st_dev, info.st_ino))
+                else:
+                    unknown += 1
+            finally:
+                os.close(fd)
+        except OSError:
+            unknown += 1
+    print(json.dumps({'namespaces': sorted(found), 'unknown': unknown}))
+
+
 def main():
     try:
         if os.getuid() != 0:
@@ -225,6 +258,8 @@ def main():
             restore()
         elif len(sys.argv) == 3 and sys.argv[1] == 'owned' and re.fullmatch(r'[1-9][0-9]*', sys.argv[2]):
             owned(int(sys.argv[2]))
+        elif len(sys.argv) == 3 and sys.argv[1] == 'namespaces':
+            namespaces(sys.argv[2])
         else:
             raise ValueError()
         return 0

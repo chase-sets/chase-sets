@@ -157,7 +157,10 @@ export function browserCapabilityProof(record) {
 }
 
 export function removalRefusal(error, stage) {
-  if (!["remove-live-owner", "remove-ownership-census"].includes(stage)) return false;
+  if (
+    !["remove-live-owner", "remove-orphan-owner", "remove-ambiguous-owner", "remove-ownership-census"].includes(stage)
+  )
+    return false;
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
   return (

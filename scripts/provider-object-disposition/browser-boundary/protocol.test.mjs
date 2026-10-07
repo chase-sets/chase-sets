@@ -71,6 +71,17 @@ it("control 13d requires its own census refusal, not live-owner or an open stage
   expect(removalRefusal(missingKey, "PRIVATE")).toBe(false);
 });
 
+it.each(["remove-orphan-owner", "remove-ambiguous-owner"])(
+  "common ownership proof preserves exact stage and emitter statuses: %s",
+  (stage) => {
+    const actual = { ...liveRemoval, stderr: liveRemoval.stderr.replace("remove-live-owner", stage) };
+    expect(removalRefusal(actual, stage)).toBe(true);
+    expect(removalRefusal(actual, "remove-live-owner")).toBe(false);
+    expect(removalRefusal({ ...actual, code: 78 }, stage)).toBe(false);
+    expect(removalRefusal({ ...actual, stdout: actual.stdout + "PRIVATE" }, stage)).toBe(false);
+  },
+);
+
 it("CP-B distinguishes dropped launch authority from proved nested sandbox authority", () => {
   expect(browserCapabilityProof(dropped)).toBe(true);
   expect(browserCapabilityProof(scoped)).toBe(true);
