@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   defaultAuthenticityCheckFeePolicyValue,
   quoteAuthenticityCheckFee,
@@ -6,6 +6,10 @@ import {
 } from "./authenticity-check-fee";
 
 describe("quoteAuthenticityCheckFee", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("is not eligible below the opt-in threshold", () => {
     const quote = quoteAuthenticityCheckFee({ orderValueAmount: "99.99" });
     expect(quote.eligible).toBe(false);
@@ -110,11 +114,17 @@ describe("quoteAuthenticityCheckFee", () => {
   });
 
   it("uses the compiled launch default when no policy is supplied", () => {
-    const quote = quoteAuthenticityCheckFee({ orderValueAmount: "100.00" });
-    const withDefault = quoteAuthenticityCheckFee(
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T00:00:00.000Z"));
+    const { quoted_at: quotedAt, ...quote } = quoteAuthenticityCheckFee({ orderValueAmount: "100.00" });
+    vi.advanceTimersByTime(1);
+    const { quoted_at: defaultQuotedAt, ...withDefault } = quoteAuthenticityCheckFee(
       { orderValueAmount: "100.00" },
       defaultAuthenticityCheckFeePolicyValue,
     );
     expect(quote).toEqual(withDefault);
+    expect(new Date(quotedAt).toISOString()).toBe(quotedAt);
+    expect(new Date(defaultQuotedAt).toISOString()).toBe(defaultQuotedAt);
+    expect(Date.parse(defaultQuotedAt) - Date.parse(quotedAt)).toBe(1);
   });
 });
