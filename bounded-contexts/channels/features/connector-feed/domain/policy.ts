@@ -27,8 +27,16 @@ export function decodeConnectorPolicy(value: unknown): ConnectorPolicy {
   integer(leaseMs, OUTBOUND_CLAIM_LEASE_MIN_MS, OUTBOUND_CLAIM_LEASE_MAX_MS);
   integer(pollWindowSeconds, 1, 3600);
   integer(maxOperationsPerClaim, 1, connectorMaxOperations);
-  integer(maxIngestBytes, ...manualSyncIngestContract.configuredBounds.bytes);
-  integer(maxIngestRecords, ...manualSyncIngestContract.configuredBounds.rows);
+  integer(
+    maxIngestBytes,
+    manualSyncIngestContract.configuredBounds.bytes[0],
+    manualSyncIngestContract.configuredBounds.bytes[1],
+  );
+  integer(
+    maxIngestRecords,
+    manualSyncIngestContract.configuredBounds.rows[0],
+    manualSyncIngestContract.configuredBounds.rows[1],
+  );
   return { leaseMs, pollWindowSeconds, maxOperationsPerClaim, maxIngestBytes, maxIngestRecords };
 }
 
