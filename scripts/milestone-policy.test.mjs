@@ -48,14 +48,11 @@ describe("milestone outcome policy", () => {
     expect(isExecutableOutcome(milestone("M3", "Done", marker("commerce", 3), { state: "closed" }))).toBe(false);
   });
 
-  it("keeps untagged Wave and Mobile titles as bounded migration compatibility", () => {
-    expect(readOutcomePolicy(milestone("M1", "Wave 7 renamed", null))).toMatchObject({
-      track: "Wave",
-      order: 7,
-      status: "committed",
-      source: "legacy-title",
-    });
-    expect(readOutcomePolicy(milestone("M2", "Mobile 2", null))).toMatchObject({ track: "Mobile", order: 2 });
-    expect(readOutcomePolicy(milestone("M3", "Operations", null))).toBeNull();
+  it.each(["Wave 9", "Mobile 4", "Operations"])("never treats an untagged %s title as an outcome", (title) => {
+    for (const description of [undefined, null, "", "Exit gates: #123"]) {
+      const untagged = milestone("M1", title, description);
+      expect(readOutcomePolicy(untagged)).toBeNull();
+      expect(isExecutableOutcome(untagged)).toBe(false);
+    }
   });
 });

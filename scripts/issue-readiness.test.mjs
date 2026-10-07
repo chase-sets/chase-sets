@@ -35,7 +35,7 @@ const MILESTONE = {
   id: "MI_kwDORKgVcc4AAAAABaseMilestone",
   number: 136,
   title: "Wave 1 — Platform Foundation & Representative Staging",
-  description: null,
+  description: '<!-- outcome: {"version":1,"track":"wave","order":1,"status":"committed"} -->',
   state: "open",
 };
 
@@ -1414,10 +1414,26 @@ describe("prospective issue readiness", () => {
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
   });
 
-  it("accepts legacy Mobile and managed renamed outcomes while excluding candidates", () => {
+  it.each(["Wave 9", "Mobile 4"])("rejects an untagged %s as MILESTONE_NOT_OUTCOME", (title) => {
+    const result = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({ milestone: { number: 200, title, state: "open" } }),
+    );
+    expect(result.status).toBe("not-ready");
+    expect(result.reasonCodes).toContain("MILESTONE_NOT_OUTCOME");
+  });
+
+  it("accepts tagged Mobile and renamed outcomes while excluding candidates", () => {
     const mobile = prospectiveResult(
       fixture.readyBody,
-      prospectiveMetadata({ milestone: { number: 200, title: "Mobile 3 — App delivery", state: "open" } }),
+      prospectiveMetadata({
+        milestone: {
+          number: 200,
+          title: "Mobile 3 — App delivery",
+          description: '<!-- outcome: {"version":1,"track":"mobile","order":3,"status":"committed"} -->',
+          state: "open",
+        },
+      }),
     );
     expect(mobile.status).toBe("ready");
 
