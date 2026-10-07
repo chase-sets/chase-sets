@@ -22,6 +22,7 @@ import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy,
  * from re-deriving the same wrapping control/icon-button markup.
  */
 function NumberFieldControlGroup({
+  inputId,
   error,
   disabledChrome = false,
   decrementLabel,
@@ -31,6 +32,7 @@ function NumberFieldControlGroup({
   prefixAdornment,
   suffixAdornment,
 }: {
+  inputId: string;
   error?: unknown;
   disabledChrome?: boolean;
   decrementLabel: string;
@@ -60,7 +62,7 @@ function NumberFieldControlGroup({
         "flex flex-wrap items-center justify-between gap-1",
       )}
     >
-      <NumberFieldPrimitive.Decrement aria-label={decrementLabel} className={iconButtonClass}>
+      <NumberFieldPrimitive.Decrement aria-label={decrementLabel} aria-controls={inputId} className={iconButtonClass}>
         <Icon name="minus" size="sm" />
       </NumberFieldPrimitive.Decrement>
       <span className="flex min-w-min flex-1 items-center justify-center gap-1 px-2">
@@ -81,7 +83,7 @@ function NumberFieldControlGroup({
           </span>
         ) : null}
       </span>
-      <NumberFieldPrimitive.Increment aria-label={incrementLabel} className={iconButtonClass}>
+      <NumberFieldPrimitive.Increment aria-label={incrementLabel} aria-controls={inputId} className={iconButtonClass}>
         <Icon name="plus" size="sm" />
       </NumberFieldPrimitive.Increment>
     </NumberFieldPrimitive.Group>
@@ -145,7 +147,6 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
       htmlFor={inputId}
     >
       <NumberFieldPrimitive.Root
-        id={inputId}
         name={name}
         form={form}
         value={value}
@@ -159,12 +160,14 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
         readOnly={readOnly}
       >
         <NumberFieldControlGroup
+          inputId={inputId}
           error={error}
           disabledChrome={disabled}
           decrementLabel={decrementLabel}
           incrementLabel={incrementLabel}
           inputRef={ref}
           inputProps={{
+            id: inputId,
             placeholder,
             "aria-describedby": fieldDescribedBy({ inputId, description, error, status, counter }),
             "aria-invalid": !!error || undefined,
@@ -357,7 +360,6 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(fu
       htmlFor={inputId}
     >
       <NumberFieldPrimitive.Root
-        id={inputId}
         name={name}
         form={form}
         locale={locale}
@@ -375,6 +377,7 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(fu
         readOnly={readOnly}
       >
         <NumberFieldControlGroup
+          inputId={inputId}
           error={error}
           disabledChrome={disabled}
           decrementLabel={decrementLabel}
@@ -383,6 +386,7 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(fu
           suffixAdornment={affix.position === "suffix" ? affix.symbol : undefined}
           inputRef={ref}
           inputProps={{
+            id: inputId,
             placeholder,
             inputMode: "decimal",
             "aria-label": ariaLabel,
