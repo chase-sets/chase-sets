@@ -201,6 +201,7 @@ async function syntheticOwnerCases(contexts, mode) {
   for (const [stimulus, stage, id] of [
     ["orphan", "remove-orphan-owner", "13c"],
     ["foreign", "remove-ambiguous-owner", "13e"],
+    ["cap", "remove-ownership-census", "13g"],
   ]) {
     control = `${id}-${mode}-baseline`;
     const owned = await tree();

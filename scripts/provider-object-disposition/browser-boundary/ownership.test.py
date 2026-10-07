@@ -30,6 +30,53 @@ def classify(previous, current):
 
 
 class OwnershipControls(unittest.TestCase):
+    def test_13g_disappeared_records_still_obey_the_pass_deadline(self):
+        entries = mock.MagicMock()
+        entries.__enter__.return_value = [mock.Mock(name='entry')]
+        entries.__enter__.return_value[0].name = '91'
+        with mock.patch.object(ownership.os, 'scandir', return_value=entries), mock.patch.object(ownership, 'bounded_read', side_effect=FileNotFoundError(errno.ENOENT, 'SYNTHETIC_PRIVATE')), mock.patch.object(ownership.time, 'monotonic', side_effect=[0, 0, 0, 1.001, 1.001]):
+            with self.assertRaises(ownership.CensusError):
+                ownership.snapshot()
+
+    def test_13g_census_cap_refuses_before_reading_any_process(self):
+        entries = mock.MagicMock()
+        entries.__enter__.return_value = [type('Entry', (), {'name': str(pid)})() for pid in range(1, 4098)]
+        with mock.patch.object(ownership.os, 'scandir', return_value=entries), mock.patch.object(ownership.time, 'monotonic', return_value=0), mock.patch.object(ownership, 'bounded_read') as read:
+            with self.assertRaises(ownership.CensusError):
+                ownership.snapshot()
+            read.assert_not_called()
+
+    def test_13g_unreadable_status_or_namespace_is_not_a_missing_process(self):
+        entries = mock.MagicMock()
+        entries.__enter__.return_value = [type('Entry', (), {'name': '91'})()]
+        fields = ['S', '17'] + ['0'] * 50
+        fields[19] = '12345'
+        stat = '91 (synthetic) ' + ' '.join(fields) + '\n'
+        for field in ('status', 'namespace'):
+            def read(path):
+                if path.name == 'stat':
+                    return stat
+                if field == 'status':
+                    raise PermissionError(errno.EACCES, 'SYNTHETIC_PRIVATE')
+                return 'Uid:\t1001\t1001\t1001\t1001\n'
+            with mock.patch.object(ownership.os, 'scandir', return_value=entries), mock.patch.object(ownership, 'bounded_read', side_effect=read), mock.patch.object(ownership.os, 'readlink', side_effect=PermissionError(errno.EACCES, 'SYNTHETIC_PRIVATE')):
+                with self.assertRaises(ownership.CensusError):
+                    ownership.snapshot()
+
+    def test_13g_empty_pass_still_obeys_deadline(self):
+        entries = mock.MagicMock()
+        entries.__enter__.return_value = []
+        with mock.patch.object(ownership.os, 'scandir', return_value=entries), mock.patch.object(ownership.time, 'monotonic', side_effect=[0, 1.001]):
+            with self.assertRaises(ownership.CensusError):
+                ownership.snapshot()
+
+    def test_13g_missing_stat_within_budget_is_absent(self):
+        entries = mock.MagicMock()
+        entries.__enter__.return_value = [type('Entry', (), {'name': '91'})()]
+        for code in (errno.ENOENT, errno.ESRCH):
+            with mock.patch.object(ownership.os, 'scandir', return_value=entries), mock.patch.object(ownership, 'bounded_read', side_effect=OSError(code, 'SYNTHETIC_PRIVATE')), mock.patch.object(ownership.time, 'monotonic', return_value=0):
+                self.assertEqual(ownership.snapshot(), {})
+
     def test_missing_key_stimulus_preserves_an_exclusive_exact_restoration_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             header = Path(directory) / 'installation.h'

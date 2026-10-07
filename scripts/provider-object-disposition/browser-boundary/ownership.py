@@ -72,12 +72,16 @@ def snapshot():
     pids = []
     with os.scandir('/proc') as entries:
         for entry in entries:
+            if time.monotonic() - started > 1:
+                raise CensusError()
             if entry.name.isdecimal():
                 pids.append(int(entry.name))
                 if len(pids) > 4096:
                     raise CensusError()
     result = {}
     for pid in pids:
+        if time.monotonic() - started > 1:
+            raise CensusError()
         path = Path('/proc') / str(pid)
         try:
             record = parse_stat(bounded_read(path / 'stat'), pid)
@@ -114,6 +118,8 @@ def snapshot():
         result[pid] = record
         if time.monotonic() - started > 1:
             raise CensusError()
+    if time.monotonic() - started > 1:
+        raise CensusError()
     return result
 
 
