@@ -64,6 +64,7 @@ function MobileProductOptionsDisclosure({
 
   return (
     <ProgressiveDisclosure
+      headingLevel={2}
       data-product-options-disclosure
       data-product-options-state={open ? "expanded" : "collapsed"}
       title={t(
