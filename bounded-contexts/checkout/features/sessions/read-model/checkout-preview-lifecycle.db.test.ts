@@ -116,6 +116,8 @@ const probeCheckoutModule = {
   projectionGroups: checkoutModule.projectionGroups!.filter((group) =>
     checkoutProjectionNames.has(group.projectionName),
   ),
+  buildProjectionGroups: () =>
+    checkoutModule.buildProjectionGroups().filter((group) => checkoutProjectionNames.has(group.projectionName)),
   projectionHandlerSets: (services: CheckoutServices) =>
     checkoutModule.projectionHandlerSets!(services).filter((set) => checkoutProjectionNames.has(set.projectionName)),
   buildSubscriptions: (services: CheckoutServices) =>
@@ -129,6 +131,8 @@ const probeOrderingModule = {
   projectionGroups: orderingModule.projectionGroups!.filter((group) =>
     orderingProjectionNames.has(group.projectionName),
   ),
+  buildProjectionGroups: () =>
+    orderingModule.buildProjectionGroups().filter((group) => orderingProjectionNames.has(group.projectionName)),
   eventReactions: [],
   projectionHandlerSets: () => [],
   buildSubscriptions: (services: Parameters<NonNullable<typeof orderingModule.buildSubscriptions>>[0]) =>

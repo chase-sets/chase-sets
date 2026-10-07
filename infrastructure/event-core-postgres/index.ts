@@ -3,6 +3,7 @@ export * from "./catalog-mirror";
 export * from "./event-store-indexes";
 export * from "./event-store";
 export * from "./list-query";
+export * from "./measure-publication-staging";
 export * from "./pool";
 export * from "./projection-helpers";
 export * from "./projection-store";
