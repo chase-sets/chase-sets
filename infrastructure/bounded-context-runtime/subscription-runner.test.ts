@@ -63,6 +63,9 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const {
     EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY: _eventStoreGlobalAppendAdvisoryLockKey,
     buildStreamPrefixFilterSql: _buildStreamPrefixFilterSql,
+    runInProjectionCascadeContext: _runInProjectionCascadeContext,
+    getProjectionCascadeController: _getProjectionCascadeController,
+    runBoundedProjectionCascade: _runBoundedProjectionCascade,
     ...mockedEventCorePostgres
   } = eventCorePostgres;
 
@@ -93,6 +96,7 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
 });
 
 import { createProjectionGroupRuntime } from "./index-test-runtime-helpers";
+import { runBoundedProjectionCascade } from "@chase-sets/event-core-postgres";
 import {
   stageProductMeasurePublicationPart,
   takeProductMeasurePublication,
@@ -2454,6 +2458,173 @@ describe("bounded context subscription runner", () => {
     await Promise.all([firstRunner.runOnce(context), secondRunner.runOnce(context)]);
 
     expect(sourceQuery.mock.calls.filter(([sql]) => String(sql).includes("pg_sequence_last_value"))).toHaveLength(1);
+  });
+
+  it.each([false, true])(
+    "zero-source-first-checkpoint (forced=%s) is durable and steady runs are inert",
+    async (settleIdleCheckpoints) => {
+      const sourcePool = createMockPool();
+      const targetPool = createMockPool();
+      const handler = vi.fn(async () => undefined);
+      const subscription = {
+        subscriptionName: "synthetic.first-checkpoint",
+        sourceContextName: "source",
+        projectionName: "synthetic-first-checkpoint",
+        subscriptionVersion: 1,
+        handlers: { "source.recorded": handler },
+        eventTypes: ["source.recorded"],
+      };
+      const createRunner = () =>
+        createSubscriptionRunner("target", targetPool as never, sourcePool as never, subscription);
+      const runner = createRunner();
+      await expect(runner.runOnce({ settleIdleCheckpoints })).resolves.toMatchObject({
+        processed: 0,
+        lastGlobalPosition: "0",
+      });
+      expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("0");
+      expect(runner.getStatus().initialized).toBe(true);
+      expect((await runner.refreshStatus()).initialized).toBe(true);
+      const restarted = createRunner();
+      expect((await restarted.refreshStatus()).initialized).toBe(true);
+      await runner.runOnce({ settleIdleCheckpoints });
+      await restarted.runOnce({ settleIdleCheckpoints });
+      expect(getCheckpointWriteCountStore(targetPool).get(runner.checkpointKey)).toBe(1);
+      expect(getApplicationStatusStore(targetPool).size).toBe(0);
+      expect(handler).not.toHaveBeenCalled();
+      sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "source.recorded", {})]);
+      await runner.runOnce();
+      await restarted.runOnce();
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("1");
+    },
+  );
+
+  it("reset-throttled-first-checkpoint persists before same-runner initialization", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceHeadByPool.set(sourcePool, "5");
+    const handler = vi.fn(async () => undefined);
+    const runner = createSubscriptionRunner("target", targetPool as never, sourcePool as never, {
+      subscriptionName: "synthetic.reset-first-checkpoint",
+      sourceContextName: "source",
+      projectionName: "synthetic-reset-first-checkpoint",
+      subscriptionVersion: 1,
+      handlers: { "source.recorded": handler },
+      eventTypes: ["source.recorded"],
+    });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      await runner.runOnce();
+      expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("5");
+      await runner.reset();
+      expect(getCheckpointStore(targetPool).has(runner.checkpointKey)).toBe(false);
+      expect(runner.getStatus().initialized).toBe(false);
+      await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, lastGlobalPosition: "5" });
+      expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("5");
+      expect(getCheckpointWriteCountStore(targetPool).get(runner.checkpointKey)).toBe(2);
+      expect(runner.getStatus().initialized).toBe(true);
+      expect((await runner.refreshStatus()).initialized).toBe(true);
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("first idle save waits for durability and cannot certify an appended event observed by refresh", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const handler = vi.fn(async () => undefined);
+    const runner = createSubscriptionRunner("target", targetPool as never, sourcePool as never, {
+      subscriptionName: "synthetic.idle-barrier",
+      sourceContextName: "source",
+      projectionName: "synthetic-idle-barrier",
+      subscriptionVersion: 1,
+      handlers: { "source.recorded": handler },
+      eventTypes: ["source.recorded"],
+    });
+    const barrier = createPassBarrier();
+    const query = targetPool.query.bind(targetPool);
+    vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      if (String(sql).includes("WITH saved_checkpoint AS")) await barrier.wait();
+      return query(sql, params);
+    });
+    const pass = runner.runOnce();
+    try {
+      await barrier.entered;
+      expect(runner.getStatus().initialized).toBe(false);
+      expect(getCheckpointStore(targetPool).has(runner.checkpointKey)).toBe(false);
+      sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "source.recorded", {})]);
+      await runner.refreshStatus();
+    } finally {
+      barrier.release();
+    }
+    await expect(pass).resolves.toMatchObject({ processed: 0, lastGlobalPosition: "0" });
+    expect(runner.getStatus()).toMatchObject({ initialized: true, outstandingEventCount: "1" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("0");
+    expect(handler).not.toHaveBeenCalled();
+    await runner.runOnce();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["read", "save"])("first checkpoint %s failure cannot initialize and retry converges", async (stage) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("target", targetPool as never, sourcePool as never, {
+      subscriptionName: "synthetic.failure",
+      sourceContextName: "source",
+      projectionName: "synthetic-failure",
+      subscriptionVersion: 1,
+      handlers: { "source.recorded": async () => undefined },
+      eventTypes: ["source.recorded"],
+    });
+    const query = targetPool.query.bind(targetPool);
+    const spy = vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      if (String(sql).includes(stage === "read" ? "recovery_global_position" : "WITH saved_checkpoint AS")) {
+        throw new Error(`synthetic ${stage} failure`);
+      }
+      return query(sql, params);
+    });
+    await expect(runner.runOnce()).rejects.toThrow(`synthetic ${stage} failure`);
+    expect(runner.getStatus()).toMatchObject({ initialized: false, state: "error" });
+    expect(getCheckpointStore(targetPool).has(runner.checkpointKey)).toBe(false);
+    spy.mockRestore();
+    await runner.runOnce();
+    expect(runner.getStatus().initialized).toBe(true);
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("0");
+  });
+
+  it.each([1, 2])("first partial cascade stays uninitialized and pinned (batch=%s)", async (eventCount) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    sourceEventsByPool.set(
+      sourcePool,
+      Array.from({ length: eventCount }, (_, i) => createStoredEvent(String(i + 1), "source.recorded", {})),
+    );
+    const applied: string[] = [];
+    const runner = createSubscriptionRunner("target", targetPool as never, sourcePool as never, {
+      subscriptionName: "synthetic.cascade",
+      sourceContextName: "source",
+      projectionName: "synthetic-cascade",
+      subscriptionVersion: 1,
+      checkpointBatchSize: 1,
+      projectionCascadeChunkSize: 1,
+      handlers: {
+        "source.recorded": async () => {
+          await runBoundedProjectionCascade(["a", "b"], async (ids) => {
+            applied.push(...ids);
+          });
+        },
+      },
+      eventTypes: ["source.recorded"],
+    });
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1, lastGlobalPosition: "0" });
+    expect(applied).toEqual(["a"]);
+    expect(getCheckpointStore(targetPool).has(runner.checkpointKey)).toBe(false);
+    expect(runner.getStatus().initialized).toBe(false);
+    await runner.runOnce();
+    expect(applied.slice(0, 2)).toEqual(["a", "b"]);
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("1");
+    expect(runner.getStatus().initialized).toBe(true);
   });
 
   it("rate-limits durable checkpoint fast-forward for idle unrelated source advances", async () => {
