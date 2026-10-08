@@ -153,8 +153,8 @@ export async function recordConnectorHeartbeat(
 ): Promise<void> {
   const result = await db.query(
     `UPDATE channel_connector_liveness_authority SET heartbeat_revision=heartbeat_revision+1,
-      last_seen_at=$3::timestamptz, served_poll_window_seconds=$4, served_policy_identity=$5,
-      heartbeat_due_at=$3::timestamptz + $4 * interval '1 second'
+      last_seen_at=$3::timestamptz, served_poll_window_seconds=$4::integer, served_policy_identity=$5,
+      heartbeat_due_at=$3::timestamptz + $4::integer * interval '1 second'
      WHERE connection_id=$1 AND live_pairing_id=$2 AND (last_seen_at IS NULL OR last_seen_at < $3::timestamptz)
      RETURNING connection_id`,
     [input.connectionId, input.pairingId, input.at, input.pollWindowSeconds, input.policyIdentity],

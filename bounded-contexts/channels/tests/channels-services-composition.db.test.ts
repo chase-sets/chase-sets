@@ -15,7 +15,7 @@ import {
   readConnectorLivenessAuthority,
   readConnectorLivenessAuthorityInTransaction,
   listConnectorLivenessCandidates,
-} from "../server";
+} from "../features/connector-feed/read-model/liveness";
 import {
   channelsServicesMembers,
   isChannelsServices,
@@ -40,7 +40,7 @@ function createServices() {
 }
 
 describeDb("channels-services-composition", () => {
-  it("exposes the real connector liveness readers through services and server", async () => {
+  it("exposes the owned connector liveness readers through real services", async () => {
     const services: ChannelsServices = createServices();
     const input = { connectionId: "connection_never_paired_composition" };
     expect(await services.connectorFeed.readConnectorLivenessAuthority(input)).toBeNull();
