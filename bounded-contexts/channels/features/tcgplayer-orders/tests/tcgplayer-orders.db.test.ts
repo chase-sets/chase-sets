@@ -162,7 +162,10 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await assertion(pools.channels);
     const wrongFamily: import("@chase-sets/event-core-postgres").PgQueryable = {
       query: <Row>(sql: string, values?: readonly unknown[]) =>
-        pools.channels.query<Row>(sql, sql.includes("channel_tcgplayer_listing_sku") ? ["connection-1", "202"] : values),
+        pools.channels.query<Row>(
+          sql,
+          sql.includes("channel_tcgplayer_listing_sku") ? ["connection-1", "202"] : values,
+        ),
     };
     await expect(assertion(wrongFamily)).rejects.toThrow();
   });
