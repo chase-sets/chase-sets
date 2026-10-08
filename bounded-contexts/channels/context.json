@@ -28,6 +28,7 @@
     "publication-port",
     "listing-composition",
     "tcgplayer-csv",
+    "tcgplayer-orders",
     "order-fulfillment-observations",
     "outbound-sync",
     "connection-health",
@@ -743,6 +744,11 @@
       "classification": "slice",
       "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
       "expectedConsumers": ["Channels manual and connector sync workflows"]
+    },
+    "tcgplayer-orders": {
+      "classification": "slice",
+      "purpose": "The tcgplayer-orders slice owns recoverable Channel Sale Observations and complete pull accounting through the admitted connector reader.",
+      "expectedConsumers": ["Channels connector consumers and platform worker"]
     },
     "reconciliation": {
       "classification": "slice",

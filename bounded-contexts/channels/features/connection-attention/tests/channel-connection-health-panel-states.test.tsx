@@ -15,6 +15,49 @@ function panel(state: ChannelHealthPanelState) {
   );
 }
 describe("channel-connection-health-panel-states", () => {
+  it("does not imply resolution on an empty later order page", () => {
+    panel({
+      kind: "loaded",
+      data: {
+        connectionId: "synthetic",
+        healthState: "unknown",
+        health: [],
+        manual: null,
+        orders: { count: 100, hasMore: true, nextCursor: null, items: [] },
+      },
+    });
+    expect(screen.getByRole("link", { name: "No order issues on this page. Return to the first page." })).toBeTruthy();
+    expect(screen.queryByText("No open health attention")).toBeNull();
+  });
+  it("renders an order reference and reason without inventing an acknowledgement, with bounded paging", () => {
+    panel({
+      kind: "loaded",
+      data: {
+        connectionId: "synthetic",
+        healthState: "unknown",
+        health: [],
+        manual: null,
+        orders: {
+          count: 100,
+          hasMore: true,
+          nextCursor: "next",
+          items: [
+            {
+              externalOrderReference: "synthetic-order",
+              reason: "tcgplayer-order-unmapped",
+              generation: 1,
+              openedAt: "2026-09-12T00:00:00Z",
+              affectedLineCount: 0,
+            },
+          ],
+        },
+      },
+    });
+    expect(screen.getByText("Order synthetic-order")).toBeTruthy();
+    expect(screen.getByText("An order item could not be matched to inventory.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "More order issues" }).getAttribute("href")).toContain("orderCursor=next");
+    expect(screen.queryByRole("button", { name: "Resolve attention" })).toBeNull();
+  });
   it("renders the health section as flush furniture", () => {
     panel({ kind: "loaded", data: { connectionId: "synthetic", healthState: "healthy", health: [], manual: null } });
     expect(screen.getByTestId("channel-health-panel").className).toBe("rounded-tokenLg overflow-hidden p-4");

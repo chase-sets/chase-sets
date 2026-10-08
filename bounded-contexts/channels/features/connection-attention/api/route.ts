@@ -12,6 +12,7 @@ export function createConnectionAttentionRoutes(services: ConnectionAttentionSer
       const rows = await services.listOpenAttention({
         accountId: c.get("actor").accountId,
         connectionId: c.req.param("connectionId"),
+        ...(c.req.query("orderCursor") ? { orderCursor: c.req.query("orderCursor")! } : {}),
       });
       return c.json(rows[0]);
     } catch (error) {

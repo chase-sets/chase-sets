@@ -11,6 +11,7 @@ import type { ConnectionAttentionServices } from "../../features/connection-atte
 import type { ConnectorFeedServices } from "../../features/connector-feed/api/runtime";
 import type { ConnectorTransportServices } from "../../features/connector-feed/api/transport";
 import type { ChannelCredentialServices } from "../../features/credentials/api/runtime";
+import type { TcgplayerOrderServices } from "../../features/tcgplayer-orders/api/runtime";
 
 export type ChannelsServices = Readonly<{
   credentials: ChannelCredentialServices;
@@ -21,6 +22,7 @@ export type ChannelsServices = Readonly<{
   outboundSync: OutboundSyncServices;
   reconciliation: ChannelReconciliationServices;
   tcgplayerCsv: TcgplayerCsvServices;
+  tcgplayerOrders: TcgplayerOrderServices;
   manualSync: ManualSyncServices;
   connectorFeed: ConnectorFeedServices & ConnectorTransportServices;
   projectors: readonly ProjectionHandlerSet[];
@@ -36,6 +38,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "outboundSync",
   "reconciliation",
   "tcgplayerCsv",
+  "tcgplayerOrders",
   "manualSync",
   "connectorFeed",
   "projectors",
@@ -86,6 +89,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(reconciliation, "repushChannelListing") === "function" &&
     typeof Reflect.get(reconciliation, "deliverHealthObservations") === "function" &&
     isObject(tcgplayerCsv) &&
+    isObject(Reflect.get(value, "tcgplayerOrders")) &&
     isObject(manualSync) &&
     isObject(connectorFeed) &&
     typeof Reflect.get(connectorFeed, "readAuthority") === "function" &&

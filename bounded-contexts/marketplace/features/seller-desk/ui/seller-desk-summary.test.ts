@@ -23,6 +23,48 @@ describe("severity mapping", () => {
 });
 
 describe("resolveAttentionSummary", () => {
+  it.each([
+    [1, 0, "Order issues needing attention: 1."],
+    [100, 1, "Order issues needing attention: more than 100."],
+  ])("renders order-only count %s with overflow %s and no health text", (orderCount, orderOverflow, expected) => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "synthetic-orders-connection",
+      severity: "warning",
+      summary: { code: "channel-action-open", params: { orderCount, orderOverflow } },
+      observedAt: "2026-10-08T00:00:00.000Z",
+    });
+    expect(resolveAttentionSummary(item)).toBe(expected);
+  });
+
+  it("renders mixed health, drift, manual and order work as separate sentences without order details", () => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "synthetic-mixed-connection",
+      severity: "warning",
+      summary: {
+        code: "channel-action-open",
+        params: {
+          connectionId: "synthetic-mixed-connection",
+          reasonCount: 1,
+          topReason: "polling",
+          affectedListingCount: 3,
+          hasMore: 0,
+          manualReason: "ready",
+          orderCount: 2,
+          orderOverflow: 0,
+          externalOrderReference: "synthetic-private-order",
+          orderReason: "tcgplayer-order-unmapped",
+        },
+      },
+      observedAt: "2026-10-08T00:00:00.000Z",
+    });
+    expect(resolveAttentionSummary(item)).toBe(
+      "Health reasons needing attention: 1. First: Channel polling. Affected listings: 3. " +
+        "A manual sync is ready to download for connection synthetic-mixed-connection. Order issues needing attention: 2.",
+    );
+  });
+
   it.each([0, 1])("renders bounded drift count and overflow %s without hiding health or manual work", (hasMore) => {
     const item = buildSellerAttentionItem({
       source: "channel-action",
@@ -162,7 +204,7 @@ describe("labels", () => {
     };
     expect(resolveAttentionSummary(health)).toBe("Health reasons needing attention: 1. First: Channel polling.");
     expect(resolveAttentionSummary(mixed)).toBe(
-      "Health reasons needing attention: 1. First: Channel polling. Inbound clamp recovery needs review for connection connection-tcg",
+      "Health reasons needing attention: 1. First: Channel polling. Inbound clamp recovery needs review for connection connection-tcg.",
     );
     expect(attentionActionLabel(health)).toBe("Review channel attention");
     expect(attentionActionLabel(mixed)).toBe("Open manual sync");

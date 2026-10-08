@@ -102,6 +102,16 @@ and independently counted total, not table access. Missing payloads remain order
 `expired` events. Consumers own progress and interpretation; #8592 owns deletion
 for the exported inventory-snapshot and order-observation retention classes.
 
+The `tcgplayer-orders` interpreter reads only this owner interface. Its expiring
+connection claim fences retained, closed sale observations and pull accounting;
+unfinished work survives the forward cursor and payload expiry. Inventory remains
+the sale and stock authority. Transport digests include pull membership and closed
+content; Inventory keys retain connection lineage and the order/product/SKU tuple.
+An indexed strict decoder joins the TCGplayer SKU component of active Links before
+target validation. Connector gaps never write reconciliation findings or health.
+Order-scoped Channel Action contributions preserve other order, manual and health
+work. Backdated sales and cancellations stay open without automatic resolution.
+
 ## Does Not Own
 
 - Account capability, standing, membership, or credential behavior (Identity)
