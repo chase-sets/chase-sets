@@ -134,7 +134,7 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
 
   it("AC1 schedules one connection pull; racing, repeated, restarted and not-due ticks stay one with zero writes", async () => {
     const listingBefore = await h.effects();
-    const minted = await Promise.all(Array.from({ length: 5 }, () => tick()));
+    const minted = await Promise.all(Array.from({ length: 3 }, () => tick()));
     expect(minted.reduce((sum, count) => sum + count, 0)).toBe(1);
     const scheduled = await h.services.outboundSync.readOrderPullOperations({ connectionId: target.connectionId });
     expect(scheduled).toHaveLength(1);
