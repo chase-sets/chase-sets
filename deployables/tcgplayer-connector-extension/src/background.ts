@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { createConnectorBackground } from "@chase-sets/channels/client";
 import { chromeStorage } from "./adapters/chrome-storage";
 import { chromeSession } from "./adapters/chrome-session";

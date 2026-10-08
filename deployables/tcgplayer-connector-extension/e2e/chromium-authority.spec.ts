@@ -6,8 +6,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { chromium, expect, test, type BrowserContext, type Worker } from "@playwright/test";
 import { build } from "vite";
-import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
-import { buildConnectorManifest } from "@chase-sets/channels";
+import {
+  TCGPLAYER_CONNECTOR_EXTENSION_ID,
+  TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+  TCGPLAYER_CONNECTOR_REDIRECT_URI,
+} from "@chase-sets/channels/client";
 import { closedErrors, loopbackPlatform, synthetic } from "./loopback-platform";
 import { scanRetainedArtifacts } from "./retained-artifacts";
 
@@ -134,13 +137,17 @@ async function counters(worker: Worker) {
 test("extension-deterministic-build-and-thin-root", () => {
   expect(Object.keys(firstBuild)).toEqual(["background.js", "manifest.json"]);
   const manifest = JSON.parse(readFileSync(join(dist, "manifest.json"), "utf8"));
-  expect(manifest).toEqual(
-    buildConnectorManifest({
-      platformOrigin: platform.origin,
-      hostRegistry: [],
-      permissionRegistry: ["identity", "storage", "alarms"],
-    }),
-  );
+  expect(manifest).toEqual({
+    manifest_version: 3,
+    name: "Chase Sets TCGplayer Connector",
+    version: "0.1.0",
+    key: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+    background: { service_worker: "background.js", type: "module" },
+    permissions: ["identity", "storage", "alarms"],
+    host_permissions: [`${platform.origin}/*`],
+    action: { default_title: "unpaired" },
+    content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'" },
+  });
   expect(readFileSync(join(dist, "background.js"), "utf8")).not.toMatch(/\bnode:|default_popup|setPopup|<html/i);
 });
 

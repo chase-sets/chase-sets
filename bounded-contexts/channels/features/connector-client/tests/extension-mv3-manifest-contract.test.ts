@@ -19,11 +19,11 @@ describe("extension-mv3-manifest-contract", () => {
       content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'" },
     });
     expect(() => assertConnectorManifest(manifest, input)).not.toThrow();
+    const { key: _key, ...withoutKey } = manifest;
+    expect(() => assertConnectorManifest(withoutKey, input)).toThrow("connector-manifest-graph-refused");
   });
 
   it.each([
-    ["missing pinned key", { key: undefined }],
-    ["different pinned key", { key: "synthetic-unapproved-key" }],
     "https://*.example.com",
     "<all_urls>",
     "https://example.com/*",
@@ -63,6 +63,8 @@ describe("extension-mv3-manifest-contract", () => {
 
   it.each([
     ["wildcard host", { host_permissions: ["https://*/*"] }],
+    ["undefined pinned key", { key: undefined }],
+    ["different pinned key", { key: "synthetic-unapproved-key" }],
     ["uncited host", { host_permissions: ["http://localhost:6182/*", "https://provider.example/*"] }],
     ["all urls", { host_permissions: ["<all_urls>"] }],
     ["cookies", { permissions: ["identity", "storage", "alarms", "cookies"] }],

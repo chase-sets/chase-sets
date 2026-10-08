@@ -20,7 +20,7 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       input: { background: resolve(import.meta.dirname, "src/background.ts") },
-      output: { entryFileNames: "[name].js", inlineDynamicImports: true },
+      output: { entryFileNames: "[name].js", codeSplitting: false },
     },
   },
   plugins: [
