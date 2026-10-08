@@ -58,7 +58,7 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     expect(job["runs-on"]).toBe("ubuntu-latest");
     expect(job["timeout-minutes"]).toBe(15);
     expect(job.permissions).toEqual({ contents: "read" });
-    expect(job.env).toEqual({ AC4_SOURCE_SHA: source, PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright" });
+    expect(job.env).toEqual({ AC4_SOURCE_SHA: source });
     expect(job.steps[0]).toEqual({
       name: "Require explicit AC4 source",
       shell: "bash",
@@ -72,6 +72,7 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     expect(job.steps).toHaveLength(4);
     const proof = job.steps[3];
     expect(proof.shell).toBe("bash");
+    expect(proof.env).toEqual({ PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright" });
     for (const fragment of [
       "set -euo pipefail",
       'test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"',

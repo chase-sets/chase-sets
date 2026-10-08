@@ -414,7 +414,6 @@ jobs:
     if: needs['change-scope'].outputs.e2e_tests_required == 'true' && contains(fromJson(needs['change-scope'].outputs.e2e_suites_json), 'tcgplayer_connector_extension')
     env:
       AC4_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
     steps:
       - name: Require explicit AC4 source
         shell: bash
@@ -431,6 +430,8 @@ jobs:
 
       - name: Prove three synthetic Chromium capture cases
         shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
         run: |
           set -euo pipefail
           test -n "$AC4_SOURCE_SHA"
