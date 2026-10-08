@@ -13,7 +13,6 @@ import {
   orderInbound,
   orderObservationSweep,
   providerEventId,
-  useDatabaseClock,
 } from "./retention-test-support";
 
 const SENTINEL = "SENTINEL-SHIP-TO-8592";
@@ -39,10 +38,11 @@ describeDb("connector-inbound-retention-sentinel-scan", () => {
   }
 
   it("keeps the ship-to out of identity, logs and retained observer events before and after deletion", async () => {
-    await useDatabaseClock(h.db);
     const inbound = orderInbound("order.sentinel", { shipTo: SHIP_TO, lines: [{ sku: "synthetic", quantity: 1 }] });
     expect((await h.request("ingest", inbound)).status).toBe(202);
     const id = providerEventId(target.connectionId, inbound);
+    // Fresh relative to the database clock, whatever the harness's frozen host Date is.
+    await ageAdmission(h.db, id, 3_600);
 
     // Positive control: the scan sees the sentinel where the payload legitimately lives.
     expect(await tablesContainingSentinel(h.db)).toEqual(["channel_connector_inbound_payloads"]);

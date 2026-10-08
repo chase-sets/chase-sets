@@ -19,8 +19,7 @@ import {
   orderInbound,
   orderObservationSweep,
   payloadIds,
-  providerEventId,
-  useDatabaseClock,
+  databaseNow,
 } from "./retention-test-support";
 
 const HOUR = 3_600;
@@ -52,7 +51,6 @@ describeDb("connector-inbound-retention-concurrency", () => {
   }
 
   it("two sweepers racing ingest and paged reads delete only overdue payload and keep identities and whole reads", async () => {
-    await useDatabaseClock(h.db);
     const expired = [];
     for (let index = 0; index < 6; index++) {
       const id = await admit(h.db, target.connectionId, exportInbound(`export.race-expired:${index}`));
@@ -67,20 +65,21 @@ describeDb("connector-inbound-retention-concurrency", () => {
       for (let pass = 0; pass < 6; pass++) batches.push(...(await drain(h.db, inventorySnapshotSweep)));
       return batches;
     };
+    // Concurrent admissions through the production admission function, on the database clock so they stay fresh.
+    const admittedAt = await databaseNow(h.db);
     const ingests = async () => {
-      const statuses = [];
+      const admitted = [];
       for (let index = 0; index < 3; index++)
-        statuses.push((await h.request("ingest", exportInbound(`export.race-new:${index}`))).status);
-      return statuses;
+        admitted.push(await admit(h.db, target.connectionId, exportInbound(`export.race-new:${index}`), admittedAt));
+      return admitted;
     };
     const reads = async () => {
       const results = [];
       for (let pass = 0; pass < 3; pass++) results.push(await readWhole("export"));
       return results;
     };
-    const [left, right, statuses, whole] = await Promise.all([sweeper(), sweeper(), ingests(), reads()]);
+    const [left, right, admitted, whole] = await Promise.all([sweeper(), sweeper(), ingests(), reads()]);
 
-    expect(statuses).toEqual([202, 202, 202]);
     expect([...left, ...right].every((deleted) => deleted <= inventorySnapshotSweep.batchLimit)).toBe(true);
     expect([...left, ...right].reduce((sum, deleted) => sum + deleted, 0)).toBe(6);
     for (const { page, events } of whole) {
@@ -94,12 +93,7 @@ describeDb("connector-inbound-retention-concurrency", () => {
     for (let index = 0; index < 6; index++) expect(state[`export.race-expired:${index}`]).toBe("expired");
     for (const reference of ["export.race-fresh", "export.race-new:0", "export.race-new:1", "export.race-new:2"])
       expect(state[reference]).toBe("available");
-    expect(await payloadIds(h.db)).toEqual(
-      [
-        fresh,
-        ...[0, 1, 2].map((index) => providerEventId(target.connectionId, exportInbound(`export.race-new:${index}`))),
-      ].sort(),
-    );
+    expect(await payloadIds(h.db)).toEqual([fresh, ...admitted].sort());
     expect(await identityRows(h.db)).toHaveLength(10);
   });
 

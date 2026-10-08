@@ -1,4 +1,3 @@
-import { vi } from "vitest";
 import type { BcRetentionSweep } from "@chase-sets/bounded-context-module";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -52,8 +51,13 @@ export function providerEventId(
 }
 
 /** Admits through the production admission function in its own transaction. */
-export async function admit(pool: PgTransactionalPool, connectionId: string, inbound: ConnectorInbound) {
-  await withPgTransaction(pool, (db) => admitConnectorInbound(db, connectionId, inbound, new Date().toISOString()));
+export async function admit(
+  pool: PgTransactionalPool,
+  connectionId: string,
+  inbound: ConnectorInbound,
+  receivedAt = new Date().toISOString(),
+) {
+  await withPgTransaction(pool, (db) => admitConnectorInbound(db, connectionId, inbound, receivedAt));
   return providerEventId(connectionId, inbound);
 }
 
@@ -80,13 +84,13 @@ export async function placeAdmission(db: PgQueryable, id: string, receivedAt: st
 }
 
 /**
- * Aligns the harness's frozen host Date with the database clock, so rows admitted
- * through the real transport stay fresh for as long as this suite exists.
+ * The database clock as an admission instant. The harness freezes host Date at its
+ * own instant, so rows that must stay fresh are admitted on this clock instead.
  */
-export async function useDatabaseClock(db: PgQueryable) {
+export async function databaseNow(db: PgQueryable): Promise<string> {
   const now = (await db.query<{ now: Date }>("SELECT CURRENT_TIMESTAMP AS now")).rows[0]?.now;
   if (!now) throw new Error("missing-database-clock");
-  vi.setSystemTime(new Date(now));
+  return new Date(now).toISOString();
 }
 
 /** Runs the sweep's bounded batches to exhaustion in `db`, returning each batch's deleted count. */
