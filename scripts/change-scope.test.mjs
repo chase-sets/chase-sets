@@ -92,6 +92,8 @@ const schedulerVocabularyLookalikePaths = [
 // fails here loudly and this pin is refreshed with it.
 // Accepted inventory delta: #7197 adds @chase-sets/order-groups. The captured
 // classifier decisions, reasons, and output-key equivalence remain unchanged.
+// Accepted dependency delta: #9101 declares platform-runtime's existing Ordering
+// type import, adding platform-runtime to the Ordering case's affected set only.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -343,9 +345,9 @@ const dbTestsOldVersusNewCorpus = [
     baseOutputMap: {
       changed_files_json: '["bounded-contexts/ordering/features/tax-quotes/domain/tax-quote.ts"]',
       affected_workspaces:
-        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/ordering,@chase-sets/payments,@chase-sets/settlement",
+        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/ordering,@chase-sets/payments,@chase-sets/platform-runtime,@chase-sets/settlement",
       affected_workspaces_json:
-        '["@chase-sets/app-admin-web","@chase-sets/app-marketplace-web","@chase-sets/app-platform-api","@chase-sets/app-platform-worker","@chase-sets/checkout","@chase-sets/discovery","@chase-sets/marketplace-seed-testing","@chase-sets/ordering","@chase-sets/payments","@chase-sets/settlement"]',
+        '["@chase-sets/app-admin-web","@chase-sets/app-marketplace-web","@chase-sets/app-platform-api","@chase-sets/app-platform-worker","@chase-sets/checkout","@chase-sets/discovery","@chase-sets/marketplace-seed-testing","@chase-sets/ordering","@chase-sets/payments","@chase-sets/platform-runtime","@chase-sets/settlement"]',
       directly_affected_workspaces_json: '["@chase-sets/ordering"]',
       docs_only: "false",
       local_checks: "true",

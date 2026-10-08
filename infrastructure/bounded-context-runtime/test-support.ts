@@ -61,7 +61,7 @@ type MockResetTarget = Readonly<{
 
 const testSchemaResetConcurrency = 2;
 const testDatabaseExtensions: Readonly<Record<string, readonly string[]>> = {
-  discovery: ["vector"],
+  discovery: ["vector", "pg_trgm"],
 };
 
 export function createAnonymousTestActor(): null {

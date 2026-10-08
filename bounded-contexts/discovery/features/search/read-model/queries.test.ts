@@ -54,6 +54,21 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("installs the identity-term table and concurrent trigram index idempotently", () => {
+    expect(discoverySearchSchemaSql).toContain("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+    expect(discoverySearchSchemaSql).toContain("CREATE TABLE IF NOT EXISTS discovery_search_item_identity_terms");
+    expect(discoverySearchSchemaSql).toContain("PRIMARY KEY (catalog_item_id, term)");
+    const migration = discoverySearchSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261008_discovery_search_identity_terms",
+    );
+    expect(migration?.statements).toEqual([
+      "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+      expect.stringContaining("PRIMARY KEY (catalog_item_id, term)"),
+      expect.stringContaining("CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_item_identity_terms_trgm_idx"),
+    ]);
+    expect(migration?.statements[2]).toContain("USING gin (term gin_trgm_ops)");
+  });
+
   it("counts a requested first page but never a cursor page", async () => {
     const firstPage = createCapturingDb();
     await searchDiscoveryItems(
