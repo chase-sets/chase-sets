@@ -57,6 +57,7 @@ function harness(
     missing?: string;
     workerSource?: string;
     onStorageSet?: (value: Record<string, unknown>) => void;
+    configurationReady?: Promise<void>;
   } = {},
 ) {
   let now = Date.parse(T0);
@@ -64,6 +65,30 @@ function harness(
   const storage = options.storage ?? {};
   const retained: unknown[] = [];
   const observations: { kind: Kind; url: string; options: RequestInit; at: number; persisted: unknown }[] = [];
+  const boundaries = new Set<{ predicate: () => boolean; resolve: () => void }>();
+  const notify = () => {
+    for (const boundary of boundaries)
+      if (boundary.predicate()) {
+        boundaries.delete(boundary);
+        boundary.resolve();
+      }
+  };
+  const when = (predicate: () => boolean, terminal: Promise<unknown>) => {
+    if (predicate()) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const boundary = { predicate, resolve };
+      boundaries.add(boundary);
+      void terminal.then(
+        () => {
+          if (boundaries.delete(boundary)) reject(new Error("synthetic initialization boundary not reached"));
+        },
+        (error) => {
+          boundaries.delete(boundary);
+          reject(error);
+        },
+      );
+    });
+  };
   const timers = new Map<number, { callback: () => void; at: number }>();
   const intervals = new Map<number, { callback: () => void; delay: number; at: number }>();
   const heartbeats: { at: number; arguments: unknown[] }[] = [];
@@ -105,7 +130,10 @@ function harness(
     if (target.startsWith(`${origin}/`)) {
       const file = target.slice(origin.length + 1);
       if (file === options.missing) return new Response("", { status: 404 });
-      if (file === "capture-config.json") return new Response(encode(config));
+      if (file === "capture-config.json") {
+        await options.configurationReady;
+        return new Response(encode(config));
+      }
       if (!["manifest.json", "worker.js", "helper.js", "capture.html"].includes(file))
         throw new Error("synthetic local path refused");
       return new Response(
@@ -124,6 +152,8 @@ function harness(
       kind = "list";
     else throw new Error("synthetic provider boundary refused");
     observations.push({ kind, url: target, options: request, at: now, persisted: structuredClone(storage) });
+    request.signal?.addEventListener("abort", notify, { once: true });
+    notify();
     const configured = options.responses?.[kind];
     const fixture = (Array.isArray(configured)
       ? configured[observations.filter((item) => item.kind === kind).length - 1]
@@ -257,6 +287,7 @@ function harness(
     Date: SyntheticDate,
     now: () => now,
     expireRequest: () => advance(30000),
+    when,
   };
 }
 
@@ -668,7 +699,7 @@ describe("selector-only-protocol", () => {
   it("immutable baseline request oracle: actual worker bytes, credentials, serial cadence and predispatch latch", async () => {
     const worker = harness({ cadenceMs: oracle.cadenceMs });
     const pending = worker.run();
-    await waitFor(() => worker.observations[0]?.options.signal?.aborted === true);
+    await worker.when(() => worker.observations[0]?.options.signal?.aborted === true, pending);
     worker.advance(30000);
     const value = receipt(await pending);
     expect(worker.observations.map((item) => item.url)).toEqual([oracle.lookupUrl, oracle.searchUrl]);
@@ -890,14 +921,14 @@ describe("selector-only-protocol", () => {
   it("30 s response timeout, cancel, in-flight abort and session loss are terminal, latch survives custody loss", async () => {
     const timeout = harness({ responses: { list: { stall: true } } });
     const pending = timeout.run();
-    await waitFor(() => timeout.observations.length === 2);
+    await timeout.when(() => timeout.observations.length === 2, pending);
     timeout.expireRequest();
     expect(receipt(await pending).failures).toEqual(["response_timeout"]);
     expect(timeout.intervals.size).toBe(0);
     expect(await timeout.send({ kind: "begin" })).toEqual({ ok: false, code: "repeat_invocation" });
     const abort = harness({ responses: { list: { stall: true } } });
     const aborted = abort.run();
-    await waitFor(() => abort.observations.length === 2);
+    await abort.when(() => abort.observations.length === 2, aborted);
     expect(await abort.send({ kind: "abort" })).toMatchObject({ ok: true, code: "abort_requested" });
     expect(receipt(await aborted).failures).toEqual(["aborted"]);
     const session = harness();
@@ -914,6 +945,29 @@ describe("selector-only-protocol", () => {
     const cancel = harness();
     await beginSearch(cancel);
     expect(receipt(await cancel.send({ kind: "cancel" })).failures).toEqual(["canceled"]);
+  });
+  it("request boundary waits for actual delayed initialization, not an event-loop poll budget", async () => {
+    let release!: () => void;
+    const configurationReady = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const worker = harness({ configurationReady, responses: { list: { stall: true } } });
+    const pending = worker.run();
+    let reached = false;
+    const boundary = worker
+      .when(() => worker.observations.length === 2, pending)
+      .then(() => {
+        reached = true;
+      });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(reached).toBe(false);
+    expect(worker.observations).toHaveLength(0);
+    release();
+    await boundary;
+    expect(reached).toBe(true);
+    expect(worker.observations).toHaveLength(2);
+    await worker.send({ kind: "abort" });
+    expect(receipt(await pending).failures).toEqual(["aborted"]);
   });
   it("pre-launch T0 caps begin, expired pre-begin consumes lifecycle and never moves T0", async () => {
     const worker = harness();
@@ -940,14 +994,6 @@ describe("selector-only-protocol", () => {
     expect(packaging.verifyExport(out).evidence).toBe("synthetic");
   });
 });
-
-async function waitFor(predicate: () => boolean) {
-  for (let turn = 0; turn < 100; turn += 1) {
-    if (predicate()) return;
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  }
-  throw new Error("synthetic initialization boundary not reached");
-}
 
 describe("selector-custody-and-export", () => {
   it("actual collector/export is recursively closed, with bounded metadata and known package hashes only", async () => {
@@ -1219,7 +1265,7 @@ describe("selector-lifecycle-removal", () => {
     const worker = harness({ responses: { list: { stall: true } } });
     const page = helper(worker);
     const pending = page.run();
-    await waitFor(() => worker.observations.length === 2);
+    await worker.when(() => worker.observations.length === 2, pending);
     page.pagehide();
     await pending;
     expect(exported(page).failures).toEqual(["aborted"]);
