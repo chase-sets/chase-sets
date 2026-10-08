@@ -143,19 +143,29 @@ test("extension-raw-file-retention-chromium worker-only restart retains keys the
   try {
     const time = await prepareRetention(worker);
     const session = await context.newCDPSession(context.pages()[0]!);
-    const targets = await test.step("identify the exact extension worker target", () =>
-      session.send("Target.getTargets"));
-    const target = targets.targetInfos.find((item) => item.type === "service_worker" && item.url === worker.url());
-    expect(target).toBeDefined();
+    let versionId: string | undefined;
+    let runningStatus: string | undefined;
+    session.on("ServiceWorker.workerVersionUpdated", ({ versions }) => {
+      const version = versions.find((candidate) => candidate.scriptURL === worker.url());
+      if (version) {
+        versionId = version.versionId;
+        runningStatus = version.runningStatus;
+      }
+    });
+    await test.step("identify the exact native service-worker version", async () => {
+      await session.send("ServiceWorker.enable");
+      await expect.poll(() => versionId).toBeTruthy();
+    });
     let closed = false;
     worker.on("close", () => {
       closed = true;
     });
-    await worker.evaluate(() => chrome.alarms.create("connector-retention-deadline", { delayInMinutes: 0.02 }));
+    await worker.evaluate(() => chrome.alarms.create("connector-retention-deadline", { delayInMinutes: 0.1 }));
     const next = context.waitForEvent("serviceworker", { predicate: (candidate) => candidate.url() === worker.url() });
     void next.catch(() => {});
     await test.step("terminate that worker without closing Chrome or clearing session", async () => {
-      expect((await session.send("Target.closeTarget", { targetId: target!.targetId })).success).toBe(true);
+      await session.send("ServiceWorker.stopWorker", { versionId: versionId! });
+      await expect.poll(() => runningStatus).toBe("stopped");
       await expect.poll(() => closed).toBe(true);
     });
     const restarted = await test.step("observe a replacement worker at the real alarm wake", () => next);
