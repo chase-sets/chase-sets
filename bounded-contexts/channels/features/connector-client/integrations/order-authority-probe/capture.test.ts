@@ -1531,8 +1531,12 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
             ok: false,
             code: "repeat_invocation",
           });
-          const cdp = await context.newCDPSession(page);
-          await cdp.send("Extensions.uninstall", { id: hostPackage.extensionId });
+          const cdp = await context.browser()!.newBrowserCDPSession();
+          try {
+            await cdp.send("Extensions.uninstall", { id: hostPackage.extensionId });
+          } finally {
+            await cdp.detach();
+          }
           const extensions = await context.newPage();
           await extensions.goto("chrome://extensions/");
           await expect
