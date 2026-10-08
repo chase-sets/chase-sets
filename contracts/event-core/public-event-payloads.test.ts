@@ -16,6 +16,7 @@ import {
 import type {
   ChannelOrderFulfillmentAcceptedPayload,
   ChannelOrderFulfillmentStatusChangedPayload,
+  ChannelsEventPayloads,
   AuthSessionStartedPayload,
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
@@ -628,6 +629,7 @@ const aggregateTypeIdentity = {
 } as const;
 
 type IndependentlyComposedPublicEventKeys =
+  | keyof ChannelsEventPayloads
   | keyof AuthEventPayloads
   | keyof IdentityEventPayloads
   | keyof CheckoutEventPayloads

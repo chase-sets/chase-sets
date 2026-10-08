@@ -462,10 +462,16 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
   function subscriptionsFor(services: ReturnType<typeof channelsModule.createServices>) {
     const subscriptions = channelsModule.buildSubscriptions?.(services) ?? [];
     const inventoryProjection = subscriptions.find(
-      (entry) => entry.sourceContextName === "inventory" && entry.handlerKind === "projection",
+      (entry) =>
+        entry.sourceContextName === "inventory" &&
+        entry.handlerKind === "projection" &&
+        entry.projectionName === "channel-inventory-publication-facts",
     );
     const inventoryReaction = subscriptions.find(
-      (entry) => entry.sourceContextName === "inventory" && entry.handlerKind === "reaction",
+      (entry) =>
+        entry.sourceContextName === "inventory" &&
+        entry.handlerKind === "reaction" &&
+        entry.projectionName === "channel-listing-desired-state-reaction",
     );
     const channelsReaction = subscriptions.find(
       (entry) =>

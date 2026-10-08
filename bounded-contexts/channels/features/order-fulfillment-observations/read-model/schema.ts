@@ -36,7 +36,12 @@ export const fulfillmentObservationSchemaMigrations: readonly BcSchemaMigration[
     description: "Recoverable PII-free fulfillment interpretation and accepted order identities.",
     statements: [
       ...tables,
-      ...indexes.map((sql) => sql.replace("CREATE INDEX IF NOT EXISTS", "CREATE INDEX CONCURRENTLY IF NOT EXISTS")),
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_fulfillment_waiting_idx ON channel_fulfillment_observations
+        (connection_id,order_reference,received_at) WHERE state IN ('awaiting-sale','sale-absent')`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_fulfillment_retention_idx ON channel_fulfillment_observations
+        (received_at,provider_event_id)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_committed_identity_idx ON channel_order_lines
+        (connection_id, (committed_sale->'saleKey'->>'providerKey'), (committed_sale->'saleKey'->>'orderLineIdentity'))`,
     ],
   },
 ];

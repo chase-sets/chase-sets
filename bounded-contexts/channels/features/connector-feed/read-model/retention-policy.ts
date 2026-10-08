@@ -21,7 +21,7 @@ export function buildConnectorInboundRetentionSweeps(
       // Strictly after the deadline, measured on the DELETE transaction's clock.
       predicateSql: `candidate.inbound_kind IN (${inboundKinds.map((kind) => `'${kind}'`).join(", ")})
       AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => ${windowSeconds})`,
-      orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
+      orderBySql: "candidate.inbound_kind ASC, candidate.received_at ASC, candidate.provider_event_id ASC",
       intervalMs: HOUR_MS,
       batchLimit: connectorInboundRetentionBatchLimit,
     }),

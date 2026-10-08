@@ -112,6 +112,10 @@ export function assertFulfillmentObservation(value: unknown): asserts value is C
     );
     if (value.variant !== "full") invalid();
     assertRfc3339Instant(value.orderedAt);
+    const [date, time] = value.orderedAt.split("T");
+    const [year, month, day] = date!.split("-").map(Number);
+    const days = new Date(Date.UTC(year!, month!, 0)).getUTCDate();
+    if (month! < 1 || month! > 12 || day! < 1 || day! > days || Number(time!.slice(0, 2)) > 23) invalid();
     captured(value.providerShippingType);
     translateOrderShippingType(value.providerShippingType);
     assertClosedRecord(value.currency, ["code", "provenance"], "currency");

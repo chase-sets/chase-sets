@@ -278,6 +278,15 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "channel-fulfillment-observation-retry",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "channel-fulfillment-item-facts",
       "sourceContextNames": ["inventory"],
       "ownedTables": ["channel_fulfillment_item_facts"],

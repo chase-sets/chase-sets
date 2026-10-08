@@ -28,6 +28,7 @@ function order(externalReference = "order.v1:a"): ConnectorInbound {
 describeDb("connector-ingest-replay / connector-ingest-admission-and-authority", () => {
   const h = transportDatabase("connector_inbound_7994");
   it("channel-order-observation-callers: first/repeat fulfillment admission has identical 202 bytes and headers", async () => {
+    // The fixture fixes JS admission time; derive the expected age from the authoritative DB clock.
     const envelope = await composeChannelOrderFulfillmentInbound(fulfillmentFixture());
     const first = await h.request("ingest", envelope);
     const repeat = await h.request("ingest", envelope);
@@ -40,8 +41,14 @@ describeDb("connector-ingest-replay / connector-ingest-admission-and-authority",
     ]);
     expect(before.rows).toHaveLength(1);
     await h.services.fulfillmentObservations.interpretConnection(target.connectionId);
+    const age = (
+      await h.db.query<{ elapsed: boolean }>(
+        `SELECT clock_timestamp()-received_at >= interval '24 hours' AS elapsed FROM channel_connector_inbound_events WHERE event_kind=$1`,
+        [envelope.inboundKind],
+      )
+    ).rows[0]!.elapsed;
     expect((await h.db.query(`SELECT state,reason FROM channel_fulfillment_observations`)).rows).toEqual([
-      { state: "awaiting-sale", reason: "unmapped" },
+      { state: age ? "sale-absent" : "awaiting-sale", reason: "unmapped" },
     ]);
     expect(
       (await h.db.query(`SELECT * FROM channel_connector_inbound_events WHERE event_kind=$1`, [envelope.inboundKind]))

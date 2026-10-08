@@ -78,7 +78,7 @@ describe("connector-inbound-retention-registry-parity", () => {
       ["inventory-snapshot", "order-observation"].map((retentionClass) => ({
         name: `connector-inbound-${retentionClass}`,
         tableName: "channel_connector_inbound_payloads",
-        orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
+        orderBySql: "candidate.inbound_kind ASC, candidate.received_at ASC, candidate.provider_event_id ASC",
         intervalMs: 3_600_000,
         batchLimit: 2,
       })),

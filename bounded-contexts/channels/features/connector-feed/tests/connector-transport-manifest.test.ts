@@ -21,7 +21,19 @@ describe("connector-feed-bootstrap-and-manifest", () => {
     expect(connectorInboundSchemaSql).toContain("(connection_id, event_kind, admitted_sequence)");
     expect(connectorInboundSchemaSql).toContain("(inbound_kind, received_at, provider_event_id)");
     expect(connectorInboundSchemaSql).toContain("served_poll_window_seconds");
-    expect(connectorInboundSchemaSql).not.toMatch(/DELETE|TRUNCATE|DROP/);
+    const kindMigration = connectorInboundSchemaMigrations.find(
+      (migration) => migration.migrationId === "20261008_channels_fulfillment_inbound_kind",
+    )!;
+    expect(kindMigration.statements.filter((statement) => statement.includes("DROP"))).toEqual([
+      "ALTER TABLE channel_connector_inbound_events DROP CONSTRAINT IF EXISTS channel_connector_inbound_events_event_kind_check",
+      "ALTER TABLE channel_connector_inbound_payloads DROP CONSTRAINT IF EXISTS channel_connector_inbound_payloads_inbound_kind_check",
+    ]);
+    expect(
+      connectorInboundSchemaSql.replaceAll(
+        /DROP CONSTRAINT IF EXISTS channel_connector_inbound_(?:events_event_kind|payloads_inbound_kind)_check/g,
+        "",
+      ),
+    ).not.toMatch(/DELETE|TRUNCATE|DROP/);
   });
   it("enrolls each new persisted proof in Channels DB only and imports the existing inbox helper", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));

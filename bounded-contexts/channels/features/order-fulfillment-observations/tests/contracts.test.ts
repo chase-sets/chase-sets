@@ -87,6 +87,8 @@ describe("channel-order-observation-closed-schema", () => {
     { ...good, shippingAmount: "-1.00" },
     { ...good, orderedAt: "2026-10-08T12:00:00" },
     { ...good, orderedAt: "2026-10-08T12:00:00+25:00" },
+    { ...good, orderedAt: "2026-02-30T12:00:00Z" },
+    { ...good, orderedAt: "2026-10-08T24:00:00Z" },
     { ...good, version: 2 },
     { ...good, refunds: [] },
   ])("rejects a malformed nested or outer value without leaking it", (candidate) => {
