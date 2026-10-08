@@ -9,12 +9,18 @@ export function createRawExportDatabase(indexedDB: IDBFactory, ranges: typeof ID
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(databaseName, 1);
       let refused = false;
-      request.onblocked = () => {
+      const refuse = () => {
         refused = true;
+        clearTimeout(timer);
         reject(new RetentionError("cleanup-failed"));
       };
-      request.onerror = () =>
+      // A v1 open queued behind a blocked newer-owner versionchange receives no events.
+      const timer = setTimeout(refuse, 1000);
+      request.onblocked = refuse;
+      request.onerror = () => {
+        clearTimeout(timer);
         reject(new RetentionError(request.error?.name === "VersionError" ? "upgrade-required" : "cleanup-failed"));
+      };
       request.onupgradeneeded = () => {
         if (refused) {
           request.transaction!.abort();
@@ -24,6 +30,7 @@ export function createRawExportDatabase(indexedDB: IDBFactory, ranges: typeof ID
         store.createIndex("expiresAt", "expiresAt");
       };
       request.onsuccess = () => {
+        clearTimeout(timer);
         const db = request.result;
         if (refused) {
           db.close();

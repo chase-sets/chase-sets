@@ -8,6 +8,7 @@ import { chromium, expect, type BrowserContext, type Worker } from "@playwright/
 type Product = typeof import("../src/background");
 declare global {
   var __retentionProduct: Product;
+  var __retentionSyntheticHolder: IDBDatabase | undefined;
 }
 export const retentionDist = resolve(import.meta.dirname, "../dist");
 export const productDigest = () =>
@@ -91,24 +92,28 @@ export async function clockAt(worker: Worker, now: number) {
   }, now);
 }
 
-export async function observeRetention(worker: Worker) {
-  return worker.evaluate(async () => {
+export async function observeRetention(worker: Worker, useSyntheticHolder = false) {
+  return worker.evaluate(async (useHolder) => {
     const product = globalThis.__retentionProduct;
     const rows = await new Promise<Record<string, unknown>[]>((resolve, reject) => {
-      const request = indexedDB.open("connector-raw-exports");
-      request.onerror = () => reject(new Error("observation-open-failed"));
-      request.onsuccess = () => {
-        const db = request.result;
+      const readRows = (db: IDBDatabase, owned: boolean) => {
         const read = db.transaction("raw-exports").objectStore("raw-exports").getAll();
         read.onsuccess = () => {
-          db.close();
+          if (owned) db.close();
           resolve(read.result as Record<string, unknown>[]);
         };
         read.onerror = () => {
-          db.close();
+          if (owned) db.close();
           reject(new Error("observation-read-failed"));
         };
       };
+      // A new observer open would queue behind the same synthetic blocked upgrade.
+      if (useHolder) readRows(globalThis.__retentionSyntheticHolder!, false);
+      else {
+        const request = indexedDB.open("connector-raw-exports");
+        request.onerror = () => reject(new Error("observation-open-failed"));
+        request.onsuccess = () => readRows(request.result, true);
+      }
     });
     const allSession = await chrome.storage.session.get(null);
     let materiallyObtainableKey = Object.entries(allSession).some(
@@ -159,7 +164,7 @@ export async function observeRetention(worker: Worker) {
       ciphertext: rows.some((row) => row.ciphertext instanceof ArrayBuffer),
       state: await product.background.status(),
     };
-  });
+  }, useSyntheticHolder);
 }
 
 export async function retentionCallback(worker: Worker) {

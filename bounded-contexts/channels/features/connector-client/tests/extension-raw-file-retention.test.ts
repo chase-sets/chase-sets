@@ -1,4 +1,4 @@
-import { IDBObjectStore } from "fake-indexeddb";
+import { IDBDatabase, IDBObjectStore } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createConnectorRetentionStore } from "../domain/connector-retention-store";
 import { parseRawExport, rawExportLifetime } from "../domain/raw-export-record";
@@ -8,6 +8,103 @@ import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-te
 afterEach(() => vi.restoreAllMocks());
 
 describe("extension-raw-file-retention", () => {
+  it("closes a product connection on a synthetic newer-owner versionchange and preserves custody", async () => {
+    const f = retentionFixture();
+    await f.store.write(f.input());
+    const before = await retainedRows(f.indexedDB);
+    const keys = structuredClone(f.rows);
+    const open = f.indexedDB.open.bind(f.indexedDB);
+    let changed = false;
+    let closedOnChange = false;
+    let upgraded!: Promise<void>;
+    vi.spyOn(f.indexedDB, "open").mockImplementationOnce((...args) => {
+      const request = open(...args);
+      request.addEventListener("success", () => {
+        const db = request.result;
+        db.addEventListener("versionchange", () => {
+          changed = true;
+        });
+        const close = db.close.bind(db);
+        vi.spyOn(db, "close").mockImplementation(() => {
+          closedOnChange ||= changed;
+          close();
+        });
+        upgraded = openDatabase(f.indexedDB, 2, (newer) => {
+          newer.createObjectStore("pending-operations").add("SYNTHETIC_VERSIONCHANGE_WITNESS", "pending");
+        }).then((newer) => {
+          newer.close();
+        });
+      });
+      return request;
+    });
+    await f.store.inspect();
+    await upgraded;
+    expect(changed).toBe(true);
+    expect(closedOnChange).toBe(true);
+    expect(await f.store.inspect()).toBe("upgrade-required");
+    expect(await retainedRows(f.indexedDB, 2)).toEqual(before);
+    expect(f.rows).toEqual(keys);
+  });
+
+  it("closes a late successful open after its bound instead of holding a newer owner blocked", async () => {
+    const f = retentionFixture();
+    await f.store.write(f.input());
+    const open = f.indexedDB.open.bind(f.indexedDB);
+    let deliver!: () => void;
+    vi.spyOn(f.indexedDB, "open").mockImplementationOnce((...args) => {
+      const native = open(...args);
+      const delayed = {} as IDBOpenDBRequest;
+      native.onsuccess = () => {
+        deliver = () => {
+          Object.defineProperty(delayed, "result", { value: native.result });
+          delayed.onsuccess!.call(delayed, new Event("success"));
+        };
+      };
+      return delayed;
+    });
+    const closed = vi.spyOn(IDBDatabase.prototype, "close");
+    expect(await f.store.inspect()).toBe("cleanup-failed");
+    deliver();
+    expect(closed).toHaveBeenCalled();
+    const newer = await openDatabase(f.indexedDB, 2);
+    newer.close();
+  });
+
+  it("bounds a v1 open queued behind a synthetic blocked v2 owner without mutating custody", async () => {
+    const f = retentionFixture();
+    await f.store.write(f.input());
+    const before = await retainedRows(f.indexedDB);
+    const keys = structuredClone(f.rows);
+    const holder = await openDatabase(f.indexedDB);
+    holder.onversionchange = () => {};
+    const upgrade = f.indexedDB.open("connector-raw-exports", 2);
+    const upgraded = new Promise<void>((resolve, reject) => {
+      upgrade.onsuccess = () => {
+        upgrade.result.close();
+        resolve();
+      };
+      upgrade.onerror = () => reject(upgrade.error);
+    });
+    await new Promise<void>((resolve) => {
+      upgrade.onblocked = () => resolve();
+    });
+    try {
+      f.setNow(f.now() + rawExportLifetime);
+      const result = await Promise.race([
+        Promise.all([f.store.run({ reason: "retention", deleteAll: false }), f.store.inspect()]),
+        new Promise<string>((resolve) => setTimeout(() => resolve("PENDING_AFTER_BOUND"), 1500)),
+      ]);
+      expect(result).toEqual([{ ok: false, nextDeadline: null, error: "cleanup-failed" }, "cleanup-failed"]);
+      expect(f.rows).toEqual(keys);
+    } finally {
+      holder.close();
+      await upgraded;
+    }
+    expect(await f.store.run({ reason: "retention", deleteAll: false })).toMatchObject({ error: "upgrade-required" });
+    expect(await retainedRows(f.indexedDB, 2)).toEqual(before);
+    expect(f.rows).toEqual(keys);
+  });
+
   it("stores only ciphertext, distinct session-only keys/nonces and authenticated metadata", async () => {
     const f = retentionFixture();
     await f.store.write(f.input());
