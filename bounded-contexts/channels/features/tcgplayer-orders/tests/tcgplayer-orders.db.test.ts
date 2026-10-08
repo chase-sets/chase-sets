@@ -63,6 +63,80 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await seed();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+  it("tcgplayer-order-scheduling: interprets due connections sequentially and rotates inert work", async () => {
+    await seedScheduledConnection("connection-2");
+    await admit(order);
+    const recordSale = recorder();
+    let saleCompleted = false;
+    const read = createConnectorInboundReader(pools.channels);
+    const readAdmittedConnectorInboundEvents = vi.fn(async (input: Parameters<typeof read>[0]) => {
+      if (input.connectionId === "connection-2") expect(saleCompleted).toBe(true);
+      return read(input);
+    });
+    const scheduled = createTcgplayerOrderRuntime({
+      db: pools.channels,
+      channelSaleRecorder: async (command) => {
+        const result = await recordSale(command);
+        saleCompleted = true;
+        return result;
+      },
+      readAdmittedConnectorInboundEvents,
+      backdatingAttentionAfterMs: async () => 21600000,
+    });
+
+    expect(await scheduled.interpretDueConnections()).toBe(1);
+    expect(await sales()).toHaveLength(1);
+    expect(readAdmittedConnectorInboundEvents.mock.calls.map(([input]) => input.connectionId)).toEqual([
+      "connection-1",
+      "connection-2",
+    ]);
+    expect(
+      (
+        await pools.channels.query(`SELECT connection_id FROM channel_order_consumer
+        WHERE last_scanned_at IS NOT NULL ORDER BY connection_id`)
+      ).rows,
+    ).toEqual([{ connection_id: "connection-1" }, { connection_id: "connection-2" }]);
+    const before = await effects();
+    expect(await scheduled.interpretDueConnections()).toBe(0);
+    expect(await effects()).toEqual(before);
+    expect(await sales()).toHaveLength(1);
+  });
+
+  it("tcgplayer-order-scheduling: selects only TCGplayer, never-scanned first, oldest first, and at most 20", async () => {
+    await seedScheduledConnection("000-synthetic-other-provider", "synthetic-other");
+    await seedScheduledConnection("synthetic-never-scanned-b");
+    await seedScheduledConnection("synthetic-never-scanned-a");
+    const scannedIds = Array.from({ length: 20 }, (_, index) => `synthetic-scanned-${String(index).padStart(2, "0")}`);
+    for (const [index, connectionId] of scannedIds.entries()) {
+      await seedScheduledConnection(connectionId);
+      await pools.channels.query(
+        `INSERT INTO channel_order_consumer (connection_id,last_scanned_at)
+        VALUES ($1,timestamptz '2026-01-01T00:00:00Z' - $2::integer * interval '1 minute')`,
+        [connectionId, index],
+      );
+    }
+    const read = vi.fn(createConnectorInboundReader(pools.channels));
+    const scheduled = createTcgplayerOrderRuntime({
+      db: pools.channels,
+      channelSaleRecorder: recorder(),
+      readAdmittedConnectorInboundEvents: read,
+      backdatingAttentionAfterMs: async () => 21600000,
+    });
+    expect(await scheduled.interpretDueConnections()).toBe(0);
+    expect(read.mock.calls.map(([input]) => input.connectionId)).toEqual([
+      "connection-1",
+      "synthetic-never-scanned-a",
+      "synthetic-never-scanned-b",
+      ...[...scannedIds].reverse().slice(0, 17),
+    ]);
+    expect(
+      (
+        await pools.channels.query(`SELECT connection_id FROM channel_order_consumer
+        WHERE connection_id='000-synthetic-other-provider'`)
+      ).rows,
+    ).toEqual([]);
+  });
+
   it("tcgplayer-order-unmapped: bounded attention counts survive an empty later page", async () => {
     await pools.channels.query(`INSERT INTO channel_order_attention
       (account_id,connection_id,order_reference,reason,generation,affected_lines,opened_at)
@@ -510,6 +584,14 @@ describeDb("TCGplayer connector sale interpretation", () => {
 
 function recorder() {
   return createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context);
+}
+async function seedScheduledConnection(connectionId: string, providerKey = "tcgplayer") {
+  await pools.channels.query(
+    `INSERT INTO channel_connections
+    (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
+    VALUES ($1,'account-1',$2,'sandbox','active',now(),now(),'[]',now(),1)`,
+    [connectionId, providerKey],
+  );
 }
 function runtime(record: RecordExternalChannelSale = recorder(), threshold = 21600000) {
   return createTcgplayerOrderRuntime({

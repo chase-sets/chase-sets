@@ -103,7 +103,9 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
               params,
             )
           : null;
-      return [health, drift, manual, orders].filter((summary) => summary !== null).join(" ");
+      return [health, drift, manual === null ? null : `${manual}.`, orders]
+        .filter((summary) => summary !== null)
+        .join(" ");
     }
     default:
       return t("marketplace.features.sellerDesk.summary.fallback");
