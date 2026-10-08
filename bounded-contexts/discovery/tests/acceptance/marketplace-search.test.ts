@@ -2502,6 +2502,27 @@ describe("marketplace search", () => {
       await drainContextProcesses({ subscriptionRunners });
       expect(await searchItemIds("Cacnea")).toContain(aliasSeed.japaneseItemId);
 
+      const storedTerms = async () =>
+        (
+          await pools.discovery.query<{ term: string }>(
+            `SELECT term FROM discovery_search_item_identity_terms WHERE catalog_item_id = $1 ORDER BY term`,
+            [aliasSeed.japaneseItemId],
+          )
+        ).rows.map((row) => row.term);
+      expect(await storedTerms()).toEqual(["base", "cacnea"]);
+      const priorAliasSetting = process.env.DISCOVERY_ALIAS_SEARCH;
+      process.env.DISCOVERY_ALIAS_SEARCH = "disabled";
+      try {
+        await rebuildSearchIndex();
+        expect(await storedTerms()).toEqual(["base"]);
+        await verifyDiscoverySearchIdentityTerms(pools.discovery);
+      } finally {
+        if (priorAliasSetting === undefined) delete process.env.DISCOVERY_ALIAS_SEARCH;
+        else process.env.DISCOVERY_ALIAS_SEARCH = priorAliasSetting;
+      }
+      await rebuildSearchIndex();
+      expect(await storedTerms()).toEqual(["base", "cacnea"]);
+
       // Retraction: empty resolved fact for the same (item, language).
       await recordJapaneseItemAliases([], "resolved-cacnea-empty");
       await drainContextProcesses({ subscriptionRunners });
@@ -2514,6 +2535,8 @@ describe("marketplace search", () => {
       // Negative projection on rebuild: rebuilding the index keeps the alias gone.
       await rebuildSearchIndex();
       expect(await searchItemIds("Cacnea")).not.toContain(aliasSeed.japaneseItemId);
+      expect(await storedTerms()).toEqual(["base"]);
+      await verifyDiscoverySearchIdentityTerms(pools.discovery);
 
       const aliasRow = await pools.discovery.query<{ resolved_aliases: unknown }>(
         `SELECT resolved_aliases FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
