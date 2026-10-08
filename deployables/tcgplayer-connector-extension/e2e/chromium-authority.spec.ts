@@ -14,6 +14,10 @@ import {
 import { closedErrors, loopbackPlatform, synthetic } from "./loopback-platform";
 import { scanRetainedArtifacts } from "./retained-artifacts";
 
+// This product probe owns sanitized tracing; automatic tracing would capture secret setup.
+// The separate restart probe retains the package's tracing policy unchanged.
+test.use({ trace: "off", screenshot: "off" });
+
 const packageRoot = resolve(import.meta.dirname, "..");
 const dist = resolve(packageRoot, "dist");
 let platform: Awaited<ReturnType<typeof loopbackPlatform>>;
