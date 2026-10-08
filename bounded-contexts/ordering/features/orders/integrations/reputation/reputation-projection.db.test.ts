@@ -356,7 +356,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       await saveSubscriptionCheckpoint(pools.marketplace, source, parseGlobalPosition("1000"));
     const localNames = ["marketplace-review-projection", "marketplace-review-hold-projection"];
     const projectors = marketplaceModule.projectionHandlerSets!(marketplace);
-    const groups = marketplaceModule.buildProjectionGroups!(marketplace);
+    const groups = marketplaceModule.buildProjectionGroups();
     const checkpoints = createPostgresProjectionStore({ db: pools.marketplace });
     for (const name of localNames) {
       expect(projectors.some((projector) => projector.projectionName === name)).toBe(true);
@@ -447,7 +447,10 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       reviewOutcome: { status: "ready", opportunity: { author_role: "buyer", active_review_revealed_at: null } },
     });
 
-    const sellerContext = { ...context, audit: { performedByUserId: "usr_test", forAccountId: "acc_seller" } };
+    const sellerContext: EventStoreContext = {
+      ...context,
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_seller" },
+    };
     const projectReview = projectors.find((projector) => projector.projectionName === "marketplace-review-projection")!;
     for (const [index, type] of ["marketplace.review.submitted", "marketplace.review.withdrawn"].entries()) {
       const stored = await store.appendToStream({

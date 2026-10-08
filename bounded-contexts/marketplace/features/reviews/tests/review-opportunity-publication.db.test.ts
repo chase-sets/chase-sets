@@ -65,7 +65,7 @@ describeDb("canonical opportunity publication persistence", () => {
     const services = createMarketplaceServices(pool);
     const subscriptions = marketplaceModule.buildSubscriptions!(services);
     const projectors = marketplaceModule.projectionHandlerSets!(services);
-    const groups = marketplaceModule.buildProjectionGroups!(services);
+    const groups = marketplaceModule.buildProjectionGroups();
     const store = createPostgresProjectionStore({ db: pool });
     // Positions are synthetic; registrations and checkpoint/recovery writers are runtime-owned.
     for (const [name, source, version] of opportunitySourceProjections) {
