@@ -123,8 +123,8 @@ describeDb("TCGplayer connector sale interpretation", () => {
       ).toMatchObject(expected);
     await assertion(pools.channels, { kind: "mapped" });
     const conditionMutant: import("@chase-sets/event-core-postgres").PgQueryable = {
-      query: (sql, values) =>
-        pools.channels.query(
+      query: <Row>(sql: string, values?: readonly unknown[]) =>
+        pools.channels.query<Row>(
           sql.includes("channel_tcgplayer_listing_sku")
             ? sql.replace(
                 "ORDER BY channel_listing_id",
@@ -138,8 +138,8 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await link("101", "Near Mint", "duplicate");
     await assertion(pools.channels, { kind: "unmappable", reason: "duplicate-link" });
     const firstMutant: import("@chase-sets/event-core-postgres").PgQueryable = {
-      query: (sql, values) =>
-        pools.channels.query(
+      query: <Row>(sql: string, values?: readonly unknown[]) =>
+        pools.channels.query<Row>(
           sql.includes("channel_tcgplayer_listing_sku") ? sql.replace("LIMIT 2", "LIMIT 1") : sql,
           values,
         ),
@@ -161,8 +161,8 @@ describeDb("TCGplayer connector sale interpretation", () => {
       ).toEqual({ kind: "unmappable", reason: "link-not-found" });
     await assertion(pools.channels);
     const wrongFamily: import("@chase-sets/event-core-postgres").PgQueryable = {
-      query: (sql, values) =>
-        pools.channels.query(sql, sql.includes("channel_tcgplayer_listing_sku") ? ["connection-1", "202"] : values),
+      query: <Row>(sql: string, values?: readonly unknown[]) =>
+        pools.channels.query<Row>(sql, sql.includes("channel_tcgplayer_listing_sku") ? ["connection-1", "202"] : values),
     };
     await expect(assertion(wrongFamily)).rejects.toThrow();
   });
