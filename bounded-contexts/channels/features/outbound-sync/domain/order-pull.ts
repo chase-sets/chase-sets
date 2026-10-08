@@ -270,8 +270,13 @@ export function assertClaimedOrderPullOutcome(value: unknown): asserts value is 
   if (typeof report.payloadDigest !== "string" || !/^[a-f0-9]{64}$/.test(report.payloadDigest)) {
     invalid("payloadDigest must be a lowercase SHA-256 digest.");
   }
+  assertOrderPullOutcomeBody(report.outcome);
+}
+
+/** The closed outcome body; persisted terminal outcomes are re-validated with the same codec on read. */
+export function assertOrderPullOutcomeBody(value: unknown): asserts value is ClaimedOrderPullOutcome["outcome"] {
   const outcome = closed(
-    report.outcome,
+    value,
     ["kind", "lawVersion", "selector", "admissionCounts", "reason"],
     "order-pull outcome.outcome",
   );

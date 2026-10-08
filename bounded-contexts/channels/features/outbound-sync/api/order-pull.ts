@@ -11,6 +11,7 @@ import {
 } from "../domain/contracts";
 import {
   ORDER_PULL_LEASE_MARGIN_MS,
+  assertOrderPullOutcomeBody,
   assertOrderPullOutcomeMatchesPayload,
   assertOrderPullPayload,
   deriveOrderPullId,
@@ -76,15 +77,19 @@ export async function scheduleDueOrderPulls(
   const producer = dependencies.orderPull;
   if (!producer) return 0;
   let authority: unknown;
-  let cadence: Readonly<{ pollWindowMs: number; leaseMs: number }>;
   try {
     authority = await producer.resolveAuthority();
-    cadence = decodeCadence(await producer.resolveConnectorPolicy());
   } catch {
     return 0;
   }
   const budget = resolveOrderPullBudget(authority);
   if (budget.kind !== "fits") return 0;
+  let cadence: Readonly<{ pollWindowMs: number; leaseMs: number }>;
+  try {
+    cadence = decodeCadence(await producer.resolveConnectorPolicy());
+  } catch {
+    return 0;
+  }
   if (budget.bounds.budgetMs + ORDER_PULL_LEASE_MARGIN_MS >= cadence.leaseMs) return 0;
   const scannedAt = now();
   const candidates = await dependencies.db.query<{ connection_id: string }>(
@@ -424,6 +429,11 @@ export async function readOrderPullOperations(
 
 function mapOrderPullRow(row: OrderPullRow): OrderPullOperationRecord {
   assertOrderPullPayload(row.payload);
+  const outcome = row.outcome;
+  if (outcome !== null) {
+    assertOrderPullOutcomeBody(outcome);
+    if (outcome.kind === "abandoned") throw new OutboundSyncError("stale-fence", "Abandonment is never persisted.");
+  }
   if (
     row.operation_kind !== orderPullOperationKind ||
     row.payload.connectionId !== row.connection_id ||
@@ -449,7 +459,7 @@ function mapOrderPullRow(row: OrderPullRow): OrderPullOperationRecord {
     reservationId: row.reservation_id,
     claimedUntil: timestamp(row.claimed_until),
     attemptCount: Number(row.attempt_count),
-    outcome: row.outcome as OrderPullOperationRecord["outcome"],
+    outcome,
     enqueuedAt: timestamp(row.enqueued_at)!,
     firstClaimedAt: timestamp(row.first_claimed_at),
     terminalAt: timestamp(row.terminal_at),

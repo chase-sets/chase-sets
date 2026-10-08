@@ -58,7 +58,7 @@ function harness(paused = false, member = true) {
     authority: { ...pairing, withAuthority },
     outboundSync: {
       ...createUnavailableOutboundSyncServices(),
-      reserveClaimedOutboundOperations: reserve,
+      reserveConnectorClaimedOperations: reserve,
       reportClaimedOperationOutcomes: report,
     },
     registry: createChannelProviderRegistry([]),
@@ -87,8 +87,26 @@ describe("connector authority and producer boundary", () => {
         claimant: { claimantKind: "connector", claimantId: "pair_test" },
         maxOperations: 100,
         leaseMs: 1_800_000,
+        capabilities: [],
       }),
     );
+  });
+  it("passes only a declared order-pull capability to the producer and refuses unknown capabilities before authority", async () => {
+    const h = harness();
+    await h.services.claim(h.input, { capabilities: ["tcgplayer-order-pull"] }, h.identify);
+    expect(h.reserve).toHaveBeenCalledWith(expect.objectContaining({ capabilities: ["tcgplayer-order-pull"] }));
+    for (const body of [
+      { capabilities: ["listing-publish"] },
+      { capabilities: ["tcgplayer-order-pull", "tcgplayer-order-pull"] },
+      { capabilities: "tcgplayer-order-pull" },
+      { operationKinds: ["tcgplayer-order-pull"] },
+    ]) {
+      const refused = harness();
+      await expect(refused.services.claim(refused.input, body, refused.identify)).rejects.toMatchObject({
+        code: "invalid-input",
+      });
+      expect(refused.calls).toEqual([]);
+    }
   });
   it("does not even call reserve on paused polls, including a producer that would throw", async () => {
     const h = harness(true);
