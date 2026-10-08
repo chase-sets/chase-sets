@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, 
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { chromium, expect, test, type BrowserContext, type Worker } from "@playwright/test";
 import { build } from "vite";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
@@ -26,9 +26,19 @@ test.beforeAll(async () => {
         .sort()
         .map((file) => [file, readFileSync(join(dist, file), "base64")]),
     );
-  await build({ root: packageRoot, configFile: resolve(packageRoot, "vite.config.ts"), logLevel: "warn" });
+  await build({
+    root: packageRoot,
+    configFile: resolve(packageRoot, "vite.config.ts"),
+    configLoader: "runner",
+    logLevel: "warn",
+  });
   firstBuild = snapshot();
-  await build({ root: packageRoot, configFile: resolve(packageRoot, "vite.config.ts"), logLevel: "warn" });
+  await build({
+    root: packageRoot,
+    configFile: resolve(packageRoot, "vite.config.ts"),
+    configLoader: "runner",
+    logLevel: "warn",
+  });
   expect(snapshot()).toEqual(firstBuild);
 });
 test.afterEach(async () => {
@@ -141,7 +151,7 @@ test("extension-package-vitest-discovery-control", () => {
     const require = createRequire(import.meta.url);
     const list = execFileSync(
       process.execPath,
-      [require.resolve("vitest/vitest.mjs"), "list", "--config", "./vitest.config.ts"],
+      [join(dirname(require.resolve("vitest/package.json")), "vitest.mjs"), "list", "--config", "./vitest.config.ts"],
       {
         cwd: packageRoot,
         encoding: "utf8",

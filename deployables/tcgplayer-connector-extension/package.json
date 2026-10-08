@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build --configLoader runner",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
-    "test:chromium": "vite build && playwright test --config ./playwright.config.ts"
+    "test:chromium": "vite build --configLoader runner && playwright test --config ./playwright.config.ts"
   },
   "dependencies": {
     "@chase-sets/channels": "workspace:*"
