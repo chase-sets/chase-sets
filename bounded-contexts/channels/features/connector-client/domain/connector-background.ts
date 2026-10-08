@@ -50,6 +50,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
   let retrySeconds = 30;
   let retentionDeadline: number | null = null;
   let revoking = false;
+  let rawUpgradeRequired = false;
   function serial<T>(operation: () => Promise<T>): Promise<T> {
     const result = tail.then(operation);
     tail = result.catch(() => {});
@@ -60,6 +61,10 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       await ports.storage.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       await ports.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       trusted = true;
+    }
+    if (rawUpgradeRequired || (await ports.sweep.inspect?.()) === "upgrade-required") {
+      rawUpgradeRequired = true;
+      return null;
     }
     const rows = await ports.storage.get([extensionProfileKey, extensionCredentialKey]);
     const retained = Object.values(rows).filter((value) => value != null);
@@ -133,11 +138,15 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     else await ports.alarms.create(retentionAlarm, { when: Math.max(now, next) });
   }
   async function sweep(profile: ExtensionProfile, reason: "boot" | "work" | "unpair" | "retention", deleteAll = false) {
-    let result: { ok: boolean; nextDeadline: number | null };
+    let result: Awaited<ReturnType<ConnectorBackgroundPorts["sweep"]["run"]>>;
     try {
       result = await ports.sweep.run({ reason, deleteAll });
     } catch {
       result = { ok: false, nextDeadline: null };
+    }
+    if (result.error === "upgrade-required") {
+      rawUpgradeRequired = true;
+      return false;
     }
     if (!(await current(profile))) return false;
     if (deleteAll && result.ok) retentionDeadline = null;
@@ -165,6 +174,10 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         deletionFailed = true;
       }
       const retained = await read();
+      if (!retained) {
+        await display();
+        return;
+      }
       if (retained?.state !== "cleanup-pending") throw new Error("cleanup-unavailable");
       profile = retained;
     }
@@ -331,7 +344,10 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         if (next?.state === "paused" && (await advance(next, "paired-idle")) === "committed")
           await work((await read())!);
       } else if (command.type === "unpair" && ["paired-idle", "paused"].includes(profile.state)) {
-        await advance(profile, "unpairing");
+        await sweep(profile, "unpair", true);
+        const retained = await read();
+        if (!retained) return;
+        await advance(retained, "unpairing");
         await ports.alarms.clear(workAlarm);
       }
       await display();
@@ -342,6 +358,10 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
   async function boot() {
     await serial(async () => {
       const retained = await read();
+      if (!retained) {
+        await display();
+        return;
+      }
       if (retained?.state === "cleanup-pending") {
         await cleanup(retained, "unpaired", "boot");
         await display();

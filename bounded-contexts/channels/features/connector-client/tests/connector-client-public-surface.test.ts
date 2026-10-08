@@ -50,6 +50,7 @@ describe("connector-client-public-surface", () => {
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "createConnectorBackground",
+      "createConnectorRetentionStore",
       "ConnectorCommand",
       "ConnectorStatus",
       "ConnectorBackgroundPorts",

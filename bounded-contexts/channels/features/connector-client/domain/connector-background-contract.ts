@@ -33,9 +33,10 @@ export type ConnectorBackgroundPorts = Readonly<{
     onMessage(listener: (message: unknown, sender: Sender) => Promise<Result>): void;
   }>;
   sweep: Readonly<{
+    inspect?(): Promise<"ready" | "upgrade-required" | "cleanup-failed">;
     run(
       input: Readonly<{ reason: "boot" | "work" | "unpair" | "retention"; deleteAll: boolean }>,
-    ): Promise<Readonly<{ ok: boolean; nextDeadline: number | null }>>;
+    ): Promise<Readonly<{ ok: boolean; nextDeadline: number | null; error?: "upgrade-required" | "cleanup-failed" }>>;
   }>;
   transport: Readonly<{
     platformOrigin: string;

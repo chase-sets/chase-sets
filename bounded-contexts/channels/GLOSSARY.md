@@ -25,6 +25,14 @@ a seller consumes a one-use, ten-minute pairing code. Channels owns its identity
 and lifecycle. Unpairing, replacement, expiry, and disconnect invalidate authority;
 closed pairing identities never reopen.
 
+## Connector Raw Export Retention
+
+`createConnectorRetentionStore` owns encrypted raw-export custody and cleanup.
+`downloadedAt` is the completed download instant, frozen across retries; it
+supersedes `capturedAt` for the 24-hour raw-export deadline. `cleanup-failed`
+keeps the connector provider-inert until cleanup succeeds. `upgrade-required`
+refuses work while preserving a newer retained schema for its owning version.
+
 ## Channel Operation Feed
 
 A **Channel Operation Feed** admits an authorized Connector poll and serves at most
