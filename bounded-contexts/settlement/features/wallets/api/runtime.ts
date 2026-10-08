@@ -91,7 +91,7 @@ export type PostedLedgerEntrySnapshot = Readonly<{
 }>;
 
 export type WalletServices = Readonly<{
-  commandHandler: CommandHandler<WalletCommand, WalletState, WalletEvent>;
+  commandHandler: CommandHandler<Exclude<WalletCommand, { type: "PostStagingProofCredit" }>, WalletState, WalletEvent>;
   /** Loads the wallet aggregate state from the event store, so callers can read the authoritative balance without waiting on the read model. */
   loadWalletState: (accountId: AccountId) => Promise<WalletState>;
   getWallet: (accountId: string) => Promise<SettlementWalletRow>;
@@ -306,7 +306,12 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
   }
 
   return {
-    commandHandler,
+    async commandHandler(input) {
+      if ((input.command as WalletCommand).type === "PostStagingProofCredit") {
+        throw new SettlementDomainError("proof_credit_write_boundary_required");
+      }
+      return commandHandler(input);
+    },
     loadWalletState: async (accountId) => {
       const loaded = await repository.load(`settlement.wallet-${accountId}`);
       return loaded.state;

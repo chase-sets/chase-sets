@@ -389,6 +389,43 @@ Use `pnpm run ops marketplace:stripe-money-operations-evidence` with the redacte
 
 When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, broad marketplace traffic stays closed, but production root/admin domains route the narrow authenticated Checkout, Ordering, Payments, and Settlement proof APIs needed for this record to `platform-api`. The same proof posture routes only `/account/payouts/setup` to marketplace-web so the live embedded dashboard-none Connect setup page can be proven before `marketplace.chasesets.com` is promoted. Use those private proof APIs and the proof payout setup page only with operator-controlled accounts and orders tied to the external evidence record; they are not public launch surfaces. Live `SMOKE_ORDER_IDS` must come from a controlled normal checkout path, and `SMOKE_CREATE_PAYMENT=true` should be used only when the approved live payment rehearsal is ready.
 
+## Staging Proof Credit
+
+This is a separate staging exception for #9051, a prerequisite for #7806 AC6, not execution or proof of AC6. [Todd's ruling](https://github.com/chase-sets/chase-sets/issues/7806#issuecomment-6041721954) selects a governed staging-only credit to the named founder Wallet; [ADR 0020](../adr/0020-wallet-adjustment-authority-and-balance-types.md#staging-only-operator-proof-credit-exception) defines the one-use USD25 engineering limit. Neither source authorizes production credit, external-funds claims, provider proof or a counsel conclusion.
+
+Todd owns the following operator window. Implementation lanes must not execute it.
+
+1. Confirm the deployed SHA is the reviewed #9051 build and the host configuration is explicitly `staging`. Sign in to staging as the platform administrator and reauthenticate. Use the existing browser session, never a copied token, SQL, seed, bootstrap, import or new credential. Both `wallet-adjustments.create` and `wallet-adjustments.approve` are required; policy editing also requires the existing `platform-policy.manage` permission.
+2. Verify the founder AccountId from Identity, then record it in the operator evidence. In the existing Platform policy console select `settlement.staging-proof-credit`, enter `{"enabled":true,"proofAccountId":"<verified AccountId>"}` and an effective-now window. Do not schedule a replacement document. The fixed document is `settlement-staging-proof-credit-7806-ac6`; the first pin is immutable. Disabling or expiring it must retain the same AccountId, not null. Stop on any pin mismatch.
+3. From the same signed-in staging origin, inspect the dedicated receipt first with the GET below. Inspect Wallet available/pending amounts, holds and Negative Balance separately. A receipt means the one-use credit is already consumed even if its funds were spent. Confirm no receipt exists before the single POST. Decide the required amount, canonical USD cents from `0.01` through `25.00`; currency is fixed server-side. The sample below requests the maximum, not a requirement to use it.
+
+```javascript
+const targetAccountId = "<verified AccountId>";
+const proofPath = "/api/settlement/wallet/staging-proof-credits";
+const receiptResponse = await fetch(`${proofPath}/${encodeURIComponent(targetAccountId)}`, {
+  credentials: "same-origin", cache: "no-store"
+});
+const before = await receiptResponse.json();
+if (!receiptResponse.ok || before.receipt !== null) throw new Error("Stop: inspect the existing receipt or refusal.");
+const proofRequest = { targetAccountId, amount: "25.00" };
+const posted = await fetch(proofPath, {
+  method: "POST", credentials: "same-origin",
+  headers: { "Content-Type": "application/json", "X-Chase-Sets-CSRF": "1" },
+  body: JSON.stringify(proofRequest)
+});
+const result = await posted.json();
+if (!posted.ok) throw new Error(`Credit refused: ${result.error?.code}`);
+result.receipt;
+```
+
+4. On a lost response, GET the receipt before retrying. An identical target/amount retry returns the original receipt without another credit; never change amount, account or credentials to evade a refusal. `proof_history_invalid`, pin, policy, auth, environment and halt refusals are stop conditions for operator inspection, not reasons to use another path. Reauthenticate through the existing sign-in flow for stale auth; no copied sessions.
+5. Capture the receipt, account, deployed SHA, trusted environment, balances/holds and UTC time in the approved proof record. The receipt binds actor, policy document/version, reason/ruling, cap, recent authentication, amount and ledger identity. The statement intentionally shows **Wallet adjustment** with no adjustment-lifecycle action; it is not the proof-path identity. The audit has no second balance effect. Available credit offsets negative balance; holds and payout rules may leave nothing spendable.
+6. Disable in the same policy console with `{"enabled":false,"proofAccountId":"<same verified AccountId>"}` after the window. Authorized receipt reads remain available. Re-enable, expiry, new documents, operator/key changes, spend and refunds never replenish the allowance. Do not self-approve an ordinary adjustment, fake sales/clearance, reverse via this endpoint or expand the account set. #7806 separately owns EasyPost test-mode purchase/void/refund and its webhook-secret prerequisite; this receipt proves none of those operations.
+
+### Staging Proof Credit Rollback Compatibility
+
+Before the first credit, a pre-event Wallet reader rollback is possible because no proof audit exists. After the first credit, do not roll back to a pre-event Wallet reader: any rollback or forward-fix build must retain decoding and evolution of `settlement.wallet.staging-proof-credit-posted` alongside the existing ledger event. Disabling is a stop-write action, not event compatibility or credit reversal. The immutable audit and consumed allowance remain through disable/re-enable; never delete or rewrite them to make an older reader work. Corrections retain ordinary Wallet Adjustment governance.
+
 ## Wallet Adjustment Operations
 
 Wallet Adjustments are Settlement's governed request/approve/reject/post/reverse
