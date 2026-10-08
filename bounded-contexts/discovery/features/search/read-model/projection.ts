@@ -1312,9 +1312,9 @@ export async function rebuildDiscoverySearchIndex(
   await options.onShadowReady?.(db);
 
   // The long build never locks the serving table. Take the exclusive lock only
-  // for final freshness preservation + cutover inside the projection runtime's
-  // supplied reset transaction, so the swap and checkpoint reset commit or roll
-  // back as one boundary.
+  // for final freshness preservation + paired cutover inside the caller-owned
+  // transaction. Population leaves checkpoints alone; projection reset owns its
+  // checkpoint changes in that same transaction.
   await db.query(`LOCK TABLE ${SEARCH_INDEX_TABLE}, discovery_search_item_identity_terms IN ACCESS EXCLUSIVE MODE`);
   await db.query(
     `UPDATE discovery_search_items_rebuild AS shadow

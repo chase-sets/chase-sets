@@ -83,9 +83,9 @@ export async function populateDiscoverySearchIdentityTerms(
     async (context) =>
       withPgTransaction(input.pool, async (client) => {
         const db: PgQueryable = {
-          query: async (sql, values) => {
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
             context.throwIfLeaseLost?.();
-            const result = await client.query(sql, values);
+            const result = await client.query<Row>(sql, values);
             context.throwIfLeaseLost?.();
             return result;
           },
