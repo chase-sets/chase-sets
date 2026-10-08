@@ -1,5 +1,6 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 
 const terminalStatePattern = /'(?:sent|failed|expired|released|resolved|ignored|succeeded|cancelled|completed)'/;
 const insertOnlyNamePattern =
@@ -134,34 +135,183 @@ export async function validateRetentionSweepCoverage({ repoRoot }) {
   return { violations };
 }
 
+// Binds coverage to the sweep objects reachable from the module's mounted
+// export. Only the concrete declaration forms below are understood; any other
+// shape is unresolved and does not count as coverage.
 async function hasMountedSweep(repoRoot, moduleFile, tableName) {
   const modulePath = path.join(repoRoot, moduleFile);
-  const moduleSource = (await readOptional(modulePath)) ?? "";
-  const mounted = moduleSource.match(/\bretentionSweeps:\s*([^\n]+)/)?.[1] ?? "";
-  const imports = [...moduleSource.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'](\.[^"']+)["']/g)];
-  for (const [, identifier] of mounted.matchAll(/(?:^|[\s[,.])([A-Za-z_$][\w$]*)/g)) {
-    const specifier = imports.find(([, names]) =>
-      names.split(",").some(
-        (name) =>
-          name
-            .trim()
-            .split(/\s+as\s+/)
-            .at(-1) === identifier,
-      ),
-    )?.[2];
-    if (!specifier?.endsWith("/retention-policy")) {
+  const moduleSource = parseSource(modulePath, await readOptional(modulePath));
+  const mounted = moduleSource && mountedSweepIdentifiers(moduleSource);
+  if (!mounted) {
+    return false;
+  }
+  const imports = namedImports(moduleSource);
+  for (const identifier of mounted) {
+    const imported = imports.get(identifier);
+    if (!imported?.specifier.endsWith("/retention-policy")) {
       continue;
     }
-    const policySource = await readOptional(path.join(path.dirname(modulePath), `${specifier}.ts`));
-    if (
-      policySource &&
-      new RegExp(`export const ${escapeRegExp(identifier)}\\b`).test(policySource) &&
-      new RegExp(`tableName:\\s*["'\`]${escapeRegExp(tableName)}["'\`]`).test(policySource)
-    ) {
+    const policyPath = path.join(path.dirname(modulePath), `${imported.specifier}.ts`);
+    const policySource = parseSource(policyPath, await readOptional(policyPath));
+    const declarations = policySource && topLevelDeclarations(policySource);
+    const initializer = declarations?.exportedConsts.get(imported.name);
+    const sweeps = initializer ? sweepObjects(initializer, declarations, 0) : null;
+    if (sweeps?.some((sweep) => hasLiteralProperty(sweep, "tableName", tableName))) {
       return true;
     }
   }
   return false;
+}
+
+function parseSource(file, text) {
+  return text === null ? null : ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+// `retentionSweeps: x` or `retentionSweeps: [...x, ...y]` on `export const
+// module = {...}` or `= define(...)({...})`; [] when unmounted, null when unsupported.
+function mountedSweepIdentifiers(source) {
+  const moduleDeclaration = source.statements
+    .filter((statement) => ts.isVariableStatement(statement) && isExported(statement))
+    .flatMap((statement) => statement.declarationList.declarations)
+    .find((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "module");
+  const initializer = moduleDeclaration?.initializer;
+  const moduleObject =
+    initializer && ts.isCallExpression(initializer) && initializer.arguments.length === 1
+      ? initializer.arguments[0]
+      : initializer;
+  if (!moduleObject || !ts.isObjectLiteralExpression(moduleObject)) {
+    return null;
+  }
+  const properties = moduleObject.properties.filter((property) => propertyName(property) === "retentionSweeps");
+  if (properties.length === 0) {
+    return [];
+  }
+  const [property] = properties;
+  if (properties.length > 1 || !ts.isPropertyAssignment(property)) {
+    return null;
+  }
+  const value = property.initializer;
+  if (ts.isIdentifier(value)) {
+    return [value.text];
+  }
+  if (
+    ts.isArrayLiteralExpression(value) &&
+    value.elements.every((element) => ts.isSpreadElement(element) && ts.isIdentifier(element.expression))
+  ) {
+    return value.elements.map((element) => element.expression.text);
+  }
+  return null;
+}
+
+function namedImports(source) {
+  const imports = new Map();
+  for (const statement of source.statements) {
+    const bindings = ts.isImportDeclaration(statement) ? statement.importClause?.namedBindings : undefined;
+    if (!bindings || !ts.isNamedImports(bindings) || statement.importClause.isTypeOnly) {
+      continue;
+    }
+    for (const element of bindings.elements) {
+      if (!element.isTypeOnly && ts.isStringLiteral(statement.moduleSpecifier)) {
+        imports.set(element.name.text, {
+          name: (element.propertyName ?? element.name).text,
+          specifier: statement.moduleSpecifier.text,
+        });
+      }
+    }
+  }
+  return imports;
+}
+
+function topLevelDeclarations(source) {
+  const exportedConsts = new Map();
+  const functions = new Map();
+  for (const statement of source.statements) {
+    if (
+      ts.isVariableStatement(statement) &&
+      isExported(statement) &&
+      statement.declarationList.flags & ts.NodeFlags.Const
+    ) {
+      for (const { name, initializer } of statement.declarationList.declarations) {
+        if (ts.isIdentifier(name) && initializer) {
+          exportedConsts.set(name.text, exportedConsts.has(name.text) ? null : initializer);
+        }
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      functions.set(statement.name.text, functions.has(statement.name.text) ? null : statement);
+    }
+  }
+  return { exportedConsts, functions };
+}
+
+// Object literals an expression yields as sweeps: an array of object literals,
+// a zero-argument same-file builder, or `.map(arrow)` returning one object.
+function sweepObjects(expression, declarations, depth) {
+  if (depth > 4) {
+    return null;
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.every(ts.isObjectLiteralExpression) ? [...expression.elements] : null;
+  }
+  if (!ts.isCallExpression(expression)) {
+    return null;
+  }
+  const callee = expression.expression;
+  if (ts.isIdentifier(callee) && expression.arguments.length === 0) {
+    const returned = singleReturnExpression(declarations.functions.get(callee.text)?.body);
+    return returned ? sweepObjects(returned, declarations, depth + 1) : null;
+  }
+  const [mapper] = expression.arguments;
+  if (
+    ts.isPropertyAccessExpression(callee) &&
+    callee.name.text === "map" &&
+    expression.arguments.length === 1 &&
+    ts.isArrowFunction(mapper)
+  ) {
+    let result = ts.isBlock(mapper.body) ? singleReturnExpression(mapper.body) : mapper.body;
+    while (result && ts.isParenthesizedExpression(result)) {
+      result = result.expression;
+    }
+    return result && ts.isObjectLiteralExpression(result) ? [result] : null;
+  }
+  return null;
+}
+
+function singleReturnExpression(block) {
+  if (!block) {
+    return null;
+  }
+  const returns = [];
+  const visit = (node) =>
+    ts.forEachChild(node, (child) => {
+      if (ts.isReturnStatement(child)) {
+        returns.push(child);
+      }
+      if (!ts.isFunctionLike(child)) {
+        visit(child);
+      }
+    });
+  visit(block);
+  return returns.length === 1 && returns[0].parent === block ? (returns[0].expression ?? null) : null;
+}
+
+function hasLiteralProperty(object, key, value) {
+  return object.properties.some(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      propertyName(property) === key &&
+      (ts.isStringLiteral(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer)) &&
+      property.initializer.text === value,
+  );
+}
+
+function propertyName(property) {
+  return property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+    ? property.name.text
+    : null;
+}
+
+function isExported(statement) {
+  return statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
 }
 
 async function readOptional(file) {

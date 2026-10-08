@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -174,6 +174,80 @@ export const otherSweeps = [{ tableName: "channel_connector_inbound_payloads" }]
       [policyFile]: policy.replace(
         'export const connectorInboundRetentionSweeps = [{ tableName: "channel_connector_inbound_payloads" }];',
         "export const connectorInboundRetentionSweeps = [];",
+      ),
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("accepts the real Channels module and policy sources", async () => {
+    const repoFile = (relativePath) => readFile(new URL(`../../${relativePath}`, import.meta.url), "utf8");
+    const root = await connector({
+      [policyFile]: await repoFile(policyFile),
+      [moduleFile]: await repoFile(moduleFile),
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
+  });
+
+  it("accepts a zero-argument builder whose mapped sweep declares the payload table", async () => {
+    const root = await connector({
+      [policyFile]: `export function buildSweeps(registrations: readonly unknown[] = classes): readonly Sweep[] {
+  return resolve(registrations).map(
+    ({ retentionClass }) => ({
+      name: \`connector-inbound-\${retentionClass}\`,
+      tableName: "channel_connector_inbound_payloads",
+    }),
+  );
+}
+export const connectorInboundRetentionSweeps = buildSweeps();`,
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
+  });
+
+  it.each([
+    [
+      "an empty mounted export beside an unused sibling that declares the table",
+      `export const connectorInboundRetentionSweeps = [];
+export const unusedSweeps = [{ tableName: "channel_connector_inbound_payloads" }];`,
+    ],
+    [
+      "a mounted builder that mentions the table only in a comment and a string",
+      `export function buildSweeps() {
+  // tableName: "channel_connector_inbound_payloads"
+  return kinds.map((kind) => ({ name: kind, note: 'tableName: "channel_connector_inbound_payloads"' }));
+}
+export const connectorInboundRetentionSweeps = buildSweeps();`,
+    ],
+    [
+      "a table declared only in a nested object",
+      `export const connectorInboundRetentionSweeps = [{ meta: { tableName: "channel_connector_inbound_payloads" } }];`,
+    ],
+    [
+      "an unsupported conditional initializer",
+      `export const connectorInboundRetentionSweeps = enabled ? [] : [{ tableName: "channel_connector_inbound_payloads" }];`,
+    ],
+    [
+      "a builder with more than one return",
+      `export function buildSweeps() {
+  if (enabled) return [];
+  return [{ tableName: "channel_connector_inbound_payloads" }];
+}
+export const connectorInboundRetentionSweeps = buildSweeps();`,
+    ],
+  ])("refuses %s", async (_label, policySource) => {
+    const root = await connector({ [policyFile]: policySource });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("binds the mount to the imported name, not the local alias", async () => {
+    const root = await connector({
+      [policyFile]: `${policy}\nexport const unusedSweeps = [];`,
+      [moduleFile]: mountedModule.replace(
+        "  connectorInboundRetentionSweeps,\n",
+        "  unusedSweeps as connectorInboundRetentionSweeps,\n",
       ),
     });
     await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({

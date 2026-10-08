@@ -11,12 +11,22 @@ const SHIP_TO = "SENTINEL-SHIP-TO 8592 Evergreen Terrace, Springfield 73301";
 
 // pg's DatabaseError echoes row values in message and detail.
 class DatabaseError extends Error {
-  readonly code = "23505";
   readonly detail = `Failing row contains (${SHIP_TO}).`;
+  constructor(
+    message: string,
+    readonly code = "23505",
+  ) {
+    super(message);
+  }
 }
 class SystemError extends Error {
-  readonly code = "ECONNRESET";
   readonly errno = -4077;
+  constructor(
+    message: string,
+    readonly code = "ECONNRESET",
+  ) {
+    super(message);
+  }
 }
 
 function capturingLogger() {
@@ -55,6 +65,9 @@ describe("connector-inbound-retention-error-redaction", () => {
     ["ship-to-bearing Error.message", new Error(`delete failed near ${SHIP_TO}`), "error", null],
     ["ship-to-bearing driver detail", new DatabaseError(`duplicate key ${SHIP_TO}`), "database-error", "23505"],
     ["ship-to-bearing errno error", new SystemError(`socket ${SHIP_TO}`), "system-error", "ECONNRESET"],
+    // Forged codes that match the SQLSTATE/errno shape but are not admitted diagnostic values.
+    ["SQLSTATE-shaped ship-to code", new DatabaseError("duplicate key", "73301"), "database-error", null],
+    ["errno-shaped ship-to code", new SystemError("socket", "ESENTINEL_SHIP_TO_73301"), "system-error", null],
     ["ship-to-bearing TypeError cause", new TypeError("bad row", { cause: SHIP_TO }), "type-error", null],
     ["non-Error throw", { shipTo: SHIP_TO, toString: (): string => SHIP_TO }, "non-error", null],
     ["thrown string", SHIP_TO, "non-error", null],

@@ -96,13 +96,22 @@ describe("retention sweep", () => {
   });
 
   it("classifies failures into a bounded class and allowlisted code only", () => {
-    const database = Object.assign(new (class DatabaseError extends Error {})("secret row"), { code: "57P01" });
+    const DatabaseError = class DatabaseError extends Error {};
+    const database = Object.assign(new DatabaseError("secret row"), { code: "57P01" });
     const forgedCode = Object.assign(new Error("secret row"), { code: "secret row" });
     const system = Object.assign(new Error("secret row"), { code: "ECONNREFUSED", errno: -111 });
 
     expect(classifyRetentionSweepFailure(database)).toEqual({ errorClass: "database-error", errorCode: "57P01" });
     expect(classifyRetentionSweepFailure(system)).toEqual({ errorClass: "system-error", errorCode: "ECONNREFUSED" });
     expect(classifyRetentionSweepFailure(forgedCode)).toEqual({ errorClass: "error", errorCode: null });
+    // Codes shaped like a SQLSTATE or errno are still unknown unless explicitly admitted.
+    expect(classifyRetentionSweepFailure(Object.assign(new DatabaseError("secret row"), { code: "SH1P7" }))).toEqual({
+      errorClass: "database-error",
+      errorCode: null,
+    });
+    expect(
+      classifyRetentionSweepFailure(Object.assign(new Error("secret row"), { code: "ESECRET_ROW", errno: -1 })),
+    ).toEqual({ errorClass: "system-error", errorCode: null });
     expect(classifyRetentionSweepFailure(new RangeError("secret row"))).toEqual({
       errorClass: "range-error",
       errorCode: null,
@@ -139,6 +148,17 @@ describe("retention sweep", () => {
       errorClass: "database-error",
       errorCode: "40P01",
     });
+
+    observer.sweepFailed?.({
+      contextName: "example",
+      sweepName: "expired-example-rows",
+      tableName: "example_rows",
+      failure: { errorClass: "system-error", errorCode: "ESECRET_ROW" },
+    });
+    expect(error).toHaveBeenLastCalledWith(
+      "Retention sweep failed; it will retry on its next interval.",
+      expect.objectContaining({ errorClass: "system-error", errorCode: null }),
+    );
   });
 
   it("rejects unsafe registration fragments before querying", async () => {

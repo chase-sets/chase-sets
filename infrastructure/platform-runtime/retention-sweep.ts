@@ -234,7 +234,7 @@ export function createRetentionSweepLogObserver(logger: RetentionSweepLogger): R
         sweepName: safeRetentionName(event.sweepName),
         tableName: safeRetentionName(event.tableName),
         errorClass: event.failure.errorClass,
-        errorCode: event.failure.errorCode,
+        errorCode: isLoggableFailureCode(event.failure.errorCode) ? event.failure.errorCode : null,
       }),
   };
 }
@@ -248,21 +248,58 @@ export function classifyRetentionSweepFailure(error: unknown): RetentionSweepFai
   }
 }
 
+// Diagnostic codes are admitted by explicit membership only: a code that merely
+// looks like a SQLSTATE or errno can still carry payload bytes, so it logs as null.
+const LOGGABLE_SQLSTATE_CODES: ReadonlySet<string> = new Set([
+  "08000",
+  "08001",
+  "08003",
+  "08006",
+  "22P02",
+  "23505",
+  "25P02",
+  "40001",
+  "40P01",
+  "42501",
+  "42P01",
+  "53100",
+  "53200",
+  "53300",
+  "55P03",
+  "57014",
+  "57P01",
+  "57P02",
+  "57P03",
+  "XX000",
+]);
+const LOGGABLE_ERRNO_CODES: ReadonlySet<string> = new Set([
+  "EAI_AGAIN",
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EPIPE",
+  "ETIMEDOUT",
+]);
+
+function admittedCode(code: unknown, admitted: ReadonlySet<string>): string | null {
+  return typeof code === "string" && admitted.has(code) ? code : null;
+}
+
+function isLoggableFailureCode(code: string | null): code is string {
+  return code !== null && (LOGGABLE_SQLSTATE_CODES.has(code) || LOGGABLE_ERRNO_CODES.has(code));
+}
+
 function classifyError(error: Error): RetentionSweepFailure {
   const code = (error as { code?: unknown }).code;
   // pg's DatabaseError carries the server SQLSTATE; Node system errors carry an errno code.
   if (error.constructor.name === "DatabaseError") {
-    return {
-      errorClass: "database-error",
-      errorCode: typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code : null,
-    };
+    return { errorClass: "database-error", errorCode: admittedCode(code, LOGGABLE_SQLSTATE_CODES) };
   }
-  if (
-    typeof (error as { errno?: unknown }).errno === "number" &&
-    typeof code === "string" &&
-    /^E[A-Z0-9_]{1,31}$/.test(code)
-  ) {
-    return { errorClass: "system-error", errorCode: code };
+  if (typeof (error as { errno?: unknown }).errno === "number") {
+    return { errorClass: "system-error", errorCode: admittedCode(code, LOGGABLE_ERRNO_CODES) };
   }
   if (error instanceof TypeError) return { errorClass: "type-error", errorCode: null };
   if (error instanceof RangeError) return { errorClass: "range-error", errorCode: null };
