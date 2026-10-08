@@ -422,7 +422,8 @@ export class OutboundSyncError extends Error {
       | "stale-fence"
       | "reservation-expired"
       | "reservation-membership-mismatch"
-      | "run-settlement-unavailable",
+      | "run-settlement-unavailable"
+      | "order-pull-schedule-unavailable",
     message: string = code,
   ) {
     super(message);

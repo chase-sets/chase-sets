@@ -12,6 +12,7 @@ import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { module as channelsModule } from "../../../index";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import type { ConnectorTransportServices } from "../../connector-feed/api/transport";
+import { connectorPolicyDefaults } from "../../connector-feed/domain/policy";
 import {
   describeDb,
   target,
@@ -54,15 +55,17 @@ const startedAt = Date.parse("2026-10-07T12:00:00.000Z");
 
 let authority: unknown = syntheticAuthority;
 let held = false;
+let heldConnections = new Set<string>();
 
 describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", () => {
   const h = transportDatabase("order_pull_8610", {
     resolveTcgplayerOrderPullAuthority: async () => authority,
-    readChannelHealthHold: async () => held,
+    readChannelHealthHold: async (connectionId) => held || heldConnections.has(connectionId),
   });
   beforeEach(() => {
     authority = syntheticAuthority;
     held = false;
+    heldConnections = new Set();
   });
   const tick = () => h.services.outboundSync.scheduleDueOrderPulls({ registry: channelProviderRegistry });
   const at = (offsetMs: number) => vi.setSystemTime(new Date(startedAt + offsetMs));
@@ -122,6 +125,31 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
       outcome: { kind: "applied", result: { kind: "succeeded", externalListingId: `external_${operation.listingId}` } },
     };
   }
+  async function settlePull() {
+    const reservation = await claim();
+    const member = pullMember(reservation);
+    const response = await h.request("report", {
+      reservationId: reservation!.reservationId,
+      outcomes: [pullReport(member, complete(member))],
+    });
+    expect(response.status).toBe(200);
+  }
+  async function schedule(connectionId = target.connectionId) {
+    const result = await h.db.query<{
+      generation: string;
+      next_due_at: Date | string;
+      last_scheduled_at: Date | string;
+    }>("SELECT generation, next_due_at, last_scheduled_at FROM channel_order_pull_schedules WHERE connection_id=$1", [
+      connectionId,
+    ]);
+    const row = result.rows[0]!;
+    // Offsets from the fixture start keep the cadence-grid assertions readable.
+    return {
+      generation: Number(row.generation),
+      nextDueAt: new Date(row.next_due_at).getTime() - startedAt,
+      lastScheduledAt: new Date(row.last_scheduled_at).getTime() - startedAt,
+    };
+  }
   async function listingEffects() {
     const effects = await h.effects();
     return {
@@ -171,6 +199,88 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
     // Due again, but the connection already has a live pull: zero writes.
     expect(await Promise.all([tick(), tick()])).toEqual([0, 0]);
     expect(await pullState()).toEqual(snapshot);
+  });
+
+  it("AC1 a poll-window increase fences the persisted boundary across racing and restarted ticks; a decrease keeps the promised fence", async () => {
+    expect(await tick()).toBe(1);
+    expect(await schedule()).toEqual({ generation: 1, nextDueAt: 60_000, lastScheduledAt: 0 });
+    await settlePull();
+    const policyId = await h.connectorPolicy({ ...connectorPolicyDefaults, pollWindowSeconds: 300 });
+    h.restart();
+    const settled = await pullState();
+    for (const offset of [60_000, 240_000, 299_999]) {
+      at(offset);
+      expect(await Promise.all([tick(), tick(), tick()])).toEqual([0, 0, 0]);
+      h.restart();
+      expect(await tick()).toBe(0);
+    }
+    expect(await pullState()).toEqual(settled);
+    at(300_000);
+    const minted = await Promise.all([tick(), tick(), tick()]);
+    expect(minted.reduce((sum, count) => sum + count, 0)).toBe(1);
+    expect(await schedule()).toEqual({ generation: 2, nextDueAt: 600_000, lastScheduledAt: 300_000 });
+
+    await settlePull();
+    await h.db.query("UPDATE platform_policy_documents SET value=$1::jsonb WHERE document_id=$2", [
+      JSON.stringify({ ...connectorPolicyDefaults, pollWindowSeconds: 60 }),
+      policyId,
+    ]);
+    h.restart();
+    at(360_000);
+    expect(await tick()).toBe(0);
+    // A late tick mints one pull on the effective grid from the persisted boundary, never a backlog.
+    at(845_000);
+    expect(await Promise.all([tick(), tick()])).toEqual(expect.arrayContaining([0, 1]));
+    expect(await schedule()).toEqual({ generation: 3, nextDueAt: 900_000, lastScheduledAt: 840_000 });
+    const pulls = await h.services.outboundSync.readOrderPullOperations({ connectionId: target.connectionId });
+    expect(pulls.map((pull) => [pull.scheduleGeneration, pull.status])).toEqual([
+      [3, "pending"],
+      [2, "succeeded"],
+      [1, "succeeded"],
+    ]);
+  });
+
+  it("AC1 a held prefix of 100 connections cannot starve a later eligible one and is never written", async () => {
+    const heldIds = Array.from({ length: 100 }, (_, index) => `connection_held_${String(index).padStart(3, "0")}`);
+    // Synthetic connections copy the fixture's provider, environment and pairing; only their identities differ.
+    await h.db.query(
+      `INSERT INTO channel_connections
+       (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
+       SELECT 'connection_held_' || lpad(i::text, 3, '0'), account_id, provider_key, environment, status, created_at,
+         created_at_instant, bindings, projection_updated_at, last_stream_version
+       FROM channel_connections, generate_series(0, 99) AS i WHERE connection_id = $1`,
+      [target.connectionId],
+    );
+    await h.db.query(
+      `INSERT INTO channel_connector_pairings
+       (pairing_id,connection_id,account_id,user_id,state,revision,code_expires_at,grant_id,created_at)
+       SELECT 'pairing_held_' || lpad(i::text, 3, '0'), 'connection_held_' || lpad(i::text, 3, '0'), account_id,
+         user_id, 'paired', 1, code_expires_at, 'grant_held_' || lpad(i::text, 3, '0'), created_at
+       FROM channel_connector_pairings, generate_series(0, 99) AS i WHERE pairing_id = $1`,
+      [h.pairingId],
+    );
+    heldConnections = new Set(heldIds);
+    const empty = await pullState();
+    // Concurrent ticks all examine the held prefix; none writes, and none moves the scan backwards.
+    expect(await Promise.all([tick(), tick(), tick()])).toEqual([0, 0, 0]);
+    expect(await pullState()).toEqual(empty);
+    expect(await tick()).toBe(1);
+    const scheduledIds = async () =>
+      (
+        await h.db.query<{ connection_id: string }>(
+          "SELECT connection_id FROM channel_order_pull_operations ORDER BY connection_id",
+        )
+      ).rows.map((row) => row.connection_id);
+    expect(await scheduledIds()).toEqual([target.connectionId]);
+    // The exhausted scan wrapped: a newly released earlier connection is reached on the next lap.
+    heldConnections.delete(heldIds[5]!);
+    expect(await tick()).toBe(1);
+    expect(await scheduledIds()).toEqual([heldIds[5], target.connectionId]);
+    const scheduled = await pullState();
+    // A restart begins a new scan; the live-pull fence keeps every racing mint unique.
+    h.restart();
+    expect(await Promise.all([tick(), tick(), tick()])).toEqual([0, 0, 0]);
+    expect(await pullState()).toEqual(scheduled);
   });
 
   it("AC1 denies unknown, over-budget and absent-bound authority and held connections with zero writes and zero provider calls", async () => {

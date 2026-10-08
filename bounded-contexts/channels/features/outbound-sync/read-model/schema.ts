@@ -154,8 +154,10 @@ const createOrderPullSchedulesTable = `CREATE TABLE IF NOT EXISTS channel_order_
   connection_id text PRIMARY KEY,
   generation bigint NOT NULL CHECK (generation >= 1),
   next_due_at timestamptz NOT NULL,
+  last_scheduled_at timestamptz NOT NULL,
   revision bigint NOT NULL CHECK (revision >= 1),
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  CHECK (next_due_at > last_scheduled_at)
 )`;
 
 const createOrderPullIndexes = [

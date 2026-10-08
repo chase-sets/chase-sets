@@ -32,6 +32,7 @@ import { isClaimedOrderPullOutcome } from "../domain/order-pull";
 import { assertClaimedOperationClaimant, assertClaimedSubjectOutcome, canonicalJson } from "../domain/validation";
 import {
   assertOrderPullReportFence,
+  createOrderPullScanCursor,
   lockReservedOrderPulls,
   readOrderPullOperations,
   recoverExpiredOrderPulls,
@@ -84,12 +85,13 @@ export function createOutboundSyncRuntime(
 ) {
   const store = createOutboundOperationStore(dependencies, options);
   const now = () => (dependencies.clock?.now() ?? new Date()).toISOString();
+  const orderPullScan = createOrderPullScanCursor();
 
   return {
     ...store,
 
     scheduleDueOrderPulls: (input: Readonly<{ registry: ChannelProviderRegistry }>) =>
-      scheduleDueOrderPulls(dependencies, input, now),
+      scheduleDueOrderPulls(dependencies, input, now, orderPullScan),
 
     readOrderPullOperations: (input: Readonly<{ connectionId: string }>) =>
       readOrderPullOperations(dependencies.db, input),
