@@ -56,6 +56,7 @@ function harness(
     tamper?: string;
     missing?: string;
     workerSource?: string;
+    onStorageSet?: (value: Record<string, unknown>) => void;
   } = {},
 ) {
   let now = Date.parse(T0);
@@ -93,6 +94,7 @@ function harness(
         },
         get: async () => structuredClone(storage),
         set: async (value: Record<string, unknown>) => {
+          options.onStorageSet?.(value);
           Object.assign(storage, structuredClone(value));
           retained.push(structuredClone(value));
         },
@@ -838,6 +840,35 @@ describe("selector-only-protocol", () => {
     expect(value.selector.searches[0].reason).toBe("count_mismatch");
     expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 0 });
     expect(worker.observations).toHaveLength(2);
+  });
+  it("fallback pre-dispatch refusal does not attach a second search to the first request", async () => {
+    const worker = harness({
+      responses: { list: { status: 422, body: "{}" } },
+      onStorageSet: (value) => {
+        if ((value.orderAuthorityLatch as { list?: number })?.list === 2) worker.advance(31000);
+      },
+    });
+    const page = helper(worker, {
+      prompts: [
+        "LastTwoYears",
+        "Ready to Ship",
+        "1",
+        "LastTwoYears",
+        "Ready to Ship",
+        "1",
+        "LastThreeMonths",
+        "Ready to Ship",
+        "1",
+      ],
+      confirms: Array(13).fill(true),
+    });
+    await page.run();
+    const value = exported(page);
+    expect(value.failures).toEqual(["bracket_timing"]);
+    expect(value.requests.filter((request) => request.kind === "list")).toHaveLength(1);
+    retain(page);
+    expect(packaging.verifyExport(out).evidence).toBe("synthetic");
+    expect(value.selector.searches).toHaveLength(1);
   });
   it("largest closed page is 499 distinct Ready to Ship rows, never a truncated 500-row page", async () => {
     const rows = Array.from({ length: 499 }, (_, index) => ({ ...list.orders[0], orderNumber: `${ORDER}-${index}` }));

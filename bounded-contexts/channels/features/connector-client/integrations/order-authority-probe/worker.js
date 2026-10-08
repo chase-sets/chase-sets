@@ -489,6 +489,7 @@
     )
       fail("bracket_timing");
     const current = searchSummary(range, before);
+    const requestCount = state.requests.length;
     state.fallback = false;
     try {
       const list = await dispatch(state, "list", range, before);
@@ -497,7 +498,7 @@
     } catch (error) {
       const code = failureCode(error);
       const request = state.requests.at(-1);
-      if (request?.kind !== "list") throw error;
+      if (state.requests.length === requestCount || request?.kind !== "list") throw error;
       if (!state.searches.includes(current)) state.searches.push(current);
       if (request.failure === null) request.failure = code;
       current.reason = code;
