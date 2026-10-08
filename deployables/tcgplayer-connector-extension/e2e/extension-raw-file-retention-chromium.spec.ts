@@ -143,16 +143,22 @@ test("extension-raw-file-retention-chromium worker-only restart retains keys the
   try {
     const time = await prepareRetention(worker);
     const session = await context.newCDPSession(context.pages()[0]!);
-    let versionId: string | undefined;
-    session.on("ServiceWorker.workerVersionUpdated", ({ versions }) => {
-      versionId = versions.find((version) => version.scriptURL === worker.url())?.versionId ?? versionId;
+    const targets = await test.step("identify the exact extension worker target", () =>
+      session.send("Target.getTargets"));
+    const target = targets.targetInfos.find((item) => item.type === "service_worker" && item.url === worker.url());
+    expect(target).toBeDefined();
+    let closed = false;
+    worker.on("close", () => {
+      closed = true;
     });
-    await session.send("ServiceWorker.enable");
-    await expect.poll(() => versionId).toBeTruthy();
-    await session.send("ServiceWorker.stopWorker", { versionId: versionId! });
-    const next = context.waitForEvent("serviceworker");
-    await session.send("ServiceWorker.startWorker", { scopeURL: new URL(".", worker.url()).href });
-    const restarted = await next;
+    await worker.evaluate(() => chrome.alarms.create("connector-retention-deadline", { delayInMinutes: 0.02 }));
+    const next = context.waitForEvent("serviceworker", { predicate: (candidate) => candidate.url() === worker.url() });
+    void next.catch(() => {});
+    await test.step("terminate that worker without closing Chrome or clearing session", async () => {
+      expect((await session.send("Target.closeTarget", { targetId: target!.targetId })).success).toBe(true);
+      await expect.poll(() => closed).toBe(true);
+    });
+    const restarted = await test.step("observe a replacement worker at the real alarm wake", () => next);
     await bootRetention(restarted);
     expect(await observeRetention(restarted)).toMatchObject({ P: true, K: true, R: true });
     await clockAt(restarted, time.deadline);
