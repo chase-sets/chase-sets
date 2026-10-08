@@ -2593,6 +2593,31 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("0");
   });
 
+  it("revokes initialized status when a persisted zero loses its recovery marker without repairing it", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const runner = createSubscriptionRunner("target", targetPool as never, sourcePool as never, {
+      subscriptionName: "synthetic.retained-zero",
+      sourceContextName: "source",
+      projectionName: "synthetic-retained-zero",
+      subscriptionVersion: 1,
+      handlers: { "source.recorded": async () => undefined },
+      eventTypes: ["source.recorded"],
+    });
+    await runner.runOnce();
+    expect(runner.getStatus().initialized).toBe(true);
+    const query = targetPool.query.bind(targetPool);
+    vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      if (String(sql).includes("recovery_global_position")) {
+        return { rows: [{ last_global_position: "0", recovery_global_position: null }] };
+      }
+      return query(sql, params);
+    });
+    await expect(runner.runOnce()).rejects.toThrow("committed projection group reset");
+    expect(runner.getStatus()).toMatchObject({ initialized: false, recoveryRequired: true });
+    expect(getCheckpointWriteCountStore(targetPool).get(runner.checkpointKey)).toBe(1);
+  });
+
   it.each([1, 2])("first partial cascade stays uninitialized and pinned (batch=%s)", async (eventCount) => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
