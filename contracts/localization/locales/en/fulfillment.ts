@@ -26,6 +26,8 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.packingSlipPage.standard": "Standard",
   "fulfillment.features.shipments.ui.packingSlipPage.thermal.4x6": "Thermal 4x6",
   "fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip": "Print packing slip",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip.new.tab":
+    "Print packing slip (opens in a new tab)",
   "fulfillment.features.shipments.ui.shipmentDetailPage.resume.packing": "Resume packing",
   "fulfillment.features.shipments.ui.shipmentDetailPage.start.packing": "Start packing",
   "fulfillment.features.shipments.ui.shipmentListPage.letter": "Letter",
@@ -86,6 +88,10 @@ export const fulfillmentEnglishTranslations = {
     "Open the slip when you want a paper checklist.",
   "fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip": "Print packing slip",
   "fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.again": "Print packing slip again",
+  "fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.new.tab":
+    "Print packing slip (opens in a new tab)",
+  "fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.again.new.tab":
+    "Print packing slip again (opens in a new tab)",
   "fulfillment.features.shipments.ui.shipmentPackingPage.product.reference.label": "Product",
   "fulfillment.features.shipments.ui.shipmentPackingPage.progress": "{checked} of {total} items packed",
   "fulfillment.features.shipments.ui.shipmentPackingPage.progress.percent": "{percent}%",
@@ -158,6 +164,9 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.api.runtime.postage.label.provider.adapter.is.not":
     "Postage label provider adapter is not configured.",
   "fulfillment.features.shipments.ui.shipmentMutationBoundary.action.recovery": "Shipment action recovery",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.preparing.title": "Preparing shipment actions",
+  "fulfillment.features.shipments.ui.shipmentMutationBoundary.preparing.description":
+    "You can read shipment details and open links while actions get ready.",
   "fulfillment.features.shipments.ui.shipmentMutationBoundary.recovery.state":
     "Recovery state: {state}. No action was replayed automatically.",
   "fulfillment.features.shipments.ui.shipmentMutationBoundary.secure.recovery.description":
