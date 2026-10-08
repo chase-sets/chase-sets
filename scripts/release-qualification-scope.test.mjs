@@ -979,8 +979,8 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     );
     expect(misses).toEqual([]);
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 156,
-      persistentCount: 151,
+      discovered: 157,
+      persistentCount: 152,
       ruledCount: 5,
     });
   });
