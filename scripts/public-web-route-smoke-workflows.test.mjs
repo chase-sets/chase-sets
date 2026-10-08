@@ -253,7 +253,13 @@ async function startAdminRetryServer(overrides = {}) {
 }
 
 // Observe the real CLI's native fetch/cancel/timer boundaries without replacing its contract.
-function adminRetryObserver({ absentBody = false, cancellationFailure = false, unrelatedTimer = false } = {}) {
+function adminRetryObserver({
+  absentBody = false,
+  cancellationFailure = false,
+  unrelatedTimer = false,
+  initializeFetch = true,
+  coldFetchDeadline = false,
+} = {}) {
   return `
     import { writeSync } from "node:fs";
     const send = (event) => writeSync(1, "[admin-retry-observer]" + JSON.stringify(event) + "\\n");
@@ -270,7 +276,9 @@ function adminRetryObserver({ absentBody = false, cancellationFailure = false, u
       }
     };
     const nativeTimer = globalThis.setTimeout;
+    let fetchDeadline;
     globalThis.setTimeout = (callback, milliseconds, ...args) => {
+      if (milliseconds === 100) fetchDeadline = callback;
       if (milliseconds === 7) {
         send({ kind: retryPath === null ? "unlabeled-timer" : "retry-delay", path: retryPath });
         retryPath = null;
@@ -278,6 +286,18 @@ function adminRetryObserver({ absentBody = false, cancellationFailure = false, u
       return nativeTimer(callback, milliseconds, ...args);
     };
     const nativeFetch = globalThis.fetch;
+    let fetchInitialized = false;
+    const initializedFetch = (input, init) => {
+      if (!fetchInitialized) {
+        fetchInitialized = true;
+        if (${coldFetchDeadline}) {
+          send({ kind: "fetch-initialization", timeoutArmed: Boolean(fetchDeadline) });
+          // Force the deadline-before-dispatch ordering, not a wall-clock sleep.
+          fetchDeadline?.();
+        }
+      }
+      return nativeFetch(input, init);
+    };
     let unrelatedTimerStarted = false;
     globalThis.fetch = async (input, init) => {
       const path = new URL(input).pathname + new URL(input).search;
@@ -287,7 +307,7 @@ function adminRetryObserver({ absentBody = false, cancellationFailure = false, u
         send({ kind: "unrelated-timer-start" });
         globalThis.setTimeout(() => send({ kind: "unrelated-timer-fired" }), 7);
       }
-      let response = await nativeFetch(input, init);
+      let response = await initializedFetch(input, init);
       if (${absentBody} && path === "${authProbePath}") {
         await response.body?.cancel();
         response = new Response(null, { status: response.status, headers: response.headers });
@@ -305,6 +325,12 @@ function adminRetryObserver({ absentBody = false, cancellationFailure = false, u
       }
       return response;
     };
+    // Node initializes fetch lazily. Do that before the CLI arms its first deadline,
+    // without a loopback request, retry, or change to the real 100 ms timeout.
+    if (${initializeFetch}) {
+      const response = await initializedFetch("data:text/plain,fixture-ready");
+      await response.text();
+    }
   `;
 }
 
@@ -334,7 +360,10 @@ function runAdminRetrySmoke(
 function expectRetryCount(result, fixture, requestPath, count, succeeded) {
   expect(result.code, result.stderr).toBe(succeeded ? 0 : 1);
   expect(result.signal).toBeNull();
-  expect(fixture.requests.filter((request) => request.path === requestPath)).toHaveLength(count);
+  expect(
+    fixture.requests.filter((request) => request.path === requestPath),
+    `${result.stderr}\nClassified events: ${JSON.stringify(result.events)}`,
+  ).toHaveLength(count);
   expect(result.events.filter((event) => event.kind === "fetch" && event.path === requestPath)).toHaveLength(count);
   const delays = result.events.filter((event) => event.kind === "retry-delay");
   expect(
@@ -491,6 +520,38 @@ describe("admin API retry", () => {
     expectRetryCount(result, fixture, authProbePath, attempts, false);
     expect(result.stderr).toContain("SMOKE-PROBE-AUTH-SESSION /api/auth/session");
     expect(result.stderr).toContain("503 content-type mismatch");
+  });
+
+  it.each([false, true])("admin API retry: cold fetch deadline — initialized=%s", async (initializeFetch) => {
+    const fixture = await startAdminRetryServer({ [authProbePath]: () => ({ status: 503, contentType: "text/html" }) });
+    const result = await runAdminRetrySmoke(fixture, { attempts: 1, initializeFetch, coldFetchDeadline: true });
+    if (initializeFetch) {
+      expectRetryCount(result, fixture, authProbePath, 1, false);
+      expect(result.stderr).toContain("SMOKE-PROBE-AUTH-SESSION /api/auth/session");
+      expect(result.stderr).toContain("503 content-type mismatch");
+    } else {
+      expect(result.code).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stderr).toContain("admin home timed out after 100ms");
+      expect(fixture.requests).toEqual([]);
+      expect(result.events.filter((event) => event.kind === "fetch")).toEqual([{ kind: "fetch", path: "/" }]);
+      expect(() => expectRetryCount(result, fixture, authProbePath, 1, false)).toThrow(/length of 1 but got/);
+    }
+    expect(result.events.filter((event) => event.kind === "fetch-initialization")).toEqual([
+      { kind: "fetch-initialization", timeoutArmed: !initializeFetch },
+    ]);
+    expect(fixture.sockets.size).toBe(0);
+    console.info(
+      "[cold-fetch-deadline-proof]",
+      JSON.stringify({
+        initializeFetch,
+        code: result.code,
+        signal: result.signal,
+        events: result.events,
+        diagnostics: result.stderr,
+        requests: fixture.requests.map(({ path: requestPath, method }) => ({ path: requestPath, method })),
+      }),
+    );
   });
 
   it.each([
