@@ -192,7 +192,9 @@
         identity: "tcgplayer-ready-to-ship-selector/v1",
         searches: state.searches.map((search) =>
           search.after
-            ? search
+            ? search.qualification === "qualified" && state.failures.length
+              ? { ...search, qualification: "unknown", reason: state.failures.at(-1) }
+              : search
             : {
                 ...search,
                 totalOrders: null,
@@ -372,14 +374,15 @@
       observation.failure = code;
       fail(code);
     } finally {
+      const ended = Date.now();
+      observation.endedAt = new Date(ended).toISOString();
+      observation.elapsedMs = ended - state.lastDispatch;
       clearTimeout(timer);
       controller.abort();
       state.controller = undefined;
       url = undefined;
       body = undefined;
       if (reader) void reader.cancel().catch(() => {});
-      observation.endedAt = new Date(Date.now()).toISOString();
-      observation.elapsedMs = Date.now() - state.lastDispatch;
     }
   }
   function clear(state) {

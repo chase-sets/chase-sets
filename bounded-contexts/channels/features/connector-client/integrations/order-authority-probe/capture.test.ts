@@ -58,6 +58,7 @@ function harness(
     workerSource?: string;
     onStorageSet?: (value: Record<string, unknown>) => void;
     configurationReady?: Promise<void>;
+    tickPerRead?: boolean;
   } = {},
 ) {
   let now = Date.parse(T0);
@@ -182,7 +183,7 @@ function harness(
   };
   class SyntheticDate extends Date {
     static override now() {
-      return now;
+      return options.tickPerRead ? now++ : now;
     }
   }
   const context = createContext({
@@ -646,9 +647,18 @@ describe("selector-surface-boundary (synthetic human attestations, not portal pr
   it("validator independently rejects forged timing, filter, session and count with matching file hashes", async () => {
     const mutations: ((value: ReturnType<typeof exported>) => void)[] = [
       (value) => {
+        for (const field of ["startedAt", "endedAt"] as const)
+          value.requests[1][field] = new Date(Date.parse(value.requests[1][field]) + 60000).toISOString();
+        value.selector.searches[0].after!.observedAt = new Date(
+          Date.parse(String(value.selector.searches[0].after!.observedAt)) + 60000,
+        ).toISOString();
+        value.finishedAt = new Date(Date.parse(value.finishedAt) + 60000).toISOString();
         value.selector.searches[0].before.observedAt = new Date(
           Date.parse(value.requests[1].startedAt) - 31000,
         ).toISOString();
+        expect(Date.parse(String(value.selector.searches[0].before.observedAt))).toBeGreaterThanOrEqual(
+          Date.parse(value.startedAt),
+        );
       },
       (value) => {
         value.selector.searches[0].after!.observedAt = new Date(
@@ -679,9 +689,65 @@ describe("selector-surface-boundary (synthetic human attestations, not portal pr
       expect(() => packaging.verifyExport(out)).toThrow("export_schema_refused");
     }
   });
+  it("validator accepts the exact 30 s before-gap boundary with matching file hashes", async () => {
+    const page = helper(harness());
+    await page.run();
+    retain(page);
+    replaceExport((value) => {
+      for (const field of ["startedAt", "endedAt"] as const)
+        value.requests[1][field] = new Date(Date.parse(value.requests[1][field]) + 60000).toISOString();
+      value.selector.searches[0].after!.observedAt = new Date(
+        Date.parse(String(value.selector.searches[0].after!.observedAt)) + 60000,
+      ).toISOString();
+      value.finishedAt = new Date(Date.parse(value.finishedAt) + 60000).toISOString();
+      value.selector.searches[0].before.observedAt = new Date(
+        Date.parse(value.requests[1].startedAt) - 30000,
+      ).toISOString();
+      expect(Date.parse(String(value.selector.searches[0].before.observedAt))).toBeGreaterThanOrEqual(
+        Date.parse(value.startedAt),
+      );
+    });
+    expect(packaging.verifyExport(out).evidence).toBe("synthetic");
+  });
 });
 
 describe("selector-only-protocol", () => {
+  it("real helper -> worker -> export binds request elapsed time with an advancing synthetic clock", async () => {
+    const page = helper(harness({ tickPerRead: true }));
+    await page.run();
+    const value = exported(page);
+    expect(value.selector.searches[0].qualification).toBe("qualified");
+    expect(value.failures).toEqual([]);
+    for (const request of value.requests)
+      expect(request.elapsedMs).toBe(Date.parse(request.endedAt) - Date.parse(request.startedAt));
+    retain(page);
+    expect(packaging.verifyExport(out).evidence).toBe("synthetic");
+  });
+  it.each([
+    ["finish", "deadline"],
+    ["abort", "aborted"],
+    ["cancel", "canceled"],
+    ["finish", null],
+  ] as const)("qualified search then %s (%s) retains a verifiable terminal export", async (kind, failure) => {
+    const worker = harness();
+    const page = helper(worker, {
+      sendMessage: async (message) => {
+        if (message.kind !== "finish") return worker.send(message);
+        if (failure === "deadline") worker.Date.now = () => Date.parse(T0) + 900000;
+        return worker.send({ kind });
+      },
+    });
+    await page.run();
+    expect(page.replies.some((reply) => reply.code === "selector_qualified")).toBe(true);
+    const value = exported(page);
+    expect(value.failures).toEqual(failure ? [failure] : []);
+    expect(value.selector.searches[0].qualification).toBe(failure ? "unknown" : "qualified");
+    expect(value.selector.searches[0].reason).toBe(failure ?? "qualified");
+    expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 0 });
+    retain(page);
+    expect(packaging.verifyExport(out).evidence).toBe("synthetic");
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: false, code: "repeat_invocation" });
+  });
   // Copied from captured g3 23831c28e10c14989055ccb8d66112bc812e37fe worker,
   // equal package at main 95b2b22f2e91994e91002c7a5d6e7ac55fda0107. NOT candidate-derived.
   const oracle = {
