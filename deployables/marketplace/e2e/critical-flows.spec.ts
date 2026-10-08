@@ -2,7 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
   mountSellListRecoveryBrowserFixture,
   sellListRecoveryBrowserData,
-} from "../../../bounded-contexts/checkout/tests/support/sell-list-recovery-browser-fixture";
+} from "@chase-sets/checkout/test-support/sell-list-recovery-browser-fixture";
 import {
   captureAccessibilityEvidence,
   captureResponsiveEvidence,
