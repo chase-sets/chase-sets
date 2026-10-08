@@ -156,24 +156,25 @@ test("extension-raw-file-retention-chromium worker-only restart retains keys the
       await session.send("ServiceWorker.enable");
       await expect.poll(() => versionId).toBeTruthy();
     });
-    let closed = false;
-    worker.on("close", () => {
-      closed = true;
+    await worker.evaluate(() => {
+      Object.defineProperty(globalThis, "__retentionWorkerLifetime", { value: "SYNTHETIC_WORKER_LIFETIME_7922" });
     });
-    await worker.evaluate(() => chrome.alarms.create("connector-retention-deadline", { delayInMinutes: 0.1 }));
-    const next = context.waitForEvent("serviceworker", { predicate: (candidate) => candidate.url() === worker.url() });
-    void next.catch(() => {});
+    await worker.evaluate(() => chrome.alarms.create("connector-retention-deadline", { delayInMinutes: 0.05 }));
     await test.step("terminate that worker without closing Chrome or clearing session", async () => {
       await session.send("ServiceWorker.stopWorker", { versionId: versionId! });
       await expect.poll(() => runningStatus).toBe("stopped");
-      await expect.poll(() => closed).toBe(true);
     });
-    const restarted = await test.step("observe a replacement worker at the real alarm wake", () => next);
-    await bootRetention(restarted);
-    expect(await observeRetention(restarted)).toMatchObject({ P: true, K: true, R: true });
-    await clockAt(restarted, time.deadline);
-    await retentionCallback(restarted);
-    expect(await observeRetention(restarted)).toMatchObject({ P: false, K: false, R: false });
+    await test.step("observe a fresh execution context at the real alarm wake", async () => {
+      await expect.poll(() => runningStatus).toBe("running");
+      // Chromium retains the DevTools worker target across an execution-context restart.
+      // Native stopped/running plus loss of a memory-only sentinel proves the boundary.
+      expect(await worker.evaluate(() => Reflect.get(globalThis, "__retentionWorkerLifetime"))).toBeUndefined();
+    });
+    await bootRetention(worker);
+    expect(await observeRetention(worker)).toMatchObject({ P: true, K: true, R: true });
+    await clockAt(worker, time.deadline);
+    await retentionCallback(worker);
+    expect(await observeRetention(worker)).toMatchObject({ P: false, K: false, R: false });
     await session.detach();
   } finally {
     await context.close();
