@@ -1210,6 +1210,7 @@ describe("channels-wake-registry-derivation", () => {
     ]);
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
+      "channels:channel-fulfillment-observation-retry",
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-owned-publication-state",
       "channels:platform-policy-document-projection",
