@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { BcRetentionSweep } from "@chase-sets/bounded-context-module";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  classifyRetentionSweepFailure,
+  createRetentionSweepLogObserver,
   createRetentionSweepRunner,
   executeRetentionSweepBatch,
   platformControlRetentionSweeps,
@@ -84,10 +86,59 @@ describe("retention sweep", () => {
     });
 
     await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1, state: "caught-up" });
-    expect(sweepFailed).toHaveBeenCalledWith(
-      expect.objectContaining({ contextName: "broken", tableName: "example_rows" }),
-    );
+    expect(sweepFailed).toHaveBeenCalledWith({
+      contextName: "broken",
+      sweepName: "expired-example-rows",
+      tableName: "example_rows",
+      failure: { errorClass: "error", errorCode: null },
+    });
     expect(healthyQuery).toHaveBeenCalledOnce();
+  });
+
+  it("classifies failures into a bounded class and allowlisted code only", () => {
+    const database = Object.assign(new (class DatabaseError extends Error {})("secret row"), { code: "57P01" });
+    const forgedCode = Object.assign(new Error("secret row"), { code: "secret row" });
+    const system = Object.assign(new Error("secret row"), { code: "ECONNREFUSED", errno: -111 });
+
+    expect(classifyRetentionSweepFailure(database)).toEqual({ errorClass: "database-error", errorCode: "57P01" });
+    expect(classifyRetentionSweepFailure(system)).toEqual({ errorClass: "system-error", errorCode: "ECONNREFUSED" });
+    expect(classifyRetentionSweepFailure(forgedCode)).toEqual({ errorClass: "error", errorCode: null });
+    expect(classifyRetentionSweepFailure(new RangeError("secret row"))).toEqual({
+      errorClass: "range-error",
+      errorCode: null,
+    });
+    expect(classifyRetentionSweepFailure({ code: "57P01" })).toEqual({ errorClass: "non-error", errorCode: null });
+  });
+
+  it("logs completed and failed sweeps without raw error text or unsafe names", () => {
+    const info = vi.fn();
+    const error = vi.fn();
+    const observer = createRetentionSweepLogObserver({ info, error });
+
+    observer.sweepCompleted?.({ contextName: "example", sweepName: "expired-example-rows", deleted: 0 });
+    observer.sweepCompleted?.({ contextName: "example", sweepName: "expired-example-rows", deleted: 3 });
+    observer.sweepFailed?.({
+      contextName: "Example Secret",
+      sweepName: "expired-example-rows",
+      tableName: "example_rows",
+      failure: { errorClass: "database-error", errorCode: "40P01" },
+    });
+
+    expect(info).toHaveBeenCalledOnce();
+    expect(info).toHaveBeenCalledWith("Retention sweep completed.", {
+      type: "retention.sweep.completed",
+      contextName: "example",
+      sweepName: "expired-example-rows",
+      deleted: 3,
+    });
+    expect(error).toHaveBeenCalledWith("Retention sweep failed; it will retry on its next interval.", {
+      type: "retention.sweep.failed",
+      contextName: "invalid-name",
+      sweepName: "expired-example-rows",
+      tableName: "example_rows",
+      errorClass: "database-error",
+      errorCode: "40P01",
+    });
   });
 
   it("rejects unsafe registration fragments before querying", async () => {

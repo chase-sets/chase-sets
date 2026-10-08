@@ -17,11 +17,31 @@ export type RetentionSweepTarget = Readonly<{
   sweep: BcRetentionSweep;
 }>;
 
+/**
+ * Bounded failure classification. Raw error text, stacks, causes and thrown
+ * values never cross this boundary: swept rows can carry ship-to data, and
+ * driver errors echo row values in their message and detail.
+ */
+export type RetentionSweepFailure = Readonly<{
+  errorClass: "database-error" | "system-error" | "type-error" | "range-error" | "error" | "non-error";
+  errorCode: string | null;
+}>;
+
+export type RetentionSweepFailedEvent = Readonly<{
+  contextName: string;
+  sweepName: string;
+  tableName: string;
+  failure: RetentionSweepFailure;
+}>;
+
 export type RetentionSweepObserver = Readonly<{
   sweepCompleted?: (event: Readonly<{ contextName: string; sweepName: string; deleted: number }>) => void;
-  sweepFailed?: (
-    event: Readonly<{ contextName: string; sweepName: string; tableName: string; error: unknown }>,
-  ) => void;
+  sweepFailed?: (event: RetentionSweepFailedEvent) => void;
+}>;
+
+export type RetentionSweepLogger = Readonly<{
+  info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
+  error: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
 }>;
 
 export const sharedEventStoreRetentionSweeps: readonly BcRetentionSweep[] = [
@@ -181,10 +201,10 @@ export function createRetentionSweepRunner(
           // claim already advances the next attempt, so observe this failure,
           // continue other tables, and retry this sweep on its next interval.
           input.observer?.sweepFailed?.({
-            contextName: target.contextName,
-            sweepName: target.sweep.name,
-            tableName: target.sweep.tableName,
-            error,
+            contextName: safeRetentionName(target.contextName),
+            sweepName: safeRetentionName(target.sweep.name),
+            tableName: safeRetentionName(target.sweep.tableName),
+            failure: classifyRetentionSweepFailure(error),
           });
         }
       }
@@ -193,6 +213,64 @@ export function createRetentionSweepRunner(
       return { processed, lastGlobalPosition: ZERO_GLOBAL_POSITION, state: "caught-up" };
     },
   };
+}
+
+export function createRetentionSweepLogObserver(logger: RetentionSweepLogger): RetentionSweepObserver {
+  return {
+    sweepCompleted: (event) => {
+      if (event.deleted > 0) {
+        logger.info("Retention sweep completed.", {
+          type: "retention.sweep.completed",
+          contextName: safeRetentionName(event.contextName),
+          sweepName: safeRetentionName(event.sweepName),
+          deleted: event.deleted,
+        });
+      }
+    },
+    sweepFailed: (event) =>
+      logger.error("Retention sweep failed; it will retry on its next interval.", {
+        type: "retention.sweep.failed",
+        contextName: safeRetentionName(event.contextName),
+        sweepName: safeRetentionName(event.sweepName),
+        tableName: safeRetentionName(event.tableName),
+        errorClass: event.failure.errorClass,
+        errorCode: event.failure.errorCode,
+      }),
+  };
+}
+
+export function classifyRetentionSweepFailure(error: unknown): RetentionSweepFailure {
+  try {
+    return error instanceof Error ? classifyError(error) : { errorClass: "non-error", errorCode: null };
+  } catch {
+    // A hostile getter or proxy trap must not turn an isolated sweep failure into a runner failure.
+    return { errorClass: "error", errorCode: null };
+  }
+}
+
+function classifyError(error: Error): RetentionSweepFailure {
+  const code = (error as { code?: unknown }).code;
+  // pg's DatabaseError carries the server SQLSTATE; Node system errors carry an errno code.
+  if (error.constructor.name === "DatabaseError") {
+    return {
+      errorClass: "database-error",
+      errorCode: typeof code === "string" && /^[0-9A-Z]{5}$/.test(code) ? code : null,
+    };
+  }
+  if (
+    typeof (error as { errno?: unknown }).errno === "number" &&
+    typeof code === "string" &&
+    /^E[A-Z0-9_]{1,31}$/.test(code)
+  ) {
+    return { errorClass: "system-error", errorCode: code };
+  }
+  if (error instanceof TypeError) return { errorClass: "type-error", errorCode: null };
+  if (error instanceof RangeError) return { errorClass: "range-error", errorCode: null };
+  return { errorClass: "error", errorCode: null };
+}
+
+function safeRetentionName(value: string): string {
+  return /^[a-z][a-z0-9._-]{0,127}$/.test(value) ? value : "invalid-name";
 }
 
 export async function executeRetentionSweepBatch(db: PgQueryable, sweep: BcRetentionSweep): Promise<number> {

@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const terminalStatePattern = /'(?:sent|failed|expired|released|resolved|ignored|succeeded|cancelled|completed)'/;
@@ -11,12 +11,29 @@ const requiredKnownTables = new Map([
   ["checkout_session_pages", "bounded-contexts/checkout/features/sessions/read-model/schema.ts"],
   ["payments_provider_idempotency_keys", "bounded-contexts/payments/features/payments/read-model/schema.ts"],
   ["settlement_provider_idempotency_keys", "bounded-contexts/settlement/features/payouts/read-model/schema.ts"],
+  [
+    "channel_connector_inbound_events",
+    "bounded-contexts/channels/features/connector-feed/read-model/inbound-schema.ts",
+  ],
+  [
+    "channel_connector_inbound_payloads",
+    "bounded-contexts/channels/features/connector-feed/read-model/inbound-schema.ts",
+  ],
+]);
+// Payload tables whose coverage is proven only by a sweep the owning module
+// mounts: a lexical mention, an unmounted declaration or an exemption fails.
+const requiredMountedSweepTables = new Map([
+  ["channel_connector_inbound_payloads", "bounded-contexts/channels/index.ts"],
 ]);
 
 // These tables already have a purpose-built cleanup path or are durable
 // records whose deletion needs a separate accounting/security decision.
 export const retentionCoverageExemptions = new Map([
   ["event_store_events", "Canonical event ledgers are permanent and are never age-swept."],
+  [
+    "channel_connector_inbound_events",
+    "Channels-owned non-PII connector admission identity: the dedupe key keeping a re-post inert after payload expiry, and the order/cursor/horizon #7795 consumes. Payload bytes live only in channel_connector_inbound_payloads, which a mounted sweep deletes and which is never exempt.",
+  ],
   [
     "evidence_window",
     "Durable single-open lifecycle record governed by registration: closed only by expected-version close or expired-replacement retirement; never age-swept and has no reaper.",
@@ -95,6 +112,15 @@ export async function validateRetentionSweepCoverage({ repoRoot }) {
 
   const violations = [];
   for (const [tableName, file] of [...candidates].sort(([left], [right]) => left.localeCompare(right))) {
+    const moduleFile = requiredMountedSweepTables.get(tableName);
+    if (moduleFile) {
+      if (retentionCoverageExemptions.has(tableName) || !(await hasMountedSweep(repoRoot, moduleFile, tableName))) {
+        violations.push(
+          `${file}: retention candidate '${tableName}' requires a sweep mounted by ${moduleFile} module.retentionSweeps; a lexical mention, unmounted declaration or exemption does not count.`,
+        );
+      }
+      continue;
+    }
     if (retentionCoverageExemptions.has(tableName)) {
       continue;
     }
@@ -106,6 +132,45 @@ export async function validateRetentionSweepCoverage({ repoRoot }) {
   }
 
   return { violations };
+}
+
+async function hasMountedSweep(repoRoot, moduleFile, tableName) {
+  const modulePath = path.join(repoRoot, moduleFile);
+  const moduleSource = (await readOptional(modulePath)) ?? "";
+  const mounted = moduleSource.match(/\bretentionSweeps:\s*([^\n]+)/)?.[1] ?? "";
+  const imports = [...moduleSource.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'](\.[^"']+)["']/g)];
+  for (const [, identifier] of mounted.matchAll(/(?:^|[\s[,.])([A-Za-z_$][\w$]*)/g)) {
+    const specifier = imports.find(([, names]) =>
+      names.split(",").some(
+        (name) =>
+          name
+            .trim()
+            .split(/\s+as\s+/)
+            .at(-1) === identifier,
+      ),
+    )?.[2];
+    if (!specifier?.endsWith("/retention-policy")) {
+      continue;
+    }
+    const policySource = await readOptional(path.join(path.dirname(modulePath), `${specifier}.ts`));
+    if (
+      policySource &&
+      new RegExp(`export const ${escapeRegExp(identifier)}\\b`).test(policySource) &&
+      new RegExp(`tableName:\\s*["'\`]${escapeRegExp(tableName)}["'\`]`).test(policySource)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function readOptional(file) {
+  try {
+    await access(file);
+  } catch {
+    return null;
+  }
+  return readFile(file, "utf8");
 }
 
 async function listSourceFiles(repoRoot) {
