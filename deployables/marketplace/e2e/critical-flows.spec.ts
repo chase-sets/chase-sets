@@ -1,5 +1,8 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import {
+  mountSellListRecoveryBrowserFixture,
+  sellListRecoveryBrowserData,
+} from "../../../bounded-contexts/checkout/tests/support/sell-list-recovery-browser-fixture";
 import {
   captureAccessibilityEvidence,
   captureResponsiveEvidence,
@@ -18,9 +21,6 @@ const configuredMarketplaceAccount = {
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const authProjectionTimeoutMs = 90_000;
-const sellListRecoveryFixtureUrl = `/@fs/${fileURLToPath(
-  new URL("../../../bounded-contexts/checkout/tests/support/sell-list-recovery-browser-fixture.tsx", import.meta.url),
-).replaceAll("\\", "/")}`;
 
 const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
@@ -725,24 +725,14 @@ test.describe("marketplace critical flows", () => {
     }
   });
 
-  test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout @browser-e2e-dev-source", async ({
+  test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({
     page,
   }) => {
     await expectPageOk(page, "/account/sell-list");
     await expect(page.getByRole("heading", { name: "Sell List", exact: true })).toBeVisible();
-    await page.clock.install();
-    await page.evaluate(async (fixtureUrl) => {
-      const modules = (
-        window as unknown as {
-          __reactRouterRouteModules: Record<string, { default: import("react").ComponentType }>;
-        }
-      ).__reactRouterRouteModules;
-      const entry = Object.entries(modules).find(([id]) => id.includes("account-sell-list"));
-      if (!entry) throw new Error("Production Sell List route module is not hydrated");
-      const fixture = await import(fixtureUrl);
-      (window as unknown as { sellListRecoveryFixture: unknown }).sellListRecoveryFixture =
-        fixture.mountSellListRecoveryBrowserFixture(entry[1].default);
-    }, sellListRecoveryFixtureUrl);
+    await page.clock.install({ time: new Date("2026-10-07T12:00:00Z") });
+    await page.clock.pauseAt(new Date("2026-10-07T12:00:01Z"));
+    await page.evaluate(mountSellListRecoveryBrowserFixture, sellListRecoveryBrowserData());
     const state = () =>
       page.evaluate(() =>
         (

@@ -129,7 +129,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
         .mockResolvedValue(review);
       await mount(path, { desk });
       expect(router.state.loaderData["sell-list"].sellList.items).toHaveLength(1);
-      expect(screen.queryByRole("heading", { name: "Review items", exact: true })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Review items" })).toBeNull();
       expect(screen.getByRole("button", { name: "Continue to seller checkout" }).hasAttribute("disabled")).toBe(true);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_000);
@@ -140,12 +140,12 @@ describe("Sell List bounded receipt recovery through the data router", () => {
         await vi.advanceTimersByTimeAsync(4_000);
       });
       expect(mockGetSellListCompositeReview).toHaveBeenCalledTimes(2);
-      expect(screen.queryByRole("heading", { name: "Review items", exact: true })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Review items" })).toBeNull();
       await act(async () => {
         finishReview(review);
         await settleRouter();
       });
-      expect(screen.getByRole("heading", { name: "Review items", exact: true })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
       expect(router.state.loaderData["sell-list"].sellListRecovery).toBeNull();
       expect(router.state.loaderData["sell-list"].pendingFreshWriteTiming).toEqual({
         observedAtMs: Date.now() - 6_000,
@@ -160,10 +160,10 @@ describe("Sell List bounded receipt recovery through the data router", () => {
   it("preserves legacy Sell List recovery through a second loader call", async () => {
     mockGetSellListCompositeReview.mockRejectedValueOnce(lag());
     await mount(appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line")));
-    expect(screen.queryByRole("heading", { name: "Review items", exact: true })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Review items" })).toBeNull();
     await tick();
     expect(mockGetSellListCompositeReview).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("heading", { name: "Review items", exact: true })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
   });
 
   it.each(["missing", "malformed", "unresolved", "expired", "future"])(
@@ -187,7 +187,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
       const calls = mockGetSellListCompositeReview.mock.calls.length;
       await tick(40_000);
       expect(mockGetSellListCompositeReview).toHaveBeenCalledTimes(calls);
-      expect(screen.queryByRole("heading", { name: "Review items", exact: true })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Review items" })).toBeNull();
       expect(vi.getTimerCount()).toBe(0);
     },
   );
@@ -225,7 +225,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     await mount(path);
     expect(screen.getByText("Your Sell List is catching up")).toBeTruthy();
     await tick();
-    expect(screen.getByRole("heading", { name: "Review items", exact: true })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Review items" })).toBeTruthy();
     expect(mockGetSellListCompositeReview).toHaveBeenCalledTimes(2);
   });
 
@@ -249,7 +249,7 @@ describe("Sell List bounded receipt recovery through the data router", () => {
     expect(mockGetSellListCompositeReview).toHaveBeenCalledTimes(16);
     expect(screen.getByText("Refreshing Sell List")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Refresh Sell List" }).getAttribute("href")).toBe(path);
-    expect(screen.queryByRole("heading", { name: "Review items", exact: true })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Review items" })).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });
 
