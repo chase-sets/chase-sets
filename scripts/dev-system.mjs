@@ -53,7 +53,7 @@ const dockerComposeInvocation = resolveDockerComposeInvocation(buildDockerCompos
 const localAdminDatabaseUrl =
   process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres";
 const devDatabaseUrl = process.env.POSTGRES_DEV_DATABASE_URL ?? sandbox.controlDatabaseUrl;
-const requiredExtensions = ["vector"];
+const requiredExtensions = ["vector", "pg_trgm"];
 const extensionContextNames = new Set(["discovery"]);
 const platformApiEnvExamplePath = path.join(rootDir, "deployables", "platform-api", ".env.example");
 const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api", ".env.local");

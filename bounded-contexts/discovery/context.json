@@ -375,7 +375,8 @@
         "discovery_search_catalog_categories",
         "discovery_search_catalog_reference_records",
         "discovery_search_product_contents",
-        "discovery_search_items"
+        "discovery_search_items",
+        "discovery_search_item_identity_terms"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "generation-cutover"
