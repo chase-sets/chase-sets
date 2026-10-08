@@ -29,11 +29,12 @@ export function createChannelsOutboundRunners(
     laneCount: input.channelsOutboundOperationLaneCount,
     runLane: async (lane) => {
       const recovered = await candidate.outboundSync.recoverExpiredClaimedOperations();
+      const scheduled = await candidate.outboundSync.scheduleDueOrderPulls({ registry: channelProviderRegistry });
       const processed = await candidate.outboundSync.processNextInlineOperation({
         registry: channelProviderRegistry,
         claimOwnerId: `${input.workerId}:${lane.laneName}`,
       });
-      return { processed: recovered + processed, lastGlobalPosition: "0" as never };
+      return { processed: recovered + scheduled + processed, lastGlobalPosition: "0" as never };
     },
   });
 }

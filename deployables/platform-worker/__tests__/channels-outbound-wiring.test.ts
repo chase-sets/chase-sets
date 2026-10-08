@@ -42,10 +42,20 @@ describe("Channels outbound worker wiring", () => {
         outboundSync: { recoverExpiredClaimedOperations: async () => 0 },
       },
     };
+    const missingOrderPullProducer = {
+      channels: {
+        ...candidate,
+        outboundSync: {
+          recoverExpiredClaimedOperations: async () => 0,
+          processNextInlineOperation: async () => 0,
+        },
+      },
+    };
 
     expect(createChannelsOutboundRunners(outboundOnly, config)).toEqual([]);
     expect(createChannelsOutboundRunners(connectionsOnly, config)).toEqual([]);
     expect(createChannelsOutboundRunners(missingUsedMethod, config)).toEqual([]);
+    expect(createChannelsOutboundRunners(missingOrderPullProducer, config)).toEqual([]);
   });
 
   it.each(["connectionHealth", "manualSync"] as const)(
@@ -64,7 +74,12 @@ describe("Channels outbound worker wiring", () => {
     const processNextInlineOperation = vi.fn(
       async (_input: Readonly<{ registry: unknown; claimOwnerId: string }>) => 3,
     );
-    const candidate = validChannelsCandidate({ recoverExpiredClaimedOperations, processNextInlineOperation });
+    const scheduleDueOrderPulls = vi.fn(async (_input: Readonly<{ registry: unknown }>) => 1);
+    const candidate = validChannelsCandidate({
+      recoverExpiredClaimedOperations,
+      processNextInlineOperation,
+      scheduleDueOrderPulls,
+    });
     const runners = createChannelsOutboundRunners(
       { channels: candidate },
       { workerId: "worker-1", channelsOutboundOperationLaneCount: 2 },
@@ -75,10 +90,12 @@ describe("Channels outbound worker wiring", () => {
       "job:channels.outbound-operations.lane-2",
     ]);
     await expect(Promise.all(runners.map((runner) => runner.runOnce()))).resolves.toEqual([
-      { processed: 5, lastGlobalPosition: "0" },
-      { processed: 5, lastGlobalPosition: "0" },
+      { processed: 6, lastGlobalPosition: "0" },
+      { processed: 6, lastGlobalPosition: "0" },
     ]);
     expect(recoverExpiredClaimedOperations).toHaveBeenCalledTimes(2);
+    // The background tick, never the claim endpoint, calls the bounded order-pull due runner.
+    expect(scheduleDueOrderPulls).toHaveBeenCalledTimes(2);
     expect(processNextInlineOperation.mock.calls.map(([input]) => input.claimOwnerId)).toEqual([
       "worker-1:job:channels.outbound-operations.lane-1",
       "worker-1:job:channels.outbound-operations.lane-2",
@@ -139,9 +156,11 @@ function validChannelsCandidate(
   outboundSync: Readonly<{
     recoverExpiredClaimedOperations: () => Promise<number>;
     processNextInlineOperation: (input: Readonly<{ registry: unknown; claimOwnerId: string }>) => Promise<number>;
+    scheduleDueOrderPulls: (input: Readonly<{ registry: unknown }>) => Promise<number>;
   }> = {
     recoverExpiredClaimedOperations: async () => 0,
     processNextInlineOperation: async () => 0,
+    scheduleDueOrderPulls: async () => 0,
   },
 ) {
   return {

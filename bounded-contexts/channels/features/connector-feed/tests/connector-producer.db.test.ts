@@ -1,12 +1,18 @@
 import { expect, it, vi } from "vitest";
-import type { ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
+import type {
+  ClaimedOperationOutcome,
+  ClaimedOperationReservation,
+  ClaimedOutboundOperation,
+} from "../../outbound-sync/domain/contracts";
 import type { ConnectorTransportServices } from "../api/transport";
 import type { ConnectorReport } from "../domain/transport";
 import { describeDb, target, transportContext, transportDatabase } from "./transport-test-support";
 import { deriveClaimedOperationOutcomes } from "../../tcgplayer-csv/domain/lifecycle";
 import { connectorPolicyDefaults } from "../domain/policy";
 
-function report(reservation: ClaimedOperationReservation): ConnectorReport {
+function report(
+  reservation: ClaimedOperationReservation,
+): Readonly<{ reservationId: string; outcomes: readonly ClaimedOperationOutcome[] }> {
   return {
     reservationId: reservation.reservationId,
     outcomes: reservation.operations.map((operation) => ({
@@ -20,11 +26,17 @@ function report(reservation: ClaimedOperationReservation): ConnectorReport {
 }
 describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connector-feed-claim-interleavings", () => {
   const h = transportDatabase("connector_producer_7994");
-  async function claim() {
+  async function claim(): Promise<ClaimedOperationReservation | null> {
     const response = await h.request("claim");
     expect(response.status).toBe(200);
     const value: Awaited<ReturnType<ConnectorTransportServices["claim"]>> = await response.json();
-    return value.reservation;
+    if (!value.reservation) return null;
+    // An incapable claim never receives a connection-subject order-pull member.
+    const operations = value.reservation.operations.filter(
+      (operation): operation is ClaimedOutboundOperation => operation.operationKind !== "tcgplayer-order-pull",
+    );
+    expect(operations).toHaveLength(value.reservation.operations.length);
+    return { ...value.reservation, operations };
   }
   async function stagedBasis() {
     await h.db.query(

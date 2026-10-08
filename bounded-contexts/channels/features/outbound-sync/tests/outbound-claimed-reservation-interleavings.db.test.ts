@@ -2249,9 +2249,7 @@ function memberOutcome(
   operation: NonNullable<
     Awaited<ReturnType<ReturnType<typeof createOutboundSyncRuntime>["reserveClaimedOutboundOperations"]>>
   >["operations"][number],
-  outcome: Parameters<
-    ReturnType<typeof createOutboundSyncRuntime>["reportClaimedOperationOutcomes"]
-  >[0]["outcomes"][number]["outcome"],
+  outcome: ClaimedOperationOutcome["outcome"],
 ) {
   return {
     operationId: operation.operationId,

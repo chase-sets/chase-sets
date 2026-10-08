@@ -1,7 +1,12 @@
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { EventAuditContext, EventStoreContext, EventTraceContext } from "@chase-sets/event-core/storage";
-import type { ClaimedOperationOutcome, ClaimedReservationRunSettlement } from "../../outbound-sync/domain/contracts";
-import { assertClaimedOperationOutcome } from "../../outbound-sync/domain/validation";
+import {
+  connectorClaimCapabilities,
+  type ClaimedReservationRunSettlement,
+  type ClaimedSubjectOutcome,
+  type ConnectorClaimCapability,
+} from "../../outbound-sync/domain/contracts";
+import { assertClaimedSubjectOutcome } from "../../outbound-sync/domain/validation";
 import { assertClosedRecord, assertRfc3339Instant } from "../../connections/domain/validation";
 import {
   assertDerivedTcgplayerSnapshot,
@@ -20,9 +25,10 @@ export type ConnectorInbound = Readonly<{ externalReference: string }> &
     | Readonly<{ inboundKind: "order"; payload: Readonly<{ version: 1; records: readonly JsonObject[] }> }>
     | Readonly<{ inboundKind: "export"; payload: DerivedTcgplayerSnapshot }>
   );
+export type ConnectorClaim = Readonly<{ capabilities?: readonly ConnectorClaimCapability[] }>;
 export type ConnectorReport = Readonly<{
   reservationId: string;
-  outcomes: readonly ClaimedOperationOutcome[];
+  outcomes: readonly ClaimedSubjectOutcome[];
   runSettlement?: ClaimedReservationRunSettlement;
 }>;
 export class ConnectorTransportError extends Error {
@@ -60,12 +66,26 @@ export function assertConnectorInbound(value: unknown, policy: ConnectorPolicy):
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > policy.maxIngestBytes) invalid();
 }
 
+/** An empty claim is incapable; only a declared capability admits connection-subject pull members. */
+export function assertConnectorClaim(value: unknown): asserts value is ConnectorClaim {
+  assertClosedRecord(value, ["capabilities"], "connector claim");
+  if (!Object.hasOwn(value, "capabilities")) return;
+  const capabilities = value.capabilities;
+  if (
+    !Array.isArray(capabilities) ||
+    capabilities.length > connectorClaimCapabilities.length ||
+    new Set(capabilities).size !== capabilities.length ||
+    capabilities.some((capability) => !connectorClaimCapabilities.includes(capability))
+  )
+    invalid();
+}
+
 export function assertConnectorReport(value: unknown): asserts value is ConnectorReport {
   assertClosedRecord(value, ["reservationId", "outcomes", "runSettlement"], "connector report");
   text(value.reservationId);
   if (!Array.isArray(value.outcomes) || value.outcomes.length > connectorMaxOperations) invalid();
   for (const outcome of value.outcomes) {
-    assertClaimedOperationOutcome(outcome);
+    assertClaimedSubjectOutcome(outcome);
     assertOpaqueJson(outcome, 16_384);
   }
   if (Object.hasOwn(value, "runSettlement")) assertSettlement(value.runSettlement);

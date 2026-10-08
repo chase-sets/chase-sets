@@ -13,7 +13,7 @@ describe("outbound-bootstrap-and-manifest", () => {
     expect(outboundSyncSchemaSql.split(`${expansion};`)).toHaveLength(2);
   });
 
-  it("keeps all four tables and both lane uniqueness fences in boot and migration SQL", () => {
+  it("keeps all six tables and both lane uniqueness fences in boot and migration SQL", () => {
     const migrationSql = outboundSyncSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
     for (const expected of [
       "channel_outbound_operations",
@@ -29,6 +29,10 @@ describe("outbound-bootstrap-and-manifest", () => {
       "source_desired_state_hash",
       "payload_digest",
       "operation_origin",
+      "channel_order_pull_operations",
+      "channel_order_pull_schedules",
+      "channel_order_pull_operations_one_live_uidx",
+      "channel_order_pull_schedules_due_idx",
     ]) {
       expect(outboundSyncSchemaSql).toContain(expected);
       expect(migrationSql).toContain(expected);
@@ -38,6 +42,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "20260910_channels_outbound_reservation_settlements",
       "20260912_channels_reconciliation_repair_origin",
       "20260912_channels_outbound_pending_lane_order",
+      "20261008_channels_order_pull_producer",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",

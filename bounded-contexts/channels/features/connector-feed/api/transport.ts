@@ -1,10 +1,14 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ChannelProviderRegistry } from "../../publication-port/domain/contracts";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
-import { assertClosedRecord } from "../../connections/domain/validation";
 import { ConnectorPairingError, type ConnectorIdentity } from "../domain/contracts";
 import { decodeConnectorPolicy, type ConnectorPolicy } from "../domain/policy";
-import { assertConnectorInbound, assertConnectorReport, ConnectorTransportError } from "../domain/transport";
+import {
+  assertConnectorClaim,
+  assertConnectorInbound,
+  assertConnectorReport,
+  ConnectorTransportError,
+} from "../domain/transport";
 import { admitConnectorInbound, createConnectorInboundReader } from "../read-model/inbound";
 import type { ConnectorFeedServices } from "./runtime";
 
@@ -32,7 +36,7 @@ export function createConnectorTransport(
     resolveTransportPolicy: policy,
     readAdmittedConnectorInboundEvents: createConnectorInboundReader(deps.db),
     async claim(input: RequestAuthority, value: unknown, identify: Identify) {
-      assertClosedRecord(value, [], "connector claim");
+      assertConnectorClaim(value);
       const resolved = await policy();
       const admission = await deps.authority.withAuthority(
         { ...input, operation: "claim" },
@@ -63,12 +67,13 @@ export function createConnectorTransport(
       // The committed authority transaction must release the connection stream before the canonical health hold reads it.
       const reservation = admission.paused
         ? null
-        : await deps.outboundSync.reserveClaimedOutboundOperations({
+        : await deps.outboundSync.reserveConnectorClaimedOperations({
             connectionId: input.connectionId,
             claimant: { claimantKind: "connector", claimantId: admission.pairingId },
             registry: deps.registry,
             maxOperations: resolved.maxOperationsPerClaim,
             leaseMs: resolved.leaseMs,
+            capabilities: value.capabilities ?? [],
           });
       return { reservation, pollWindowSeconds: resolved.pollWindowSeconds };
     },
