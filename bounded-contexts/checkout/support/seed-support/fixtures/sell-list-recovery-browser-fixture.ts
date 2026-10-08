@@ -1,5 +1,5 @@
 import type { createMemoryRouter } from "react-router";
-import type { loader } from "../../routes/account-sell-list";
+import type { loader } from "../../../routes/account-sell-list";
 
 // Synthetic loader data seeds the browser router; the real loader is covered by account-sell-list-recovery.test.tsx.
 export function sellListRecoveryBrowserData() {
