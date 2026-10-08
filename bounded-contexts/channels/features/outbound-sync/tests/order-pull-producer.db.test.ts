@@ -597,17 +597,24 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
     expect(await producerIndexes()).toEqual(upgradedIndexes);
   });
 
+  it("excludes lookalike interpretation tables and their indexes from the producer census", async () => {
+    await pools.channels.query("CREATE TABLE channel_order_pulls (pull_id text NOT NULL)");
+    await pools.channels.query("CREATE INDEX channel_order_pulls_lookup_idx ON channel_order_pulls (pull_id)");
+    expect(await producerTables()).toEqual([]);
+    expect(await producerIndexes()).toEqual([]);
+  });
+
   async function producerTables(): Promise<string[]> {
     const result = await pools.channels.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
-       WHERE table_schema = current_schema() AND table_name LIKE 'channel_order_pull_%' ORDER BY table_name`,
+       WHERE table_schema = current_schema() AND starts_with(table_name, 'channel_order_pull_') ORDER BY table_name`,
     );
     return result.rows.map((row) => row.table_name);
   }
   async function producerIndexes(): Promise<string[]> {
     const result = await pools.channels.query<{ indexname: string }>(
       `SELECT indexname FROM pg_indexes
-       WHERE schemaname = current_schema() AND tablename LIKE 'channel_order_pull_%' AND indexname NOT LIKE '%_pkey'
+       WHERE schemaname = current_schema() AND starts_with(tablename, 'channel_order_pull_') AND indexname NOT LIKE '%_pkey'
          AND indexname NOT LIKE '%_key' ORDER BY indexname`,
     );
     return result.rows.map((row) => row.indexname);
