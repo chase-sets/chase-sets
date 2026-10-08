@@ -9,6 +9,15 @@ import { ManualSyncError } from "../domain/contracts";
 import type { ManualSyncServices } from "./runtime";
 
 describe("manual-sync-panel-round-trip @marketplace-account", () => {
+  it("channel-order-observation-callers: refuses fulfillment at the closed manual CSV surface", async () => {
+    const services = manualServices();
+    const response = await app(services, ["channels.manage"]).request(
+      "http://local/api/channels/connections/owned/manual-sync/ingest?surface=channel-order-fulfillment-observation%2Fv1",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+    );
+    expect(response.status).toBe(400);
+    expect(services.ingest).not.toHaveBeenCalled();
+  });
   it("authorizes before reads and makes missing and foreign connection responses identical", async () => {
     const services = manualServices();
     const forbidden = app(services, []);

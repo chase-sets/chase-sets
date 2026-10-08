@@ -22,6 +22,7 @@ export type ResolvedConnectorInboundRetentionClass = Readonly<{
 export const connectorInboundKindRetention: readonly ConnectorInboundKindRetention[] = Object.freeze([
   Object.freeze({ inboundKind: "export", retentionClass: "inventory-snapshot" }),
   Object.freeze({ inboundKind: "order", retentionClass: "order-observation" }),
+  Object.freeze({ inboundKind: "channel-order-fulfillment-observation/v1", retentionClass: "order-observation" }),
 ]);
 
 export class ConnectorInboundRetentionRegistryError extends Error {

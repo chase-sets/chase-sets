@@ -109,6 +109,7 @@ function validCandidate() {
     },
     tcgplayerCsv: {},
     tcgplayerOrders: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
+    fulfillmentObservations: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
     manualSync: {},
     connectorFeed: {
       readAuthority: vi.fn(),

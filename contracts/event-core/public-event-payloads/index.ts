@@ -9,6 +9,7 @@
 // Membership is guarded by `../public-event-payloads.test.ts`: a module in this
 // directory that is not re-exported below fails the partition test.
 import type { AuthEventPayloads } from "./auth";
+import type { ChannelsEventPayloads } from "./channels";
 import type { CheckoutEventPayloads } from "./checkout";
 import type { FulfillmentEventPayloads } from "./fulfillment";
 import type { IdentityEventPayloads } from "./identity";
@@ -25,6 +26,7 @@ import type { SettlementEventPayloads } from "./settlement";
 
 export * from "./event-core";
 export * from "./auth";
+export * from "./channels";
 export * from "./identity";
 export * from "./inventory";
 export * from "./ordering";
@@ -38,6 +40,7 @@ export * from "./public-presence";
 export type { OrderGroupEventPayloads } from "../../order-groups/index";
 
 export type ChaseSetsEventPayloads = AuthEventPayloads &
+  ChannelsEventPayloads &
   IdentityEventPayloads &
   CheckoutEventPayloads &
   FulfillmentEventPayloads &

@@ -31,6 +31,17 @@ import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../../reconciliation/dom
 import { channelHealthPolicy } from "../../connection-health/domain/policy";
 import type { ChannelSaleLineV1 } from "../../publication-port/domain/contracts";
 import { tcgplayerOrdersSchemaMigrations } from "../read-model/schema";
+import {
+  composeChannelOrderFulfillmentInbound,
+  type ChannelOrderFulfillmentObservation,
+} from "../../order-fulfillment-observations/domain/contracts";
+import { fulfillmentFixture } from "../../order-fulfillment-observations/tests/fixtures";
+import { buildFulfillmentItemProjection } from "../../order-fulfillment-observations/read-model/item-projection";
+import { createFulfillmentObservationRuntime } from "../../order-fulfillment-observations/api/runtime";
+import { buildFulfillmentObservationReactions } from "../../order-fulfillment-observations/integrations/reactions";
+import { createChannelActionAttentionSourceFromReadModel } from "../../connection-attention/read-model/attention-source";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { executeRetentionSweepBatch } from "@chase-sets/platform-runtime/retention-sweep";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -580,8 +591,334 @@ describeDb("TCGplayer connector sale interpretation", () => {
       ).rows,
     ).toHaveLength(1);
   });
+  it("channel-order-observation-idempotency: admission crash, concurrent interpretation and changed cancellation publish once", async () => {
+    await prepareFulfillment();
+    await admit(order);
+    await runtime().interpretConnection("connection-1");
+    await admitFulfillment(fulfillmentFixture());
+    expect(await fulfillmentEvents()).toHaveLength(0);
+    const lock = await pools.channels.connect();
+    await lock.query("BEGIN");
+    await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["channels.fulfillment:connection-1"]);
+    const workers = Promise.all([
+      fulfillment().interpretConnection("connection-1"),
+      fulfillment().interpretConnection("connection-1"),
+    ]);
+    try {
+      let waiting = 0;
+      for (let attempt = 0; attempt < 100 && waiting < 2; attempt++) {
+        waiting = Number(
+          (
+            await pools.channels.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_locks
+          WHERE locktype='advisory' AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())`)
+          ).rows[0]!.count,
+        );
+        if (waiting < 2) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(2);
+    } finally {
+      await lock.query("ROLLBACK");
+      lock.release();
+    }
+    await workers;
+    expect(await fulfillmentEvents()).toHaveLength(1);
+    const before = await fulfillmentEffects();
+    await admitFulfillment(fulfillmentFixture());
+    expect(await fulfillment().interpretConnection("connection-1")).toBe(0);
+    expect(await fulfillmentEffects()).toEqual(before);
+    const cancelled: ChannelOrderFulfillmentObservation = {
+      version: 1,
+      variant: "status-only",
+      providerKey: "tcgplayer",
+      externalOrderReference: order.orderNumber,
+      providerOrderStatus: { surface: "list", value: "Canceled" },
+      revision: "synthetic-cancelled-revision",
+    };
+    await admitFulfillment(cancelled);
+    await Promise.all([
+      fulfillment().interpretConnection("connection-1"),
+      fulfillment().interpretConnection("connection-1"),
+    ]);
+    const events = await fulfillmentEvents();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      event_type: "channels.order-fulfillment-observation.status-changed",
+      payload: { status: "cancelled" },
+    });
+    expect(Object.keys(events[1]!.payload).sort()).toEqual([
+      "accountId",
+      "connectionId",
+      "externalOrderReference",
+      "providerKey",
+      "status",
+    ]);
+  });
+
+  it("channel-order-observation-sale-key-equality: live sale source is required, storage comes from the committed sale", async () => {
+    await prepareFulfillment();
+    await admit(order);
+    await admitFulfillment(fulfillmentFixture());
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toHaveLength(0); // Omission control: admission is not a committed sale.
+    await runtime().interpretConnection("connection-1");
+    await pools.channels.query(`UPDATE channels_inventory_item_facts SET storage_location_id='location-moved'`);
+    await pools.channels.query(
+      `UPDATE channel_connections SET bindings='[{"storageLocationId":"location-moved","revision":1}]'`,
+    );
+    const saleStream = (
+      await pools.channels.query<{ stream_id: string }>(
+        `SELECT committed_sale->>'saleStreamId' AS stream_id FROM channel_order_lines`,
+      )
+    ).rows[0]!.stream_id;
+    const saleEvent = (
+      await createPostgresEventStore({ pool: pools.inventory }).readStream({ streamId: saleStream })
+    ).find((event) => event.eventType === "inventory.external-channel-sale.recorded");
+    expect(saleEvent).toBeDefined();
+    await buildFulfillmentObservationReactions(fulfillment())["inventory.external-channel-sale.recorded"]!(
+      toTransportEvent(saleEvent!),
+    );
+    const accepted = (await fulfillmentEvents())[0]!.payload;
+    const committed = (
+      await pools.channels.query<{ committed_sale: { saleKey: unknown } }>(
+        `SELECT committed_sale FROM channel_order_lines`,
+      )
+    ).rows[0]!.committed_sale;
+    expect(accepted.lines).toEqual([
+      expect.objectContaining({
+        saleKey: committed.saleKey,
+        storageLocationId: "location-1",
+        inventoryItemId: "item-1",
+        productId: "catalog-1::raw",
+      }),
+    ]);
+    const changed = fulfillmentFixture("another-order");
+    await admitFulfillment({
+      ...changed,
+      lines: [{ ...changed.lines[0]!, providerOrderLineIdentity: changed.lines[0]!.providerOrderLineIdentity + "x" }],
+    });
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toHaveLength(1);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT state,reason FROM channel_fulfillment_observations WHERE order_reference='another-order'`,
+        )
+      ).rows,
+    ).toEqual([{ state: "awaiting-sale", reason: "sale-not-found" }]);
+  });
+
+  it("channel-order-observation-await-and-unmapped: bad orders stay local, mapping repair preserves unrelated work", async () => {
+    await prepareFulfillment();
+    await pools.channels.query(`DELETE FROM channels_channel_listing_links`);
+    await admitFulfillment(fulfillmentFixture());
+    await admitFulfillment(
+      fulfillmentFixture("unrelated-bad-order"),
+      new Date(Date.now() - 25 * 3600000).toISOString(),
+    );
+    await fulfillment().interpretConnection("connection-1");
+    const snapshot = await fulfillmentEffects();
+    for (let index = 0; index < 3; index++) await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEffects()).toEqual(snapshot);
+    const healthBefore = await pools.channels.query(`SELECT * FROM channel_connection_health`);
+    await pools.channels.query(
+      `INSERT INTO channel_order_attention VALUES ('account-1','connection-1','manual-order','backdated-sale',1,'[]',now(),NULL)`,
+    );
+    await pools.channels.query(`DELETE FROM channels_listing_publication_facts`);
+    await link("101", "Near Mint");
+    await pools.channels.query(`UPDATE channels_listing_publication_facts SET item_title='Synthetic item'`);
+    await admit(order);
+    await runtime().interpretConnection("connection-1");
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toHaveLength(1);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT reason FROM channel_order_attention WHERE order_reference='synthetic-order' AND resolved_at IS NULL`,
+        )
+      ).rows,
+    ).not.toContainEqual({ reason: "channel-order-unmapped" });
+    expect(
+      (await pools.channels.query(`SELECT order_reference FROM channel_order_attention WHERE resolved_at IS NULL`))
+        .rows,
+    ).toEqual(
+      expect.arrayContaining([{ order_reference: "unrelated-bad-order" }, { order_reference: "manual-order" }]),
+    );
+    expect((await pools.channels.query(`SELECT * FROM channel_connection_health`)).rows).toEqual(healthBefore.rows);
+    expect((await pools.channels.query(`SELECT status FROM channel_connections`)).rows).toEqual([{ status: "active" }]);
+    const source = createChannelActionAttentionSourceFromReadModel(pools.channels);
+    const visible = await source.load({ accountId: "account-1" } as never);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]!.source).toBe("channel-action");
+  });
+
+  it("channel-order-observation-sale-absent: day-after is inert, late exact sale recovers both waiting states", async () => {
+    await prepareFulfillment();
+    await admitFulfillment(fulfillmentFixture(), new Date(Date.now() - 25 * 3600000).toISOString());
+    await fulfillment().interpretConnection("connection-1");
+    expect((await pools.channels.query(`SELECT state FROM channel_fulfillment_observations`)).rows).toEqual([
+      { state: "sale-absent" },
+    ]);
+    const before = await fulfillmentEffects();
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEffects()).toEqual(before);
+    await admit(order);
+    await runtime().interpretConnection("connection-1");
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toHaveLength(1);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT 1 FROM channel_order_attention WHERE reason='channel-order-sale-absent' AND resolved_at IS NULL`,
+        )
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it("channel-order-observation-closed-schema: malformed admitted bytes write no domain/event state", async () => {
+    const envelope = await composeChannelOrderFulfillmentInbound(fulfillmentFixture());
+    const before = await fulfillmentEffects();
+    await withPgTransaction(pools.channels, (db) =>
+      admitConnectorInbound(
+        db,
+        "connection-1",
+        {
+          ...envelope,
+          payload: {
+            version: 1,
+            records: [{ ...fulfillmentFixture(), currency: { code: "USD" }, extra: "synthetic-sensitive-sentinel" }],
+          },
+        },
+        new Date().toISOString(),
+      ),
+    );
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEffects()).toEqual(before);
+    expect(await fulfillmentEvents()).toEqual([]);
+  });
+
+  it("channel-order-observation-steady-state: changed full content cannot replace accepted ship-to", async () => {
+    await prepareFulfillment();
+    await admit(order);
+    await runtime().interpretConnection("connection-1");
+    await admitFulfillment(fulfillmentFixture());
+    await fulfillment().interpretConnection("connection-1");
+    const original = await fulfillmentEvents();
+    const changed = fulfillmentFixture();
+    await admitFulfillment({ ...changed, shipTo: { ...changed.shipTo, line1: "456 Changed Example St" } });
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toEqual(original);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT reason FROM channel_order_attention WHERE reason='tcgplayer-order-recording-refused' AND resolved_at IS NULL`,
+        )
+      ).rows,
+    ).toHaveLength(1);
+    const before = await fulfillmentEffects();
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEffects()).toEqual(before);
+  });
+
+  it("channel-order-observation-steady-state: cancellation before acceptance resolves waiting attention without publishing", async () => {
+    await prepareFulfillment();
+    await admitFulfillment(fulfillmentFixture(), new Date(Date.now() - 25 * 3600000).toISOString());
+    await fulfillment().interpretConnection("connection-1");
+    await admitFulfillment({ ...fulfillmentFixture(), providerOrderStatus: { surface: "list", value: "Canceled" } });
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toEqual([]);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT 1 FROM channel_order_attention WHERE reason='channel-order-sale-absent' AND resolved_at IS NULL`,
+        )
+      ).rows,
+    ).toEqual([]);
+    const before = await fulfillmentEffects();
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEffects()).toEqual(before);
+  });
+
+  it("channel-order-observation-idempotency: publication failure rolls back and pending input resumes", async () => {
+    await prepareFulfillment();
+    await admit(order);
+    await runtime().interpretConnection("connection-1");
+    await admitFulfillment(fulfillmentFixture());
+    const store = createPostgresEventStore({ pool: pools.channels });
+    vi.spyOn(store, "appendToStreamInTransaction").mockRejectedValueOnce(new Error("synthetic-projector-crash"));
+    const crashed = createFulfillmentObservationRuntime({
+      db: pools.channels,
+      eventStore: store,
+      readAdmittedConnectorInboundEvents: createConnectorInboundReader(pools.channels),
+    });
+    await expect(crashed.interpretConnection("connection-1")).rejects.toThrow("synthetic-projector-crash");
+    expect(await fulfillmentEvents()).toEqual([]);
+    expect((await pools.channels.query(`SELECT * FROM channel_fulfillment_orders`)).rows).toEqual([]);
+    await fulfillment().interpretConnection("connection-1");
+    expect(await fulfillmentEvents()).toHaveLength(1);
+  });
+
+  it("channel-order-observation-retention: deletes 91-day payload and candidates, retains 89-day bytes and dedupe", async () => {
+    const old = fulfillmentFixture("old-order"),
+      young = fulfillmentFixture("young-order");
+    await admitFulfillment(old, new Date(Date.now() - 91 * 86400000).toISOString());
+    await admitFulfillment(young, new Date(Date.now() - 89 * 86400000).toISOString());
+    const envelope = await composeChannelOrderFulfillmentInbound(old);
+    await pools.channels.query(`INSERT INTO channel_fulfillment_observations
+      (provider_event_id,connection_id,account_id,order_reference,digest,sequence,state,received_at,changed_at)
+      VALUES ('synthetic-expired-candidate','connection-1','account-1','old-order','digest',0,'refused',now()-interval '91 days',now())`);
+    for (const sweep of channelsModule.retentionSweeps ?? []) await executeRetentionSweepBatch(pools.channels, sweep);
+    const rows = (await pools.channels.query(`SELECT payload FROM channel_connector_inbound_payloads`)).rows;
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).toContain("young-order");
+    expect((await pools.channels.query(`SELECT * FROM channel_fulfillment_observations`)).rows).toEqual([]);
+    await admitFulfillment(old);
+    expect((await pools.channels.query(`SELECT * FROM channel_connector_inbound_payloads`)).rows).toHaveLength(1);
+    const read = await createConnectorInboundReader(pools.channels)({
+      connectionId: "connection-1",
+      inboundKind: envelope.inboundKind,
+    });
+    expect(read.events.find((event) => event.externalReference === envelope.externalReference)?.content).toEqual({
+      state: "expired",
+    });
+  });
 });
 
+function fulfillment() {
+  return channelsModule.createServices(pools.channels, { channelSaleRecorder: recorder() }).fulfillmentObservations;
+}
+async function prepareFulfillment() {
+  await pools.channels.query(`UPDATE channels_listing_publication_facts SET item_title='Synthetic item'`);
+  const events = await createPostgresEventStore({ pool: pools.inventory }).readStream({
+    streamId: "inventory.item-item-1",
+  });
+  for (const event of events)
+    await buildFulfillmentItemProjection(pools.channels)["inventory.item.created"]!(toTransportEvent(event));
+}
+async function admitFulfillment(
+  observation: ChannelOrderFulfillmentObservation,
+  receivedAt = new Date().toISOString(),
+) {
+  const envelope = await composeChannelOrderFulfillmentInbound(observation);
+  await withPgTransaction(pools.channels, (db) => admitConnectorInbound(db, "connection-1", envelope, receivedAt));
+}
+async function fulfillmentEvents() {
+  return (
+    await pools.channels.query<{
+      event_type: string;
+      payload: Record<string, unknown>;
+    }>(`SELECT event_type,payload FROM event_store_events
+    WHERE event_type LIKE 'channels.order-fulfillment-observation.%' ORDER BY global_position`)
+  ).rows;
+}
+async function fulfillmentEffects() {
+  return (
+    await pools.channels.query(`SELECT
+    (SELECT jsonb_agg(row_to_json(t)) FROM channel_fulfillment_observations t) AS observations,
+    (SELECT jsonb_agg(row_to_json(t)) FROM channel_fulfillment_orders t) AS orders,
+    (SELECT jsonb_agg(row_to_json(t)) FROM channel_order_attention t) AS attention,
+    (SELECT count(*) FROM event_store_events) AS events`)
+  ).rows;
+}
 function recorder() {
   return createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context);
 }

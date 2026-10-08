@@ -191,6 +191,16 @@ import {
   connectorInboundRetentionSweeps,
 } from "./features/connector-feed/read-model/retention-policy";
 
+import { createFulfillmentObservationRuntime } from "./features/order-fulfillment-observations/api/runtime";
+import { buildFulfillmentItemProjection } from "./features/order-fulfillment-observations/read-model/item-projection";
+import { buildFulfillmentObservationReactions } from "./features/order-fulfillment-observations/integrations/reactions";
+import {
+  fulfillmentObservationSchemaSql,
+  fulfillmentObservationSchemaMigrations,
+  fulfillmentObservationRetentionSweeps,
+  fulfillmentObservationRetentionExemptions,
+} from "./features/order-fulfillment-observations/read-model/schema";
+
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
   Readonly<{
@@ -206,7 +216,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${fulfillmentObservationSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
@@ -220,9 +230,14 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...connectorFeedSchemaMigrations,
     ...connectorInboundSchemaMigrations,
     ...tcgplayerOrdersSchemaMigrations,
+    ...fulfillmentObservationSchemaMigrations,
   ],
-  retentionSweeps: connectorInboundRetentionSweeps,
-  retentionExemptions: [...manualSyncRetentionExemptions, ...connectorInboundRetentionExemptions],
+  retentionSweeps: [...connectorInboundRetentionSweeps, ...fulfillmentObservationRetentionSweeps],
+  retentionExemptions: [
+    ...manualSyncRetentionExemptions,
+    ...connectorInboundRetentionExemptions,
+    ...fulfillmentObservationRetentionExemptions,
+  ],
   seedProfiles: ["scenario-seed"],
   seed: (pool, services) => seedManualSyncScenario(pool, services),
   inspectSeedState: inspectManualSyncSeedState,
@@ -342,6 +357,11 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       listingComposition,
       outboundSync,
       reconciliation,
+      fulfillmentObservations: createFulfillmentObservationRuntime({
+        db: pool,
+        eventStore,
+        readAdmittedConnectorInboundEvents: createConnectorInboundReader(pool),
+      }),
       tcgplayerOrders: createTcgplayerOrderRuntime({
         db: pool,
         readAdmittedConnectorInboundEvents: createConnectorInboundReader(pool),
@@ -387,6 +407,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       contextName: "channels",
       manifest: channelsContextManifest,
       handlers: {
+        "inventory.channel-fulfillment-item-facts": () => buildFulfillmentItemProjection(services.db),
         "marketplace.channel-marketplace-publication-facts": () =>
           buildChannelMarketplaceFactsProjectionHandlers(services.db),
         "catalog.channel-catalog-publication-facts": () => buildChannelCatalogFactsProjectionHandlers(services.db),
@@ -403,6 +424,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       contextName: "channels",
       manifest: channelsContextManifest,
       handlers: {
+        "inventory.channel-fulfillment-observation-retry": () =>
+          buildFulfillmentObservationReactions(services.fulfillmentObservations),
+        "channels.channel-fulfillment-observation-retry": () =>
+          buildFulfillmentObservationReactions(services.fulfillmentObservations),
         "marketplace.channel-listing-desired-state-reaction": () =>
           buildChannelMarketplaceDesiredStateReactionHandlers(services.db, services.listingComposition),
         "catalog.channel-listing-desired-state-reaction": () =>

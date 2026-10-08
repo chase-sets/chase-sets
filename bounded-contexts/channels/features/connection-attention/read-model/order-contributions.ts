@@ -84,15 +84,27 @@ export async function reconcileOrderAttention(
   orderReference: string,
   now: string,
 ) {
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+    JSON.stringify(["channels.order-attention", connectionId, orderReference]),
+  ]);
   const desired = await db.query<{
     reason: ChannelOrderAttentionReason;
     lines: AffectedLines;
   }>(
-    `SELECT outcome->>'reason' AS reason,
-      jsonb_agg(DISTINCT jsonb_build_object('identity',outcome->>'identity','detail',outcome->'detail')) AS lines
-     FROM channel_order_observations, jsonb_array_elements(line_outcomes) AS outcome
-     WHERE connection_id=$1 AND order_reference=$2 AND outcome->>'reason' IS NOT NULL
-     GROUP BY outcome->>'reason'`,
+    `SELECT reason,jsonb_agg(DISTINCT jsonb_build_object('identity',identity,'detail',detail)) AS lines FROM (
+      SELECT outcome->>'reason' AS reason,outcome->>'identity' AS identity,outcome->'detail' AS detail
+      FROM channel_order_observations,jsonb_array_elements(line_outcomes) AS outcome
+      WHERE connection_id=$1 AND order_reference=$2 AND outcome->>'reason' IS NOT NULL
+      UNION ALL
+      SELECT 'channel-order-unmapped',provider_event_id,NULL::jsonb FROM channel_fulfillment_observations
+      WHERE connection_id=$1 AND order_reference=$2 AND state IN ('awaiting-sale','sale-absent') AND reason='unmapped'
+      UNION ALL
+      SELECT 'channel-order-sale-absent',provider_event_id,NULL::jsonb FROM channel_fulfillment_observations
+      WHERE connection_id=$1 AND order_reference=$2 AND state='sale-absent'
+      UNION ALL
+      SELECT 'tcgplayer-order-recording-refused',provider_event_id,NULL::jsonb FROM channel_fulfillment_observations
+      WHERE connection_id=$1 AND order_reference=$2 AND state='refused' AND reason='accepted-content-changed'
+    ) contributions GROUP BY reason`,
     [connectionId, orderReference],
   );
   for (const row of desired.rows) {

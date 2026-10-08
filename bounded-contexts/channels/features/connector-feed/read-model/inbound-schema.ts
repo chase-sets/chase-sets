@@ -27,7 +27,15 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS channel_connector_inbound_payload_retention_idx
     ON channel_connector_inbound_payloads (inbound_kind, received_at, provider_event_id)`,
 ] as const;
-export const connectorInboundSchemaSql = [...tables, ...indexes].join(";\n") + ";";
+const fulfillmentKind = [
+  `ALTER TABLE channel_connector_inbound_events DROP CONSTRAINT IF EXISTS channel_connector_inbound_events_event_kind_check`,
+  `ALTER TABLE channel_connector_inbound_events ADD CONSTRAINT channel_connector_inbound_events_event_kind_check
+    CHECK (event_kind IN ('order','export','channel-order-fulfillment-observation/v1'))`,
+  `ALTER TABLE channel_connector_inbound_payloads DROP CONSTRAINT IF EXISTS channel_connector_inbound_payloads_inbound_kind_check`,
+  `ALTER TABLE channel_connector_inbound_payloads ADD CONSTRAINT channel_connector_inbound_payloads_inbound_kind_check
+    CHECK (inbound_kind IN ('order','export','channel-order-fulfillment-observation/v1'))`,
+] as const;
+export const connectorInboundSchemaSql = [...tables, ...indexes, ...fulfillmentKind].join(";\n") + ";";
 export const connectorInboundSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261007_channels_connector_transport",
@@ -39,5 +47,10 @@ export const connectorInboundSchemaMigrations: readonly BcSchemaMigration[] = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connector_inbound_payload_retention_idx
     ON channel_connector_inbound_payloads (inbound_kind, received_at, provider_event_id)`,
     ],
+  },
+  {
+    migrationId: "20261008_channels_fulfillment_inbound_kind",
+    description: "Admit revision-qualified fulfillment observations in the existing connector inbox.",
+    statements: fulfillmentKind,
   },
 ];

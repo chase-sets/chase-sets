@@ -18,11 +18,16 @@ describe("connector-inbound-retention-registry-parity", () => {
   it("resolves exactly one closed class per admitted kind with elapsed-second windows", () => {
     expect(resolveConnectorInboundRetentionClasses(connectorInboundKindRetention)).toEqual([
       { retentionClass: "inventory-snapshot", windowSeconds: 604_800, inboundKinds: ["export"] },
-      { retentionClass: "order-observation", windowSeconds: 7_776_000, inboundKinds: ["order"] },
+      {
+        retentionClass: "order-observation",
+        windowSeconds: 7_776_000,
+        inboundKinds: ["order", "channel-order-fulfillment-observation/v1"],
+      },
     ]);
     expect(connectorInboundRetentionClasses).toEqual({
       export: { retentionClass: "inventory-snapshot", windowSeconds: 604_800 },
       order: { retentionClass: "order-observation", windowSeconds: 7_776_000 },
+      "channel-order-fulfillment-observation/v1": { retentionClass: "order-observation", windowSeconds: 7_776_000 },
     });
   });
 
@@ -83,13 +88,13 @@ describe("connector-inbound-retention-registry-parity", () => {
       "candidate.inbound_kind IN ('export') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 604800)",
     );
     expect(orderSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
-      "candidate.inbound_kind IN ('order') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
+      "candidate.inbound_kind IN ('order', 'channel-order-fulfillment-observation/v1') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
     );
   });
 
   it("covers every kind the payload table admits and no other", () => {
-    const tableKinds = connectorInboundSchemaSql
-      .match(/inbound_kind text NOT NULL CHECK \(inbound_kind IN \(([^)]*)\)\)/)?.[1]
+    const tableKinds = [...connectorInboundSchemaSql.matchAll(/CHECK \(inbound_kind IN \(([^)]*)\)\)/g)]
+      .at(-1)?.[1]
       ?.split(",")
       .map((kind) => kind.trim().replaceAll("'", ""));
     expect(new Set(tableKinds)).toEqual(new Set(connectorInboundKinds));

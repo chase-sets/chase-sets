@@ -5,10 +5,14 @@ import type { WorkerHostRuntime } from "@chase-sets/platform-runtime/worker";
 import { collectRetentionSweepTargets, executeRetentionSweepBatch } from "@chase-sets/platform-runtime/retention-sweep";
 import { module as channelsModule } from "../../../index";
 import { connectorInboundRetentionExemptions, connectorInboundRetentionSweeps } from "../read-model/retention-policy";
+import { fulfillmentObservationRetentionSweeps } from "../../order-fulfillment-observations/read-model/schema";
 
 describe("connector-inbound-retention-module", () => {
   it("mounts every registry class sweep on the Channels module and nothing that exempts the payload", () => {
-    expect(channelsModule.retentionSweeps).toEqual(connectorInboundRetentionSweeps);
+    expect(channelsModule.retentionSweeps).toEqual([
+      ...connectorInboundRetentionSweeps,
+      ...fulfillmentObservationRetentionSweeps,
+    ]);
     expect(channelsModule.retentionExemptions).toEqual(
       expect.arrayContaining([...connectorInboundRetentionExemptions]),
     );
