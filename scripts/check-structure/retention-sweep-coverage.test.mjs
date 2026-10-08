@@ -242,6 +242,72 @@ export const connectorInboundRetentionSweeps = buildSweeps();`,
     });
   });
 
+  it.each([
+    [
+      "a module spread that can override the mounted sweeps",
+      {
+        [moduleFile]: mountedModule.replace(
+          "retentionSweeps: connectorInboundRetentionSweeps,",
+          "retentionSweeps: connectorInboundRetentionSweeps,\n  ...getOverrides(),",
+        ),
+      },
+    ],
+    [
+      "a computed module key that can override the mounted sweeps",
+      {
+        [moduleFile]: mountedModule.replace(
+          "retentionSweeps: connectorInboundRetentionSweeps,",
+          'retentionSweeps: connectorInboundRetentionSweeps,\n  ["retention" + "Sweeps"]: [],',
+        ),
+      },
+    ],
+    [
+      "a sweep spread that can override the declared table",
+      {
+        [policyFile]: `function getOverrides() {
+  return { tableName: "synthetic_unrelated_rows" };
+}
+export const connectorInboundRetentionSweeps = [{ tableName: "channel_connector_inbound_payloads", ...getOverrides() }];`,
+      },
+    ],
+    [
+      "an unknown wrapper that can discard the module object",
+      {
+        [moduleFile]: mountedModule.replace(
+          "export const module = defineBoundedContextModule(",
+          "function discard(_input) {\n  return { retentionSweeps: [] };\n}\nexport const module = discard(",
+        ),
+      },
+    ],
+    [
+      "a local declaration shadowing the module constructor name",
+      {
+        [moduleFile]: `function defineBoundedContextModule(_input) {\n  return { retentionSweeps: [] };\n}\n${mountedModule}`,
+      },
+    ],
+    [
+      "the constructor name imported from another module",
+      {
+        [moduleFile]: `import { defineBoundedContextModule } from "./discard";\n${mountedModule}`,
+      },
+    ],
+  ])("refuses %s", async (_label, entries) => {
+    const root = await connector(entries);
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("accepts the module constructor through an aliased package import", async () => {
+    const root = await connector({
+      [moduleFile]: `import { defineBoundedContextModule as defineModule } from "@chase-sets/bounded-context-module";\n${mountedModule.replace(
+        "defineBoundedContextModule(",
+        "defineModule(",
+      )}`,
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
+  });
+
   it("binds the mount to the imported name, not the local alias", async () => {
     const root = await connector({
       [policyFile]: `${policy}\nexport const unusedSweeps = [];`,

@@ -26,6 +26,9 @@ const requiredKnownTables = new Map([
 const requiredMountedSweepTables = new Map([
   ["channel_connector_inbound_payloads", "bounded-contexts/channels/index.ts"],
 ]);
+// The only call that may wrap the mounted module object; any other wrapper can
+// discard or replace its argument.
+const moduleConstructor = { name: "defineBoundedContextModule", specifier: "@chase-sets/bounded-context-module" };
 
 // These tables already have a purpose-built cleanup path or are durable
 // records whose deletion needs a separate accounting/security decision.
@@ -141,11 +144,11 @@ export async function validateRetentionSweepCoverage({ repoRoot }) {
 async function hasMountedSweep(repoRoot, moduleFile, tableName) {
   const modulePath = path.join(repoRoot, moduleFile);
   const moduleSource = parseSource(modulePath, await readOptional(modulePath));
-  const mounted = moduleSource && mountedSweepIdentifiers(moduleSource);
+  const imports = moduleSource && namedImports(moduleSource);
+  const mounted = moduleSource && mountedSweepIdentifiers(moduleSource, imports);
   if (!mounted) {
     return false;
   }
-  const imports = namedImports(moduleSource);
   for (const identifier of mounted) {
     const imported = imports.get(identifier);
     if (!imported?.specifier.endsWith("/retention-policy")) {
@@ -156,7 +159,7 @@ async function hasMountedSweep(repoRoot, moduleFile, tableName) {
     const declarations = policySource && topLevelDeclarations(policySource);
     const initializer = declarations?.exportedConsts.get(imported.name);
     const sweeps = initializer ? sweepObjects(initializer, declarations, 0) : null;
-    if (sweeps?.some((sweep) => hasLiteralProperty(sweep, "tableName", tableName))) {
+    if (sweeps?.some((sweep) => effectiveLiteralProperty(sweep, "tableName") === tableName)) {
       return true;
     }
   }
@@ -168,18 +171,21 @@ function parseSource(file, text) {
 }
 
 // `retentionSweeps: x` or `retentionSweeps: [...x, ...y]` on `export const
-// module = {...}` or `= define(...)({...})`; [] when unmounted, null when unsupported.
-function mountedSweepIdentifiers(source) {
+// module = {...}` or `= defineBoundedContextModule({...})`; [] when unmounted,
+// null when unsupported, including any other wrapper or an overriding member.
+function mountedSweepIdentifiers(source, imports) {
   const moduleDeclaration = source.statements
     .filter((statement) => ts.isVariableStatement(statement) && isExported(statement))
     .flatMap((statement) => statement.declarationList.declarations)
     .find((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "module");
   const initializer = moduleDeclaration?.initializer;
   const moduleObject =
-    initializer && ts.isCallExpression(initializer) && initializer.arguments.length === 1
-      ? initializer.arguments[0]
+    initializer && ts.isCallExpression(initializer)
+      ? isModuleConstructor(initializer.expression, source, imports) && initializer.arguments.length === 1
+        ? initializer.arguments[0]
+        : null
       : initializer;
-  if (!moduleObject || !ts.isObjectLiteralExpression(moduleObject)) {
+  if (!moduleObject || !ts.isObjectLiteralExpression(moduleObject) || hasUnmodeledMembers(moduleObject)) {
     return null;
   }
   const properties = moduleObject.properties.filter((property) => propertyName(property) === "retentionSweeps");
@@ -201,6 +207,48 @@ function mountedSweepIdentifiers(source) {
     return value.elements.map((element) => element.expression.text);
   }
   return null;
+}
+
+// The imported constructor, or the bare global name when nothing in the file
+// binds it to a local that could discard the module object.
+function isModuleConstructor(callee, source, imports) {
+  if (!ts.isIdentifier(callee)) {
+    return false;
+  }
+  const imported = imports.get(callee.text);
+  return imported
+    ? imported.name === moduleConstructor.name && imported.specifier === moduleConstructor.specifier
+    : callee.text === moduleConstructor.name && !topLevelBindings(source).has(callee.text);
+}
+
+function topLevelBindings(source) {
+  const names = new Set();
+  const bind = (name) => {
+    if (ts.isIdentifier(name)) {
+      names.add(name.text);
+    } else {
+      name.elements.filter((element) => !ts.isOmittedExpression(element)).forEach((element) => bind(element.name));
+    }
+  };
+  for (const statement of source.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      const clause = statement.importClause;
+      const bindings = clause?.namedBindings;
+      if (clause?.name) {
+        names.add(clause.name.text);
+      }
+      if (bindings && ts.isNamespaceImport(bindings)) {
+        names.add(bindings.name.text);
+      } else {
+        bindings?.elements.forEach((element) => names.add(element.name.text));
+      }
+    } else if (ts.isVariableStatement(statement)) {
+      statement.declarationList.declarations.forEach((declaration) => bind(declaration.name));
+    } else if (statement.name && ts.isIdentifier(statement.name)) {
+      names.add(statement.name.text);
+    }
+  }
+  return names;
 }
 
 function namedImports(source) {
@@ -294,13 +342,23 @@ function singleReturnExpression(block) {
   return returns.length === 1 && returns[0].parent === block ? (returns[0].expression ?? null) : null;
 }
 
-function hasLiteralProperty(object, key, value) {
+// The literal value of the single top-level `key: "..."` member, or null when
+// the effective value is not that literal.
+function effectiveLiteralProperty(object, key) {
+  const properties = object.properties.filter((property) => propertyName(property) === key);
+  const [property] = properties;
+  return !hasUnmodeledMembers(object) &&
+    properties.length === 1 &&
+    ts.isPropertyAssignment(property) &&
+    (ts.isStringLiteral(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer))
+    ? property.initializer.text
+    : null;
+}
+
+// A spread or computed key can override any named member at runtime.
+function hasUnmodeledMembers(object) {
   return object.properties.some(
-    (property) =>
-      ts.isPropertyAssignment(property) &&
-      propertyName(property) === key &&
-      (ts.isStringLiteral(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer)) &&
-      property.initializer.text === value,
+    (property) => ts.isSpreadAssignment(property) || (property.name && ts.isComputedPropertyName(property.name)),
   );
 }
 
