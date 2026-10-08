@@ -7,6 +7,7 @@ import {
   readManualAttentionContributions,
 } from "../../manual-sync/read-model/attention-query";
 import { ChannelAttentionError, type ChannelConnectionAttention } from "../domain/contracts";
+import { readOrderAttention } from "./order-contributions";
 
 const openHealthSql = `SELECT health.connection_id, reason, (reason->'opening'->>'occurredAt')::timestamptz AS opened_at
   FROM channel_connection_health AS health CROSS JOIN LATERAL jsonb_array_elements(health.reasons) AS reason
@@ -24,7 +25,7 @@ const openHealthSql = `SELECT health.connection_id, reason, (reason->'opening'->
 
 export async function readConnectionAttention(
   db: PgQueryable,
-  input: Readonly<{ accountId: string; connectionId?: string }>,
+  input: Readonly<{ accountId: string; connectionId?: string; orderCursor?: string }>,
 ): Promise<readonly ChannelConnectionAttention[]> {
   const accountId = identity(input.accountId);
   const connectionId = input.connectionId === undefined ? null : identity(input.connectionId);
@@ -35,7 +36,8 @@ export async function readConnectionAttention(
     eligible AS (SELECT connection_id, observed_at::timestamptz AS opened_at,
       CASE WHEN clamp_state='recovery' OR run_state='application-unknown' THEN $3::int ELSE $4::int END AS severity_rank FROM manual
       UNION ALL SELECT connection_id, opened_at,
-        CASE WHEN reason->>'state'='failing' THEN $2::int ELSE $3::int END AS severity_rank FROM health)
+        CASE WHEN reason->>'state'='failing' THEN $2::int ELSE $3::int END AS severity_rank FROM health
+      UNION ALL SELECT connection_id,opened_at,$3::int FROM channel_order_attention WHERE account_id=$1 AND resolved_at IS NULL)
     SELECT connection_id FROM eligible GROUP BY connection_id
     ORDER BY max(severity_rank) DESC, min(opened_at), connection_id LIMIT 100`
       : `SELECT connection_id FROM channel_connections WHERE account_id=$1 AND connection_id=$2`,
@@ -82,33 +84,36 @@ export async function readConnectionAttention(
       [accountId, ids],
     ),
   ]);
-  return ids.map((id) => {
-    const snapshot = health.get(id);
-    const affected = resolutions.rows.find((row) => row.connection_id === id)?.affected_count;
-    return {
-      connectionId: id,
-      healthState: snapshot?.state ?? "unknown",
-      health: (snapshot ? openHealthReasonGenerations(snapshot) : []).filter(
-        (reason) =>
-          (reason.reasonCode !== "drift" ||
-            resolutions.rows.find((row) => row.connection_id === id)?.drift_visible !== false) &&
-          !resolutions.rows.some(
-            (row) =>
-              row.connection_id === id &&
-              row.reason_code === reason.reasonCode &&
-              Number(row.reason_generation) === reason.generation &&
-              row.fingerprint === reason.fingerprint,
-          ),
-      ),
-      manual: manual.find((row) => row.connectionId === id) ?? null,
-      ...(affected === null || affected === undefined
-        ? {}
-        : {
-            drift: {
-              affectedListingCount: Math.min(affected, 100),
-              hasMore: affected > 100 ? (1 as const) : (0 as const),
-            },
-          }),
-    };
-  });
+  return Promise.all(
+    ids.map(async (id) => {
+      const snapshot = health.get(id);
+      const affected = resolutions.rows.find((row) => row.connection_id === id)?.affected_count;
+      return {
+        connectionId: id,
+        healthState: snapshot?.state ?? "unknown",
+        health: (snapshot ? openHealthReasonGenerations(snapshot) : []).filter(
+          (reason) =>
+            (reason.reasonCode !== "drift" ||
+              resolutions.rows.find((row) => row.connection_id === id)?.drift_visible !== false) &&
+            !resolutions.rows.some(
+              (row) =>
+                row.connection_id === id &&
+                row.reason_code === reason.reasonCode &&
+                Number(row.reason_generation) === reason.generation &&
+                row.fingerprint === reason.fingerprint,
+            ),
+        ),
+        manual: manual.find((row) => row.connectionId === id) ?? null,
+        orders: await readOrderAttention(db, accountId, id, input.orderCursor),
+        ...(affected === null || affected === undefined
+          ? {}
+          : {
+              drift: {
+                affectedListingCount: Math.min(affected, 100),
+                hasMore: affected > 100 ? (1 as const) : (0 as const),
+              },
+            }),
+      };
+    }),
+  );
 }

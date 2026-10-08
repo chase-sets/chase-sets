@@ -1,4 +1,13 @@
 export const channelsEnglishTranslations = {
+  "channels.attention.orderReference": "Order {reference}",
+  "channels.attention.orderUnmapped": "An order item could not be matched to inventory.",
+  "channels.attention.orderIdentityAmbiguous": "Order item identities are missing or repeated.",
+  "channels.attention.orderRecordingRefused": "An order sale could not be recorded. Review the existing sale and inventory mapping.",
+  "channels.attention.orderCancelled": "This order was canceled on TCGplayer. Inventory has not been reversed.",
+  "channels.attention.orderBackdated": "This sale was recorded after the expected reporting window.",
+  "channels.attention.ordersCount": "{orderCount} order issues need attention.",
+  "channels.attention.ordersOverflow": "More than {orderCount} order issues need attention.",
+  "channels.attention.moreOrders": "More order issues",
   "channels.drift.title": "Channel differences",
   "channels.drift.disclaimer":
     "Decisions do not confirm that channel changes were queued or applied, or that the connection is healthy. A later complete check confirms the result.",

@@ -5,6 +5,7 @@ import type {
   ChannelHealthState,
 } from "../../connection-health/domain/contracts";
 import type { ManualAttentionContribution } from "../../manual-sync/read-model/attention-query";
+import type { ChannelOrderAttentionPage } from "./order-contribution";
 
 export const channelAttentionResolutions = [
   "handled-on-channel",
@@ -35,11 +36,12 @@ export type ChannelConnectionAttention = Readonly<{
   healthState: ChannelHealthState;
   health: readonly ChannelHealthReasonGeneration[];
   manual: ManualAttentionContribution | null;
+  orders?: ChannelOrderAttentionPage;
   drift?: Readonly<{ affectedListingCount: number; hasMore: 0 | 1 }>;
 }>;
 export type ConnectionAttentionServices = Readonly<{
   listOpenAttention: (
-    input: Readonly<{ accountId: string; connectionId?: string }>,
+    input: Readonly<{ accountId: string; connectionId?: string; orderCursor?: string }>,
   ) => Promise<readonly ChannelConnectionAttention[]>;
   resolveAttention: (
     input: ChannelAttentionResolve,

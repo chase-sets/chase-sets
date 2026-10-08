@@ -179,6 +179,12 @@ import {
 import { createConnectorTransport } from "./features/connector-feed/api/transport";
 import { createConnectorTransportRoutes } from "./features/connector-feed/api/transport-routes";
 import { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
+import { createTcgplayerOrderRuntime } from "./features/tcgplayer-orders/api/runtime";
+import {
+  tcgplayerOrdersSchemaSql,
+  tcgplayerOrdersSchemaMigrations,
+} from "./features/tcgplayer-orders/read-model/schema";
+import { createConnectorInboundReader } from "./features/connector-feed/read-model/inbound";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -193,7 +199,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
@@ -206,6 +212,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...channelAttentionSchemaMigrations,
     ...connectorFeedSchemaMigrations,
     ...connectorInboundSchemaMigrations,
+    ...tcgplayerOrdersSchemaMigrations,
   ],
   retentionExemptions: manualSyncRetentionExemptions,
   seedProfiles: ["scenario-seed"],
@@ -322,6 +329,13 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       listingComposition,
       outboundSync,
       reconciliation,
+      tcgplayerOrders: createTcgplayerOrderRuntime({
+        db: pool,
+        readAdmittedConnectorInboundEvents: createConnectorInboundReader(pool),
+        channelSaleRecorder: ports.channelSaleRecorder,
+        backdatingAttentionAfterMs: async () =>
+          (await policies.resolvePolicy(channelReconciliationPolicy)).value.backdatingAttentionAfterMs,
+      }),
       tcgplayerCsv,
       manualSync,
       connectorFeed: {

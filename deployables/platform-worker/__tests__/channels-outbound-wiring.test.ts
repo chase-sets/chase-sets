@@ -164,6 +164,7 @@ function validChannelsCandidate(
       repushChannelListing: vi.fn(),
     },
     tcgplayerCsv: {},
+    tcgplayerOrders: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
     manualSync: {},
     connectorFeed: {
       readAuthority: vi.fn(),

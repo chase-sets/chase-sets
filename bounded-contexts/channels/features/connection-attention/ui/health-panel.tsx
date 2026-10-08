@@ -4,6 +4,7 @@ import {
   Card,
   Form,
   HiddenInput,
+  LinkButton,
   MarketplaceNotice,
   NativeSelect,
   Stack,
@@ -70,7 +71,7 @@ export function ChannelConnectionHealthPanel({
             >
               {t(stateKeys[state.data.healthState])}
             </Badge>
-            {state.data.health.length === 0 ? (
+            {state.data.health.length === 0 && !state.data.orders?.items.length ? (
               <MarketplaceNotice
                 tone="info"
                 title={t("channels.attention.healthy")}
@@ -99,9 +100,28 @@ export function ChannelConnectionHealthPanel({
                 </Form>
               </Stack>
             ))}
+            {state.data.orders?.items.map((order) => (
+              <Stack key={`${order.externalOrderReference}:${order.reason}:${order.generation}`} gap={2}>
+                <Text>{t("channels.attention.orderReference", { reference: order.externalOrderReference })}</Text>
+                <Text>{t(orderReasonKeys[order.reason])}</Text>
+              </Stack>
+            ))}
+            {state.data.orders?.nextCursor ? (
+              <LinkButton href={`?${new URLSearchParams({ orderCursor: state.data.orders.nextCursor })}`}>
+                {t("channels.attention.moreOrders")}
+              </LinkButton>
+            ) : null}
           </>
         )}
       </Stack>
     </Card>
   );
 }
+
+const orderReasonKeys = {
+  "tcgplayer-order-unmapped": "channels.attention.orderUnmapped",
+  "tcgplayer-order-identity-ambiguous": "channels.attention.orderIdentityAmbiguous",
+  "tcgplayer-order-recording-refused": "channels.attention.orderRecordingRefused",
+  "tcgplayer-order-cancelled": "channels.attention.orderCancelled",
+  "backdated-sale": "channels.attention.orderBackdated",
+} as const;
