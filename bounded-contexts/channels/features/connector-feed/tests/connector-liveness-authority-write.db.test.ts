@@ -95,7 +95,15 @@ describeDb("connector-liveness-authority-write", () => {
       "UPDATE channel_connector_liveness_authority SET live_pairing_id=$2 WHERE connection_id=$1 AND authority_generation=2",
       [target.connectionId, "pair_stale_old_pod"],
     );
-    expect((await h.request("claim")).status).toBe(409);
+    await expect(
+      h.services.connectorFeed.claim({ token: h.token, connectionId: target.connectionId }, {}, () => {}),
+    ).rejects.toMatchObject({ code: "conflict" });
+    const response = await h.request("claim");
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "authorization-refused" });
+    expect((await h.db.query("SELECT outcome,reason FROM channel_connector_audit WHERE route='claim'")).rows).toEqual([
+      { outcome: "refused", reason: "authorization-refused" },
+    ]);
     expect((await read())?.heartbeatRevision).toBe(0);
   });
   it("disconnect clears heartbeat once and retained disconnected state never reopens", async () => {

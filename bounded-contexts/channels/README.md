@@ -103,7 +103,9 @@ pairings without inventing a policy snapshot or copying the old last-seen timest
 The next newer poll completes the heartbeat. Old pairing heartbeat columns remain
 for rolling-version compatibility but have no new-code writer or reader. Pairing
 edits must not span a mixed-version rollout; an admitted-pairing/authority mismatch
-returns a bounded conflict rather than silently losing a heartbeat.
+raises a domain conflict rather than silently losing a heartbeat. The existing
+transport maps that conflict to HTTP 403 `authorization-refused` without exposing
+pairing state.
 
 A claim body of `{}` is incapable and only ever receives listing operations. A
 claim declaring `{"capabilities":["tcgplayer-order-pull"]}` may also receive the
