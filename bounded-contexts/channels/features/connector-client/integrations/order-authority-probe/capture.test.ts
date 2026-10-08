@@ -1,5 +1,16 @@
 import { createHash, webcrypto } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createContext, Script } from "node:vm";
@@ -453,10 +464,14 @@ function custody(value: unknown) {
       expect(text).not.toContain(encoding);
 }
 function scan(directory: string) {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) scan(file);
-    else custody(readFileSync(file, "utf8"));
+  for (const entry of readdirSync(directory)) {
+    const file = path.join(directory, entry);
+    const metadata = lstatSync(file);
+    if (metadata.isDirectory()) scan(file);
+    else if (metadata.isFile()) custody(readFileSync(file, "utf8"));
+    else if (metadata.isSymbolicLink()) custody(readlinkSync(file));
+    else if (metadata.isSocket()) continue;
+    else throw new Error(`Unsupported custody scan entry: ${file}`);
   }
 }
 function replaceExport(mutator: (value: ReturnType<typeof exported>) => void) {
@@ -474,6 +489,37 @@ async function beginSearch(worker: ReturnType<typeof harness>) {
   expect(await worker.send({ kind: "begin" })).toEqual({ ok: true });
   expect(await worker.send({ kind: "lookup" })).toEqual({ ok: true });
 }
+
+describe("synthetic custody scan", () => {
+  it("does not follow a dangling Chromium SingletonCookie link and still inspects nested regular files", () => {
+    const directory = mkdtempSync(path.join(scratch, "synthetic-custody-"));
+    const link = path.join(directory, "SingletonCookie");
+    symlinkSync(path.join(directory, "missing-cookie"), link, process.platform === "win32" ? "junction" : "file");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(() => readFileSync(link)).toThrow();
+    const nested = path.join(directory, "nested");
+    mkdirSync(nested);
+    const file = path.join(nested, "receipt.json");
+    writeFileSync(file, "synthetic clean receipt");
+    expect(() => scan(directory)).not.toThrow();
+    for (const value of [SENTINEL, ORDER, lookup.seller.sellerKey]) {
+      for (const encoding of [value, encodeURIComponent(value), Buffer.from(value).toString("base64"), hash(value)]) {
+        writeFileSync(file, encoding);
+        expect(() => scan(directory)).toThrow(/not to contain/);
+      }
+    }
+  });
+
+  it("inspects dangling link text without following the target", () => {
+    const directory = mkdtempSync(path.join(scratch, "synthetic-custody-"));
+    symlinkSync(
+      path.join(directory, SENTINEL),
+      path.join(directory, "SingletonCookie"),
+      process.platform === "win32" ? "junction" : "file",
+    );
+    expect(() => scan(directory)).toThrow(/not to contain/);
+  });
+});
 
 describe("selector-surface-boundary (synthetic human attestations, not portal proof)", () => {
   it.each(["Ready to Ship", "  READY   TO   SHIP  ", "ready\tto\nship"])(
