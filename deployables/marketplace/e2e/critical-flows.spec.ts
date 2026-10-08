@@ -1,5 +1,9 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
+  mountSellListRecoveryBrowserFixture,
+  sellListRecoveryBrowserData,
+} from "@chase-sets/checkout/seed-support/fixtures/sell-list-recovery-browser-fixture";
+import {
   captureAccessibilityEvidence,
   captureResponsiveEvidence,
   expectAccessibleDisclosure,
@@ -719,6 +723,58 @@ test.describe("marketplace critical flows", () => {
           .join("\n")}`,
       );
     }
+  });
+
+  test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({
+    page,
+  }) => {
+    await expectPageOk(page, "/account/sell-list");
+    await expect(page.getByRole("heading", { name: "Sell List", exact: true })).toBeVisible();
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __reactRouterDataRouter?: { state: { initialized: boolean } } }).__reactRouterDataRouter
+          ?.state.initialized,
+    );
+    await page.clock.install({ time: new Date("2026-10-07T12:00:00Z") });
+    await page.clock.pauseAt(new Date("2026-10-07T12:00:01Z"));
+    await page.evaluate(mountSellListRecoveryBrowserFixture, sellListRecoveryBrowserData());
+    const state = () =>
+      page.evaluate(() =>
+        (
+          window as unknown as {
+            sellListRecoveryFixture: {
+              state: () => {
+                calls: number;
+                navigation: string;
+                recovery: string | null;
+                timing: { observedAtMs: number; expiresAtMs: number };
+              };
+            };
+          }
+        ).sellListRecoveryFixture.state(),
+      );
+    await expect(page.getByText("Your Sell List is catching up", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue to seller checkout", exact: true })).toBeDisabled();
+    await expect(page.getByRole("heading", { name: "Review items", exact: true })).toHaveCount(0);
+    const initial = await state();
+    expect(initial.calls).toBe(1);
+    await page.clock.runFor(2_000);
+    expect(await state()).toMatchObject({ calls: 2, navigation: "loading" });
+    await page.clock.runFor(4_000);
+    expect(await state()).toMatchObject({ calls: 2, navigation: "loading" });
+    await expect(page.getByRole("heading", { name: "Review items", exact: true })).toHaveCount(0);
+    await page.evaluate(() =>
+      (
+        window as unknown as { sellListRecoveryFixture: { finishReview: () => void } }
+      ).sellListRecoveryFixture.finishReview(),
+    );
+    await expect(page.getByRole("heading", { name: "Review items", exact: true })).toBeVisible();
+    expect(await state()).toMatchObject({ calls: 2, navigation: "idle", recovery: null, timing: initial.timing });
+    await page.clock.runFor(30_000);
+    expect((await state()).calls).toBe(2);
+    await page.evaluate(() =>
+      (window as unknown as { sellListRecoveryFixture: { dispose: () => void } }).sellListRecoveryFixture.dispose(),
+    );
   });
 
   test("signed-in presentation preferences persist across reloads and converge across sessions @marketplace-account", async ({

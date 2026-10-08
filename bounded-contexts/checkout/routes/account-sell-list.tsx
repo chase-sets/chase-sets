@@ -6,6 +6,7 @@ import {
   postWriteRecoveryKindForFreshWriteReadError,
   postWriteRecoveryKindForHandoffState,
   readPostWriteHandoffState,
+  readFreshWriteTokenState,
   recoverFreshWriteReadError,
   type PostWriteRecoveryKind,
   type PostWriteHandoffState,
@@ -52,7 +53,10 @@ import {
   sellerCheckoutSignInHref,
 } from "../features/sell-list/ui/registration-return";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
-import { usePendingFreshWriteRevalidation } from "../support/route-support/pending-fresh-write-revalidation";
+import {
+  usePendingFreshWriteRevalidation,
+  type PendingFreshWriteTiming,
+} from "../support/route-support/pending-fresh-write-revalidation";
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
@@ -515,6 +519,13 @@ async function loadGuestSellListOfferReviewsFromCheckout(
   return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
 }
 
+function pendingFreshWriteTimingForRequest(request: Request): PendingFreshWriteTiming | null {
+  const freshWriteState = readFreshWriteTokenState(request);
+  return freshWriteState.kind === "valid"
+    ? { observedAtMs: freshWriteState.receipt.observedAtMs, expiresAtMs: freshWriteState.expiresAtMs }
+    : null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const browserRequestUrl = new URL(request.url);
   const resolvedRequest = await resolvePlatformPostWriteRequest(request);
@@ -542,6 +553,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
       freshnessError,
       sellListRecovery,
+      pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
       sellList,
       offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
     };
@@ -568,6 +580,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
           freshnessError: guestSource.freshnessError,
           sellListRecovery: guestSource.sellListRecovery,
+          pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
           sellList: guestSource.sellList,
           offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
           productOfferReviews: [],
@@ -635,6 +648,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
     freshnessError: freshnessError ?? compositeReviewRecovery?.freshnessError ?? null,
     sellListRecovery: effectiveSellListRecovery ?? compositeReviewRecovery?.sellListRecovery ?? null,
+    pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(accountSellListRequest),
     sellList: accountSellList,
     offerReviews: sellListCompositeReview.offerReviews,
     productOfferReviews: sellListCompositeReview.productOfferReviews,
@@ -1167,6 +1181,7 @@ export default function CheckoutAccountSellListRoute() {
   const sellListRecovery = "sellListRecovery" in data ? data.sellListRecovery : null;
   const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
     sellListRecovery?.kind === "pending-fresh-write",
+    { freshWrite: data.pendingFreshWriteTiming },
   );
 
   return (

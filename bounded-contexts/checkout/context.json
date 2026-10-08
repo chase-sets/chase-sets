@@ -1317,7 +1317,7 @@
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Publish deterministic checkout session seed ids for checkout-owned cart and started-session development data.",
+      "purpose": "Publish deterministic Checkout seed ids and browser recovery fixtures for Checkout-owned development and test data.",
       "expectedConsumers": ["Tests and development seed orchestration"]
     },
     "ucp-support": {

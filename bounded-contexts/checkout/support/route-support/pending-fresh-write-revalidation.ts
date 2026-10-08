@@ -5,11 +5,14 @@ import { readFreshWriteTokenState } from "@chase-sets/http/responses";
 const DEFAULT_REVALIDATE_INTERVAL_MS = 2_000;
 const DEFAULT_MAX_REVALIDATIONS = 15;
 
+export type PendingFreshWriteTiming = Readonly<{ observedAtMs: number; expiresAtMs: number }>;
+
 export function usePendingFreshWriteRevalidation(
   enabled: boolean,
   options: Readonly<{
     intervalMs?: number;
     maxRevalidations?: number;
+    freshWrite?: PendingFreshWriteTiming | null;
   }> = {},
 ) {
   const location = useLocation();
@@ -20,9 +23,13 @@ export function usePendingFreshWriteRevalidation(
   const navigationStateRef = useRef(navigation.state);
   const attemptCountRef = useRef(0);
   const finalAttemptDoneRef = useRef(false);
+  const recoveryKeyRef = useRef<string | null>(null);
   const [isAutoRevalidating, setIsAutoRevalidating] = useState(false);
   const intervalMs = options.intervalMs ?? DEFAULT_REVALIDATE_INTERVAL_MS;
   const maxRevalidations = options.maxRevalidations ?? DEFAULT_MAX_REVALIDATIONS;
+  const hasServerTiming = options.freshWrite !== undefined;
+  const observedAtMs = options.freshWrite?.observedAtMs;
+  const expiresAtMs = options.freshWrite?.expiresAtMs;
 
   useEffect(() => {
     navigateRef.current = navigate;
@@ -30,16 +37,24 @@ export function usePendingFreshWriteRevalidation(
   });
 
   useEffect(() => {
-    if (!enabled) {
+    const recoveryKey = `${currentPath}:${hasServerTiming}:${observedAtMs}:${expiresAtMs}`;
+    if (recoveryKeyRef.current !== recoveryKey) {
+      recoveryKeyRef.current = recoveryKey;
       attemptCountRef.current = 0;
       finalAttemptDoneRef.current = false;
+    }
+    if (!enabled) {
       setIsAutoRevalidating(false);
       return;
     }
 
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    attemptCountRef.current = 0;
-    finalAttemptDoneRef.current = false;
+
+    function readTimingState() {
+      if (!hasServerTiming) return readFreshWriteTokenState(currentPath).kind;
+      if (observedAtMs === undefined || expiresAtMs === undefined) return "missing";
+      return Date.now() > expiresAtMs ? "expired" : "valid";
+    }
 
     function hasAttemptBudget() {
       return attemptCountRef.current < maxRevalidations;
@@ -54,7 +69,7 @@ export function usePendingFreshWriteRevalidation(
     }
 
     function runFinalRevalidation() {
-      if (finalAttemptDoneRef.current || !hasAttemptBudget()) {
+      if (finalAttemptDoneRef.current || !hasAttemptBudget() || navigationStateRef.current !== "idle") {
         return;
       }
 
@@ -64,9 +79,9 @@ export function usePendingFreshWriteRevalidation(
 
     function tick() {
       timeout = null;
-      const tokenState = readFreshWriteTokenState(currentPath);
+      const timingState = readTimingState();
 
-      if (tokenState.kind === "valid" && hasAttemptBudget()) {
+      if (timingState === "valid" && hasAttemptBudget()) {
         if (navigationStateRef.current === "idle") {
           revalidateCurrentPath();
         }
@@ -75,21 +90,29 @@ export function usePendingFreshWriteRevalidation(
         return;
       }
 
-      if (tokenState.kind === "expired") {
+      if (timingState === "expired" && !finalAttemptDoneRef.current && hasAttemptBudget()) {
+        if (navigationStateRef.current !== "idle") {
+          timeout = setTimeout(tick, intervalMs);
+          return;
+        }
         runFinalRevalidation();
       }
 
       setIsAutoRevalidating(false);
     }
 
-    const initialTokenState = readFreshWriteTokenState(currentPath);
-    if (initialTokenState.kind === "expired") {
+    const initialTimingState = readTimingState();
+    if (initialTimingState === "expired" && navigationStateRef.current === "idle") {
       runFinalRevalidation();
       setIsAutoRevalidating(false);
       return;
     }
 
-    if (initialTokenState.kind !== "valid" || !hasAttemptBudget()) {
+    if (
+      (initialTimingState !== "valid" && initialTimingState !== "expired") ||
+      !hasAttemptBudget() ||
+      finalAttemptDoneRef.current
+    ) {
       setIsAutoRevalidating(false);
       return;
     }
@@ -102,7 +125,7 @@ export function usePendingFreshWriteRevalidation(
         clearTimeout(timeout);
       }
     };
-  }, [currentPath, enabled, intervalMs, maxRevalidations]);
+  }, [currentPath, enabled, intervalMs, maxRevalidations, hasServerTiming, observedAtMs, expiresAtMs]);
 
   return { currentPath, isAutoRevalidating };
 }
