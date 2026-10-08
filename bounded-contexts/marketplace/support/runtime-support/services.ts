@@ -10,7 +10,7 @@ import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import type { ListingPhotoStorage } from ".";
+import type { ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";

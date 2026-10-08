@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { test } from "vitest";
 import {
   parseIdentityTermsPopulationOptions,
@@ -13,6 +14,33 @@ const args = [
   "--alias-search=enabled",
   "--authorization=synthetic-test",
 ];
+
+test("population dependencies load in native Node without opening database connections", () => {
+  const resolver = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url).href;
+  const control = new URL("../infrastructure/platform-runtime/control-plane.ts", import.meta.url).href;
+  const adapter = new URL(
+    "../bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts",
+    import.meta.url,
+  ).href;
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `import { register } from "node:module";
+       import assert from "node:assert/strict";
+       register(${JSON.stringify(resolver)});
+       const [{ Pool }, control, adapter] = await Promise.all([
+         import("pg"), import(${JSON.stringify(control)}), import(${JSON.stringify(adapter)})
+       ]);
+       assert.equal(typeof Pool, "function");
+       assert.equal(typeof control.createPostgresPlatformControlPlane, "function");
+       assert.equal(typeof adapter.populateDiscoverySearchIdentityTerms, "function");`,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+});
 
 test("requires upgraded writers, exact SHA, authorization, explicit alias setting and both app-role connections", () => {
   assert.equal(parseIdentityTermsPopulationOptions(args, env).writerSha, "a".repeat(40));
