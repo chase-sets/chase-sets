@@ -186,6 +186,10 @@ import {
   tcgplayerOrdersSchemaMigrations,
 } from "./features/tcgplayer-orders/read-model/schema";
 import { createConnectorInboundReader } from "./features/connector-feed/read-model/inbound";
+import {
+  connectorInboundRetentionExemptions,
+  connectorInboundRetentionSweeps,
+} from "./features/connector-feed/read-model/retention-policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -217,7 +221,8 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...connectorInboundSchemaMigrations,
     ...tcgplayerOrdersSchemaMigrations,
   ],
-  retentionExemptions: manualSyncRetentionExemptions,
+  retentionSweeps: connectorInboundRetentionSweeps,
+  retentionExemptions: [...manualSyncRetentionExemptions, ...connectorInboundRetentionExemptions],
   seedProfiles: ["scenario-seed"],
   seed: (pool, services) => seedManualSyncScenario(pool, services),
   inspectSeedState: inspectManualSyncSeedState,
