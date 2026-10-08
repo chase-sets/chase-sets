@@ -14,7 +14,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
   it.each([false, true])("restarts into the exact stable drained E1/E2/E3 matrix, paused=%s", async (paused) => {
     if (paused) await h.pause();
     h.restart();
-    const reserve = vi.spyOn(h.services.outboundSync, "reserveClaimedOutboundOperations");
+    const reserve = vi.spyOn(h.services.outboundSync, "reserveConnectorClaimedOperations");
     const hold = vi.spyOn(h.services.connectionHealth, "readConnectionHealth");
     const before = await h.effects();
     const response = await h.request("claim");
@@ -48,7 +48,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
   it("releases authority before reserve and keeps admitted E2 when reservation fails", async () => {
     let acquiredReleasedAuthorityLock = false;
     const reserve = vi
-      .spyOn(h.services.outboundSync, "reserveClaimedOutboundOperations")
+      .spyOn(h.services.outboundSync, "reserveConnectorClaimedOperations")
       .mockImplementation(async () => {
         const independent = await h.db.connect();
         try {
@@ -78,7 +78,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
   it.each(["membership-lost", "revoked"] as const)(
     "rechecks %s after a request waits on the canonical authority lock",
     async (change) => {
-      const reserve = vi.spyOn(h.services.outboundSync, "reserveClaimedOutboundOperations");
+      const reserve = vi.spyOn(h.services.outboundSync, "reserveConnectorClaimedOperations");
       const hold = vi.spyOn(h.services.connectionHealth, "readConnectionHealth");
       const before = await h.effects();
       const writer = await h.db.connect();
@@ -135,7 +135,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
         await h.projectConnection();
       }
       h.restart();
-      const reserve = vi.spyOn(h.services.outboundSync, "reserveClaimedOutboundOperations");
+      const reserve = vi.spyOn(h.services.outboundSync, "reserveConnectorClaimedOperations");
       const hold = vi.spyOn(h.services.connectionHealth, "readConnectionHealth");
       const before = await h.effects();
       const response = await h.request("claim", {}, state === "invalid" ? { token: "invalid-sentinel" } : {});
@@ -231,7 +231,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
     await h.policy({ windowSeconds: 900, consecutiveFailureThreshold: 1, failureBudgetCount: 5 });
     await h.pause();
     const hold = vi.spyOn(h.services.connectionHealth, "readConnectionHealth");
-    const reserve = vi.spyOn(h.services.outboundSync, "reserveClaimedOutboundOperations");
+    const reserve = vi.spyOn(h.services.outboundSync, "reserveConnectorClaimedOperations");
     const before = await h.effects();
     expect((await h.request("claim")).status).toBe(200);
     expect((await h.effects()).e1).toEqual(before.e1);
@@ -249,7 +249,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
         throw new Error("must-not-record-sale");
       },
     });
-    const reserve = vi.spyOn(withheld.outboundSync, "reserveClaimedOutboundOperations");
+    const reserve = vi.spyOn(withheld.outboundSync, "reserveConnectorClaimedOperations");
     const hold = vi.spyOn(withheld.connectionHealth, "readConnectionHealth");
     const before = await h.effects();
     for (const operation of ["claim", "report", "ingest"] as const) {

@@ -26,6 +26,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
 import {
@@ -36,6 +37,10 @@ import {
 import { createDiscoveryServices } from "../../support/runtime-support/services";
 import { buildDiscoveryMarketProjectionHandlers } from "../../support/market-support/projection";
 import { module as discoveryModule } from "../..";
+import {
+  populateDiscoverySearchIdentityTerms,
+  verifyDiscoverySearchIdentityTerms,
+} from "../../support/runtime-support/search-identity-terms-population";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const discoveryContextNames = [
@@ -1231,6 +1236,230 @@ describe("marketplace search", () => {
     expect(secondBuild).toEqual(firstBuild);
   });
 
+  it("upgrades preexisting rows with the identity-term migration idempotently", async () => {
+    await pools.discovery.query(`INSERT INTO discovery_search_items (catalog_item_id, title, status)
+      VALUES ('cat_upgrade', 'Upgrade Card', 'active')`);
+    await pools.discovery.query(`DROP TABLE discovery_search_item_identity_terms`);
+    await pools.discovery.query(`DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id = '20261008_discovery_search_identity_terms'`);
+    await bootstrapContextDatabase(discoveryModule, pools.discovery);
+    await bootstrapContextDatabase(discoveryModule, pools.discovery);
+    const indexes = await pools.discovery.query<{ indexdef: string }>(`SELECT indexdef FROM pg_indexes
+      WHERE tablename = 'discovery_search_item_identity_terms' ORDER BY indexname`);
+    expect(indexes.rows.map((row) => row.indexdef).join("\n")).toContain("USING gin (term gin_trgm_ops)");
+    expect(indexes.rows.map((row) => row.indexdef).join("\n")).toContain("USING btree (catalog_item_id, term)");
+    expect(
+      (await pools.discovery.query(`SELECT extversion FROM pg_extension WHERE extname = 'pg_trgm'`)).rows,
+    ).toHaveLength(1);
+    expect(
+      (await pools.discovery.query(`SELECT title FROM discovery_search_items WHERE catalog_item_id = 'cat_upgrade'`))
+        .rows,
+    ).toEqual([{ title: "Upgrade Card" }]);
+    expect((await pools.discovery.query(`SELECT * FROM discovery_search_item_identity_terms`)).rows).toEqual([]);
+  });
+
+  it("identity terms replace and clear through paired shadow cutover", async () => {
+    const aliases = { fr: [{ aliasText: "Dracaufeu", aliasType: "official-equivalent" }] };
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_catalog_items
+      (catalog_item_id, title, status, resolved_aliases, category_ids) VALUES
+      ('cat_revised', 'Old Name', 'active', $1, '["duplicate", "duplicate"]'),
+      ('cat_withdrawn', 'Withdrawn Card', 'active', $1, '[]'),
+      ('cat_archived', 'Archived Card', 'active', '{}', '[]'),
+      ('cat_stable', 'Stable Card', 'active', '{}', '[]'),
+      ('cat_empty', '東京', 'active', '{}', '[]'),
+      ('cat_retired', 'Retired Card', 'retired', '{}', '[]')`,
+      [JSON.stringify(aliases)],
+    );
+    await pools.discovery.query(`INSERT INTO discovery_search_product_contents
+      (line_id, container_catalog_item_id, contained_catalog_item_id, content_type_id, content_search_text)
+      VALUES ('population-content', 'cat_stable', 'cat_revised', 'content-card', 'stale contents')`);
+    await rebuildSearchIndex();
+    const vector = `[1,${Array.from({ length: 1_023 }, () => "0").join(",")}]`;
+    await pools.discovery.query(
+      `UPDATE discovery_search_items SET search_embedding = $1::halfvec(1024),
+      embedding_model = 'fixture', embedding_updated_at = '2026-10-08T01:00:00Z'
+      WHERE catalog_item_id IN ('cat_stable', 'cat_revised')`,
+      [vector],
+    );
+    await pools.discovery.query(`UPDATE discovery_search_catalog_items SET title = 'Revised Name',
+      resolved_aliases = '{}', category_ids = '["duplicate", "duplicate"]', updated_at = '2026-10-08T02:00:00Z'
+      WHERE catalog_item_id = 'cat_revised'`);
+    await pools.discovery.query(`UPDATE discovery_search_catalog_items SET resolved_aliases = '{}'
+      WHERE catalog_item_id = 'cat_withdrawn'`);
+    await pools.discovery.query(`UPDATE discovery_search_catalog_items SET status = 'archived'
+      WHERE catalog_item_id = 'cat_archived'`);
+    await pools.discovery.query(`INSERT INTO discovery_search_item_identity_terms VALUES ('cat_missing', 'orphan')`);
+    const snapshot = async () => {
+      const result = {};
+      for (const table of [
+        "discovery_search_items",
+        "discovery_search_item_identity_terms",
+        "discovery_search_catalog_items",
+        "discovery_search_product_contents",
+        "event_subscription_checkpoints",
+      ]) {
+        Object.assign(result, {
+          [table]: (
+            await pools.discovery.query(
+              `SELECT to_jsonb(row) AS value FROM ${table} AS row ORDER BY to_jsonb(row)::text`,
+            )
+          ).rows,
+        });
+      }
+      return result;
+    };
+    const before = await snapshot();
+    const controlPlane = {
+      ...createPostgresPlatformControlPlane(pools.discovery),
+      acquireLease: async (input: { leaseName: string; ownerId: string }) => ({
+        ...input,
+        fencingToken: "1",
+        expiresAt: "2099-01-01T00:00:00Z",
+      }),
+      renewLease: async () => true,
+      releaseLease: async () => undefined,
+    };
+    const input = {
+      pool: pools.discovery,
+      controlPlane,
+      ownerId: "synthetic-host",
+      environment: "local" as const,
+      writerSha: "a".repeat(40),
+      authorization: "hosted-synthetic-test",
+    };
+    await expect(
+      populateDiscoverySearchIdentityTerms({
+        ...input,
+        rebuildOptions: {
+          onShadowReady: async () => {
+            throw new Error("interrupt before paired cutover");
+          },
+        },
+      }),
+    ).rejects.toThrow("interrupt before paired cutover");
+    expect(await snapshot()).toEqual(before);
+    await expect(
+      populateDiscoverySearchIdentityTerms({
+        ...input,
+        controlPlane: { ...controlPlane, renewLease: async () => false },
+      }),
+    ).rejects.toThrow("before population commit");
+    expect(await snapshot()).toEqual(before);
+    const receipt = await populateDiscoverySearchIdentityTerms(input);
+    expect(receipt.checkpointsAfter).toEqual(receipt.checkpointsBefore);
+    expect(receipt.verification.setEquality).toBe(true);
+    const terms = await pools.discovery.query(
+      `SELECT catalog_item_id, term FROM discovery_search_item_identity_terms ORDER BY catalog_item_id, term`,
+    );
+    expect(terms.rows).toEqual([
+      { catalog_item_id: "cat_revised", term: "name" },
+      { catalog_item_id: "cat_revised", term: "revised" },
+      { catalog_item_id: "cat_stable", term: "card" },
+      { catalog_item_id: "cat_stable", term: "stable" },
+      { catalog_item_id: "cat_withdrawn", term: "card" },
+      { catalog_item_id: "cat_withdrawn", term: "withdrawn" },
+    ]);
+    expect(
+      (
+        await pools.discovery.query(
+          `SELECT search_embedding::text AS vector FROM discovery_search_items WHERE catalog_item_id = 'cat_stable'`,
+        )
+      ).rows,
+    ).toEqual([{ vector }]);
+    expect(
+      (
+        await pools.discovery.query(
+          `SELECT search_embedding FROM discovery_search_items WHERE catalog_item_id = 'cat_revised'`,
+        )
+      ).rows,
+    ).toEqual([{ search_embedding: null }]);
+    expect(
+      (
+        await pools.discovery.query(
+          `SELECT catalog_item_id FROM discovery_search_items WHERE catalog_item_id = 'cat_archived'`,
+        )
+      ).rows,
+    ).toEqual([]);
+    const pairedIndexes = await pools.discovery.query<{
+      indexdef: string;
+    }>(`SELECT pg_get_indexdef(indexrelid) AS indexdef FROM pg_index
+      WHERE indrelid = 'discovery_search_item_identity_terms'::regclass AND indisvalid`);
+    expect(pairedIndexes.rows.map((row) => row.indexdef).join("\n")).toContain("USING gin (term gin_trgm_ops)");
+    await rebuildSearchIndex();
+    expect(await verifyDiscoverySearchIdentityTerms(pools.discovery)).toEqual(receipt.verification);
+  });
+
+  it("a rejected stale refresh cannot restore withdrawn identity terms", async () => {
+    await pools.discovery
+      .query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at, blueprint_id, resolved_aliases)
+      VALUES ('cat_term_race', 'Original Card', 'active', '2026-10-08T01:00:00Z', 'bpr_race',
+        '{"fr":[{"aliasText":"Dracaufeu","aliasType":"official-equivalent"}]}')`);
+    await rebuildSearchIndex();
+    let staleRead = false;
+    let unblock!: () => void;
+    let observed!: () => void;
+    const read = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const resume = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const stale = withPgTransaction(pools.discovery, async (client) => {
+      const handlers = buildDiscoverySearchItemProjectionHandlers({
+        query: async <Row>(sql: string, values?: readonly unknown[]) => {
+          const result = await client.query<Row>(sql, values);
+          if (!staleRead && sql.includes("SELECT * FROM discovery_search_catalog_items")) {
+            staleRead = true;
+            observed();
+            await resume;
+          }
+          return result;
+        },
+      });
+      await handlers["catalog.blueprint.revised"]!(
+        projectionEvent(
+          "catalog.blueprint.revised",
+          {
+            name: l10n("Race Blueprint"),
+          },
+          "catalog.blueprint-bpr_race",
+          1,
+        ),
+      );
+    });
+    await read;
+    try {
+      await withPgTransaction(pools.discovery, async (client) => {
+        await client.query(`UPDATE discovery_search_catalog_items SET title = 'New Identity', resolved_aliases = '{}',
+          updated_at = '2026-10-08T02:00:00Z' WHERE catalog_item_id = 'cat_term_race'`);
+        await buildDiscoverySearchItemProjectionHandlers(client)["catalog.catalog-item.aliases-resolved"]!(
+          projectionEvent(
+            "catalog.catalog-item.aliases-resolved",
+            { catalogItemId: "cat_term_race", aliasLanguageCode: "fr", aliases: [] },
+            "catalog.item-cat_term_race",
+            2,
+          ),
+        );
+      });
+    } finally {
+      unblock();
+    }
+    await stale;
+    expect(
+      (await pools.discovery.query(`SELECT title FROM discovery_search_items WHERE catalog_item_id = 'cat_term_race'`))
+        .rows,
+    ).toEqual([{ title: "New Identity" }]);
+    expect(
+      (
+        await pools.discovery.query(
+          `SELECT term FROM discovery_search_item_identity_terms WHERE catalog_item_id = 'cat_term_race' ORDER BY term`,
+        )
+      ).rows,
+    ).toEqual([{ term: "identity" }, { term: "new" }]);
+    await verifyDiscoverySearchIdentityTerms(pools.discovery);
+  });
+
   it("keeps serving the active Search Index while a complete shadow waits for cutover", async () => {
     await pools.discovery.query(
       `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status, updated_at)
@@ -2273,6 +2502,27 @@ describe("marketplace search", () => {
       await drainContextProcesses({ subscriptionRunners });
       expect(await searchItemIds("Cacnea")).toContain(aliasSeed.japaneseItemId);
 
+      const storedTerms = async () =>
+        (
+          await pools.discovery.query<{ term: string }>(
+            `SELECT term FROM discovery_search_item_identity_terms WHERE catalog_item_id = $1 ORDER BY term`,
+            [aliasSeed.japaneseItemId],
+          )
+        ).rows.map((row) => row.term);
+      expect(await storedTerms()).toEqual(["base", "cacnea"]);
+      const priorAliasSetting = process.env.DISCOVERY_ALIAS_SEARCH;
+      process.env.DISCOVERY_ALIAS_SEARCH = "disabled";
+      try {
+        await rebuildSearchIndex();
+        expect(await storedTerms()).toEqual(["base"]);
+        await verifyDiscoverySearchIdentityTerms(pools.discovery);
+      } finally {
+        if (priorAliasSetting === undefined) delete process.env.DISCOVERY_ALIAS_SEARCH;
+        else process.env.DISCOVERY_ALIAS_SEARCH = priorAliasSetting;
+      }
+      await rebuildSearchIndex();
+      expect(await storedTerms()).toEqual(["base", "cacnea"]);
+
       // Retraction: empty resolved fact for the same (item, language).
       await recordJapaneseItemAliases([], "resolved-cacnea-empty");
       await drainContextProcesses({ subscriptionRunners });
@@ -2285,6 +2535,8 @@ describe("marketplace search", () => {
       // Negative projection on rebuild: rebuilding the index keeps the alias gone.
       await rebuildSearchIndex();
       expect(await searchItemIds("Cacnea")).not.toContain(aliasSeed.japaneseItemId);
+      expect(await storedTerms()).toEqual(["base"]);
+      await verifyDiscoverySearchIdentityTerms(pools.discovery);
 
       const aliasRow = await pools.discovery.query<{ resolved_aliases: unknown }>(
         `SELECT resolved_aliases FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,

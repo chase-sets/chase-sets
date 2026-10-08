@@ -1,5 +1,5 @@
 import { channelExecutionModes, type ChannelProviderRegistry } from "../../publication-port/domain/contracts";
-import type { ConnectionExecutionAdmission, OutboundConnection } from "./contracts";
+import { OutboundSyncError, type ConnectionExecutionAdmission, type OutboundConnection } from "./contracts";
 
 export function resolveConnectionExecutionAdmission(
   registry: ChannelProviderRegistry,
@@ -17,4 +17,22 @@ export function resolveConnectionExecutionAdmission(
     return { kind: "inline", providerIdentity: resolved.identity, publication };
   }
   return { kind: "indeterminate" };
+}
+
+export function assertAdditionalOutboundHold(value: unknown): asserts value is Readonly<{
+  held: boolean;
+  sources: readonly ("health" | "operator-kill")[];
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new OutboundSyncError("invalid-input");
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) => key !== "held" && key !== "sources") ||
+    typeof record.held !== "boolean" ||
+    !Array.isArray(record.sources) ||
+    record.sources.some((source) => source !== "health" && source !== "operator-kill") ||
+    new Set(record.sources).size !== record.sources.length ||
+    record.held !== record.sources.length > 0
+  ) {
+    throw new OutboundSyncError("invalid-input", "Additional outbound hold result is invalid.");
+  }
 }

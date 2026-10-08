@@ -84,6 +84,15 @@ producer's own reservation transaction and canonical health hold. Report preserv
 the producer outcome and run-settlement contracts. Accepted report and ingest
 replays return the same exact `{}` bytes without a duplicate signal.
 
+A claim body of `{}` is incapable and only ever receives listing operations. A
+claim declaring `{"capabilities":["tcgplayer-order-pull"]}` may also receive the
+connection's single Channel Order Pull, which Channels background schedules on
+its persisted cadence boundary (never the claim endpoint). The pull reports a
+closed `order-pull-complete`, `order-pull-unknown` or `abandoned` outcome fenced
+on attempt, generation, pull identity and payload digest; it never writes listing
+lanes or Link state. Scheduling stays denied until #8804/#8838 supply governed
+order-pull authority.
+
 Inbound `order` envelopes contain versioned opaque records; `export` envelopes
 contain a recursively validated derived live snapshot, never raw CSV. The tuple
 of connection, kind and external reference is the retained non-PII inbox identity.

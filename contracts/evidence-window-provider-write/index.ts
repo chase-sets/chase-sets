@@ -132,8 +132,11 @@ export function providerWriteIdempotencyKey(key: ProviderWriteKey): string {
 }
 
 export class ProviderWriteRefused extends Error {
-  constructor(readonly code: ProviderWriteRefusalCode | "stale-write-rejected") {
+  readonly code: ProviderWriteRefusalCode | "stale-write-rejected";
+
+  constructor(code: ProviderWriteRefusalCode | "stale-write-rejected") {
     super(`evidence-window-provider-write:${code}`);
+    this.code = code;
     this.name = "ProviderWriteRefused";
   }
 }

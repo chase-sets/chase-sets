@@ -19,6 +19,7 @@ describe("channel-publication-port-scope-fence", () => {
       "listing-composition",
       "tcgplayer-csv",
       "tcgplayer-orders",
+      "order-fulfillment-observations",
       "outbound-sync",
       "connection-health",
       "connection-attention",

@@ -38,6 +38,32 @@ An **Operation Acknowledgement** reports the complete producer reservation outco
 vector with unchanged attempt, generation and desired-state sequence. Only the
 producer settles it; an identical replay returns the same empty success response.
 
+## Channel Order Fulfillment Observation Reference
+
+A **Channel Order Fulfillment Observation Reference** identifies one observed
+revision of an external order. `composeChannelOrderFulfillmentReference` is the
+single browser/server export from `@chase-sets/channels/client` and
+`@chase-sets/channels/server`. It consumes two validated nonempty strings and
+returns `tcf.v1:` followed by lowercase SHA-256 hex of the UTF-8 compact JSON tuple
+`["channel-order-fulfillment/v1", externalOrderReference, providerObservedRevisionOrDigest]`.
+It preserves case, whitespace, Unicode and tuple order; it does not normalize
+observations or qualify provider revisions.
+
+The #7795 interpreter and #8613 connector producer must import this composer,
+including their fixtures and seed paths, when they land. #7795 owns the digest of
+the bounded, closed normalized observation when no qualified provider revision
+exists: status, content and full/status-only variant participate; pull identifiers
+and volatile capture times do not. Equal order/content across pulls therefore
+keeps the reference; changed status/content/variant changes it. Neither a raw JSON
+tuple, a bare order number nor a pull-qualified sale reference is this wire spelling.
+
+The inbox identity remains `(connectionId, inboundKind, externalReference)`;
+the reference does not replace connection isolation or kind separation. There is
+no legacy spelling fallback. Actual legacy fulfillment admissions require a
+bounded migration before introducing a writer. Manual-kind ingress (#7031) is
+not a fulfillment consumer. This encoding changes no sale identity, observation
+schema, join, status, currency or retention contract.
+
 ## BYO Channel
 
 A **BYO Channel** is an account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.
@@ -180,7 +206,15 @@ Both require Channel Action attention. Fresh age never proves snapshot completen
 
 ## Channel Outbound Operation
 
-A **Channel Outbound Operation** is one durable publish, update, or delist instruction for a Channel Connection and Channel Listing Link.
+A **Channel Outbound Operation** is one durable instruction Channels issues against a Channel Connection's provider. A listing-subject operation is a publish, update, or delist for one Channel Listing Link and is the only kind that enters Outbound Operation Lanes, listing supersession and Link writers; a connection-subject operation (below) targets the Channel Connection itself.
+
+## Connection-Subject Channel Outbound Operation
+
+A **connection-subject Channel Outbound Operation** is a Channel Outbound Operation whose subject is the Channel Connection itself, not a Channel Listing Link. It carries no listing identity, revision or desired-state sequence, never enters an Outbound Operation Lane, listing supersession or Link writer, and shares the claimed reservation, lease, attempt, generation and settlement receipt fences. Contract: `features/outbound-sync/domain/contracts.ts`.
+
+## Channel Order Pull
+
+A **Channel Order Pull** (`tcgplayer-order-pull`) is the connection-subject operation that asks a capable Connector to read the TCGplayer Ready to Ship set once under the `ready-to-ship-intake/v1` law. Channels background schedules at most one live pull per due, active, paired connection on its persisted cadence boundary, never before both the stored due time and the last scheduled boundary plus the effective poll window; it binds the pull identity, policy revision, qualified selector, `N_rts_max`/`F_max` bounds and a pre-accounted worst-case budget that fits the unchanged deadline and lease. Its closed outcomes are `order-pull-complete` and `order-pull-unknown`; neither is server sale or fulfillment acceptance. Contract: `features/outbound-sync/domain/order-pull.ts`.
 
 ## Outbound Operation Lane
 

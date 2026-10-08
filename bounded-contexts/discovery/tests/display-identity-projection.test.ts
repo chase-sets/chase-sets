@@ -16,6 +16,7 @@ class DiscoveryProjectionDb implements PgTransactionalPool {
   public readonly searchDisplayBadges: unknown[][] = [];
   public readonly detailDisplayBadges: unknown[][] = [];
   public readonly queries: string[] = [];
+  public readonly identityTerms = new Map<string, string[]>();
 
   constructor() {
     this.searchCatalogItems.set("cat_1", catalogItemRow("old-title-cat-1"));
@@ -34,6 +35,12 @@ class DiscoveryProjectionDb implements PgTransactionalPool {
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
     this.queries.push(sql);
+
+    if (sql.includes("discovery_search_item_identity_terms")) {
+      if (sql.startsWith("DELETE FROM")) this.identityTerms.delete(String(values[0]));
+      if (sql.startsWith("INSERT INTO")) this.identityTerms.set(String(values[0]), values[1] as string[]);
+      return { rows: [], rowCount: 1 };
+    }
 
     if (
       sql === "BEGIN" ||
@@ -347,6 +354,7 @@ describe("Discovery display identity projection", () => {
     });
     expect(db.redirectWrites[0]?.slice(0, 3)).toEqual(["item", "old-title-cat-1", "cat_1"]);
     expect(db.derivedWrites).toContain("search");
+    expect(db.identityTerms.get("cat_1")).toEqual(["base", "charizard", "holo", "rare", "set"]);
     expect(db.searchDisplayBadges.at(-1)).toEqual([
       { kind: "set-code", label: "BS" },
       { kind: "number", label: "4/102" },

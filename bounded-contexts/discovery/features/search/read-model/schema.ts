@@ -1,6 +1,13 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const discoverySearchSchemaSql = `CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE TABLE IF NOT EXISTS discovery_search_item_identity_terms (
+  catalog_item_id text NOT NULL,
+  term text NOT NULL,
+  PRIMARY KEY (catalog_item_id, term)
+);
 
 CREATE TABLE IF NOT EXISTS discovery_search_catalog_items (
   catalog_item_id text PRIMARY KEY,
@@ -265,6 +272,20 @@ CREATE INDEX IF NOT EXISTS discovery_search_product_contents_search_text_simple_
   ON discovery_search_product_contents USING gin (search_text_simple);`;
 
 export const discoverySearchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261008_discovery_search_identity_terms",
+    description: "Install the identity-term vocabulary and trigram index before enabling correction readers.",
+    statements: [
+      `CREATE EXTENSION IF NOT EXISTS pg_trgm;`,
+      `CREATE TABLE IF NOT EXISTS discovery_search_item_identity_terms (
+  catalog_item_id text NOT NULL,
+  term text NOT NULL,
+  PRIMARY KEY (catalog_item_id, term)
+);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_item_identity_terms_trgm_idx
+  ON discovery_search_item_identity_terms USING gin (term gin_trgm_ops);`,
+    ],
+  },
   {
     migrationId: "20260907_discovery_search_price_currency",
     description: "Retain the authoritative currency for single-currency search price summaries.",

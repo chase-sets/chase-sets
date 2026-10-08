@@ -65,6 +65,12 @@ describe("channels-services-guard-negative", () => {
         outboundSync: { recoverExpiredClaimedOperations: async () => 0 },
       }),
     ).toBe(false);
+    expect(
+      isChannelsServices({
+        ...candidate,
+        outboundSync: { recoverExpiredClaimedOperations: async () => 0, processNextInlineOperation: async () => 0 },
+      }),
+    ).toBe(false);
   });
 
   it.each(["submitObservation", "readConnectionHealth", "listOpenReasonGenerations"] as const)(
@@ -91,6 +97,7 @@ function validCandidate() {
     outboundSync: {
       recoverExpiredClaimedOperations: async () => 0,
       processNextInlineOperation: async () => 0,
+      scheduleDueOrderPulls: async () => 0,
     },
     reconciliation: {
       reconcileDueConnections: async () => [],

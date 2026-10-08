@@ -1,3 +1,4 @@
+export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export {
   composeTcgplayerOrderInbound,
