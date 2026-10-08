@@ -308,9 +308,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       await serial(async () => {
         const profile = await current(pending.fence);
         if (!profile) return;
-        await advance(profile, "unpaired");
-        await ports.session.remove([pairingSessionKey]);
-        await ports.alarms.clear(workAlarm);
+        await cleanup(profile, "unpaired", "unpair");
         await display();
       });
     }
@@ -354,16 +352,15 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         await display();
         return;
       }
-      let profile = (await read())!;
+      const profile = (await read())!;
       if (!profile) {
         await display();
         return;
       }
       if (profile.state === "pairing-pending") {
-        await advance(profile, "unpaired");
-        await ports.session.remove([pairingSessionKey]);
-        await ports.alarms.clear(workAlarm);
-        profile = (await read())!;
+        await cleanup(profile, "unpaired", "boot");
+        await display();
+        return;
       }
       if (profile.state === "cleanup-pending") await cleanup(profile, "unpaired", "boot");
       else {

@@ -6,6 +6,90 @@ import { pairingSessionKey, pollWindow } from "../domain/connector-pairing";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "../domain/identity";
 
 describe("extension-security-day-after", () => {
+  for (const deletion of ["session", "credential"] as const) {
+    it(`denied pairing retries failed ${deletion} deletion and sweep before becoming unpaired`, async () => {
+      const f = backgroundFixture("unpaired");
+      const remove = vi.mocked(deletion === "session" ? f.ports.session.remove : f.ports.storage.remove);
+      const healthyRemove = remove.getMockImplementation()!;
+      vi.mocked(f.ports.identity.launchWebAuthFlow).mockImplementation(async () => {
+        remove.mockRejectedValue(new Error("deletion failed"));
+        throw new Error("authorization denied");
+      });
+      const result = await f.command("start-pairing").catch((error: unknown) => error);
+      expect((await f.background.status()).state).toBe("cleanup-pending");
+      expect(result).not.toBeInstanceOf(Error);
+      expect(f.session.rows()[pairingSessionKey]).toBeDefined();
+      expect(f.fake.rows()[extensionCredentialKey]).toBe(deletion === "credential" ? null : undefined);
+      expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: Date.parse(now) + 30_000 });
+      expect(f.alarms.has("connector-work")).toBe(false);
+      expect(f.alarms.has("connector-revocation-retry")).toBe(false);
+      expect(f.ports.sweep.run).not.toHaveBeenCalled();
+      await f.alarm("connector-work");
+      await f.alarm("connector-revocation-retry");
+      await f.alarm("connector-retention-deadline");
+      expect((await f.background.status()).state).toBe("cleanup-pending");
+      expect(f.session.rows()[pairingSessionKey]).toBeDefined();
+      expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: Date.parse(now) + 30_000 });
+
+      remove.mockImplementation(healthyRemove);
+      vi.mocked(f.ports.sweep.run).mockResolvedValueOnce({ ok: false, nextDeadline: null });
+      await f.startup();
+      expect(f.session.rows()[pairingSessionKey]).toBeUndefined();
+      expect(f.fake.rows()[extensionCredentialKey]).toBeUndefined();
+      expect((await f.background.status()).state).toBe("cleanup-pending");
+      expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: Date.parse(now) + 30_000 });
+      expect(f.ports.sweep.run).toHaveBeenCalledExactlyOnceWith({ reason: "boot", deleteAll: true });
+      await f.alarm("connector-retention-deadline");
+      expect((await f.background.status()).state).toBe("unpaired");
+      expect(f.ports.sweep.run).toHaveBeenLastCalledWith({ reason: "retention", deleteAll: true });
+      expect(f.alarms.size).toBe(0);
+      expect(f.ports.transport.request).not.toHaveBeenCalled();
+      expect(f.ports.transport.coordinate).not.toHaveBeenCalled();
+    });
+
+    it.each(["install", "update", "startup"] as const)(
+      `%s retries pending-pairing ${deletion} deletion and fences the stale callback`,
+      async (entry) => {
+        const f = backgroundFixture("unpaired");
+        const callback = deferred<string>();
+        let state = "";
+        vi.mocked(f.ports.identity.launchWebAuthFlow).mockImplementation(({ url }) => {
+          state = new URL(url).searchParams.get("state")!;
+          return callback.promise;
+        });
+        const pairing = f.command("start-pairing");
+        await vi.waitFor(() => expect(f.ports.identity.launchWebAuthFlow).toHaveBeenCalledTimes(1));
+        const remove = vi.mocked(deletion === "session" ? f.ports.session.remove : f.ports.storage.remove);
+        const healthyRemove = remove.getMockImplementation()!;
+        remove.mockRejectedValue(new Error("deletion failed"));
+        const boot = () => (entry === "startup" ? f.startup() : f.installed(entry));
+        const result = await boot().catch((error: unknown) => error);
+        expect((await f.background.status()).state).toBe("cleanup-pending");
+        expect(result).not.toBeInstanceOf(Error);
+        expect(f.session.rows()[pairingSessionKey]).toBeDefined();
+        expect(f.fake.rows()[extensionCredentialKey]).toBe(deletion === "credential" ? null : undefined);
+        expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: Date.parse(now) + 30_000 });
+        expect(f.alarms.has("connector-work")).toBe(false);
+        expect(f.alarms.has("connector-revocation-retry")).toBe(false);
+        expect(f.ports.sweep.run).not.toHaveBeenCalled();
+
+        remove.mockImplementation(healthyRemove);
+        await boot();
+        expect(f.session.rows()[pairingSessionKey]).toBeUndefined();
+        expect(f.fake.rows()[extensionCredentialKey]).toBeUndefined();
+        expect((await f.background.status()).state).toBe("unpaired");
+        expect(f.ports.sweep.run).toHaveBeenCalledExactlyOnceWith({ reason: "boot", deleteAll: true });
+        const recovered = f.fake.rows();
+        callback.resolve(`${TCGPLAYER_CONNECTOR_REDIRECT_URI}?code=late&state=${state}`);
+        await pairing;
+        expect(f.fake.rows()).toEqual(recovered);
+        expect(f.session.rows()[pairingSessionKey]).toBeUndefined();
+        expect(f.alarms.size).toBe(0);
+        expect(f.ports.transport.request).not.toHaveBeenCalled();
+        expect(f.ports.transport.coordinate).not.toHaveBeenCalled();
+      },
+    );
+  }
   it("pairing session-write failure ends pairing without opening authorization", async () => {
     const f = backgroundFixture("unpaired");
     vi.mocked(f.session.ports.local.set).mockRejectedValueOnce(new Error("session write failed"));
