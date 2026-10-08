@@ -296,7 +296,7 @@ describeDb("canonical opportunity publication persistence", () => {
         ],
         [
           "stale revision",
-          "UPDATE event_projection_group_revisions SET projection_revision=0 WHERE projection_name=$1",
+          "UPDATE event_projection_group_revisions SET projection_revision=CASE WHEN projection_revision=2 THEN 1 ELSE 2 END WHERE projection_name=$1",
         ],
       ] as const;
       for (const [defect, sql] of controls) {
