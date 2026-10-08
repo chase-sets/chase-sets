@@ -105,6 +105,7 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
     hybridValue: "false",
     queryCacheMaxEntries: 1,
     queryCacheTtlMs: 1_000,
+    queryTimeoutMs: 800,
   },
 };
 

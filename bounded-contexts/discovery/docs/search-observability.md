@@ -8,6 +8,14 @@ Discovery owns the Search Query vocabulary and Result Set click event. The platf
 
 The signal has one record per invocation. Exported metrics use only bounded Filter State, Sort Order, cursor state, zero-result, retrieval-mode, outcome, and timing-phase labels. Query hashes, Result Set keys, counts, totals, and raw query text are not metric labels.
 
+### Query embedding observations
+
+The invocation signal adds `queryEmbeddingOutcome` and `queryEmbeddingWaiterDurationMs`, including failure/finally paths. Outcomes are `cache-hit` (warm reuse without I/O), `joined` (successful in-flight follower), `loaded` (successful owner), `timeout` (deadline or cancellation after waiting began), `error` (provider rejection or invalid vector), and `not-attempted` (ineligible, disabled, or pre-aborted). Failed followers report timeout/error, never joined or loaded. Skips and pre-aborts have zero waiter duration and no load observation.
+
+`chase_sets_discovery_query_embedding_waiter_duration_ms` measures each attempted wait with only its outcome label. `chase_sets_discovery_query_embedding_load_duration_ms` measures shared provider work once, via the owner's independent completion callback, with only loaded/timeout/error labels. An owner disconnect can emit the invocation signal before its load observation; joins and warm hits never emit load duration. Real-model cache-miss latency evidence must use the load histogram, not follower latency. Search counters expose the bounded `query_embedding_outcome` label, including not-attempted.
+
+Both exports are best-effort. Embedding observations include no raw query, item/account ID, key or hash. No additional query logging or retention is introduced.
+
 ## Result Set click
 
 Selecting a Search Result card dispatches `search_result_selected` through `chase-sets:item-detail-rail-analytics`. Its payload includes the one-based click position, query hash, opaque Result Set key, and `surface=search_results`. The marketplace bridge forwards the same allowlisted payload to `/analytics/item-detail-rail`.
