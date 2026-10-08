@@ -1,4 +1,9 @@
-import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  withPgTransaction,
+  type PgQueryable,
+  type PgQueryResult,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease } from "@chase-sets/platform-runtime/control-plane";
 import { createProjectionGroupRunnerLeaseName, tryRunWithRenewedLease } from "@chase-sets/platform-runtime/worker";
 import { aliasSearchContributionEnabled } from "../../features/search/domain/alias-rollout";
@@ -12,19 +17,21 @@ const projectionName = "discovery-search-item-projection";
 const leaseName = createProjectionGroupRunnerLeaseName({ targetContextName: "discovery", projectionName });
 const ttlMs = 30_000;
 
+type IdentityTermVerificationRow = {
+  catalog_item_id: string;
+  title: string;
+  subtitle: string | null;
+  status: string;
+  resolved_aliases: unknown;
+  terms: string[];
+};
+
 export async function verifyDiscoverySearchIdentityTerms(db: PgQueryable) {
   let after: string | null = null;
   let items = 0;
   let terms = 0;
   for (;;) {
-    const page = await db.query<{
-      catalog_item_id: string;
-      title: string;
-      subtitle: string | null;
-      status: string;
-      resolved_aliases: unknown;
-      terms: string[];
-    }>(
+    const page: PgQueryResult<IdentityTermVerificationRow> = await db.query<IdentityTermVerificationRow>(
       `SELECT item.catalog_item_id, item.title, item.subtitle, item.status, source.resolved_aliases,
          ARRAY(SELECT term FROM discovery_search_item_identity_terms AS vocabulary
            WHERE vocabulary.catalog_item_id = item.catalog_item_id ORDER BY term) AS terms
