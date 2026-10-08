@@ -404,6 +404,63 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  capture-hermetic-chromium:
+    name: Capture Hermetic Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.e2e_tests_required == 'true' && contains(fromJson(needs['change-scope'].outputs.e2e_suites_json), 'tcgplayer_connector_extension')
+    env:
+      AC4_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
+    steps:
+      - name: Require explicit AC4 source
+        shell: bash
+        run: test -n "$AC4_SOURCE_SHA"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Prove three synthetic Chromium capture cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AC4_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"
+          test "${CHASE_SETS_LANE_MODE+x}" != x
+          printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
+            "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
+          pnpm exec playwright install --with-deps chromium
+          CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
+            pnpm --filter @chase-sets/channels run test:unit \
+            features/connector-client/integrations/order-authority-probe/capture.test.ts \
+            -t 'host-attributed hermetic Chromium' \
+            --maxWorkers=1 --no-file-parallelism \
+            --reporter=verbose --reporter=json \
+            --outputFile.json="$RUNNER_TEMP/ac4-chromium.json"
+          node --input-type=module -e '
+          import fs from "node:fs";
+          const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const a = r.testResults.flatMap(x => x.assertionResults);
+          const selected = a.filter(x => x.fullName.includes("host-attributed hermetic Chromium"));
+          const names = ["qualified", "canceled", "expired"];
+          if (r.success !== true || selected.length !== 3 ||
+              selected.some(x => x.status !== "passed") ||
+              names.some(n => selected.filter(x => x.fullName.includes("terminal " + n + " with synthetic install/removal")).length !== 1) ||
+              a.some(x => x.status === "passed" && !selected.includes(x))) {
+            throw new Error("AC4 requires exactly the three named Chromium cases to pass");
+          }
+          console.log("AC4: qualified/canceled/expired passed; synthetic only");
+          ' "$RUNNER_TEMP/ac4-chromium.json"
+
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
     runs-on: ubuntu-latest
@@ -1636,6 +1693,7 @@ jobs:
       - unit-tests
       - db-tests
       - e2e-tests
+      - capture-hermetic-chromium
       - build
       - docker-image
       - workflow-lint
@@ -1647,6 +1705,9 @@ jobs:
       - compose-preview-smoke
     steps:
       - name: Verify required jobs
+        env:
+          AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
+          AC4_E2E_SUITES_JSON: ${{ needs['change-scope'].outputs.e2e_suites_json }}
         run: |
           set -euo pipefail
 
@@ -1681,6 +1742,16 @@ jobs:
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
+          capture_required="$(node --input-type=module -e '
+          const required = process.env.AC4_E2E_REQUIRED;
+          const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);
+          if (!["true", "false"].includes(required) || !Array.isArray(suites) ||
+              suites.some(suite => typeof suite !== "string" || suite.length === 0)) {
+            throw new Error("Capture Hermetic Chromium has unknown or missing selection");
+          }
+          console.log(required === "true" && suites.includes("tcgplayer_connector_extension"));
+          ')"
+          require_job "Capture Hermetic Chromium" "${{ needs['capture-hermetic-chromium'].result }}" "$capture_required"
           require_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build_required }}"
           require_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image_required }}"
           require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint_required }}"
