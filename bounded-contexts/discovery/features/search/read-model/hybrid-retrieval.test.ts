@@ -54,9 +54,9 @@ describe("Discovery hybrid retrieval", () => {
     expect(searchSemantic).not.toHaveBeenCalled();
   });
 
-  it.each([[], [0, 0], [Number.NaN, 1], [Infinity, 1], [1]])(
+  it.each([[], [0, 0], [Number.NaN, 1], [Infinity, 1], [1]].map((embedding) => ({ embedding })))(
     "invalid vectors fail open and evict: %j",
-    async (embedding) => {
+    async ({ embedding }) => {
       const provider = {
         model: "fake",
         dimensions: 2,

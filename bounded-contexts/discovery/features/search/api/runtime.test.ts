@@ -116,8 +116,7 @@ describe("Discovery search runtime telemetry", () => {
         durationMs: outcome === "timeout" ? 800 : 500,
       });
 
-      const failedDeps = deps();
-      failedDeps.db.query = vi.fn().mockRejectedValue(new Error("SQL failed"));
+      const failedDeps = { ...deps(), db: { query: vi.fn().mockRejectedValue(new Error("SQL failed")) } };
       const failingRuntime = createDiscoveryItemSearchRuntime(failedDeps, { recordSearchQuery });
       await expect(failingRuntime.searchItems({ search: "query" })).rejects.toThrow("SQL failed");
       expect(recordSearchQuery).toHaveBeenLastCalledWith(
