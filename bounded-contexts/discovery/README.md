@@ -21,9 +21,12 @@ Header suggestions use bounded prefix matching against Discovery's existing `sea
 projected aliases used by full search also participate in typeahead. The final normalized token is matched as a prefix;
 queries and result counts are capped, and only active items are eligible.
 
-The slice deliberately does not enable `pg_trgm`: fuzzy spelling recovery would add an extension, a write-maintained
-title index, and a second ranking policy without acceptance evidence that prefix and alias matching are insufficient.
-That option remains available if observed zero-result telemetry demonstrates the need.
+Discovery installs `pg_trgm` and maintains `discovery_search_item_identity_terms`, indexed by
+`GIN (term gin_trgm_ops)`. The vocabulary contains distinct normalized Latin-alphabetic tokens of at least three
+characters from the served title, subtitle and resolved aliases. It uses the existing Latin diacritic fold,
+lowercase and punctuation-to-space normalization. Fields, descriptions, categories and Product Contents do not
+contribute. Alias terms honor `DISCOVERY_ALIAS_SEARCH` and language-specific retractions. Inactive items have no
+terms. This is projection infrastructure only; #9105 owns the conservative correction reader and policy.
 
 Latin diacritics are folded in application code before both weighted vectors and every lexical query are built, so
 accented and unaccented spellings match symmetrically without a database extension. The fold is limited to Latin
@@ -105,6 +108,31 @@ Projection Operations invokes the Search Index rebuild through Discovery's proje
 builds a complete shadow table while queries continue reading the current Search Index, preserves Search Embeddings
 whose deterministic text hash is unchanged, and atomically swaps the shadow into service. The Catalog subscription then
 replays through the same incremental handlers, so rebuild and incremental projection converge.
+
+Identity terms are replaced only when the served-row freshness guard accepts the refresh. Rebuild creates both item
+and term shadows with their indexes and cuts them over in the same transaction, retaining the existing final market
+refresh and same-hash vector preservation.
+
+For the initial population, the host must first upgrade **all writers**, then run
+`scripts/discovery-search-identity-terms-populate.mjs` in staging and then production with the deployed app-role
+`DATABASE_URL_DISCOVERY`, `PLATFORM_CONTROL_DATABASE_URL` and `DISCOVERY_ALIAS_SEARCH` configuration:
+
+```sh
+node scripts/discovery-search-identity-terms-populate.mjs --environment=staging --writer-sha=<deployed-sha> --writers-upgraded --alias-search=enabled --authorization=<host-run-or-retry-reference>
+```
+
+Use `--alias-search=disabled` when the deployed kill-switch is closed. The command acquires the existing
+`projection-group:discovery.discovery-search-item-projection` writer lease through `tryRunWithRenewedLease`;
+the Discovery population adapter owns the transaction and checks lease loss around each query and the fence before
+commit. It rebuilds from the source mirror without resetting checkpoints or bumping subscription/projection versions,
+verifies complete term-set equality before releasing the lease, and emits a JSON receipt only after commit.
+Pre-cutover failure rolls back source/Product Contents writes as well as both shadows. Lease contention is non-execution.
+Receipts record the operator-attested deployed writer SHA and authorization, alias setting, lease/fence, actual database
+role and observed extension/migration/index readiness, unchanged search checkpoints, cutover and set equality.
+They do not independently attest that deployment completed: the host must establish that before authorizing the run.
+Retain both environment receipts before closing #9101 or dispatching #9105. A failed run needs a new authorized retry.
+If app-role extension creation is denied, the authorized database operator enables `pg_trgm`, then deployment is retried;
+never grant the app additional privileges. Hosted DB tests are not actual-role staging/production population receipts.
 
 Blueprint name and dimension facts shape Search Results and Facets, so Search subscribes to their created, revised, and
 dimensions-set facts. Blueprint publication and product-resolution-rule facts do not shape the Search Index and are

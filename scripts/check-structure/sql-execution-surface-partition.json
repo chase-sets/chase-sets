@@ -193,6 +193,7 @@
     "bounded-contexts/discovery/support/item-support/reference-records.ts",
     "bounded-contexts/discovery/support/market-support/projection.ts",
     "bounded-contexts/discovery/support/market-support/queries.ts",
+    "bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts",
     "bounded-contexts/discovery/support/runtime-support/slugs.ts",
     "bounded-contexts/fulfillment/features/return-shipments/api/support-return-label-workflow.ts",
     "bounded-contexts/fulfillment/features/return-shipments/api/tracking-ingestion.ts",
@@ -439,6 +440,7 @@
     "bounded-contexts/settlement/features/wallets/read-model/wallet-adjustment-reconciliation.ts",
     "bounded-contexts/settlement/features/wallets/read-model/wallet-adjustment-support-lookup.ts",
     "bounded-contexts/settlement/support/runtime-support/seed.ts",
+    "deployables/platform-api/src/preview-postgres.ts",
     "deployables/platform-api/src/representative-commerce-state.ts",
     "infrastructure/bounded-context-runtime/projection-groups.ts",
     "infrastructure/bounded-context-runtime/projection-transactions.ts",
@@ -479,7 +481,6 @@
     "scripts/catalog-provider-send-window.ts"
   ],
   "unprovableForm": [
-    "deployables/platform-api/src/preview-postgres.ts",
     "infrastructure/platform-runtime/projection-wake-relay.ts",
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
