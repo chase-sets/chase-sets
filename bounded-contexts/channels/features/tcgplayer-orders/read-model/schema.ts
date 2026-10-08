@@ -11,7 +11,7 @@ BEGIN
     RETURN NULL;
   END IF;
   RETURN parts[2];
-END $fn$`;
+END; $fn$`;
 const tables = [
   `CREATE TABLE IF NOT EXISTS channel_order_consumer (
     connection_id text PRIMARY KEY, cursor text, owner text, lease_until timestamptz,
