@@ -16,7 +16,7 @@ test("extension-raw-file-retention-chromium acceptance and unpair", async () => 
     try {
       await prepareRetention(worker);
       await worker.evaluate(async (action) => {
-        const product = (await import(chrome.runtime.getURL("background.js"))) as typeof import("../src/background");
+        const product = globalThis.__retentionProduct;
         if (action === "accept") await product.retentionStore.accept("synthetic_raw");
         else await product.retentionStore.run({ reason: "unpair", deleteAll: true });
       }, reason);
@@ -73,7 +73,7 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
     });
     for (const entry of ["boot", "unpair", "retention", "cleanup"] as const) {
       await worker.evaluate(async (event) => {
-        const product = (await import(chrome.runtime.getURL("background.js"))) as typeof import("../src/background");
+        const product = globalThis.__retentionProduct;
         if (event === "boot") await product.background.boot();
         else if (event === "unpair") await product.retentionStore.run({ reason: "unpair", deleteAll: true });
         else await product.retentionStore.run({ reason: "retention", deleteAll: event === "cleanup" });
@@ -130,7 +130,7 @@ test("extension-raw-file-retention-chromium worker-only restart retains keys the
     await expect.poll(() => versionId).toBeTruthy();
     await session.send("ServiceWorker.stopWorker", { versionId: versionId! });
     const next = context.waitForEvent("serviceworker");
-    await session.send("ServiceWorker.startWorker", { scopeURL: worker.url().replace("background.js", "") });
+    await session.send("ServiceWorker.startWorker", { scopeURL: new URL(".", worker.url()).href });
     const restarted = await next;
     await bootRetention(restarted);
     expect(await observeRetention(restarted)).toMatchObject({ P: true, K: true, R: true });

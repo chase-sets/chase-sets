@@ -1,31 +1,46 @@
 /// <reference types="chrome" />
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium, expect, type BrowserContext, type Worker } from "@playwright/test";
 
 type Product = typeof import("../src/background");
+declare global {
+  var __retentionProduct: Product;
+}
 export const retentionDist = resolve(import.meta.dirname, "../dist");
 export const productDigest = () =>
   createHash("sha256")
     .update(readFileSync(join(retentionDist, "background.js")))
     .digest("hex");
 export async function launchRetention(profile = mkdtempSync(join(tmpdir(), "connector-retention-"))) {
+  const fixture = join(profile, "extension-under-test");
+  cpSync(retentionDist, fixture, { recursive: true });
+  const manifest = JSON.parse(readFileSync(join(fixture, "manifest.json"), "utf8"));
+  manifest.background.service_worker = "retention-probe.js";
+  writeFileSync(join(fixture, "manifest.json"), JSON.stringify(manifest));
+  // Static imports are required by ServiceWorkerGlobalScope. The observer adds no
+  // product hooks: background.js is copied byte-for-byte from the product dist.
+  writeFileSync(
+    join(fixture, "retention-probe.js"),
+    'import * as product from "./background.js"; globalThis.__retentionProduct = product;',
+  );
+  expect(readFileSync(join(fixture, "background.js"))).toEqual(readFileSync(join(retentionDist, "background.js")));
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     headless: false,
     args: [
-      `--disable-extensions-except=${retentionDist}`,
-      `--load-extension=${retentionDist}`,
+      `--disable-extensions-except=${fixture}`,
+      `--load-extension=${fixture}`,
       "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ],
   });
   const worker =
-    context.serviceWorkers().find((item) => item.url().endsWith("/background.js")) ??
+    context.serviceWorkers().find((item) => item.url().endsWith("/retention-probe.js")) ??
     (await context.waitForEvent("serviceworker"));
   await worker.evaluate(async () => {
-    const product = (await import(chrome.runtime.getURL("background.js"))) as Product;
+    const product = globalThis.__retentionProduct;
     await product.boot;
   });
   return { context, worker, profile };
@@ -33,7 +48,7 @@ export async function launchRetention(profile = mkdtempSync(join(tmpdir(), "conn
 
 export async function prepareRetention(worker: Worker) {
   return worker.evaluate(async () => {
-    const product = (await import(chrome.runtime.getURL("background.js"))) as Product;
+    const product = globalThis.__retentionProduct;
     const now = Date.now();
     const state = "paired-idle";
     await chrome.storage.local.set({
@@ -77,7 +92,7 @@ export async function clockAt(worker: Worker, now: number) {
 
 export async function observeRetention(worker: Worker) {
   return worker.evaluate(async () => {
-    const product = (await import(chrome.runtime.getURL("background.js"))) as Product;
+    const product = globalThis.__retentionProduct;
     const rows = await new Promise<Record<string, unknown>[]>((resolve, reject) => {
       const request = indexedDB.open("connector-raw-exports");
       request.onerror = () => reject(new Error("observation-open-failed"));
@@ -154,7 +169,7 @@ export async function retentionCallback(worker: Worker) {
 
 export async function bootRetention(worker: Worker) {
   await worker.evaluate(async () => {
-    const product = (await import(chrome.runtime.getURL("background.js"))) as Product;
+    const product = globalThis.__retentionProduct;
     await product.background.boot();
   });
 }

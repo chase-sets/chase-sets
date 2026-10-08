@@ -88,6 +88,45 @@ describe("extension-raw-file-retention", () => {
     expect(f.rows).toEqual({});
   });
 
+  it("rechecks expiry after asynchronous key lookup before starting decryption", async () => {
+    const f = retentionFixture();
+    await f.store.write(f.input());
+    const deadline = f.now() + rawExportLifetime;
+    const decrypt = vi.spyOn(crypto.subtle, "decrypt");
+    const get = f.session.get.getMockImplementation()!;
+    f.session.get.mockImplementationOnce(async (keys) => {
+      const values = await get(keys);
+      f.setNow(deadline);
+      return values;
+    });
+    await expect(f.store.read("raw_A")).rejects.toThrow("read-refused");
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
+  it("acceptance fences in-flight reads from another store instance", async () => {
+    const f = retentionFixture();
+    const second = createConnectorRetentionStore(f.ports);
+    await f.store.write(f.input());
+    const pending = second.read("raw_A");
+    const acceptance = f.store.accept("raw_A");
+    await expect(pending).rejects.toThrow("read-refused");
+    await acceptance;
+  });
+
+  it("failed unpair key removal leaves no usable key across store recreation", async () => {
+    const f = retentionFixture();
+    await f.store.write(f.input());
+    f.session.remove.mockRejectedValueOnce(new Error("synthetic-remove-failure"));
+    expect(await f.store.run({ reason: "unpair", deleteAll: true })).toMatchObject({
+      ok: false,
+      error: "cleanup-failed",
+    });
+    expect(Object.values(f.rows)).toEqual([null]);
+    await expect(createConnectorRetentionStore(f.ports).read("raw_A")).rejects.toThrow("read-refused");
+    expect((await f.store.run({ reason: "boot", deleteAll: true })).ok).toBe(true);
+    expect(f.rows).toEqual({});
+  });
+
   it("acceptance and unpair delete immediately; missing session keys are swept after restart", async () => {
     for (const kind of ["accept", "unpair", "restart"] as const) {
       const f = retentionFixture();
