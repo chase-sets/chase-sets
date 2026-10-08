@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 
 export const platformOrigin = "https://platform.example";
@@ -126,6 +127,8 @@ export function chromeFixture(initial: Record<string, unknown> = {}) {
 export async function loadBackground(fixture: ReturnType<typeof chromeFixture>) {
   vi.resetModules();
   vi.stubGlobal("chrome", fixture.chrome);
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  vi.stubGlobal("IDBKeyRange", IDBKeyRange);
   vi.stubGlobal("fetch", fixture.request);
   vi.stubEnv("VITE_PLATFORM_API_URL", platformOrigin);
   vi.stubEnv("VITE_CONNECTOR_CLIENT_ID", "cc_client_synthetic");

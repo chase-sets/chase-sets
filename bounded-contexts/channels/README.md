@@ -15,11 +15,19 @@ retention alarms. Chrome adapters implement `ConnectorBackgroundPorts`; records
 and revision fencing remain internal to the slice. Startup and retained install
 reconcile owned records without resetting paired or paused profiles. Missing
 alarm reconciliation is not implemented here; no alarm persistence is assumed.
-The coordinator is inert unless supplied, and raw cleanup is an injected sweep.
+The coordinator is inert unless supplied. `createConnectorRetentionStore` owns
+the raw-export sweep: AES-GCM ciphertext in versioned IndexedDB, one key per
+export in trusted session storage, revision-predicated cleanup and read refusal
+at `downloadedAt + 24h`. Cleanup runs in pages of 32, uses the expiry index,
+and preserves newer databases or records without writes. Acceptance is terminal
+before deletion; failed cleanup cannot restore a read. Session-key loss after
+browser restart makes ciphertext unusable until the first sweep deletes it.
+Closed/sleeping browsers do not execute cleanup: the ruled ceiling is read
+refusal plus first-opportunity deletion, not guaranteed wall-clock erasure.
 Pause, resume and unpair messages are reserved for tests pending the product
 command surface; the action click pairs or opens the platform connection page.
-The extension composes that factory with Chrome-only adapters and a no-op raw
-sweep. The Channels manifest builder closes the MV3 graph: one module worker,
+The extension composes the background and real retention factories with
+Chrome-only adapters. The Channels manifest builder closes the MV3 graph: one module worker,
 identity/storage/alarms, a pinned public key, and the configured platform host.
 There is no popup, HTML page, content script, provider host, or product message
 listener. Both storage areas use trusted access before reads or writes. Builds
