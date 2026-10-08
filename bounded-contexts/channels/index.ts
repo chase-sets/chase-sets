@@ -173,6 +173,13 @@ import type { ConnectorOAuthService } from "./support/request-support/connector-
 import { createConnectorFeedRuntime } from "./features/connector-feed/api/runtime";
 import { createConnectorCredentialRoutes } from "./features/connector-feed/api/routes";
 import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "./features/connector-feed/read-model/schema";
+import {
+  connectorInboundSchemaMigrations,
+  connectorInboundSchemaSql,
+} from "./features/connector-feed/read-model/inbound-schema";
+import { createConnectorTransport } from "./features/connector-feed/api/transport";
+import { createConnectorTransportRoutes } from "./features/connector-feed/api/transport-routes";
+import { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -187,7 +194,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
@@ -199,6 +206,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...channelReconciliationSchemaMigrations,
     ...channelAttentionSchemaMigrations,
     ...connectorFeedSchemaMigrations,
+    ...connectorInboundSchemaMigrations,
   ],
   retentionExemptions: manualSyncRetentionExemptions,
   seedProfiles: ["scenario-seed"],
@@ -317,7 +325,16 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       reconciliation,
       tcgplayerCsv,
       manualSync,
-      connectorFeed,
+      connectorFeed: {
+        ...connectorFeed,
+        ...createConnectorTransport({
+          db: pool,
+          authority: connectorFeed,
+          outboundSync,
+          registry: channelProviderRegistry,
+          resolvePolicy: async () => (await policies.resolvePolicy(connectorTransportPolicy)).value,
+        }),
+      },
       db: pool,
       projectors: [
         ...connections.projectors,
@@ -332,7 +349,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     {
       mountPath: "/channel-connector/oauth",
       contextMountOrdinal: 2,
-      router: createConnectorCredentialRoutes(services.connectorFeed, services.db),
+      router: createConnectorCredentialRoutes(services.connectorFeed, services.db).route(
+        "/",
+        createConnectorTransportRoutes(services.connectorFeed, services.db),
+      ),
     },
   ],
   projectionHandlerSets: (services) => services.projectors,

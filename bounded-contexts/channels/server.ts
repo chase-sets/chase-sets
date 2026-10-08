@@ -1,5 +1,19 @@
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export type { ConnectorFeedServices } from "./features/connector-feed/api/runtime";
+export type { ConnectorTransportServices } from "./features/connector-feed/api/transport";
+export { readAdmittedConnectorInboundEvents } from "./features/connector-feed/read-model/inbound";
+export type {
+  AdmittedConnectorInboundEvent,
+  ConnectorInboundRead,
+  ConnectorInboundPage,
+} from "./features/connector-feed/read-model/inbound";
+export { connectorInboundKinds, connectorInboundRetentionClasses } from "./features/connector-feed/domain/transport";
+export type { ConnectorInbound, ConnectorInboundKind } from "./features/connector-feed/domain/transport";
+export { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
+export {
+  assertDerivedTcgplayerSnapshot,
+  type DerivedTcgplayerSnapshot,
+} from "./features/tcgplayer-csv/domain/derived-snapshot";
 export { connectorAuditMiddleware } from "./features/connector-feed/api/routes";
 export { recordConnectorAudit } from "./features/connector-feed/read-model/audit";
 export type {
