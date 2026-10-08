@@ -39,6 +39,6 @@ describe("channel-order-observation-callers", () => {
         statement.replace(" CONCURRENTLY", "").replace(/\s+/g, " "),
       );
     }
-    expect(channelsModule.retentionSweeps).toEqual(expect.arrayContaining(fulfillmentObservationRetentionSweeps));
+    expect(channelsModule.retentionSweeps).toEqual(expect.arrayContaining([...fulfillmentObservationRetentionSweeps]));
   });
 });

@@ -114,12 +114,15 @@ describe("run e2e suite", () => {
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "assertTcgplayerOrderRecord",
+      "composeChannelOrderFulfillmentInbound",
       "composeChannelOrderFulfillmentReference",
       "composeTcgplayerOrderInbound",
       "composeTcgplayerOrderObservation",
       "createConnectorBackground",
       "tcgplayerOrderLimits",
       "tcgplayerSaleKey",
+      "translateOrderShippingType",
+      "translateOrderStatus",
     ]);
     expect(channelsClient).toMatchObject({
       TCGPLAYER_CONNECTOR_EXTENSION_ID,
