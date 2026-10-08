@@ -38,6 +38,32 @@ An **Operation Acknowledgement** reports the complete producer reservation outco
 vector with unchanged attempt, generation and desired-state sequence. Only the
 producer settles it; an identical replay returns the same empty success response.
 
+## Channel Order Fulfillment Observation Reference
+
+A **Channel Order Fulfillment Observation Reference** identifies one observed
+revision of an external order. `composeChannelOrderFulfillmentReference` is the
+single browser/server export from `@chase-sets/channels/client` and
+`@chase-sets/channels/server`. It consumes two validated nonempty strings and
+returns `tcf.v1:` followed by lowercase SHA-256 hex of the UTF-8 compact JSON tuple
+`["channel-order-fulfillment/v1", externalOrderReference, providerObservedRevisionOrDigest]`.
+It preserves case, whitespace, Unicode and tuple order; it does not normalize
+observations or qualify provider revisions.
+
+The #7795 interpreter and #8613 connector producer must import this composer,
+including their fixtures and seed paths, when they land. #7795 owns the digest of
+the bounded, closed normalized observation when no qualified provider revision
+exists: status, content and full/status-only variant participate; pull identifiers
+and volatile capture times do not. Equal order/content across pulls therefore
+keeps the reference; changed status/content/variant changes it. Neither a raw JSON
+tuple, a bare order number nor a pull-qualified sale reference is this wire spelling.
+
+The inbox identity remains `(connectionId, inboundKind, externalReference)`;
+the reference does not replace connection isolation or kind separation. There is
+no legacy spelling fallback. Actual legacy fulfillment admissions require a
+bounded migration before introducing a writer. Manual-kind ingress (#7031) is
+not a fulfillment consumer. This encoding changes no sale identity, observation
+schema, join, status, currency or retention contract.
+
 ## BYO Channel
 
 A **BYO Channel** is an account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.

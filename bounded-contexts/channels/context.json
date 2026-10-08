@@ -28,6 +28,7 @@
     "publication-port",
     "listing-composition",
     "tcgplayer-csv",
+    "order-fulfillment-observations",
     "outbound-sync",
     "connection-health",
     "connection-attention",
@@ -663,6 +664,11 @@
     }
   ],
   "directoryIntent": {
+    "order-fulfillment-observations": {
+      "classification": "slice",
+      "purpose": "Own the order-fulfillment-observations slice's shared versioned Channel Order Fulfillment Observation reference composer.",
+      "expectedConsumers": ["Channel fulfillment interpreter (#7795)", "Connector fulfillment producer (#8613)"]
+    },
     "credentials": {
       "classification": "slice",
       "purpose": "Own the credentials slice canonical codecs, transactional custody, bound secret resolution, and explicit key rotation.",

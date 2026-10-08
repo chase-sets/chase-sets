@@ -1,3 +1,4 @@
+export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export type { ConnectorFeedServices } from "./features/connector-feed/api/runtime";
 export type { ConnectorTransportServices } from "./features/connector-feed/api/transport";
