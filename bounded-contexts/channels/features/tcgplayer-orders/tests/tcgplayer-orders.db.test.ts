@@ -63,6 +63,25 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await seed();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+  it("tcgplayer-order-unmapped: bounded attention counts survive an empty later page", async () => {
+    await pools.channels.query(`INSERT INTO channel_order_attention
+      (account_id,connection_id,order_reference,reason,generation,affected_lines,opened_at)
+      SELECT 'account-1','connection-1','synthetic-'||n,'tcgplayer-order-unmapped',1,'[]',now() FROM generate_series(1,101) n`);
+    const first = (
+      await readConnectionAttention(pools.channels, { accountId: "account-1", connectionId: "connection-1" })
+    )[0]!.orders!;
+    expect(first).toMatchObject({ count: 100, hasMore: true });
+    expect(first.items).toHaveLength(100);
+    expect(first.nextCursor).not.toBeNull();
+    const empty = (
+      await readConnectionAttention(pools.channels, {
+        accountId: "account-1",
+        connectionId: "connection-1",
+        orderCursor: Buffer.from(JSON.stringify(["zzzz", "zzzz"])).toString("base64url"),
+      })
+    )[0]!.orders!;
+    expect(empty).toEqual({ count: 100, hasMore: true, nextCursor: null, items: [] });
+  });
 
   it("tcgplayer-order-target-resolution: ledgered index includes Links that predate its creation", async () => {
     await pools.channels.query(`DROP INDEX channel_tcgplayer_sku_idx`);

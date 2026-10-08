@@ -71,7 +71,7 @@ export function ChannelConnectionHealthPanel({
             >
               {t(stateKeys[state.data.healthState])}
             </Badge>
-            {state.data.health.length === 0 && !state.data.orders?.items.length ? (
+            {state.data.health.length === 0 && !state.data.orders?.count ? (
               <MarketplaceNotice
                 tone="info"
                 title={t("channels.attention.healthy")}
@@ -106,6 +106,9 @@ export function ChannelConnectionHealthPanel({
                 <Text>{t(orderReasonKeys[order.reason])}</Text>
               </Stack>
             ))}
+            {state.data.orders && state.data.orders.count > 0 && state.data.orders.items.length === 0 ? (
+              <LinkButton href="?">{t("channels.attention.firstOrders")}</LinkButton>
+            ) : null}
             {state.data.orders?.nextCursor ? (
               <LinkButton href={`?${new URLSearchParams({ orderCursor: state.data.orders.nextCursor })}`}>
                 {t("channels.attention.moreOrders")}

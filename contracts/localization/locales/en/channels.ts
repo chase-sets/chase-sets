@@ -8,6 +8,7 @@ export const channelsEnglishTranslations = {
   "channels.attention.ordersCount": "{orderCount} order issues need attention.",
   "channels.attention.ordersOverflow": "More than {orderCount} order issues need attention.",
   "channels.attention.moreOrders": "More order issues",
+  "channels.attention.firstOrders": "No order issues on this page. Return to the first page.",
   "channels.drift.title": "Channel differences",
   "channels.drift.disclaimer":
     "Decisions do not confirm that channel changes were queued or applied, or that the connection is healthy. A later complete check confirms the result.",

@@ -15,6 +15,20 @@ function panel(state: ChannelHealthPanelState) {
   );
 }
 describe("channel-connection-health-panel-states", () => {
+  it("does not imply resolution on an empty later order page", () => {
+    panel({
+      kind: "loaded",
+      data: {
+        connectionId: "synthetic",
+        healthState: "unknown",
+        health: [],
+        manual: null,
+        orders: { count: 100, hasMore: true, nextCursor: null, items: [] },
+      },
+    });
+    expect(screen.getByRole("link", { name: "No order issues on this page. Return to the first page." })).toBeTruthy();
+    expect(screen.queryByText("No open health attention")).toBeNull();
+  });
   it("renders an order reference and reason without inventing an acknowledgement, with bounded paging", () => {
     panel({
       kind: "loaded",

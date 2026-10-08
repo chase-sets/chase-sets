@@ -58,7 +58,14 @@ export const tcgplayerOrdersSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       decoder,
       ...tables,
-      ...indexes.map((sql) => sql.replace("CREATE INDEX IF", "CREATE INDEX CONCURRENTLY IF")),
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_tcgplayer_sku_idx ON channels_channel_listing_links
+        (connection_id,channel_tcgplayer_listing_sku(external_listing_id))
+        WHERE NOT (last_desired_intent='delist' AND publish_state='delisted')`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_recovery_idx ON channel_order_observations (connection_id,attempted_at,sequence)
+        WHERE state IN ('pending','processing','gap')`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_pull_idx ON channel_order_observations (connection_id,pull_id,sequence)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_attention_open_idx ON channel_order_attention (account_id,connection_id,order_reference,reason)
+        WHERE resolved_at IS NULL`,
     ],
   },
 ];

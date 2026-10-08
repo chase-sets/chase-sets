@@ -25,13 +25,16 @@ export async function readOrderAttention(
     generation: string;
     opened_at: Date | string;
     affected_line_count: number;
-    total: string;
   }>(
-    `SELECT order_reference,reason,generation::text,opened_at,jsonb_array_length(affected_lines) AS affected_line_count,
-      (SELECT count(*) FROM channel_order_attention WHERE account_id=$1 AND connection_id=$2 AND resolved_at IS NULL)::text AS total
+    `SELECT order_reference,reason,generation::text,opened_at,jsonb_array_length(affected_lines) AS affected_line_count
     FROM channel_order_attention WHERE account_id=$1 AND connection_id=$2 AND resolved_at IS NULL
       AND (order_reference,reason)>($3,$4) ORDER BY order_reference,reason LIMIT 101`,
     [accountId, connectionId, cursor[0], cursor[1]],
+  );
+  const count = await db.query<{ total: number }>(
+    `SELECT count(*)::int AS total FROM
+    (SELECT 1 FROM channel_order_attention WHERE account_id=$1 AND connection_id=$2 AND resolved_at IS NULL LIMIT 101) AS bounded`,
+    [accountId, connectionId],
   );
   const items = result.rows.slice(0, 100).map((row) => ({
     externalOrderReference: row.order_reference,
@@ -43,8 +46,8 @@ export async function readOrderAttention(
   const last = items.at(-1);
   return {
     items,
-    count: Math.min(Number(result.rows[0]?.total ?? 0), 100),
-    hasMore: Number(result.rows[0]?.total ?? 0) > 100,
+    count: Math.min(count.rows[0]?.total ?? 0, 100),
+    hasMore: (count.rows[0]?.total ?? 0) > 100,
     nextCursor:
       result.rows.length > 100 && last
         ? Buffer.from(JSON.stringify([last.externalOrderReference, last.reason])).toString("base64url")
