@@ -18,6 +18,16 @@ alarm reconciliation is not implemented here; no alarm persistence is assumed.
 The coordinator is inert unless supplied, and raw cleanup is an injected sweep.
 Pause, resume and unpair messages are reserved for tests pending the product
 command surface; the action click pairs or opens the platform connection page.
+The extension composes that factory with Chrome-only adapters and a no-op raw
+sweep. The Channels manifest builder closes the MV3 graph: one module worker,
+identity/storage/alarms, a pinned public key, and the configured platform host.
+There is no popup, HTML page, content script, provider host, or product message
+listener. Both storage areas use trusted access before reads or writes. Builds
+use `VITE_PLATFORM_API_URL`, then `PLATFORM_API_URL`, then `http://localhost:6182`;
+`VITE_CONNECTOR_CLIENT_ID` supplies an already registered Auth client ID. An
+unset ID remains empty and cannot authorize pairing; registration and deployed
+cookie topology are not implemented by this shell. Chromium coverage uses only
+a loopback fake, not provider traffic or a deployed-session claim.
 Outbound sync durably orders that state for provider execution, and
 production composition profiles remain empty. The TCGplayer CSV slice
 composes a claimed outbound reservation into one Staged Import Batch and ingests

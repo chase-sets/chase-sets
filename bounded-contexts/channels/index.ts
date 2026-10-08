@@ -5,6 +5,7 @@ export {
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "./features/connector-client/domain/identity";
+export { buildConnectorManifest } from "./features/connector-client/domain/connector-manifest";
 export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
 export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
