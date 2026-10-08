@@ -19,7 +19,7 @@ afterEach(() => {
 
 function fixture() {
   const sql: string[] = [];
-  const query = vi.fn(async (text: string) => {
+  const query = vi.fn(async (text: string): Promise<{ rows: Record<string, unknown>[] }> => {
     sql.push(text);
     if (text.includes("current_user"))
       return {
@@ -109,12 +109,30 @@ describe("identity-term population transaction", () => {
       let reads = 0;
       f.query.mockImplementation(async (text) => {
         if (failure === "capability" && text.includes("current_user")) return { rows: [] };
-        if (failure === "terms" && text.includes("ARRAY(SELECT term")) throw new Error("set equality failed");
+        if (failure === "terms" && text.includes("ARRAY(SELECT term"))
+          return {
+            rows: [
+              {
+                catalog_item_id: "card",
+                title: "Expected",
+                subtitle: null,
+                status: "active",
+                resolved_aliases: {},
+                terms: [],
+              },
+            ],
+          };
         if (failure === "checkpoints" && text.includes("event_subscription_checkpoints") && ++reads === 2)
-          throw new Error("checkpoint changed");
+          return { rows: [{ checkpoint_key: "changed", last_global_position: "99" }] };
         return original(text);
       });
-      await expect(populateDiscoverySearchIdentityTerms(f.input)).rejects.toThrow();
+      await expect(populateDiscoverySearchIdentityTerms(f.input)).rejects.toThrow(
+        failure === "capability"
+          ? "not ready"
+          : failure === "terms"
+            ? "set equality"
+            : "changed the search subscription checkpoints",
+      );
       expect(f.sql.at(-1)).toBe("ROLLBACK");
     }
   });
