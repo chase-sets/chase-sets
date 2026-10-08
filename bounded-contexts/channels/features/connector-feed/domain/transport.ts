@@ -16,10 +16,6 @@ import { connectorMaxOperations, type ConnectorPolicy } from "./policy";
 
 export const connectorInboundKinds = ["order", "export"] as const;
 export type ConnectorInboundKind = (typeof connectorInboundKinds)[number];
-export const connectorInboundRetentionClasses = {
-  order: { retentionClass: "order-observation", days: 90 },
-  export: { retentionClass: "inventory-snapshot", days: 7 },
-} as const;
 export type ConnectorInbound = Readonly<{ externalReference: string }> &
   (
     | Readonly<{ inboundKind: "order"; payload: Readonly<{ version: 1; records: readonly JsonObject[] }> }>

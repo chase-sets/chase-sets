@@ -32,6 +32,15 @@ one producer-owned reservation plus its poll window. Paused connections serve an
 empty reservation without calling the producer. Inbound admission is write-only
 and remains available after membership loss while the pairing and grant are live.
 
+## Connector Inbound Retention Class
+
+A **Connector Inbound Retention Class** is the one closed retention window each
+admitted inbound kind belongs to: `inventory-snapshot` (export, 604800 seconds)
+or `order-observation` (order, 7776000 seconds). The payload is deleted strictly
+after server admission plus the window, measured on the deleting transaction's
+clock; the admitted identity, order, cursor and horizon remain and an expired
+read returns `expired`.
+
 ## Operation Acknowledgement
 
 An **Operation Acknowledgement** reports the complete producer reservation outcome

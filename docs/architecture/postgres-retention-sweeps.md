@@ -2,7 +2,7 @@
 
 Retention is context-owned policy executed by shared platform machinery. A bounded-context module declares each sweep with a stable name, table, trusted predicate, ordering, interval, and batch limit. `platform-runtime` composes those declarations with shared event-store and notification-outbox policies and runs one maintenance runner through `platform_scheduled_runners`; no separate cron topology is required.
 
-Every delete selects a bounded candidate batch with `FOR UPDATE SKIP LOCKED`, deletes only those rows, and commits before the next batch. One pass drains at most ten batches. A table failure is observed and isolated, `last_completed_at` remains unchanged, and that sweep retries on its next interval without terminating the worker.
+Every delete selects a bounded candidate batch with `FOR UPDATE SKIP LOCKED`, deletes only those rows, and commits before the next batch. One pass drains at most ten batches. A table failure is observed and isolated, `last_completed_at` remains unchanged, and that sweep retries on its next interval without terminating the worker. Failure diagnostics carry only the context, sweep and table names plus a bounded error class and SQLSTATE/errno code; raw error messages, stacks, causes and thrown values never reach the observer or logs.
 
 ## Windows
 
@@ -16,6 +16,7 @@ Every delete selects a bounded candidate batch with `FOR UPDATE SKIP LOCKED`, de
 | Checkout JSONB session snapshots | 30 days after terminal update | Cancelled sessions or sessions with committed order IDs |
 | Cache | At `stale_until` | Catalog provider option-query cache |
 | Terminal background work | 30 days | Catalog alias recompute work, resolved/ignored projection poison rows, resolved blocked streams |
+| Connector inbound payloads | Elapsed seconds after server admission, deleted strictly after the deadline: inventory snapshot 604800 s (7 days), order observation 7776000 s (90 days) | Channels `channel_connector_inbound_payloads` by Connector Inbound Retention Class; batches of floor(256 MiB / largest admissible payload) |
 | Platform control history | Worker heartbeats and stale status snapshots 7 days; events 30 days; terminal operations 90 days | Worker heartbeat diagnostics, projection operation events/operations, and runner status snapshots |
 
 Auth row deletion is the retention action required by the PII policy: expired magic-link and phone-code rows are removed, so a separate pass to null `delivery_token` or `delivery_code` is intentionally not added.
@@ -29,6 +30,7 @@ Auth row deletion is the retention action required by the PII policy: expired ma
 - `identity_invitations`: durable Identity history, not ephemeral Auth token data.
 - `auth_identity_invitations`, `inventory_holds`, `marketplace_supply_holds`: mutable event projections that must remain present for later lifecycle events.
 - `event_store_events`: the canonical event ledger remains permanent under its separate partitioning/retention decision.
+- `channel_connector_inbound_events`: non-PII connector admission identity keeps an expired re-post inert and preserves the order, cursor and horizon #7795 consumes; its payload table is swept and never exempt.
 - `pricing_market_trades` (the Trades Tape, #4303): permanent product/market data, not ephemeral request history -- explicitly out of scope for m84 #3625 sweeps.
 - Platform lease, work-signal, post-write-token, realtime-lease, and UCP idempotency tables retain their purpose-built cleanup paths. Fencing tokens and UCP agent profiles are durable authorization/control state.
 

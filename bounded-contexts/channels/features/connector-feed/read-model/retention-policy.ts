@@ -1,0 +1,40 @@
+import type { BcRetentionExemption, BcRetentionSweep } from "@chase-sets/bounded-context-module";
+import { manualSyncIngestContract } from "../../manual-sync/domain/contracts";
+import { connectorInboundKindRetention, resolveConnectorInboundRetentionClasses } from "../domain/retention";
+
+const HOUR_MS = 60 * 60 * 1_000;
+const RETENTION_BATCH_BYTES = 256 * 1_048_576;
+
+// Sized by the largest payload any policy revision could ever admit, so a batch
+// stays bounded for historical rows after the live policy is lowered.
+export const connectorInboundRetentionBatchLimit = Math.floor(
+  RETENTION_BATCH_BYTES / manualSyncIngestContract.configuredBounds.bytes[1],
+);
+
+export function buildConnectorInboundRetentionSweeps(
+  registrations: readonly unknown[] = connectorInboundKindRetention,
+): readonly BcRetentionSweep[] {
+  return resolveConnectorInboundRetentionClasses(registrations).map(
+    ({ retentionClass, windowSeconds, inboundKinds }) => ({
+      name: `connector-inbound-${retentionClass}`,
+      tableName: "channel_connector_inbound_payloads",
+      // Strictly after the deadline, measured on the DELETE transaction's clock.
+      predicateSql: `candidate.inbound_kind IN (${inboundKinds.map((kind) => `'${kind}'`).join(", ")})
+      AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => ${windowSeconds})`,
+      orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
+      intervalMs: HOUR_MS,
+      batchLimit: connectorInboundRetentionBatchLimit,
+    }),
+  );
+}
+
+export const connectorInboundRetentionSweeps = buildConnectorInboundRetentionSweeps();
+
+export const connectorInboundRetentionExemptions: readonly BcRetentionExemption[] = [
+  {
+    tableName: "channel_connector_inbound_events",
+    owner: "channels",
+    reason:
+      "Non-PII admitted identity is the dedupe key that keeps a re-post inert after payload expiry, and #7795 consumes its order, cursor and horizon; payload bytes live only in the swept payload table.",
+  },
+];

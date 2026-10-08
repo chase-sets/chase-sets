@@ -180,6 +180,10 @@ import {
 import { createConnectorTransport } from "./features/connector-feed/api/transport";
 import { createConnectorTransportRoutes } from "./features/connector-feed/api/transport-routes";
 import { connectorTransportPolicy, decodeConnectorPolicy } from "./features/connector-feed/domain/policy";
+import {
+  connectorInboundRetentionExemptions,
+  connectorInboundRetentionSweeps,
+} from "./features/connector-feed/read-model/retention-policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -210,7 +214,8 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...connectorFeedSchemaMigrations,
     ...connectorInboundSchemaMigrations,
   ],
-  retentionExemptions: manualSyncRetentionExemptions,
+  retentionSweeps: connectorInboundRetentionSweeps,
+  retentionExemptions: [...manualSyncRetentionExemptions, ...connectorInboundRetentionExemptions],
   seedProfiles: ["scenario-seed"],
   seed: (pool, services) => seedManualSyncScenario(pool, services),
   inspectSeedState: inspectManualSyncSeedState,
