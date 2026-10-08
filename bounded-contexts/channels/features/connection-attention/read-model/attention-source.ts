@@ -17,28 +17,43 @@ export function createChannelActionAttentionSource(
             a.reasonCode.localeCompare(b.reasonCode),
         );
         const top = reasons[0];
-        if (!top && !row.manual) return [];
-        const summary = top
-          ? {
-              code: "channel-action-open",
-              params: {
-                reasonCount: reasons.length,
-                topReason: top.reasonCode,
-                ...(reasons.some((reason) => reason.reasonCode === "drift") && row.drift ? row.drift : {}),
-                ...(row.manual ? { manualReason: row.manual.reason, connectionId: row.connectionId } : {}),
-              },
-            }
-          : { code: `channel-${row.manual!.reason}`, params: { connectionId: row.connectionId } };
+        const order = row.orders?.items[0];
+        if (!top && !row.manual && !order) return [];
+        const summary =
+          top || order
+            ? {
+                code: "channel-action-open",
+                params: {
+                  reasonCount: reasons.length,
+                  ...(top ? { topReason: top.reasonCode } : {}),
+                  ...(order
+                    ? {
+                        orderCount: row.orders!.count,
+                        orderOverflow: row.orders!.hasMore ? 1 : 0,
+                        externalOrderReference: order.externalOrderReference,
+                        orderReason: order.reason,
+                      }
+                    : {}),
+                  ...(reasons.some((reason) => reason.reasonCode === "drift") && row.drift ? row.drift : {}),
+                  ...(row.manual ? { manualReason: row.manual.reason, connectionId: row.connectionId } : {}),
+                },
+              }
+            : { code: `channel-${row.manual!.reason}`, params: { connectionId: row.connectionId } };
         const observations = [
           ...reasons.map((reason) => reason.opening.occurredAt),
           ...(row.manual ? [row.manual.observedAt] : []),
+          ...(order ? [order.openedAt] : []),
         ];
         return [
           buildSellerAttentionItem({
             source: "channel-action",
             entityId: row.connectionId,
             severity:
-              top?.state === "failing" ? "critical" : top || row.manual?.reason !== "ready" ? "warning" : "info",
+              top?.state === "failing"
+                ? "critical"
+                : top || order || row.manual?.reason !== "ready"
+                  ? "warning"
+                  : "info",
             summary,
             observedAt: observations.reduce((a, b) => (Date.parse(a) <= Date.parse(b) ? a : b)),
           }),

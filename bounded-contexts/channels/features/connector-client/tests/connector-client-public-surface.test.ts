@@ -55,6 +55,15 @@ describe("connector-client-public-surface", () => {
       "ConnectorCommand",
       "ConnectorStatus",
       "ConnectorBackgroundPorts",
+      "composeTcgplayerOrderInbound",
+      "assertTcgplayerOrderRecord",
+      "tcgplayerSaleKey",
+      "tcgplayerOrderLimits",
+      "composeTcgplayerOrderObservation",
+      "TcgplayerOrderRecord",
+      "TcgplayerOrderObservation",
+      "TcgplayerPullSummary",
+      "TcgplayerSaleLine",
     ].sort();
     expect(exports(source)).toEqual(expected);
     expect(exports(`${source}\nexport { reducer } from './private';`)).not.toEqual(expected);

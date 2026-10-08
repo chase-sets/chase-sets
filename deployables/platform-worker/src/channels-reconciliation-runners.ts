@@ -42,6 +42,9 @@ export function createChannelsReconciliationRunners(
       );
       return results.length;
     }),
+    createScheduledJobRunner("channels-tcgplayer-orders", 60_000, input.controlPlane, async () =>
+      input.services.tcgplayerOrders.interpretDueConnections(),
+    ),
   ];
 }
 

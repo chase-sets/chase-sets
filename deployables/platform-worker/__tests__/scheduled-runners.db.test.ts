@@ -105,6 +105,7 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
     hybridValue: "false",
     queryCacheMaxEntries: 1,
     queryCacheTtlMs: 1_000,
+    queryTimeoutMs: 800,
   },
 };
 
@@ -169,7 +170,9 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         targets: collectRetentionSweepTargets(runtime, pools.control),
         observer: {
           sweepFailed: (event) => {
-            throw event.error;
+            throw new Error(
+              `Retention sweep ${event.contextName}.${event.sweepName} failed: ${event.failure.errorClass} ${event.failure.errorCode ?? "no-code"}`,
+            );
           },
         },
       }),

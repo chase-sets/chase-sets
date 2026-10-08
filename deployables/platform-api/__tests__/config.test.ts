@@ -156,6 +156,7 @@ function resetConfigEnv() {
   delete process.env.VOYAGE_EMBEDDING_MODEL;
   delete process.env.VOYAGE_EMBEDDING_BATCH_SIZE;
   delete process.env.VOYAGE_EMBEDDING_TIMEOUT_MS;
+  delete process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS;
   delete process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS;
   delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS;
   delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS;
@@ -249,6 +250,22 @@ beforeEach(resetConfigEnv);
 afterEach(resetConfigEnv);
 
 describe("platform api config", () => {
+  it("keeps the online query embedding deadline separate from batch policy", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.VOYAGE_EMBEDDING_TIMEOUT_MS = "60000";
+    process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS = "8";
+    expect(loadConfig().discoverySearchEmbeddings).toMatchObject({
+      timeoutMs: 60_000,
+      maxAttempts: 8,
+      queryTimeoutMs: 800,
+    });
+    process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = "250";
+    expect(loadConfig().discoverySearchEmbeddings.queryTimeoutMs).toBe(250);
+    for (const invalid of ["0", "-1", "NaN", "Infinity", "2147483648"]) {
+      process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = invalid;
+      expect(() => loadConfig()).toThrow("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS");
+    }
+  });
   it("loads the Channels keyring, fails malformed startup, and leaves bootstrap credential-free", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     const previous = process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;

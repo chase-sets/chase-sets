@@ -38,6 +38,7 @@ const envNames = [
   "VOYAGE_EMBEDDING_MODEL",
   "VOYAGE_EMBEDDING_BATCH_SIZE",
   "VOYAGE_EMBEDDING_TIMEOUT_MS",
+  "DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS",
   "VOYAGE_EMBEDDING_MAX_ATTEMPTS",
   "VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS",
   "VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS",
@@ -272,6 +273,7 @@ describe("platform worker config", () => {
       rescueValue: null,
       queryCacheMaxEntries: 1_000,
       queryCacheTtlMs: 900_000,
+      queryTimeoutMs: 800,
     });
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
@@ -307,6 +309,23 @@ describe("platform worker config", () => {
       batchSize: 64,
       rolloutValue: "off",
     });
+  });
+
+  it("keeps the online query embedding deadline separate from batch policy", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.VOYAGE_EMBEDDING_TIMEOUT_MS = "60000";
+    process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS = "8";
+    expect(loadConfig().discoverySearchEmbeddings).toMatchObject({
+      timeoutMs: 60_000,
+      maxAttempts: 8,
+      queryTimeoutMs: 800,
+    });
+    process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = "250";
+    expect(loadConfig().discoverySearchEmbeddings.queryTimeoutMs).toBe(250);
+    for (const invalid of ["0", "-1", "NaN", "Infinity", "2147483648"]) {
+      process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = invalid;
+      expect(() => loadConfig()).toThrow("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS");
+    }
   });
 
   it("maps the landing runtime profile to the landing worker context set", () => {

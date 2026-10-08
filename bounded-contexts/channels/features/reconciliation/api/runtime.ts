@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { recordMappedChannelSale, rememberRecordedSale } from "./sale-recorder";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createPostgresAggregateSnapshotStore,
@@ -1287,7 +1288,7 @@ async function recordSaleLine(
     await leaveGapOpen(dependencies.db, connection.connectionId, saleKeyFingerprint, target.reason, generation, now);
     return { gap: true, structural: true };
   }
-  const outcome = await dependencies.channelSaleRecorder({
+  const outcome = await recordMappedChannelSale(dependencies.channelSaleRecorder, {
     accountId: target.accountId,
     inventoryItemId: target.inventoryItemId,
     storageLocationId: target.storageLocationId,
@@ -1303,14 +1304,6 @@ async function recordSaleLine(
     const reason = "code" in outcome ? outcome.code : "recording-refused";
     await leaveGapOpen(dependencies.db, connection.connectionId, saleKeyFingerprint, reason, generation, now);
     return { gap: true, structural: false };
-  }
-  if (
-    !sameSaleKey(outcome.sale.saleKey, line.saleKey) ||
-    outcome.sale.accountId !== target.accountId ||
-    outcome.sale.inventoryItemId !== target.inventoryItemId ||
-    outcome.sale.storageLocationId !== target.storageLocationId
-  ) {
-    throw new Error("Inventory external sale result does not match the exact reconciliation target.");
   }
   const committedBeforeSweep = Date.parse(outcome.sale.committedAt) < Date.parse(now);
   if (committedBeforeSweep) {
@@ -1338,23 +1331,6 @@ async function recordSaleLine(
     );
   }
   return { gap: true, structural: false };
-}
-
-function sameSaleKey(left: ChannelSaleLineV1["saleKey"], right: ChannelSaleLineV1["saleKey"]): boolean {
-  return (
-    left.version === right.version &&
-    left.providerKey === right.providerKey &&
-    left.sellerEnvironmentLineage === right.sellerEnvironmentLineage &&
-    left.orderLineIdentity === right.orderLineIdentity
-  );
-}
-
-async function rememberRecordedSale(db: PgQueryable, connectionId: string, fingerprint: string, recordedAt: string) {
-  await db.query(
-    `INSERT INTO channel_recorded_sale_receipts (connection_id,sale_key_fingerprint,recorded_at)
-     VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-    [connectionId, fingerprint, recordedAt],
-  );
 }
 
 async function closeExistingGap(

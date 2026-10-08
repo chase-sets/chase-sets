@@ -33,6 +33,18 @@ function createServices(): DiscoveryItemSearchServices {
 }
 
 describe("discovery item search routes", () => {
+  it("threads HTTP cancellation to the runtime without changing the response contract", async () => {
+    const controller = new AbortController();
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+    const request = new Request("http://localhost/?search=pikachu", { signal: controller.signal });
+    await app.request(request);
+    const signal = vi.mocked(services.searchItems).mock.calls[0]?.[1]?.signal;
+    expect(signal).toBe(request.signal);
+    expect(signal?.aborted).toBe(false);
+    controller.abort();
+    expect(signal?.aborted).toBe(true);
+  });
   it("preserves runtime query and Result Set identities in the search JSON response", async () => {
     const services = createServices();
     const queryHash = "a".repeat(64);
@@ -57,7 +69,9 @@ describe("discovery item search routes", () => {
       queryHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       resultSetKey: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
-    expect(services.searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "pikachu" }));
+    expect(services.searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "pikachu" }), {
+      signal: expect.any(AbortSignal),
+    });
   });
 
   it("returns bounded active-item prefix suggestions", async () => {
@@ -124,7 +138,10 @@ describe("discovery item search routes", () => {
     const response = await app.request(path);
 
     expect(response.status).toBe(200);
-    expect(services[serviceName]).toHaveBeenCalledWith(expect.objectContaining({ search: "leak", status: "active" }));
+    expect(services[serviceName]).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "leak", status: "active" }),
+      ...(serviceName === "searchItems" ? [{ signal: expect.any(AbortSignal) }] : []),
+    );
   });
 
   it("parses price range, in-stock, and price-sort query state", async () => {
@@ -141,6 +158,7 @@ describe("discovery item search routes", () => {
         inStock: true,
         sort: "price_asc",
       }),
+      { signal: expect.any(AbortSignal) },
     );
   });
 
@@ -151,10 +169,13 @@ describe("discovery item search routes", () => {
     await app.request("/?search=pikachu&includeTotal=true");
     await app.request("/?search=pikachu&cursor=next-page");
 
-    expect(services.searchItems).toHaveBeenNthCalledWith(1, expect.objectContaining({ includeTotal: true }));
+    expect(services.searchItems).toHaveBeenNthCalledWith(1, expect.objectContaining({ includeTotal: true }), {
+      signal: expect.any(AbortSignal),
+    });
     expect(services.searchItems).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ cursor: "next-page", includeTotal: false }),
+      { signal: expect.any(AbortSignal) },
     );
   });
 
@@ -167,6 +188,7 @@ describe("discovery item search routes", () => {
     expect(response.status).toBe(200);
     expect(services.searchItems).toHaveBeenCalledWith(
       expect.objectContaining({ priceMin: undefined, priceMax: undefined, inStock: false }),
+      { signal: expect.any(AbortSignal) },
     );
   });
 
@@ -193,7 +215,9 @@ describe("discovery item search routes", () => {
     const response = await app.request(`/?search=${encodeURIComponent(search)}`);
 
     expect(response.status).toBe(200);
-    expect(services.searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: expected }));
+    expect(services.searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: expected }), {
+      signal: expect.any(AbortSignal),
+    });
     expect([...expected]).toHaveLength(Math.min([...search].length, DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS));
   });
 });

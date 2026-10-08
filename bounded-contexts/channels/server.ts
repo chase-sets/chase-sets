@@ -1,5 +1,20 @@
 export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
+export {
+  composeTcgplayerOrderInbound,
+  assertTcgplayerOrderRecord,
+  tcgplayerSaleKey,
+  tcgplayerOrderLimits,
+} from "./features/tcgplayer-orders/domain/contracts";
+export { composeTcgplayerOrderObservation } from "./features/tcgplayer-orders/domain/detail";
+export type {
+  TcgplayerOrderRecord,
+  TcgplayerOrderObservation,
+  TcgplayerPullSummary,
+  TcgplayerSaleLine,
+} from "./features/tcgplayer-orders/domain/contracts";
+export { createTcgplayerOrderRuntime, type TcgplayerOrderServices } from "./features/tcgplayer-orders/api/runtime";
+export { resolveTcgplayerOrderSaleTarget } from "./features/reconciliation/read-model/sale-target";
 export type { ConnectorFeedServices } from "./features/connector-feed/api/runtime";
 export type { ConnectorTransportServices } from "./features/connector-feed/api/transport";
 export { readAdmittedConnectorInboundEvents } from "./features/connector-feed/read-model/inbound";
@@ -8,7 +23,8 @@ export type {
   ConnectorInboundRead,
   ConnectorInboundPage,
 } from "./features/connector-feed/read-model/inbound";
-export { connectorInboundKinds, connectorInboundRetentionClasses } from "./features/connector-feed/domain/transport";
+export { connectorInboundKinds } from "./features/connector-feed/domain/transport";
+export { connectorInboundRetentionClasses } from "./features/connector-feed/domain/retention";
 export type { ConnectorInbound, ConnectorInboundKind } from "./features/connector-feed/domain/transport";
 export { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
 export {

@@ -40,6 +40,15 @@ one producer-owned reservation plus its poll window. Paused connections serve an
 empty reservation without calling the producer. Inbound admission is write-only
 and remains available after membership loss while the pairing and grant are live.
 
+## Connector Inbound Retention Class
+
+A **Connector Inbound Retention Class** is the one closed retention window each
+admitted inbound kind belongs to: `inventory-snapshot` (export, 604800 seconds)
+or `order-observation` (order, 7776000 seconds). The payload is deleted strictly
+after server admission plus the window, measured on the deleting transaction's
+clock; the admitted identity, order, cursor and horizon remain and an expired
+read returns `expired`.
+
 ## Operation Acknowledgement
 
 An **Operation Acknowledgement** reports the complete producer reservation outcome
@@ -115,6 +124,20 @@ inbound sale observations remain available; it never clears a seller pause.
 A **Channel Action** is the single shared Seller Desk item for a connection's
 unresolved health attention and independently owned manual sync work. Resolving
 a health generation neither closes its health reason nor ends manual work.
+
+## Channel Sale Observation
+
+A **Channel Sale Observation** is a closed, PII-free set of captured external
+order line facts. Channels interprets it through Inventory's external sale
+recorder; it is not an Order or a stock authority. Pull membership and transport
+revisions do not change its immutable per-product-and-SKU sale identity.
+
+## External Order Reference
+
+An **External Order Reference** identifies a provider order within one immutable
+Channel Connection. Order contributions to a Channel Action retain this reference
+and a reason independently of health and manual work. Mapping repairs resolve
+only the affected gaps; backdated sales and cancellations remain visible.
 
 ## Channel Mapping
 

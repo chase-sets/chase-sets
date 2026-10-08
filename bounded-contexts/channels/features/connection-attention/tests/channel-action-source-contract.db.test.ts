@@ -39,7 +39,7 @@ describeDb("channel-action canonical bounded page", () => {
     }).load({ accountId, now: "2026-09-13T01:00:00Z" });
     expect(items).toHaveLength(100);
     expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(4);
+    expect(count).toBe(5);
     return items;
   }
   it("keeps a newer critical health item ahead of 100 older manual-ready info connections", async () => {
@@ -211,33 +211,52 @@ describeDb("channel-action-source-contract", () => {
     expect(await (await app.request(url)).json()).toMatchObject({ health: [], manual: null });
     expect(await services.connectionHealth.listOpenReasonGenerations(h.query(id))).toHaveLength(1);
   });
-  it("unions connection keys before 100 and batches with no per-item I/O", async () => {
-    // Synthetic producer projection rows exercise the real account query, not provider acceptance.
-    await h.db.query(
-      `INSERT INTO channel_connections (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,projection_updated_at,last_stream_version)
+  describeDb("isolated mixed contribution page", () => {
+    const batch = healthDatabase("attention_source_batch");
+    it("unions connection keys before 100 and batches with no per-item I/O", async () => {
+      // Synthetic producer projection rows exercise the real account query, not provider acceptance.
+      await batch.db.query(
+        `INSERT INTO channel_connections (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,projection_updated_at,last_stream_version)
       SELECT 'page-' || n,$1,'tcgplayer','sandbox','active','2026-09-01T00:00:00Z','2026-09-01T00:00:00Z','2026-09-01T00:00:00Z',1 FROM generate_series(1,101) n`,
-      [context.audit.forAccountId],
-    );
-    for (let n = 1; n <= 101; n++) await manual(`page-${n}`, "composed");
-    const healthId = await h.connection();
-    await h.services.connectionHealth.submitObservation(
-      await h.observation(healthId, "polling", { occurredAt: "2026-08-01T00:00:00Z" }),
-      context,
-    );
-    let count = 0;
-    const source = createChannelActionAttentionSourceFromReadModel({
-      query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
-        count++;
-        return h.db.query<Row>(sql, params);
-      },
+        [context.audit.forAccountId],
+      );
+      await batch.db.query(
+        `INSERT INTO channel_sync_runs
+      (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
+       manual_claim_lease_policy_snapshot,state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at,last_stream_version)
+      SELECT 'synthetic-page-run-' || n,1,1,'page-' || n,'tcgplayer','synthetic-page-run-' || n,'manual','synthetic-manual',
+        '2027-01-01T00:00:00Z','{}','composed','synthetic-basis',1,'[]',1,$1,'2026-09-01T00:00:00Z','2026-09-01T00:00:00Z',1
+      FROM generate_series(1,101) n`,
+        ["a".repeat(64)],
+      );
+      await batch.db.query(
+        `INSERT INTO channel_order_attention
+      (account_id,connection_id,order_reference,reason,generation,affected_lines,opened_at)
+      SELECT $1,'page-' || n,'synthetic-order-' || n,'tcgplayer-order-unmapped',1,'[]','2026-09-01T00:00:00Z'
+      FROM generate_series(1,101) n`,
+        [context.audit.forAccountId],
+      );
+      const healthId = await batch.connection();
+      await batch.services.connectionHealth.submitObservation(
+        await batch.observation(healthId, "polling", { occurredAt: "2026-08-01T00:00:00Z" }),
+        context,
+      );
+      let count = 0;
+      const source = createChannelActionAttentionSourceFromReadModel({
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          count++;
+          return batch.db.query<Row>(sql, params);
+        },
+      });
+      const items = await source.load(queueContext());
+      expect(items).toHaveLength(100);
+      expect(new Set(items.map((item) => item.id)).size).toBe(100);
+      expect(count).toBe(5);
+      expect(items.some((item) => item.id === `channel-action:${healthId}`)).toBe(true);
+      expect(items.filter((item) => item.summary.params?.orderCount === 1)).toHaveLength(99);
     });
-    const items = await source.load(queueContext());
-    expect(items).toHaveLength(100);
-    expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(4);
-    expect(items.some((item) => item.id === `channel-action:${healthId}`)).toBe(true);
   });
-  it.each(["channel_sync_runs", "channel_connection_health"])(
+  it.each(["channel_sync_runs", "channel_connection_health", "channel_order_attention"])(
     "degrades only channel-action on the %s owner-read failure",
     async (table) => {
       const source = createChannelActionAttentionSourceFromReadModel({
