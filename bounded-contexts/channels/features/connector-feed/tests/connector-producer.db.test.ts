@@ -180,7 +180,7 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
     const reservation = await claim();
     if (!reservation) throw new Error("missing-fixture-reservation");
     await h.pause();
-    const reserve = vi.spyOn(h.services.outboundSync, "reserveClaimedOutboundOperations");
+    const reserve = vi.spyOn(h.services.outboundSync, "reserveConnectorClaimedOperations");
     const before = await h.effects();
     const response = await h.request("report", report(reservation));
     expect(response.status).toBe(200);

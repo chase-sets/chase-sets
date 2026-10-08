@@ -109,6 +109,7 @@
     "bounded-contexts/channels/features/manual-sync/api/runtime.ts",
     "bounded-contexts/channels/features/manual-sync/api/seed.ts",
     "bounded-contexts/channels/features/manual-sync/read-model/attention-query.ts",
+    "bounded-contexts/channels/features/outbound-sync/api/order-pull.ts",
     "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
     "bounded-contexts/channels/features/outbound-sync/api/store.ts",
     "bounded-contexts/channels/features/outbound-sync/integrations/listing-composition.ts",

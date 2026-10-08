@@ -189,7 +189,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
     connectorOAuth?: ConnectorOAuthService;
-    /** #8804/#8838 governed TCGplayer order-pull authority; absent until they bind it, which denies scheduling. */
+    /** Governed TCGplayer order-pull authority; absent until bound, which denies scheduling. */
     resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
   }>;
 

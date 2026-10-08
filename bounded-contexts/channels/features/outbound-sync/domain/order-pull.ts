@@ -3,7 +3,7 @@ import { OutboundSyncError } from "./contracts";
 
 /**
  * Channel Order Pull: one connection-subject Channel Outbound Operation that asks a capable connector to
- * read the TCGplayer Ready to Ship set once under the `ready-to-ship-intake/v1` law (#8608 FINAL r4).
+ * read the TCGplayer Ready to Ship set once under the `ready-to-ship-intake/v1` completeness law.
  * The executor derives every wire value from the qualified capture; the payload carries identities,
  * versions and bounds only.
  */
@@ -11,7 +11,7 @@ export const orderPullOperationKind = "tcgplayer-order-pull" as const;
 export const orderPullLawVersion = "ready-to-ship-intake/v1" as const;
 export const orderPullProviderKey = "tcgplayer" as const;
 
-/** The unchanged pull deadline and lease margin every worst-case budget must fit (#8804). */
+/** The unchanged pull deadline and lease margin every worst-case budget must fit. */
 export const ORDER_PULL_DEADLINE_MS = 600_000;
 export const ORDER_PULL_LEASE_MARGIN_MS = 30_000;
 
@@ -32,7 +32,7 @@ export const orderPullAbandonReasons = ["released", "claimant-cancelled"] as con
 
 export type OrderPullSelectorBinding = Readonly<{ identity: string; version: number; pageSize: number }>;
 
-/** Governed authority from #8804/#8838. Absent or malformed authority denies scheduling. */
+/** Governed bound and qualified-selector authority. Absent or malformed authority denies scheduling. */
 export type OrderPullAuthority = Readonly<{
   revision: number;
   lawVersion: typeof orderPullLawVersion;

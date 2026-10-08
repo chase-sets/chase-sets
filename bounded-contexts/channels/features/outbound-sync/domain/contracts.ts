@@ -406,9 +406,9 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
 }>;
 
 export type OrderPullProducerDependencies = Readonly<{
-  /** #8804/#8838 governed authority; absent or malformed authority denies scheduling. */
+  /** Governed bound and selector authority; absent or malformed authority denies scheduling. */
   resolveAuthority: () => Promise<unknown>;
-  /** #7994's effective connector transport policy: the cadence floor and the claim lease. */
+  /** The effective connector transport policy: the cadence floor and the claim lease. */
   resolveConnectorPolicy: () => Promise<Readonly<{ pollWindowSeconds: number; leaseMs: number }>>;
 }>;
 

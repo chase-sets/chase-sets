@@ -240,7 +240,7 @@ function buildPayload(
       pageSize: input.authority.selector.pageSize,
     },
     bounds: input.bounds,
-    // #8839 owns the Channels follow-up source; until it lands the server selects none.
+    // The follow-up reference source is not wired into Channels yet, so the server selects none.
     followUpReferences: [],
   };
 }
