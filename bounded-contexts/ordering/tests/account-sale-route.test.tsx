@@ -433,6 +433,55 @@ describe("marketplace account sale route", () => {
     expect(screen.getByText("Leave account review")).toBeTruthy();
   });
 
+  it.each(["expired", "absent", "unavailable"] as const)(
+    "loads and reloads the retained sale with its distinct %s review panel",
+    async (state) => {
+      const reviewOutcome =
+        state === "expired"
+          ? {
+              status: "ready" as const,
+              opportunity: {
+                order_id: "ord_1",
+                subject_account_id: "acc_buyer",
+                subject_display_name: "Buyer",
+                author_role: "seller",
+                eligible_at: "2026-03-22T12:00:00.000Z",
+                window_expires_at: "2026-05-21T12:00:00.000Z",
+                active_review_id: null,
+                active_review_revealed_at: null,
+                submission_state: "expired",
+                hold_reason: null,
+                window_expired: true,
+                revealed: false,
+              },
+            }
+          : { status: state === "absent" ? ("ready" as const) : ("unavailable" as const), opportunity: null };
+      const fetch = vi.fn(async () => jsonResponse({ ...order, reviewOutcome }));
+      vi.stubGlobal("fetch", fetch);
+      for (let load = 0; load < 2; load += 1) {
+        const data = await loader({
+          request: new Request("http://localhost/account/sales/ord_1"),
+          params: { orderId: "ord_1" },
+          context: undefined,
+        } as never);
+        expect(data.sale.order_id).toBe("ord_1");
+        expect(data.reviewOutcome).toEqual(reviewOutcome);
+        mockUseLoaderData.mockReturnValue(data);
+        render(
+          <ChaseRoot>
+            <MarketplaceAccountSaleRoute />
+          </ChaseRoot>,
+        );
+        expect(screen.queryByText("Leave account review")).toBeNull();
+        expect(Boolean(screen.queryByText("Window closed"))).toBe(state === "expired");
+        expect(Boolean(screen.queryByText("Review status temporarily unavailable"))).toBe(state === "unavailable");
+        expect(screen.getByRole("link", { name: "Report a problem" })).toBeTruthy();
+        cleanup();
+      }
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("starts seller-cannot-fulfill intake from the sale detail without a role query", () => {
     expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({

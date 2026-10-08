@@ -17,11 +17,26 @@ export async function readOpportunitySourceProof(db: PgQueryable): Promise<{
   provenance: ReviewOpportunityProvenance;
 } | null> {
   const result = await db.query<{ projection_name: string; position: string; generation: string }>(
-    `SELECT checkpoint.projection_name, checkpoint.last_global_position::text AS position,
+    `WITH expected AS (
+       SELECT * FROM jsonb_to_recordset($1::jsonb) AS source(name text, source text, version integer)
+     ), checkpoints AS (
+       SELECT checkpoint.projection_name, checkpoint.last_global_position, checkpoint.checkpoint_key,
+         'subscription' AS projection_kind
+       FROM event_subscription_checkpoints AS checkpoint
+       JOIN expected ON expected.name = checkpoint.projection_name
+        AND expected.source = checkpoint.source_context_name AND expected.version = checkpoint.subscription_version
+       WHERE expected.source <> 'marketplace'
+       UNION ALL
+       SELECT checkpoint.projector_name, checkpoint.last_global_position, checkpoint.projector_name,
+         'projector' AS projection_kind
+       FROM event_projection_checkpoints AS checkpoint
+       JOIN expected ON expected.name = checkpoint.projector_name AND expected.source = 'marketplace'
+     )
+     SELECT checkpoint.projection_name, checkpoint.last_global_position::text AS position,
        generation.active_generation::text AS generation
-     FROM event_subscription_checkpoints AS checkpoint
+     FROM checkpoints AS checkpoint
      JOIN event_projection_recovery_markers AS recovery
-       ON recovery.projection_kind = 'subscription' AND recovery.projection_key = checkpoint.checkpoint_key
+       ON recovery.projection_kind = checkpoint.projection_kind AND recovery.projection_key = checkpoint.checkpoint_key
       AND recovery.last_global_position >= checkpoint.last_global_position
      JOIN event_projection_group_generations AS generation
        ON generation.target_context_name = 'marketplace'
@@ -29,9 +44,6 @@ export async function readOpportunitySourceProof(db: PgQueryable): Promise<{
      JOIN event_projection_group_revisions AS revision
        ON revision.target_context_name = 'marketplace' AND revision.projection_name = checkpoint.projection_name
       AND revision.projection_revision = CASE WHEN checkpoint.projection_name = 'marketplace-review-projection' THEN 2 ELSE 1 END
-     JOIN jsonb_to_recordset($1::jsonb) AS expected(name text, source text, version integer)
-       ON expected.name = checkpoint.projection_name AND expected.source = checkpoint.source_context_name
-      AND expected.version = checkpoint.subscription_version
      WHERE NOT EXISTS (
        SELECT 1 FROM event_projection_blocked_streams AS blocked
        WHERE blocked.projection_key = checkpoint.checkpoint_key AND blocked.state <> 'resolved'

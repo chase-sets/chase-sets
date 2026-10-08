@@ -1,5 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createPostgresEventStore,
+  createPostgresProjectionStore,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core";
@@ -7,12 +11,13 @@ import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-c
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../../api";
-import { createAccountPurchaseOrderRoutes } from "../../api/route";
+import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "../../api/route";
 import { eventSubscriptionSchemaSql } from "@chase-sets/bounded-context-runtime";
 import {
   markProjectionBlockedStreamRetrying,
   recordProjectionPoisonEvent,
   resolveProjectionBlockedStream,
+  saveSubscriptionCheckpoint,
 } from "../../../../../../infrastructure/bounded-context-runtime/subscription-store";
 import {
   reviewOpportunityFactType,
@@ -94,6 +99,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
   });
+  afterEach(() => vi.useRealTimers());
 
   it("composes buyer delivery from only this order's mirrored shipments without changing stored status", async () => {
     const pool = pools.ordering;
@@ -344,30 +350,21 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       "marketplace-review-scoring-reaction",
       "marketplace-review-moderation-reaction",
     ];
-    const sources = [
-      ...subscriptions.filter((item) => sourceNames.includes(item.projectionName)),
-      ...["marketplace-review-projection", "marketplace-review-hold-projection"].map((projectionName) => ({
-        projectionName,
-        sourceContextName: "marketplace",
-        subscriptionVersion: 1,
-      })),
-    ];
-    expect(sources).toHaveLength(8);
-    // Synthetic checkpoint fixture, with the real module's subscription versions.
-    for (const source of sources) {
-      const name = source.projectionName;
-      const key = `${name}:${source.sourceContextName}:v${source.subscriptionVersion}`;
-      await pools.marketplace.query(
-        `INSERT INTO event_subscription_checkpoints
-        (checkpoint_key,projection_name,source_context_name,subscription_version,last_global_position,updated_at)
-        VALUES ($1,$2,$3,$4,1000,now())`,
-        [key, name, source.sourceContextName, source.subscriptionVersion],
-      );
-      await pools.marketplace.query(
-        `INSERT INTO event_projection_recovery_markers
-        (projection_kind,projection_key,last_global_position,updated_at) VALUES ('subscription',$1,1000,now())`,
-        [key],
-      );
+    const sources = subscriptions.filter((item) => sourceNames.includes(item.projectionName));
+    expect(sources).toHaveLength(6);
+    for (const source of sources)
+      await saveSubscriptionCheckpoint(pools.marketplace, source, parseGlobalPosition("1000"));
+    const localNames = ["marketplace-review-projection", "marketplace-review-hold-projection"];
+    const projectors = marketplaceModule.projectionHandlerSets!(marketplace);
+    const groups = marketplaceModule.buildProjectionGroups!(marketplace);
+    const checkpoints = createPostgresProjectionStore({ db: pools.marketplace });
+    for (const name of localNames) {
+      expect(projectors.some((projector) => projector.projectionName === name)).toBe(true);
+      expect(subscriptions.some((source) => source.projectionName === name)).toBe(false);
+      await checkpoints.saveCheckpoint(name, parseGlobalPosition("1000"));
+    }
+    // Synthetic positions, using real registrations and runtime checkpoint/recovery writers.
+    for (const name of [...sourceNames, ...localNames]) {
       await pools.marketplace.query(
         `INSERT INTO event_projection_group_generations
         (target_context_name,projection_name,state,updated_at) VALUES ('marketplace',$1,'active',now())`,
@@ -376,7 +373,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       await pools.marketplace.query(
         `INSERT INTO event_projection_group_revisions
         (target_context_name,projection_name,projection_revision,updated_at) VALUES ('marketplace',$1,$2,now())`,
-        [name, name === "marketplace-review-projection" ? 2 : 1],
+        [name, groups.find((group) => group.projectionName === name)!.projectionRevision ?? 1],
       );
     }
     await subscriptions.find((item) => item.projectionName === "marketplace-review-order-source-projection")!.handlers[
@@ -405,13 +402,13 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       event("fulfillment.shipment.created", {
         shipmentId: "shp_1",
         orderId: "ord_1",
-        createdAt: "2026-04-01T00:00:00Z",
+        createdAt: "2026-03-21T12:00:00Z",
       }),
     );
     await shipment["fulfillment.shipment.delivered"]!(
       event("fulfillment.shipment.delivered", {
         shipmentId: "shp_1",
-        deliveredAt: "2026-04-02T00:00:00Z",
+        deliveredAt: "2026-03-22T12:00:00Z",
       }),
     );
     expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(1);
@@ -449,6 +446,79 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       delivery_summary: { shipment_count: 0 },
       reviewOutcome: { status: "ready", opportunity: { author_role: "buyer", active_review_revealed_at: null } },
     });
+
+    const sellerContext = { ...context, audit: { performedByUserId: "usr_test", forAccountId: "acc_seller" } };
+    const projectReview = projectors.find((projector) => projector.projectionName === "marketplace-review-projection")!;
+    for (const [index, type] of ["marketplace.review.submitted", "marketplace.review.withdrawn"].entries()) {
+      const stored = await store.appendToStream({
+        streamId: "marketplace.review-rev_seller",
+        expectedVersion: index === 0 ? "no_stream" : index,
+        context: sellerContext,
+        events: [
+          {
+            eventType: type,
+            payload:
+              index === 0
+                ? {
+                    reviewId: "rev_seller",
+                    orderId: "ord_1",
+                    authorAccountId: "acc_seller",
+                    subjectAccountId: "acc_buyer",
+                    authorRole: "seller",
+                    rating: 5,
+                    feedback: "withdrawn private sentinel",
+                    submittedAt: "2026-03-23T12:00:00Z",
+                    reviewWindowExpiresAt: "2026-05-21T12:00:00Z",
+                  }
+                : { reviewId: "rev_seller", withdrawnAt: "2026-03-24T12:00:00Z" },
+          },
+        ],
+      });
+      await projectReview.handlers[type]!(toTransportEvent(stored[0]!));
+    }
+    expect(await marketplace.reviewOpportunityPublication.run(sellerContext)).toBe(1);
+    await consumeLatest();
+    expect(await read("acc_seller", new Date("2026-05-20T12:00:00Z"))).toMatchObject({
+      status: "ready",
+      opportunity: { submission_state: "allowed", active_review_id: null, window_expired: false },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-05-22T12:00:00Z"));
+    const saleApp = new Hono<OrderingApiEnv>();
+    saleApp.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_seller",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_seller",
+        membershipId: "mbr_seller",
+        roleKey: "owner",
+        permissions: ["orders.view", "reputation.view", "reputation.manage"],
+      });
+      await next();
+    });
+    saleApp.route("/account", createAccountSaleOrderRoutes(runtime));
+    for (let load = 0; load < 2; load += 1) {
+      const sale = await saleApp.request("/account/sales/ord_1");
+      expect(sale.status).toBe(200);
+      const dto = await sale.json();
+      expect(dto).toMatchObject({
+        order_id: "ord_1",
+        reviewOutcome: {
+          status: "ready",
+          opportunity: {
+            author_role: "seller",
+            eligible_at: "2026-03-22T12:00:00.000Z",
+            active_review_id: null,
+            submission_state: "expired",
+            window_expired: true,
+            window_expires_at: "2026-05-21T12:00:00.000Z",
+          },
+        },
+      });
+      expect(JSON.stringify(dto)).not.toContain("withdrawn private sentinel");
+    }
+    expect(await marketplace.reviewOpportunityPublication.run(sellerContext)).toBe(0);
   });
 
   it("upgrades a populated Ordering schema without deriving an opportunity from old eligibility rows", async () => {
