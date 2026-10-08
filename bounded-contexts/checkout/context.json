@@ -7,14 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["cart", "sell-list", "sessions", "support-lookup"],
   "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support", "ucp-support"],
-  "publicExports": [
-    ".",
-    "./context",
-    "./routes/*",
-    "./test-support/sell-list-recovery-browser-fixture",
-    "./seed-support/*",
-    "./server"
-  ],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/commercial-terms",
@@ -1324,7 +1317,7 @@
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Publish deterministic checkout session seed ids for checkout-owned cart and started-session development data.",
+      "purpose": "Publish deterministic Checkout seed ids and browser recovery fixtures for Checkout-owned development and test data.",
       "expectedConsumers": ["Tests and development seed orchestration"]
     },
     "ucp-support": {

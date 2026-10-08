@@ -120,9 +120,6 @@
       "@chase-sets/checkout/server": [
         "./bounded-contexts/checkout/server.ts"
       ],
-      "@chase-sets/checkout/test-support/sell-list-recovery-browser-fixture": [
-        "./bounded-contexts/checkout/tests/support/sell-list-recovery-browser-fixture.tsx"
-      ],
       "@chase-sets/collections": [
         "./bounded-contexts/collections/index.ts"
       ],

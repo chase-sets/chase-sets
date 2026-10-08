@@ -16,7 +16,6 @@
     ".": "./index.ts",
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
-    "./test-support/sell-list-recovery-browser-fixture": "./tests/support/sell-list-recovery-browser-fixture.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
     "./server": "./server.ts"
   },

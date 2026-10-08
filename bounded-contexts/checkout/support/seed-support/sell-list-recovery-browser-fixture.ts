@@ -1,7 +1,7 @@
 import type { createMemoryRouter } from "react-router";
 import type { loader } from "../../routes/account-sell-list";
 
-// Synthetic recovered loader results; the production loader is exercised in account-sell-list-recovery.test.tsx.
+// Synthetic loader data seeds the browser router; the real loader is covered by account-sell-list-recovery.test.tsx.
 export function sellListRecoveryBrowserData() {
   const ready: Awaited<ReturnType<typeof loader>> = {
     isSignedIn: true,
