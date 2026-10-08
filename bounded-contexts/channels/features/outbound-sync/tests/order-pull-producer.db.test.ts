@@ -328,7 +328,10 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
         reservationId: reservation!.reservationId,
         outcomes: [
           listingReport(listing),
-          pullReport(member, { ...complete(member), admissionCounts: { readyToShipMembers: 61, followUpReads: 0, admitted: 1 } }),
+          pullReport(member, {
+            ...complete(member),
+            admissionCounts: { readyToShipMembers: 61, followUpReads: 0, admitted: 1 },
+          }),
         ],
       },
     ]) {
@@ -454,9 +457,9 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
     // Ledger-only upgrade: boot DDL is omitted, so only the real migration can create the producer tables.
     await bootstrapContextDatabase({ ...channelsModule, schemaSql: "" }, pools.channels);
     expect(await producerTables()).toEqual(["channel_order_pull_operations", "channel_order_pull_schedules"]);
-    expect((await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows).toEqual(
-      retained.rows,
-    );
+    expect(
+      (await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows,
+    ).toEqual(retained.rows);
     const upgradedIndexes = await producerIndexes();
     expect(upgradedIndexes).toEqual([
       "channel_order_pull_operations_expiry_idx",
@@ -467,9 +470,9 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
     // Boot after migration and a repeated boot are idempotent and keep the retained listing queue.
     await bootstrapContextDatabase(channelsModule, pools.channels);
     await bootstrapContextDatabase(channelsModule, pools.channels);
-    expect((await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows).toEqual(
-      retained.rows,
-    );
+    expect(
+      (await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows,
+    ).toEqual(retained.rows);
     expect(
       (
         await pools.channels.query(

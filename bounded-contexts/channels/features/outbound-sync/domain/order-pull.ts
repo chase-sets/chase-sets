@@ -125,9 +125,7 @@ export function resolveOrderPullBudget(authority: unknown): OrderPullBudgetDecis
 }
 
 /** `now + budget + 30 s < leaseExpiresAt`; a pull that cannot finish inside its lease is never dispatched. */
-export function orderPullFitsLease(
-  input: Readonly<{ budgetMs: number; at: string; leaseExpiresAt: string }>,
-): boolean {
+export function orderPullFitsLease(input: Readonly<{ budgetMs: number; at: string; leaseExpiresAt: string }>): boolean {
   const at = Date.parse(input.at);
   const expires = Date.parse(input.leaseExpiresAt);
   return (
@@ -310,7 +308,10 @@ export function assertOrderPullOutcomeBody(value: unknown): asserts value is Cla
 }
 
 /** Binds a closed outcome to the exact payload the claimant received. */
-export function assertOrderPullOutcomeMatchesPayload(outcome: ClaimedOrderPullOutcome, payload: OrderPullPayload): void {
+export function assertOrderPullOutcomeMatchesPayload(
+  outcome: ClaimedOrderPullOutcome,
+  payload: OrderPullPayload,
+): void {
   if (outcome.pullId !== payload.pullId) throw new OutboundSyncError("reservation-membership-mismatch");
   if (outcome.outcome.kind !== "order-pull-complete") return;
   const complete = outcome.outcome;
@@ -340,12 +341,7 @@ function assertSelector(value: unknown): asserts value is OrderPullSelectorBindi
   integer(selector.pageSize, 2, maxBoundValue, "selector pageSize");
 }
 
-function closed(
-  value: unknown,
-  keys: readonly string[],
-  label: string,
-  exact = false,
-): Record<string, unknown> {
+function closed(value: unknown, keys: readonly string[], label: string, exact = false): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) invalid(`${label} must be an object.`);
   const record = value as Record<string, unknown>;
   const allowed = new Set(keys);

@@ -143,7 +143,10 @@ describe("order-pull-budget-preflight", () => {
     invalid(() =>
       assertClaimedOrderPullOutcome({
         ...complete,
-        outcome: { ...complete.outcome, admissionCounts: { readyToShipMembers: 1, followUpReads: 0, admitted: 1, extra: 1 } },
+        outcome: {
+          ...complete.outcome,
+          admissionCounts: { readyToShipMembers: 1, followUpReads: 0, admitted: 1, extra: 1 },
+        },
       }),
     );
     invalid(() => assertClaimedOrderPullOutcome({ ...complete, outcome: { kind: "applied", result: {} } }));
@@ -189,8 +192,16 @@ describe("8608-decision-r4 ruling fixture: one closed Ready to Ship search page"
       { totalOrders: 500, orderNumbers: numbers(500), everyRowReadyToShip: true },
       unknown("budget-exceeded"),
     ],
-    ["missing total", { totalOrders: undefined, orderNumbers: [], everyRowReadyToShip: true }, unknown("completeness-unproven")],
-    ["length mismatch", { totalOrders: 3, orderNumbers: numbers(2), everyRowReadyToShip: true }, unknown("completeness-unproven")],
+    [
+      "missing total",
+      { totalOrders: undefined, orderNumbers: [], everyRowReadyToShip: true },
+      unknown("completeness-unproven"),
+    ],
+    [
+      "length mismatch",
+      { totalOrders: 3, orderNumbers: numbers(2), everyRowReadyToShip: true },
+      unknown("completeness-unproven"),
+    ],
     [
       "duplicate order numbers",
       { totalOrders: 2, orderNumbers: ["ORDER-1", "ORDER-1"], everyRowReadyToShip: true },

@@ -39,7 +39,8 @@ function packageTestFiles(): Map<string, string> {
       if (entry.name === "node_modules") continue;
       const relative = directory ? `${directory}/${entry.name}` : entry.name;
       if (entry.isDirectory()) visit(relative);
-      else if (/\.test\.tsx?$/.test(entry.name)) files.set(relative, readFileSync(path.join(packageRoot, relative), "utf8"));
+      else if (/\.test\.tsx?$/.test(entry.name))
+        files.set(relative, readFileSync(path.join(packageRoot, relative), "utf8"));
     }
   };
   visit("");
@@ -59,7 +60,9 @@ describe("order-pull-producer-schema-and-profiles", () => {
 
   it("fails enrollment for an importing-but-undiscovered DB test and for a unit leak", () => {
     const scripts = packageScripts();
-    const files = new Map([[producerDbTest, `import { describeDb } from "../../connector-feed/tests/${transportHarnessMarker}";`]]);
+    const files = new Map([
+      [producerDbTest, `import { describeDb } from "../../connector-feed/tests/${transportHarnessMarker}";`],
+    ]);
     expect(
       enrollmentViolations(files, {
         "test:db": scripts["test:db"].replace(` ${producerDbTest}`, ""),

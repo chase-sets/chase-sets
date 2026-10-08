@@ -489,7 +489,12 @@ async function readConnection(db: PgQueryable, connectionId: string): Promise<Ou
   );
   const row = result.rows[0];
   return row
-    ? { connectionId: row.connection_id, providerKey: row.provider_key, environment: row.environment, status: row.status }
+    ? {
+        connectionId: row.connection_id,
+        providerKey: row.provider_key,
+        environment: row.environment,
+        status: row.status,
+      }
     : null;
 }
 
