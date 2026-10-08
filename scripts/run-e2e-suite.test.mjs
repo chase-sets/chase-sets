@@ -115,6 +115,7 @@ describe("run e2e suite", () => {
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "composeChannelOrderFulfillmentReference",
       "createConnectorBackground",
+      "createConnectorRetentionStore",
     ]);
     expect(channelsClient).toMatchObject({
       TCGPLAYER_CONNECTOR_EXTENSION_ID,
