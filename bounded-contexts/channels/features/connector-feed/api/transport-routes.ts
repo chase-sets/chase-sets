@@ -29,14 +29,13 @@ export function createConnectorTransportRoutes(services: ConnectorTransportServi
         const authorization = c.req.header("authorization");
         if (!authorization || !/^Bearer [A-Za-z0-9._~-]+$/.test(authorization))
           throw new ConnectorPairingError("invalid-credential");
-        const policy = await services.resolveTransportPolicy();
         // Report results are bounded by the producer's closed result grammar, not the inbound payload limit.
         const maxBytes =
           operation === "claim"
             ? 1024
             : operation === "ingest"
-              ? policy.maxIngestBytes
-              : connectorReportMaxBytes(policy);
+              ? (await services.resolveTransportPolicy()).maxIngestBytes
+              : connectorReportMaxBytes(await services.resolveTransportPolicy());
         const value = await readBody(c.req.raw, maxBytes);
         const input = { token: authorization.slice(7), connectionId: c.req.param("connectionId") };
         const identify = (verified: ConnectorIdentity) => {

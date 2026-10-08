@@ -32,6 +32,19 @@ one producer-owned reservation plus its poll window. Paused connections serve an
 empty reservation without calling the producer. Inbound admission is write-only
 and remains available after membership loss while the pairing and grant are live.
 
+## Connector Liveness Authority
+
+**Connector Liveness Authority** is the never-deleted, lockable current row for a
+connection's pairing generation and admitted heartbeat. Pairing changes clear the
+heartbeat, not its monotonic revision. Missing authority admits no liveness decision.
+
+## Served Policy Identity
+
+**Served Policy Identity** hashes the exact transport policy value and document
+metadata selected for an admitted poll in the Channel Operation Feed. Here,
+"served" means selected at admission, not delivered to the connector. Reservation
+failure retains that snapshot; it does not prove a response carried the window.
+
 ## Connector Inbound Retention Class
 
 A **Connector Inbound Retention Class** is the one closed retention window each

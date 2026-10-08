@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { changeConnectorLivenessPairing } from "../read-model/liveness";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
@@ -45,7 +46,6 @@ type PairingRow = {
   code_hash: string | null;
   code_expires_at: Date | string;
   grant_id: string | null;
-  last_seen_at: Date | string | null;
 };
 type ConnectionQuery = Readonly<{ accountId: string; connectionId: string }>;
 type Seller = Readonly<{ userId: string; accountId: string; permissions: readonly string[] }>;
@@ -87,6 +87,9 @@ export function createConnectorFeedRuntime(
       );
       if (state.connectionId !== checked.connectionId || state.accountId !== checked.accountId)
         throw new ConnectorPairingError("connection-not-found");
+      await db.query("SELECT connection_id FROM channel_connections WHERE connection_id=$1 FOR SHARE", [
+        checked.connectionId,
+      ]);
       return work(db, state, events.at(-1)?.streamVersion ?? 0);
     });
   }
@@ -100,6 +103,7 @@ export function createConnectorFeedRuntime(
   }
   async function close(db: PgQueryable, pairing: PairingRow): Promise<void> {
     if (pairing.state === "closed") return;
+    await changeConnectorLivenessPairing(db, pairing.connection_id, null);
     // Auth commits first. A Channels rollback may retain a revoked pairing, never a usable replacement.
     await oauth().revokePairing({
       connectionId: pairing.connection_id,
@@ -213,12 +217,16 @@ export function createConnectorFeedRuntime(
       const pairing = await latest(db, input.connectionId);
       identify({ connectionId: input.connectionId, pairingId: pairing?.pairing_id ?? null });
       const expired = before?.state === "code" && new Date(before.code_expires_at).getTime() <= now().getTime();
+      const liveness = await db.query<{ last_seen_at: Date | null }>(
+        "SELECT last_seen_at FROM channel_connector_liveness_authority WHERE connection_id=$1",
+        [input.connectionId],
+      );
       return {
         state: expired ? "expired" : !pairing || pairing.state === "closed" ? "unpaired" : pairing.state,
         pairingId: pairing?.pairing_id ?? null,
         revision: pairing?.revision ?? null,
         codeExpiresAt: pairing ? new Date(pairing.code_expires_at).toISOString() : null,
-        lastSeenAt: pairing?.last_seen_at ? new Date(pairing.last_seen_at).toISOString() : null,
+        lastSeenAt: liveness.rows[0]?.last_seen_at?.toISOString() ?? null,
       };
     });
   }
@@ -231,6 +239,7 @@ export function createConnectorFeedRuntime(
       const previous = await latest(db, input.connectionId);
       if (previous) await close(db, previous);
       const pairingId = `pair_${randomUUID()}`;
+      await changeConnectorLivenessPairing(db, input.connectionId, pairingId);
       const code = randomBytes(32).toString("base64url");
       const at = now();
       const expiresAt = new Date(at.getTime() + 600_000).toISOString();
@@ -304,6 +313,7 @@ export function createConnectorFeedRuntime(
         throw new ConnectorPairingError("pairing-expired");
       if (state.status !== "active" && state.status !== "paused")
         throw new ConnectorPairingError("authorization-refused");
+      await changeConnectorLivenessPairing(db, target.connectionId, pairing.pairing_id);
       const authorized = await oauth().authorize(
         {
           client_id: body.client_id,

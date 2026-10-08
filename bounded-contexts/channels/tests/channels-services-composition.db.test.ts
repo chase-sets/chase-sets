@@ -12,6 +12,11 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../index";
 import { buildChannelsApi, type ChannelsApiEnv } from "../api";
 import {
+  readConnectorLivenessAuthority,
+  readConnectorLivenessAuthorityInTransaction,
+  listConnectorLivenessCandidates,
+} from "../server";
+import {
   channelsServicesMembers,
   isChannelsServices,
   type ChannelsServices,
@@ -35,6 +40,31 @@ function createServices() {
 }
 
 describeDb("channels-services-composition", () => {
+  it("exposes the real connector liveness readers through services and server", async () => {
+    const services: ChannelsServices = createServices();
+    const input = { connectionId: "connection_never_paired_composition" };
+    expect(await services.connectorFeed.readConnectorLivenessAuthority(input)).toBeNull();
+    expect(await readConnectorLivenessAuthority(pools.channels, input)).toBeNull();
+    expect(services.connectorFeed.readConnectorLivenessAuthorityInTransaction).toBe(
+      readConnectorLivenessAuthorityInTransaction,
+    );
+    const query = { dueAt: "2026-10-07T12:00:00Z", limit: 100 };
+    expect(await services.connectorFeed.listConnectorLivenessCandidates(query)).toEqual(
+      await listConnectorLivenessCandidates(pools.channels, query),
+    );
+    for (const omitted of [
+      "readConnectorLivenessAuthority",
+      "readConnectorLivenessAuthorityInTransaction",
+      "listConnectorLivenessCandidates",
+    ]) {
+      expect(
+        isChannelsServices({
+          ...services,
+          connectorFeed: Object.fromEntries(Object.entries(services.connectorFeed).filter(([key]) => key !== omitted)),
+        }),
+      ).toBe(false);
+    }
+  });
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(
       databaseBaseUrl!,

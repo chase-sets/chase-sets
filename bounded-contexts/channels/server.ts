@@ -27,6 +27,19 @@ export { connectorInboundKinds } from "./features/connector-feed/domain/transpor
 export { connectorInboundRetentionClasses } from "./features/connector-feed/domain/retention";
 export type { ConnectorInbound, ConnectorInboundKind } from "./features/connector-feed/domain/transport";
 export { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
+export { deriveServedPolicyIdentity } from "./features/connector-feed/domain/served-policy-identity";
+export {
+  readConnectorLivenessAuthority,
+  readConnectorLivenessAuthorityInTransaction,
+  listConnectorLivenessCandidates,
+} from "./features/connector-feed/read-model/liveness";
+export type {
+  ConnectorLivenessAuthority,
+  ConnectorLivenessRead,
+  ConnectorLivenessCandidates,
+  ConnectorLivenessCursor,
+  ConnectorLivenessPage,
+} from "./features/connector-feed/domain/liveness";
 export {
   assertDerivedTcgplayerSnapshot,
   type DerivedTcgplayerSnapshot,

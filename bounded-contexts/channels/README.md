@@ -84,6 +84,27 @@ producer's own reservation transaction and canonical health hold. Report preserv
 the producer outcome and run-settlement contracts. Accepted report and ingest
 replays return the same exact `{}` bytes without a duplicate signal.
 
+`ChannelsServices.connectorFeed` and `./server` expose Connector Liveness Authority
+reads, a caller-owned READ COMMITTED transactional read, and due candidates with a
+100-row maximum and `(heartbeatDueAt, connectionId)` keyset. The standalone read is
+one statement; the transactional read locks connection then authority `FOR SHARE`.
+Callers needing the connection stream lock must acquire it before either row lock.
+No authority returns null and grants no token. An authority whose connection
+projection is absent is unavailable, not never-paired.
+
+Pairing writers retain stream serialization, then lock connection before authority.
+The never-deleted authority row increments generation on each pairing mutation and
+keeps a monotonic heartbeat revision. A newer admitted claim stores the exact S7
+value/metadata digest, window and due time together; equal/older clocks are inert.
+The response uses that selected window, but reservation failure leaves the admitted
+heartbeat committed even when the response is 503 and the audit says refused.
+Neither authority nor audit proves delivery. Boot and migration backfill existing
+pairings without inventing a policy snapshot or copying the old last-seen timestamp.
+The next newer poll completes the heartbeat. Old pairing heartbeat columns remain
+for rolling-version compatibility but have no new-code writer or reader. Pairing
+edits must not span a mixed-version rollout; an admitted-pairing/authority mismatch
+returns a bounded conflict rather than silently losing a heartbeat.
+
 A claim body of `{}` is incapable and only ever receives listing operations. A
 claim declaring `{"capabilities":["tcgplayer-order-pull"]}` may also receive the
 connection's single Channel Order Pull, which Channels background schedules on

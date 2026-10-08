@@ -24,7 +24,11 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
     expect(after.e1).toEqual(before.e1);
     expect(after.e2).toHaveLength(1);
     expect(after.e2).not.toEqual(before.e2);
-    expect(after.e2[0]).toMatchObject({ pairing_id: h.pairingId, served_poll_window_seconds: 60 });
+    expect(after.e2[0]).toMatchObject({
+      live_pairing_id: h.pairingId,
+      served_poll_window_seconds: 60,
+      heartbeat_revision: "1",
+    });
     expect(after.e3).toHaveLength(before.e3.length + 1);
     expect(reserve).toHaveBeenCalledTimes(paused ? 0 : 1);
     expect(hold).toHaveBeenCalledTimes(paused ? 0 : 1);
@@ -57,6 +61,14 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
             `channels.connection-${target.connectionId}`,
           ]);
           acquiredReleasedAuthorityLock = true;
+          await independent.query(
+            "SELECT connection_id FROM channel_connections WHERE connection_id=$1 FOR UPDATE NOWAIT",
+            [target.connectionId],
+          );
+          await independent.query(
+            "SELECT connection_id FROM channel_connector_liveness_authority WHERE connection_id=$1 FOR UPDATE NOWAIT",
+            [target.connectionId],
+          );
         } finally {
           await independent.query("ROLLBACK");
           independent.release();
@@ -70,6 +82,13 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
     const after = await h.effects();
     expect(after.e1).toEqual(before.e1);
     expect(after.e2).not.toEqual(before.e2);
+    expect(after.e2[0]).toMatchObject({
+      heartbeat_revision: "1",
+      served_poll_window_seconds: 60,
+      served_policy_identity: expect.stringMatching(/^[0-9a-f]{64}$/),
+      heartbeat_due_at: new Date("2026-10-07T12:01:00Z"),
+    });
+    expect(after.e3.filter((row) => row.route === "claim")).toEqual([expect.objectContaining({ outcome: "refused" })]);
     expect(after.e3).toHaveLength(before.e3.length + 1);
     expect(JSON.stringify(after)).not.toContain("reservation-secret-sentinel");
     expect(reserve).toHaveBeenCalledTimes(1);
