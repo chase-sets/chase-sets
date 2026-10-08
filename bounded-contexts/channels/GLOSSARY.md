@@ -25,6 +25,19 @@ a seller consumes a one-use, ten-minute pairing code. Channels owns its identity
 and lifecycle. Unpairing, replacement, expiry, and disconnect invalidate authority;
 closed pairing identities never reopen.
 
+## Channel Operation Feed
+
+A **Channel Operation Feed** admits an authorized Connector poll and serves at most
+one producer-owned reservation plus its poll window. Paused connections serve an
+empty reservation without calling the producer. Inbound admission is write-only
+and remains available after membership loss while the pairing and grant are live.
+
+## Operation Acknowledgement
+
+An **Operation Acknowledgement** reports the complete producer reservation outcome
+vector with unchanged attempt, generation and desired-state sequence. Only the
+producer settles it; an identical replay returns the same empty success response.
+
 ## BYO Channel
 
 A **BYO Channel** is an account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.

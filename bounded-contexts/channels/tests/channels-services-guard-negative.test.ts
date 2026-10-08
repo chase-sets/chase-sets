@@ -102,7 +102,14 @@ function validCandidate() {
     },
     tcgplayerCsv: {},
     manualSync: {},
-    connectorFeed: { readAuthority: vi.fn(), withAuthority: vi.fn() },
+    connectorFeed: {
+      readAuthority: vi.fn(),
+      withAuthority: vi.fn(),
+      claim: vi.fn(),
+      report: vi.fn(),
+      ingest: vi.fn(),
+      readAdmittedConnectorInboundEvents: vi.fn(),
+    },
     projectors: [],
     db: {},
   } satisfies Record<keyof ChannelsServices, unknown>;

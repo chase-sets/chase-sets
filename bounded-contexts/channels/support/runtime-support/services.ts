@@ -9,6 +9,7 @@ import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runt
 import type { ManualSyncServices } from "../../features/manual-sync/api/runtime";
 import type { ConnectionAttentionServices } from "../../features/connection-attention/domain/contracts";
 import type { ConnectorFeedServices } from "../../features/connector-feed/api/runtime";
+import type { ConnectorTransportServices } from "../../features/connector-feed/api/transport";
 import type { ChannelCredentialServices } from "../../features/credentials/api/runtime";
 
 export type ChannelsServices = Readonly<{
@@ -21,7 +22,7 @@ export type ChannelsServices = Readonly<{
   reconciliation: ChannelReconciliationServices;
   tcgplayerCsv: TcgplayerCsvServices;
   manualSync: ManualSyncServices;
-  connectorFeed: ConnectorFeedServices;
+  connectorFeed: ConnectorFeedServices & ConnectorTransportServices;
   projectors: readonly ProjectionHandlerSet[];
   db: PgTransactionalPool;
 }>;
@@ -88,6 +89,10 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     isObject(connectorFeed) &&
     typeof Reflect.get(connectorFeed, "readAuthority") === "function" &&
     typeof Reflect.get(connectorFeed, "withAuthority") === "function" &&
+    typeof Reflect.get(connectorFeed, "claim") === "function" &&
+    typeof Reflect.get(connectorFeed, "report") === "function" &&
+    typeof Reflect.get(connectorFeed, "ingest") === "function" &&
+    typeof Reflect.get(connectorFeed, "readAdmittedConnectorInboundEvents") === "function" &&
     Array.isArray(projectors) &&
     isObject(db)
   );
