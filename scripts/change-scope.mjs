@@ -28,6 +28,10 @@ const terraformPatterns = [/^infrastructure\/digitalocean\//];
 const planOnlyTerraformPatterns = [/^infrastructure\/digitalocean\/doks\//];
 const helmPatterns = [/^infrastructure\/helm\//];
 const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/, /^deployables\/[^/]+\/Dockerfile$/];
+const imageAssetPatterns = [
+  /^scripts\/discovery-search-identity-terms-populate\.mjs$/,
+  /^scripts\/typescript-resolver-caller-manifests\/discovery-search-identity-terms-populate\.manifest$/,
+];
 const rootRuntimePatterns = [
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
@@ -233,6 +237,7 @@ export function classifyChanges({
   let previewDeployTerraformChanged = false;
   let helmChanged = false;
   let dockerChanged = false;
+  let imageAssetChanged = false;
   let rootRuntimeChanged = false;
   let rootTestTypecheckChanged = false;
   let rootTestConfigChanged = false;
@@ -323,6 +328,7 @@ export function classifyChanges({
     previewDeployTerraformChanged ||= terraformFileChanged && !matchesAny(filePath, planOnlyTerraformPatterns);
     helmChanged ||= matchesAny(filePath, helmPatterns);
     dockerChanged ||= matchesAny(filePath, dockerPatterns);
+    imageAssetChanged ||= matchesAny(filePath, imageAssetPatterns);
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
     rootTestConfigChanged ||= matchesAny(filePath, rootTestConfigPatterns);
@@ -378,7 +384,7 @@ export function classifyChanges({
     .filter((workspaceName) => runtimeAffectedWorkspaceSet.has(workspaceName));
 
   const runtimeChanged = runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged;
-  const dockerImageRequired = runtimeChanged || dockerChanged;
+  const dockerImageRequired = runtimeChanged || dockerChanged || imageAssetChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
   const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged || helmChanged;
   // Cluster-preview scoping: narrower than `deployRequired` above.
