@@ -730,6 +730,11 @@ test.describe("marketplace critical flows", () => {
   }) => {
     await expectPageOk(page, "/account/sell-list");
     await expect(page.getByRole("heading", { name: "Sell List", exact: true })).toBeVisible();
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __reactRouterDataRouter?: { state: { initialized: boolean } } }).__reactRouterDataRouter
+          ?.state.initialized,
+    );
     await page.clock.install({ time: new Date("2026-10-07T12:00:00Z") });
     await page.clock.pauseAt(new Date("2026-10-07T12:00:01Z"));
     await page.evaluate(mountSellListRecoveryBrowserFixture, sellListRecoveryBrowserData());
