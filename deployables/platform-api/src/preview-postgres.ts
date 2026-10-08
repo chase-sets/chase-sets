@@ -124,9 +124,10 @@ async function ensurePreviewDatabaseExtensions(
     const databaseUrl = new URL(adminUrl);
     databaseUrl.pathname = `/${encodeURIComponent(spec.database)}`;
     const databasePool: PreviewPostgresPool = createPool(databaseUrl.toString());
+    const database: PgQueryable = databasePool;
     try {
       for (const extensionName of spec.extensions) {
-        await databasePool.query(`create extension if not exists ${quoteIdentifier(extensionName)}`);
+        await database.query(`create extension if not exists ${quoteIdentifier(extensionName)}`);
       }
     } finally {
       await databasePool.end();
