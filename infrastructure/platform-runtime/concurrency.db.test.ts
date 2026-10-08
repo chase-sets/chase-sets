@@ -1577,7 +1577,6 @@ describe("busy-group-pass-attribution Postgres", () => {
         resolveRetainedReleased = resolve;
       });
       let retainedPass: WorkerHolderLifecycleEvent | undefined;
-      let retainedReleaseRequestedSequence: number | undefined;
       let handoffSequence: number | undefined;
       let firstWakeAttempt:
         | Readonly<{
@@ -1630,9 +1629,11 @@ describe("busy-group-pass-attribution Postgres", () => {
             retainedPass &&
             lease.leaseName === createWorkerRunnerLeaseName(worker) &&
             lease.ownerId === retainedPass.workerId &&
-            retainedReleaseRequestedSequence === undefined
+            handoffSequence === undefined
           ) {
-            retainedReleaseRequestedSequence = sequence;
+            handoffSequence = sequence;
+            onHandoff?.();
+            onHandoff = undefined;
           }
           await realControlPlane.releaseLease(lease);
           trace("lease-released", identity);
@@ -1668,11 +1669,6 @@ describe("busy-group-pass-attribution Postgres", () => {
               retainedPass = event;
               trace("target-drained", { priority: String(worker.priority!()), retainedPass });
             }
-          }
-          if (retainedPass && event.phase === "pass-start" && event.runnerName !== worker.name && !handoffSequence) {
-            handoffSequence = sequence;
-            onHandoff?.();
-            onHandoff = undefined;
           }
         },
       };
@@ -1776,10 +1772,15 @@ describe("busy-group-pass-attribution Postgres", () => {
       expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
       expect(worker.priority!()).toBe(0n);
       expect(activeHolders.has(worker.name)).toBe(false);
-      // Selection initiates release; the asynchronous database release need not have finished yet.
-      expect(retainedReleaseRequestedSequence).toBeDefined();
-      expect(retainedReleaseRequestedSequence!).toBeLessThan(handoffSequence!);
-      trace("retained-triggered-append", { retainedPass, handoffSequence, retainedReleaseRequestedSequence });
+      // Observe the handoff decision, not another runner's independently timed database acquisition.
+      // The release is already requested, but neither it nor the other runners is paused for this read.
+      expect(handoffSequence).toBeDefined();
+      expect(
+        lifecycle.filter(
+          (event) => event.leaseIntervalId === retainedPass!.leaseIntervalId && event.phase === "pass-start",
+        ),
+      ).toHaveLength(1);
+      trace("retained-triggered-append", { retainedPass, handoffSequence });
       const appended = await store.appendToStream({
         streamId,
         expectedVersion: fixture.initialCount,
