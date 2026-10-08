@@ -5,7 +5,7 @@ import type { TcgplayerCsvServices } from "../../tcgplayer-csv/api/runtime";
 import type { ChannelSyncRun, ChannelSyncRunMember } from "../../tcgplayer-csv/domain/contracts";
 import { getPublicChannelConnection } from "../../connections/read-model/queries";
 import { createManualSyncRuntime } from "./runtime";
-import { liveAuthority } from "../tests/coverage-fixture";
+import { liveAuthority } from "../domain/coverage-test-support";
 
 const context: EventStoreContext = {
   tenantId: "tenant" as never,
@@ -45,7 +45,7 @@ describe("manual-sync runtime binding", () => {
         port: {
           recover,
           engage: vi.fn(async () => ({
-            kind: "engaged",
+            kind: "engaged" as const,
             requestedListingCount: 1,
             affectedListingCount: 1,
             clampedListingCount: 1,

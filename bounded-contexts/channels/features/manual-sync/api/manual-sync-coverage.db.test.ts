@@ -256,7 +256,11 @@ function inboundKinds(): ConnectorInbound[] {
     {
       inboundKind: "export",
       externalReference: "export.v1:7995",
-      payload: { parsed, fileSha256: "a".repeat(64), capturedAt: new Date().toISOString() },
+      payload: {
+        parsed: { ...parsed, surface: "live" },
+        fileSha256: "a".repeat(64),
+        capturedAt: new Date().toISOString(),
+      },
     },
   ];
 }

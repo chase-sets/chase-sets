@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectorAuthority } from "../../connector-feed/domain/contracts";
-import { liveAuthority } from "../tests/coverage-fixture";
+import { liveAuthority } from "./coverage-test-support";
 import { resolveChannelInboundCoverage } from "./inbound-coverage";
 
 const target = { accountId: "account-owner", connectionId: "connection-tcg" };
