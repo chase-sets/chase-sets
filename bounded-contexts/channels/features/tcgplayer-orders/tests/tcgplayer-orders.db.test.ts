@@ -746,7 +746,7 @@ describeDb("TCGplayer connector sale interpretation", () => {
     expect((await pools.channels.query(`SELECT * FROM channel_connection_health`)).rows).toEqual(healthBefore.rows);
     expect((await pools.channels.query(`SELECT status FROM channel_connections`)).rows).toEqual([{ status: "active" }]);
     const source = createChannelActionAttentionSourceFromReadModel(pools.channels);
-    const visible = await source.load({ accountId: "account-1" } as never);
+    const visible = await source.load({ accountId: "account-1", now: new Date().toISOString() });
     expect(visible).toHaveLength(1);
     expect(visible[0]!.source).toBe("channel-action");
   });
