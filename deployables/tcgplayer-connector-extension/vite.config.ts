@@ -19,6 +19,7 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     rolldownOptions: {
+      preserveEntrySignatures: "strict",
       input: { background: resolve(import.meta.dirname, "src/background.ts") },
       output: { entryFileNames: "[name].js", codeSplitting: false },
     },

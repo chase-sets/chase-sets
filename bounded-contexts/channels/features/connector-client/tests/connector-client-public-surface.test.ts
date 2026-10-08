@@ -51,6 +51,7 @@ describe("connector-client-public-surface", () => {
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "createConnectorBackground",
       "composeChannelOrderFulfillmentReference",
+      "createConnectorRetentionStore",
       "ConnectorCommand",
       "ConnectorStatus",
       "ConnectorBackgroundPorts",
