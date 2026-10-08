@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  eventCorePostgresSchemaSql,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core";
@@ -7,8 +11,15 @@ import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-c
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../../api";
-import { createAccountPurchaseOrderRoutes } from "../../api/route";
-import { eventSubscriptionSchemaSql } from "@chase-sets/bounded-context-runtime";
+import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "../../api/route";
+import {
+  drainContextProcesses,
+  eventSubscriptionSchemaSql,
+  resolveModuleProjectionGroups,
+  resolveModuleSubscriptions,
+  syncContextProjectionGroups,
+  type MountedContextRuntimeEntry,
+} from "@chase-sets/bounded-context-runtime";
 import {
   markProjectionBlockedStreamRetrying,
   recordProjectionPoisonEvent,
@@ -36,7 +47,7 @@ if (!databaseBaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = databaseBaseUrl ? describe : describe.skip;
-const contextNames = ["ordering", "marketplace"] as const;
+const contextNames = ["ordering", "marketplace", "fulfillment", "platform-operations"] as const;
 
 let sequence = 0;
 
@@ -89,6 +100,8 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     await pools.ordering.query(eventSubscriptionSchemaSql);
     await pools.marketplace.query(marketplaceModule.schemaSql);
     await pools.marketplace.query(eventSubscriptionSchemaSql);
+    await pools.fulfillment.query(eventCorePostgresSchemaSql);
+    await pools["platform-operations"].query(eventCorePostgresSchemaSql);
   });
 
   afterAll(async () => {
@@ -330,6 +343,248 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       }
     },
   );
+
+  it("traces expired withdrawn sales through real runners, including an empty support horizon", async () => {
+    const context = {
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_seller" },
+    } as EventStoreContext;
+    const marketplace = marketplaceModule.createServices(pools.marketplace, {});
+    const ordering = orderingModule.createServices(pools.ordering, {
+      inventoryCleanupAuthority: { kind: "not-mounted" },
+    });
+    const marketplaceNames = new Set([
+      "marketplace-review-order-source-projection",
+      "marketplace-review-shipment-source-projection",
+      "marketplace-review-support-source-projection",
+      "marketplace-review-hold-reaction",
+      "marketplace-review-scoring-reaction",
+      "marketplace-review-moderation-reaction",
+      "marketplace-review-projection",
+      "marketplace-review-hold-projection",
+    ]);
+    const orderingName = "ordering-order-review-opportunity-projection";
+    const unavailablePool: PgTransactionalPool = {
+      query: async () => {
+        throw new Error("Unselected source must not be read by this scoped reproduction");
+      },
+      connect: async () => {
+        throw new Error("Unselected source must not be read by this scoped reproduction");
+      },
+    };
+    const active: MountedContextRuntimeEntry[] = [
+      {
+        contextName: "marketplace",
+        module: marketplaceModule,
+        services: marketplace,
+        pool: pools.marketplace,
+        projectionHandlerSets: marketplaceModule.projectionHandlerSets!(marketplace),
+      },
+      {
+        contextName: "ordering",
+        module: orderingModule,
+        services: ordering,
+        pool: pools.ordering,
+        projectionHandlerSets: orderingModule.projectionHandlerSets!(ordering),
+      },
+    ];
+    // Resolve the unmodified modules. Only the selected groups execute; other source ports reject I/O.
+    const sourceNames = new Set(
+      active.flatMap((entry) =>
+        entry.module.buildSubscriptions!(entry.services).map((subscription) => subscription.sourceContextName),
+      ),
+    );
+    const mountedContexts: MountedContextRuntimeEntry[] = [
+      ...active,
+      ...[...sourceNames]
+        .filter((name) => !active.some((entry) => entry.contextName === name))
+        .map((contextName) => ({
+          ...active[0]!,
+          contextName,
+          mountRole: "source-only" as const,
+          projectionHandlerSets: [],
+          pool:
+            contextName === "fulfillment"
+              ? pools.fulfillment
+              : contextName === "platform-operations"
+                ? pools["platform-operations"]
+                : unavailablePool,
+        })),
+    ];
+    const allRunners = resolveModuleSubscriptions(mountedContexts);
+    const selected = (target: string, name: string) =>
+      target === "marketplace" ? marketplaceNames.has(name) : target === "ordering" && name === orderingName;
+    const runtime = {
+      mountedContexts,
+      subscriptionRunners: allRunners.filter((runner) => selected(runner.targetContextName, runner.projectionName)),
+      projectionGroups: resolveModuleProjectionGroups(mountedContexts, allRunners).filter((group) =>
+        selected(group.targetContextName, group.projectionName),
+      ),
+    };
+    expect(runtime.subscriptionRunners).toHaveLength(12);
+    const drain = async () => {
+      await syncContextProjectionGroups(runtime, "marketplace");
+      await syncContextProjectionGroups(runtime, "ordering");
+      await drainContextProcesses(runtime, { settleIdleCheckpoints: true });
+    };
+    const append = async (
+      source: (typeof contextNames)[number],
+      streamId: string,
+      eventType: string,
+      payload: Record<string, unknown>,
+      expectedVersion: number | "no_stream" = "no_stream",
+    ) =>
+      createPostgresEventStore({ pool: pools[source] }).appendToStream({
+        streamId,
+        expectedVersion,
+        context,
+        events: [{ eventType, payload }],
+      });
+    await insertOrderPage(pools.ordering, "ord_runtime");
+    await append("ordering", "ordering.order-ord_runtime", "ordering.order.created", {
+      orderId: "ord_runtime",
+      buyerAccountId: "acc_buyer",
+      sellerAccountId: "acc_seller",
+    });
+    await append("fulfillment", "fulfillment.shipment-shp_runtime", "fulfillment.shipment.created", {
+      shipmentId: "shp_runtime",
+      orderId: "ord_runtime",
+      createdAt: "2026-03-21T12:00:00Z",
+    });
+    await append(
+      "fulfillment",
+      "fulfillment.shipment-shp_runtime",
+      "fulfillment.shipment.delivered",
+      {
+        shipmentId: "shp_runtime",
+        deliveredAt: "2026-03-22T12:00:00Z",
+      },
+      1,
+    );
+    await append("marketplace", "marketplace.review-rev_runtime", "marketplace.review.submitted", {
+      reviewId: "rev_runtime",
+      orderId: "ord_runtime",
+      authorAccountId: "acc_seller",
+      subjectAccountId: "acc_buyer",
+      authorRole: "seller",
+      rating: 5,
+      feedback: "withdrawn private sentinel",
+      submittedAt: "2026-03-23T12:00:00Z",
+      reviewWindowExpiresAt: "2026-05-21T12:00:00Z",
+    });
+    await append(
+      "marketplace",
+      "marketplace.review-rev_runtime",
+      "marketplace.review.withdrawn",
+      {
+        reviewId: "rev_runtime",
+        withdrawnAt: "2026-05-20T12:00:00Z",
+      },
+      1,
+    );
+    const readSale = (now = new Date("2026-05-22T12:00:00Z")) =>
+      getOrderingOrderReviewOpportunity(pools.ordering, {
+        orderId: "ord_runtime",
+        authorAccountId: "acc_seller",
+        now,
+      });
+    await drain();
+    const supportRunners = runtime.subscriptionRunners.filter(
+      (runner) => runner.sourceContextName === "platform-operations",
+    );
+    expect(supportRunners).toHaveLength(5);
+    for (const runner of supportRunners) {
+      expect(runner.getStatus()).toMatchObject({ initialized: true, state: "caught-up", lastGlobalPosition: "0" });
+      expect(
+        (
+          await pools[runner.targetContextName as "ordering" | "marketplace"].query(
+            "SELECT 1 FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+            [runner.checkpointKey],
+          )
+        ).rowCount,
+      ).toBe(0);
+    }
+    expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(0);
+    expect(await readSale()).toEqual({ status: "unavailable", opportunity: null });
+
+    // A synthetic irrelevant event changes only the source horizon, not Review/Support business state.
+    // This is a diagnostic control, never a seed workaround or a production repair.
+    await append("platform-operations", "diagnostic.horizon-9120", "diagnostic.horizon", { synthetic: true });
+    await drain();
+    for (const runner of runtime.subscriptionRunners) {
+      const row = (
+        await pools[runner.targetContextName as "ordering" | "marketplace"].query(
+          `SELECT c.checkpoint_key, c.source_context_name, c.subscription_version,
+          r.projection_kind, g.state, v.projection_revision
+         FROM event_subscription_checkpoints c
+         JOIN event_projection_recovery_markers r ON r.projection_key=c.checkpoint_key
+           AND r.projection_kind='subscription' AND r.last_global_position>=c.last_global_position
+         JOIN event_projection_group_generations g ON g.projection_name=c.projection_name AND g.target_context_name=$2
+         JOIN event_projection_group_revisions v ON v.projection_name=c.projection_name AND v.target_context_name=$2
+         WHERE c.checkpoint_key=$1`,
+          [runner.checkpointKey, runner.targetContextName],
+        )
+      ).rows;
+      expect(row).toEqual([
+        expect.objectContaining({
+          checkpoint_key: runner.checkpointKey,
+          source_context_name: runner.sourceContextName,
+          subscription_version: runner.subscriptionVersion,
+          projection_kind: "subscription",
+          state: "active",
+          projection_revision: runtime.projectionGroups.find(
+            (group) =>
+              group.targetContextName === runner.targetContextName && group.projectionName === runner.projectionName,
+          )!.projectionRevision,
+        }),
+      ]);
+    }
+    expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(1);
+    await drain();
+    expect(await readSale(new Date("2026-05-20T12:00:00Z"))).toMatchObject({
+      status: "ready",
+      opportunity: {
+        author_role: "seller",
+        active_review_id: null,
+        submission_state: "allowed",
+        window_expired: false,
+      },
+    });
+    const expired = {
+      status: "ready",
+      opportunity: {
+        author_role: "seller",
+        active_review_id: null,
+        submission_state: "expired",
+        window_expired: true,
+        hold_reason: null,
+      },
+    };
+    expect(await readSale()).toMatchObject(expired);
+    expect(await readSale()).toMatchObject(expired);
+    expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(0);
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "reputation.view", "reputation.manage"],
+      });
+      await next();
+    });
+    app.route("/account", createAccountSaleOrderRoutes(ordering.orders));
+    for (let load = 0; load < 2; load++) {
+      const response = await app.request("/account/sales/ord_runtime");
+      expect(response.status).toBe(200);
+      const dto = await response.json();
+      expect(dto).toMatchObject({ order_id: "ord_runtime", reviewOutcome: expired });
+      expect(JSON.stringify(dto)).not.toContain("withdrawn private sentinel");
+    }
+  });
 
   it("carries a real Marketplace publication through persistent Ordering projection and the authorized HTTP DTO", async () => {
     await insertOrderPage(pools.ordering, "ord_1");
