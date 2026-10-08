@@ -13,7 +13,7 @@ const leaseName = createProjectionGroupRunnerLeaseName({ targetContextName: "dis
 const ttlMs = 30_000;
 
 export async function verifyDiscoverySearchIdentityTerms(db: PgQueryable) {
-  let after = "";
+  let after: string | null = null;
   let items = 0;
   let terms = 0;
   for (;;) {
@@ -30,7 +30,7 @@ export async function verifyDiscoverySearchIdentityTerms(db: PgQueryable) {
            WHERE vocabulary.catalog_item_id = item.catalog_item_id ORDER BY term) AS terms
        FROM discovery_search_items AS item
        LEFT JOIN discovery_search_catalog_items AS source USING (catalog_item_id)
-       WHERE item.catalog_item_id > $1 ORDER BY item.catalog_item_id LIMIT 500`,
+       WHERE ($1::text IS NULL OR item.catalog_item_id > $1) ORDER BY item.catalog_item_id LIMIT 500`,
       [after],
     );
     for (const item of page.rows) {
