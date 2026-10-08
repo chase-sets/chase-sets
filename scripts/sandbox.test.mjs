@@ -116,13 +116,26 @@ describe("worktree sandbox", () => {
     const execute = vi.fn(() => ({ status: 0, stdout: "500\n3\n0\n" }));
     const effective = readSandboxPostgresSettings({
       invocation: { command: "docker", args: ["compose", "-p", "owned"] },
-      env: { PATH: "local-path", PGHOSTADDR: "203.0.113.5", pgservice: "hostile" },
+      env: {
+        PATH: "local-path",
+        ProgramFiles: "C:\\Program Files",
+        ProgramW6432: "C:\\Program Files",
+        PGHOSTADDR: "203.0.113.5",
+        pgservice: "hostile",
+        DATABASE_URL: "synthetic-database-url",
+        TEST_DATABASE_URL: "synthetic-test-database-url",
+        UNLISTED: "synthetic-other",
+      },
       execute,
     });
     expect(execute.mock.calls[0][1]).toContain("env");
     expect(execute.mock.calls[0][1]).toContain("-i");
     expect(execute.mock.calls[0][1]).toContain("/var/run/postgresql");
-    expect(execute.mock.calls[0][2].env).toEqual({ PATH: "local-path" });
+    expect(execute.mock.calls[0][2].env).toEqual({
+      PATH: "local-path",
+      ProgramFiles: "C:\\Program Files",
+      ProgramW6432: "C:\\Program Files",
+    });
     const compose = readFileSync(path.join(repoRoot, "docker-compose.dev.yml"), "utf8");
     expect(() => assertSandboxPostgresSettings(effective, compose)).not.toThrow();
     expect(() => assertSandboxPostgresSettings({ ...effective, max_connections: 100 }, compose)).toThrow(
@@ -148,6 +161,29 @@ describe("worktree sandbox", () => {
       launcher.indexOf("await preparePlatformDatabase();"),
     );
   });
+  it.each([
+    ["docker: unknown command: docker compose", "docker: unknown command: docker compose"],
+    [
+      "SYNTHETIC_SECRET_9049 before\ndocker: unknown command: docker compose\nafter SYNTHETIC_SECRET_9049",
+      "docker: unknown command: docker compose",
+    ],
+    ["invalid hostPort: SYNTHETIC_SECRET_9049", "Diagnostic text omitted."],
+    [undefined, "Diagnostic text omitted."],
+  ])("reports only a fixed SHOW failure diagnostic for stderr %s", (stderr, diagnostic) => {
+    let failure;
+    try {
+      readSandboxPostgresSettings({
+        invocation: { command: "docker", args: ["compose"] },
+        env: {},
+        execute: () => ({ status: 1, stdout: "", stderr }),
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toBe(`Unable to SHOW owned sandbox Postgres settings. Exit status: 1. ${diagnostic}`);
+  });
+
   it("derives stable sandbox identity and ports from the worktree path", () => {
     const rootDir = createTempRepo();
     const left = resolveWorktreeSandbox({ rootDir, env: {} });

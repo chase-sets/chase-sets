@@ -390,6 +390,44 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
   return props;
 }
 
+describe("6110 result heading hierarchy", () => {
+  it.each(["lexical", "rescue", "empty", "Home"] as const)("6110 result heading hierarchy: %s", (state) => {
+    titleOverrides.set("discovery.features.search.ui.searchPage.results", "Fresh catalogue matches");
+    renderSearchPage({
+      committedSearch: state === "Home" ? "" : "pokemon",
+      data:
+        state === "empty"
+          ? { ...searchResponse, items: [], total: 0, count: 0 }
+          : { ...searchResponse, retrievalMode: state === "rescue" ? "rescue" : "lexical" },
+      homeMerchandising:
+        state === "Home" ? { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] } : null,
+    });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryAllByRole("heading", { level: 2, name: "Fresh catalogue matches" })).toHaveLength(
+      state === "lexical" ? 1 : 0,
+    );
+    expect(screen.queryAllByRole("heading", { level: 2, name: "Closest matches" })).toHaveLength(
+      state === "rescue" ? 1 : 0,
+    );
+    if (state === "lexical" || state === "rescue") {
+      const sectionHeading = screen.getByRole("heading", {
+        level: 2,
+        name: state === "lexical" ? "Fresh catalogue matches" : "Closest matches",
+      });
+      const cardHeading = within(
+        document.querySelector('article[data-card-layout="search-result"]') as HTMLElement,
+      ).getByRole("heading", { level: 3 });
+      expect(sectionHeading.compareDocumentPosition(cardHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { level: 1 }).compareDocumentPosition(sectionHeading) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    if (state === "empty")
+      expect(document.querySelectorAll('article[data-card-layout="search-result"]')).toHaveLength(0);
+  });
+});
+
 describe("SearchPage", () => {
   it.each(["desktop", "mobile"] as const)(
     "keeps ordered independent %s facet state across toggles, removal, reopening and remount",
@@ -733,7 +771,8 @@ describe("SearchPage", () => {
     // One resolved inline Result Set count replaces the two landing Stat panels.
     expect(document.querySelectorAll("[data-search-result-set-count]")).toHaveLength(1);
     expect(heroView.getByText("352 results in All Categories")).toBeTruthy();
-    expect(screen.queryByText("Results")).toBeNull();
+    expect(heroView.queryByText("Results")).toBeNull();
+    expect(hero!.contains(screen.getByRole("heading", { level: 2, name: "Results" }))).toBe(false);
     expect(screen.queryByText("352")).toBeNull();
     expect(screen.queryByText("Catalog depth")).toBeNull();
     expect(screen.queryByText(/tracked items/)).toBeNull();
