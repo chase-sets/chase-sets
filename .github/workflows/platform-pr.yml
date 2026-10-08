@@ -197,6 +197,7 @@ jobs:
       - name: Installed-boundary controls
         run: |
           python3 scripts/provider-object-disposition/browser-boundary/ownership.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/identity-controls.test.py
           python3 scripts/provider-object-disposition/browser-boundary/native-variants.test.py
           python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
           python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
