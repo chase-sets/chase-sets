@@ -1,43 +1,44 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import { createWorkspaceSourceAliases } from "../../scripts/workspace-source-aliases.mjs";
-import { extensionKeyCandidate } from "./src/authority-candidate";
-import { createProbeManifestForKey } from "./src/manifest-contract";
+import { buildConnectorManifest } from "@chase-sets/channels";
 
-const trustedPopupHtml =
-  '<!doctype html><meta charset="utf-8"><title>Chromium authority probe</title><pre id="result">pending</pre><script type="module" src="popup.js"></script>\n';
-const sandboxedPopupHtml =
-  '<!doctype html><meta charset="utf-8"><title>Chromium sandbox authority probe</title><pre id="result">pending</pre><script type="module" src="popup-sandboxed.js"></script>\n';
+export const manifestInput = {
+  platformOrigin: process.env.VITE_PLATFORM_API_URL ?? process.env.PLATFORM_API_URL ?? "http://localhost:6182",
+  hostRegistry: [],
+  permissionRegistry: ["identity", "storage", "alarms"],
+};
 
 export default defineConfig({
   resolve: { alias: createWorkspaceSourceAliases() },
+  define: {
+    "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(manifestInput.platformOrigin),
+    "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(process.env.VITE_CONNECTOR_CLIENT_ID ?? ""),
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,
     rolldownOptions: {
-      input: {
-        background: resolve(import.meta.dirname, "src/background.ts"),
-        popup: resolve(import.meta.dirname, "src/popup.ts"),
-        "popup-sandboxed": resolve(import.meta.dirname, "src/popup-sandboxed.ts"),
-      },
-      output: {
-        entryFileNames: "[name].js",
-        chunkFileNames: "[name]-[hash].js",
-        assetFileNames: "[name][extname]",
-      },
+      input: { background: resolve(import.meta.dirname, "src/background.ts") },
+      output: { entryFileNames: "[name].js", codeSplitting: false },
     },
   },
   plugins: [
     {
-      name: "emit-chromium-authority-probe-assets",
-      generateBundle() {
-        this.emitFile({
-          type: "asset",
-          fileName: "manifest.json",
-          source: `${JSON.stringify(createProbeManifestForKey(extensionKeyCandidate), null, 2)}\n`,
-        });
-        this.emitFile({ type: "asset", fileName: "popup.html", source: trustedPopupHtml });
-        this.emitFile({ type: "asset", fileName: "popup-sandboxed.html", source: sandboxedPopupHtml });
+      name: "connector-closed-entry-graph",
+      generateBundle(_options, bundle) {
+        const worker = bundle["background.js"];
+        if (
+          Object.keys(bundle).join() !== "background.js" ||
+          !worker ||
+          worker.type !== "chunk" ||
+          worker.imports.length ||
+          worker.dynamicImports.length ||
+          /\bnode:|\bimportScripts\s*\(|\bsetPopup\s*\(|\beval\s*\(|\bnew Function\s*\(/.test(worker.code)
+        )
+          throw new Error("connector-entry-graph-refused");
+        const manifest = buildConnectorManifest(manifestInput);
+        this.emitFile({ type: "asset", fileName: "manifest.json", source: `${JSON.stringify(manifest, null, 2)}\n` });
       },
     },
   ],

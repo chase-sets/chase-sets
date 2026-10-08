@@ -119,11 +119,11 @@ export const e2eSuites = Object.freeze([
     id: "tcgplayer_connector_extension",
     label: "TCGplayer Connector Extension Chromium Authority",
     deployable: "tcgplayer-connector-extension",
-    journeys: ["extension identity", "callback authority", "action popup capability"],
+    journeys: ["extension identity", "callback authority", "popup-less action pairing"],
     grep: "@tcgplayer-connector-extension-authority",
     command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
     requiresDisplay: true,
-    estimatedDurationSeconds: 60,
+    estimatedDurationSeconds: 180,
   },
   {
     id: "tcgplayer_operator_extension",
