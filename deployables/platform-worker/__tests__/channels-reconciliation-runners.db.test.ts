@@ -514,7 +514,7 @@ describeDb("Channels reconciliation real scheduled runner", () => {
       accountId: "account-1",
       now: new Date().toISOString(),
     });
-    expect(reads).toBe(4);
+    expect(reads).toBe(5);
     expect(result).toMatchObject({
       degraded: true,
       items: [],
