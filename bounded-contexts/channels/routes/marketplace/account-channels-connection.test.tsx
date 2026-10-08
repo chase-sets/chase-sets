@@ -11,6 +11,39 @@ import { action as downloadAction } from "./account-channel-connection-manual-sy
 import { ChannelsConnectionsApiError } from "../../support/request-support/api-client";
 
 describe("Channels account connection route contribution", () => {
+  it.each(["live", "dark", "error"] as const)(
+    "manual-sync-coverage-route-states: pending read resolves to %s",
+    async (state) => {
+      let complete!: (response: Response) => void;
+      const pending = new Promise<Response>((resolve) => {
+        complete = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        auxiliaryFetch({ operation: () => Response.json(operationLogBody()), manualSync: () => pending }),
+      );
+      renderRoute();
+      expect(screen.queryByText("Inbound sales visibility is live")).toBeNull();
+      expect(screen.queryByText("Inbound sales visibility is dark")).toBeNull();
+      complete(
+        state === "error"
+          ? new Response(null, { status: 503 })
+          : Response.json({
+              ...manualSyncPanel(),
+              inboundCoverage:
+                state === "live" ? { state: "live", reason: null } : { state: "dark", reason: "no-inbound-authority" },
+            }),
+      );
+      expect(
+        await screen.findByText(
+          state === "error" ? "Manual TCGplayer sync is unavailable" : `Inbound sales visibility is ${state}`,
+        ),
+      ).toBeTruthy();
+      if (state !== "live") expect(screen.queryByText("Inbound sales visibility is live")).toBeNull();
+      if (state !== "dark") expect(screen.queryByText("Inbound sales visibility is dark")).toBeNull();
+    },
+  );
+
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

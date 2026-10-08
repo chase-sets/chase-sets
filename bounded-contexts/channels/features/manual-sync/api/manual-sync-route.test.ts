@@ -9,6 +9,18 @@ import { ManualSyncError } from "../domain/contracts";
 import type { ManualSyncServices } from "./runtime";
 
 describe("manual-sync-panel-round-trip @marketplace-account", () => {
+  it("returns a bounded unavailable state when authority cannot be read", async () => {
+    const services = manualServices();
+    services.readPanel.mockRejectedValue(new ManualSyncError("manual-sync-unavailable", "synthetic-secret-sentinel"));
+    const response = await app(services, ["channels.view"]).request(
+      "http://local/api/channels/connections/owned/manual-sync",
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: { code: "manual-sync-unavailable", message: "manual-sync-unavailable" },
+    });
+  });
+
   it("authorizes before reads and makes missing and foreign connection responses identical", async () => {
     const services = manualServices();
     const forbidden = app(services, []);
