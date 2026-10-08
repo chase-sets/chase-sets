@@ -117,6 +117,20 @@ A **Channel Action** is the single shared Seller Desk item for a connection's
 unresolved health attention and independently owned manual sync work. Resolving
 a health generation neither closes its health reason nor ends manual work.
 
+## Channel Sale Observation
+
+A **Channel Sale Observation** is a closed, PII-free set of captured external
+order line facts. Channels interprets it through Inventory's external sale
+recorder; it is not an Order or a stock authority. Pull membership and transport
+revisions do not change its immutable per-product-and-SKU sale identity.
+
+## External Order Reference
+
+An **External Order Reference** identifies a provider order within one immutable
+Channel Connection. Order contributions to a Channel Action retain this reference
+and a reason independently of health and manual work. Mapping repairs resolve
+only the affected gaps; backdated sales and cancellations remain visible.
+
 ## Channel Mapping
 
 A **Channel Mapping** is the account-owned configuration that maps channel fields, SKUs, locations, or policies to Chase Sets terms.

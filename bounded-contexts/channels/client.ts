@@ -4,6 +4,19 @@ export {
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "./features/connector-client/domain/identity";
+export {
+  composeTcgplayerOrderInbound,
+  assertTcgplayerOrderRecord,
+  tcgplayerSaleKey,
+  tcgplayerOrderLimits,
+} from "./features/tcgplayer-orders/domain/contracts";
+export { composeTcgplayerOrderObservation } from "./features/tcgplayer-orders/domain/detail";
+export type {
+  TcgplayerOrderRecord,
+  TcgplayerOrderObservation,
+  TcgplayerPullSummary,
+  TcgplayerSaleLine,
+} from "./features/tcgplayer-orders/domain/contracts";
 export { createConnectorBackground } from "./features/connector-client/domain/connector-background";
 export type {
   ConnectorStatus,

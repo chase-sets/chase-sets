@@ -7,7 +7,10 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createTcgplayerOrderRuntime } from "../../tcgplayer-orders/api/runtime";
+import { composeTcgplayerOrderInbound } from "../../tcgplayer-orders/domain/contracts";
+import { admitConnectorInbound, createConnectorInboundReader } from "../../connector-feed/read-model/inbound";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -210,79 +213,120 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     ).toMatchObject({ rows: causallyPersisted.rows });
   });
 
-  it("fans a synthetic recorded external sale adjustment to every other connection and writes no next-day desired state", async () => {
-    const services = createTestChannelServices();
-    const inventoryServices = inventoryModule.createServices(pools.inventory, {});
-    await seedInitialDesiredStates(services.listingComposition);
-    const beforeSale = await desiredStates(pools.channels);
-    const source = createPostgresEventStore({ pool: pools.inventory });
-    const [created] = decideInventoryItem(initialInventoryItemState, {
-      type: "CreateInventoryItem",
-      itemId: "item-target" as never,
-      accountId: "account-synthetic" as never,
-      catalogItemId: "catalog-target" as never,
-      productId: "product-synthetic-target" as never,
-      selectedOptions: [],
-      storageLocationId: "location-synthetic",
-      totalQuantity: 10,
-      acquisitionCostAmount: "10.00",
-      acquisitionCostCurrencyCode: "USD",
-      acquisitionOccurrence: { kind: "unknown" },
-      commandOccurredAt: "2026-09-09T18:00:00.000Z",
-    });
-    await source.appendToStream({
-      streamId: "inventory.item-item-target",
-      expectedVersion: "no_stream",
-      context,
-      events: [{ eventType: created!.type, payload: created!.data }],
-    });
-    await expect(
-      inventoryServices.channelSales.record(
-        {
-          accountId: "account-synthetic",
-          inventoryItemId: "item-target",
-          storageLocationId: "location-synthetic",
-          saleKey: {
-            version: "v1",
-            providerKey: "synthetic-provider",
-            sellerEnvironmentLineage: "synthetic-production-lineage",
-            orderLineIdentity: "synthetic-order-line-allocation-proof",
-          },
-          requestedQuantity: 1,
-          unitPriceAmount: "20.00",
-          currencyCode: "USD",
-          soldAt: "2026-09-10T18:00:00.000Z",
-        },
+  it.each([false, true])(
+    "tcgplayer-sale-fan-out: connector=%s sale adjusts every other connection without replay writes",
+    async (connector) => {
+      const services = createTestChannelServices();
+      const inventoryServices = inventoryModule.createServices(pools.inventory, {});
+      await seedInitialDesiredStates(services.listingComposition);
+      const beforeSale = await desiredStates(pools.channels);
+      const source = createPostgresEventStore({ pool: pools.inventory });
+      const [created] = decideInventoryItem(initialInventoryItemState, {
+        type: "CreateInventoryItem",
+        itemId: "item-target" as never,
+        accountId: "account-synthetic" as never,
+        catalogItemId: "catalog-target" as never,
+        productId: "product-synthetic-target" as never,
+        selectedOptions: [],
+        storageLocationId: "location-synthetic",
+        totalQuantity: 10,
+        acquisitionCostAmount: "10.00",
+        acquisitionCostCurrencyCode: "USD",
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: "2026-09-09T18:00:00.000Z",
+      });
+      await source.appendToStream({
+        streamId: "inventory.item-item-target",
+        expectedVersion: "no_stream",
         context,
-      ),
-    ).resolves.toMatchObject({ status: "committed", sale: { appliedQuantity: 1, refusedQuantity: 0 } });
+        events: [{ eventType: created!.type, payload: created!.data }],
+      });
+      if (connector) {
+        await pools.channels.query(`INSERT INTO channel_connections
+        (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
+        VALUES ('connection-tcg','account-synthetic','tcgplayer','sandbox','active','2026-09-12T00:00:00Z','2026-09-12T00:00:00Z',
+        '[{"storageLocationId":"location-synthetic","revision":1}]',now(),2)`);
+        await pools.channels.query(`INSERT INTO channels_connection_facts
+        (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)
+        VALUES ('connection-tcg','account-synthetic','tcgplayer','sandbox','active',now(),2)`);
+        await pools.channels.query(
+          `UPDATE channels_inventory_item_facts SET storage_location_id='location-synthetic' WHERE item_id='item-target'`,
+        );
+        await pools.channels.query(
+          `INSERT INTO channels_channel_listing_links
+        (connection_id,listing_id,channel_listing_id,external_listing_id,last_desired_state_sequence,last_desired_listing_revision,
+        last_desired_state_hash,last_desired_intent,last_desired_payload,publish_state,updated_at,last_stream_version)
+        VALUES ('connection-tcg','listing-target','link-tcg','tcgplayer:3:101:9:Near Mint',1,1,$1,'update','{}','published',now(),1)`,
+          ["1".repeat(64)],
+        );
+        const record = {
+          version: 1,
+          kind: "order",
+          pullId: "synthetic-fanout-pull",
+          orderNumber: "synthetic-fanout-order",
+          soldAt: "2026-09-10T18:00:00.000Z",
+          cancelled: false,
+          lines: [{ productId: "202", skuId: "101", quantity: 1, unitPriceAmount: "20.00" }],
+        } as const;
+        const envelope = await composeTcgplayerOrderInbound(record);
+        await withPgTransaction(pools.channels, (db) =>
+          admitConnectorInbound(db, "connection-tcg", envelope, new Date().toISOString()),
+        );
+        await createTcgplayerOrderRuntime({
+          db: pools.channels,
+          readAdmittedConnectorInboundEvents: createConnectorInboundReader(pools.channels),
+          channelSaleRecorder: (command) => inventoryServices.channelSales.record(command, context),
+          backdatingAttentionAfterMs: async () => 21600000,
+        }).interpretConnection("connection-tcg");
+      } else
+        await expect(
+          inventoryServices.channelSales.record(
+            {
+              accountId: "account-synthetic",
+              inventoryItemId: "item-target",
+              storageLocationId: "location-synthetic",
+              saleKey: {
+                version: "v1",
+                providerKey: "synthetic-provider",
+                sellerEnvironmentLineage: "synthetic-production-lineage",
+                orderLineIdentity: "synthetic-order-line-allocation-proof",
+              },
+              requestedQuantity: 1,
+              unitPriceAmount: "20.00",
+              currencyCode: "USD",
+              soldAt: "2026-09-10T18:00:00.000Z",
+            },
+            context,
+          ),
+        ).resolves.toMatchObject({ status: "committed", sale: { appliedQuantity: 1, refusedQuantity: 0 } });
 
-    const subscriptions = subscriptionsFor(services);
-    const runners = createRunners(subscriptions);
-    await drainAllocationPipeline(runners);
-    const saleChanges = (await desiredStates(pools.channels)).slice(beforeSale.length);
-    expect(saleChanges.map((row) => [row.connectionId, row.listingId, row.quantity])).toEqual([
-      ["connection-a", "listing-target", 9],
-      ["connection-b", "listing-target", 9],
-    ]);
-    const sourceCounts = await pools.inventory.query<{ event_type: string; count: string }>(
-      `SELECT event_type,count(*)::text AS count FROM event_store_events
+      const subscriptions = subscriptionsFor(services);
+      const runners = createRunners(subscriptions);
+      await drainAllocationPipeline(runners);
+      const saleChanges = (await desiredStates(pools.channels)).slice(beforeSale.length);
+      expect(saleChanges.map((row) => [row.connectionId, row.listingId, row.quantity])).toEqual([
+        ["connection-a", "listing-target", 9],
+        ["connection-b", "listing-target", 9],
+      ]);
+      const sourceCounts = await pools.inventory.query<{ event_type: string; count: string }>(
+        `SELECT event_type,count(*)::text AS count FROM event_store_events
        WHERE event_type IN ('inventory.external-channel-sale.recorded','inventory.item.adjusted')
        GROUP BY event_type ORDER BY event_type`,
-    );
-    expect(sourceCounts.rows).toEqual([
-      { event_type: "inventory.external-channel-sale.recorded", count: "1" },
-      { event_type: "inventory.item.adjusted", count: "1" },
-    ]);
+      );
+      expect(sourceCounts.rows).toEqual([
+        { event_type: "inventory.external-channel-sale.recorded", count: "1" },
+        { event_type: "inventory.item.adjusted", count: "1" },
+      ]);
 
-    const beforeReplay = await desiredStates(pools.channels);
-    await pools.channels.query("DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = ANY($1::text[])", [
-      [runners.inventoryProjection.checkpointKey, runners.inventoryReaction.checkpointKey],
-    ]);
-    const replayRunners = createRunners(subscriptions);
-    await drainAllocationPipeline(replayRunners);
-    expect(await desiredStates(pools.channels)).toEqual(beforeReplay);
-  });
+      const beforeReplay = await desiredStates(pools.channels);
+      await pools.channels.query("DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = ANY($1::text[])", [
+        [runners.inventoryProjection.checkpointKey, runners.inventoryReaction.checkpointKey],
+      ]);
+      const replayRunners = createRunners(subscriptions);
+      await drainAllocationPipeline(replayRunners);
+      expect(await desiredStates(pools.channels)).toEqual(beforeReplay);
+    },
+  );
 
   it("channel-stock-allocation-policy-value proves no-document, malformed, and explicit revision paths", async () => {
     const source = createPostgresEventStore({ pool: pools.channels });

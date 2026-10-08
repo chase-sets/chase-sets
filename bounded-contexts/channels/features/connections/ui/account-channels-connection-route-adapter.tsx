@@ -83,6 +83,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   if (position.cursor !== null) query.set("cursor", position.cursor);
   const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "channels" });
   const driftCursor = new URL(request.url).searchParams.get("driftCursor");
+  const orderCursor = new URL(request.url).searchParams.get("orderCursor");
   const [operationResult, manualSync, attention, drift, pairing] = await Promise.all([
     readAuxiliary<Readonly<{ log: OutboundOperationLogPage; summary: OutboundOperationSummary }>>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/outbound-operations?${query}`, {
@@ -97,10 +98,13 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
       }),
     ),
     readAuxiliary<ChannelConnectionAttention>(
-      fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention`, {
-        credentials: "include",
-        headers,
-      }),
+      fetch(
+        `${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention${orderCursor ? `?${new URLSearchParams({ orderCursor })}` : ""}`,
+        {
+          credentials: "include",
+          headers,
+        },
+      ),
     ),
     readAuxiliary<ChannelDriftDetail>(
       fetch(
