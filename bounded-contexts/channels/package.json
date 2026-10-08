@@ -21,6 +21,9 @@
     "./routes/*": "./routes/*.tsx"
   },
   "types": "./index.ts",
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.4"
+  },
   "dependencies": {
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
