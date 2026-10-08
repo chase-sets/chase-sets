@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   defineBoundedContextModule,
   defineBcProjectionGroupReset,
@@ -21,10 +21,12 @@ import {
   bootstrapContextDatabase,
   createSubscriptionRunner,
   drainContextRuntime,
+  drainLocalProjectionHandlerSets,
   loadProjectionGroupGeneration,
   rebuildProjectionGroup,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
+  rebuildLocalProjectionHandlerSets,
   resetProjectionGroup,
   retryProjectionBlockedStream,
   syncProjectionGroup,
@@ -317,6 +319,294 @@ describeDb("projection operations Postgres integration", () => {
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
   });
+
+  it.each(["projection", "reaction", "local", "inline"] as const)(
+    "zero-source-first-checkpoint through real %s factory, group, refresh and restart",
+    async (kind) => {
+      const module: BcApiModule<TestServices, PgTransactionalPool, TestPorts> =
+        kind === "reaction"
+          ? createReactionTargetModule()
+          : kind === "projection"
+            ? createTargetModule()
+            : {
+                ...createTargetModule(),
+                eventSubscriptions: [],
+                buildSubscriptions: () => [],
+                projectionGroups: [
+                  {
+                    projectionName: "local-items",
+                    sourceContextNames: ["target"],
+                    ownedTables: ["projected_items"],
+                    resetStrategy: "truncate-owned-tables",
+                  },
+                ],
+                projectionHandlerSets: () => [
+                  {
+                    projectionName: "local-items",
+                    inlineApply: kind === "inline",
+                    handlers: {
+                      "target.recorded": async () => {
+                        throw new Error("empty source invoked handler");
+                      },
+                    },
+                  },
+                ],
+              };
+      await bootstrapContextDatabase(module, pools.target);
+      const mount = () =>
+        createMountedContextTestRuntime([
+          { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+          { contextName: "target", module, pool: pools.target, ports: targetPorts },
+        ]);
+      const runtime = mount();
+      expect(runtime.subscriptionRunners).toHaveLength(1);
+      const runner = runtime.subscriptionRunners[0];
+      const group = runtime.projectionGroups[0];
+      expect(runner.handlerKind).toBe(kind === "reaction" ? "reaction" : "projection");
+      expect(runner.inlineApply).toBe(kind === "inline");
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: null,
+        recoveryMarker: null,
+      });
+      await createProjectionGroupWorkerRunner(group).runOnce(createProjectionRunContext());
+      expect(group.getStatus()).toMatchObject({ initialized: true, caughtUp: true });
+      expect(runner.getStatus()).toMatchObject({ initialized: true, processedEvents: 0 });
+      const first = await readCheckpointState(pools.target, runner.checkpointKey);
+      expect(first).toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+        ownerId: "projection-db-test",
+        fencingToken: "1",
+      });
+      const timestamp = await pools.target.query(
+        "SELECT updated_at FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+        [runner.checkpointKey],
+      );
+      await drainContextRuntime(runtime, { settleIdleCheckpoints: true });
+      const restarted = mount();
+      await drainContextRuntime(restarted);
+      expect((await restarted.subscriptionRunners[0].refreshStatus()).initialized).toBe(true);
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toEqual(first);
+      expect(
+        await pools.target.query("SELECT updated_at FROM event_subscription_checkpoints WHERE checkpoint_key = $1", [
+          runner.checkpointKey,
+        ]),
+      ).toEqual(timestamp);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([]);
+      await expect(readProjectedItems()).resolves.toEqual([]);
+      for (const pool of [pools.source, pools.target]) {
+        expect((await pool.query("SELECT event_id FROM event_store_events")).rows).toEqual([]);
+      }
+      await rebuildProjectionGroup(group);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+      });
+      expect((await runner.refreshStatus()).initialized).toBe(true);
+    },
+  );
+
+  it("unleased empty local drain and rebuild use the canonical zero subscription authority", async () => {
+    const sets = [
+      {
+        projectionName: "synthetic-local",
+        handlers: {
+          "target.recorded": async () => {
+            throw new Error("unexpected handler");
+          },
+        },
+      },
+    ];
+    await drainLocalProjectionHandlerSets("target", pools.target, sets);
+    await expect(readCheckpointState(pools.target, "synthetic-local:target:v1")).resolves.toEqual({
+      checkpoint: "0",
+      recoveryMarker: "0",
+      ownerId: null,
+      fencingToken: null,
+    });
+    await rebuildLocalProjectionHandlerSets("target", pools.target, sets);
+    await expect(readCheckpointState(pools.target, "synthetic-local:target:v1")).resolves.toEqual({
+      checkpoint: "0",
+      recoveryMarker: "0",
+      ownerId: null,
+      fencingToken: null,
+    });
+    await expect(readSubscriptionApplicationRows("synthetic-local:target:v1")).resolves.toEqual([]);
+  });
+
+  it.each([false, true])(
+    "first zero save cannot rewind concurrent newer authority (stale fence=%s)",
+    async (staleFence) => {
+      const subscription = createItemsSubscription();
+      const holder = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+      const waiter = createControlledSavePool(pools.target);
+      const newer = saveSubscriptionCheckpoint(holder.pool, subscription, "10", {
+        ownerId: "newer",
+        fencingToken: "2",
+      });
+      const runner = createSubscriptionRunner("target", waiter.pool, pools.source, subscription);
+      let pass: ReturnType<typeof runner.runOnce> | undefined;
+      try {
+        await holder.checkpointCompleted.promise;
+        pass = runner.runOnce({ ownerId: "first", fencingToken: staleFence ? "1" : "2" });
+        const settlement = staleFence
+          ? expect(pass).rejects.toThrow("stale lease fencing token")
+          : expect(pass).resolves.toMatchObject({ processed: 0 });
+        await waiter.lockSubmitted.promise;
+        await waitForBackendBlock(pools.target, holder.backendPid, waiter.backendPid);
+        expect(runner.getStatus().initialized).toBe(false);
+        holder.releaseCommit.resolve();
+        await newer;
+        await settlement;
+        expect(runner.getStatus().initialized).toBe(!staleFence);
+        await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+          checkpoint: "10",
+          recoveryMarker: "10",
+          fencingToken: "2",
+        });
+      } finally {
+        holder.releaseCommit.resolve();
+        await Promise.allSettled([newer, ...(pass ? [pass] : [])]);
+      }
+    },
+  );
+
+  it("reset-throttled-first-checkpoint commits on the same group rebuild without forced settlement", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    await createPostgresEventStore({ pool: pools.source }).appendToStream({
+      streamId: "source.irrelevant",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: Array.from({ length: 5 }, () => ({ eventType: "source.irrelevant", payload: {} })),
+    });
+    const runner = runtime.subscriptionRunners[0];
+    const group = runtime.projectionGroups[0];
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      await runner.runOnce();
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "5",
+        recoveryMarker: "5",
+      });
+      await rebuildProjectionGroup(group);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "5",
+        recoveryMarker: "5",
+      });
+      expect(group.getStatus()).toMatchObject({ initialized: true, caughtUp: true });
+      expect((await runner.refreshStatus()).initialized).toBe(true);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([]);
+      await expect(readProjectedItems()).resolves.toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("first zero checkpoint is not initialized before commit and rolls back on commit failure", async () => {
+    const controlled = createControlledSavePool(pools.target, {
+      holdBeforeCommit: true,
+      failCommitBeforeQuery: new Error("synthetic first commit failure"),
+    });
+    const subscription = createItemsSubscription();
+    const runner = createSubscriptionRunner("target", controlled.pool, pools.source, subscription);
+    const pass = runner.runOnce();
+    const rejection = expect(pass).rejects.toThrow("synthetic first commit failure");
+    try {
+      await controlled.checkpointCompleted.promise;
+      expect(runner.getStatus().initialized).toBe(false);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: null,
+        recoveryMarker: null,
+      });
+    } finally {
+      controlled.releaseCommit.resolve();
+      await rejection;
+    }
+    expect(runner.getStatus()).toMatchObject({ initialized: false, state: "error" });
+    await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+      checkpoint: null,
+      recoveryMarker: null,
+    });
+    const retry = createSubscriptionRunner("target", pools.target, pools.source, subscription);
+    await retry.runOnce();
+    await expect(readCheckpointState(pools.target, retry.checkpointKey)).resolves.toMatchObject({
+      checkpoint: "0",
+      recoveryMarker: "0",
+    });
+  });
+
+  it.each(["marker", "lease", "abort"] as const)(
+    "first zero checkpoint %s failure leaves no authority and retry converges",
+    async (failure) => {
+      const subscription = createItemsSubscription();
+      let leaseLost = false;
+      const abort = new AbortController();
+      const controlled = createControlledSavePool(pools.target, {
+        afterCheckpoint: () => {
+          if (failure === "lease") leaseLost = true;
+          if (failure === "abort") abort.abort(new Error("synthetic first abort"));
+        },
+      });
+      if (failure === "marker") {
+        await pools.target.query(
+          "ALTER TABLE event_projection_recovery_markers ADD CONSTRAINT synthetic_first_marker_failure CHECK (last_global_position <> 0)",
+        );
+      }
+      const runner = createSubscriptionRunner("target", controlled.pool, pools.source, subscription);
+      try {
+        await expect(
+          runner.runOnce({
+            signal: abort.signal,
+            throwIfLeaseLost: () => {
+              if (leaseLost) throw new Error("synthetic first lease loss");
+            },
+          }),
+        ).rejects.toThrow();
+        expect(runner.getStatus().initialized).toBe(false);
+        await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+          checkpoint: null,
+          recoveryMarker: null,
+        });
+      } finally {
+        if (failure === "marker")
+          await pools.target.query(
+            "ALTER TABLE event_projection_recovery_markers DROP CONSTRAINT synthetic_first_marker_failure",
+          );
+      }
+      await runner.runOnce();
+      expect(runner.getStatus().initialized).toBe(true);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+      });
+    },
+  );
+
+  it.each([
+    { checkpoint: "0", marker: null },
+    { checkpoint: "5", marker: null },
+    { checkpoint: "5", marker: "4" },
+  ])(
+    "retained checkpoint $checkpoint with marker $marker refuses first-initialization repair",
+    async ({ checkpoint, marker }) => {
+      const subscription = createItemsSubscription();
+      await seedCheckpointState(pools.target, subscription, {
+        checkpoint,
+        recoveryMarker: marker,
+        ownerId: null,
+        fencingToken: null,
+      });
+      const runner = createSubscriptionRunner("target", pools.target, pools.source, subscription);
+      const before = await readCheckpointState(pools.target, runner.checkpointKey);
+      await expect(runner.runOnce({ settleIdleCheckpoints: true })).rejects.toThrow("committed projection group reset");
+      expect(runner.getStatus()).toMatchObject({ initialized: false, recoveryRequired: true });
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toEqual(before);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([]);
+    },
+  );
 
   it("rebuilds a projection group and retries a blocked stream with statementTimeoutMs set", async () => {
     const runtime = createMountedContextTestRuntime([
