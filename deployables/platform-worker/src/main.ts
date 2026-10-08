@@ -111,6 +111,8 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordProjectionInterestIndexLookup,
   recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
@@ -337,6 +339,10 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       channelCredentialKeyring: config.channelCredentialKeyring,
       ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
+      searchTelemetry: {
+        recordSearchQuery: recordDiscoverySearchQuerySignal,
+        recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+      },
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
   });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { retrieveDiscoveryItems } from "./hybrid-retrieval";
@@ -7,6 +7,81 @@ import type { DiscoverySearchItemRow, ListResult } from "./queries";
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
 
 describe("Discovery hybrid retrieval", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it.each([false, true])("online timeout returns lexical metadata (hybrid=%s)", async (hybridEnabled) => {
+    vi.useFakeTimers();
+    const provider = fakeProvider();
+    vi.mocked(provider.embed).mockImplementation(() => new Promise(() => {}));
+    const lexical: ListResult<DiscoverySearchItemRow> = {
+      ...result([row("lexical")]),
+      total: 17,
+      nextCursor: "lexical-next",
+      facets: [
+        {
+          id: "condition",
+          kind: "dimension",
+          label: "Condition",
+          values: [{ id: "mint", label: "Mint", count: 17, selected: false }],
+        },
+      ],
+      category_counts: [{ slug: "cards", count: 17 }],
+    };
+    const onEmbeddingWait = vi.fn();
+    const searchSemantic = vi.fn();
+    const pending = retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled,
+        searchLexical: async () => lexical,
+        searchSemantic,
+        onEmbeddingWait,
+      },
+      { search: "intent" },
+    );
+    await vi.advanceTimersByTimeAsync(800);
+    await expect(pending).resolves.toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 17 });
+    expect(onEmbeddingWait).toHaveBeenCalledWith({ outcome: "timeout", waiterDurationMs: 800 });
+    expect(provider.embed).toHaveBeenCalledExactlyOnceWith(
+      ["intent"],
+      "query",
+      expect.objectContaining({ maxAttempts: 1, timeoutMs: 800 }),
+    );
+    expect(vi.mocked(provider.embed).mock.calls[0]?.[2]?.signal?.aborted).toBe(true);
+    expect(searchSemantic).not.toHaveBeenCalled();
+  });
+
+  it.each([[], [0, 0], [Number.NaN, 1], [Infinity, 1], [1]])(
+    "invalid vectors fail open and evict: %j",
+    async (embedding) => {
+      const provider = {
+        model: "fake",
+        dimensions: 2,
+        embed: vi.fn(async () => ({ vectors: [embedding], totalTokens: 0 })),
+      };
+      const cache = createQueryEmbeddingCache();
+      const lexical = result([row("lexical")]);
+      const onEmbeddingWait = vi.fn();
+      const actual = await retrieveDiscoveryItems(
+        {
+          db: {} as never,
+          provider,
+          cache,
+          rescueEnabled: true,
+          hybridEnabled: false,
+          searchLexical: async () => lexical,
+          onEmbeddingWait,
+        },
+        { search: "intent" },
+      );
+      expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 1 });
+      expect(onEmbeddingWait).toHaveBeenCalledWith(expect.objectContaining({ outcome: "error" }));
+      expect(cache.size()).toBe(0);
+    },
+  );
   it("rescues a low lexical result set, preserves its prefix, and embeds with input_type query", async () => {
     const provider = fakeProvider();
     const lexical = result([row("lexical", "Blue dragon")]);
@@ -33,7 +108,11 @@ describe("Discovery hybrid retrieval", () => {
     expect(actual.lexicalCount).toBe(1);
     expect(actual.total).toBe(1);
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic"]);
-    expect(provider.embed).toHaveBeenCalledWith(["blue dragon"], "query");
+    expect(provider.embed).toHaveBeenCalledWith(
+      ["blue dragon"],
+      "query",
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 800, maxAttempts: 1 }),
+    );
     expect(searchSemantic).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ category: "cards", fieldFilters: [{ fieldId: "rarity", value: "rare" }] }),
@@ -100,6 +179,8 @@ describe("Discovery hybrid retrieval", () => {
   });
 
   it("resolves a structured set-code + collector-number query ahead of lexical/semantic retrieval", async () => {
+    const provider = fakeProvider();
+    const onEmbeddingWait = vi.fn();
     const searchNaturalKey = vi.fn(async () => result([row("sv04-123", "Charizard ex")]));
     const searchLexical = vi.fn();
     const searchSemantic = vi.fn();
@@ -107,8 +188,11 @@ describe("Discovery hybrid retrieval", () => {
     const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
-        rescueEnabled: false,
-        hybridEnabled: false,
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: true,
+        onEmbeddingWait,
         searchNaturalKey,
         searchLexical,
         searchSemantic,
@@ -123,6 +207,8 @@ describe("Discovery hybrid retrieval", () => {
       { setCode: "sv04", cardNumber: "123" },
       expect.objectContaining({ search: "SV04 123/182", category: "pokemon" }),
     );
+    expect(provider.embed).not.toHaveBeenCalled();
+    expect(onEmbeddingWait).not.toHaveBeenCalled();
     expect(searchLexical).not.toHaveBeenCalled();
     expect(searchSemantic).not.toHaveBeenCalled();
   });

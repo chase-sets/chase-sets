@@ -37,6 +37,7 @@ import {
   recordProjectionFreshnessWakeEnqueue,
   recordProviderWebhookIngestion,
   recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordProjectionInterestIndexLookup,
   recordProjectionStatus,
   recordProjectionInlineApplyOutcome,
@@ -310,6 +311,8 @@ describe("Discovery search observability", () => {
         normalizationDurationMs: 1,
         retrievalDurationMs: 2,
         totalDurationMs: 3,
+        queryEmbeddingOutcome: "not-attempted",
+        queryEmbeddingWaiterDurationMs: 0,
       });
     } finally {
       getMeter.mockRestore();
@@ -319,6 +322,57 @@ describe("Discovery search observability", () => {
     expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("a".repeat(64));
     expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("b".repeat(64));
     expect(histogramRecords).toHaveLength(3);
+  });
+
+  it("exports six bounded embedding outcomes, distinct waiter/load timings, and no identifying labels", () => {
+    const records: Array<{ name: string; value: number; attributes: unknown }> = [];
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: (name: string) => ({
+        add: (value: number, attributes: unknown) => records.push({ name, value, attributes }),
+      }),
+      createHistogram: (name: string) => ({
+        record: (value: number, attributes: unknown) => records.push({ name, value, attributes }),
+      }),
+    } as never);
+    try {
+      for (const outcome of ["cache-hit", "joined", "loaded", "timeout", "error", "not-attempted"] as const) {
+        recordDiscoverySearchQuerySignal({
+          queryHash: "secret-hash",
+          resultSetKey: "secret-result",
+          filterState: "none",
+          sortOrder: "relevance",
+          cursorState: "fresh",
+          resultCount: 0,
+          total: 0,
+          zeroResults: true,
+          retrievalMode: "lexical",
+          outcome: "success",
+          normalizationDurationMs: 0,
+          retrievalDurationMs: 10,
+          totalDurationMs: 10,
+          queryEmbeddingOutcome: outcome,
+          queryEmbeddingWaiterDurationMs: outcome === "not-attempted" ? 0 : 10,
+        });
+      }
+      for (const outcome of ["loaded", "timeout", "error"] as const)
+        recordDiscoveryQueryEmbeddingLoad({ outcome, durationMs: 50 });
+    } finally {
+      getMeter.mockRestore();
+    }
+    const waiter = records.filter(({ name }) => name === "chase_sets_discovery_query_embedding_waiter_duration_ms");
+    const load = records.filter(({ name }) => name === "chase_sets_discovery_query_embedding_load_duration_ms");
+    expect(waiter.map(({ attributes }) => attributes)).toEqual(
+      ["cache-hit", "joined", "loaded", "timeout", "error"].map((outcome) => ({ outcome })),
+    );
+    expect(load.map(({ attributes }) => attributes)).toEqual(
+      ["loaded", "timeout", "error"].map((outcome) => ({ outcome })),
+    );
+    expect(JSON.stringify(records)).not.toContain("secret-");
+    expect(
+      records
+        .filter(({ name }) => name === "chase_sets_discovery_search_queries_total")
+        .map(({ attributes }) => (attributes as { query_embedding_outcome: string }).query_embedding_outcome),
+    ).toEqual(["cache-hit", "joined", "loaded", "timeout", "error", "not-attempted"]);
   });
 });
 

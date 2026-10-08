@@ -67,6 +67,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
@@ -344,6 +345,7 @@ const runtime = createPlatformApiHost({
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
       recordSearchQuery: recordDiscoverySearchQuerySignal,
+      recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
     },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),

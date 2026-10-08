@@ -1,6 +1,7 @@
 import { getWorkerHostContextNames, type WorkerHostContextName } from "@chase-sets/platform-runtime/worker";
 import {
   getBooleanEnv,
+  getBoundedDurationEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
   getContextWaiterDatabaseEnvName as getSharedContextWaiterDatabaseEnvName,
   getOptionalEnv,
@@ -127,6 +128,7 @@ export type PlatformWorkerConfig = Readonly<{
     hybridValue: string | null;
     queryCacheMaxEntries: number;
     queryCacheTtlMs: number;
+    queryTimeoutMs: number;
   }>;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
@@ -573,6 +575,10 @@ export function loadConfig(): PlatformWorkerConfig {
       hybridValue: getOptionalEnv("DISCOVERY_SEARCH_HYBRID"),
       queryCacheMaxEntries: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", 1_000),
       queryCacheTtlMs: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS", 900_000),
+      queryTimeoutMs: getBoundedDurationEnv("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS", 800, {
+        minMs: 1,
+        maxMs: 2_147_483_647,
+      }),
     },
     paymentProcessor: stripeProvider.paymentProcessor,
     moneyMovement: stripeProvider.moneyMovement,

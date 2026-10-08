@@ -1,6 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { composeRelevanceCandidates, type RelevanceCandidate } from "../domain/relevance-evaluation";
-import type { QueryEmbeddingCache } from "../domain/query-embedding-cache";
+import type {
+  QueryEmbeddingCache,
+  QueryEmbeddingWaitObservation,
+  QueryEmbeddingLoadObservation,
+} from "../domain/query-embedding-cache";
 import { foldSearchDiacritics } from "../domain/normalization";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { parseStructuredNaturalKeyQuery } from "../domain/structured-natural-key-query";
@@ -41,6 +45,9 @@ export type DiscoveryHybridRetrievalDependencies = Readonly<{
   searchSemantic?: SearchSemantic;
   searchNaturalKey?: SearchNaturalKey;
   hydrateItems?: HydrateItems;
+  signal?: AbortSignal;
+  onEmbeddingWait?: (observation: QueryEmbeddingWaitObservation) => void;
+  onEmbeddingLoad?: (observation: QueryEmbeddingLoadObservation) => void;
 }>;
 
 export async function retrieveDiscoveryItems(
@@ -187,14 +194,29 @@ async function loadQueryEmbedding(
   const cache = dependencies.cache;
   if (!provider || !cache) throw new Error("Discovery semantic retrieval is disabled.");
 
-  return cache.getOrLoad({ model: provider.model, query }, async (normalizedQuery) => {
-    const result = await provider.embed([normalizedQuery], "query");
-    const embedding = result.vectors[0];
-    if (!embedding || result.vectors.length !== 1 || embedding.length !== provider.dimensions) {
-      throw new Error("Discovery query embedding provider returned an invalid vector.");
-    }
-    return embedding;
-  });
+  return cache.getOrLoad(
+    {
+      model: provider.model,
+      query,
+      signal: dependencies.signal,
+      onWait: dependencies.onEmbeddingWait,
+      onLoad: dependencies.onEmbeddingLoad,
+    },
+    async (normalizedQuery, options) => {
+      const result = await provider.embed([normalizedQuery], "query", { ...options, maxAttempts: 1 });
+      const embedding = result.vectors[0];
+      if (
+        !embedding ||
+        result.vectors.length !== 1 ||
+        embedding.length !== provider.dimensions ||
+        embedding.some((value) => !Number.isFinite(value)) ||
+        !embedding.some((value) => value !== 0)
+      ) {
+        throw new Error("Discovery query embedding provider returned an invalid vector.");
+      }
+      return embedding;
+    },
+  );
 }
 
 function relevanceCandidate(
