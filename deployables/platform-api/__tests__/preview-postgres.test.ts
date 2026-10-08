@@ -12,7 +12,7 @@ function createRecordingPoolFactory(queries: RecordedQuery[], connectionStrings:
   return (connectionString: string): PreviewPostgresPool => {
     connectionStrings.push(connectionString);
     return {
-      query: async (queryText, values) => {
+      query: async (queryText: string, values?: readonly unknown[]) => {
         queries.push({ connectionString, queryText, ...(values ? { values } : {}) });
         return { rows: [{ exists: false }] };
       },
