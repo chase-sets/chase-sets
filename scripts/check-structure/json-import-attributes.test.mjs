@@ -829,6 +829,12 @@ describe("findContextRootExportViolation", () => {
     expect(findContextRootExportViolation(channelsRoot, "bounded-contexts/channels")).toBeNull();
     expect(
       findContextRootExportViolation(
+        channelsRoot.replace(/^export \{ buildConnectorManifest \}[^\n]+\n/m, ""),
+        "bounded-contexts/channels",
+      ),
+    ).toBe(diagnostic);
+    expect(
+      findContextRootExportViolation(
         channelsRoot.replace("  type UpdatePriceQuantityInput,\n", ""),
         "bounded-contexts/channels",
       ),

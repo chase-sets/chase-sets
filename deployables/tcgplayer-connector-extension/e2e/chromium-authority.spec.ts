@@ -1,498 +1,259 @@
 /// <reference types="chrome" />
-
-import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, expect, test, type BrowserContext, type Worker } from "@playwright/test";
-import { extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate } from "../src/authority-candidate";
-import { SYNTHETIC_PLATFORM_URL } from "../src/probe-canary";
-import {
-  parseIdentityNegativeControlsRecord,
-  parseIdentityProbeRecord,
-  parsePopupCapabilityProbeRecord,
-  type PopupCapabilityProbeRecord,
-} from "../src/probe-records";
+import { build } from "vite";
+import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
+import { buildConnectorManifest } from "@chase-sets/channels";
+import { closedErrors, loopbackPlatform, synthetic } from "./loopback-platform";
+import { scanRetainedArtifacts } from "./retained-artifacts";
 
 const packageRoot = resolve(import.meta.dirname, "..");
-const repoRoot = resolve(packageRoot, "../..");
-const distRoot = resolve(packageRoot, "dist");
-const artifactRoot = resolve(repoRoot, "artifacts/chromium-authority");
-const activeContexts: BrowserContext[] = [];
-
-test.afterEach(async () => {
-  for (const context of activeContexts.splice(0)) await context.close();
+const dist = resolve(packageRoot, "dist");
+let platform: Awaited<ReturnType<typeof loopbackPlatform>>;
+let firstBuild: Record<string, string>;
+const active: BrowserContext[] = [];
+test.beforeAll(async () => {
+  platform = await loopbackPlatform();
+  process.env.VITE_PLATFORM_API_URL = platform.origin;
+  process.env.VITE_CONNECTOR_CLIENT_ID = synthetic.clientId;
+  const snapshot = () =>
+    Object.fromEntries(
+      readdirSync(dist)
+        .sort()
+        .map((file) => [file, readFileSync(join(dist, file), "base64")]),
+    );
+  await build({ root: packageRoot, configFile: resolve(packageRoot, "vite.config.ts"), logLevel: "warn" });
+  firstBuild = snapshot();
+  await build({ root: packageRoot, configFile: resolve(packageRoot, "vite.config.ts"), logLevel: "warn" });
+  expect(snapshot()).toEqual(firstBuild);
 });
-const differentPublicKey =
-  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApFhoONA2G33rY2UWGXzOJcnx+SwgBC99JLq+I2GKGxERrYYNEq++7Mxd/NAUTzb5mkXsyjZcVSJzEBsOWS/n3o90mZAagGlMAwUYa2qn/0MY7t1DpLt02hISSjj9mbXu2kqzy6ZXndumuMJrjIuLF0uDClL6lZ5SCwmiRMFvrTikfKtGFzJxX0t3aQM6HgUpnAPYFjyPSTI/3Md7V6sAfr51N4do2pE5ueH9PSGSV9H0Rp67nG/7igkwRaXrw6+v2V2qiSQxEBtsTLsJ5K+khbwMVosXjlMgtEEAYrbqhKwJPK4FOnNHHm9zMyhzGDoD9fh2DLnt8LTxwNa7K5g6XQIDAQAB";
+test.afterEach(async () => {
+  for (const context of active.splice(0)) await context.close();
+});
+test.afterAll(async () => {
+  await platform?.close();
+});
 
-type TrustedObservation = Omit<
-  PopupCapabilityProbeRecord["trustedPopup"],
-  "actionPopupOpened" | "observationMode" | "fallbackTabNavigationUsed"
->;
-type SandboxedObservation = Omit<
-  PopupCapabilityProbeRecord["sandboxedPopup"],
-  "setPopupSucceeded" | "actionPopupOpened" | "observationMode" | "fallbackTabNavigationUsed"
->;
-
-function listFiles(root: string, directory = root): string[] {
-  return readdirSync(directory, { withFileTypes: true })
-    .flatMap((entry) => {
-      const absolute = join(directory, entry.name);
-      return entry.isDirectory() ? listFiles(root, absolute) : [absolute];
-    })
-    .sort((left, right) => relative(root, left).localeCompare(relative(root, right)));
-}
-
-function sha256(value: string | Buffer): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function directorySha256(root: string): string {
-  const hash = createHash("sha256");
-  for (const file of listFiles(root)) {
-    hash.update(relative(root, file).replaceAll("\\", "/"));
-    hash.update("\0");
-    hash.update(readFileSync(file));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-}
-
-async function launchExtension(extensionRoot: string): Promise<{
-  context: BrowserContext;
-  worker: Worker;
-  assignedId: string;
-  chromiumVersion: string;
-  externalRequests: string[];
-}> {
-  const userDataDir = mkdtempSync(join(tmpdir(), "chase-sets-chromium-authority-"));
-  const context = await chromium.launchPersistentContext(userDataDir, {
+async function launch(extensionRoot = dist) {
+  const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "connector-product-")), {
     channel: "chromium",
     headless: false,
     args: [
       `--disable-extensions-except=${extensionRoot}`,
       `--load-extension=${extensionRoot}`,
       "--enable-unsafe-extension-debugging",
-      "--host-resolver-rules=MAP * ~NOTFOUND",
+      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ],
   });
-  const externalRequests: string[] = [];
-  activeContexts.push(context);
-  await context.route(/^https?:\/\//, async (route) => {
-    externalRequests.push(route.request().url());
-    await route.abort("blockedbyclient");
-  });
+  active.push(context);
   const worker =
     context.serviceWorkers().find((candidate) => candidate.url().endsWith("/background.js")) ??
     (await context.waitForEvent("serviceworker", {
       predicate: (candidate) => candidate.url().endsWith("/background.js"),
-      timeout: 15_000,
     }));
-  return {
-    context,
-    worker,
-    assignedId: new URL(worker.url()).host,
-    chromiumVersion: context.browser()!.version(),
-    externalRequests,
-  };
+  await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({}))).toBe("unpaired");
+  // Secret setup is outside tracing and uses the context cookie store, never traced requests.
+  await context.addCookies([
+    { name: synthetic.cookieName, value: synthetic.cookieValue, url: platform.origin, httpOnly: true, sameSite: "Lax" },
+  ]);
+  const page = context.pages()[0]!;
+  await page.goto("data:text/html,<title>Connector action target</title>");
+  await page.bringToFront();
+  return { context, worker, page };
 }
 
-async function readPopupRecord<T>(page: import("@playwright/test").Page): Promise<T> {
-  await page.locator("#result").waitFor({ state: "attached" });
-  await expect(page.locator("#result")).not.toHaveText("pending");
-  return JSON.parse((await page.locator("#result").textContent()) ?? "") as T;
-}
-
-async function openActionPopup(worker: Worker): Promise<boolean> {
-  return worker
-    .evaluate(async () => {
-      const browserWindow = (await chrome.windows.getAll({ windowTypes: ["normal"] }))[0];
-      if (browserWindow?.id === undefined) throw new Error("Chromium reported no normal extension window");
-      await chrome.action.openPopup({ windowId: browserWindow.id });
-      return true;
-    })
-    .catch(() => false);
-}
-
-async function readActionPopupRecord<T>(context: BrowserContext, popupUrl: string): Promise<T> {
-  const session = await context.browser()!.newBrowserCDPSession();
+async function click(context: BrowserContext, pageUrl: string) {
+  const cdp = await context.browser()!.newBrowserCDPSession();
   try {
-    const target = (await session.send("Target.getTargets")).targetInfos.find((entry) => entry.url === popupUrl);
-    if (!target) throw new Error(`Chromium opened a popup but exposed no target for ${popupUrl}`);
-    const { sessionId } = await session.send("Target.attachToTarget", { targetId: target.targetId });
-    let nextId = 0;
-    const readResult = async (): Promise<string | undefined> => {
-      const id = ++nextId;
-      const response = new Promise<string | undefined>((resolve, reject) => {
-        const listener = (event: { sessionId: string; message: string }) => {
-          if (event.sessionId !== sessionId) return;
-          const message = JSON.parse(event.message);
-          if (message.id !== id) return;
-          session.off("Target.receivedMessageFromTarget", listener);
-          if (message.error || message.result?.exceptionDetails) reject(new Error("Chromium popup evaluation failed"));
-          else resolve(message.result?.result?.value);
-        };
-        session.on("Target.receivedMessageFromTarget", listener);
-      });
-      await session.send("Target.sendMessageToTarget", {
-        sessionId,
-        message: JSON.stringify({
-          id,
-          method: "Runtime.evaluate",
-          params: {
-            expression: "document.querySelector('#result')?.textContent",
-            returnByValue: true,
-          },
-        }),
-      });
-      return response;
-    };
-    let result: string | undefined;
-    await expect
-      .poll(async () => {
-        result = await readResult();
-        return result !== undefined && result !== "pending";
-      })
-      .toBe(true);
-    return JSON.parse(result!) as T;
+    const targets = (await cdp.send("Target.getTargets", { filter: [{ type: "tab" }, { exclude: true }] })).targetInfos;
+    const target = targets.find((candidate) => candidate.url === pageUrl);
+    if (!target) throw new Error("action-target-missing");
+    await cdp.send("Extensions.triggerAction", { id: TCGPLAYER_CONNECTOR_EXTENSION_ID, targetId: target.targetId });
   } finally {
-    await session.detach();
+    await cdp.detach();
   }
 }
 
-async function captureTrustedPopup(
-  context: BrowserContext,
-  worker: Worker,
-  extensionId: string,
-): Promise<{
-  observation: TrustedObservation;
-  actionPopupOpened: boolean;
-  fallbackTabNavigationUsed: boolean;
-  observationMode: "actual-action-popup" | "tab-navigation-fallback";
-}> {
-  if (await openActionPopup(worker)) {
-    await expect
-      .poll(() =>
-        worker.evaluate(() =>
-          (
-            globalThis as typeof globalThis & {
-              __chaseSetsChromiumAuthorityProbe: { trustedPopupObservation(): unknown };
-            }
-          ).__chaseSetsChromiumAuthorityProbe.trustedPopupObservation(),
-        ),
-      )
-      .not.toBeUndefined();
-    const observation = await worker.evaluate(() =>
-      (
-        globalThis as typeof globalThis & {
-          __chaseSetsChromiumAuthorityProbe: { trustedPopupObservation(): unknown };
+async function counters(worker: Worker) {
+  return worker.evaluate(() => {
+    const root = globalThis as typeof globalThis & {
+      connectorCounts?: { writes: number; alarms: number; identity: number; transport: number };
+    };
+    if (!root.connectorCounts) {
+      const counts = { writes: 0, alarms: 0, identity: 0, transport: 0 };
+      root.connectorCounts = counts;
+      for (const area of [chrome.storage.local, chrome.storage.session]) {
+        for (const key of ["set", "remove"] as const) {
+          const original = area[key].bind(area);
+          Object.assign(area, {
+            [key]: (...args: Parameters<typeof original>) => {
+              counts.writes++;
+              return Reflect.apply(original, area, args);
+            },
+          });
         }
-      ).__chaseSetsChromiumAuthorityProbe.trustedPopupObservation(),
-    );
-    expect(
-      await readActionPopupRecord<TrustedObservation>(context, `chrome-extension://${extensionId}/popup.html`),
-    ).toEqual(observation);
-    await context.pages()[0]?.bringToFront();
-    return {
-      observation: observation as TrustedObservation,
-      actionPopupOpened: true,
-      fallbackTabNavigationUsed: false,
-      observationMode: "actual-action-popup",
-    };
-  }
-  const fallbackPage = await context.newPage();
-  await fallbackPage.goto(`chrome-extension://${extensionId}/popup.html`);
-  return {
-    observation: await readPopupRecord<TrustedObservation>(fallbackPage),
-    actionPopupOpened: false,
-    fallbackTabNavigationUsed: true,
-    observationMode: "tab-navigation-fallback",
-  };
-}
-
-async function captureSandboxedPopup(
-  context: BrowserContext,
-  worker: Worker,
-  extensionId: string,
-  popupPath: string,
-  setPopupSucceeded: boolean,
-): Promise<{
-  observation: SandboxedObservation;
-  actionPopupOpened: boolean;
-  fallbackTabNavigationUsed: boolean;
-  observationMode: "actual-action-popup" | "tab-navigation-fallback";
-}> {
-  if (setPopupSucceeded && (await openActionPopup(worker))) {
-    const observation = await readActionPopupRecord<SandboxedObservation>(
-      context,
-      `chrome-extension://${extensionId}/${popupPath}`,
-    );
-    await context.pages()[0]?.bringToFront();
-    return {
-      observation,
-      actionPopupOpened: true,
-      fallbackTabNavigationUsed: false,
-      observationMode: "actual-action-popup",
-    };
-  }
-  const fallbackPage = await context.newPage();
-  await fallbackPage.goto(`chrome-extension://${extensionId}/${popupPath}`);
-  return {
-    observation: await readPopupRecord<SandboxedObservation>(fallbackPage),
-    actionPopupOpened: false,
-    fallbackTabNavigationUsed: true,
-    observationMode: "tab-navigation-fallback",
-  };
-}
-
-function writeJson(name: string, value: unknown): void {
-  mkdirSync(artifactRoot, { recursive: true });
-  writeFileSync(resolve(artifactRoot, name), `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-test("extension-pinned-identity-chromium-probe", async () => {
-  const baseDistSha256 = directorySha256(distRoot);
-  const publicKeySha256 = sha256(Buffer.from(extensionKeyCandidate, "base64"));
-  const baseline = await launchExtension(distRoot);
-  const redirectUri = await baseline.worker.evaluate(() => chrome.identity.getRedirectURL("ucp/oauth/callback"));
-  const identity = parseIdentityProbeRecord({
-    schemaVersion: 1,
-    publicKeySha256,
-    distSha256: baseDistSha256,
-    chromiumVersion: baseline.chromiumVersion,
-    assignedId: baseline.assignedId,
-    redirectUri,
-    capturedAt: new Date().toISOString(),
-  });
-  writeJson("extension-pinned-identity-chromium-probe.json", identity);
-  activeContexts.splice(activeContexts.indexOf(baseline.context), 1);
-  await baseline.context.close();
-
-  const mutantRoot = mkdtempSync(join(tmpdir(), "chase-sets-chromium-authority-mutants-"));
-  const keyRemovedRoot = resolve(mutantRoot, "key-removed");
-  const differentKeyRoot = resolve(mutantRoot, "different-key");
-  cpSync(distRoot, keyRemovedRoot, { recursive: true });
-  cpSync(distRoot, differentKeyRoot, { recursive: true });
-  const baselineManifest = JSON.parse(readFileSync(resolve(distRoot, "manifest.json"), "utf8")) as Record<
-    string,
-    unknown
-  >;
-  const { key: _removedKey, ...keyRemovedManifest } = baselineManifest;
-  writeFileSync(resolve(keyRemovedRoot, "manifest.json"), `${JSON.stringify(keyRemovedManifest, null, 2)}\n`, "utf8");
-  writeFileSync(
-    resolve(differentKeyRoot, "manifest.json"),
-    `${JSON.stringify({ ...baselineManifest, key: differentPublicKey }, null, 2)}\n`,
-    "utf8",
-  );
-
-  for (const mutant of [keyRemovedRoot, differentKeyRoot]) {
-    expect(listFiles(mutant).map((file) => relative(mutant, file))).toEqual(
-      listFiles(distRoot).map((file) => relative(distRoot, file)),
-    );
-    for (const file of listFiles(distRoot)) {
-      if (relative(distRoot, file) !== "manifest.json") {
-        expect(readFileSync(resolve(mutant, relative(distRoot, file)))).toEqual(readFileSync(file));
       }
+      for (const key of ["create", "clear"] as const) {
+        const original = chrome.alarms[key].bind(chrome.alarms);
+        Object.assign(chrome.alarms, {
+          [key]: (...args: unknown[]) => {
+            counts.alarms++;
+            return Reflect.apply(original, chrome.alarms, args);
+          },
+        });
+      }
+      const identity = chrome.identity.launchWebAuthFlow.bind(chrome.identity);
+      chrome.identity.launchWebAuthFlow = ((...args: Parameters<typeof identity>) => {
+        counts.identity++;
+        return Reflect.apply(identity, chrome.identity, args);
+      }) as typeof identity;
+      const transport = globalThis.fetch;
+      globalThis.fetch = (...args) => {
+        counts.transport++;
+        return transport(...args);
+      };
     }
-    const { key: _mutantKey, ...otherFields } = JSON.parse(readFileSync(resolve(mutant, "manifest.json"), "utf8"));
-    expect(otherFields).toEqual(keyRemovedManifest);
-  }
-
-  const manifestPath = resolve(distRoot, "manifest.json");
-  const baselineManifestBytes = readFileSync(manifestPath);
-  async function captureMutant(mutant: string) {
-    try {
-      // Keep the load path fixed: Chromium uses it for an extension without a key.
-      writeFileSync(manifestPath, readFileSync(resolve(mutant, "manifest.json")));
-      expect(directorySha256(distRoot)).toBe(directorySha256(mutant));
-      const launched = await launchExtension(distRoot);
-      activeContexts.splice(activeContexts.indexOf(launched.context), 1);
-      await launched.context.close();
-      return { assignedId: launched.assignedId, distSha256: directorySha256(mutant) };
-    } finally {
-      writeFileSync(manifestPath, baselineManifestBytes);
-    }
-  }
-  const keyRemoved = await captureMutant(keyRemovedRoot);
-  const differentKey = await captureMutant(differentKeyRoot);
-  expect(directorySha256(distRoot)).toBe(baseDistSha256);
-  const controls = parseIdentityNegativeControlsRecord({
-    schemaVersion: 1,
-    baseline: { assignedId: identity.assignedId, distSha256: identity.distSha256 },
-    keyRemoved,
-    differentKey,
-    mutationContract: "only manifest.key varied; key-removed omits it and different-key replaces it",
-    capturedAt: new Date().toISOString(),
+    return root.connectorCounts;
   });
-  writeJson("extension-pinned-identity-negative-controls.json", controls);
+}
 
-  const identityArtifacts = [identity, controls].map((value) => JSON.stringify(value)).join("\n");
-  expect(identityArtifacts).not.toMatch(/PRIVATE KEY|privateKey|BEGIN (?:RSA )?PRIVATE KEY/);
-
-  expect(keyRemoved.assignedId).not.toBe(identity.assignedId);
-  expect(differentKey.assignedId).not.toBe(identity.assignedId);
-  expect(differentKey.assignedId).not.toBe(keyRemoved.assignedId);
-  expect(identity.assignedId).toBe(extensionIdCandidate);
-  expect(identity.redirectUri).toBe(extensionRedirectUriCandidate);
+test("extension-deterministic-build-and-thin-root", () => {
+  expect(Object.keys(firstBuild)).toEqual(["background.js", "manifest.json"]);
+  const manifest = JSON.parse(readFileSync(join(dist, "manifest.json"), "utf8"));
+  expect(manifest).toEqual(
+    buildConnectorManifest({
+      platformOrigin: platform.origin,
+      hostRegistry: [],
+      permissionRegistry: ["identity", "storage", "alarms"],
+    }),
+  );
+  expect(readFileSync(join(dist, "background.js"), "utf8")).not.toMatch(/\bnode:|default_popup|setPopup|<html/i);
 });
 
-test("extension-popup-capability-chromium-probe", async () => {
-  const distSha256 = directorySha256(distRoot);
-  const publicKeySha256 = sha256(Buffer.from(extensionKeyCandidate, "base64"));
-  const launched = await launchExtension(distRoot);
-  const firstPage = launched.context.pages()[0];
-  if (firstPage) await firstPage.bringToFront();
-  await launched.worker.evaluate(async () => {
-    const probe = (
-      globalThis as typeof globalThis & {
-        __chaseSetsChromiumAuthorityProbe: { prepare(): Promise<void> };
-      }
-    ).__chaseSetsChromiumAuthorityProbe;
-    await probe.prepare();
-    await chrome.action.setPopup({ popup: "popup.html" });
-  });
+test("extension-package-vitest-discovery-control", () => {
+  const misplaced = resolve(packageRoot, "__tests__/extension-discovery-negative.test.ts");
+  writeFileSync(misplaced, 'throw new Error("misplaced-control-discovered");\n', { flag: "wx" });
+  try {
+    const require = createRequire(import.meta.url);
+    const list = execFileSync(
+      process.execPath,
+      [require.resolve("vitest/vitest.mjs"), "list", "--config", "./vitest.config.ts"],
+      {
+        cwd: packageRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    expect(list).toContain("tests/extension-production-bootstrap-day-after.test.ts");
+    expect(list).toContain("tests/extension-deterministic-build-and-thin-root.test.ts");
+    expect(list).toContain("__tests__/support/probe-record.test.ts");
+    expect(list).not.toContain("extension-discovery-negative");
+  } finally {
+    unlinkSync(misplaced);
+  }
+});
 
-  const trusted = await captureTrustedPopup(launched.context, launched.worker, launched.assignedId);
-  await launched.context.pages()[0]?.waitForTimeout(250);
-  const status = encodeURIComponent(JSON.stringify({ schemaVersion: 1, state: "synthetic-status" }));
-  const sandboxedPath = `popup-sandboxed.html?status=${status}`;
-  const setPopupSucceeded = await launched.worker
-    .evaluate(async (popup) => {
-      await chrome.action.setPopup({ popup });
-      return true;
-    }, sandboxedPath)
-    .catch(() => false);
-  const sandboxed = await captureSandboxedPopup(
-    launched.context,
-    launched.worker,
-    launched.assignedId,
-    sandboxedPath,
-    setPopupSucceeded,
+test("extension-pinned-identity-chromium-probe", async () => {
+  const { worker } = await launch();
+  expect(new URL(worker.url()).host).toBe(TCGPLAYER_CONNECTOR_EXTENSION_ID);
+  expect(await worker.evaluate(() => chrome.runtime.id)).toBe(TCGPLAYER_CONNECTOR_EXTENSION_ID);
+  expect(await worker.evaluate(() => chrome.identity.getRedirectURL("ucp/oauth/callback"))).toBe(
+    TCGPLAYER_CONNECTOR_REDIRECT_URI,
   );
+});
 
-  const popupLessOpenPopup = await launched.worker.evaluate(async () => {
-    await chrome.action.setPopup({ popup: "" });
-    const popupCleared = (await chrome.action.getPopup({})) === "";
-    const probe = (
-      globalThis as typeof globalThis & {
-        __chaseSetsChromiumAuthorityProbe: { actionClickCount(): number };
-      }
-    ).__chaseSetsChromiumAuthorityProbe;
-    const before = probe.actionClickCount();
-    let openPopupRejected = false;
-    try {
-      const browserWindow = (await chrome.windows.getAll({ windowTypes: ["normal"] }))[0];
-      if (browserWindow?.id === undefined) throw new Error("Chromium reported no normal extension window");
-      await chrome.action.openPopup({ windowId: browserWindow.id });
-    } catch {
-      openPopupRejected = true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    let badgeTextSucceeded = false;
-    let titleSucceeded = false;
-    try {
-      await chrome.action.setBadgeText({ text: "P" });
-      badgeTextSucceeded = true;
-    } catch {
-      // Chromium's refusal is the measured capability.
-    }
-    try {
-      await chrome.action.setTitle({ title: "Synthetic Chromium authority probe" });
-      titleSucceeded = true;
-    } catch {
-      // Chromium's refusal is the measured capability.
-    }
-    return {
-      popupCleared,
-      openPopupAttempted: true,
-      openPopupRejected,
-      onClickedFired: probe.actionClickCount() > before,
-      badgeTextSucceeded,
-      titleSucceeded,
-    };
+test("extension-action-pairing-entry-chromium-probe", async () => {
+  platform.select("hold");
+  const { context, worker, page } = await launch();
+  await counters(worker);
+  await click(context, page.url());
+  await expect.poll(() => platform.observation().authorizeCount).toBe(1);
+  expect(platform.observation()).toMatchObject({ queryClosed: true, cookieArrived: true, tokenCount: 0 });
+  await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({}))).toBe("pairing-pending");
+  const pending = await counters(worker);
+  await click(context, page.url());
+  expect(await counters(worker)).toEqual(pending);
+  platform.release();
+  await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({}))).toBe("paired-idle");
+  expect(platform.observation()).toEqual({
+    authorizeCount: 1,
+    tokenCount: 1,
+    cookieArrived: true,
+    queryClosed: true,
+    tokenClosed: true,
   });
-
-  const actionPage = launched.context.pages()[0]!;
-  await actionPage.goto("data:text/html,<title>Synthetic Chromium action canary</title>");
-  await actionPage.bringToFront();
-  const browserSession = await launched.context.browser()!.newBrowserCDPSession();
-  const actionTargets = (
-    await browserSession.send("Target.getTargets", {
-      filter: [{ type: "tab" }, { exclude: true }],
-    })
-  ).targetInfos.filter((target) => target.url === actionPage.url());
-  expect(actionTargets).toHaveLength(1);
-  // Chromium owns this action dispatch; calling openPopup is not an action click.
-  await browserSession.send("Extensions.triggerAction", {
-    id: launched.assignedId,
-    targetId: actionTargets[0]!.targetId,
-  });
+  expect(await worker.evaluate(() => chrome.action.getBadgeText({}))).toBe("ON");
+  const before = await counters(worker);
+  const pages = context.pages().length;
+  await click(context, page.url());
   await expect
-    .poll(() =>
-      launched.worker.evaluate(() =>
-        (
-          globalThis as typeof globalThis & {
-            __chaseSetsChromiumAuthorityProbe: { actionClickCount(): number };
-          }
-        ).__chaseSetsChromiumAuthorityProbe.actionClickCount(),
-      ),
-    )
-    .toBeGreaterThan(0);
-  await browserSession.detach();
-  const popupLessAction = {
-    ...popupLessOpenPopup,
-    actionTrigger: "Extensions.triggerAction",
-    onClickedAfterOpenPopup: popupLessOpenPopup.onClickedFired,
-    onClickedFired: await launched.worker.evaluate(
+    .poll(
       () =>
-        (
-          globalThis as typeof globalThis & {
-            __chaseSetsChromiumAuthorityProbe: { actionClickCount(): number };
-          }
-        ).__chaseSetsChromiumAuthorityProbe.actionClickCount() > 0,
-    ),
-  };
+        context.pages().filter((tab) => tab.url() === `${platform.origin}/account/channels/connection_synthetic`)
+          .length,
+    )
+    .toBe(1);
+  expect(context.pages()).toHaveLength(pages + 1);
+  expect(await counters(worker)).toEqual(before);
+});
 
-  const capability = parsePopupCapabilityProbeRecord({
-    schemaVersion: 1,
-    publicKeySha256,
-    distSha256,
-    chromiumVersion: launched.chromiumVersion,
-    capturedAt: new Date().toISOString(),
-    platformOrigin: new URL(SYNTHETIC_PLATFORM_URL).origin,
-    trustedPopup: {
-      actionPopupOpened: trusted.actionPopupOpened,
-      observationMode: trusted.observationMode,
-      fallbackTabNavigationUsed: trusted.fallbackTabNavigationUsed,
-      ...trusted.observation,
-    },
-    sandboxedPopup: {
-      setPopupSucceeded,
-      actionPopupOpened: sandboxed.actionPopupOpened,
-      observationMode: sandboxed.observationMode,
-      fallbackTabNavigationUsed: sandboxed.fallbackTabNavigationUsed,
-      ...sandboxed.observation,
-    },
-    popupLessAction,
+for (const error of closedErrors)
+  test(`extension-action-pairing-entry-chromium-probe ${error}`, async () => {
+    platform.select(error);
+    const { context, worker, page } = await launch();
+    await click(context, page.url());
+    await expect.poll(() => platform.observation().authorizeCount).toBe(1);
+    await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({}))).toBe("unpaired");
+    expect(platform.observation()).toMatchObject({ cookieArrived: true, queryClosed: true, tokenCount: 0 });
   });
-  writeJson("extension-popup-capability-chromium-probe.json", capability);
 
-  expect(
-    launched.externalRequests.every(
-      (url) => url === SYNTHETIC_PLATFORM_URL || url.startsWith(`${SYNTHETIC_PLATFORM_URL}?observation=`),
-    ),
-  ).toBe(true);
-  expect(capability.trustedPopup.storageLocalCanaryReadable).toBe(true);
-  expect(capability.trustedPopup.storageSessionCanaryReadable).toBe(true);
-  expect(capability.trustedPopup.indexedDbCanaryReadable).toBe(true);
-  expect(capability.trustedPopup.workerMessageReached).toBe(true);
-  expect(capability.trustedPopup.actionPopupOpened).toBe(true);
-  expect(capability.sandboxedPopup.queryReceived).toBe(true);
+test("extension-popup-less-contract default_popup mutant prevents actual action pairing", async () => {
+  platform.select("success");
+  const mutant = mkdtempSync(join(tmpdir(), "connector-popup-mutant-"));
+  cpSync(dist, mutant, { recursive: true });
+  const manifest = JSON.parse(readFileSync(join(mutant, "manifest.json"), "utf8"));
+  manifest.action.default_popup = "popup.html";
+  writeFileSync(join(mutant, "manifest.json"), JSON.stringify(manifest));
+  writeFileSync(join(mutant, "popup.html"), "<!doctype html><title>Controlled popup mutant</title>");
+  const { context, worker, page } = await launch(mutant);
+  await click(context, page.url());
+  const cdp = await context.browser()!.newBrowserCDPSession();
+  await expect
+    .poll(async () =>
+      (await cdp.send("Target.getTargets")).targetInfos.some((target) => target.url.endsWith("/popup.html")),
+    )
+    .toBe(true);
+  await cdp.detach();
+  expect(platform.observation().authorizeCount).toBe(0);
+  expect(await worker.evaluate(() => chrome.action.getTitle({}))).toBe("unpaired");
+  expect(() => expect(platform.observation().authorizeCount).toBe(1)).toThrow();
+});
 
-  const distText = listFiles(distRoot)
-    .map((file) => readFileSync(file, "utf8"))
-    .join("\n");
-  expect(distText).not.toMatch(/PRIVATE KEY|privateKey|BEGIN (?:RSA )?PRIVATE KEY/);
-  expect(JSON.parse(readFileSync(resolve(distRoot, "manifest.json"), "utf8"))).not.toHaveProperty("host_permissions");
+test("extension-retained-artifact-scan", async ({}, testInfo) => {
+  platform.select("success");
+  const { context, worker, page } = await launch();
+  const output = testInfo.outputPath("retained-failure");
+  mkdirSync(output, { recursive: true });
+  // Keep API-call trace evidence, but never network bodies, DOM snapshots or source attachments.
+  await context.tracing.start({ screenshots: false, snapshots: false, sources: false });
+  await click(context, page.url());
+  await expect.poll(() => worker.evaluate(() => chrome.action.getTitle({}))).toBe("paired-idle");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      expect(await page.title()).toBe("controlled-retained-failure");
+    } catch (error) {
+      writeFileSync(join(output, `attempt-${attempt}.txt`), String(error));
+    }
+  }
+  await context.tracing.stop({ path: join(output, "failure.zip") });
+  expect(readdirSync(output)).toContain("attempt-0.txt");
+  expect(scanRetainedArtifacts(output, platform.forbidden())).toBeGreaterThan(2);
+  await testInfo.attach("retained-artifact-scan", {
+    body: JSON.stringify({ attempts: 2, secretsFound: false }),
+    contentType: "application/json",
+  });
 });
