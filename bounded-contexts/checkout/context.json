@@ -7,7 +7,14 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["cart", "sell-list", "sessions", "support-lookup"],
   "allowedSupportDirectories": ["request-support", "route-support", "runtime-support", "seed-support", "ucp-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./test-support/sell-list-recovery-browser-fixture",
+    "./seed-support/*",
+    "./server"
+  ],
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/commercial-terms",
