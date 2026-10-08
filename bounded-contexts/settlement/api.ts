@@ -3,6 +3,7 @@ import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { SettlementServices } from "./support/runtime-support/services";
 import { createWalletRoutes } from "./features/wallets/api/route";
 import { createWalletAdjustmentRoutes } from "./features/wallets/api/wallet-adjustment-route";
+import { createStagingProofCreditRoutes } from "./features/wallets/api/staging-proof-credit-runtime";
 import { createClearancePolicyRoutes } from "./features/wallets/api/clearance-policy-route";
 import { createMoneyMovementWebhookRoutes, createPayoutRoutes } from "./features/payouts/api/route";
 import { createPayoutBoundsPolicyRoutes } from "./features/payouts/api/payout-bounds-policy-route";
@@ -96,6 +97,7 @@ export function buildSettlementApi(services: SettlementServices) {
 
   app.route("/", createWalletRoutes(services.wallets));
   app.route("/", createWalletAdjustmentRoutes(services.walletAdjustments, services.wallets));
+  app.route("/", createStagingProofCreditRoutes(services.stagingProofCredits));
   app.route("/", createPayoutReadinessRoutes(services.payoutReadiness));
   app.route("/", createPayoutRoutes(services.payouts));
   app.route("/clearance-policy", createClearancePolicyRoutes(services.policies));

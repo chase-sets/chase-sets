@@ -522,6 +522,8 @@ export const settlementEnglishTranslations = {
   "settlement.features.wallets.api.wallet-adjustment-route.authentication.required": "Authentication required.",
   "settlement.features.wallets.api.wallet-adjustment-route.command.failed": "Wallet adjustment command failed.",
   "settlement.features.wallets.api.wallet-adjustment-route.forbidden": "Forbidden.",
+  "settlement.features.wallets.api.staging-proof-credit.refused":
+    "Staging proof credit refused. Inspect the policy and proof receipt before retrying.",
   "settlement.features.wallets.api.wallet-adjustment-route.step.up.required":
     "Confirm it is you before posting, approving, or reversing this Wallet Adjustment.",
   "settlement.features.wallets.integrations.paymentSource.paymentSourceSchema.create.table.if.not.exists.settlement":
