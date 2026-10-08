@@ -15,7 +15,7 @@ const PREVIEW_POSTGRES_READY_RETRY_DELAY_MS = 2_000;
 // importable here without pulling test support or script tooling into the
 // deployable.
 const previewDatabaseExtensionsByContext: Readonly<Record<string, readonly string[]>> = {
-  discovery: ["vector"],
+  discovery: ["vector", "pg_trgm"],
 };
 
 export type PreviewPostgresPool = Readonly<{

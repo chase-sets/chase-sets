@@ -44,6 +44,7 @@ class ContentProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("discovery_search_item_identity_terms")) return { rows: [], rowCount: 1 };
     if (sql.includes("SELECT * FROM discovery_search_catalog_items")) {
       const row = this.items.get(String(values[0]));
       return { rows: (row ? [row] : []) as Row[], rowCount: row ? 1 : 0 };

@@ -71,6 +71,11 @@ describe("preview postgres provisioning", () => {
       {
         connectionString:
           "postgresql://postgres:super-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/chase_sets_preview_discovery?sslmode=disable",
+        queryText: 'create extension if not exists "pg_trgm"',
+      },
+      {
+        connectionString:
+          "postgresql://postgres:super-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/chase_sets_preview_discovery?sslmode=disable",
         queryText: 'create extension if not exists "vector"',
       },
     ]);
