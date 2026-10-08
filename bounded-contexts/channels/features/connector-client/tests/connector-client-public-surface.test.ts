@@ -29,7 +29,7 @@ describe("connector-client-public-surface", () => {
     for (const exportName of expectedExports) expect(rootSource).toContain(exportName);
   });
 
-  it("exports only the factory and closed DTO/ports additions; a planted reducer is rejected", () => {
+  it("exports only connector contracts and the shared fulfillment composer; a planted reducer is rejected", () => {
     function exports(source: string) {
       const file = ts.createSourceFile("client.ts", source, ts.ScriptTarget.Latest, true);
       return file.statements
@@ -50,6 +50,7 @@ describe("connector-client-public-surface", () => {
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "createConnectorBackground",
+      "composeChannelOrderFulfillmentReference",
       "ConnectorCommand",
       "ConnectorStatus",
       "ConnectorBackgroundPorts",

@@ -118,6 +118,7 @@ describe("run e2e suite", () => {
       "TCGPLAYER_CONNECTOR_EXTENSION_ID",
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+      "composeChannelOrderFulfillmentReference",
       "createConnectorBackground",
     ]);
     expect({ extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate }).toEqual({
