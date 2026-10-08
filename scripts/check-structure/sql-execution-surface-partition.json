@@ -88,6 +88,7 @@
     "bounded-contexts/catalog/support/projection-support/read-model-support.ts",
     "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
     "bounded-contexts/channels/features/connection-attention/api/runtime.ts",
+    "bounded-contexts/channels/features/connection-attention/read-model/order-contributions.ts",
     "bounded-contexts/channels/features/connection-attention/read-model/query.ts",
     "bounded-contexts/channels/features/connection-health/api/policy.ts",
     "bounded-contexts/channels/features/connection-health/api/runtime.ts",
@@ -113,6 +114,7 @@
     "bounded-contexts/channels/features/outbound-sync/api/store.ts",
     "bounded-contexts/channels/features/outbound-sync/integrations/listing-composition.ts",
     "bounded-contexts/channels/features/reconciliation/api/runtime.ts",
+    "bounded-contexts/channels/features/reconciliation/api/sale-recorder.ts",
     "bounded-contexts/channels/features/reconciliation/read-model/detail.ts",
     "bounded-contexts/channels/features/reconciliation/read-model/queries.ts",
     "bounded-contexts/channels/features/reconciliation/read-model/sale-target.ts",
@@ -121,6 +123,7 @@
     "bounded-contexts/channels/features/tcgplayer-csv/integrations/outbound-sync-settlement.ts",
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/projection.ts",
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/queries.ts",
+    "bounded-contexts/channels/features/tcgplayer-orders/api/runtime.ts",
     "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts",
     "bounded-contexts/checkout/features/cart/api/runtime.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts",
@@ -483,7 +486,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 283,
+    "count": 285,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -506,6 +509,7 @@
       "bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route.ts": 2,
       "bounded-contexts/catalog/support/authoring-support/seed.ts": 1,
+      "bounded-contexts/channels/features/connection-attention/api/route.ts": 2,
       "bounded-contexts/channels/features/listing-composition/api/route.ts": 2,
       "bounded-contexts/channels/features/manual-sync/api/route.ts": 1,
       "bounded-contexts/channels/features/outbound-sync/api/route.ts": 4,
