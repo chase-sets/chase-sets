@@ -68,13 +68,15 @@ describe("tcgplayer-order-completeness closed handoff", () => {
     expect((await composeTcgplayerOrderInbound(summary)).externalReference).toMatch(/^tcgp\.v1:[a-f0-9]{64}$/);
   });
   it("exports a browser-safe composer and snapshots input before awaiting the digest", async () => {
-    const { composeTcgplayerOrderInbound: compose } = await import("../../../client");
     const input = structuredClone(syntheticOrder);
-    const pending = compose(input);
+    const pending = composeTcgplayerOrderInbound(input);
     Object.assign(input, { orderNumber: "changed" });
     const result = await pending;
     expect(result.payload.records[0]).toEqual(syntheticOrder);
     expect(result.externalReference).toBe("tcgo.v1:a67334f7e0279d72351fe83939a9a3aeeef4248e185fb4def8d7edd1ba6d7e59");
+    expect(readFileSync(new URL("../../../client.ts", import.meta.url), "utf8")).toContain(
+      'from "./features/tcgplayer-orders/domain/contracts"',
+    );
     expect(readFileSync(new URL("../domain/contracts.ts", import.meta.url), "utf8")).not.toMatch(/node:|Buffer\./);
     expect(
       readFileSync(new URL("../../listing-composition/domain/canonical-json.ts", import.meta.url), "utf8"),
