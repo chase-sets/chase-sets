@@ -1,3 +1,4 @@
+export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
 export {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
