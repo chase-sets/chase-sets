@@ -18,11 +18,6 @@ import {
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
-import {
-  extensionIdCandidate,
-  extensionKeyCandidate,
-  extensionRedirectUriCandidate,
-} from "../deployables/tcgplayer-connector-extension/src/authority-candidate.ts";
 
 function walkFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -113,17 +108,17 @@ describe("run e2e suite", () => {
     ]);
   });
 
-  it("pins the probe candidate to the Channels client contract", () => {
+  it("pins the product identity to the Channels client contract", () => {
     expect(Object.keys(channelsClient).sort()).toEqual([
       "TCGPLAYER_CONNECTOR_EXTENSION_ID",
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "createConnectorBackground",
     ]);
-    expect({ extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate }).toEqual({
-      extensionIdCandidate: TCGPLAYER_CONNECTOR_EXTENSION_ID,
-      extensionKeyCandidate: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
-      extensionRedirectUriCandidate: TCGPLAYER_CONNECTOR_REDIRECT_URI,
+    expect(channelsClient).toMatchObject({
+      TCGPLAYER_CONNECTOR_EXTENSION_ID,
+      TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+      TCGPLAYER_CONNECTOR_REDIRECT_URI,
     });
   });
 
