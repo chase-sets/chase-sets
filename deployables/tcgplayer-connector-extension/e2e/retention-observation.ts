@@ -33,6 +33,7 @@ export async function launchRetention(profile = mkdtempSync(join(tmpdir(), "conn
     args: [
       `--disable-extensions-except=${fixture}`,
       `--load-extension=${fixture}`,
+      "--enable-unsafe-extension-debugging",
       "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ],
   });
