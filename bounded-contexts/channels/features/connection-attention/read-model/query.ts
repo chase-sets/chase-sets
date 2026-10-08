@@ -7,7 +7,7 @@ import {
   readManualAttentionContributions,
 } from "../../manual-sync/read-model/attention-query";
 import { ChannelAttentionError, type ChannelConnectionAttention } from "../domain/contracts";
-import { readOrderAttention } from "./order-contributions";
+import { readOrderAttentionBatch } from "./order-contributions";
 
 const openHealthSql = `SELECT health.connection_id, reason, (reason->'opening'->>'occurredAt')::timestamptz AS opened_at
   FROM channel_connection_health AS health CROSS JOIN LATERAL jsonb_array_elements(health.reasons) AS reason
@@ -53,7 +53,7 @@ export async function readConnectionAttention(
   if (connectionId !== null && keys.rows.length === 0) throw new ChannelAttentionError("connection-not-found");
   const ids = keys.rows.map((row) => row.connection_id);
   if (ids.length === 0) return [];
-  const [manual, health, resolutions] = await Promise.all([
+  const [manual, health, resolutions, orders] = await Promise.all([
     readManualAttentionContributions(db, accountId, ids),
     readAccountHealthSnapshots(db, accountId, ids),
     db.query<{
@@ -83,37 +83,36 @@ export async function readConnectionAttention(
       WHERE connection.account_id=$1 AND connection.connection_id=ANY($2::text[])`,
       [accountId, ids],
     ),
+    readOrderAttentionBatch(db, accountId, ids, input.orderCursor),
   ]);
-  return Promise.all(
-    ids.map(async (id) => {
-      const snapshot = health.get(id);
-      const affected = resolutions.rows.find((row) => row.connection_id === id)?.affected_count;
-      return {
-        connectionId: id,
-        healthState: snapshot?.state ?? "unknown",
-        health: (snapshot ? openHealthReasonGenerations(snapshot) : []).filter(
-          (reason) =>
-            (reason.reasonCode !== "drift" ||
-              resolutions.rows.find((row) => row.connection_id === id)?.drift_visible !== false) &&
-            !resolutions.rows.some(
-              (row) =>
-                row.connection_id === id &&
-                row.reason_code === reason.reasonCode &&
-                Number(row.reason_generation) === reason.generation &&
-                row.fingerprint === reason.fingerprint,
-            ),
-        ),
-        manual: manual.find((row) => row.connectionId === id) ?? null,
-        orders: await readOrderAttention(db, accountId, id, input.orderCursor),
-        ...(affected === null || affected === undefined
-          ? {}
-          : {
-              drift: {
-                affectedListingCount: Math.min(affected, 100),
-                hasMore: affected > 100 ? (1 as const) : (0 as const),
-              },
-            }),
-      };
-    }),
-  );
+  return ids.map((id) => {
+    const snapshot = health.get(id);
+    const affected = resolutions.rows.find((row) => row.connection_id === id)?.affected_count;
+    return {
+      connectionId: id,
+      healthState: snapshot?.state ?? "unknown",
+      health: (snapshot ? openHealthReasonGenerations(snapshot) : []).filter(
+        (reason) =>
+          (reason.reasonCode !== "drift" ||
+            resolutions.rows.find((row) => row.connection_id === id)?.drift_visible !== false) &&
+          !resolutions.rows.some(
+            (row) =>
+              row.connection_id === id &&
+              row.reason_code === reason.reasonCode &&
+              Number(row.reason_generation) === reason.generation &&
+              row.fingerprint === reason.fingerprint,
+          ),
+      ),
+      manual: manual.find((row) => row.connectionId === id) ?? null,
+      orders: orders.get(id)!,
+      ...(affected === null || affected === undefined
+        ? {}
+        : {
+            drift: {
+              affectedListingCount: Math.min(affected, 100),
+              hasMore: affected > 100 ? (1 as const) : (0 as const),
+            },
+          }),
+    };
+  });
 }

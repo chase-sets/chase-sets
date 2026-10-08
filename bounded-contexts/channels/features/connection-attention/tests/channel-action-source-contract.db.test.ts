@@ -39,7 +39,7 @@ describeDb("channel-action canonical bounded page", () => {
     }).load({ accountId, now: "2026-09-13T01:00:00Z" });
     expect(items).toHaveLength(100);
     expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(4);
+    expect(count).toBe(5);
     return items;
   }
   it("keeps a newer critical health item ahead of 100 older manual-ready info connections", async () => {
@@ -219,6 +219,13 @@ describeDb("channel-action-source-contract", () => {
       [context.audit.forAccountId],
     );
     for (let n = 1; n <= 101; n++) await manual(`page-${n}`, "composed");
+    await h.db.query(
+      `INSERT INTO channel_order_attention
+      (account_id,connection_id,order_reference,reason,generation,affected_lines,opened_at)
+      SELECT $1,'page-' || n,'synthetic-order-' || n,'tcgplayer-order-unmapped',1,'[]','2026-09-01T00:00:00Z'
+      FROM generate_series(1,101) n`,
+      [context.audit.forAccountId],
+    );
     const healthId = await h.connection();
     await h.services.connectionHealth.submitObservation(
       await h.observation(healthId, "polling", { occurredAt: "2026-08-01T00:00:00Z" }),
@@ -234,10 +241,11 @@ describeDb("channel-action-source-contract", () => {
     const items = await source.load(queueContext());
     expect(items).toHaveLength(100);
     expect(new Set(items.map((item) => item.id)).size).toBe(100);
-    expect(count).toBe(4);
+    expect(count).toBe(5);
     expect(items.some((item) => item.id === `channel-action:${healthId}`)).toBe(true);
+    expect(items.filter((item) => item.summary.params?.orderCount === 1)).toHaveLength(99);
   });
-  it.each(["channel_sync_runs", "channel_connection_health"])(
+  it.each(["channel_sync_runs", "channel_connection_health", "channel_order_attention"])(
     "degrades only channel-action on the %s owner-read failure",
     async (table) => {
       const source = createChannelActionAttentionSourceFromReadModel({

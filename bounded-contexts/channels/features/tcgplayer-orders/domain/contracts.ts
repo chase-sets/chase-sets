@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
 import type { ChannelSaleLineV1 } from "../../publication-port/domain/contracts";
-import { canonicalJson } from "../../listing-composition/domain/canonical";
+import { canonicalJson } from "../../listing-composition/domain/canonical-json";
 import { assertClosedRecord, assertRfc3339Instant } from "../../connections/domain/validation";
 
 export const tcgplayerOrderLimits = { lines: 500, pages: 1000, orders: 100000, bytes: 262144 } as const;
@@ -100,19 +99,24 @@ export function assertTcgplayerOrderRecord(value: unknown): asserts value is Tcg
   }
   if (value.version !== 1) invalid();
   text(value.pullId);
-  if (Buffer.byteLength(JSON.stringify(value), "utf8") > tcgplayerOrderLimits.bytes) invalid();
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > tcgplayerOrderLimits.bytes) invalid();
 }
 
-export function composeTcgplayerOrderInbound(record: TcgplayerOrderRecord) {
+export async function composeTcgplayerOrderInbound(record: TcgplayerOrderRecord) {
   assertTcgplayerOrderRecord(record);
+  const snapshot = structuredClone(record);
   const basis =
-    record.kind === "order"
-      ? ["tcgplayer-order-admission/v1", record.pullId, record.orderNumber, record]
-      : ["tcgplayer-pull-summary/v1", record.pullId, record];
+    snapshot.kind === "order"
+      ? ["tcgplayer-order-admission/v1", snapshot.pullId, snapshot.orderNumber, snapshot]
+      : ["tcgplayer-pull-summary/v1", snapshot.pullId, snapshot];
+  const digest = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(basis)))),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
   return {
     inboundKind: "order" as const,
-    externalReference: `${record.kind === "order" ? "tcgo" : "tcgp"}.v1:${createHash("sha256").update(canonicalJson(basis), "utf8").digest("hex")}`,
-    payload: { version: 1 as const, records: [record] },
+    externalReference: `${snapshot.kind === "order" ? "tcgo" : "tcgp"}.v1:${digest}`,
+    payload: { version: 1 as const, records: [snapshot] },
   };
 }
 

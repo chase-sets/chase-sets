@@ -268,8 +268,9 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
           cancelled: false,
           lines: [{ productId: "202", skuId: "101", quantity: 1, unitPriceAmount: "20.00" }],
         } as const;
+        const envelope = await composeTcgplayerOrderInbound(record);
         await withPgTransaction(pools.channels, (db) =>
-          admitConnectorInbound(db, "connection-tcg", composeTcgplayerOrderInbound(record), new Date().toISOString()),
+          admitConnectorInbound(db, "connection-tcg", envelope, new Date().toISOString()),
         );
         await createTcgplayerOrderRuntime({
           db: pools.channels,

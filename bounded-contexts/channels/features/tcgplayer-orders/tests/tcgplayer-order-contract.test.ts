@@ -47,25 +47,38 @@ describe("tcgplayer-order-completeness closed handoff", () => {
     expect(mapped).toEqual(syntheticOrder);
     expect(JSON.stringify(mapped)).not.toMatch(/private|buyer|shipping|transaction/);
   });
-  it("pins immutable Inventory JSON identities separately from transport digests", () => {
+  it("pins immutable Inventory JSON identities separately from transport digests", async () => {
     expect(tcgplayerSaleKey("account", "connection", syntheticOrder.orderNumber, syntheticOrder.lines[0]!)).toEqual({
       version: "v1",
       providerKey: "tcgplayer",
       sellerEnvironmentLineage: '["tcgplayer-connector/v1","account","connection"]',
       orderLineIdentity: '["tcgplayer-order-line/v1","synthetic-order","202","101"]',
     });
-    const first = composeTcgplayerOrderInbound(syntheticOrder);
+    const first = await composeTcgplayerOrderInbound(syntheticOrder);
     expect(first.externalReference).toBe("tcgo.v1:a67334f7e0279d72351fe83939a9a3aeeef4248e185fb4def8d7edd1ba6d7e59");
-    expect(composeTcgplayerOrderInbound(summary).externalReference).toBe(
+    expect((await composeTcgplayerOrderInbound(summary)).externalReference).toBe(
       "tcgp.v1:0c8bd4b8adfda8f992f1ca0e7668391d8c796095c87d231c06afe4d7bc24c3d8",
     );
     expect(first.externalReference).toMatch(/^tcgo\.v1:[a-f0-9]{64}$/);
     expect(first.externalReference).toHaveLength(72);
-    expect(composeTcgplayerOrderInbound({ ...syntheticOrder }).externalReference).toBe(first.externalReference);
-    expect(composeTcgplayerOrderInbound({ ...syntheticOrder, pullId: "next" }).externalReference).not.toBe(
+    expect((await composeTcgplayerOrderInbound({ ...syntheticOrder })).externalReference).toBe(first.externalReference);
+    expect((await composeTcgplayerOrderInbound({ ...syntheticOrder, pullId: "next" })).externalReference).not.toBe(
       first.externalReference,
     );
-    expect(composeTcgplayerOrderInbound(summary).externalReference).toMatch(/^tcgp\.v1:[a-f0-9]{64}$/);
+    expect((await composeTcgplayerOrderInbound(summary)).externalReference).toMatch(/^tcgp\.v1:[a-f0-9]{64}$/);
+  });
+  it("exports a browser-safe composer and snapshots input before awaiting the digest", async () => {
+    const { composeTcgplayerOrderInbound: compose } = await import("../../../client");
+    const input = structuredClone(syntheticOrder);
+    const pending = compose(input);
+    Object.assign(input, { orderNumber: "changed" });
+    const result = await pending;
+    expect(result.payload.records[0]).toEqual(syntheticOrder);
+    expect(result.externalReference).toBe("tcgo.v1:a67334f7e0279d72351fe83939a9a3aeeef4248e185fb4def8d7edd1ba6d7e59");
+    expect(readFileSync(new URL("../domain/contracts.ts", import.meta.url), "utf8")).not.toMatch(/node:|Buffer\./);
+    expect(
+      readFileSync(new URL("../../listing-composition/domain/canonical-json.ts", import.meta.url), "utf8"),
+    ).not.toMatch(/node:|Buffer\./);
   });
   it.each([
     { ...syntheticOrder, buyerName: "private" },

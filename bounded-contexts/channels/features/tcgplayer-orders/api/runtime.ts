@@ -127,7 +127,7 @@ export function createTcgplayerOrderRuntime(deps: Dependencies) {
               if (!("records" in payload) || payload.records.length !== 1) throw new Error("one-record-required");
               const candidate = payload.records[0];
               assertTcgplayerOrderRecord(candidate);
-              if (composeTcgplayerOrderInbound(candidate).externalReference !== event.externalReference)
+              if ((await composeTcgplayerOrderInbound(candidate)).externalReference !== event.externalReference)
                 throw new Error("reference-mismatch");
               record = candidate;
               state = "pending";

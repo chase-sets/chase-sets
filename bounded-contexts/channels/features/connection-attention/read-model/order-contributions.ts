@@ -10,6 +10,15 @@ export async function readOrderAttention(
   connectionId: string,
   after?: string,
 ): Promise<ChannelOrderAttentionPage> {
+  return (await readOrderAttentionBatch(db, accountId, [connectionId], after)).get(connectionId)!;
+}
+
+export async function readOrderAttentionBatch(
+  db: PgQueryable,
+  accountId: string,
+  connectionIds: readonly string[],
+  after?: string,
+): Promise<ReadonlyMap<string, ChannelOrderAttentionPage>> {
   let cursor: readonly string[] = ["", ""];
   if (after !== undefined) {
     if (after.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(after))
@@ -19,40 +28,51 @@ export async function readOrderAttention(
       throw new ChannelAttentionError("invalid-attention-contract");
     cursor = decoded;
   }
-  const result = await db.query<{
+  type OrderRow = {
     order_reference: string;
     reason: ChannelOrderAttentionReason;
     generation: string;
     opened_at: Date | string;
     affected_line_count: number;
-  }>(
-    `SELECT order_reference,reason,generation::text,opened_at,jsonb_array_length(affected_lines) AS affected_line_count
-    FROM channel_order_attention WHERE account_id=$1 AND connection_id=$2 AND resolved_at IS NULL
-      AND (order_reference,reason)>($3,$4) ORDER BY order_reference,reason LIMIT 101`,
-    [accountId, connectionId, cursor[0], cursor[1]],
-  );
-  const count = await db.query<{ total: number }>(
-    `SELECT count(*)::int AS total FROM
-    (SELECT 1 FROM channel_order_attention WHERE account_id=$1 AND connection_id=$2 AND resolved_at IS NULL LIMIT 101) AS bounded`,
-    [accountId, connectionId],
-  );
-  const items = result.rows.slice(0, 100).map((row) => ({
-    externalOrderReference: row.order_reference,
-    reason: row.reason,
-    generation: Number(row.generation),
-    openedAt: new Date(row.opened_at).toISOString(),
-    affectedLineCount: row.affected_line_count,
-  }));
-  const last = items.at(-1);
-  return {
-    items,
-    count: Math.min(count.rows[0]?.total ?? 0, 100),
-    hasMore: (count.rows[0]?.total ?? 0) > 100,
-    nextCursor:
-      result.rows.length > 100 && last
-        ? Buffer.from(JSON.stringify([last.externalOrderReference, last.reason])).toString("base64url")
-        : null,
   };
+  const result = await db.query<{ connection_id: string; items: OrderRow[]; total: number }>(
+    `SELECT connection_id,
+      (SELECT coalesce(jsonb_agg(page ORDER BY order_reference,reason),'[]'::jsonb) FROM (
+        SELECT order_reference,reason,generation::text,opened_at,jsonb_array_length(affected_lines) AS affected_line_count
+        FROM channel_order_attention WHERE account_id=$1 AND connection_id=selected.connection_id AND resolved_at IS NULL
+          AND (order_reference,reason)>($3,$4) ORDER BY order_reference,reason LIMIT 101
+      ) AS page) AS items,
+      (SELECT count(*)::int FROM (
+        SELECT 1 FROM channel_order_attention WHERE account_id=$1 AND connection_id=selected.connection_id
+          AND resolved_at IS NULL LIMIT 101
+      ) AS bounded) AS total
+    FROM unnest($2::text[]) AS selected(connection_id)`,
+    [accountId, connectionIds, cursor[0], cursor[1]],
+  );
+  return new Map(
+    result.rows.map((page) => {
+      const items = page.items.slice(0, 100).map((row) => ({
+        externalOrderReference: row.order_reference,
+        reason: row.reason,
+        generation: Number(row.generation),
+        openedAt: new Date(row.opened_at).toISOString(),
+        affectedLineCount: row.affected_line_count,
+      }));
+      const last = items.at(-1);
+      return [
+        page.connection_id,
+        {
+          items,
+          count: Math.min(page.total, 100),
+          hasMore: page.total > 100,
+          nextCursor:
+            page.items.length > 100 && last
+              ? Buffer.from(JSON.stringify([last.externalOrderReference, last.reason])).toString("base64url")
+              : null,
+        },
+      ];
+    }),
+  );
 }
 
 // The caller holds the connection interpretation fence. A changed contribution opens a new generation;

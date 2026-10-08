@@ -520,8 +520,9 @@ function runtime(record: RecordExternalChannelSale = recorder(), threshold = 216
   });
 }
 async function admit(record: TcgplayerOrderRecord) {
+  const envelope = await composeTcgplayerOrderInbound(record);
   await withPgTransaction(pools.channels, (db) =>
-    admitConnectorInbound(db, "connection-1", composeTcgplayerOrderInbound(record), new Date().toISOString()),
+    admitConnectorInbound(db, "connection-1", envelope, new Date().toISOString()),
   );
 }
 function resolve() {
