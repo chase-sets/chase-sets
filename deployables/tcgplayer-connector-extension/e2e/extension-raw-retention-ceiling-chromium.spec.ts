@@ -31,7 +31,10 @@ test.afterAll(async () => {
     JSON.stringify(
       {
         observations,
+        observationScope:
+          "P tests native recovery from retained IndexedDB ciphertext and trusted session material; K enumerates that session material. Other V8/OS memory is not inspected. These samples do not establish physical erasure outside the measured surfaces.",
         unmetExternalObligations: [
+          "Full physical-memory/disk custody evidence beyond the measured IndexedDB/session recovery surface remains owed; no complete seven-scenario physical ceiling PASS is claimed.",
           "(b) Actual device sleep across hour 24 and wake at hour 30: no OS sleep control is supplied by this hosted suite. Controlled clock/withheld callback is not a measured sleeping device.",
           "(c) Arbitrary browser-origin alarm delay: controlled application-clock advance with a withheld alarm is recorded separately, not claimed as browser-origin lateness.",
           "(d2) Closed-browser physical disk/memory observation at hour 24 requires a host capture; the restarted store observation alone is not that fact.",

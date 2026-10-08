@@ -1,10 +1,14 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   bootRetention,
+  chromiumVersion,
   clockAt,
   launchRetention,
   observeRetention,
   prepareRetention,
+  productDigest,
   retentionCallback,
 } from "./retention-observation";
 
@@ -80,6 +84,23 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
       }, entry);
       expect(await observeRetention(worker)).toEqual(before);
     }
+    const evidence = resolve(import.meta.dirname, "../../../artifacts/7922-retention");
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(
+      resolve(evidence, "newer-owner.json"),
+      JSON.stringify(
+        {
+          scenario: "f-older-client-newer-database",
+          mechanism: "real Chromium version-2 fixture; unchanged product v1 module through static-import observer",
+          chromium: await chromiumVersion(context),
+          digest: productDigest(),
+          phases: { before, afterCallbacks: await observeRetention(worker) },
+          observationScope: "Native recovery from IndexedDB/session only; no V8/OS heap absence claim.",
+        },
+        null,
+        2,
+      ),
+    );
     const witness = () =>
       worker.evaluate(async () => {
         const databases = await indexedDB.databases();
