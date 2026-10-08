@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPostgresEventStore,
   eventCorePostgresSchemaSql,
@@ -8,6 +8,7 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core";
 import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../../api";
@@ -107,6 +108,8 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it("composes buyer delivery from only this order's mirrored shipments without changing stored status", async () => {
     const pool = pools.ordering;
@@ -431,7 +434,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       source: (typeof contextNames)[number],
       streamId: string,
       eventType: string,
-      payload: Record<string, unknown>,
+      payload: JsonObject,
       expectedVersion: number | "no_stream" = "no_stream",
     ) =>
       createPostgresEventStore({ pool: pools[source] }).appendToStream({
@@ -488,7 +491,62 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
         authorAccountId: "acc_seller",
         now,
       });
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "reputation.view", "reputation.manage"],
+      });
+      await next();
+    });
+    app.route("/account", createAccountSaleOrderRoutes(ordering.orders));
     await drain();
+    const otherRunners = runtime.subscriptionRunners.filter(
+      (runner) => runner.sourceContextName !== "platform-operations",
+    );
+    const otherCheckpointState = () =>
+      Promise.all(
+        otherRunners.map(
+          async (runner) =>
+            (
+              await pools[runner.targetContextName as "ordering" | "marketplace"].query(
+                `SELECT c.checkpoint_key, c.last_global_position::text, r.last_global_position::text AS recovery,
+          g.state, g.active_generation::text, v.projection_revision,
+          (SELECT count(*)::int FROM event_projection_blocked_streams b
+           WHERE b.projection_key=c.checkpoint_key AND b.state<>'resolved') AS blocked
+         FROM event_subscription_checkpoints c
+         JOIN event_projection_recovery_markers r ON r.projection_key=c.checkpoint_key AND r.projection_kind='subscription'
+         JOIN event_projection_group_generations g ON g.projection_name=c.projection_name AND g.target_context_name=$2
+         JOIN event_projection_group_revisions v ON v.projection_name=c.projection_name AND v.target_context_name=$2
+         WHERE c.checkpoint_key=$1`,
+                [runner.checkpointKey, runner.targetContextName],
+              )
+            ).rows,
+        ),
+      );
+    const otherCheckpoints = await otherCheckpointState();
+    expect(otherCheckpoints).toHaveLength(7);
+    for (const [index, rows] of otherCheckpoints.entries()) {
+      const runner = otherRunners[index]!;
+      expect(rows).toEqual([
+        expect.objectContaining({
+          checkpoint_key: runner.checkpointKey,
+          state: "active",
+          blocked: 0,
+          last_global_position: runner.getStatus().sourceHeadGlobalPosition,
+          recovery: runner.getStatus().sourceHeadGlobalPosition,
+          projection_revision: runtime.projectionGroups.find(
+            (group) =>
+              group.targetContextName === runner.targetContextName && group.projectionName === runner.projectionName,
+          )!.projectionRevision,
+        }),
+      ]);
+    }
     const supportRunners = runtime.subscriptionRunners.filter(
       (runner) => runner.sourceContextName === "platform-operations",
     );
@@ -506,11 +564,18 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     }
     expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(0);
     expect(await readSale()).toEqual({ status: "unavailable", opportunity: null });
+    const unavailableResponse = await app.request("/account/sales/ord_runtime");
+    expect(unavailableResponse.status).toBe(200);
+    expect(await unavailableResponse.json()).toMatchObject({
+      order_id: "ord_runtime",
+      reviewOutcome: { status: "unavailable", opportunity: null },
+    });
 
     // A synthetic irrelevant event changes only the source horizon, not Review/Support business state.
     // This is a diagnostic control, never a seed workaround or a production repair.
     await append("platform-operations", "diagnostic.horizon-9120", "diagnostic.horizon", { synthetic: true });
     await drain();
+    expect(await otherCheckpointState()).toEqual(otherCheckpoints);
     for (const runner of runtime.subscriptionRunners) {
       const row = (
         await pools[runner.targetContextName as "ordering" | "marketplace"].query(
@@ -554,6 +619,8 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       status: "ready",
       opportunity: {
         author_role: "seller",
+        eligible_at: "2026-03-22T12:00:00.000Z",
+        window_expires_at: "2026-05-21T12:00:00.000Z",
         active_review_id: null,
         submission_state: "expired",
         window_expired: true,
@@ -563,20 +630,8 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     expect(await readSale()).toMatchObject(expired);
     expect(await readSale()).toMatchObject(expired);
     expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(0);
-    const app = new Hono<OrderingApiEnv>();
-    app.use("*", async (c, next) => {
-      c.set("actor", {
-        sessionId: "ses_1",
-        tenantId: "tnt_test",
-        userId: "usr_test",
-        accountId: "acc_seller",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["orders.view", "reputation.view", "reputation.manage"],
-      });
-      await next();
-    });
-    app.route("/account", createAccountSaleOrderRoutes(ordering.orders));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-05-22T12:00:00Z"));
     for (let load = 0; load < 2; load++) {
       const response = await app.request("/account/sales/ord_runtime");
       expect(response.status).toBe(200);
