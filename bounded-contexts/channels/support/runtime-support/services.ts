@@ -77,6 +77,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     isObject(outboundSync) &&
     typeof Reflect.get(outboundSync, "recoverExpiredClaimedOperations") === "function" &&
     typeof Reflect.get(outboundSync, "processNextInlineOperation") === "function" &&
+    typeof Reflect.get(outboundSync, "scheduleDueOrderPulls") === "function" &&
     isObject(reconciliation) &&
     typeof Reflect.get(reconciliation, "reconcileDueConnections") === "function" &&
     typeof Reflect.get(reconciliation, "readChannelDriftDetail") === "function" &&

@@ -179,7 +179,7 @@ import {
 } from "./features/connector-feed/read-model/inbound-schema";
 import { createConnectorTransport } from "./features/connector-feed/api/transport";
 import { createConnectorTransportRoutes } from "./features/connector-feed/api/transport-routes";
-import { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
+import { connectorTransportPolicy, decodeConnectorPolicy } from "./features/connector-feed/domain/policy";
 
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
@@ -190,6 +190,8 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
     connectorOAuth?: ConnectorOAuthService;
+    /** Governed TCGplayer order-pull authority; absent until bound, which denies scheduling. */
+    resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
   }>;
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
@@ -263,6 +265,11 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
         resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
         recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
         claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
+        orderPull: {
+          resolveAuthority: ports.resolveTcgplayerOrderPullAuthority ?? (async () => null),
+          resolveConnectorPolicy: async () =>
+            decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+        },
         readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
           let killSwitch = null;
           try {

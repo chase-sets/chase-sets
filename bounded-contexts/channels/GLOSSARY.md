@@ -192,7 +192,15 @@ Both require Channel Action attention. Fresh age never proves snapshot completen
 
 ## Channel Outbound Operation
 
-A **Channel Outbound Operation** is one durable publish, update, or delist instruction for a Channel Connection and Channel Listing Link.
+A **Channel Outbound Operation** is one durable instruction Channels issues against a Channel Connection's provider. A listing-subject operation is a publish, update, or delist for one Channel Listing Link and is the only kind that enters Outbound Operation Lanes, listing supersession and Link writers; a connection-subject operation (below) targets the Channel Connection itself.
+
+## Connection-Subject Channel Outbound Operation
+
+A **connection-subject Channel Outbound Operation** is a Channel Outbound Operation whose subject is the Channel Connection itself, not a Channel Listing Link. It carries no listing identity, revision or desired-state sequence, never enters an Outbound Operation Lane, listing supersession or Link writer, and shares the claimed reservation, lease, attempt, generation and settlement receipt fences. Contract: `features/outbound-sync/domain/contracts.ts`.
+
+## Channel Order Pull
+
+A **Channel Order Pull** (`tcgplayer-order-pull`) is the connection-subject operation that asks a capable Connector to read the TCGplayer Ready to Ship set once under the `ready-to-ship-intake/v1` law. Channels background schedules at most one live pull per due, active, paired connection on its persisted cadence boundary, never before both the stored due time and the last scheduled boundary plus the effective poll window; it binds the pull identity, policy revision, qualified selector, `N_rts_max`/`F_max` bounds and a pre-accounted worst-case budget that fits the unchanged deadline and lease. Its closed outcomes are `order-pull-complete` and `order-pull-unknown`; neither is server sale or fulfillment acceptance. Contract: `features/outbound-sync/domain/order-pull.ts`.
 
 ## Outbound Operation Lane
 

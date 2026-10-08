@@ -7,6 +7,12 @@ import type {
   ChannelPublicationRejectionCode,
   ChannelPublicationSuccess,
 } from "../../publication-port/domain/contracts";
+import type {
+  ClaimedOrderPullOutcome,
+  OrderPullPayload,
+  OrderPullUnknownReason,
+  orderPullOperationKind,
+} from "./order-pull";
 
 export const outboundOperationKinds = ["publish", "update", "delist"] as const;
 export type OutboundOperationKind = (typeof outboundOperationKinds)[number];
@@ -121,20 +127,65 @@ export type ClaimedOutboundOperation = Readonly<{
   enqueuedAt: string;
 }>;
 
+/** The connection-subject member a capable connector receives; it carries no listing identity. */
+export type ClaimedOrderPullOperation = Readonly<{
+  operationId: string;
+  attemptId: string;
+  claimGeneration: number;
+  connectionId: string;
+  providerIdentity: ChannelProviderIdentity;
+  subject: Readonly<{ kind: "connection"; connectionId: string }>;
+  operationKind: typeof orderPullOperationKind;
+  pullId: string;
+  scheduleGeneration: number;
+  payload: OrderPullPayload;
+  payloadDigest: string;
+  enqueuedAt: string;
+}>;
+
+export type ClaimedSubjectOperation = ClaimedOutboundOperation | ClaimedOrderPullOperation;
+
+export type OrderPullOperationRecord = Readonly<{
+  operationId: string;
+  subject: Readonly<{ kind: "connection"; connectionId: string }>;
+  operationKind: typeof orderPullOperationKind;
+  pullId: string;
+  scheduleGeneration: number;
+  payload: OrderPullPayload;
+  payloadDigest: string;
+  status: OutboundOperationStatus;
+  revision: number;
+  attemptId: string | null;
+  claimGeneration: number;
+  claimantKind: "connector" | null;
+  claimOwnerId: string | null;
+  reservationId: string | null;
+  claimedUntil: string | null;
+  attemptCount: number;
+  outcome:
+    | Extract<ClaimedOrderPullOutcome["outcome"], { kind: "order-pull-complete" }>
+    | Readonly<{ kind: "order-pull-unknown"; reason: OrderPullUnknownReason }>
+    | null;
+  enqueuedAt: string;
+  firstClaimedAt: string | null;
+  terminalAt: string | null;
+}>;
+
 export type ClaimedOperationClaimant = Readonly<{
   claimantKind: "connector" | "manual";
   claimantId: string;
 }>;
 
-export type ClaimedOperationReservation = Readonly<{
-  reservationId: string;
-  connectionId: string;
-  providerIdentity: ChannelProviderIdentity;
-  claimant: ClaimedOperationClaimant;
-  reservedAt: string;
-  leaseExpiresAt: string;
-  operations: readonly ClaimedOutboundOperation[];
-}>;
+export type ClaimedOperationReservation<TOperation extends ClaimedSubjectOperation = ClaimedOutboundOperation> =
+  Readonly<{
+    reservationId: string;
+    connectionId: string;
+    providerIdentity: ChannelProviderIdentity;
+    claimant: ClaimedOperationClaimant;
+    reservedAt: string;
+    leaseExpiresAt: string;
+    operations: readonly TOperation[];
+  }>;
 
 export type ReserveClaimedOutboundOperationsInput = Readonly<{
   registry: ChannelProviderRegistry;
@@ -143,6 +194,13 @@ export type ReserveClaimedOutboundOperationsInput = Readonly<{
   maxOperations: number;
   leaseMs: number;
 }>;
+
+/** Only a connector that declares the order-pull capability may receive connection-subject members. */
+export const connectorClaimCapabilities = ["tcgplayer-order-pull"] as const;
+export type ConnectorClaimCapability = (typeof connectorClaimCapabilities)[number];
+
+export type ReserveConnectorClaimedOperationsInput = ReserveClaimedOutboundOperationsInput &
+  Readonly<{ capabilities: readonly ConnectorClaimCapability[] }>;
 
 export type ClaimedOperationOutcome = Readonly<{
   operationId: string;
@@ -155,6 +213,9 @@ export type ClaimedOperationOutcome = Readonly<{
     | Readonly<{ kind: "outcome-unknown" }>
     | Readonly<{ kind: "abandoned"; reason: "released" | "superseded-basis" | "claimant-cancelled" }>;
 }>;
+
+/** One report member: a listing outcome, or a closed connection-subject order-pull outcome. */
+export type ClaimedSubjectOutcome = ClaimedOperationOutcome | ClaimedOrderPullOutcome;
 
 /**
  * The reservation-side view of a downstream run while its operation members
@@ -279,11 +340,16 @@ export interface OutboundSyncServices {
     input: ReserveClaimedOutboundOperationsInput,
     db: PgQueryable,
   ): Promise<ClaimedOperationReservation | null>;
+  reserveConnectorClaimedOperations(
+    input: ReserveConnectorClaimedOperationsInput,
+  ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null>;
+  scheduleDueOrderPulls(input: Readonly<{ registry: ChannelProviderRegistry }>): Promise<number>;
+  readOrderPullOperations(input: Readonly<{ connectionId: string }>): Promise<readonly OrderPullOperationRecord[]>;
   reportClaimedOperationOutcomes(
     input: Readonly<{
       reservationId: string;
       claimant: ClaimedOperationClaimant;
-      outcomes: readonly ClaimedOperationOutcome[];
+      outcomes: readonly ClaimedSubjectOutcome[];
       runSettlement?: ClaimedReservationRunSettlement;
     }>,
   ): Promise<void>;
@@ -329,12 +395,21 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
       | Readonly<{ kind: "outcome-unknown" }>,
   ) => Promise<"applied" | "link-write-refused">;
   claimedReservationRunSettlement?: ClaimedReservationRunSettlementPort;
+  /** The connection-subject order-pull producer; omitted means no pull is ever scheduled. */
+  orderPull?: OrderPullProducerDependencies;
   readAdditionalOutboundHold: (
     input: Readonly<{
       connectionId: string;
       providerIdentity: ChannelProviderIdentity;
     }>,
   ) => Promise<Readonly<{ held: boolean; sources: readonly ("health" | "operator-kill")[] }>>;
+}>;
+
+export type OrderPullProducerDependencies = Readonly<{
+  /** Governed bound and selector authority; absent or malformed authority denies scheduling. */
+  resolveAuthority: () => Promise<unknown>;
+  /** The effective connector transport policy: the cadence floor and the claim lease. */
+  resolveConnectorPolicy: () => Promise<Readonly<{ pollWindowSeconds: number; leaseMs: number }>>;
 }>;
 
 export class OutboundSyncError extends Error {
@@ -347,7 +422,8 @@ export class OutboundSyncError extends Error {
       | "stale-fence"
       | "reservation-expired"
       | "reservation-membership-mismatch"
-      | "run-settlement-unavailable",
+      | "run-settlement-unavailable"
+      | "order-pull-schedule-unavailable",
     message: string = code,
   ) {
     super(message);

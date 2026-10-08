@@ -49,7 +49,13 @@ export const seller = {
   permissions: ["channels.manage", "channels.view"],
 };
 export const target = { accountId: seller.accountId, connectionId: "connection_transport" };
-export function transportDatabase(suffix: string) {
+export function transportDatabase(
+  suffix: string,
+  hostPorts: Readonly<{
+    resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
+    readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
+  }> = {},
+) {
   let pools: Readonly<Record<"channels" | "auth", PgTransactionalPool>>;
   let auth: ReturnType<typeof authModule.createServices>;
   let oauth: ReturnType<typeof createConnectorOAuthService>;
@@ -107,7 +113,7 @@ export function transportDatabase(suffix: string) {
     },
   };
   function restart() {
-    services = channelsModule.createServices(pools.channels, { ...ports, connectorOAuth: oauth });
+    services = channelsModule.createServices(pools.channels, { ...ports, ...hostPorts, connectorOAuth: oauth });
     return services;
   }
   async function projectConnection(connectionId = target.connectionId) {
