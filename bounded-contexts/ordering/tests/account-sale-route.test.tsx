@@ -473,8 +473,8 @@ describe("marketplace account sale route", () => {
           </ChaseRoot>,
         );
         expect(screen.queryByText("Leave account review")).toBeNull();
-        expect(Boolean(screen.queryByText("Window closed"))).toBe(state === "expired");
-        expect(Boolean(screen.queryByText("Review status temporarily unavailable"))).toBe(state === "unavailable");
+        expect(Boolean(screen.queryByText("Review window expired"))).toBe(state === "expired");
+        expect(Boolean(screen.queryByText("Review status is temporarily unavailable"))).toBe(state === "unavailable");
         expect(screen.getByRole("link", { name: "Report a problem" })).toBeTruthy();
         cleanup();
       }
