@@ -833,7 +833,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Refreshed for byte-identical citation relocations; only C1-C7 digits remain normalized.
   [citationFencePaths.privacyPolicy]: "3107386fd3d02e7072c633be6def3eec052efeee68b49d245f26aecc53aa5578",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
-  [citationFencePaths.staticSurfaces]: "22f38ca3d09fa372391aa11c7eeeba39052b31b630f05b7dd20f7e0cab646773",
+  [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

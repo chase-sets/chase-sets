@@ -327,7 +327,7 @@ export function CheckoutSellListPage({
               </Surface>
 
               <StickyCtaBar
-                price={formatMoney(model.expectedSellerPayout)}
+                total={formatMoney(model.expectedSellerPayout)}
                 context={t("checkout.features.sellList.ui.sellListPage.expected.payout.before.checkout")}
                 primaryAction={
                   <Button
