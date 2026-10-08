@@ -1431,16 +1431,14 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
         const profile = hostPackage.profileDirectory;
         const context = await chromium.launchPersistentContext(profile, {
           headless: false,
+          ignoreDefaultArgs: ["--disable-extensions"],
           args: [
             "--disable-background-networking",
             "--host-resolver-rules=MAP * ~NOTFOUND",
             "--enable-unsafe-extension-debugging",
-            `--disable-extensions-except=${hostPackage.packageDirectory}`,
-            `--load-extension=${hostPackage.packageDirectory}`,
           ],
         });
         try {
-          const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
           let blocked = 0;
           await context.route("**/*", async (route) => {
             if (new URL(route.request().url()).protocol === "chrome-extension:") await route.continue();
@@ -1449,6 +1447,15 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
               await route.abort("blockedbyclient");
             }
           });
+          const install = await context.browser()!.newBrowserCDPSession();
+          try {
+            expect(await install.send("Extensions.loadUnpacked", { path: hostPackage.packageDirectory })).toEqual({
+              id: hostPackage.extensionId,
+            });
+          } finally {
+            await install.detach();
+          }
+          const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
           // Provider fetch is replaced inside the installed worker before begin.
           // Unmatched HTTPS requests throw; no live provider route is reachable.
           await worker.evaluate(
