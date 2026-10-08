@@ -839,6 +839,23 @@ describe("selector-only-protocol", () => {
     expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 0 });
     expect(worker.observations).toHaveLength(2);
   });
+  it("largest closed page is 499 distinct Ready to Ship rows, never a truncated 500-row page", async () => {
+    const rows = Array.from({ length: 499 }, (_, index) => ({ ...list.orders[0], orderNumber: `${ORDER}-${index}` }));
+    const worker = harness({ responses: { list: { body: encode({ totalOrders: 499, orders: rows }) } } });
+    const page = helper(worker, {
+      prompts: ["LastTwoYears", "Ready to Ship", "499", "LastTwoYears", "Ready to Ship", "499"],
+    });
+    await page.run();
+    expect(exported(page).selector.searches[0]).toMatchObject({
+      qualification: "qualified",
+      totalOrders: 499,
+      rowCount: 499,
+      distinctCount: 499,
+    });
+    retain(page);
+    expect(packaging.verifyExport(out).evidence).toBe("synthetic");
+    custody([...page.exports]);
+  });
   it("30 s response timeout, cancel, in-flight abort and session loss are terminal, latch survives custody loss", async () => {
     const timeout = harness({ responses: { list: { stall: true } } });
     const pending = timeout.run();
@@ -1035,6 +1052,22 @@ describe("selector-custody-and-export", () => {
     expect(() => packaging.verifyPackage(out)).toThrow("digest_mismatch");
     writeFileSync(file, original);
   });
+  it("duplicate JSON keys cannot conceal private payload under a canonical metadata key", async () => {
+    const page = helper(harness());
+    await page.run();
+    retain(page);
+    const receiptFile = path.join(out, "receipt", "selector-receipt.json");
+    const text = readFileSync(receiptFile, "utf8").replace(
+      '"countSurface": "ready-to-ship-quick-filter"',
+      `"countSurface": ${JSON.stringify(SENTINEL)}, "countSurface": "ready-to-ship-quick-filter"`,
+    );
+    writeFileSync(receiptFile, text);
+    const indexFile = path.join(out, "receipt", "selector-inventory.json");
+    const index = JSON.parse(readFileSync(indexFile, "utf8"));
+    index.files["selector-receipt.json"] = hash(text);
+    writeFileSync(indexFile, JSON.stringify(index, null, 2) + "\n");
+    expect(() => packaging.verifyExport(out)).toThrow();
+  });
   it("configuration hash, authority and old-schema refusal consumes latch without lookup", async () => {
     for (const options of [
       { tamper: "helper.js" },
@@ -1205,6 +1238,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           t0: T0,
           synthetic: true,
         });
+        const clockOffset = Date.parse(T0) - Date.now();
         const profile = hostPackage.profileDirectory;
         const context = await chromium.launchPersistentContext(profile, {
           headless: false,
@@ -1229,10 +1263,10 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           // Provider fetch is replaced inside the installed worker before begin.
           // Unmatched HTTPS requests throw; no live provider route is reachable.
           await worker.evaluate(
-            ({ lookup, list, t0, expired }) => {
+            ({ lookup, list, clockOffset, expired }) => {
               const original = globalThis.fetch;
               const originalNow = Date.now;
-              const offset = Date.parse(t0) - originalNow() + (expired ? 900001 : 0);
+              const offset = clockOffset + (expired ? 900001 : 0);
               Date.now = () => originalNow() + offset;
               globalThis.fetch = async (input, options) => {
                 const url = String(input);
@@ -1244,7 +1278,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
                 throw new Error("synthetic-provider-reachability-refused");
               };
             },
-            { lookup, list, t0: T0, expired: scenario === "expired" },
+            { lookup, list, clockOffset, expired: scenario === "expired" },
           );
           expect(
             await worker.evaluate(async () => {
@@ -1258,11 +1292,10 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           ).toBe(true);
           const page = await context.newPage();
           await page.goto(`chrome-extension://${hostPackage.extensionId}/capture.html`);
-          await page.evaluate((t0) => {
+          await page.evaluate((offset) => {
             const original = Date.now;
-            const offset = Date.parse(t0) - original();
             Date.now = () => original() + offset;
-          }, T0);
+          }, clockOffset);
           const input = [
             "LastTwoYears",
             "  READY   TO SHIP ",

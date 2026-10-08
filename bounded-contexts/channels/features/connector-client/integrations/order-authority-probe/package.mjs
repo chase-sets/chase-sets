@@ -25,10 +25,15 @@ const check = (condition, code) => {
 };
 const git = (...args) =>
   execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-function readJson(file) {
+function readJson(file, canonical = false) {
   try {
     check(lstatSync(file).size <= 65536, "artifact_refused");
-    return JSON.parse(readFileSync(file, "utf8"));
+    const text = readFileSync(file, "utf8");
+    const value = JSON.parse(text);
+    // Generated artifacts have one exact JSON encoding. This also rejects
+    // duplicate keys whose overwritten bytes would evade parsed-value checks.
+    check(!canonical || text === json(value), "artifact_refused");
+    return value;
   } catch {
     fail("artifact_refused");
   }
@@ -236,7 +241,7 @@ or raw network data. The visible Chrome window and native dialogs are HUMAN-only
 
 export function verifyPackage(out) {
   assertRealDirectory(out);
-  const preparation = readJson(path.join(out, "preparation.json"));
+  const preparation = readJson(path.join(out, "preparation.json"), true);
   closed(
     preparation,
     [
@@ -268,8 +273,8 @@ export function verifyPackage(out) {
   const actual = inventory(directory);
   same(Object.keys(actual), packageFiles, "inventory_mismatch");
   same(actual, preparation.packageDigests, "digest_mismatch");
-  const manifest = readJson(path.join(directory, "manifest.json"));
-  const config = readJson(path.join(directory, "capture-config.json"));
+  const manifest = readJson(path.join(directory, "manifest.json"), true);
+  const config = readJson(path.join(directory, "capture-config.json"), true);
   closed(
     config,
     ["format", "head", "probe", "t0", "cadenceMs", "cadenceSource", "extensionId", "evidence", "files"],
@@ -325,7 +330,7 @@ export function verifyPackage(out) {
     ...Object.fromEntries(Object.entries(actual).map(([name, digest]) => [`package/${name}`, digest])),
   };
   same(
-    readJson(path.join(out, "preparation-inventory.json")),
+    readJson(path.join(out, "preparation-inventory.json"), true),
     { files: expected, self: "preparation-inventory.json" },
     "digest_mismatch",
   );
@@ -683,9 +688,9 @@ export function verifyExport(out) {
   const directory = path.join(out, "receipt");
   const files = inventory(directory);
   same(Object.keys(files), exportFiles, "inventory_mismatch");
-  const receipt = readJson(path.join(directory, "selector-receipt.json"));
+  const receipt = readJson(path.join(directory, "selector-receipt.json"), true);
   assertReceipt(receipt, preparation);
-  const index = readJson(path.join(directory, "selector-inventory.json"));
+  const index = readJson(path.join(directory, "selector-inventory.json"), true);
   const pending = {
     extensionAbsent: false,
     extensionAbsentAt: null,
