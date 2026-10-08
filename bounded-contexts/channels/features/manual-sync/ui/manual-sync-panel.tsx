@@ -48,9 +48,17 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
         />
       ) : null}
       <OperationalStatusBanner
-        tone="warning"
-        title={t("channels.manualSync.coverage.dark")}
-        description={t("channels.manualSync.coverage.dark.description")}
+        tone={panel.inboundCoverage.state === "live" ? "success" : "warning"}
+        title={t(
+          panel.inboundCoverage.state === "live"
+            ? "channels.manualSync.coverage.live"
+            : "channels.manualSync.coverage.dark",
+        )}
+        description={t(
+          panel.inboundCoverage.state === "live"
+            ? "channels.manualSync.coverage.live.description"
+            : coverageReasonKeys[panel.inboundCoverage.reason],
+        )}
       />
       <MetricStrip
         items={[
@@ -124,6 +132,13 @@ export function ManualSyncPanelView({ panel }: Readonly<{ panel: ManualSyncPanel
     </WorkflowModule>
   );
 }
+
+const coverageReasonKeys = {
+  "no-inbound-authority": "channels.manualSync.coverage.dark.description",
+  "inbound-authority-revoked": "channels.manualSync.coverage.revoked.description",
+  "provider-has-no-inbound": "channels.manualSync.coverage.unsupported.description",
+  "inbound-authority-failing": "channels.manualSync.coverage.failing.description",
+} as const;
 
 function EmptyAction({ intent, labelKey }: Readonly<{ intent: string; labelKey: Parameters<typeof t>[0] }>) {
   return (

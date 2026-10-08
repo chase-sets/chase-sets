@@ -324,6 +324,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       db: pool,
       connections,
       tcgplayerCsv,
+      connectorFeed,
       policies,
       marketplaceClamp: ports?.marketplaceChannelInboundClamp ?? { kind: "not-mounted" },
     });
