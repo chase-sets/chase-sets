@@ -87,7 +87,7 @@ describeDb("connector-inbound-retention-windows", () => {
     },
   );
 
-  it("keeps a 6.5-day inventory snapshot through a committed production-runner pass that expires the 7-day+1s one", async () => {
+  it("keeps a 6.5-day inventory snapshot through a committed production-runner pass that expires the 7-day+1h one", async () => {
     const control = await admit(h.db, target.connectionId, exportInbound("export.six-and-a-half-days"));
     const expired = await admit(h.db, target.connectionId, exportInbound("export.seven-days-plus-1s"));
     const fresh = await admit(h.db, target.connectionId, orderInbound("order.fresh"));

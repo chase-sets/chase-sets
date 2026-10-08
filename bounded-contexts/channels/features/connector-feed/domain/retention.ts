@@ -2,7 +2,7 @@ import { connectorInboundKinds, type ConnectorInboundKind } from "./transport";
 
 const DAY_SECONDS = 86_400;
 
-// Elapsed seconds after server admission (#8591). Never calendar days: a day-valued
+// Elapsed seconds after server admission. Never calendar days: a day-valued
 // interval follows the session time zone across DST.
 export const connectorInboundRetentionWindowSeconds = Object.freeze({
   "inventory-snapshot": 7 * DAY_SECONDS,
