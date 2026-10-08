@@ -833,7 +833,7 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   // Refreshed for byte-identical citation relocations; only C1-C7 digits remain normalized.
   [citationFencePaths.privacyPolicy]: "3107386fd3d02e7072c633be6def3eec052efeee68b49d245f26aecc53aa5578",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
-  [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
+  [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {
@@ -2035,8 +2035,9 @@ describe("occurrence-scoped citation byte fence", () => {
       {
         name: "static include edited",
         file: citationFencePaths.staticSurfaces,
-        before: 'include: [{ kind: "any" }],',
-        after: 'include: [{ kind: "prefix", value: "bounded-contexts" }],',
+        before: 'evidence: ["scripts/format-check.mjs:121-138,219-257"],\n    include: [{ kind: "any" }],',
+        after:
+          'evidence: ["scripts/format-check.mjs:121-138,219-257"],\n    include: [{ kind: "prefix", value: "bounded-contexts" }],',
       },
       {
         name: "static comment edited",

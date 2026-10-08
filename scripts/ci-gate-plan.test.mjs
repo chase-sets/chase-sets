@@ -542,6 +542,23 @@ describe("shared CI gate plan", () => {
     }
   });
 
+  it.each(["pull-request", "merge-group"])("requires citation fence unit coverage in %s plans", (mode) => {
+    for (const file of [
+      "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
+      "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
+      "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.test.ts",
+      "scripts/verify-static-surfaces.mjs",
+      "scripts/clean-logs.mjs",
+    ]) {
+      const scope = classifyChanges({ changedFiles: [file] });
+      const plan = createCiGatePlan({ mode, provenance: "same-repository", labels: [], scope });
+      const unitGate = plan.gates.find(({ id }) => id === "unit-tests");
+      const isFenceInput = file !== "scripts/clean-logs.mjs";
+      expect(unitGate.selection, file).toBe(isFenceInput ? "REQUIRED" : "NOT_REQUIRED");
+      expect(unitGate.affectedWorkspaces.includes("@chase-sets/public-presence"), file).toBe(isFenceInput);
+    }
+  });
+
   it("requires DB tests for platform-pr workflow alone without narrowing the all-DB workspace list", () => {
     const scope = classifyChanges({ changedFiles: [".github/workflows/platform-pr.yml"] });
     const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", labels: [], scope });

@@ -248,6 +248,9 @@ export function classifyChanges({
   let nonDocumentationChanged = false;
   const platformApiWorkspace = platformApiWorkspaceName(workspaces);
   const platformRuntimeWorkspace = platformRuntimeWorkspaceName(workspaces);
+  const publicPresenceWorkspace = workspaces.find(
+    (workspace) => workspace.root === "bounded-contexts" && workspace.dirName === "public-presence",
+  )?.name;
 
   for (const filePath of normalizedFiles) {
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
@@ -281,6 +284,15 @@ export function classifyChanges({
       );
       addTestOnlyWorkspace(
         platformApiWorkspace,
+        filePath,
+        directlyTestOnlyAffectedWorkspaces,
+        testOnlyFilesByWorkspace,
+      );
+    }
+
+    if (filePath === "scripts/verify-static-surfaces.mjs") {
+      addTestOnlyWorkspace(
+        publicPresenceWorkspace,
         filePath,
         directlyTestOnlyAffectedWorkspaces,
         testOnlyFilesByWorkspace,

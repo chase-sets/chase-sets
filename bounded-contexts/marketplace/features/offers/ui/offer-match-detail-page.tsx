@@ -295,7 +295,7 @@ export function MarketplaceOfferMatchDetailPage({
 
       {acceptOfferAction ? (
         <StickyCtaBar
-          price={formatMoney(offer.price_amount, offer.price_currency_code!)}
+          total={formatMoney(offer.price_amount, offer.price_currency_code!)}
           context={
             offer.can_fulfill
               ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")

@@ -141,9 +141,11 @@ jobs:
           set -euo pipefail
           node ./scripts/ci-gate-plan.mjs github-output
 
-  static:
-    name: Static Checks
-    runs-on: ubuntu-latest
+  static-source:
+    name: Static Source Checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     timeout-minutes: 20
     needs: change-scope
     if: needs['change-scope'].outputs.static_required == 'true'
@@ -151,6 +153,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -164,6 +167,57 @@ jobs:
           CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
           FORMAT_CHECK_SCOPE: full
         run: pnpm run verify:static
+
+  static:
+    name: Static Checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    timeout-minutes: 20
+    needs: [change-scope, static-source]
+    if: always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Check generated metadata
+        run: pnpm run verify:metadata
+
+      - name: Install provider browser boundary
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
+
+      - name: Installed-boundary controls
+        run: |
+          python3 scripts/provider-object-disposition/browser-boundary/ownership.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/native-variants.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-fixtures.py
+          python3 scripts/provider-object-disposition/browser-boundary/pid-reuse.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/r3-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/installer-failure.test.py
+          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-policy.test.mjs scripts/provider-object-disposition/browser-boundary/bootstrap.test.mjs scripts/provider-object-disposition/browser-boundary/protocol.test.mjs
+          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-admission.test.mjs scripts/provider-object-disposition/test-window-main.test.mjs scripts/provider-object-disposition/test-window-driver.test.mjs scripts/provider-object-disposition/test-window-packet.test.mjs scripts/provider-object-disposition/publish-test-window.test.mjs scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs scripts/provider-object-disposition/browser-boundary/browser-lifecycle-controls.test.mjs
+          node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs
+
+      - name: Remove owned provider browser boundary
+        if: always()
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh
+
+      - name: Require full source checks
+        if: always()
+        env:
+          SOURCE_RESULT: ${{ needs.static-source.result }}
+        run: test "$SOURCE_RESULT" = success
 
   typecheck:
     name: Typecheck

@@ -177,6 +177,31 @@ describe("platform worker projection wake interest graph", () => {
     ]);
     expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 250,
+      sha256: "2a02b795286c223b9f35244d60788004451a73c89ecd3790a8fbfb90ee4f2fbf",
+    });
+    const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
+    const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
+    expect(proofCreditRunners.map((runner) => runner.checkpointKey)).toEqual([
+      "settlement-wallet-projection:settlement:v1",
+    ]);
+    expect(
+      fingerprint(
+        inheritedRunners.map((runner) =>
+          fingerprintObject(
+            proofCreditRunners.includes(runner)
+              ? {
+                  ...runner,
+                  eventTypes: runner.eventTypes?.filter((eventType) => eventType !== proofCreditEventType),
+                  handlers: Object.fromEntries(
+                    Object.entries(runner.handlers ?? {}).filter(([eventType]) => eventType !== proofCreditEventType),
+                  ),
+                }
+              : runner,
+          ),
+        ),
+      ),
+    ).toEqual({
+      count: 250,
       sha256: "716e5e66a87f506c5789a0dd0fd841aba23228465f9cc201320f3d467bc218eb",
     });
     expect(

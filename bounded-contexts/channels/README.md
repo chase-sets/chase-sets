@@ -94,6 +94,45 @@ Injected setup, credential, policy, and storage-location authority resolvers.
 
 ## Credential Custody
 
+The `connector-client` slice owns the extension's closed profile and credential
+v1 records and the serialized `(revision, state, connectionId)` response fence.
+One worker is the sole writer to one profile key and one credential key in
+trusted `chrome.storage.local`. The storage port must successfully request
+`TRUSTED_CONTEXTS` for both local and session before any owned read or write;
+the Chrome adapter and actual access-level calls belong to #7921.
+
+Credential tokens live only in trusted local storage. PKCE verifier and state
+live only in trusted session storage, not in either local record. Raw retention
+belongs to #7922: ciphertext in private IndexedDB, encryption keys session-only.
+These records contain no file field and supply no raw-storage behavior. Secrets
+never enter sync storage, messages, logs or status. The custody API accepts no
+such egress port; its only log value is `stale-response-discarded`.
+
+Callers capture the fence and stored connection before awaiting transport. They
+advance it before unpair, revoke, superseding pairing or re-pair transport, then
+submit outcomes under that original fence. Network awaits stay outside the
+storage critical section; storage awaits stay inside. Both records are published
+in one local `set`; terminal publication writes a null credential then removes
+its key. A restart rejects mismatched bindings and finishes interrupted null-key
+cleanup. Every owned writer shares the same in-worker local-area lock. This is
+not a Chrome CAS or a cross-worker lock: the adapter must preserve one worker
+and must not introduce foreign writers to these keys.
+
+Successful exchange and refresh consume #7918's exact six-key token response.
+Refresh preserves connection identity and requires rotated tokens. A transport
+refusal is not itself a revocation fact: a concurrent one-use refresh loser must
+not delete a successful rotation. Lifecycle decisions remain #7920-owned.
+Valid v1 inspection is byte/revision preserving; malformed owned v1 produces an
+advanced `re-pair-required` profile and removes the credential. Mixed newer or
+unknown versions report `upgrade-required` with zero writes or deletes, without
+normalizing retained bytes. Revision exhaustion refuses rather than wrapping.
+
+The slice-owned `extension-connector-scope-separation.db.test.ts` composes the
+real Auth connector OAuth service and Channels credential routes. It is listed
+in the unnumbered `test:db` and excluded by `test:unit`; Auth is an existing
+declared dependency used by this test, not a browser-domain dependency. It does
+not import a deployable or add an API/bootstrap test duplicate.
+
 `ChannelsServices.credentials` is server-only. Callers supply their transaction
 executor to create, replace, or rewrap a `ChannelCredentialEnvelope/v1`; custody
 never commits the caller's transaction or emits secret-bearing events. Connections

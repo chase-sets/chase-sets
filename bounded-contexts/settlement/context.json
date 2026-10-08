@@ -281,6 +281,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "deploymentEnvironment",
+      "providedBy": "platform-api",
+      "purpose": "Trusted deployment environment for the staging-only proof credit; missing binding refuses all proof writes."
+    },
+    {
       "portName": "moneyMovementGateway",
       "providedBy": "platform-api",
       "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
@@ -769,6 +774,25 @@
     }
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "settlement.staging-proof-credit-receipt",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/staging-proof-credit-runtime.ts:POST /wallet/staging-proof-credits"
+      ],
+      "visibleDestination": {
+        "description": "The staging operator receives the Wallet-stream proof receipt directly; no projection or UI is required."
+      },
+      "proof": {
+        "authoritativeResponse": "The runtime returns the complete atomic credit/audit receipt from committed Wallet state; replay and GET rehydrate the same stream, independent of projection lag.",
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/staging-proof-credit-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/api/staging-proof-credit.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "settlement.payout-readiness-api-session-snapshots",
       "owner": "settlement",

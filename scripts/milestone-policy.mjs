@@ -4,7 +4,6 @@ const OUTCOME_MARKER_START = /<!--\s*outcome\s*:/gi;
 const OUTCOME_MARKER = /<!--\s*outcome\s*:\s*([\s\S]*?)\s*-->/gi;
 const OUTCOME_KEYS = ["order", "status", "track", "version"];
 const TRACK = /^[a-z][a-z0-9-]*$/;
-const LEGACY_OUTCOME_TITLE = /^(Wave|Mobile)\s+(\d+)\b/;
 
 export class MilestonePolicyError extends Error {
   constructor(code, details = {}) {
@@ -29,24 +28,8 @@ function stableIdentity(milestone) {
   fail("OUTCOME_MILESTONE_IDENTITY_INVALID", milestone);
 }
 
-function legacyPolicy(milestone) {
-  if (typeof milestone?.title !== "string") return null;
-  const match = LEGACY_OUTCOME_TITLE.exec(milestone.title);
-  if (!match) return null;
-  const order = Number(match[2]);
-  if (!Number.isSafeInteger(order) || order < 0) return null;
-  return Object.freeze({
-    version: OUTCOME_METADATA_VERSION,
-    track: match[1],
-    order,
-    status: "committed",
-    source: "legacy-title",
-  });
-}
-
 /**
  * Reads the sole outcome-ordering authority from a milestone description.
- * Untagged Wave/Mobile titles are accepted only as migration compatibility.
  */
 export function readOutcomePolicy(milestone) {
   const description = milestone?.description;
@@ -55,7 +38,7 @@ export function readOutcomePolicy(milestone) {
   }
   const text = description ?? "";
   const starts = [...text.matchAll(OUTCOME_MARKER_START)];
-  if (starts.length === 0) return legacyPolicy(milestone);
+  if (starts.length === 0) return null;
   if (starts.length > 1) fail("OUTCOME_METADATA_DUPLICATE", milestone);
 
   const matches = [...text.matchAll(OUTCOME_MARKER)];

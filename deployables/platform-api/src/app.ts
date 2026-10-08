@@ -134,6 +134,8 @@ import {
   lookupWalletAdjustmentBySupportId,
   lookupWalletAdjustmentBySupportReference,
   settlementClearancePolicy,
+  stagingProofCreditPolicy,
+  type SettlementServices,
   settlementPayoutBoundsPolicy,
   settlementPayoutFeePolicy,
   type SettlementSupportLookupRow,
@@ -469,12 +471,11 @@ export function createPlatformApiHost(
       db: settlementPool,
       definitions: [
         settlementClearancePolicy,
+        stagingProofCreditPolicy,
         settlementPayoutBoundsPolicy,
         settlementPayoutFeePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
-      write: lazyPolicyConsoleWritePort(
-        () => runtime?.services.settlement as { policies?: PolicyConsoleWritePort } | undefined,
-      ),
+      write: lazyPolicyConsoleWritePort(() => runtime?.services.settlement as SettlementServices | undefined),
     });
   }
   if (commercialTermsPool) {
