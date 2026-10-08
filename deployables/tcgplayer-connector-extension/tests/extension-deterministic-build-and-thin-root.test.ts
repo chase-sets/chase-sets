@@ -14,8 +14,7 @@ function assertThinRoot(worker: string) {
   expect(worker).toContain("const session = chromeSession();");
   expect(worker).toContain("const alarms = chromeAlarms();");
   expect(worker).toContain("...chromeIndexedDB(),");
-  for (const adapter of ["Storage", "Identity", "Action", "Runtime"])
-    expect(worker).toContain(`: chrome${adapter}(),`);
+  for (const adapter of ["Storage", "Identity", "Action", "Runtime"]) expect(worker).toContain(`: chrome${adapter}(),`);
   expect(worker.match(/\bawait\b/g)).toBeNull();
   expect(worker.match(/background\.boot\(\)/g)).toHaveLength(1);
 }

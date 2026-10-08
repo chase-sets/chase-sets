@@ -386,7 +386,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       else {
         if (profile.state !== "paired-idle") await ports.alarms.clear(workAlarm);
         if (profile.state !== "unpairing") await ports.alarms.clear(retryAlarm);
-        await sweep(profile, "boot", !credentialState(profile.state));
+        await sweep(profile, "boot", profile.state === "unpairing" || !credentialState(profile.state));
       }
       await display();
     });
@@ -404,7 +404,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       if (name === retentionAlarm) {
         retentionDeadline = null;
         if (profile.state === "cleanup-pending") await cleanup(profile, "unpaired", "retention");
-        else await sweep(profile, "retention", !credentialState(profile.state));
+        else await sweep(profile, "retention", profile.state === "unpairing" || !credentialState(profile.state));
         await display();
         return null;
       }

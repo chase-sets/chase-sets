@@ -17,7 +17,7 @@ type Ports = Readonly<{
   crypto?: Crypto;
   scheduleDeadline(when: number): Promise<void>;
 }>;
-type Worker = { tail: Promise<unknown>; generation: number };
+type Worker = { tail: Promise<unknown>; generation: number; refused: Set<string> };
 const workers = new WeakMap<IDBFactory, Worker>();
 
 export function createConnectorRetentionStore(ports: Ports) {
@@ -25,11 +25,11 @@ export function createConnectorRetentionStore(ports: Ports) {
   const cryptography = ports.crypto ?? globalThis.crypto;
   let worker = workers.get(ports.indexedDB);
   if (!worker) {
-    worker = { tail: Promise.resolve(), generation: 0 };
+    worker = { tail: Promise.resolve(), generation: 0, refused: new Set() };
     workers.set(ports.indexedDB, worker);
   }
   const owner = worker;
-  const refused = new Set<string>();
+  const refused = owner.refused;
   function serial<T>(operation: () => Promise<T>): Promise<T> {
     const result = owner.tail.then(operation);
     owner.tail = result.catch(() => {});
@@ -64,7 +64,9 @@ export function createConnectorRetentionStore(ports: Ports) {
       return;
     // Remove only this revision's unique key; a replacement owns a different key.
     // Retain keyless ciphertext on IDB failure for the next sweep to retry.
+    await ports.session.set({ [row.keyId]: null });
     await ports.session.remove([row.keyId]);
+    if (await key(row)) throw new RetentionError("cleanup-failed");
     await database.change(row);
   }
   async function inspect(): Promise<"ready" | "upgrade-required" | "cleanup-failed"> {
@@ -161,6 +163,7 @@ export function createConnectorRetentionStore(ports: Ports) {
         allowed(row, generation);
         const material = await key(row);
         if (!material) throw new RetentionError("read-refused");
+        allowed(row, generation);
         const bytes = new Uint8Array(
           await cryptography.subtle.decrypt(
             { name: "AES-GCM", iv: row.nonce, additionalData: rawExportAuthenticatedData(row), tagLength: 128 },
@@ -213,6 +216,7 @@ export function createConnectorRetentionStore(ports: Ports) {
             const rows = await database.page(after);
             if (!rows.length) break;
             for (const row of rows) {
+              if (input.deleteAll) refused.add(row.rawExportId);
               if (input.deleteAll || row.acceptedSnapshotAt !== null || !(await key(row))) await remove(row);
             }
             after = rows.at(-1)!.rawExportId;

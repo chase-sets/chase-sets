@@ -69,9 +69,7 @@ for (const scenario of ["a-awake-on-time", "c-controlled-late-callback", "e-open
             throw new DOMException("synthetic-open-failure", "UnknownError");
           };
           try {
-            const product = (await import(
-              chrome.runtime.getURL("background.js")
-            )) as typeof import("../src/background");
+            const product = globalThis.__retentionProduct;
             await product.background.boot();
           } finally {
             indexedDB.open = original;
@@ -132,12 +130,14 @@ test("extension-raw-retention-ceiling-chromium key-delete-callback mutant reveal
     const time = await prepareRetention(worker);
     await clockAt(worker, time.deadline);
     const result = await worker.evaluate(async () => {
-      const product = (await import(chrome.runtime.getURL("background.js"))) as typeof import("../src/background");
+      const product = globalThis.__retentionProduct;
       const original = chrome.storage.session.remove;
+      const originalSet = chrome.storage.session.set;
       const keys = Object.keys(await chrome.storage.session.get(null)).filter((key) =>
         key.startsWith("connector-raw-key:"),
       );
       chrome.storage.session.remove = async () => {};
+      chrome.storage.session.set = async () => {};
       try {
         await product.retentionStore.run({ reason: "retention", deleteAll: false });
         const retained = await chrome.storage.session.get(keys);
@@ -150,6 +150,7 @@ test("extension-raw-retention-ceiling-chromium key-delete-callback mutant reveal
         };
       } finally {
         chrome.storage.session.remove = original;
+        chrome.storage.session.set = originalSet;
         await chrome.storage.session.remove(keys);
       }
     });
