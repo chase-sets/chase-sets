@@ -32,6 +32,7 @@
     "frontier_expired",
     "frontier_replaced",
     "total_missing",
+    "count_mismatch",
     "duplicate",
     "tail_missing",
     "unsafe_next",
@@ -290,6 +291,7 @@
       rowCount: value.orders.length,
       distinctCount: 0,
       total: integer(value.totalOrders) ? value.totalOrders : null,
+      snapshotCount: integer(proof?.snapshotCount) ? proof.snapshotCount : null,
       snapshotPresent: token(proof?.snapshot),
       snapshotEqual: false,
       cursorPresent: token(proof?.next),
@@ -323,7 +325,8 @@
     page.snapshotEqual = state.frontier === null || state.frontier === proof.snapshot;
     if (!page.snapshotEqual) fail("frontier_replaced");
     state.frontier = proof.snapshot;
-    if (page.total === null) fail("total_missing");
+    if (page.total === null || page.snapshotCount === null) fail("total_missing");
+    if (page.total !== page.snapshotCount) fail("count_mismatch");
     if (state.total !== null && state.total !== page.total) fail("frontier_replaced");
     state.total = page.total;
     if (page.hardResultCap === null || page.hardPageCap === null) fail("discovery_unknown");
