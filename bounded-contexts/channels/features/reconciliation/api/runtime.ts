@@ -57,7 +57,7 @@ import type {
 } from "../../publication-port/domain/contracts";
 import type { OutboundOperationRecord, OutboundOperationStatusRecord } from "../../outbound-sync/domain/contracts";
 import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
-import { payloadDigest } from "../../outbound-sync/domain/validation";
+import { payloadDigest } from "../../outbound-sync/api/payload-digest";
 import { readLatestLiveSnapshotMetadata } from "../../tcgplayer-csv/read-model/queries";
 import { evaluateSnapshotAge, SNAPSHOT_AGE_FINDING_ID, SNAPSHOT_AGE_MEMBER_ID } from "../domain/snapshot-age";
 

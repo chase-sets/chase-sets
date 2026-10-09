@@ -15,7 +15,26 @@ retention alarms. Chrome adapters implement `ConnectorBackgroundPorts`; records
 and revision fencing remain internal to the slice. Startup and retained install
 reconcile owned records without resetting paired or paused profiles. Missing
 alarm reconciliation is not implemented here; no alarm persistence is assumed.
-The coordinator is inert unless supplied. `createConnectorRetentionStore` owns
+The coordinator is inert unless supplied. `createConnectorOperationCoordinator`
+owns the listing-operation journal and executor registry. It uses the same
+`connector-raw-exports` database, additively upgraded to v2 with
+`operation-attempts` and `reservations`. Both stores are enumerated in one
+transaction against independent counts before work; every mutation uses the
+same transaction and retained revisions. Reservation executors commit all
+members' dispatch intent together and return a context-free bound-run settlement;
+operation executors commit each member separately. An interrupted dispatch is
+never repeated. Reconciliation can supply proof, otherwise unbound operations
+report unknown and bound operations retain unknown until settlement can be proven.
+The canonical total report is committed before HTTP and retained unchanged on
+refusal or response loss. Acknowledged rows are inert until 24-hour compaction.
+The background runs retention first on boot, update, work and unpair, then calls
+the supplied coordinator with current revision-qualified authority. Unpair
+permits reports only and leaves both journal stores intact. Malformed claims
+pause as `protocol-violation` before either journal is written; only an update
+clears that pause, including after unpair/re-pair. Valid unsupported operations
+are totally abandoned before `unsupported-operation` pause. No provider executor
+or deployable composition is supplied here; those remain separate slices.
+`createConnectorRetentionStore` owns
 the raw-export sweep: AES-GCM ciphertext in versioned IndexedDB, one key per
 export in trusted session storage, revision-predicated cleanup and read refusal
 at `downloadedAt + 24h`. Cleanup runs in pages of 32, uses the expiry index,

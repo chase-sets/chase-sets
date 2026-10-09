@@ -29,7 +29,8 @@ import {
   type OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
 import { isClaimedOrderPullOutcome } from "../domain/order-pull";
-import { assertClaimedOperationClaimant, assertClaimedSubjectOutcome, canonicalJson } from "../domain/validation";
+import { assertClaimedOperationClaimant, canonicalJson } from "../domain/validation";
+import { assertClaimedSubjectOutcome } from "../domain/subject-outcome-validation";
 import {
   assertOrderPullReportFence,
   createOrderPullScanCursor,

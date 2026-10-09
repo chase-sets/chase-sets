@@ -9,6 +9,7 @@ import * as rejection from "../domain/rejection";
 import * as contracts from "../domain/contracts";
 import * as orderPullContract from "../domain/order-pull";
 import * as validation from "../domain/validation";
+import * as subjectOutcomeValidation from "../domain/subject-outcome-validation";
 import * as orderPull from "../api/order-pull";
 import * as store from "../api/store";
 
@@ -42,6 +43,7 @@ export function mutatedOutboundRuntime(
     "../domain/contracts": contracts,
     "../domain/order-pull": orderPullContract,
     "../domain/validation": validation,
+    "../domain/subject-outcome-validation": subjectOutcomeValidation,
     "./order-pull": orderPull,
     "./store": store,
   };

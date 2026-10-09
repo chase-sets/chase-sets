@@ -179,7 +179,9 @@ describe("extension-security-day-after", () => {
       expect(after.state).toBe(expected);
       if (["paired-idle", "paused", "unpairing", "upgrade-required"].includes(state))
         expect(f.fake.rows()).toEqual(before);
-      expect(f.ports.transport.coordinate).not.toHaveBeenCalled();
+      expect(f.ports.transport.coordinate).toHaveBeenCalledTimes(
+        ["paired-idle", "paused", "unpairing"].includes(state) ? 1 : 0,
+      );
       expect(f.ports.transport.request).toHaveBeenCalledTimes(state === "unpairing" ? 1 : 0);
       if (state === "unpairing") expect(f.alarms.has("connector-revocation-retry")).toBe(true);
       if (state === "upgrade-required") {
@@ -195,7 +197,7 @@ describe("extension-security-day-after", () => {
       vi.mocked(f.ports.transport.request).mockRejectedValue(new Error("offline"));
       await f.alarm(name);
       expect(f.ports.transport.coordinate).toHaveBeenCalledTimes(
-        name === "connector-work" && state === "paired-idle" ? 1 : 0,
+        name === "connector-work" && ["paired-idle", "paused"].includes(state) ? 1 : 0,
       );
       expect(f.ports.transport.request).toHaveBeenCalledTimes(
         name === "connector-revocation-retry" && state === "unpairing" ? 1 : 0,
@@ -252,7 +254,7 @@ describe("extension-security-day-after", () => {
     expect((await f.background.status()).state).toBe("paired-idle");
     expect(f.alarms.has("connector-work")).toBe(true);
   });
-  it("unpair advances revision and clears work before revoke; retry is bounded and never coordinates", async () => {
+  it("unpair advances revision, reports once, then revokes; retries never coordinate", async () => {
     const f = backgroundFixture("paired-idle");
     const response = deferred<Response>();
     const atRevoke: { profile: unknown; workScheduled: boolean }[] = [];
@@ -269,7 +271,9 @@ describe("extension-security-day-after", () => {
     vi.mocked(f.ports.transport.request).mockRejectedValue(new Error("offline"));
     for (let i = 0; i < 10; i++) await f.alarm("connector-revocation-retry");
     expect(f.alarms.get("connector-revocation-retry")).toEqual({ when: Date.parse(now) + 3_600_000 });
-    expect(f.ports.transport.coordinate).not.toHaveBeenCalled();
+    expect(f.ports.transport.coordinate).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(f.ports.transport.coordinate!).mock.calls[0][0].reason).toBe("unpair");
+    expect(await vi.mocked(f.ports.transport.coordinate!).mock.calls[0][0].authority!()).toBe("report-only");
     vi.mocked(f.ports.transport.request).mockResolvedValue(Response.json({ revoked: true }));
     await f.alarm("connector-revocation-retry");
     expect((await f.background.status()).state).toBe("unpaired");
@@ -315,6 +319,7 @@ describe("extension-security-day-after", () => {
     response.resolve({ outcome: "revoked" });
     await pending;
     expect((await f.background.status()).state).toBe("paused");
+    vi.mocked(f.ports.transport.coordinate!).mockResolvedValue({ outcome: "ok" });
     const revoke = deferred<Response>();
     vi.mocked(f.ports.transport.request).mockReturnValue(revoke.promise);
     const unpair = f.command("unpair");

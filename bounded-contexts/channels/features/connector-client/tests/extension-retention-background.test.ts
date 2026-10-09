@@ -23,7 +23,7 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
     await f.store.write(f.input);
     const holder = await openDatabase(f.raw.indexedDB);
     holder.onversionchange = () => {};
-    const upgrade = f.raw.indexedDB.open("connector-raw-exports", 2);
+    const upgrade = f.raw.indexedDB.open("connector-raw-exports", 3);
     const upgraded = new Promise<void>((resolve) => {
       upgrade.onsuccess = () => {
         upgrade.result.close();
@@ -63,11 +63,11 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
   it("newer database fences boot/update/work/unpair/deadline before any state writes or effects", async () => {
     const f = fixture();
     await f.store.write(f.input);
-    const db = await openDatabase(f.raw.indexedDB, 2, (db) =>
+    const db = await openDatabase(f.raw.indexedDB, 3, (db) =>
       db.createObjectStore("pending-operations").add("SYNTHETIC_FIXED_EXTERNAL_EFFECT", "pending"),
     );
     db.close();
-    const before = await retainedRows(f.raw.indexedDB, 2);
+    const before = await retainedRows(f.raw.indexedDB, 3);
     const write = vi.spyOn(f.ports.storage, "set");
     const remove = vi.spyOn(f.ports.session, "remove");
     for (const entry of [
@@ -80,7 +80,7 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
     ]) {
       await entry();
       expect((await f.background.status()).state).toBe("upgrade-required");
-      expect(await retainedRows(f.raw.indexedDB, 2)).toEqual(before);
+      expect(await retainedRows(f.raw.indexedDB, 3)).toEqual(before);
     }
     expect(write).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();

@@ -27,7 +27,8 @@ import {
   type OrderPullAuthority,
   type OrderPullPayload,
 } from "../domain/order-pull";
-import { assertOutboundClaimLeaseMs, payloadDigest } from "../domain/validation";
+import { assertOutboundClaimLeaseMs } from "../domain/validation";
+import { payloadDigest } from "./payload-digest";
 import {
   assertOrderPullCheckpoint,
   orderPullCheckpointDigest,

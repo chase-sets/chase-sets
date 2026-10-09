@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   assertChannelPublicationDraft,
   assertChannelPublicationResult,
@@ -13,11 +12,9 @@ import {
   outboundOperationKinds,
   type ClaimedOperationClaimant,
   type ClaimedOperationOutcome,
-  type ClaimedSubjectOutcome,
   type EnqueueOutboundOperation,
   type OutboundOperationPayload,
 } from "./contracts";
-import { assertClaimedOrderPullOutcome, isClaimedOrderPullOutcome, type OrderPullPayload } from "./order-pull";
 
 export const OUTBOUND_CLAIM_LEASE_MIN_MS = 60_000;
 export const OUTBOUND_CLAIM_LEASE_MAX_MS = 7_200_000;
@@ -147,15 +144,6 @@ export function assertClaimedOperationOutcome(value: unknown): asserts value is 
   }
 }
 
-/** A member carrying `operationKind` is a connection-subject pull; every other member is a listing outcome. */
-export function assertClaimedSubjectOutcome(value: unknown): asserts value is ClaimedSubjectOutcome {
-  if (typeof value === "object" && value !== null && !Array.isArray(value) && isClaimedOrderPullOutcome(value)) {
-    assertClaimedOrderPullOutcome(value);
-    return;
-  }
-  assertClaimedOperationOutcome(value);
-}
-
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
     return JSON.stringify(value);
@@ -169,10 +157,6 @@ export function canonicalJson(value: unknown): string {
       .join(",")}}`;
   }
   invalid("canonical JSON contains an unsupported value.");
-}
-
-export function payloadDigest(payload: OutboundOperationPayload | OrderPullPayload): string {
-  return createHash("sha256").update(canonicalJson(payload), "utf8").digest("hex");
 }
 
 function closed(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
