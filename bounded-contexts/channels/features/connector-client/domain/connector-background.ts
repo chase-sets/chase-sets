@@ -51,6 +51,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
   let retentionDeadline: number | null = null;
   let revoking = false;
   let rawUpgradeRequired = false;
+  const starts = new Map<"boot" | "update", Promise<ConnectorStatus>>();
   function serial<T>(operation: () => Promise<T>): Promise<T> {
     const result = tail.then(operation);
     tail = result.catch(() => {});
@@ -132,17 +133,19 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         : { ...empty(destination), pauseReason: reason === "protocol-violation" ? reason : null },
     );
   }
-  async function work(profile: ExtensionProfile) {
+  async function work(profile: Pick<ExtensionProfile, "servedPollWindowSeconds">, missingOnly = false) {
+    if (missingOnly && (await ports.alarms.get(workAlarm))) return;
     await ports.alarms.create(workAlarm, { periodInMinutes: (profile.servedPollWindowSeconds ?? 60) / 60 });
   }
-  async function retention(next: number | null, failed: boolean) {
+  async function retention(next: number | null, failed: boolean, missingOnly = false) {
     const now = ports.clock.now();
     if (next !== null && (!Number.isFinite(next) || next < 0)) next = now + 30_000;
     if (failed) next = Math.min(next ?? Infinity, now + 30_000);
     if (retentionDeadline !== null && retentionDeadline > now) next = Math.min(next ?? Infinity, retentionDeadline);
     retentionDeadline = next;
     if (next === null) await ports.alarms.clear(retentionAlarm);
-    else await ports.alarms.create(retentionAlarm, { when: Math.max(now, next) });
+    else if (!missingOnly || !(await ports.alarms.get(retentionAlarm)))
+      await ports.alarms.create(retentionAlarm, { when: Math.max(now, next) });
   }
   async function sweep(profile: ExtensionProfile, reason: "boot" | "work" | "unpair" | "retention", deleteAll = false) {
     let result: Awaited<ReturnType<ConnectorBackgroundPorts["sweep"]["run"]>>;
@@ -157,13 +160,13 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     }
     if (!(await current(profile))) return false;
     if (deleteAll && result.ok) retentionDeadline = null;
-    await retention(result.nextDeadline, !result.ok);
+    await retention(result.nextDeadline, !result.ok, reason === "boot");
     if (!result.ok && ["paired-idle", "paused"].includes(profile.state)) {
       // An operator pause remains operator-owned even if cleanup also fails.
       await advance(profile, "paused", profile.pauseReason ?? "cleanup-failed");
       await ports.alarms.clear(workAlarm);
     } else if (result.ok && profile.state === "paused" && profile.pauseReason === "cleanup-failed") {
-      if ((await advance(profile, "paired-idle")) === "committed") await work((await read())!);
+      if ((await advance(profile, "paired-idle")) === "committed") await work((await read())!, reason === "boot");
     }
     return result.ok;
   }
@@ -191,7 +194,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     await ports.alarms.clear(workAlarm);
     await ports.alarms.clear(retryAlarm);
     if (deletionFailed) {
-      await retention(null, true);
+      await retention(null, true, reason === "boot");
       return;
     }
     try {
@@ -199,12 +202,12 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       await custody.inspect();
       await ports.session.remove([pairingSessionKey]);
     } catch {
-      await retention(null, true);
+      await retention(null, true, reason === "boot");
       return;
     }
     if (await sweep(profile, reason, true)) await advance(profile, destination);
   }
-  async function revoke() {
+  async function revoke(missingOnly = false) {
     if (revoking) return;
     revoking = true;
     try {
@@ -242,7 +245,8 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
           retrySeconds = 30;
           await cleanup(profile, "unpaired", "unpair");
         } else {
-          await ports.alarms.create(retryAlarm, { when: ports.clock.now() + retrySeconds * 1000 });
+          if (!missingOnly || !(await ports.alarms.get(retryAlarm)))
+            await ports.alarms.create(retryAlarm, { when: ports.clock.now() + retrySeconds * 1000 });
           retrySeconds = Math.min(3600, retrySeconds * 2);
         }
         await display();
@@ -369,7 +373,18 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     if (command.type === "unpair") await revoke();
     return status();
   }
-  async function boot(reason: "boot" | "update" = "boot") {
+  function boot(reason: "boot" | "update" = "boot"): Promise<ConnectorStatus> {
+    const pending = starts.get(reason);
+    if (pending) return pending;
+    const start = startWorker(reason);
+    starts.set(reason, start);
+    void start.then(
+      () => starts.delete(reason),
+      () => starts.delete(reason),
+    );
+    return start;
+  }
+  async function startWorker(reason: "boot" | "update") {
     await serial(async () => {
       const retained = await read();
       if (!retained) {
@@ -410,10 +425,11 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         if (profile.state !== "unpairing") await ports.alarms.clear(retryAlarm);
         await sweep(profile, "boot", profile.state === "unpairing" || !credentialState(profile.state));
       }
-      await display();
+      const current = await display();
+      if (current.state === "paired-idle") await work({ servedPollWindowSeconds: current.pollWindowSeconds }, true);
     });
     await coordinate(reason);
-    await revoke();
+    await revoke(true);
     return status();
   }
   async function alarm({ name }: Readonly<{ name: string }>) {
@@ -477,7 +493,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         const window = pollWindow(result.pollWindowSeconds);
         if ((await custody.advance(profile, { ...profile, servedPollWindowSeconds: window.seconds })) === "committed") {
           clamped = window.clamped;
-          await work((await read())!);
+          await work((await read())!, reason === "boot" || reason === "update");
         }
       }
       await display();

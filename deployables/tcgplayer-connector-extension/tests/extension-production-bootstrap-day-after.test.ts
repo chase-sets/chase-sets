@@ -42,20 +42,25 @@ describe("extension-production-bootstrap-day-after", () => {
     const initial = retained(state);
     const fixture = chromeFixture(initial);
     const background = await loadBackground(fixture);
-    for (const entry of [
+    for (const [index, entry] of [
       () => fixture.installed("install"),
       () => fixture.installed("update"),
       fixture.startup,
       ...["connector-work", "connector-revocation-retry", "connector-retention-deadline", "foreign"].map(
         (name) => () => fixture.alarm(name),
       ),
-    ]) {
+    ].entries()) {
       fixture.calls.length = 0;
+      fixture.request.mockClear();
       await entry();
       expect(fixture.local.rows).toEqual(initial);
       expect((await background.status()).state).toBe(state);
       expect(fixture.calls.filter((call) => /:(set|remove)$/.test(call))).toEqual([]);
-      expect(fixture.request).not.toHaveBeenCalled();
+      expect(fixture.request).toHaveBeenCalledTimes(state === "paired-idle" && index < 4 ? 1 : 0);
+      for (const [request] of fixture.request.mock.calls) {
+        expect(request.url).toBe(`${platformOrigin}/channel-connector/oauth/connections/connection_A/claim`);
+        expect(await request.clone().json()).toEqual({});
+      }
     }
   });
 

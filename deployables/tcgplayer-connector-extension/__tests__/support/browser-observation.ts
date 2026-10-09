@@ -58,7 +58,7 @@ export async function settledStartup(context: BrowserContext, previousWorker: Wo
   return { attachedAt, ...readiness };
 }
 
-export async function launchFixture(extensionRoot: string, userDataDir: string) {
+export async function launchFixture(extensionRoot: string, userDataDir: string, args: readonly string[] = []) {
   // The package's trace: "on" owns recording, including persistent-context relaunches.
   return chromium.launchPersistentContext(userDataDir, {
     env: Object.fromEntries(
@@ -73,15 +73,15 @@ export async function launchFixture(extensionRoot: string, userDataDir: string) 
     channel: "chromium",
     headless: false,
     ignoreDefaultArgs: ["--disable-extensions"],
-    args: [`--load-extension=${extensionRoot}`],
+    args: [`--load-extension=${extensionRoot}`, ...args],
   });
 }
 
-export async function fixtureWorker(context: BrowserContext): Promise<Worker> {
+export async function fixtureWorker(context: BrowserContext, suffix = "/worker.js"): Promise<Worker> {
   return (
-    context.serviceWorkers().find((worker) => worker.url().endsWith("/worker.js")) ??
+    context.serviceWorkers().find((worker) => worker.url().endsWith(suffix)) ??
     context.waitForEvent("serviceworker", {
-      predicate: (worker) => worker.url().endsWith("/worker.js"),
+      predicate: (worker) => worker.url().endsWith(suffix),
       timeout: 10_000,
     })
   );

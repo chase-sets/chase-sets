@@ -17,6 +17,7 @@ import {
 export function backgroundFixture(
   state?: ExtensionProfileState,
   transport: Partial<ConnectorBackgroundPorts["transport"]> = {},
+  factory = createConnectorBackground,
 ) {
   const initial = state ? profile(state) : null;
   const fake = storage(
@@ -68,6 +69,10 @@ export function backgroundFixture(
       },
     },
     alarms: {
+      get: vi.fn(async (name) => {
+        const schedule = alarms.get(name);
+        return schedule ? { scheduledTime: schedule.when ?? time, ...schedule } : undefined;
+      }),
       onAlarm: (listener) => {
         alarm = listener;
       },
@@ -89,7 +94,7 @@ export function backgroundFixture(
       ...transport,
     },
   };
-  const background = createConnectorBackground(ports);
+  const background = factory(ports);
   const sender = { id: ports.runtime.id, origin: `chrome-extension://${ports.runtime.id}` };
   return {
     ports,

@@ -92,6 +92,7 @@ export function chromeFixture(initial: Record<string, unknown> = {}) {
     },
     tabs: { create: vi.fn(async (_input: unknown) => ({})) },
     alarms: {
+      get: vi.fn(async (name: string) => alarmRows.get(name)),
       onAlarm: event<(alarm: { name: string }) => Promise<void>>(),
       create: vi.fn(async (name: string, schedule: unknown) => {
         calls.push("alarm:create");
