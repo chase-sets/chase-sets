@@ -109,7 +109,17 @@ describeDb("Catalog provider-send durable window", () => {
       if (url.hostname !== "api.scrydex.com" || url.pathname !== "/account/v1/usage") {
         throw new Error(`Unexpected provider HTTP in readiness: ${url.origin}${url.pathname}`);
       }
-      return Response.json({ total_credits: 50_000, remaining_credits: 50_000, used_credits: 0 });
+      // Synthetic values in the real Scrydex usage envelope; the period covers the read.
+      return Response.json({
+        data: {
+          total_credits_consumed: 0,
+          overage_credits_consumed: 0,
+          credits_remaining: 50_000,
+          period_start: new Date(Date.now() - 86_400_000).toISOString(),
+          period_end: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+          daily_usage: [],
+        },
+      });
     });
     vi.stubGlobal("fetch", http);
     try {

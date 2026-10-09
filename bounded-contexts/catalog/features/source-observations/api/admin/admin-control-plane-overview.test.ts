@@ -158,12 +158,21 @@ describe("Catalog integration control-plane overview", () => {
   });
 });
 
-// Synthetic credentials and usage values only; no provider is contacted.
+// Synthetic credentials and usage values only; no provider is contacted. The usage
+// body follows the real Scrydex `data` envelope captured by the host on 2026-10-09.
 const syntheticCredentials = {
   apiKey: "synthetic-scrydex-api-key-8427",
   teamId: "synthetic-scrydex-team-8427",
 } as const satisfies ScrydexOnePieceCredentials;
-const syntheticUsage = { total_credits: 50_000, remaining_credits: 41_234, used_credits: 8_766 };
+const syntheticUsageData = {
+  total_credits_consumed: 8_766,
+  overage_credits_consumed: 0,
+  credits_remaining: 41_234,
+  period_start: "2026-09-22T19:39:46.000Z",
+  period_end: "2026-10-22T19:39:46.000Z",
+  daily_usage: [{ date: "2026-10-01", credits_consumed: 8_766 }],
+};
+const syntheticUsage = { data: syntheticUsageData };
 const t0 = Date.parse("2026-10-09T12:00:00.000Z");
 const minutes = (count: number) => count * 60_000;
 
@@ -233,12 +242,12 @@ describe("Catalog provider usage budget read model", () => {
   });
 
   it("projects partial, never-observed, failed, exhausted, and unsupported usage explicitly", async () => {
-    const partial = scrydexUsageProvider({ body: { total_credits: 50_000 } });
+    const partial = scrydexUsageProvider({ body: { data: { ...syntheticUsageData, credits_remaining: undefined } } });
     expect(await scrydexBudget(partial.registry)).toMatchObject({
       freshness: "fresh",
       readiness: "unknown",
       creditBalance: null,
-      creditAllowance: 50_000,
+      creditAllowance: null,
     });
 
     const unconfigured = scrydexUsageProvider({ credentials: {} });
@@ -275,9 +284,7 @@ describe("Catalog provider usage budget read model", () => {
   it("keeps credentials, account fields, and provider URLs out of the composed read model", async () => {
     const provider = scrydexUsageProvider({
       body: {
-        ...syntheticUsage,
-        overage_credit_rate: "0.0042",
-        account_id: "synthetic-account-8427",
+        data: { ...syntheticUsageData, account_id: "synthetic-account-8427" },
         invoice_url: "https://synthetic-billing.invalid/invoices/synthetic",
       },
     });
@@ -290,7 +297,9 @@ describe("Catalog provider usage budget read model", () => {
       "synthetic-account-8427",
       "synthetic-billing.invalid",
       "synthetic-scrydex.invalid",
-      "0.0042",
+      "daily_usage",
+      "period_start",
+      "2026-09-22",
     ]) {
       expect(serialized).not.toContain(forbidden);
     }

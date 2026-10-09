@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createScrydexOnePieceProviderAdapter } from "./adapter";
 import { scrydexUsageTestModeFixture, type ScrydexUsageTestModeFixture } from "./usage-test-mode-fixture";
@@ -25,9 +26,32 @@ export async function captureScrydexUsageTestModeFixture(input: {
   return scrydexUsageTestModeFixture(await adapter.getUsageSnapshot());
 }
 
+// Replays a usage read a host took in-cluster with the runtime's own credentials
+// (kept outside the repository as status, observed-at, and response body) through
+// the same adapter boundary at the captured instant, so the fixture is derived by
+// production code rather than written by hand. No request leaves the process.
+export async function replayScrydexUsageTestModeFixture(capture: {
+  observedAt: string;
+  httpStatus: number;
+  body: unknown;
+}): Promise<ScrydexUsageTestModeFixture> {
+  const observedAt = new Date(capture.observedAt);
+  if (!Number.isFinite(observedAt.getTime())) {
+    throw new Error("Scrydex usage replay needs the capture's ISO observed-at.");
+  }
+  return captureScrydexUsageTestModeFixture({
+    env: { SCRYDEX_API_KEY: "replay-placeholder", SCRYDEX_TEAM_ID: "replay-placeholder" },
+    fetch: async () => Response.json(capture.body, { status: capture.httpStatus }),
+    now: () => observedAt,
+  });
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const fixture = await captureScrydexUsageTestModeFixture({ env: process.env, fetch: globalThis.fetch });
+    const replayPath = process.argv[2] === "--replay" ? process.argv[3] : undefined;
+    const fixture = replayPath
+      ? await replayScrydexUsageTestModeFixture(JSON.parse(readFileSync(replayPath, "utf8")))
+      : await captureScrydexUsageTestModeFixture({ env: process.env, fetch: globalThis.fetch });
     process.stdout.write(`${JSON.stringify(fixture, null, 2)}\n`);
   } catch (error) {
     // Only the probe's own fixed messages are printed; provider and runtime detail stays redacted.

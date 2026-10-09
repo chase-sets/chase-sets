@@ -107,7 +107,6 @@ const scrydexUsageCredentialMissingDiagnostic = "Scrydex usage check skipped bec
 // older than an hour is withheld rather than shown as current.
 export const SCRYDEX_USAGE_FRESH_WITHIN_SECONDS = 15 * 60;
 const scrydexUsageUnavailableAfterSeconds = 60 * 60;
-const scrydexUsageProviderWindowSeconds = 30 * 60;
 const scrydexPriceHistoryPerCardDiagnostic =
   "Scrydex One Piece price history is exposed as a per-card endpoint; production price-history sync remains source-authority-gated and disabled.";
 
@@ -229,8 +228,7 @@ type ScrydexUsageReadiness = Readonly<{
   totalCredits: number | null;
   remainingCredits: number | null;
   usedCredits: number | null;
-  overageCreditRate: string | null;
-  usageUpdatedAt: string | null;
+  overageCreditsConsumed: number | null;
   retryAfterSeconds?: number;
   diagnosticCode?: string;
   credentialState?: "configured" | "invalid" | "unknown";
@@ -630,8 +628,7 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
             totalCredits: usageReadiness?.totalCredits ?? null,
             remainingCredits: usageReadiness?.remainingCredits ?? null,
             usedCredits: usageReadiness?.usedCredits ?? null,
-            overageCreditRate: usageReadiness?.overageCreditRate ?? null,
-            usageUpdatedAt: usageReadiness?.usageUpdatedAt ?? null,
+            overageCreditsConsumed: usageReadiness?.overageCreditsConsumed ?? null,
             creditDiagnostic: usageReadiness?.creditDiagnostic ?? null,
             degradedDiagnostic: usageReadiness?.degradedDiagnostic ?? null,
           },
@@ -1610,8 +1607,7 @@ async function getScrydexUsageReadiness(
       totalCredits: null,
       remainingCredits: null,
       usedCredits: null,
-      overageCreditRate: null,
-      usageUpdatedAt: null,
+      overageCreditsConsumed: null,
       credentialState: "unknown",
       diagnosticCode: "credential-missing",
     };
@@ -1619,11 +1615,11 @@ async function getScrydexUsageReadiness(
 
   try {
     const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options);
-    const usage = sanitizeScrydexUsage(body);
+    const usage = sanitizeScrydexUsage(body, (options.now ?? (() => new Date()))());
     const creditState = scrydexCreditState(usage);
     return {
       usageCheckState: "checked",
-      creditDiagnostic: scrydexCreditDiagnostic(creditState),
+      creditDiagnostic: scrydexCreditDiagnostic(creditState, usage),
       degradedDiagnostic: scrydexUsageLagDiagnostic,
       creditState,
       ...usage,
@@ -1643,8 +1639,7 @@ async function getScrydexUsageReadiness(
         totalCredits: null,
         remainingCredits: null,
         usedCredits: null,
-        overageCreditRate: null,
-        usageUpdatedAt: null,
+        overageCreditsConsumed: null,
         retryAfterSeconds: error.retryAfterSeconds,
         diagnosticCode: error.diagnosticCode,
         credentialState:
@@ -1664,8 +1659,7 @@ async function getScrydexUsageReadiness(
       totalCredits: null,
       remainingCredits: null,
       usedCredits: null,
-      overageCreditRate: null,
-      usageUpdatedAt: null,
+      overageCreditsConsumed: null,
       diagnosticCode: "provider-degraded",
       credentialState: "configured",
     };
@@ -1718,7 +1712,6 @@ function secondsSince(timestamp: string, now: Date): number {
 function scrydexUsageSnapshot(observation: ScrydexUsageObservation | null): ProviderUsageSnapshot {
   const latest = observation?.readiness ?? null;
   const checked = observation?.lastChecked ?? null;
-  const providerUpdatedAt = isoTimestamp(checked?.readiness.usageUpdatedAt ?? null);
   return {
     providerKey: "scrydex",
     creditUnit: "credits",
@@ -1732,14 +1725,10 @@ function scrydexUsageSnapshot(observation: ScrydexUsageObservation | null): Prov
     observedAt: checked?.observedAt ?? null,
     attemptedAt: observation?.attemptedAt ?? null,
     attemptState: !latest ? "not-configured" : latest.usageCheckState === "checked" ? "checked" : "unavailable",
-    providerUpdatedAt,
-    lagCategory: !checked
-      ? "unobserved"
-      : providerUpdatedAt === null
-        ? "documented-window"
-        : secondsSince(providerUpdatedAt, new Date(checked.observedAt)) <= scrydexUsageProviderWindowSeconds
-          ? "within-provider-window"
-          : "beyond-provider-window",
+    // Scrydex reports no usage update timestamp, so lag is only the documented
+    // 20-30 minute refresh window and is never measured.
+    providerUpdatedAt: null,
+    lagCategory: checked ? "documented-window" : "unobserved",
     diagnosticCode: latest ? (latest.diagnosticCode ?? null) : "credential-missing",
     diagnostic: !latest
       ? scrydexUsageCredentialMissingDiagnostic
@@ -1749,11 +1738,6 @@ function scrydexUsageSnapshot(observation: ScrydexUsageObservation | null): Prov
     freshWithinSeconds: SCRYDEX_USAGE_FRESH_WITHIN_SECONDS,
     unavailableAfterSeconds: scrydexUsageUnavailableAfterSeconds,
   };
-}
-
-function isoTimestamp(value: string | null): string | null {
-  const parsed = value === null ? Number.NaN : Date.parse(value);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
 function scrydexUsageTransportDiagnostics(
@@ -2382,22 +2366,42 @@ function recordValue(value: unknown, key: string): JsonValue | undefined {
   return isJsonRecord(value) ? value[key] : undefined;
 }
 
-function sanitizeScrydexUsage(
-  value: JsonValue,
-): Omit<
+type ScrydexUsageBalances = Pick<
   ScrydexUsageReadiness,
-  "usageCheckState" | "creditDiagnostic" | "degradedDiagnostic" | "creditState" | "credentialState"
-> {
-  const record = jsonRecord(value);
+  "totalCredits" | "remainingCredits" | "usedCredits" | "overageCreditsConsumed"
+>;
+
+// Scrydex returns usage in a `data` envelope: credits consumed, overage credits
+// consumed, and credits remaining for one billing period, with no allowance and no
+// update timestamp. Balances count only when that period covers the check instant.
+// The allowance is consumed plus remaining only while no overage was consumed;
+// otherwise it stays unreported rather than guessed. Daily usage and the period
+// bounds are read here and never retained.
+function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBalances {
+  const data = jsonRecord(recordValue(value, "data") ?? null);
+  const periodStart = Date.parse(stringValue(data.period_start) ?? "");
+  const periodEnd = Date.parse(stringValue(data.period_end) ?? "");
+  const checkedAtMs = checkedAt.getTime();
+  if (!(periodStart <= checkedAtMs && checkedAtMs < periodEnd)) {
+    return { totalCredits: null, remainingCredits: null, usedCredits: null, overageCreditsConsumed: null };
+  }
+
+  const remainingCredits = creditCount(data.credits_remaining);
+  const usedCredits = creditCount(data.total_credits_consumed);
+  const overageCreditsConsumed = creditCount(data.overage_credits_consumed);
   return {
-    totalCredits: numberValue(record.total_credits ?? record.totalCredits),
-    remainingCredits: numberValue(record.remaining_credits ?? record.remainingCredits),
-    usedCredits: numberValue(record.used_credits ?? record.usedCredits),
-    overageCreditRate: stringValue(record.overage_credit_rate ?? record.overageCreditRate),
-    usageUpdatedAt: stringValue(
-      record.updated_at ?? record.updatedAt ?? record.usage_updated_at ?? record.usageUpdatedAt ?? record.last_updated,
-    ),
+    totalCredits:
+      usedCredits !== null && remainingCredits !== null && overageCreditsConsumed === 0
+        ? usedCredits + remainingCredits
+        : null,
+    remainingCredits,
+    usedCredits,
+    overageCreditsConsumed,
   };
+}
+
+function creditCount(value: JsonValue | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function scrydexCreditState(
@@ -2418,17 +2422,28 @@ function scrydexCreditState(
   return "available";
 }
 
-function scrydexCreditDiagnostic(creditState: ScrydexUsageReadiness["creditState"]): string {
+function scrydexCreditDiagnostic(
+  creditState: ScrydexUsageReadiness["creditState"],
+  usage: ScrydexUsageBalances,
+): string {
   if (creditState === "exhausted") {
     return "Scrydex account credits are exhausted; stop paid imports until operators review credits and overage posture.";
   }
 
-  if (creditState === "low") {
-    return "Scrydex account credits are low; operators should review call budgets before running imports.";
+  if (creditState === "unknown") {
+    return "Scrydex account usage response did not include remaining-credit evidence for the current billing period.";
   }
 
-  if (creditState === "unknown") {
-    return "Scrydex account usage response did not include remaining-credit evidence.";
+  if (usage.overageCreditsConsumed !== null && usage.overageCreditsConsumed > 0) {
+    return "Scrydex reports overage credits consumed this billing period, so the period allowance is unreported; operators should review plan and overage posture.";
+  }
+
+  if (usage.totalCredits === null) {
+    return "Scrydex account usage response did not include consumed and overage credit evidence, so the period allowance is unreported.";
+  }
+
+  if (creditState === "low") {
+    return "Scrydex account credits are low; operators should review call budgets before running imports.";
   }
 
   return scrydexUsageCheckedDiagnostic;

@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { captureScrydexUsageTestModeFixture } from "./usage-test-mode-probe";
+import { captureScrydexUsageTestModeFixture, replayScrydexUsageTestModeFixture } from "./usage-test-mode-probe";
 import {
   evaluateScrydexUsageLaunchGate,
   parseScrydexUsageTestModeFixture,
   type ScrydexUsageTestModeFixture,
 } from "./usage-test-mode-fixture";
 
-// Synthetic credentials and usage values only; no provider is contacted.
+// Synthetic credentials and usage values only; no provider is contacted. The usage
+// body follows the real Scrydex `data` envelope captured by the host on 2026-10-09.
 const syntheticEnv = {
   SCRYDEX_API_KEY: "synthetic-scrydex-api-key-8427",
   SCRYDEX_TEAM_ID: "synthetic-scrydex-team-8427",
@@ -39,11 +40,15 @@ describe("Scrydex usage test-mode fixture", () => {
     const fetch = vi.fn(async (request: Parameters<typeof globalThis.fetch>[0]) => {
       expect(new URL(String(request)).pathname).toBe("/account/v1/usage");
       return Response.json({
-        total_credits: 50_000,
-        remaining_credits: 41_234,
-        used_credits: 8_766,
-        overage_credit_rate: "0.0042",
-        account_id: "synthetic-account-8427",
+        data: {
+          total_credits_consumed: 8_766,
+          overage_credits_consumed: 0,
+          credits_remaining: 41_234,
+          period_start: "2026-09-22T19:39:46.000Z",
+          period_end: "2026-10-22T19:39:46.000Z",
+          daily_usage: [{ date: "2026-10-01", credits_consumed: 8_766 }],
+          account_id: "synthetic-account-8427",
+        },
         invoice_url: "https://synthetic-billing.invalid/invoices/synthetic",
       });
     });
@@ -57,7 +62,9 @@ describe("Scrydex usage test-mode fixture", () => {
       ...Object.values(syntheticEnv),
       "synthetic-account-8427",
       "synthetic-billing.invalid",
-      "0.0042",
+      "2026-09-22",
+      "2026-10-01",
+      "daily_usage",
       "https://",
     ]) {
       expect(serialized).not.toContain(forbidden);
@@ -71,6 +78,39 @@ describe("Scrydex usage test-mode fixture", () => {
       "Set SCRYDEX_API_KEY and SCRYDEX_TEAM_ID",
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("replays a host in-cluster capture through the adapter at its observed instant without a request", async () => {
+    const networkFetch = vi.spyOn(globalThis, "fetch");
+    const body = {
+      data: {
+        total_credits_consumed: 8_766,
+        overage_credits_consumed: 0,
+        credits_remaining: 41_234,
+        period_start: "2026-09-22T19:39:46.000Z",
+        period_end: "2026-10-22T19:39:46.000Z",
+        daily_usage: [{ date: "2026-10-01", credits_consumed: 8_766 }],
+      },
+    };
+
+    try {
+      expect(
+        await replayScrydexUsageTestModeFixture({ observedAt: observedAt.toISOString(), httpStatus: 200, body }),
+      ).toStrictEqual(syntheticFixture());
+      const overage = await replayScrydexUsageTestModeFixture({
+        observedAt: observedAt.toISOString(),
+        httpStatus: 200,
+        body: { data: { ...body.data, overage_credits_consumed: 5, credits_remaining: 0 } },
+      });
+      expect(overage).toMatchObject({ creditState: "exhausted", totalCredits: null, remainingCredits: 0 });
+      expect(evaluateScrydexUsageLaunchGate(overage, observedAt).reasons).toEqual([
+        "allowance-unreported",
+        "credits-exhausted",
+      ]);
+      expect(networkFetch).not.toHaveBeenCalled();
+    } finally {
+      networkFetch.mockRestore();
+    }
   });
 
   it.each([

@@ -5,7 +5,8 @@ import {
   type ScrydexOnePieceCredentials,
 } from "./adapter";
 
-// Every credential, identifier, URL, and usage value below is synthetic.
+// Every credential, identifier, URL, and usage value below is synthetic. The usage
+// body follows the real Scrydex `data` envelope captured by the host on 2026-10-09.
 const syntheticCredentials = {
   apiKey: "synthetic-scrydex-api-key-8427",
   teamId: "synthetic-scrydex-team-8427",
@@ -20,23 +21,40 @@ const forbiddenValues = [
   "synthetic-billing.invalid",
   "synthetic-scrydex.invalid",
   "synthetic-plan-tier",
-  "0.0042",
+  "2026-09-22",
+  "2026-10-22",
+  "2026-10-01",
 ];
-const forbiddenFieldNames = ["account_id", "team_id", "api_key", "email", "invoice_url", "plan", "overage"];
+const forbiddenFieldNames = [
+  "account_id",
+  "team_id",
+  "api_key",
+  "email",
+  "invoice_url",
+  "plan",
+  "overage",
+  "daily_usage",
+  "period",
+  "credits_consumed",
+];
 
-function syntheticUsageBody(overrides: Record<string, unknown> = {}) {
+function syntheticUsageBody(dataOverrides: Record<string, unknown> = {}) {
   return {
-    total_credits: 50_000,
-    remaining_credits: 41_234,
-    used_credits: 8_766,
-    overage_credit_rate: "0.0042",
-    account_id: "synthetic-account-8427",
+    data: {
+      total_credits_consumed: 8_766,
+      overage_credits_consumed: 0,
+      credits_remaining: 41_234,
+      period_start: "2026-09-22T19:39:46.000Z",
+      period_end: "2026-10-22T19:39:46.000Z",
+      daily_usage: [{ date: "2026-10-01", credits_consumed: 8_766 }],
+      account_id: "synthetic-account-8427",
+      email: "synthetic-owner@example.invalid",
+      ...dataOverrides,
+    },
     team_id: syntheticCredentials.teamId,
     api_key: syntheticCredentials.apiKey,
-    email: "synthetic-owner@example.invalid",
     plan: "synthetic-plan-tier",
     invoice_url: "https://synthetic-billing.invalid/invoices/synthetic",
-    ...overrides,
   };
 }
 
@@ -92,32 +110,64 @@ describe("Scrydex usage snapshot boundary", () => {
       await adapter.getTransportDiagnostics(),
       await adapter.getCredentialReadiness(),
     ]);
-    for (const value of forbiddenValues.filter((value) => value !== "0.0042")) {
-      expect(diagnostics).not.toContain(value);
-    }
+    for (const value of forbiddenValues) expect(diagnostics).not.toContain(value);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ["within-provider-window", "2026-10-09T11:35:00.000Z", "2026-10-09T11:35:00.000Z"],
-    ["beyond-provider-window", "2026-10-09T11:00:00.000Z", "2026-10-09T11:00:00.000Z"],
-    ["documented-window", "not-a-timestamp", null],
-  ] as const)("records %s provider lag from the provider timestamp", async (lagCategory, updatedAt, expected) => {
-    const { adapter } = usageAdapter({ body: syntheticUsageBody({ updated_at: updatedAt }) });
+  it("records the documented lag window because Scrydex reports no usage update timestamp", async () => {
+    const { adapter } = usageAdapter({ body: syntheticUsageBody({ updated_at: "2026-10-09T11:59:00.000Z" }) });
 
-    expect(await adapter.getUsageSnapshot()).toMatchObject({ lagCategory, providerUpdatedAt: expected });
+    expect(await adapter.getUsageSnapshot()).toMatchObject({
+      lagCategory: "documented-window",
+      providerUpdatedAt: null,
+    });
   });
 
-  it("keeps a partial usage response unknown instead of zero or exhausted", async () => {
-    const { adapter } = usageAdapter({ body: { total_credits: 50_000 } });
+  it.each([
+    ["without the data envelope", { total_credits: 50_000, remaining_credits: 41_234, used_credits: 8_766 }],
+    ["without remaining credits", syntheticUsageBody({ credits_remaining: undefined })],
+    ["with a non-numeric balance", syntheticUsageBody({ credits_remaining: "41234" })],
+    ["for a billing period that has ended", syntheticUsageBody({ period_end: "2026-10-09T11:00:00.000Z" })],
+    ["without billing period bounds", syntheticUsageBody({ period_start: undefined })],
+  ])("keeps a usage response %s unknown instead of zero or exhausted", async (_case, body) => {
+    const { adapter } = usageAdapter({ body });
 
     expect(await adapter.getUsageSnapshot()).toMatchObject({
       attemptState: "checked",
       creditState: "unknown",
-      totalCredits: 50_000,
+      totalCredits: null,
       remainingCredits: null,
-      usedCredits: null,
+      diagnostic:
+        "Scrydex account usage response did not include remaining-credit evidence for the current billing period.",
     });
+  });
+
+  it("leaves the allowance unreported when overage or consumed evidence is missing", async () => {
+    const overage = usageAdapter({ body: syntheticUsageBody({ overage_credits_consumed: 12, credits_remaining: 3 }) });
+    const noConsumed = usageAdapter({ body: syntheticUsageBody({ total_credits_consumed: undefined }) });
+
+    expect(await overage.adapter.getUsageSnapshot()).toMatchObject({
+      creditState: "available",
+      totalCredits: null,
+      remainingCredits: 3,
+      usedCredits: 8_766,
+      diagnostic: expect.stringContaining("overage credits consumed"),
+    });
+    expect(await noConsumed.adapter.getUsageSnapshot()).toMatchObject({
+      creditState: "available",
+      totalCredits: null,
+      remainingCredits: 41_234,
+      usedCredits: null,
+      diagnostic: expect.stringContaining("allowance is unreported"),
+    });
+  });
+
+  it("reports zero remaining credits as exhausted and a tenth or less as low", async () => {
+    const exhausted = usageAdapter({ body: syntheticUsageBody({ credits_remaining: 0 }) });
+    const low = usageAdapter({ body: syntheticUsageBody({ total_credits_consumed: 45_000, credits_remaining: 5_000 }) });
+
+    expect(await exhausted.adapter.getUsageSnapshot()).toMatchObject({ creditState: "exhausted", remainingCredits: 0 });
+    expect(await low.adapter.getUsageSnapshot()).toMatchObject({ creditState: "low", totalCredits: 50_000 });
   });
 
   it("reports a failed read as unavailable with no observed balance", async () => {
@@ -154,7 +204,7 @@ describe("Scrydex usage snapshot boundary", () => {
     const first = usageAdapter({});
     const second = usageAdapter({
       credentials: { apiKey: "synthetic-scrydex-api-key-other", teamId: "synthetic-scrydex-team-other" },
-      body: syntheticUsageBody({ remaining_credits: 7 }),
+      body: syntheticUsageBody({ credits_remaining: 7 }),
     });
 
     expect((await first.adapter.getUsageSnapshot()).remainingCredits).toBe(41_234);

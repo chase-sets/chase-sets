@@ -1034,12 +1034,16 @@ function scrydexResponseFixtureFetch(responses: Readonly<Record<string, unknown>
   };
 }
 
+// Synthetic values in the real Scrydex usage envelope; the period covers fixtureNow.
 const scrydexUsageResponse = {
-  total_credits: 1000,
-  remaining_credits: 875,
-  used_credits: 125,
-  overage_credit_rate: "0.01",
-  updated_at: "2026-06-22T00:00:00.000Z",
+  data: {
+    total_credits_consumed: 125,
+    overage_credits_consumed: 0,
+    credits_remaining: 875,
+    period_start: "2026-06-01T00:00:00.000Z",
+    period_end: "2026-07-01T00:00:00.000Z",
+    daily_usage: [{ date: "2026-06-21", credits_consumed: 125 }],
+  },
 };
 
 function endpoint(url: string): string {
