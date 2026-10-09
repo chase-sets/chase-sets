@@ -4,6 +4,9 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
+import { index, route } from "@react-router/dev/routes";
+import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
+import contextManifest from "../../../context.json" with { type: "json" };
 import AccountChannelsRoute, { loader as listLoader } from "../../../routes/marketplace/account-channels";
 import AccountChannelsConnectionRoute, {
   loader as detailLoader,
@@ -21,6 +24,24 @@ type FixtureHost = {
 };
 const host = window as unknown as FixtureHost;
 
+function productionRouteId(routePath: string) {
+  const contribution = contextManifest.deployableContributions.find((entry) => entry.deployable === "marketplace-web");
+  const record = contribution?.routes.find((entry) => entry.routePath === routePath);
+  if (!record) throw new Error(`Missing Channels route ${routePath}`);
+  return toRouteConfigEntry(
+    {
+      routeId: record.routeId,
+      routePath: record.routePath,
+      fileExport: record.fileExport,
+      sourceContext: record.sourceContext,
+      contextName: contextManifest.contextName,
+      file: record.fileExport,
+      routeType: "route",
+    },
+    { index, route },
+  ).id!;
+}
+
 afterEach(() => {
   host.__reactRouterDataRouter?.dispose();
   host.channelConnectionEvidence?.dispose();
@@ -36,13 +57,13 @@ describe("channels-connect-design-system browser fixture uses the production rou
       const router = createMemoryRouter(
         [
           {
-            id: "channels/account-channels",
+            id: productionRouteId("account/channels"),
             path: "/account/channels",
             loader: listLoader,
             Component: AccountChannelsRoute,
           },
           {
-            id: "channels/account-channels-connection",
+            id: productionRouteId("account/channels/:connectionId"),
             path: "/account/channels/:connectionId",
             loader: detailLoader,
             Component: AccountChannelsConnectionRoute,

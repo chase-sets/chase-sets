@@ -40,8 +40,8 @@ export async function mountChannelConnectionBrowserState(input: ReturnType<typeo
   const allRoutes = (routes: Router["routes"]): Router["routes"] =>
     routes.flatMap((route) => [route, ...allRoutes(route.children ?? [])]);
   const routes = allRoutes(router.routes);
-  const list = routes.find((route) => route.id === "channels/account-channels");
-  const detail = routes.find((route) => route.id === "channels/account-channels-connection");
+  const list = routes.find((route) => route.id === "channels/channels-connections");
+  const detail = routes.find((route) => route.id === "channels/channels-connection-detail");
   if (!list || !detail || !router.state.matches.some((match) => match.route.id === detail.id)) {
     throw new Error("Production Channels list and detail routes must be hydrated before state evidence");
   }

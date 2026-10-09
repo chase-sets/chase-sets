@@ -22,7 +22,7 @@ test.beforeEach(async ({ page, baseURL }) => {
       }
     ).__reactRouterDataRouter;
     return (
-      router?.state.initialized && router.state.loaderData["channels/account-channels-connection"]?.kind === "ready"
+      router?.state.initialized && router.state.loaderData["channels/channels-connection-detail"]?.kind === "ready"
     );
   });
 });
