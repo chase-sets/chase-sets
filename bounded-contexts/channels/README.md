@@ -76,6 +76,13 @@ composition never invoke this helper; it is not a production entrypoint.
 
 ## Connector Transport
 
+Manual Sync panels derive Channel Inbound Coverage from the connector feed's
+fenced `readAuthority` on every read, composition and clamp retry. A live pairing
+on an active or paused connection stays live after the grantor loses membership;
+seller panel permission is resolved separately. Missing authority is dark, and
+known pairing removal is dark with the revoked reason. Coverage does not infer
+health from claim heartbeats, release listing clamps, or change manual actions.
+
 The existing sessionless `/channel-connector/oauth` mount also serves POST
 `/connections/:connectionId/claim`, `/report`, and `/ingest`. Each operation uses
 the connection-bound connector bearer, never seller or agent authority. Claim

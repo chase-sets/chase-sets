@@ -193,8 +193,16 @@ export const channelsEnglishTranslations = {
   "channels.manualSync.error.title": "Manual TCGplayer sync is unavailable",
   "channels.manualSync.error.description": "We could not load this connection's manual sync. Try again in a moment.",
   "channels.manualSync.coverage.dark": "Inbound sales visibility is dark",
+  "channels.manualSync.coverage.live": "Inbound sales visibility is live",
+  "channels.manualSync.coverage.live.description":
+    "A paired connector is authorized to send inbound data. Existing listing clamps and manual sync actions are unchanged.",
+  "channels.manualSync.coverage.revoked.description":
+    "The connector's inbound authorization has ended. Pair a connector to restore inbound coverage.",
+  "channels.manualSync.coverage.unsupported.description": "This provider does not support inbound coverage.",
+  "channels.manualSync.coverage.failing.description":
+    "Inbound authorization is failing. Review the connection before continuing.",
   "channels.manualSync.coverage.dark.description":
-    "TCGplayer provides no inbound seller authority. Active Marketplace listings represented by a claimed run stay non-sellable until recovery is proven safe.",
+    "No paired connector currently authorizes inbound data. Active Marketplace listings represented by a claimed run stay non-sellable until recovery is proven safe.",
   "channels.manualSync.state.none": "No manual run",
   "channels.manualSync.state.composed": "Ready to download",
   "channels.manualSync.state.claimed": "Claimed",

@@ -1572,6 +1572,10 @@ describe("busy-group-pass-attribution Postgres", () => {
       const wakeCompleted = new Promise<void>((resolve) => {
         resolveWakeCompleted = resolve;
       });
+      let resolveRetainedReleased!: () => void;
+      const retainedReleased = new Promise<void>((resolve) => {
+        resolveRetainedReleased = resolve;
+      });
       let retainedPass: WorkerHolderLifecycleEvent | undefined;
       let handoffSequence: number | undefined;
       let firstWakeAttempt:
@@ -1621,6 +1625,16 @@ describe("busy-group-pass-attribution Postgres", () => {
         releaseLease: async (lease) => {
           const identity = { leaseName: lease.leaseName, ownerId: lease.ownerId, fencingToken: lease.fencingToken };
           trace("lease-release-request", identity);
+          if (
+            retainedPass &&
+            lease.leaseName === createWorkerRunnerLeaseName(worker) &&
+            lease.ownerId === retainedPass.workerId &&
+            handoffSequence === undefined
+          ) {
+            handoffSequence = sequence;
+            onHandoff?.();
+            onHandoff = undefined;
+          }
           await realControlPlane.releaseLease(lease);
           trace("lease-released", identity);
         },
@@ -1642,6 +1656,9 @@ describe("busy-group-pass-attribution Postgres", () => {
           trace("holder-lifecycle", { event });
           if (event.phase === "pass-start") activeHolders.set(event.runnerName, event);
           if (event.phase === "pass-end") activeHolders.delete(event.runnerName);
+          if (event.phase === "released" && event.leaseIntervalId === retainedPass?.leaseIntervalId) {
+            resolveRetainedReleased();
+          }
           if (event.runnerName === worker.name && !retainedPass) {
             if (
               event.phase === "pass-end" &&
@@ -1652,11 +1669,6 @@ describe("busy-group-pass-attribution Postgres", () => {
               retainedPass = event;
               trace("target-drained", { priority: String(worker.priority!()), retainedPass });
             }
-          }
-          if (retainedPass && event.phase === "pass-start" && event.runnerName !== worker.name && !handoffSequence) {
-            handoffSequence = sequence;
-            onHandoff?.();
-            onHandoff = undefined;
           }
         },
       };
@@ -1760,6 +1772,14 @@ describe("busy-group-pass-attribution Postgres", () => {
       expect(retainedPass).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
       expect(worker.priority!()).toBe(0n);
       expect(activeHolders.has(worker.name)).toBe(false);
+      // Observe the handoff decision, not another runner's independently timed database acquisition.
+      // The release is already requested, but neither it nor the other runners is paused for this read.
+      expect(handoffSequence).toBeDefined();
+      expect(
+        lifecycle.filter(
+          (event) => event.leaseIntervalId === retainedPass!.leaseIntervalId && event.phase === "pass-start",
+        ),
+      ).toHaveLength(1);
       trace("retained-triggered-append", { retainedPass, handoffSequence });
       const appended = await store.appendToStream({
         streamId,
@@ -1842,7 +1862,7 @@ describe("busy-group-pass-attribution Postgres", () => {
         }),
       );
       const response = await Promise.race([
-        Promise.all([read, wakeCompleted]).then(([response]) => response),
+        Promise.all([read, wakeCompleted, retainedReleased]).then(([response]) => response),
         new Promise<never>((_resolve, reject) => {
           clientTimer = setTimeout(
             () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
@@ -1852,14 +1872,18 @@ describe("busy-group-pass-attribution Postgres", () => {
       ]);
       const elapsedMs = performance.now() - readStartedAt;
       trace("read-end", { status: response.status, requestDurationMs: elapsedMs, position });
-      expect(firstWakeAttempt).toBeDefined();
-      expect(firstWakeAttempt!.sequence).toBeGreaterThan(handoffSequence!);
-      expect(firstWakeAttempt!.targetActive).toBe(false);
-      expect(firstWakeAttempt!.targetPasses).toBe(1);
-      expect(firstWakeAttempt!.competitorBacklogs.every((count) => BigInt(count) > 0n)).toBe(true);
-      expect(wakeDeferrals).toEqual([]);
-      expect(firstWakeAttempt!.released).toBe(true);
-      expect(wakeCompletions).toEqual([expect.objectContaining({ outcome: "ran" })]);
+      const retainedInterval = lifecycle.filter((event) => event.leaseIntervalId === retainedPass!.leaseIntervalId);
+      expect(retainedInterval.filter((event) => event.phase === "pass-start")).toHaveLength(1);
+      expect(retainedInterval.at(-1)).toMatchObject({ phase: "released", reason: "idle" });
+      // A wake can encounter the in-flight release or find that a later poll pass satisfied the receipt.
+      // Neither permits the original inactive holder to survive handoff or an uncommitted receipt to pass.
+      expect(wakeCompletions).toEqual([
+        expect.objectContaining({
+          outcome: expect.stringMatching(/^(ran|already-satisfied)$/),
+          checkpointPosition: position,
+        }),
+      ]);
+      trace("receipt-wake-outcome", { firstWakeAttempt, wakeDeferrals, wakeCompletions });
       expect(response.status).toBe(200);
       const expectedEvent = fixture.shape === "filtered-idle-settlement" ? initial.at(-1)! : appended.at(-1)!;
       expect(await response.json()).toEqual([

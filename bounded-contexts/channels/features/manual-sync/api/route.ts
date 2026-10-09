@@ -10,11 +10,18 @@ export function createManualSyncRoutes(services: ManualSyncServices) {
   const app = new Hono<ChannelsApiEnv>();
 
   app.get("/:connectionId/manual-sync", async (c) => {
-    const panel = await services.readPanel({
-      accountId: c.get("actor").accountId,
-      connectionId: c.req.param("connectionId"),
-    });
-    return panel ? c.json(panel) : notFound(c);
+    try {
+      const panel = await services.readPanel({
+        accountId: c.get("actor").accountId,
+        connectionId: c.req.param("connectionId"),
+      });
+      return panel ? c.json(panel) : notFound(c);
+    } catch (error) {
+      if (error instanceof ManualSyncError && error.code === "manual-sync-unavailable") {
+        return c.json(errorBody(error.code), 503);
+      }
+      throw error;
+    }
   });
 
   app.post("/:connectionId/manual-sync/compose", async (c) => {
