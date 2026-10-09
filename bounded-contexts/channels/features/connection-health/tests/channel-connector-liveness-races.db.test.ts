@@ -20,6 +20,63 @@ import {
 describeDb("channel-connector-liveness-races", () => {
   const f = livenessDatabase("liveness_races_7933");
 
+  it.each([false, true])(
+    "kills authority-row-only-compare with a delayed pause after canonical resume, closing=%s",
+    async (closing) => {
+      await f.poll();
+      if (closing) {
+        await f.sweep();
+        await f.poll();
+      }
+      const read = barrier();
+      const release = barrier();
+      if (closing) {
+        const original = f.h.services.connectorFeed.readConnectorLivenessAuthority;
+        vi.spyOn(f.h.services.connectorFeed, "readConnectorLivenessAuthority").mockImplementationOnce(async (query) => {
+          const result = await original(query);
+          read.release();
+          await release.promise;
+          return result;
+        });
+      } else {
+        const original = f.h.services.connectorFeed.listConnectorLivenessCandidates;
+        vi.spyOn(f.h.services.connectorFeed, "listConnectorLivenessCandidates").mockImplementationOnce(
+          async (query) => {
+            const result = await original(query);
+            read.release();
+            await release.promise;
+            return result;
+          },
+        );
+      }
+      const sweep = f.sweep();
+      try {
+        await read.promise;
+        await f.h.services.connections.pauseChannelConnection(target, transportContext);
+        await f.h.services.connections.resumeChannelConnection(target, transportContext);
+        const events = await createPostgresEventStore({ pool: f.h.db }).readStream({
+          streamId: `channels.connection-${target.connectionId}`,
+        });
+        const paused = events.filter((event) => event.eventType === "channels.connection.paused").at(-1)!;
+        await buildChannelConnectionProjectionHandlers(f.h.db)[paused.eventType](toTransportEvent(paused));
+        const before = await f.effects();
+        release.release();
+        expect(await sweep).toMatchObject({
+          accepted: 0,
+          refusals: [{ connectionId: target.connectionId, reason: "snapshot-changed" }],
+        });
+        expect(await f.effects()).toEqual(before);
+        expect((await f.sweep()).accepted).toBe(0);
+        expect(await f.effects()).toEqual(before);
+        await f.h.projectConnection();
+        expect((await f.sweep()).accepted).toBe(1);
+      } finally {
+        release.release();
+        await sweep;
+      }
+    },
+  );
+
   it("policy projection waits when the complete admitted snapshot owns the policy share lock", async () => {
     await f.poll();
     const locked = barrier();
