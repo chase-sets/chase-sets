@@ -27,7 +27,8 @@ import {
   acceptedReadyToShipReferenceLimit,
   assertAcceptedReadyToShipQuery,
 } from "../../order-fulfillment-observations/domain/contracts";
-import { assertClaimedSubjectOutcome, payloadDigest } from "../domain/validation";
+import { payloadDigest } from "../api/payload-digest";
+import { assertClaimedSubjectOutcome } from "../domain/subject-outcome-validation";
 import {
   syntheticAuthority as authority,
   syntheticPage,

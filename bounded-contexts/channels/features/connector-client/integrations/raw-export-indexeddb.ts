@@ -1,48 +1,12 @@
 import { parseRawExport, RetentionError, type RawExportRecord } from "../domain/raw-export-record";
+import { openConnectorDatabase } from "./connector-indexeddb";
 
-const databaseName = "connector-raw-exports";
 const storeName = "raw-exports";
 const chunkSize = 32;
 
 export function createRawExportDatabase(indexedDB: IDBFactory, ranges: typeof IDBKeyRange) {
   function open(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(databaseName, 1);
-      let refused = false;
-      const refuse = () => {
-        refused = true;
-        clearTimeout(timer);
-        reject(new RetentionError("cleanup-failed"));
-      };
-      // A v1 open queued behind a blocked newer-owner versionchange receives no events.
-      const timer = setTimeout(refuse, 1000);
-      request.onblocked = refuse;
-      request.onerror = () => {
-        clearTimeout(timer);
-        reject(new RetentionError(request.error?.name === "VersionError" ? "upgrade-required" : "cleanup-failed"));
-      };
-      request.onupgradeneeded = () => {
-        if (refused) {
-          request.transaction!.abort();
-          return;
-        }
-        const store = request.result.createObjectStore(storeName, { keyPath: "rawExportId" });
-        store.createIndex("expiresAt", "expiresAt");
-      };
-      request.onsuccess = () => {
-        clearTimeout(timer);
-        const db = request.result;
-        if (refused) {
-          db.close();
-          return;
-        }
-        db.onversionchange = () => db.close();
-        if (db.objectStoreNames.length !== 1 || !db.objectStoreNames.contains(storeName)) {
-          db.close();
-          reject(new RetentionError("upgrade-required"));
-        } else resolve(db);
-      };
-    });
+    return openConnectorDatabase(indexedDB);
   }
   async function transaction<T>(
     mode: IDBTransactionMode,

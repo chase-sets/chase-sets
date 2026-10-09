@@ -123,7 +123,14 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     state: ExtensionProfileState,
     pauseReason: ExtensionProfile["pauseReason"] = null,
   ) {
-    return custody.advance(profile, credentialState(state) ? { ...profile, state, pauseReason } : empty(state));
+    const reason = profile.pauseReason === "protocol-violation" ? "protocol-violation" : pauseReason;
+    const destination = state === "paired-idle" && reason === "protocol-violation" ? "paused" : state;
+    return custody.advance(
+      profile,
+      credentialState(destination)
+        ? { ...profile, state: destination, pauseReason: reason }
+        : { ...empty(destination), pauseReason: reason === "protocol-violation" ? reason : null },
+    );
   }
   async function work(profile: ExtensionProfile) {
     await ports.alarms.create(workAlarm, { periodInMinutes: (profile.servedPollWindowSeconds ?? 60) / 60 });
@@ -153,7 +160,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     await retention(result.nextDeadline, !result.ok);
     if (!result.ok && ["paired-idle", "paused"].includes(profile.state)) {
       // An operator pause remains operator-owned even if cleanup also fails.
-      await advance(profile, "paused", profile.pauseReason === "operator" ? "operator" : "cleanup-failed");
+      await advance(profile, "paused", profile.pauseReason ?? "cleanup-failed");
       await ports.alarms.clear(workAlarm);
     } else if (result.ok && profile.state === "paused" && profile.pauseReason === "cleanup-failed") {
       if ((await advance(profile, "paired-idle")) === "committed") await work((await read())!);
@@ -332,6 +339,18 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       await pair();
       return status();
     }
+    if (command.type === "unpair") {
+      await serial(async () => {
+        const profile = await read();
+        if (profile && ["paired-idle", "paused"].includes(profile.state)) {
+          await sweep(profile, "unpair", true);
+          const retained = await read();
+          if (retained) await advance(retained, "unpairing");
+          if (!rawUpgradeRequired) await ports.alarms.clear(workAlarm);
+        }
+      });
+      await coordinate("unpair");
+    }
     await serial(async () => {
       const profile = await read();
       if (!profile) return;
@@ -339,23 +358,18 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         await advance(profile, "paused", "operator");
         await ports.alarms.clear(workAlarm);
       } else if (command.type === "resume" && profile.state === "paused") {
+        if (profile.pauseReason === "protocol-violation" || profile.pauseReason === "unsupported-operation") return;
         if (!(await sweep(profile, "work"))) return;
         const next = await read();
         if (next?.state === "paused" && (await advance(next, "paired-idle")) === "committed")
           await work((await read())!);
-      } else if (command.type === "unpair" && ["paired-idle", "paused"].includes(profile.state)) {
-        await sweep(profile, "unpair", true);
-        const retained = await read();
-        if (!retained) return;
-        await advance(retained, "unpairing");
-        await ports.alarms.clear(workAlarm);
       }
       await display();
     });
     if (command.type === "unpair") await revoke();
     return status();
   }
-  async function boot() {
+  async function boot(reason: "boot" | "update" = "boot") {
     await serial(async () => {
       const retained = await read();
       if (!retained) {
@@ -372,10 +386,18 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         await display();
         return;
       }
-      const profile = (await read())!;
+      let profile = (await read())!;
       if (!profile) {
         await display();
         return;
+      }
+      if (reason === "update" && ["protocol-violation", "unsupported-operation"].includes(profile.pauseReason!)) {
+        await custody.advance(profile, {
+          ...profile,
+          state: profile.state === "paused" ? "paired-idle" : profile.state,
+          pauseReason: null,
+        });
+        profile = (await read())!;
       }
       if (profile.state === "pairing-pending") {
         await cleanup(profile, "unpaired", "boot");
@@ -390,6 +412,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       }
       await display();
     });
+    await coordinate(reason);
     await revoke();
     return status();
   }
@@ -408,18 +431,47 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         await display();
         return null;
       }
-      if (profile.state !== "paired-idle" || !(await sweep(profile, "work"))) return null;
+      if (!["paired-idle", "paused"].includes(profile.state) || !(await sweep(profile, "work"))) return null;
       return custody.capture(profile.connectionId);
     });
+    if (!captured?.credential || !ports.transport.coordinate) return;
+    await coordinate("work", captured);
+  }
+  async function coordinate(
+    reason: "boot" | "update" | "work" | "unpair",
+    retained?: Awaited<ReturnType<typeof custody.capture>>,
+  ) {
+    const captured =
+      retained ??
+      (await serial(async () => {
+        const profile = await read();
+        if (!profile || !credentialState(profile.state) || profile.pauseReason === "cleanup-failed") return null;
+        return custody.capture(profile.connectionId);
+      }));
     if (!captured?.credential || !ports.transport.coordinate) return;
     const result = await ports.transport.coordinate({
       connectionId: captured.credential.connectionId,
       accessToken: captured.credential.accessToken,
+      reason,
+      authority: async () => {
+        const profile = await current(captured.fence);
+        if (!profile) return "absent";
+        return profile.state === "paired-idle" && reason !== "unpair" ? "paired-idle" : "report-only";
+      },
     });
     await serial(async () => {
       const profile = await current(captured.fence);
       if (!profile) return;
-      if (result.outcome === "revoked" || result.outcome === "invalid-credential") {
+      if (result.outcome === "upgrade-required") {
+        rawUpgradeRequired = true;
+      } else if (result.outcome === "protocol-violation" || result.outcome === "unsupported-operation") {
+        await advance(
+          profile,
+          "paused",
+          profile.pauseReason === "protocol-violation" ? "protocol-violation" : result.outcome,
+        );
+        await ports.alarms.clear(workAlarm);
+      } else if (result.outcome === "revoked" || result.outcome === "invalid-credential") {
         await cleanup(profile, "revoked", "unpair");
       } else if (result.outcome === "ok" && result.pollWindowSeconds !== undefined) {
         const window = pollWindow(result.pollWindowSeconds);
@@ -439,8 +491,8 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         `${origin.origin}/account/channels${profile?.connectionId ? `/${encodeURIComponent(profile.connectionId)}` : ""}`,
       );
   }
-  ports.runtime.onInstalled(async () => {
-    await boot();
+  ports.runtime.onInstalled(async (details) => {
+    await boot(details.reason === "update" ? "update" : "boot");
   });
   ports.runtime.onStartup(async () => {
     await boot();

@@ -27,7 +27,7 @@ describe("extension-raw-store-mixed-version", () => {
         new Uint8Array(f.input().bytes),
       ),
     };
-    const newer = await openDatabase(f.indexedDB, 2, (db, tx) => {
+    const newer = await openDatabase(f.indexedDB, 3, (db, tx) => {
       db.createObjectStore("pending-operations", { keyPath: "id" }).add({
         id: "pending",
         effect: "SYNTHETIC_FIXED_EXTERNAL_EFFECT",
@@ -37,7 +37,7 @@ describe("extension-raw-store-mixed-version", () => {
     });
     newer.close();
     delete f.rows[original.keyId];
-    const before = await retainedRows(f.indexedDB, 2);
+    const before = await retainedRows(f.indexedDB, 3);
     const keys = structuredClone(f.rows);
     const deleteDatabase = vi.spyOn(f.indexedDB, "deleteDatabase");
     for (const reason of ["boot", "work", "retention", "unpair"] as const) {
@@ -45,11 +45,11 @@ describe("extension-raw-store-mixed-version", () => {
       expect(await f.store.run({ reason, deleteAll: true })).toMatchObject({ ok: false, error: "upgrade-required" });
       await expect(f.store.write(f.input("new"))).rejects.toThrow("upgrade-required");
       await expect(f.store.accept("raw_A")).rejects.toThrow("upgrade-required");
-      expect(await retainedRows(f.indexedDB, 2)).toEqual(before);
+      expect(await retainedRows(f.indexedDB, 3)).toEqual(before);
       expect(f.rows).toEqual(keys);
     }
     expect(deleteDatabase).not.toHaveBeenCalled();
-    const preserved = (await retainedRows(f.indexedDB, 2))[0] as typeof newerRecord;
+    const preserved = (await retainedRows(f.indexedDB, 3))[0] as typeof newerRecord;
     expect(preserved).toEqual(newerRecord);
     expect(
       new Uint8Array(
@@ -60,7 +60,7 @@ describe("extension-raw-store-mixed-version", () => {
         ),
       ),
     ).toEqual(f.input().bytes);
-    const owner = await openDatabase(f.indexedDB, 3);
+    const owner = await openDatabase(f.indexedDB, 4);
     let effects = 0;
     async function reconcile() {
       await new Promise<void>((resolve, reject) => {
@@ -84,7 +84,7 @@ describe("extension-raw-store-mixed-version", () => {
     owner.close();
     await f.session.remove([newerMetadata.keyId]);
     expect(effects).toBe(1);
-    expect(await retainedRows(f.indexedDB, 3)).toEqual([]);
+    expect(await retainedRows(f.indexedDB, 4)).toEqual([]);
     expect(f.rows).toEqual({});
   });
 });

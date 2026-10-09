@@ -21,6 +21,13 @@ export type {
   TcgplayerSaleLine,
 } from "./features/tcgplayer-orders/domain/contracts";
 export { createConnectorBackground } from "./features/connector-client/domain/connector-background";
+export { createConnectorOperationCoordinator } from "./features/connector-client/domain/operation-coordinator";
+export type { CoordinatorInput, CoordinatorResult } from "./features/connector-client/domain/operation-coordinator";
+export type {
+  ConnectorExecutor,
+  ExecutorResult,
+  OperationUnit,
+} from "./features/connector-client/domain/operation-protocol";
 export { createConnectorRetentionStore } from "./features/connector-client/domain/connector-retention-store";
 export type {
   ConnectorStatus,

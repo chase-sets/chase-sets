@@ -10,7 +10,12 @@ export const extensionProfileStates = [
   "upgrade-required",
 ] as const;
 export type ExtensionProfileState = (typeof extensionProfileStates)[number];
-export const extensionPauseReasons = ["operator", "cleanup-failed"] as const;
+export const extensionPauseReasons = [
+  "operator",
+  "cleanup-failed",
+  "protocol-violation",
+  "unsupported-operation",
+] as const;
 export type ExtensionPauseReason = (typeof extensionPauseReasons)[number];
 export type ExtensionProfile = Readonly<{
   schemaVersion: 1;
@@ -94,10 +99,14 @@ export function parseExtensionProfile(value: unknown): ExtensionProfile {
       row.servedPollWindowSeconds > 86400 ||
       (state === "paused"
         ? !extensionPauseReasons.some((reason) => reason === row.pauseReason)
-        : row.pauseReason !== null)
+        : row.pauseReason !== null && !(state === "unpairing" && row.pauseReason === "protocol-violation"))
     )
       throw new ExtensionCredentialError("invalid-record");
-  } else if (row.connectionId !== null || row.servedPollWindowSeconds !== null || row.pauseReason !== null) {
+  } else if (
+    row.connectionId !== null ||
+    row.servedPollWindowSeconds !== null ||
+    (row.pauseReason !== null && row.pauseReason !== "protocol-violation")
+  ) {
     throw new ExtensionCredentialError("invalid-record");
   }
   return { ...row } as ExtensionProfile;

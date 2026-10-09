@@ -49,7 +49,7 @@ export function retentionFixture() {
 
 export function openDatabase(
   indexedDB: IDBFactory,
-  version = 1,
+  version = 2,
   upgrade?: (db: IDBDatabase, tx: IDBTransaction) => void,
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -60,7 +60,7 @@ export function openDatabase(
   });
 }
 
-export async function retainedRows(indexedDB: IDBFactory, version = 1) {
+export async function retainedRows(indexedDB: IDBFactory, version = 2) {
   const db = await openDatabase(indexedDB, version);
   try {
     return await new Promise<unknown[]>((resolve, reject) => {

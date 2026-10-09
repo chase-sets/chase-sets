@@ -4,7 +4,7 @@ import {
   type ClaimedSubjectOutcome,
   type ConnectorClaimCapability,
 } from "../../outbound-sync/domain/contracts";
-import { assertClaimedSubjectOutcome } from "../../outbound-sync/domain/validation";
+import { assertClaimedSubjectOutcome } from "../../outbound-sync/domain/subject-outcome-validation";
 import { assertClosedRecord } from "../../connections/domain/validation";
 import { assertConnectorRunSettlement, type ConnectorRunSettlement } from "./run-settlement";
 import {

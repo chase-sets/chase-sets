@@ -1,5 +1,6 @@
 import type { TrustedStorageArea } from "./extension-credential-custody";
 import { closedRecord, type ExtensionProfileState, type ExtensionPauseReason } from "./extension-records";
+import type { CoordinatorInput, CoordinatorResult } from "./operation-coordinator";
 
 export type ConnectorCommand = Readonly<{ type: "start-pairing" | "pause" | "resume" | "unpair" | "status" }>;
 export type ConnectorStatus = Readonly<{
@@ -42,12 +43,7 @@ export type ConnectorBackgroundPorts = Readonly<{
     platformOrigin: string;
     clientId: string;
     request(request: Request): Promise<Response>;
-    coordinate?(input: Readonly<{ connectionId: string; accessToken: string }>): Promise<
-      Readonly<{
-        outcome: "ok" | "authorization-refused" | "revoked" | "invalid-credential";
-        pollWindowSeconds?: number;
-      }>
-    >;
+    coordinate?(input: CoordinatorInput): Promise<CoordinatorResult>;
   }>;
   clock: Readonly<{ now(): number }>;
 }>;

@@ -136,7 +136,13 @@ export function createExtensionCredentialCustody(
           const row = rows[extensionProfileKey];
           const revision =
             row && typeof row === "object" && "revision" in row && safeRevision(row.revision) ? row.revision : 0;
-          const profile = emptyProfile("re-pair-required", nextRevision(revision));
+          const profile = {
+            ...emptyProfile("re-pair-required", nextRevision(revision)),
+            pauseReason:
+              row && typeof row === "object" && "pauseReason" in row && row.pauseReason === "protocol-violation"
+                ? ("protocol-violation" as const)
+                : null,
+          };
           await publish(profile, null);
           return { kind: "re-pair-required" };
         }
@@ -197,10 +203,10 @@ export function createExtensionCredentialCustody(
           profile = parseExtensionProfile({
             schemaVersion: 1,
             revision: nextRevision(value.profile.revision),
-            state: "paired-idle",
+            state: value.profile.pauseReason === "protocol-violation" ? "paused" : "paired-idle",
             connectionId,
             servedPollWindowSeconds: binding.servedPollWindowSeconds,
-            pauseReason: null,
+            pauseReason: value.profile.pauseReason === "protocol-violation" ? "protocol-violation" : null,
           });
           credential = admitConnectorTokens(response, profile, binding);
         } catch {

@@ -18,7 +18,8 @@ import {
   type ReserveClaimedOutboundOperationsInput,
   type ReserveConnectorClaimedOperationsInput,
 } from "../domain/contracts";
-import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs, payloadDigest } from "../domain/validation";
+import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs } from "../domain/validation";
+import { payloadDigest } from "./payload-digest";
 import { reserveOrderPull } from "./order-pull";
 
 type OperationRow = Readonly<{
