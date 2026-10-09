@@ -512,9 +512,7 @@
         "identity": "58d2b3df409f276c"
       }
     ],
-    "censusCaseNames": [
-      "seeds Catalog scenario items with the actual direct command pool options"
-    ]
+    "censusCaseNames": ["seeds Catalog scenario items with the actual direct command pool options"]
   },
   "authoritative-seed-resume-core.db.test.ts": {
     "executionUnit": "test:db:3",

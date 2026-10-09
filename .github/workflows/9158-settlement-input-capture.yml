@@ -135,7 +135,7 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
-            captureParent: '371905004316261ed9820dfe7727efab875c2d75',
+            captureParent: '329c99de5ee26726860db79477b860ec08fbce5b',
             sourceBase: '3b943db654dfd1d8c9c28c221e9c318a962c141d',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
@@ -171,7 +171,7 @@ jobs:
           const assert = (await import('node:assert/strict')).default;
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
           const manifestBytes = readFileSync(resolve(cwd, 'scripts/9158-capture-manifest.json'));
-          assert.equal(hash(manifestBytes), '9de16f7fbae82005af1bdf062d56d5b31359f4fba881f4fcc5230b0d25c0f892', 'frozen manifest bytes');
+          assert.equal(hash(manifestBytes), '69bfecb479e0e78dd6308339fe32541641745458e18db98a86ddd0ac955f159b', 'frozen manifest bytes');
           const manifest = JSON.parse(manifestBytes);
           const sourceBytes = readFileSync(resolve(cwd, 'scripts/9158-capture-sources.json'));
           assert.equal(hash(sourceBytes), 'a8d1a67b6a8f3f49382accef7d1c4f9732edee06462ac4311e1024d6e6fbd676', 'frozen runtime/helper/dependency source list');
