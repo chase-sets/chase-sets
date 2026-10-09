@@ -32,7 +32,10 @@ import {
 } from "../read-model/queries";
 import { writePromotionAliases } from "./promotion/provider-promotion-alias-writer";
 import type { PromotionAliasTargetResolution } from "./promotion/provider-promotion-alias-planner";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import { resolveCatalogProviderDuplicatePrevention } from "./promotion/provider-duplicate-prevention-resolver";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
@@ -181,6 +184,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.observation.provider_key,
       normalized,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "promotion", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
     requirePromotionAssetPorts({ deps, normalized, productAssetSource: input.productAssetSource });
 
@@ -300,6 +304,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.observation.provider_key,
       input.normalized,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "promotion", providerProfileVersion);
     const { targetReferenceRecordId } = await resolveReferenceDataPromotionHierarchy({
       deps,
       referenceData,
@@ -479,6 +484,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.reapplyProfileMode,
       input.profileSnapshot ?? null,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
     requirePromotionAssetPorts({ deps, normalized });
 
@@ -548,6 +554,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       input.reapplyProfileMode,
       input.profileSnapshot ?? null,
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", providerProfileVersion);
 
     if (input.observation.status !== "promoted") {
       throw new Error("Only promoted source observations can be reapplied.");

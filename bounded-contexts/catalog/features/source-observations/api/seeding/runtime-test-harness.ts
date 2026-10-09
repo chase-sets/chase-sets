@@ -27,6 +27,7 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
 } from "../provider-integration-profiles";
+import type { CatalogIntegrationRolloutControlPolicy } from "../governance/catalog-integration-rollout-controls";
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
@@ -57,27 +58,49 @@ export type ReferenceRecordRow = {
   attributes: Readonly<Record<string, JsonValue>>;
 };
 
-export function createActiveTcgplayerProfileVersions(input: { profileKey?: string } = {}): {
+/**
+ * Negative control for unit-scoped rollout regressions: the same policy with
+ * every execution unit key removed, reproducing the provider-only call shape.
+ */
+export function withoutRolloutUnitKey(
+  policy: CatalogIntegrationRolloutControlPolicy,
+): CatalogIntegrationRolloutControlPolicy {
+  return {
+    snapshot: policy.snapshot,
+    decide: (input) => policy.decide({ ...input, unitKey: undefined }),
+    assertAllowed: (input) => policy.assertAllowed({ ...input, unitKey: undefined }),
+  };
+}
+
+export function createActiveTcgplayerProfileVersions(
+  input: { profileKey?: string; additionalActiveProfileKeys?: readonly string[] } = {},
+): {
   listProfileVersions: (
     providerKey?: string | null,
   ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
+  getActiveProfileVersion: (
+    providerKey: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
+  ) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
 } {
-  const activeProfileKey = input.profileKey ?? "pokemon-single-card-product-sku";
+  const activeProfileKeys = new Set([
+    input.profileKey ?? "pokemon-single-card-product-sku",
+    ...(input.additionalActiveProfileKeys ?? []),
+  ]);
   const versions = catalogProviderIntegrationProfileVersions.map((version) =>
     version.providerKey === "tcgplayer"
       ? {
           ...version,
-          lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
-          active: version.profileKey === activeProfileKey,
+          lifecycle: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("test" as const),
+          active: activeProfileKeys.has(version.profileKey),
           profile: {
             ...version.profile,
-            status: version.profileKey === activeProfileKey ? ("active" as const) : ("planned" as const),
+            status: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("planned" as const),
           },
           executableMappingContract: version.executableMappingContract
             ? {
                 ...version.executableMappingContract,
-                lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
+                lifecycle: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("test" as const),
               }
             : undefined,
         }
@@ -1601,6 +1624,16 @@ export function createChangedObservationRefreshHarness(
     /** SYNTHETIC poison: every discovered Reference Record history carries a
      * second contiguous published event, a transition the decider never emits. */
     referenceHistoryPoison?: "repeated-publish";
+    /** Extra observation rows served by observation id, for mixed-batch runs. */
+    siblingObservations?: readonly Readonly<{
+      observationId: string;
+      providerKey: string;
+      externalKey: string;
+      sourceProfileKey: string;
+      sourceProfileVersion: string;
+      normalized: SourceObservationNormalized;
+      status?: string;
+    }>[];
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1636,6 +1669,23 @@ export function createChangedObservationRefreshHarness(
     promoted_at: "2026-05-19T00:00:00.000Z",
     updated_at: "2026-05-20T00:00:00.000Z",
   };
+  const siblingObservationRows = new Map(
+    (input.siblingObservations ?? []).map((sibling) => [
+      sibling.observationId,
+      {
+        ...observationRow,
+        observation_id: sibling.observationId,
+        provider_key: sibling.providerKey,
+        external_key: sibling.externalKey,
+        source_profile_key: sibling.sourceProfileKey,
+        source_profile_version: sibling.sourceProfileVersion,
+        normalized: sibling.normalized,
+        status: sibling.status ?? "observed",
+        promoted_catalog_item_id: null,
+        promoted_reference_record_id: null,
+      },
+    ]),
+  );
   const streamId = "catalog.source-observation-obs_changed";
   const observationStatus = input.status ?? "changed";
   const promotionCommandAlreadyApplied = input.promotionCommandAlreadyApplied;
@@ -1703,7 +1753,7 @@ export function createChangedObservationRefreshHarness(
       if (sql.includes("FROM catalog_source_observations")) {
         return {
           rowCount: 1,
-          rows: [observationRow] as T[],
+          rows: [siblingObservationRows.get(String(values[0])) ?? observationRow] as T[],
         };
       }
 
@@ -1899,8 +1949,10 @@ export function createBulkReviewJobHarness(
     progressTotal?: number;
     carriedOutcomes?: ReadonlyArray<{ observationId: string; status: "rejected"; reason?: string | null }>;
     terminalWorkUnits?: boolean;
+    action?: "reject" | "promote";
   } = {},
 ) {
+  const action = options.action ?? "reject";
   const observationIds = Array.from({ length: count }, (_, index) => `obs_${index + 1}`);
   const observations = new Map(
     observationIds.map((observationId, index) => [
@@ -1935,9 +1987,9 @@ export function createBulkReviewJobHarness(
   );
   const job = {
     job_id: "job_bulk_review",
-    job_kind: "reject",
+    job_kind: action,
     payload: {
-      action: "reject",
+      action,
       selectionMode: "ids",
       observationIds,
       scope: {},

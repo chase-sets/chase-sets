@@ -11,7 +11,10 @@ import {
   listSourceObservationIdsForPromotion,
   type SourceObservationFilterScope,
 } from "../read-model/queries";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   BulkSourceObservationProgress,
@@ -121,13 +124,20 @@ export function createSourceObservationBulkReviewJobRuntime({
       input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "ids"
         ? await snapshotSelectedReapplyProfiles(unitObservationIds)
         : new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    // Id selections may span units, so each work unit enforces its own resolved
+    // profile unit at execution; a filter reapply applies one active profile.
+    const filterReapplyProfileVersion =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "filter"
+        ? await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null)
+        : null;
+    if (filterReapplyProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", filterReapplyProfileVersion);
+    }
     const profileSnapshot =
       input.action === "reapply" && reapplyProfileMode === "current-active-profile"
-        ? selectionMode === "ids"
-          ? commonProfileSnapshot([...unitProfileSnapshots.values()])
-          : snapshotCatalogReapplyProfileVersion(
-              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null),
-            )
+        ? filterReapplyProfileVersion
+          ? snapshotCatalogReapplyProfileVersion(filterReapplyProfileVersion)
+          : commonProfileSnapshot([...unitProfileSnapshots.values()])
         : null;
     // The explicit draft choice binds only to promote jobs; it is never inferred.
     const promoteAsDraft = input.action === "promote" && input.promoteAsDraft === true;
