@@ -1064,6 +1064,10 @@ describe("deployable-browser-test-support-import-fence", () => {
 });
 
 describe("declared-api-db-test-support", () => {
+  afterEach(({ task }) => {
+    process.stdout.write(`declared-api-db-test-support control executed: ${task.name}\n`);
+  });
+
   const specifier = "@chase-sets/neutral-package/test-support";
   const witness = "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts";
   const nested = "deployables/platform-api/__tests__/neutral/nested/neutral.db.test.ts";
