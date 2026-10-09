@@ -57,6 +57,7 @@ describe("channel-publication-port-scope-fence", () => {
       "./client",
       "./context",
       "./server",
+      "./test-support",
       "./routes/*",
       "./seed-support/*",
     ]);
