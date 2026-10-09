@@ -98,7 +98,7 @@ function validCandidate() {
       readConnectionHealth: vi.fn(),
       listOpenReasonGenerations: vi.fn(),
       sweepConnectorLiveness: vi.fn<ChannelsServices["connectionHealth"]["sweepConnectorLiveness"]>(),
-    },
+    } satisfies ChannelsServices["connectionHealth"],
     connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},
     outboundSync: {

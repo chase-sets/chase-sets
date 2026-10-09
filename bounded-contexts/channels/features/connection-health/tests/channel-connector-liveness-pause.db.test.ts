@@ -1,8 +1,11 @@
 import { expect, it, vi } from "vitest";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { connectorPolicyDefaults, connectorTransportPolicy } from "../../connector-feed/domain/policy";
 import { evaluateConnectorLiveness } from "../domain/connector-liveness";
-import { describeDb, livenessDatabase, target } from "./connector-liveness-test-support";
+import { describeDb, livenessDatabase, seller, target, transportContext } from "./connector-liveness-test-support";
 
 describeDb("channel-connector-liveness-pause", () => {
   const f = livenessDatabase("liveness_pause_7933");
@@ -32,14 +35,36 @@ describeDb("channel-connector-liveness-pause", () => {
   });
 
   it("S7 same-document/effectiveFrom revision and poll 2 cannot rewrite poll 1 opening identity or due", async () => {
-    await f.h.connectorPolicy(connectorPolicyDefaults);
+    const documentId = await f.h.connectorPolicy(connectorPolicyDefaults);
     await f.poll();
     await f.sweep("2026-10-07T12:02:30.000Z");
     const open = (await f.open())!;
     const first = (await f.observations())[0];
     const resolver = createPolicyResolver({ db: f.h.db });
     const oldPolicy = await resolver.resolvePolicy(connectorTransportPolicy);
-    await f.h.connectorPolicy({ ...connectorPolicyDefaults, pollWindowSeconds: 75 });
+    const eventStore = createPostgresEventStore({ pool: f.h.db });
+    const revised = await createPolicyRuntime({ eventStore, db: f.h.db }).revisePolicyDocument(
+      connectorTransportPolicy,
+      documentId,
+      {
+        status: "active",
+        value: { ...connectorPolicyDefaults, pollWindowSeconds: 75 },
+        effectiveFrom: oldPolicy.effectiveFrom!,
+        effectiveUntil: oldPolicy.effectiveUntil,
+        actorUserId: seller.userId,
+      },
+      transportContext,
+    );
+    const projector = f.h.services.projectors.find(
+      (entry) => entry.projectionName === "platform-policy-document-projection",
+    );
+    if (!projector) throw new Error("missing-policy-projector");
+    for (const event of await eventStore.readStream({
+      streamId: `platform-policy.document-${documentId}`,
+      fromVersion: revised.version,
+    })) {
+      await projector.handlers[event.eventType]?.(toTransportEvent(event));
+    }
     const newPolicy = await resolver.resolvePolicy(connectorTransportPolicy);
     expect(newPolicy.documentId).toBe(oldPolicy.documentId);
     expect(newPolicy.effectiveFrom).toBe(oldPolicy.effectiveFrom);
