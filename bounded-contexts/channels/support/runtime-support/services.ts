@@ -77,6 +77,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(connectionHealth, "submitObservation") === "function" &&
     typeof Reflect.get(connectionHealth, "readConnectionHealth") === "function" &&
     typeof Reflect.get(connectionHealth, "listOpenReasonGenerations") === "function" &&
+    typeof Reflect.get(connectionHealth, "sweepConnectorLiveness") === "function" &&
     isObject(connectionAttention) &&
     typeof Reflect.get(connectionAttention, "listOpenAttention") === "function" &&
     typeof Reflect.get(connectionAttention, "resolveAttention") === "function" &&

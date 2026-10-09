@@ -77,17 +77,25 @@ export function decodeChannelHealthObservation(value: unknown): ChannelHealthObs
   const sourceKind = member(r.sourceKind, channelHealthSources);
   const reasonCode = member(r.reasonCode, channelHealthReasons);
   if ((sourceKind === "channel-reconciliation" ? "drift" : sourceKind) !== reasonCode) invalid();
+  if (
+    sourceKind === "connector-liveness" &&
+    (r.outcome === "failure" ? r.resultOrdinal !== 1 : ![2, 3, 4].includes(r.resultOrdinal as number))
+  )
+    invalid();
   return {
     schemaVersion: member(r.schemaVersion, ["ChannelHealthObservation/v1"]),
     sourceKind,
-    sourceWorkId: digest(r.sourceWorkId),
+    sourceWorkId:
+      sourceKind === "connector-liveness"
+        ? livenessWorkId(r.sourceWorkId, r.connectionId, r.fingerprint)
+        : digest(r.sourceWorkId),
     sourceAttempt: integer(r.sourceAttempt),
     resultOrdinal: integer(r.resultOrdinal),
     policyRevision: digest(r.policyRevision),
     evaluationGeneration: integer(r.evaluationGeneration),
     connectionId: identity(r.connectionId),
     reasonCode,
-    fingerprint: digest(r.fingerprint),
+    fingerprint: sourceKind === "connector-liveness" ? identity(r.fingerprint) : digest(r.fingerprint),
     outcome: member(r.outcome, ["success", "failure"]),
     occurredAt: instant(r.occurredAt),
   };
@@ -111,17 +119,42 @@ export function decodeReasonGeneration(value: unknown): ChannelHealthReasonGener
   return {
     reasonCode: member(r.reasonCode, channelHealthReasons),
     generation: integer(r.generation),
-    fingerprint: digest(r.fingerprint),
+    fingerprint: r.reasonCode === "connector-liveness" ? identity(r.fingerprint) : digest(r.fingerprint),
     state: member(r.state, ["closed", "degraded", "failing"]),
     consecutiveFailures: count(r.consecutiveFailures),
     trailingFailures: count(r.trailingFailures),
     opening: {
-      sourceWorkId: digest(opening.sourceWorkId),
+      sourceWorkId:
+        r.reasonCode === "connector-liveness"
+          ? livenessWorkId(opening.sourceWorkId, undefined, r.fingerprint)
+          : digest(opening.sourceWorkId),
       sourceAttempt: integer(opening.sourceAttempt),
       occurredAt: instant(opening.occurredAt),
     },
     lastOccurredAt: instant(r.lastOccurredAt),
   };
+}
+
+function livenessWorkId(value: unknown, connectionId: unknown, pairingId: unknown): string {
+  if (typeof value !== "string") invalid();
+  let tuple: unknown;
+  try {
+    tuple = JSON.parse(value);
+  } catch {
+    invalid();
+  }
+  if (!Array.isArray(tuple) || tuple.length !== 5 || tuple[0] !== "connector-liveness") invalid();
+  identity(tuple[1]);
+  identity(tuple[2]);
+  integer(tuple[3]);
+  digest(tuple[4]);
+  if (
+    tuple[2] !== pairingId ||
+    (connectionId !== undefined && tuple[1] !== connectionId) ||
+    JSON.stringify(tuple) !== value
+  )
+    invalid();
+  return value;
 }
 export function decodeChannelHealthSnapshot(value: unknown): ChannelHealthSnapshot {
   const r = closed(value, ["policyRevision", "evaluationGeneration", "state", "reasons", "observedAt"]);

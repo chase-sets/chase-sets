@@ -90,6 +90,7 @@
     "bounded-contexts/channels/features/connection-attention/api/runtime.ts",
     "bounded-contexts/channels/features/connection-attention/read-model/order-contributions.ts",
     "bounded-contexts/channels/features/connection-attention/read-model/query.ts",
+    "bounded-contexts/channels/features/connection-health/api/connector-liveness.ts",
     "bounded-contexts/channels/features/connection-health/api/policy.ts",
     "bounded-contexts/channels/features/connection-health/api/runtime.ts",
     "bounded-contexts/channels/features/connection-health/read-model/store.ts",

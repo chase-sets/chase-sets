@@ -7,7 +7,7 @@ const tables = [
     policy_revision text NOT NULL,
     evaluation_generation bigint NOT NULL CHECK (evaluation_generation > 0),
     state text NOT NULL CHECK (state IN ('unknown', 'healthy', 'degraded', 'failing')),
-    reasons jsonb NOT NULL CHECK (jsonb_typeof(reasons) = 'array' AND jsonb_array_length(reasons) <= 8),
+    reasons jsonb NOT NULL CHECK (jsonb_typeof(reasons) = 'array' AND jsonb_array_length(reasons) <= 9),
     observed_at text NULL
   )`,
   `CREATE TABLE IF NOT EXISTS channel_health_observations (
@@ -30,11 +30,30 @@ const indexes = [
   "CREATE INDEX IF NOT EXISTS channel_health_observations_window_idx ON channel_health_observations (connection_id, occurred_at, reason_code, reason_generation)",
   "CREATE INDEX IF NOT EXISTS channel_health_observations_fingerprint_idx ON channel_health_observations (connection_id, reason_code, fingerprint)",
 ];
-export const channelHealthSchemaSql = [...tables, ...indexes].join(";\n") + ";";
+const livenessIndex = `CREATE INDEX IF NOT EXISTS channel_connection_health_open_liveness_idx
+  ON channel_connection_health (connection_id)
+  WHERE reasons @> '[{"reasonCode":"connector-liveness","state":"failing"}]'::jsonb`;
+export const channelHealthSchemaSql = [...tables, ...indexes, livenessIndex].join(";\n") + ";";
 export const channelHealthSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260912_channels_connection_health_v1",
     description: "Create connection health and its immutable observation attempt ledger.",
     statements: [...tables, ...indexes.map((sql) => sql.replace("INDEX IF", "INDEX CONCURRENTLY IF"))],
+  },
+  {
+    migrationId: "20261009_channels_connector_liveness_reason",
+    description: "Admit the ninth closed health reason without changing existing reason generations.",
+    statements: [
+      `DO $migration$ BEGIN
+        SET LOCAL lock_timeout = '5s';
+        ALTER TABLE channel_connection_health DROP CONSTRAINT IF EXISTS channel_connection_health_reasons_check;
+        ALTER TABLE channel_connection_health ADD CONSTRAINT channel_connection_health_reasons_check
+          CHECK (jsonb_typeof(reasons) = 'array' AND jsonb_array_length(reasons) <= 9) NOT VALID;
+      END $migration$`,
+      "ALTER TABLE channel_connection_health VALIDATE CONSTRAINT channel_connection_health_reasons_check",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connection_health_open_liveness_idx
+        ON channel_connection_health (connection_id)
+        WHERE reasons @> '[{"reasonCode":"connector-liveness","state":"failing"}]'::jsonb`,
+    ],
   },
 ];

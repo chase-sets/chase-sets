@@ -186,6 +186,8 @@ function channelHealthReasonLabel(value: string | number | undefined): string {
       return t("channels.attention.reason.provider-availability");
     case "sale-follow-up":
       return t("channels.attention.reason.sale-follow-up");
+    case "connector-liveness":
+      return t("marketplace.features.sellerDesk.reason.connectorLiveness");
     default:
       return t("marketplace.features.sellerDesk.source.channelAction");
   }
