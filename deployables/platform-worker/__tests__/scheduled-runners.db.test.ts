@@ -44,7 +44,8 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-const EXPECTED_REGISTERED_RUNNER_COUNT = 29;
+// 33 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);

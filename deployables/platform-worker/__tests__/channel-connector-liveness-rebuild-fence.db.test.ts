@@ -2,7 +2,6 @@ import { expect, it, vi } from "vitest";
 import { loadProjectionGroupGeneration, rebuildContextProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import * as projectionRuntime from "@chase-sets/bounded-context-runtime";
 import { createProjectionGroupWorkerRunner } from "@chase-sets/platform-runtime/worker";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   barrier,
   describeDb,
@@ -125,24 +124,17 @@ describeDb("channel-connector-liveness-rebuild-fence", () => {
       await prepare(status);
       const locked = barrier();
       const release = barrier();
-      const connect = f.h.db.connect.bind(f.h.db);
       let intercept = true;
-      const connectSpy = vi.spyOn(f.h.db, "connect").mockImplementation(async () => {
-        const client = await connect();
-        const query: PgQueryable["query"] = async <Row>(sql: string, values?: readonly unknown[]) => {
-          const result = await client.query<Row>(sql, values);
-          if (
-            intercept &&
-            sql.includes("FROM channel_connections WHERE connection_id=$1 FOR SHARE") &&
-            values?.[0] === activeControl
-          ) {
-            intercept = false;
-            locked.release();
-            await release.promise;
-          }
-          return result;
-        };
-        return { query, release: client.release.bind(client) };
+      const restore = f.h.interceptServiceQuery(async (sql, values) => {
+        if (
+          intercept &&
+          sql.includes("FROM channel_connections WHERE connection_id=$1 FOR SHARE") &&
+          values[0] === activeControl
+        ) {
+          intercept = false;
+          locked.release();
+          await release.promise;
+        }
       });
       const sweep = f.sweep("2026-10-07T12:02:00.000Z");
       let rebuilding: Promise<void> | undefined;
@@ -175,9 +167,12 @@ describeDb("channel-connector-liveness-rebuild-fence", () => {
       } finally {
         release.release();
         blocked.release.release();
-        await sweep;
-        if (rebuilding) await rebuilding;
-        connectSpy.mockRestore();
+        try {
+          await Promise.allSettled([sweep, rebuilding]);
+        } finally {
+          restore();
+          f.interceptQuery(async () => {});
+        }
       }
     },
   );

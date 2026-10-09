@@ -49,6 +49,7 @@ export function transportDatabase(suffix: string) {
   let services: ReturnType<typeof channelsModule.createServices>;
   let token: string;
   let pairingId: string;
+  let afterServiceQuery: ((sql: string, values: readonly unknown[]) => Promise<void>) | undefined;
   const ports = {
     setupResolver: {
       resolve: async ({
@@ -81,15 +82,31 @@ export function transportDatabase(suffix: string) {
   function restart(omitHealthConsultation = false, omitSellerAdmission = false) {
     // Negative control only: omit the health dependency at real service composition.
     // The candidate never supplies this port, and always consults landed health.
-    let pool = pools.channels;
+    // Do not replace native pool.connect: pool.query uses its callback overload.
+    // Only explicit service transactions receive the test-owned query wrapper.
+    const servicePool: PgTransactionalPool = {
+      query: pools.channels.query.bind(pools.channels),
+      connect: async () => {
+        const client = await pools.channels.connect();
+        const query: PgQueryable["query"] = async <Row>(sql: string, values?: readonly unknown[]) => {
+          const result = await client.query<Row>(sql, values);
+          await afterServiceQuery?.(sql, values ?? []);
+          return result;
+        };
+        return { query, release: client.release.bind(client) };
+      },
+    };
+    let pool = servicePool;
     if (omitSellerAdmission) {
       const wrap =
         (db: PgQueryable): PgQueryable["query"] =>
         async <Row>(sql: string, values?: readonly unknown[]) => {
-          const admitted = sql.replace(
-            "AND connection.status = 'active' AND lane.blocked_operation_id IS NULL",
-            "AND connection.status IN ('active','paused') AND lane.blocked_operation_id IS NULL",
-          );
+          const admitted = sql
+            .replace("WHERE eligible.status = 'active'", "WHERE eligible.status IN ('active','paused')")
+            .replace(
+              "AND connection.status = 'active' AND lane.blocked_operation_id IS NULL",
+              "AND connection.status IN ('active','paused') AND lane.blocked_operation_id IS NULL",
+            );
           const result = await db.query<Row>(admitted, values);
           return {
             ...result,
@@ -101,9 +118,9 @@ export function transportDatabase(suffix: string) {
           };
         };
       pool = {
-        query: wrap(pools.channels),
+        query: wrap(servicePool),
         connect: async () => {
-          const client = await pools.channels.connect();
+          const client = await servicePool.connect();
           return { query: wrap(client), release: client.release.bind(client) };
         },
       };
@@ -220,6 +237,7 @@ export function transportDatabase(suffix: string) {
     ({ token, pairingId } = await pair());
   });
   afterEach(() => {
+    afterServiceQuery = undefined;
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
@@ -238,6 +256,13 @@ export function transportDatabase(suffix: string) {
       return pairingId;
     },
     restart,
+    interceptServiceQuery(callback: NonNullable<typeof afterServiceQuery>) {
+      const previous = afterServiceQuery;
+      afterServiceQuery = callback;
+      return () => {
+        afterServiceQuery = previous;
+      };
+    },
     connection,
     healthy,
     observation,
