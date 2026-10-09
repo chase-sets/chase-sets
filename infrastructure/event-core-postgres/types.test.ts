@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { isPgConnectionLevelError, isPgRetryableTransientError, withPgTransaction, type PgPoolClient } from "./types";
+import {
+  isPgConnectionLevelError,
+  isPgRetryableTransientError,
+  withPgTransaction,
+  type PgPoolClient,
+  type PgTransactionalPool,
+} from "./types";
 
 describe("transaction isolation opt-in", () => {
   function fixture(timeout: number | undefined = 15_000, failAt?: string, rollbackFailure?: Error) {
@@ -14,7 +20,11 @@ describe("transaction isolation opt-in", () => {
       },
       release: vi.fn(),
     };
-    const pool = { ...client, connect: async () => client, idleInTransactionSessionTimeoutMillis: timeout };
+    const pool: { -readonly [Key in keyof PgTransactionalPool]: PgTransactionalPool[Key] } = {
+      ...client,
+      connect: async () => client,
+      idleInTransactionSessionTimeoutMillis: timeout,
+    };
     return { pool, client, queries, failure };
   }
 
