@@ -79,6 +79,13 @@ health or a reason to pause other orders. Sale and mapping recovery resolve only
 the affected order reasons. Accepted ship-to is immutable; subsequent status
 facts contain no address, lines, or money.
 
+**Accepted Ready to Ship membership** is the bounded connection/reference read
+of the latest accepted fulfillment observation's captured provider status. Both
+list and detail `Ready to Ship` qualify. It is retained with the accepted order,
+not reconstructed from translated `active`, transport admission, or projections.
+Older accepted rows without a retained status are unknown and excluded. Payload
+and candidate expiry do not erase this PII-free fact.
+
 ## Channel Order Fulfillment Observation Reference
 
 A **Channel Order Fulfillment Observation Reference** identifies one observed

@@ -1,4 +1,10 @@
 export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
+export { readAcceptedReadyToShipMembership } from "./features/order-fulfillment-observations/api/runtime";
+export {
+  acceptedReadyToShipReferenceLimit,
+  acceptedReadyToShipInputByteLimit,
+  type AcceptedReadyToShipQuery,
+} from "./features/order-fulfillment-observations/domain/contracts";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export {
   composeTcgplayerOrderInbound,

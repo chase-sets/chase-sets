@@ -1,10 +1,35 @@
 import type { ShippingOption } from "@chase-sets/product-measures";
 import type { ChannelOrderFulfillmentStatus } from "@chase-sets/event-core/public-event-payloads";
-import { assertClosedRecord, assertRfc3339Instant } from "../../connections/domain/validation";
+import { assertClosedRecord, assertOpaqueId, assertRfc3339Instant } from "../../connections/domain/validation";
 import { canonicalJson } from "../../listing-composition/domain/canonical-json";
 import { composeChannelOrderFulfillmentReference } from "./fulfillment-reference";
 
 export const fulfillmentObservationKind = "channel-order-fulfillment-observation/v1";
+export const acceptedReadyToShipReferenceLimit = 1000;
+export const acceptedReadyToShipInputByteLimit = 262144;
+export type AcceptedReadyToShipQuery = Readonly<{
+  connectionId: string;
+  orderReferences: readonly string[];
+}>;
+
+export function assertAcceptedReadyToShipQuery(value: unknown): asserts value is AcceptedReadyToShipQuery {
+  try {
+    assertClosedRecord(value, ["connectionId", "orderReferences"], "accepted Ready to Ship query");
+    assertOpaqueId(value.connectionId, "connectionId");
+    if (!Array.isArray(value.orderReferences) || value.orderReferences.length > acceptedReadyToShipReferenceLimit)
+      invalid();
+    const seen = new Set<string>();
+    for (const reference of value.orderReferences) {
+      text(reference, 128);
+      if (seen.has(reference)) invalid();
+      seen.add(reference);
+    }
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > acceptedReadyToShipInputByteLimit) invalid();
+  } catch {
+    invalid();
+  }
+}
+
 export type CapturedOrderValue = Readonly<{ surface: "list" | "detail"; value: string }>;
 export type ChannelOrderShipTo = Readonly<{
   name: string;
