@@ -118,7 +118,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/raw-export-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector|operation)-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -741,6 +741,17 @@ describe("channels-foundation-deployable-registration", () => {
 });
 
 describe("channels-foundation-surface-fence", () => {
+  it.each(["connector-indexeddb.ts", "operation-indexeddb.ts"])(
+    "admits the exact connector coordination integration %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/connector-client/integrations/${file}`,
+        ]),
+      ).toEqual([]);
+    },
+  );
   it("admits exactly the ruled raw-export IndexedDB integration", () => {
     expect(
       collectChannelsSurfaceViolations(readJson(manifestPath), [
@@ -765,6 +776,13 @@ describe("channels-foundation-surface-fence", () => {
     "integrations/synthetic-forbidden-sibling/worker.js",
     "integrations/raw-export-indexeddb.ts.backup",
     "integrations/raw-export-indexeddb.ts/extra.ts",
+    ...["connector-indexeddb.ts", "operation-indexeddb.ts"].flatMap((file) => [
+      `integrations/${file}.backup`,
+      `integrations/${file}/extra.ts`,
+      `integrations/prefix-${file}`,
+      `integrations/${file}-suffix`,
+      `integrations/nested/${file}`,
+    ]),
     "integrations/order-authority-probe/extra.js",
     "integrations/order-authority-probe/nested/worker.js",
     "integrations/order-authority-probe/worker.js/extra.js",

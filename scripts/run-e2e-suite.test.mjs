@@ -120,6 +120,7 @@ describe("run e2e suite", () => {
       "composeTcgplayerOrderInbound",
       "composeTcgplayerOrderObservation",
       "createConnectorBackground",
+      "createConnectorOperationCoordinator",
       "createConnectorRetentionStore",
       "tcgplayerOrderLimits",
       "tcgplayerSaleKey",

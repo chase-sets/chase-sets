@@ -56,7 +56,7 @@ for (const blocked of [false, true]) {
         let changed = false;
         let closedOnChange = false;
         const startUpgrade = () => {
-          const request = nativeOpen("connector-raw-exports", 2);
+          const request = nativeOpen("connector-raw-exports", 3);
           request.onupgradeneeded = () =>
             request.result.createObjectStore("pending-operations").add("SYNTHETIC_COMPETING_OWNER_7922", "pending");
           const committed = new Promise<void>((resolve, reject) => {
@@ -71,7 +71,7 @@ for (const blocked of [false, true]) {
         };
         if (block) {
           const holder = await new Promise<IDBDatabase>((resolve, reject) => {
-            const request = nativeOpen("connector-raw-exports", 1);
+            const request = nativeOpen("connector-raw-exports", 2);
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
           });
@@ -151,7 +151,7 @@ for (const blocked of [false, true]) {
         await worker.evaluate(
           () =>
             new Promise<string>((resolve, reject) => {
-              const request = indexedDB.open("connector-raw-exports", 2);
+              const request = indexedDB.open("connector-raw-exports", 3);
               request.onsuccess = () => {
                 const db = request.result;
                 const witness = db.transaction("pending-operations").objectStore("pending-operations").get("pending");
@@ -292,7 +292,7 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
     await clockAt(worker, time.before);
     await worker.evaluate(async () => {
       await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("connector-raw-exports", 2);
+        const request = indexedDB.open("connector-raw-exports", 3);
         request.onupgradeneeded = () => {
           request.result
             .createObjectStore("pending-operations", { keyPath: "id" })
@@ -329,7 +329,7 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
       JSON.stringify(
         {
           scenario: "f-older-client-newer-database",
-          mechanism: "real Chromium version-2 fixture; unchanged product v1 module through static-import observer",
+          mechanism: "real Chromium version-3 fixture; unchanged product v2 module through static-import observer",
           chromium: await chromiumVersion(context),
           digest: productDigest(),
           phases: { before, afterCallbacks: await observeRetention(worker) },
@@ -344,7 +344,7 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
         const databases = await indexedDB.databases();
         if (!databases.some((db) => db.name === "connector-raw-exports")) return false;
         return new Promise<boolean>((resolve, reject) => {
-          const request = indexedDB.open("connector-raw-exports", 2);
+          const request = indexedDB.open("connector-raw-exports", 3);
           request.onsuccess = () => {
             const db = request.result;
             const row = db.transaction("pending-operations").objectStore("pending-operations").get("pending");
