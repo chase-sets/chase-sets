@@ -250,6 +250,7 @@ const reasons = [
   "frontier_expired",
   "frontier_replaced",
   "total_missing",
+  "count_mismatch",
   "duplicate",
   "tail_missing",
   "unsafe_next",
@@ -380,6 +381,7 @@ function assertReceipt(value, p) {
       "rowCount",
       "distinctCount",
       "total",
+      "snapshotCount",
       "snapshotPresent",
       "snapshotEqual",
       "cursorPresent",
@@ -393,7 +395,7 @@ function assertReceipt(value, p) {
       "terminal",
     ]);
     for (const field of ["ordinal", "requestedSize", "rowCount", "distinctCount"]) number(page[field]);
-    for (const field of ["effectiveSize", "total", "hardResultCap", "hardPageCap"])
+    for (const field of ["effectiveSize", "total", "snapshotCount", "hardResultCap", "hardPageCap"])
       if (page[field] !== null) number(page[field]);
     for (const field of [
       "snapshotPresent",
@@ -443,6 +445,7 @@ function assertReceipt(value, p) {
           !page.snapshotPresent ||
           !page.snapshotEqual ||
           page.total !== value.total ||
+          page.snapshotCount !== value.total ||
           page.distinctCount !== page.rowCount ||
           page.hardResultCap === null ||
           value.total >= page.hardResultCap ||

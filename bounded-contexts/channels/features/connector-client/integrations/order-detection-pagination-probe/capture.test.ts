@@ -40,6 +40,7 @@ function cohort(total: number, change: Record<string, unknown> = {}) {
       [PRIVATE]: { cookie: PRIVATE },
     })),
     syntheticAuthority: {
+      snapshotCount: total,
       snapshot: `${PRIVATE}/snapshot`,
       seller,
       effectiveSize: 8,
@@ -539,6 +540,8 @@ describe("detection-pagination-authority-controls", () => {
     { name: "frontier lacks entry coverage", change: { entryCoverage: false }, reason: "frontier_unknown" },
     { name: "expired frontier", change: { expiresAt: T0 }, reason: "frontier_expired" },
     { name: "missing hard cap", change: { resultCap: null }, reason: "discovery_unknown" },
+    { name: "missing independent snapshot count", change: { snapshotCount: null }, reason: "total_missing" },
+    { name: "independent snapshot count mismatch", change: { snapshotCount: 10 }, reason: "count_mismatch" },
     { name: "result cap hit", change: { resultCap: 9 }, reason: "cap_hit" },
     { name: "page cap hit", change: { pageCap: 1 }, reason: "cap_hit" },
     { name: "unsafe next", change: { safeNext: false }, reason: "unsafe_next" },
@@ -550,6 +553,21 @@ describe("detection-pagination-authority-controls", () => {
     expect(value.reason).toBe(reason);
     expect(value.state).toBe("unknown");
     expect(worker.wire).toHaveLength(2);
+  });
+  it("independent snapshot count bypass fails frozen-input control and closed validator", async () => {
+    const pages = cohort(9, { snapshotCount: 10 });
+    expect((await capture({ pages })).value.reason).toBe("count_mismatch");
+    const emitted = readFileSync(path.join(preparation.packageDirectory, "worker.js"), "utf8");
+    const mutant = emitted.replace('if (page.total !== page.snapshotCount) fail("count_mismatch");', "");
+    expect(mutant).not.toBe(emitted);
+    const worker = harness({ pages, workerSource: mutant });
+    const page = helper(worker);
+    await page.run();
+    const value = JSON.parse(page.exports.get("9142-receipt.json")!);
+    expect(value.reason).toBe("qualified");
+    expect(() => expect(value.reason).toBe("count_mismatch")).toThrow();
+    retain(page);
+    expect(() => packaging.verifyExport(out)).toThrow("verdict");
   });
   it("replaced frontier, missing totals, duplicate/missing tail, cursor cycle and full page require continuation", async () => {
     const replaced = cohort(9);
@@ -585,6 +603,7 @@ describe("detection-pagination-authority-controls", () => {
   );
   it("cap+1 control and one-clause bypass keep all other authority frozen", async () => {
     expect((await capture({ pages: cohort(9, { resultCap: 10 }) })).value.state).toBe("qualified");
+    expect((await capture({ pages: cohort(11, { resultCap: 10 }) })).value.reason).toBe("cap_hit");
     const pages = cohort(10, { resultCap: 10 });
     const { value } = await capture({ pages });
     expect(value.reason).toBe("cap_hit");
