@@ -186,7 +186,11 @@ describeDb("extension-pairing-redirect-and-scope", () => {
     expect(f.ports.transport.coordinate).toHaveBeenCalledWith({
       connectionId: "connection_A",
       accessToken: captured.credential!.accessToken,
+      reason: "work",
+      authority: expect.any(Function),
     });
+    const workInput = vi.mocked(f.ports.transport.coordinate!).mock.calls[0][0];
+    expect(await workInput.authority!()).toBe("paired-idle");
     await expect(
       feed.withAuthority(
         { token: captured.credential!.accessToken, connectionId: "connection_B", operation: "ingest" },
@@ -194,6 +198,7 @@ describeDb("extension-pairing-redirect-and-scope", () => {
       ),
     ).rejects.toThrow("invalid-credential");
     await f.command("unpair");
+    expect(await workInput.authority!()).toBe("absent");
     const requests = vi.mocked(f.ports.transport.request).mock.calls.map(([request]) => request);
     expect(requests).toHaveLength(2);
     expect(requests[1]!.headers.get("X-Channel-Connection-Id")).toBe("connection_A");
