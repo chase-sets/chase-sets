@@ -4099,6 +4099,1350 @@
         }
       ],
       "artifact": "search-price-max-filtered-360x800"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-loading-visible",
+          "scope": "target",
+          "selector": "text=Loading channel connections…",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-loading-visible",
+          "scope": "target",
+          "selector": "text=Loading channel connections…",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-empty-visible",
+          "scope": "target",
+          "selector": "text=No channel connections",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-empty-visible",
+          "scope": "target",
+          "selector": "text=No channel connections",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-error-visible",
+          "scope": "target",
+          "selector": "text=Channels API error 503",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-error-visible",
+          "scope": "target",
+          "selector": "text=Channels API error 503",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list success route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-success-visible",
+          "scope": "target",
+          "selector": "text=fixture-provider",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list success route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-success-visible",
+          "scope": "target",
+          "selector": "text=fixture-provider",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Connect a channel')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Connect a channel')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-empty-visible",
+          "scope": "target",
+          "selector": "text=No channel connections",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-empty-visible",
+          "scope": "target",
+          "selector": "text=No channel connections",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-error-visible",
+          "scope": "target",
+          "selector": "text=provider-setup-not-registered",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-error-visible",
+          "scope": "target",
+          "selector": "text=provider-setup-not-registered",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-success-visible",
+          "scope": "target",
+          "selector": "text=Pending setup",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-success-visible",
+          "scope": "target",
+          "selector": "text=Pending setup",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-error-visible",
+          "scope": "target",
+          "selector": "text=binding-not-current",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-error-visible",
+          "scope": "target",
+          "selector": "text=binding-not-current",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-success-visible",
+          "scope": "target",
+          "selector": "text=Active",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-success-visible",
+          "scope": "target",
+          "selector": "text=Active",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-error-visible",
+          "scope": "target",
+          "selector": "text=binding-not-current",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-error-visible",
+          "scope": "target",
+          "selector": "text=binding-not-current",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-success-visible",
+          "scope": "target",
+          "selector": "text=Active",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-success-visible",
+          "scope": "target",
+          "selector": "text=Active",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-success-desktop"
     }
   ]
 }

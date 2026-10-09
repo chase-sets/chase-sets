@@ -10,31 +10,15 @@ import AccountChannelsConnectionRoute, {
   loader as detailLoader,
 } from "../../../routes/marketplace/account-channels-connection";
 import { allowedChannelConnectionActions } from "../ui/connection-pages";
-import {
-  channelConnectionStatuses,
-  type ChannelConnectionPage,
-  type ChannelConnectionStatus,
-} from "../domain/contracts";
+import { channelConnectionStatuses, type ChannelConnectionPage } from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
+import { channelConnectionStateFixture as fixtureFor } from "./browser-state-fixture";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
-
-const fixedCreatedAt = "2026-09-01T00:00:00.000Z";
-
-function fixtureFor(status: ChannelConnectionStatus) {
-  return {
-    connectionId: `connection-${status}`,
-    accountId: routeAccountId,
-    providerKey: "fixture-provider",
-    environment: "sandbox" as const,
-    status,
-    createdAt: fixedCreatedAt,
-  };
-}
 
 describe("channel-connections-page-state-matrix", () => {
   it("renders a valid API-shaped list through the real client", async () => {
