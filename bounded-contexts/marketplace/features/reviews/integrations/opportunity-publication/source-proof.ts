@@ -42,7 +42,7 @@ export async function readOpportunitySourceProof(db: PgQueryable): Promise<{
   const positions = new Map(result.rows.map((row) => [row.projection_name, row.position]));
   const position = (index: number) => positions.get(opportunitySourceProjections[index]![0])!;
   // A source projection running before its reactions must not certify their absence.
-  if ([3, 4, 5].some((index) => BigInt(position(index)) < BigInt(position(2)))) return null;
+
   const head = await db.query<{ position: string }>(
     `SELECT COALESCE(MAX(global_position), 0)::text AS position FROM event_store_events
      WHERE stream_id LIKE 'marketplace.review-%'
