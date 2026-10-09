@@ -595,6 +595,8 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   it.each(["empty", "irrelevant-source", "complete-metadata"] as const)(
     "publishes expired withdrawn sales through real runners: %s support authority",
     async (supportAuthority) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
       const context = {
         tenantId: "tnt_test",
         audit: { performedByUserId: "usr_test", forAccountId: "acc_seller" },
@@ -786,7 +788,6 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       expect(await readSale()).toMatchObject(expired);
       expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(0);
       const eventsBeforeDeadline = await createPostgresEventStore({ pool: pools.marketplace }).readAll({ limit: 100 });
-      vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
       const allowedResponse = await app.request("/account/sales/ord_runtime");
       expect(allowedResponse.status).toBe(200);
