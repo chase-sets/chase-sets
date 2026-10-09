@@ -111,7 +111,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/raw-export-indexeddb\.ts$|integrations\/order-authority-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/raw-export-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -761,6 +761,16 @@ describe("channels-foundation-surface-fence", () => {
     "integrations/order-authority-probe/nested/worker.js",
     "integrations/order-authority-probe/worker.js/extra.js",
     "integrations/order-authority-probe/worker.js.backup",
+    "integrations/order-detection-pagination-probe/extra.js",
+    "integrations/order-detection-pagination-probe/nested/worker.js",
+    "integrations/order-detection-pagination-probe/worker.js/extra.js",
+    "integrations/order-detection-pagination-probe/worker.js.backup",
+    ...["order-authority-probe", "order-detection-pagination-probe"].flatMap((probe) => [
+      `integrations/prefix-${probe}/worker.js`,
+      `integrations/${probe}-suffix/worker.js`,
+      `integrations/${probe}extra/worker.js`,
+      `integrations/${probe}/nested/${probe}/worker.js`,
+    ]),
     "ui/synthetic-forbidden-sibling.ts",
     "synthetic-forbidden-sibling.ts",
   ])("rejects the forbidden connector-client sibling %s", (file) => {
@@ -771,6 +781,31 @@ describe("channels-foundation-surface-fence", () => {
       ]),
     ).toEqual(["connector-client-buckets"]);
   });
+
+  it.each(["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"])(
+    "admits the exact order-detection-pagination probe path %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/connector-client/integrations/order-detection-pagination-probe/${file}`,
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["order-authority-probe", "order-detection-pagination-probe"])(
+    "admits the complete six-file %s package alongside the real Channels inventory",
+    (probe) => {
+      const files = ["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"];
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          ...files.map((file) => `features/connector-client/integrations/${probe}/${file}`),
+        ]),
+      ).toEqual([]);
+    },
+  );
 
   it("accepts the desired-state slice while freezing forbidden context dependencies and excluding landing", () => {
     const manifest = readJson(manifestPath);
