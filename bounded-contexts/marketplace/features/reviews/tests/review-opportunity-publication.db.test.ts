@@ -462,6 +462,20 @@ describeDb("canonical opportunity publication persistence", () => {
     expect(await publication().run(context)).toBe(0);
     expect(await facts()).toHaveLength(0);
     const bypasses: Partial<Record<typeof guard, readonly [string, string]>> = {
+      "checkpoint-absent": [
+        "FROM event_subscription_checkpoints AS checkpoint",
+        `FROM (
+        SELECT checkpoint_key, projection_name, source_context_name, subscription_version, last_global_position
+          FROM event_subscription_checkpoints
+        UNION ALL
+        SELECT recovery.projection_key, expected.name, expected.source, expected.version, recovery.last_global_position
+          FROM jsonb_to_recordset($1::jsonb) AS expected(name text, source text, version integer)
+          JOIN event_projection_recovery_markers recovery ON recovery.projection_kind='subscription'
+            AND recovery.projection_key=expected.name || ':' || expected.source || ':v' || expected.version
+         WHERE NOT EXISTS (SELECT 1 FROM event_subscription_checkpoints retained
+           WHERE retained.checkpoint_key=recovery.projection_key)
+        ) AS checkpoint`,
+      ],
       "recovery-absent": [
         "JOIN event_projection_recovery_markers AS recovery",
         "LEFT JOIN event_projection_recovery_markers AS recovery",
@@ -474,15 +488,23 @@ describeDb("canonical opportunity publication persistence", () => {
         "",
       ],
       "blocked-stream": ["blocked.state <> 'resolved'", "false"],
+      "local-before-review-head": ["WHERE stream_id LIKE 'marketplace.review-%'", "WHERE false"],
+      "reaction-before-support": [
+        "checkpoint.last_global_position::text AS position",
+        "CASE WHEN checkpoint.projection_name='marketplace-review-support-source-projection' THEN '0' ELSE checkpoint.last_global_position::text END AS position",
+      ],
     };
     const bypass = bypasses[guard];
     if (bypass) {
+      let rewrites = 0;
       const mutant = rewriteProofSql((sql) => {
-        if (!sql.includes("SELECT checkpoint.projection_name")) return sql;
+        if (!sql.includes(bypass[0])) return sql;
         expect(sql.split(bypass[0])).toHaveLength(2);
+        rewrites++;
         return sql.replace(bypass[0], bypass[1]);
       });
       const mutantProof = await readOpportunitySourceProof(mutant);
+      expect(rewrites).toBe(1);
       expect(mutantProof).not.toBeNull();
       // The same fail-closed assertion is red under this one named SQL bypass, not under a second defect.
       expect(() => expect(mutantProof).toBeNull()).toThrow();
