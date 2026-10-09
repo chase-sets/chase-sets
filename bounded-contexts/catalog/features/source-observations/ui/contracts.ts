@@ -12,6 +12,7 @@ import type {
   CatalogMergeCandidateWarning,
 } from "../domain/catalog-merge-candidate";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type { CatalogIntegrationProviderUsageBudget } from "../api/admin/admin-control-plane-overview";
 import type { CatalogAdminProfileVersionPointer } from "../api/admin-control-plane-read-model-contracts";
 import type {
   CatalogProviderProfileBasicsUpdateCommand,
@@ -333,14 +334,7 @@ export interface CatalogIntegrationProviderReadiness {
   diagnostics: CatalogIntegrationControlPlaneDiagnostic[];
 }
 
-export interface CatalogIntegrationProviderUsageBudget {
-  creditBalance: number | null;
-  creditUnit: string | null;
-  readiness: "ready" | "degraded" | "blocked" | "unknown";
-  estimatedCalls: number | null;
-  estimatedScope: string | null;
-  refreshedAt: string | null;
-}
+export type { CatalogIntegrationProviderUsageBudget };
 
 export interface CatalogIntegrationProviderCapabilityStatus {
   status: "ready" | "blocked" | "degraded" | "unknown";

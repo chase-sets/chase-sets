@@ -17,6 +17,7 @@ import type {
   CatalogAdminProfileVersionPointer,
 } from "./admin-control-plane-read-model-contracts";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
+import type { CatalogIntegrationProviderUsageBudget } from "./admin-control-plane-overview";
 import type { CatalogProviderProfileEditableSectionKey } from "../providers/provider-profile-section-registry";
 import type { CatalogControlPlaneActionId } from "../../ui/admin-control-plane/information-architecture-v2";
 
@@ -712,14 +713,7 @@ export type CatalogPrimaryWorkbenchHealthTriageProvider = Readonly<{
   optionQueryHealth: string;
   rateLimitStatus: string;
   payloadAcquisition: string;
-  usageBudget: Readonly<{
-    creditBalance: number | null;
-    creditUnit: string | null;
-    readiness: "ready" | "degraded" | "blocked" | "unknown";
-    estimatedCalls: number | null;
-    estimatedScope: string | null;
-    refreshedAt: string | null;
-  }> | null;
+  usageBudget: CatalogIntegrationProviderUsageBudget | null;
   diagnosticCodes: readonly string[];
   latestDiagnosticText: string | null;
   ownerMetricKey: string;

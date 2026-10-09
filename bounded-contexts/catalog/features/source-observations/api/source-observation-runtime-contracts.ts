@@ -71,7 +71,11 @@ import type {
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
 } from "./admin/admin-control-plane-read-model-contracts";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
-import type { ProviderAdapter, ProviderUsageEstimate } from "./provider-adapters/provider-adapter";
+import type {
+  ProviderAdapter,
+  ProviderUsageEstimate,
+  ProviderUsageSnapshot,
+} from "./provider-adapters/provider-adapter";
 import type { ProviderOptionAliasRecord } from "./providers/provider-option-aliases";
 import { type CatalogProviderOptionQueryPage } from "./providers/provider-option-query-cache";
 import { type CatalogControlPlaneTelemetryEventInput } from "./governance/catalog-integration-observability";
@@ -708,6 +712,8 @@ export type CatalogIntegrationControlPlaneReadiness = Readonly<{
   generatedAt: string;
   rolloutControls: CatalogIntegrationRolloutControlSnapshot;
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[];
+  /** One cached usage snapshot per provider that reports account usage. */
+  providerUsage: readonly ProviderUsageSnapshot[];
 }>;
 
 export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{

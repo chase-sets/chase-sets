@@ -61,6 +61,7 @@ Existing Catalog sources:
 - `ProviderAdapterRegistry.listIntegrationUnits`
 - `ProviderAdapterRegistry.getTransportDiagnostics`
 - `ProviderAdapterRegistry.getCredentialReadiness`
+- `ProviderAdapterRegistry.getUsageSnapshot` (cached, redacted account usage; absent for providers that do not report usage)
 - `CatalogIntegrationEngine.getCatalogIntegrationControlPlaneReadiness`
 - `evaluateCatalogProviderProfileActivationReadiness`
 - `planCatalogProviderPromotionCommands`
