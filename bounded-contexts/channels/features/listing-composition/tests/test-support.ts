@@ -78,6 +78,7 @@ export function listingInput(overrides: Partial<ChannelListingCompositionInput> 
         categoryAllowlist: ["cards"],
         excludedListingIds: [],
         publishQuantityCap: null,
+        lowStockWithholdUnits: null,
       },
     },
     link: { kind: "none" },

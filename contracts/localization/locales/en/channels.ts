@@ -125,6 +125,8 @@ export const channelsEnglishTranslations = {
   "channels.publication.settings.description.footer": "Description footer",
   "channels.publication.settings.publish.quantity.cap": "Channel Publish Quantity Cap",
   "channels.publication.settings.publish.quantity.cap.placeholder": "No cap",
+  "channels.publication.settings.low.stock.withhold": "Channel Low-Stock Withhold",
+  "channels.publication.settings.low.stock.withhold.placeholder": "Off",
   "channels.publication.settings.category.allowlist": "Allowed category IDs, one per line",
   "channels.publication.settings.excluded.listings": "Excluded listing IDs, one per line",
   "channels.publication.settings.save": "Save publication settings",

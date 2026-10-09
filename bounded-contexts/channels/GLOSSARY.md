@@ -178,6 +178,19 @@ A **Channel Composition Profile** declares which provider-neutral publication dr
 
 A **Channel Publish Quantity Cap** on Channel Publication Settings bounds every listing's published quantity on that connection.
 
+A **Channel Low-Stock Withhold** on Channel Publication Settings keeps low-stock listings off that connection.
+
+## Channel Low-Stock Withhold
+
+**Channel Low-Stock Withhold** is a connection-wide threshold that withholds a listing
+in shared-pool mode when Available Quantity (total minus active holds, before buffer
+or caps) is at or below it. `lowStockWithholdUnits: number | null` is off when `null`,
+otherwise an integer `1..1000`. Partitioned allocation ignores it. Other connections
+and the Chase Sets marketplace are unchanged. Withheld stock is not sold out:
+`low-stock-withheld` blocks new publication and requests delisting of published links.
+Recovery retains the external identity. Synchronization is asynchronous, not a stock
+reservation or a guarantee against overselling.
+
 ## Channel Publish Quantity Cap
 
 **Channel Publish Quantity Cap**: max units per listing, per connection, with the per-item Inventory partition as the only override.

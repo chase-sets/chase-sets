@@ -71,12 +71,19 @@ export function deriveChannelPublishQuantity(
     available: number;
     listingQuantityCap: number;
     connectionPublishQuantityCap?: number | null;
+    connectionLowStockWithholdUnits: number | null;
     channelConnectionId: string;
     allocation: ChannelStockAllocationFacts;
     buffer: ChannelStockAllocationBufferPolicyValue;
   }>,
 ): number {
   const available = Math.max(0, input.available);
+  if (
+    input.allocation.mode === "shared-pool" &&
+    input.connectionLowStockWithholdUnits !== null &&
+    available <= input.connectionLowStockWithholdUnits
+  )
+    return 0;
   const allocated =
     input.allocation.mode === "shared-pool"
       ? Math.max(0, available - (available < input.buffer.bufferThresholdUnits ? input.buffer.bufferHoldbackUnits : 0))

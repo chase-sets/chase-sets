@@ -22,7 +22,11 @@ export const channelPublicationConfigurationEventCodec: DomainEventCodec<Channel
         const settings = record(data.settings);
         return event(stored, {
           ...data,
-          settings: { ...settings, publishQuantityCap: settings.publishQuantityCap ?? null },
+          settings: {
+            ...settings,
+            publishQuantityCap: settings.publishQuantityCap ?? null,
+            lowStockWithholdUnits: settings.lowStockWithholdUnits ?? null,
+          },
         });
       }
       case "channels.channel-publication-configuration.mapping-candidate-recorded": {
@@ -231,7 +235,7 @@ export function assertChannelPublicationSettingsPayload(value: unknown): void {
   closedOptional(
     data,
     ["titlePrefix", "titleSuffix", "descriptionFooter", "categoryAllowlist", "excludedListingIds"],
-    ["publishQuantityCap"],
+    ["publishQuantityCap", "lowStockWithholdUnits"],
   );
   text(data.titlePrefix, 1_000, true);
   text(data.titleSuffix, 1_000, true);
@@ -241,6 +245,10 @@ export function assertChannelPublicationSettingsPayload(value: unknown): void {
   if (Object.hasOwn(data, "publishQuantityCap") && data.publishQuantityCap !== null) {
     integer(data.publishQuantityCap);
     if (Number(data.publishQuantityCap) < 1 || Number(data.publishQuantityCap) > 1_000) invalid();
+  }
+  if (Object.hasOwn(data, "lowStockWithholdUnits") && data.lowStockWithholdUnits !== null) {
+    integer(data.lowStockWithholdUnits);
+    if (Number(data.lowStockWithholdUnits) < 1 || Number(data.lowStockWithholdUnits) > 1_000) invalid();
   }
 }
 

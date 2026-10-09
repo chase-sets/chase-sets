@@ -97,7 +97,7 @@ function parseSettingsRequest(value: unknown) {
   const settings = record(
     body.settings,
     ["titlePrefix", "titleSuffix", "descriptionFooter", "categoryAllowlist", "excludedListingIds"],
-    ["publishQuantityCap"],
+    ["publishQuantityCap", "lowStockWithholdUnits"],
   );
   const parsed = {
     expectedStreamVersion: integer(body.expectedStreamVersion),
@@ -108,6 +108,7 @@ function parseSettingsRequest(value: unknown) {
       categoryAllowlist: strings(settings.categoryAllowlist),
       excludedListingIds: strings(settings.excludedListingIds),
       publishQuantityCap: settings.publishQuantityCap == null ? null : integer(settings.publishQuantityCap),
+      lowStockWithholdUnits: settings.lowStockWithholdUnits == null ? null : integer(settings.lowStockWithholdUnits),
     },
   };
   assertChannelPublicationSettingsPayload(parsed.settings);

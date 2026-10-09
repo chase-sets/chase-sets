@@ -4,6 +4,8 @@ import type { ChannelInventorySnapshotRow } from "../domain/contracts";
 import { composeTcgplayerReservation, planStagedImportBatches } from "../domain/composition";
 import { tcgplayerCompositionProfiles } from "../domain/profile";
 import { parseTcgplayerFullExport } from "../domain/csv";
+import { composeChannelListingPublication } from "../../listing-composition/domain/compose";
+import { listingInput, publishedLink } from "../../listing-composition/tests/test-support";
 
 const digest = "a".repeat(64);
 const tcgplayerProfile = tcgplayerCompositionProfiles[0];
@@ -23,6 +25,61 @@ const reservation: ClaimedOperationReservation = {
 };
 
 describe("tcgplayer-member-outcomes-and-field-provenance", () => {
+  it("low-stock withholding composes a claimed target-zero from the retained listing identity", () => {
+    const input = listingInput({ link: { kind: "existing", state: publishedLink() } });
+    if (input.listing.kind !== "present") throw new Error("Expected listing.");
+    const result = composeChannelListingPublication({
+      ...input,
+      listing: {
+        ...input.listing,
+        offer: { ...input.listing.offer, publishableQuantity: { kind: "low-stock-withheld" } },
+      },
+    });
+    if (result.kind !== "publishable" || result.intent !== "delist") throw new Error("Expected delist.");
+    const composed = composeTcgplayerReservation({
+      runId: "run-synthetic-withheld",
+      reservation: {
+        ...reservation,
+        operations: [
+          {
+            ...operation(
+              "operation-withheld",
+              "listing-synthetic",
+              result.delist.channelListingId,
+              12,
+              result.delist.listingRevision,
+              0,
+              27,
+            ),
+            operationKind: "delist",
+            payload: { kind: "delist", delist: result.delist },
+          },
+        ],
+      },
+      basisSnapshotId: "snapshot-staged",
+      basisSnapshotGeneration: 7,
+      basisRows: [basis("product:90000001", 4, 26)],
+      header: ["TCGplayer Id", "Title", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
+      references: [
+        reference(result.delist.channelListingId, {
+          kind: "linked",
+          providerKey: "tcgplayer",
+          externalKey: "product:90000001",
+        }),
+      ],
+      conditionMappings: [],
+      profile: tcgplayerProfile,
+      maxRowsPerBatch: 500,
+    });
+    expect(composed.members).toHaveLength(1);
+    expect(composed.members[0]).toMatchObject({
+      memberKind: "composed",
+      targetQuantity: 0,
+      csvRow: { "Add to Quantity": "-4" },
+    });
+    expect(composed.batch?.rows).toHaveLength(1);
+  });
+
   it("partitions reservation membership exactly and computes deltas only from Staged", () => {
     const composed = composeTcgplayerReservation({
       runId: "run-synthetic",
