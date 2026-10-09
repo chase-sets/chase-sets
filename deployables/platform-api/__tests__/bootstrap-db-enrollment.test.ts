@@ -977,6 +977,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [
         'import { it } from "vitest";',
         'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
+        'import { prepareConnectorBoundSettlement } from "@chase-sets/channels/test-support";',
+        "void prepareConnectorBoundSettlement;",
         'createPlatformApiBootstrapTestHarness("synthetic_operator_boot");',
         'it("undiscovered bootstrap importer", async () => {});',
       ].join("\n"),

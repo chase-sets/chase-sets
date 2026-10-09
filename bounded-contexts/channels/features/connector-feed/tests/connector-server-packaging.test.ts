@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
 
 const contextRoot = resolve(import.meta.dirname, "../../..");
-const server = resolve(contextRoot, "server.ts");
+const productionRoots = ["server.ts", "index.ts", "client.ts"];
 const fixtureExport =
   'export { failConnectorSettlementAt } from "./features/connector-feed/tests/settlement-test-support";';
 
-function checkServerGraph(extraExport = "") {
+function checkProductionGraph(entry: string, extraExport = "") {
+  const root = resolve(contextRoot, entry);
   const visited = new Set<string>();
   function visit(path: string) {
     if (visited.has(path)) return;
@@ -17,7 +18,11 @@ function checkServerGraph(extraExport = "") {
     if (/(^|\/)(tests|__tests__|e2e|coverage|\.turbo)(\/|$)|\.(test|spec)\./.test(localPath)) {
       throw new Error(`production dependency pruned by Dockerfile: ${localPath}`);
     }
-    const runtime = ts.transpileModule(readFileSync(path, "utf8") + (path === server ? extraExport : ""), {
+    if (path.endsWith(".json")) {
+      JSON.parse(readFileSync(path, "utf8"));
+      return;
+    }
+    const runtime = ts.transpileModule(readFileSync(path, "utf8") + (path === root ? extraExport : ""), {
       fileName: path,
       compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
     }).outputText;
@@ -35,7 +40,7 @@ function checkServerGraph(extraExport = "") {
       visit(resolve(target.resolvedFileName));
     }
   }
-  visit(server);
+  visit(root);
   return visited;
 }
 
@@ -59,12 +64,12 @@ describe("connector production server packaging", () => {
     ]);
   });
 
-  it("keeps the production server dependency graph out of Docker-pruned test directories", () => {
-    expect(checkServerGraph().size).toBeGreaterThan(1);
+  it.each(productionRoots)("keeps the %s dependency graph out of Docker-pruned test directories", (entry) => {
+    expect(checkProductionGraph(entry).size).toBeGreaterThan(1);
   });
 
-  it("rejects a fixture re-export planted in the production barrel", () => {
-    expect(() => checkServerGraph(`\n${fixtureExport}`)).toThrow(
+  it.each(productionRoots)("rejects a fixture re-export planted in %s", (entry) => {
+    expect(() => checkProductionGraph(entry, `\n${fixtureExport}`)).toThrow(
       "production dependency pruned by Dockerfile: features/connector-feed/tests/settlement-test-support.ts",
     );
   });

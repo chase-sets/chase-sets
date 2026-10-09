@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +12,14 @@ import {
   sourceContextWakeRegistry,
   summarizeSourceContextWakeRegistry,
 } from "../../infrastructure/platform-runtime/source-context-wake-registry.ts";
-import { isAllowedDeployableBoundedContextImport } from "./run.mjs";
+import {
+  findTestSupportImportViolations,
+  hasValidTestSupportDeclaration,
+  isAllowedDeployableBoundedContextImport,
+  isAllowedPublicExportName,
+  walk,
+} from "./run.mjs";
+import { runImportBoundaryValidation } from "./phases.mjs";
 
 const channelsRoot = path.join(repoRoot, "bounded-contexts/channels");
 const manifestPath = path.join(channelsRoot, "context.json");
@@ -374,7 +381,7 @@ describe("channels-context-foundation", () => {
         "reconciliation",
       ],
       allowedSupportDirectories: ["request-support", "runtime-support", "seed-support"],
-      publicExports: [".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"],
+      publicExports: [".", "./client", "./context", "./server", "./test-support", "./routes/*", "./seed-support/*"],
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
@@ -1056,27 +1063,340 @@ describe("deployable-browser-test-support-import-fence", () => {
   });
 });
 
-describe("declared-browser-test-support-resolution", () => {
+describe("declared-api-db-test-support", () => {
+  const specifier = "@chase-sets/neutral-package/test-support";
+  const witness = "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts";
+  const nested = "deployables/platform-api/__tests__/neutral/nested/neutral.db.test.ts";
+  const mapping = "./features/neutral-slice/tests/neutral.ts";
+
+  function declaredTarget() {
+    const root = createTempRepo("api-db-support-");
+    const rootAbs = path.join(root, "bounded-contexts/neutral-context");
+    writeSource(rootAbs, mapping, "export const neutral = true;\n");
+    return {
+      rootAbs,
+      packageName: "@chase-sets/neutral-package",
+      manifest: {
+        contextName: "neutral-context",
+        packageName: "@chase-sets/neutral-package",
+        publicExports: ["./test-support"],
+      },
+      packageJson: { name: "@chase-sets/neutral-package", exports: { "./test-support": mapping } },
+    };
+  }
+
+  function check(file, target, imported = specifier) {
+    return isAllowedDeployableBoundedContextImport(file, imported, target);
+  }
+
+  it("admits only the exact vocabulary entry and the actual declared Channels witness", () => {
+    expect(isAllowedPublicExportName("./test-support")).toBe(true);
+    expect(isAllowedPublicExportName("./test-support/*")).toBe(false);
+    expect(isAllowedPublicExportName("./test-support/extra")).toBe(false);
+    const target = {
+      rootAbs: channelsRoot,
+      packageName: "@chase-sets/channels",
+      manifest: readJson(manifestPath),
+      packageJson: readJson(packagePath),
+    };
+    expect(check(witness, target, "@chase-sets/channels/test-support")).toBe(true);
+    expect(
+      findTestSupportImportViolations(witness, readFileSync(path.join(repoRoot, witness), "utf8"), [target]),
+    ).toEqual([]);
+  });
+
+  it.each([
+    `import "${specifier}";`,
+    `void import("${specifier}");`,
+    `export * from "${specifier}";`,
+    `const fixture = require("${specifier}");`,
+  ])("discovers denied side effects, dynamic imports and re-exports: %s", (content) => {
+    expect(
+      findTestSupportImportViolations("bounded-contexts/channels/server.ts", content, [declaredTarget()]),
+    ).toHaveLength(1);
+  });
+
+  async function discover(file, target, imported = specifier) {
+    const root = createTempRepo("api-db-consumer-");
+    writeSource(
+      root,
+      file,
+      `import { neutral } from ${JSON.stringify(imported)};\nexport { neutral } from ${JSON.stringify(imported)};\n`,
+    );
+    const found = [];
+    const violations = [];
+    await runImportBoundaryValidation({
+      roots: [root],
+      walk,
+      onDirectory() {},
+      onFile(filePath) {
+        const relative = path.relative(root, filePath).replaceAll("\\", "/");
+        found.push(relative);
+        violations.push(
+          ...findTestSupportImportViolations(relative, readFileSync(filePath, "utf8"), [target].values()),
+        );
+      },
+    });
+    expect(found).toEqual([file]);
+    return violations;
+  }
+
+  it.each([witness, nested])("admits %s by declaration, not context directory name", async (file) => {
+    const target = declaredTarget();
+    expect(hasValidTestSupportDeclaration(target)).toBe(true);
+    expect(check(file, target)).toBe(true);
+    expect(check(file.replaceAll("/", "\\"), target)).toBe(true);
+    expect(await discover(file, target)).toEqual([]);
+  });
+
+  const deniedConsumers = [
+    "deployables/platform-api/src/neutral.ts",
+    "deployables/platform-api/server.ts",
+    "deployables/platform-api/__tests__/neutral.test.ts",
+    "deployables/platform-api/__tests__/neutral.db.spec.ts",
+    "deployables/platform-api/__tests__/neutral.db.test.tsx",
+    "deployables/platform-api/__tests__/neutral.db.test.js",
+    "deployables/platform-api/__tests__/neutral.ts",
+    "deployables/platform-api/neutral.db.test.ts",
+    ...[
+      "platform-worker",
+      "admin-web",
+      "marketplace",
+      "public-web",
+      "tcgplayer-operator-extension",
+      "tcgplayer-connector-extension",
+    ].map((name) => `deployables/${name}/__tests__/neutral.db.test.ts`),
+    "bounded-contexts/neutral-context/features/neutral-slice/tests/neutral.db.test.ts",
+    "bounded-contexts/other/features/neutral/tests/neutral.db.test.ts",
+    "bounded-contexts/other/support/seed-support/neutral.ts",
+    "bounded-contexts/other/seed.ts",
+    "infrastructure/platform-runtime/tests/neutral.test.ts",
+    "contracts/neutral/tests/neutral.test.ts",
+    "packages/neutral/tests/neutral.test.ts",
+    "scripts/neutral.test.mjs",
+    "bounded-contexts/channels/server.ts",
+  ];
+  it.each(deniedConsumers)("refuses %s through predicate and real discovery", async (file) => {
+    const target = declaredTarget();
+    expect(check(witness, target)).toBe(true);
+    expect(check(file, target)).toBe(false);
+    expect(check(file.replaceAll("/", "\\"), target)).toBe(false);
+    expect(await discover(file, target)).toHaveLength(2);
+  });
+
+  it.each([
+    "deployables/platform-api/__tests__//neutral.db.test.ts",
+    "deployables/platform-api/__tests__/./neutral.db.test.ts",
+    "deployables/platform-api/__tests__/../neutral.db.test.ts",
+    "/deployables/platform-api/__tests__/neutral.db.test.ts",
+    "prefix/deployables/platform-api/__tests__/neutral.db.test.ts",
+    "C:/deployables/platform-api/__tests__/neutral.db.test.ts",
+    "deployables/platform-api/__tests__/C:/neutral.db.test.ts",
+    `${witness}/`,
+    `${witness}?query`,
+    `${witness}#fragment`,
+    "",
+  ])("rejects unnormalized importer %s without collapsing it", (file) => {
+    const target = declaredTarget();
+    expect(check(file, target)).toBe(false);
+    expect(check(file.replaceAll("/", "\\"), target)).toBe(false);
+    expect(findTestSupportImportViolations(file, `import "${specifier}";`, [target])).toHaveLength(1);
+  });
+
+  const declarationMutations = [
+    [
+      "package declaration absent",
+      (t) => {
+        delete t.packageJson.exports["./test-support"];
+      },
+    ],
+    [
+      "context declaration absent",
+      (t) => {
+        t.manifest.publicExports = [];
+      },
+    ],
+    [
+      "package identity mismatch",
+      (t) => {
+        t.packageJson.name = "@chase-sets/other";
+      },
+    ],
+    [
+      "context identity mismatch",
+      (t) => {
+        t.manifest.packageName = "@chase-sets/other";
+      },
+    ],
+    [
+      "root absent",
+      (t) => {
+        delete t.rootAbs;
+      },
+    ],
+    [
+      "root missing",
+      (t) => {
+        t.rootAbs += "-missing";
+      },
+    ],
+    [
+      "conditional export",
+      (t) => {
+        t.packageJson.exports["./test-support"] = { default: mapping };
+      },
+    ],
+    [
+      "non-string export",
+      (t) => {
+        t.packageJson.exports["./test-support"] = [mapping];
+      },
+    ],
+    ...[
+      "./features/neutral-slice/tests/*.ts",
+      "./features/neutral-slice/tests/missing.ts",
+      "./features/neutral-slice/tests",
+      "./features/neutral-slice/api/neutral.ts",
+      "./features/neutral-slice/tests//neutral.ts",
+      "./features/neutral-slice/tests/./neutral.ts",
+      "./features/neutral-slice/tests/../tests/neutral.ts",
+      "./features/neutral-slice/tests/..\\tests/neutral.ts",
+      "/features/neutral-slice/tests/neutral.ts",
+      "C:/features/neutral-slice/tests/neutral.ts",
+      "./features/neutral-slice/tests/neutral.ts?query",
+      "./features/neutral-slice/tests/neutral.ts#fragment",
+      "features/neutral-slice/tests/neutral.ts",
+      "./../features/neutral-slice/tests/neutral.ts",
+    ].map((value) => [
+      value,
+      (t) => {
+        t.packageJson.exports["./test-support"] = value;
+      },
+    ]),
+  ];
+  it.each(declarationMutations)("refuses %s with all other inputs fixed", async (_label, mutate) => {
+    const target = declaredTarget();
+    writeSource(target.rootAbs, "features/neutral-slice/api/neutral.ts", "export const neutral = true;");
+    expect(check(witness, target)).toBe(true);
+    mutate(target);
+    expect(hasValidTestSupportDeclaration(target)).toBe(false);
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target)).toHaveLength(2);
+  });
+
+  it("refuses absent metadata and a different actual target package", async () => {
+    expect(check(witness, undefined)).toBe(false);
+    const target = declaredTarget();
+    const wrong = "@chase-sets/neutral-context/test-support";
+    expect(check(witness, target, wrong)).toBe(false);
+    target.packageName = target.packageJson.name = target.manifest.packageName = "@chase-sets/other";
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target, "@chase-sets/other/test-support/extra")).toHaveLength(2);
+  });
+
+  it("rejects an existing directory and symlink escaping its owner tests tree", async () => {
+    const target = declaredTarget();
+    const outside = createTempRepo("outside-fixture-");
+    writeSource(outside, "neutral.ts", "export const neutral = true;");
+    const link = path.join(target.rootAbs, "features/neutral-slice/tests/link");
+    symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
+    target.packageJson.exports["./test-support"] = "./features/neutral-slice/tests/link/neutral.ts";
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target)).toHaveLength(2);
+    mkdirSync(path.join(target.rootAbs, "features/neutral-slice/tests/directory.ts"));
+    target.packageJson.exports["./test-support"] = "./features/neutral-slice/tests/directory.ts";
+    expect(check(witness, target)).toBe(false);
+    expect(await discover(witness, target)).toHaveLength(2);
+  });
+
+  it.each(["/extra", "/../server", "/./neutral", "//neutral", "/", "?query", "#fragment", "\\extra"])(
+    "rejects malformed specifier suffix %s",
+    async (suffix) => {
+      const target = declaredTarget();
+      expect(check(witness, target, `${specifier}${suffix}`)).toBe(false);
+      expect(await discover(witness, target, `${specifier}${suffix}`)).toHaveLength(2);
+    },
+  );
+
+  it("retains seed-support refusal and relative deep-import refusal for API DB witnesses", () => {
+    const target = declaredTarget();
+    target.manifest.publicExports.push("./seed-support/*");
+    target.packageJson.exports["./seed-support/*"] = "./features/neutral-slice/tests/*.ts";
+    expect(check(witness, target, "@chase-sets/neutral-package/seed-support/neutral")).toBe(false);
+    expect(
+      check(witness, target, "../../../bounded-contexts/neutral-context/features/neutral-slice/tests/neutral"),
+    ).toBe(false);
+    const source = readFileSync(path.join(repoRoot, "scripts/check-structure/run.mjs"), "utf8");
+    expect(source).toContain("addViolation(file, `deployables must use package imports (${specifier})`)");
+  });
+
+  it("discriminates declaration-removal and consumer-broadening mutants independently", () => {
+    const source = readFileSync(path.join(repoRoot, "scripts/check-structure/run.mjs"), "utf8");
+    const start = source.indexOf("export function isAllowedDeployableBoundedContextImport(");
+    const end = source.indexOf("\nfunction isAllowedContextImporter", start);
+    const original = source.slice(start, end).replace("export ", "");
+    const compile = (body) =>
+      new Function(
+        "hasValidTestSupportDeclaration",
+        "hasSafePathSegments",
+        `${body}; return isAllowedDeployableBoundedContextImport;`,
+      )(hasValidTestSupportDeclaration, (value) =>
+        value.split("/").every((segment) => segment && segment !== "." && segment !== ".."),
+      );
+    const declarationRemoved = original.replace("hasValidTestSupportDeclaration(targetContext)", "true");
+    expect(declarationRemoved).not.toBe(original);
+    const target = declaredTarget();
+    target.manifest.publicExports = [];
+    expect(check(witness, target)).toBe(false);
+    expect(compile(declarationRemoved)(witness, specifier, target)).toBe(true);
+    const consumerBroadened = original.replace(
+      "/^deployables\\/platform-api\\/__tests__\\/(?:[^/]+\\/)*[^/]+\\.db\\.test\\.ts$/",
+      "/^deployables\\//",
+    );
+    expect(consumerBroadened).not.toBe(original);
+    const valid = declaredTarget();
+    expect(check(deniedConsumers[0], valid)).toBe(false);
+    expect(compile(consumerBroadened)(deniedConsumers[0], specifier, valid)).toBe(true);
+  });
+});
+
+describe.each([
+  [
+    "browser seed",
+    "./seed-support/*",
+    "./support/seed-support/*.ts",
+    "seed-support/neutral",
+    "support/seed-support/neutral.ts",
+    ["deployables/admin-web/e2e/neutral.spec.ts", "deployables/marketplace/e2e/nested/neutral.probe.spec.ts"],
+  ],
+  [
+    "API DB",
+    "./test-support",
+    "./features/neutral/tests/neutral.ts",
+    "test-support",
+    "features/neutral/tests/neutral.ts",
+    [
+      "deployables/platform-api/__tests__/neutral.db.test.ts",
+      "deployables/platform-api/__tests__/nested/neutral.db.test.ts",
+    ],
+  ],
+])("declared %s support resolution", (_label, exportKey, mapping, subpath, modulePath, specPaths) => {
   it("resolves both specs through generated package exports and loses resolution when only the export is removed", () => {
     const root = createTempRepo("browser-seed-resolution-");
     const contextRoot = "bounded-contexts/neutral-context";
-    const target = `${contextRoot}/support/seed-support/neutral.ts`;
-    const specifier = "@chase-sets/neutral-package/seed-support/neutral";
-    const specPaths = [
-      "deployables/admin-web/e2e/neutral.spec.ts",
-      "deployables/marketplace/e2e/nested/neutral.probe.spec.ts",
-    ];
+    const target = `${contextRoot}/${modulePath}`;
+    const specifier = `@chase-sets/neutral-package/${subpath}`;
     writeJson(path.join(root, "tsconfig.base.json"), {
       compilerOptions: { moduleResolution: "Bundler", module: "ESNext", paths: {} },
     });
     writeJson(path.join(root, contextRoot, "context.json"), {
       contextName: "neutral-context",
       packageName: "@chase-sets/neutral-package",
-      publicExports: ["./seed-support/*"],
+      publicExports: [exportKey],
     });
     const packageJson = {
       name: "@chase-sets/neutral-package",
-      exports: { "./seed-support/*": "./support/seed-support/*.ts" },
+      exports: { [exportKey]: mapping },
     };
     writeJson(path.join(root, contextRoot, "package.json"), packageJson);
     writeSource(root, target, "export const neutral = true;\n");
@@ -1104,18 +1424,15 @@ describe("declared-browser-test-support-resolution", () => {
     };
 
     sync();
-    expect(readJson(path.join(root, contextRoot, "package.json")).exports["./seed-support/*"]).toBe(
-      "./support/seed-support/*.ts",
-    );
-    expect(readConfig().compilerOptions.paths["@chase-sets/neutral-package/seed-support/*"]).toEqual([
-      `./${contextRoot}/support/seed-support/*.ts`,
-    ]);
+    expect(readJson(path.join(root, contextRoot, "package.json")).exports[exportKey]).toBe(mapping);
+    const alias = `@chase-sets/neutral-package/${exportKey.slice(2)}`;
+    expect(readConfig().compilerOptions.paths[alias]).toEqual([`./${contextRoot}/${mapping.slice(2)}`]);
     for (const file of specPaths) expect(path.resolve(resolve(file).resolvedFileName)).toBe(path.join(root, target));
 
-    delete packageJson.exports["./seed-support/*"];
+    delete packageJson.exports[exportKey];
     writeJson(path.join(root, contextRoot, "package.json"), packageJson);
     sync();
-    expect(readConfig().compilerOptions.paths).not.toHaveProperty("@chase-sets/neutral-package/seed-support/*");
+    expect(readConfig().compilerOptions.paths).not.toHaveProperty(alias);
     for (const file of specPaths) expect(resolve(file)).toBeUndefined();
   });
 });
