@@ -21,6 +21,7 @@ import { createChannelConnectionRuntime } from "../../connections/api/runtime";
 import type { ChannelConnectionHostPorts } from "../../connections/domain/contracts";
 import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "../read-model/schema";
 import { connectorInboundSchemaMigrations, connectorInboundSchemaSql } from "../read-model/inbound-schema";
+import { connectorLivenessSchemaMigrations, connectorLivenessSchemaSql } from "../read-model/liveness-schema";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 function databaseUrl() {
@@ -776,11 +777,19 @@ describeDb("connector-pairing-lifecycle", () => {
     expect(boot.columns.length).toBeGreaterThan(15);
     expect(boot.indexes.some((index) => index.indexname === "channel_connector_pairings_actor_code_idx")).toBe(true);
     await resetMultiContextTestSchemas({ channels: pools.channels });
-    for (const migration of [...connectorFeedSchemaMigrations, ...connectorInboundSchemaMigrations])
+    for (const migration of [
+      ...connectorFeedSchemaMigrations,
+      ...connectorInboundSchemaMigrations,
+      ...connectorLivenessSchemaMigrations,
+    ])
       for (const statement of migration.statements) await pools.channels.query(statement);
     expect(await shape()).toEqual(boot);
-    await pools.channels.query(`${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}`);
-    await pools.channels.query(`${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}`);
+    await pools.channels.query(
+      `${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${connectorLivenessSchemaSql}`,
+    );
+    await pools.channels.query(
+      `${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${connectorLivenessSchemaSql}`,
+    );
     expect(await shape()).toEqual(boot);
   });
 

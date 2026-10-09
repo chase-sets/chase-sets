@@ -118,6 +118,10 @@ function validCandidate() {
       report: vi.fn(),
       ingest: vi.fn(),
       readAdmittedConnectorInboundEvents: vi.fn(),
+      readConnectorLivenessAuthority: vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthority"]>(),
+      readConnectorLivenessAuthorityInTransaction:
+        vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthorityInTransaction"]>(),
+      listConnectorLivenessCandidates: vi.fn<ChannelsServices["connectorFeed"]["listConnectorLivenessCandidates"]>(),
     },
     projectors: [],
     db: {},

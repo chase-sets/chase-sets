@@ -10,6 +10,7 @@ import type { ManualSyncServices } from "../../features/manual-sync/api/runtime"
 import type { ConnectionAttentionServices } from "../../features/connection-attention/domain/contracts";
 import type { ConnectorFeedServices } from "../../features/connector-feed/api/runtime";
 import type { ConnectorTransportServices } from "../../features/connector-feed/api/transport";
+import type { ConnectorLivenessServices } from "../../features/connector-feed/read-model/liveness";
 import type { ChannelCredentialServices } from "../../features/credentials/api/runtime";
 import type { TcgplayerOrderServices } from "../../features/tcgplayer-orders/api/runtime";
 import type { FulfillmentObservationServices } from "../../features/order-fulfillment-observations/api/runtime";
@@ -26,7 +27,7 @@ export type ChannelsServices = Readonly<{
   tcgplayerOrders: TcgplayerOrderServices;
   fulfillmentObservations: FulfillmentObservationServices;
   manualSync: ManualSyncServices;
-  connectorFeed: ConnectorFeedServices & ConnectorTransportServices;
+  connectorFeed: ConnectorFeedServices & ConnectorTransportServices & ConnectorLivenessServices;
   projectors: readonly ProjectionHandlerSet[];
   db: PgTransactionalPool;
 }>;
@@ -96,6 +97,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     isObject(Reflect.get(value, "fulfillmentObservations")) &&
     isObject(manualSync) &&
     isObject(connectorFeed) &&
+    typeof Reflect.get(connectorFeed, "readConnectorLivenessAuthority") === "function" &&
+    typeof Reflect.get(connectorFeed, "readConnectorLivenessAuthorityInTransaction") === "function" &&
+    typeof Reflect.get(connectorFeed, "listConnectorLivenessCandidates") === "function" &&
     typeof Reflect.get(connectorFeed, "readAuthority") === "function" &&
     typeof Reflect.get(connectorFeed, "withAuthority") === "function" &&
     typeof Reflect.get(connectorFeed, "claim") === "function" &&

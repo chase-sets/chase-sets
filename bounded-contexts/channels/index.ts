@@ -178,6 +178,11 @@ import {
   connectorInboundSchemaSql,
 } from "./features/connector-feed/read-model/inbound-schema";
 import { createConnectorTransport } from "./features/connector-feed/api/transport";
+import { createConnectorLivenessReader } from "./features/connector-feed/read-model/liveness";
+import {
+  connectorLivenessSchemaSql,
+  connectorLivenessSchemaMigrations,
+} from "./features/connector-feed/read-model/liveness-schema";
 import { createConnectorTransportRoutes } from "./features/connector-feed/api/transport-routes";
 import { connectorTransportPolicy, decodeConnectorPolicy } from "./features/connector-feed/domain/policy";
 import { createTcgplayerOrderRuntime } from "./features/tcgplayer-orders/api/runtime";
@@ -216,7 +221,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${fulfillmentObservationSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
@@ -230,6 +235,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     ...connectorFeedSchemaMigrations,
     ...connectorInboundSchemaMigrations,
     ...tcgplayerOrdersSchemaMigrations,
+    ...connectorLivenessSchemaMigrations,
     ...fulfillmentObservationSchemaMigrations,
   ],
   retentionSweeps: [...connectorInboundRetentionSweeps, ...fulfillmentObservationRetentionSweeps],
@@ -374,12 +380,13 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       manualSync,
       connectorFeed: {
         ...connectorFeed,
+        ...createConnectorLivenessReader(pool),
         ...createConnectorTransport({
           db: pool,
           authority: connectorFeed,
           outboundSync,
           registry: channelProviderRegistry,
-          resolvePolicy: async () => (await policies.resolvePolicy(connectorTransportPolicy)).value,
+          resolvePolicy: () => policies.resolvePolicy(connectorTransportPolicy),
         }),
       },
       db: pool,

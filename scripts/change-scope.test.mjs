@@ -1927,6 +1927,33 @@ describe("change-scope", () => {
     }
   });
 
+  it.each([
+    "scripts/discovery-search-identity-terms-populate.mjs",
+    "scripts/typescript-resolver-caller-manifests/discovery-search-identity-terms-populate.manifest",
+  ])("requires an image and deploy without cluster preview for population asset %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file] });
+    const unrelated = classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] });
+    expect(scope).toEqual({
+      ...unrelated,
+      changedFiles: [file],
+      dockerImageRequired: true,
+      deployRequired: true,
+      composeSmokeRequired: true,
+    });
+    expect(scope.clusterPreviewRequired).toBe(false);
+  });
+
+  it.each([
+    "scripts/discovery-search-identity-terms-populate.test.mjs",
+    "scripts/discovery-search-identity-terms-populate.mjs.bak",
+    "scripts/typescript-resolver-caller-manifests/discovery-search-identity-terms-populate.manifest.bak",
+  ])("keeps population asset lookalikes out of image and deploy scope: %s", (file) => {
+    expect(classifyChanges({ changedFiles: [file] })).toEqual({
+      ...classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] }),
+      changedFiles: [file],
+    });
+  });
+
   it("keeps unrelated scripts-only changes out of workspace and gate fanout", () => {
     const scope = classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] });
 

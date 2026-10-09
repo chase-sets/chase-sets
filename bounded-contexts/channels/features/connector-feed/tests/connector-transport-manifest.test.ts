@@ -4,6 +4,18 @@ import { connectorInboundSchemaMigrations, connectorInboundSchemaSql } from "../
 import { connectorFeedSchemaMigrations } from "../read-model/schema";
 
 describe("connector-feed-bootstrap-and-manifest", () => {
+  it("publishes the same liveness readers from the server surface", () => {
+    const source = readFileSync(new URL("../../../server.ts", import.meta.url), "utf8");
+    expect(source.replaceAll("\r\n", "\n")).toContain(
+      [
+        "export {",
+        "  readConnectorLivenessAuthority,",
+        "  readConnectorLivenessAuthorityInTransaction,",
+        "  listConnectorLivenessCandidates,",
+        '} from "./features/connector-feed/read-model/liveness";',
+      ].join("\n"),
+    );
+  });
   it("ships every boot statement in an ordered migration, including the separately retained identity and payload", () => {
     const migrations = connectorInboundSchemaMigrations.flatMap((migration) => migration.statements);
     expect(connectorInboundSchemaSql).toBe(
@@ -38,7 +50,15 @@ describe("connector-feed-bootstrap-and-manifest", () => {
   it("enrolls each new persisted proof in Channels DB only and imports the existing inbox helper", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
     expect(manifest.dependencies["@chase-sets/provider-webhook-inbox"]).toBe("workspace:*");
-    for (const file of ["connector-inbound", "connector-steady-state", "connector-producer"]) {
+    for (const file of [
+      "connector-inbound",
+      "connector-steady-state",
+      "connector-producer",
+      "connector-liveness-authority-write",
+      "connector-liveness-authority-read",
+      "connector-liveness-candidates",
+      "connector-liveness-policy-identity",
+    ]) {
       const path = `features/connector-feed/tests/${file}.db.test.ts`;
       expect(manifest.scripts["test:db"].split(" ")).toContain(path);
       expect(manifest.scripts["test:unit"]).toContain(`--exclude ${path}`);
