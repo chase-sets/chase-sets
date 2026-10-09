@@ -1,7 +1,16 @@
 import { createHash, webcrypto } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createContext, Script } from "node:vm";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -25,7 +34,9 @@ type Fixture = {
   error?: boolean;
   elapsed?: number;
   bodyStall?: boolean;
+  ignoreAbort?: boolean;
 };
+type ReadPhase = "headers" | "body" | "latch";
 let out: string;
 let preparation: { extensionId: string; packageDirectory: string; head: string; profileDirectory: string };
 
@@ -65,6 +76,7 @@ beforeAll(() => {
   mkdirSync(scratch, { recursive: true });
   out = path.join(mkdtempSync(path.join(scratch, "emitted-")), "run");
   preparation = packaging.prepare({ out, synthetic: true, t0: T0 });
+  console.info(`SYNTHETIC_9181 emitted controls: ${path.dirname(out)}`);
 });
 
 function harness(
@@ -77,9 +89,14 @@ function harness(
     evidence?: string;
     tamper?: string;
     holdCadence?: boolean;
+    holdLatch?: "lookup" | "page";
+    onReadPhase?: (kind: "lookup" | "page", phase: ReadPhase) => void;
   } = {},
 ) {
   let now = T0;
+  let ticking = false;
+  let releaseLatch = () => {};
+  let releaseRead = () => {};
   let sequence = 0;
   let listener: Listener;
   const storage = options.storage ?? {};
@@ -109,11 +126,36 @@ function harness(
     ]).toContain(url);
     wire.push({ url, request, at: now });
     const lookup = url.includes("auth-detail");
+    const kind = lookup ? "lookup" : "page";
     const page = wire.filter((read) => !read.url.includes("auth-detail")).length - 1;
     const fixture = (lookup ? options.lookup : options.fixtures?.[page]) ?? {};
     if (fixture.error) throw new Error(PRIVATE);
     now += fixture.elapsed ?? 0;
-    if (fixture.stall) return new Promise<Response>(() => {});
+    if (fixture.stall) {
+      options.onReadPhase?.(kind, "headers");
+      return new Promise<Response>((resolve) => {
+        releaseRead = () => resolve(new Response(json({ seller: { sellerKey: seller } })));
+      });
+    }
+    if (fixture.bodyStall && fixture.ignoreAbort) {
+      let reads = 0;
+      return {
+        status: 200,
+        headers: new Headers({ "Content-Type": "application/json" }),
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (++reads === 1) return { done: false, value: new TextEncoder().encode("{") };
+              options.onReadPhase?.(kind, "body");
+              return new Promise((resolve) => {
+                releaseRead = () => resolve({ done: false, value: new TextEncoder().encode(PRIVATE) });
+              });
+            },
+            cancel: () => new Promise(() => {}),
+          }),
+        },
+      };
+    }
     let body: BodyInit;
     if (fixture.endless)
       body = new ReadableStream({
@@ -151,7 +193,7 @@ function harness(
   };
   class Clock extends Date {
     static override now() {
-      return now;
+      return ticking ? now++ : now;
     }
   }
   const context = createContext({
@@ -175,6 +217,14 @@ function harness(
           set: async (value: Record<string, unknown>) => {
             Object.assign(storage, structuredClone(value));
             retained.push(structuredClone(value));
+            const latch = value.detectionPaginationLatch as { counts: { lookup: number; page: number } };
+            const kind = options.holdLatch;
+            if (kind && latch?.counts[kind] === 1) {
+              options.onReadPhase?.(kind, "latch");
+              await new Promise<void>((resolve) => {
+                releaseLatch = resolve;
+              });
+            }
           },
           setAccessLevel: async (value: unknown) => {
             retained.push(value);
@@ -269,6 +319,21 @@ function harness(
     restart,
     advance,
     intervals,
+    timers,
+    releaseLatch: () => releaseLatch(),
+    releaseRead: () => releaseRead(),
+    tickAt: (at: number) => {
+      now = at;
+      ticking = true;
+    },
+    heartbeat: () => {
+      for (const timer of intervals.values()) timer.callback();
+    },
+    expire: () => {
+      const expiry = [...timers.values()].find((timer) => timer.at === T0 + 900000);
+      expect(expiry).toBeDefined();
+      expiry!.callback();
+    },
     loseCustody: () => {
       custody = false;
     },
@@ -732,6 +797,281 @@ describe("detection-pagination-authority-controls", () => {
     const changed = (await harness({ pages, workerSource: mutant }).run()).receipt;
     expect(changed.reason).toBe("qualified");
     expect(() => expect(changed.state).toBe("unknown")).toThrow();
+  });
+});
+
+type TerminalControl = {
+  kind: "lookup" | "page";
+  phase: ReadPhase;
+  trigger: "custody_loss" | "expired" | "invalid_message" | "deadline";
+};
+const terminalControls: TerminalControl[] = (["lookup", "page"] as const).flatMap((kind) => [
+  ...(["headers", "body"] as const).flatMap((phase) =>
+    (["custody_loss", "expired", "invalid_message"] as const).map((trigger) => ({ kind, phase, trigger })),
+  ),
+  ...(["custody_loss", "expired", "deadline"] as const).map((trigger) => ({ kind, phase: "latch" as const, trigger })),
+]);
+
+async function terminalCapture({ kind, phase, trigger }: TerminalControl) {
+  let entered = () => {};
+  const ready = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const fixture = phase === "headers" ? { stall: true } : { bodyStall: true, ignoreAbort: true };
+  const worker = harness({
+    ...(kind === "lookup" ? { lookup: fixture } : { fixtures: [fixture] }),
+    holdLatch: phase === "latch" ? kind : undefined,
+    onReadPhase: (readKind, readPhase) => {
+      if (readKind === kind && readPhase === phase) entered();
+    },
+  });
+  const page = helper(worker);
+  const pending = page.run();
+  await ready;
+  const calls = kind === "lookup" ? (phase === "latch" ? 0 : 1) : phase === "latch" ? 1 : 2;
+  expect(worker.wire).toHaveLength(calls);
+  worker.tickAt(T0 + (["expired", "deadline"].includes(trigger) ? 900000 : kind === "lookup" ? 20000 : 60000));
+  if (trigger === "custody_loss") {
+    worker.loseCustody();
+    worker.heartbeat();
+    await Promise.resolve();
+    await Promise.resolve();
+  } else if (trigger === "expired") worker.expire();
+  else if (trigger === "invalid_message")
+    expect(await worker.send({ kind: "SYNTHETIC_INVALID_MESSAGE_9181" })).toEqual({
+      ok: false,
+      code: "invalid_message",
+    });
+  if (trigger !== "deadline") {
+    expect(worker.intervals.size).toBe(0);
+    expect([...worker.timers.values()].some((timer) => timer.at === T0 + 900000)).toBe(false);
+    if (phase !== "latch") expect(worker.wire.at(-1)!.request.signal!.aborted).toBe(true);
+  }
+  worker.releaseLatch();
+  expect(await pending).toEqual({ ok: true, code: "scrubbed_export_created" });
+  expect([...page.exports.keys()].sort()).toEqual(["9142-inventory.json", "9142-receipt.json"]);
+  retain(page);
+  // This is the unchanged production validator, not a patched diagnostic receipt.
+  const evidence = path.join(path.dirname(out), "terminal-controls", `${kind}-${phase}-${trigger}`);
+  mkdirSync(evidence, { recursive: true });
+  for (const [name, text] of page.exports) writeFileSync(path.join(evidence, name), text);
+  writeFileSync(
+    path.join(evidence, "frozen-inputs.json"),
+    json({ evidence: "synthetic", kind, phase, trigger, t0: T0, out }),
+  );
+  packaging.verifyExport(out);
+  const value = JSON.parse(page.exports.get("9142-receipt.json")!);
+  const reason = trigger === "deadline" ? "expired" : trigger;
+  expect(value.reason).toBe(reason);
+  expect(value.state).toBe(reason === "expired" ? "expired" : "unknown");
+  expect(Object.values(value.facts)).toEqual(Array(5).fill("unknown"));
+  expect(value.counts).toEqual({ lookup: 1, page: kind === "page" ? 1 : 0, detail: 0, write: 0 });
+  expect(value.requests).toHaveLength(kind === "page" ? 2 : 1);
+  const last = value.requests.at(-1);
+  expect(last.failure).toBe(phase === "latch" ? reason : "aborted");
+  expect(last.responseComplete).toBe(false);
+  expect(last.withinFinalCall).toBe(last.elapsedMs <= 10000);
+  expect(value.finishedAt).toBeGreaterThanOrEqual(last.startedAt + last.elapsedMs);
+  expect(worker.timers.size).toBe(0);
+  expect(value.totalBytes).toBe(
+    value.requests.reduce(
+      (bytes: number, read: { requestBytes: number; responseBytes: number }) =>
+        bytes + read.requestBytes + read.responseBytes,
+      0,
+    ),
+  );
+  if (phase === "latch") {
+    expect(last.requestBytes).toBe(0);
+    expect(last.responseBytes).toBe(0);
+    expect(last.status).toBeNull();
+  } else {
+    expect(last.elapsedMs).toBeGreaterThan(10000);
+    expect(last.responseBytes).toBe(phase === "body" ? 1 : 0);
+  }
+  worker.releaseRead();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(await worker.send({ kind: "finish" })).toEqual({ ok: true, receipt: value });
+  for (const message of ["finish", "begin", "lookup", "page"])
+    expect(await worker.send({ kind: message })).toEqual({ ok: false, code: "repeat_invocation" });
+  worker.restart();
+  worker.advance(900000);
+  expect(await worker.send({ kind: "begin" })).toEqual({ ok: false, code: "repeat_invocation" });
+  expect(worker.wire).toHaveLength(calls);
+  expect(worker.storage.detectionPaginationLatch).toEqual({
+    used: true,
+    counts: { lookup: 1, page: kind === "page" ? 1 : 0 },
+  });
+  scrub({ value, exports: [...page.exports], storage: worker.storage });
+  return { value, page };
+}
+
+describe("detection-pagination-inflight-terminal-chronology", () => {
+  it.each(terminalControls)("$kind/$phase/$trigger seals after finalization", async (control) => {
+    await terminalCapture(control);
+  });
+});
+
+describe("detection-pagination-cadence-terminal-reuse", () => {
+  it.each(["custody_loss", "invalid_message"] as const)("%s reuses the promptly sealed receipt", async (trigger) => {
+    const worker = harness({ holdCadence: true });
+    let entered = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let confirmations = 0;
+    const page = helper(worker, {
+      onConfirm: () => {
+        confirmations += 1;
+        if (confirmations === 2) worker.advance(30000);
+        if (confirmations === 3) entered();
+      },
+    });
+    const pending = page.run();
+    await waiting;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(page.messages).toEqual([{ kind: "begin" }, { kind: "lookup" }, { kind: "page" }, { kind: "page" }]);
+    expect(worker.wire).toHaveLength(2);
+    expect([...worker.timers.values()].some((timer) => timer.at === T0 + 60000)).toBe(true);
+    expect(worker.intervals.size).toBe(1);
+    expect([...worker.timers.values()].some((timer) => timer.at === T0 + 900000)).toBe(true);
+    worker.advance(20000);
+    const stoppedAt = T0 + 50000;
+    if (trigger === "custody_loss") {
+      worker.loseCustody();
+      worker.heartbeat();
+      await Promise.resolve();
+      await Promise.resolve();
+    } else
+      expect(await worker.send({ kind: "SYNTHETIC_INVALID_MESSAGE_9181" })).toEqual({
+        ok: false,
+        code: "invalid_message",
+      });
+    expect(worker.intervals.size).toBe(0);
+    expect(worker.timers.size).toBe(0);
+    expect(worker.wire).toHaveLength(2);
+    expect(await pending).toEqual({ ok: true, code: "scrubbed_export_created" });
+    expect([...page.exports.keys()].sort()).toEqual(["9142-inventory.json", "9142-receipt.json"]);
+    retain(page);
+    packaging.verifyExport(out);
+    const value = JSON.parse(page.exports.get("9142-receipt.json")!);
+    expect(value.reason).toBe(trigger);
+    expect(value.state).toBe("unknown");
+    expect(value.finishedAt).toBe(stoppedAt);
+    expect(value.pages).toHaveLength(1);
+    expect(value.pages[0].distinctCount).toBe(8);
+    expect(value.distinctCount).toBe(8);
+    expect(value.distinctCount).toBe(value.pages[0].distinctCount);
+    expect(value.requests).toHaveLength(2);
+    expect(Object.values(value.facts)).toEqual(Array(5).fill("unknown"));
+    expect(await worker.send({ kind: "finish" })).toEqual({ ok: true, receipt: value });
+    for (const kind of ["finish", "begin", "lookup", "page"])
+      expect(await worker.send({ kind })).toEqual({ ok: false, code: "repeat_invocation" });
+    expect(await page.run()).toEqual({ ok: false, code: "repeat_invocation" });
+    worker.advance(900000);
+    expect(worker.wire).toHaveLength(2);
+    scrub({ value, exports: [...page.exports], storage: worker.storage, retained: worker.retained });
+  });
+});
+
+describe("detection-pagination-terminal-cleanup-chronology", () => {
+  it.each(["custody_loss", "expired"] as const)("%s keeps actual completion and honest removal", async (trigger) => {
+    const { value, page } = await terminalCapture({ kind: "page", phase: "body", trigger });
+    const profile = path.resolve(preparation.profileDirectory);
+    expect(path.dirname(profile)).toBe(path.resolve(out));
+    expect(profile.startsWith(scratch + path.sep)).toBe(true);
+    rmdirSync(profile);
+    try {
+      expect(() => packaging.recordRemoval(out, true, true, value.finishedAt - 1)).toThrow(/^custody$/);
+      expect(() => packaging.recordRemoval(out, true, true, value.deadline + 1)).toThrow(/^custody$/);
+      if (trigger === "expired") {
+        expect(value.finishedAt).toBeGreaterThan(value.deadline);
+        expect(() => packaging.recordRemoval(out, true, true, value.deadline)).toThrow(/^custody$/);
+        expect(() => packaging.recordRemoval(out, true, true, value.finishedAt)).toThrow(/^custody$/);
+        const index = JSON.parse(page.exports.get("9142-inventory.json")!);
+        index.removal = {
+          extensionAbsent: true,
+          profileDisposed: true,
+          processesAbsent: true,
+          extensionAbsentAt: value.deadline,
+        };
+        writeFileSync(path.join(out, "receipt", "9142-inventory.json"), json(index));
+        expect(() => packaging.verifyExport(out)).toThrow(/^custody$/);
+        retain(page);
+        expect(packaging.verifyExport(out).removal.extensionAbsent).toBe(false);
+      } else {
+        expect(value.finishedAt).toBeLessThan(value.deadline);
+        expect(packaging.recordRemoval(out, true, true, value.finishedAt).removal.extensionAbsentAt).toBe(
+          value.finishedAt,
+        );
+        expect(() => packaging.verifyExport(out)).not.toThrow();
+      }
+    } finally {
+      retain(page);
+      mkdirSync(profile);
+    }
+  });
+});
+
+function prepareCallsiteControl(module: typeof packaging) {
+  const stale = path.join(mkdtempSync(path.join(scratch, "SYNTHETIC_9181_stale-seat-")), "unemitted");
+  expect(() => module.prepare({ out: stale, t0: Date.now() - 5000 })).toThrow(/^reviewed_seat_required$/);
+  expect(existsSync(stale)).toBe(false);
+}
+
+function packageCallsiteControl(module: typeof packaging) {
+  const root = path.join(mkdtempSync(path.join(scratch, "SYNTHETIC_9181_wrong-head-")), "run");
+  const prepared = packaging.prepare({ out: root, synthetic: true, t0: T0 });
+  const configFile = path.join(prepared.packageDirectory, "capture-config.json");
+  const config = JSON.parse(readFileSync(configFile, "utf8"));
+  config.head = prepared.head === "a".repeat(40) ? "b".repeat(40) : "a".repeat(40);
+  config.evidence = "operator";
+  writeFileSync(configFile, json(config));
+  const changed = {
+    ...prepared,
+    ...config,
+    packageDigests: { ...prepared.packageDigests, "capture-config.json": hash(json(config)) },
+  };
+  writeFileSync(path.join(root, "preparation.json"), json(changed));
+  const inventoryFile = path.join(root, "preparation-inventory.json");
+  const inventory = JSON.parse(readFileSync(inventoryFile, "utf8"));
+  inventory.files["preparation.json"] = hash(json(changed));
+  inventory.files["package/capture-config.json"] = hash(json(config));
+  writeFileSync(inventoryFile, json(inventory));
+  expect(() => module.verifyPackage(root)).toThrow(/^reviewed_seat_required$/);
+}
+
+async function seatCallBypass(call: "assertPrepareSeat" | "assertPackageSeat") {
+  const text = readFileSync(path.join(source, "package.mjs"), "utf8");
+  const start = text.indexOf(`    ${call}({`);
+  expect(start).toBeGreaterThan(0);
+  const end = text.indexOf("    });", start) + "    });".length;
+  expect(end).toBeGreaterThan(start);
+  // Only the production call is deleted. Relocation keeps every real source/git/inventory read unchanged.
+  const relocated = (text.slice(0, start) + "    void 0;" + text.slice(end)).replace(
+    "const source = path.dirname(fileURLToPath(import.meta.url));",
+    `const source = ${JSON.stringify(source)};`,
+  );
+  const file = path.join(mkdtempSync(path.join(scratch, "SYNTHETIC_9181_call-deletion-")), "package.mjs");
+  writeFileSync(file, relocated);
+  return import(pathToFileURL(file).href);
+}
+
+describe("detection-pagination-seat-callsite-controls", () => {
+  it("real prepare refuses stale T0 before emitting any directory", () => prepareCallsiteControl(packaging));
+  it("real verifyPackage refuses an internally rehashed synthetic operator fixture with wrong HEAD", () =>
+    packageCallsiteControl(packaging));
+  it.each([
+    { call: "assertPrepareSeat" as const, control: prepareCallsiteControl },
+    { call: "assertPackageSeat" as const, control: packageCallsiteControl },
+  ])("deleting only the $call production call makes the same control RED", async ({ call, control }) => {
+    control(packaging);
+    const bypass = await seatCallBypass(call);
+    expect(() => control(bypass)).toThrow(/^expected \[Function\] to throw an error$/);
+    console.info(
+      `SYNTHETIC_9181 ${call}: candidate GREEN; production-call deletion RED (expected refusal did not throw)`,
+    );
   });
 });
 
