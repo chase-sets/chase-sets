@@ -288,9 +288,10 @@ export async function publishMirrors({
   assertTrustedPublisherContext(env);
   const credentials = publisherCredentials(env);
   const upstream = createClient();
-  const ghcr = createClient({
-    basicAuth: { "ghcr.io": Buffer.from(`${credentials.user}:${credentials.token}`).toString("base64") },
-  });
+  const ghcrClient = () =>
+    createClient({
+      basicAuth: { "ghcr.io": Buffer.from(`${credentials.user}:${credentials.token}`).toString("base64") },
+    });
   const startedAt = now();
   const rows = [];
 
@@ -305,12 +306,16 @@ export async function publishMirrors({
 
     const mirrorDigestReference = `${entry.mirror}@${entry.digest}`;
     const mirrorTagReference = `${entry.mirror}:${entry.tag}`;
-    const existingTag = await ghcr.head(mirrorTagReference).catch(() => ({ status: 0, digest: null }));
+    const existingTag = await ghcrClient()
+      .head(mirrorTagReference)
+      .catch(() => ({ status: 0, digest: null }));
     const copied = existingTag.status !== 200 || existingTag.digest !== entry.digest;
     if (copied) {
       copyImage({ from: sourceReference(entry), to: mirrorTagReference, credentials });
     }
 
+    // A token minted before the copy may predate the package; verify with a fresh one.
+    const ghcr = ghcrClient();
     const mirrorIdentity = verifyPinnedIdentity(
       entry,
       requireManifest(await ghcr.get(mirrorDigestReference), mirrorDigestReference),
@@ -362,8 +367,10 @@ export function probeAnonymousMirrors({ sources, env = process.env, docker, now 
 
   const rows = [];
   for (const entry of sources) {
+    // Pull the exact form consumers use; inspect by the canonical digest form.
     const reference = mirrorReference(entry);
-    if (docker(["image", "inspect", reference]).status === 0) {
+    const canonical = `${entry.mirror}@${entry.digest}`;
+    if (docker(["image", "inspect", canonical]).status === 0) {
       throw new Error(`${entry.id}: ${reference} is already present locally; the probe must start cold.`);
     }
     const pulledAt = now();
@@ -373,12 +380,10 @@ export function probeAnonymousMirrors({ sources, env = process.env, docker, now 
         `${entry.id}: anonymous pull of ${reference} failed (private, missing or deleted mirror): ${tail(pull.stderr)}`,
       );
     }
-    const inspect = docker(["image", "inspect", "--format", "{{json .RepoDigests}}", reference]);
+    const inspect = docker(["image", "inspect", "--format", "{{json .RepoDigests}}", canonical]);
     const repoDigests = inspect.status === 0 ? JSON.parse(inspect.stdout.trim() || "[]") : [];
-    if (!repoDigests.includes(`${entry.mirror}@${entry.digest}`)) {
-      throw new Error(
-        `${entry.id}: pulled image records ${JSON.stringify(repoDigests)}, not ${entry.mirror}@${entry.digest}.`,
-      );
+    if (!repoDigests.includes(canonical)) {
+      throw new Error(`${entry.id}: pulled image records ${JSON.stringify(repoDigests)}, not ${canonical}.`);
     }
     rows.push({ id: entry.id, reference, pulledAt, repoDigests });
   }

@@ -74,20 +74,29 @@ const trustedEnv = {
 };
 
 // In-memory registry keyed by image reference; HEAD answers from the same table.
-function fakeRegistry(table) {
+// With staleTokens, a client created before a mirror existed keeps getting 401
+// for it, like a registry token minted before the package was created.
+function fakeRegistry(table, { staleTokens = false } = {}) {
   const calls = [];
   const lookup = (reference) => table.get(reference) ?? { status: 404 };
   const createClient = ({ basicAuth } = {}) => {
     const auth = basicAuth?.["ghcr.io"] ? "ghcr" : "anonymous";
+    const knownAtCreation = new Set(table.keys());
+    const answer = (reference) => {
+      if (staleTokens && auth === "ghcr" && !knownAtCreation.has(reference) && table.has(reference)) {
+        return { status: 401 };
+      }
+      return lookup(reference);
+    };
     return {
       head: async (reference) => {
         calls.push(["HEAD", reference, auth]);
-        const hit = lookup(reference);
+        const hit = answer(reference);
         return { status: hit.status ?? 200, digest: hit.raw ? digestOf(hit.raw) : null, raw: null };
       },
       get: async (reference) => {
         calls.push(["GET", reference, auth]);
-        const hit = lookup(reference);
+        const hit = answer(reference);
         return { status: hit.status ?? 200, digest: hit.raw ? digestOf(hit.raw) : null, raw: hit.raw ?? null };
       },
     };
@@ -96,12 +105,17 @@ function fakeRegistry(table) {
 }
 
 // Registry where the publisher's copy materializes the mirror from the source.
-function publishableRegistry(entry, sourceRaw, { tagRaw = sourceRaw, mirrorRaw = sourceRaw, children = true } = {}) {
+function publishableRegistry(
+  entry,
+  sourceRaw,
+  { tagRaw = sourceRaw, mirrorRaw = sourceRaw, children = true, staleTokens = false } = {},
+) {
   const registry = fakeRegistry(
     new Map([
       [sourceReference(entry), { raw: sourceRaw }],
       [`${entry.source}:${entry.tag}`, { raw: tagRaw }],
     ]),
+    { staleTokens },
   );
   const copies = [];
   const copyImage = ({ from, to, credentials }) => {
@@ -268,6 +282,12 @@ describe("publishMirrors", () => {
     ).toBe(true);
   });
 
+  it("verifies a first copy with a token minted after the package exists", async () => {
+    const registry = publishableRegistry(entry, sourceRaw, { staleTokens: true });
+    const receipt = await publishMirrors({ sources: [entry], env: trustedEnv, ...registry });
+    expect(receipt.rows[0]).toMatchObject({ copied: true, mirrorDigest: entry.digest });
+  });
+
   it("refuses a mirror whose bytes do not match the source digest after copy", async () => {
     const registry = publishableRegistry(entry, sourceRaw, {
       mirrorRaw: syntheticIndex(["linux/amd64", "linux/arm64"], { salt: "converted" }),
@@ -334,9 +354,9 @@ describe("probeAnonymousMirrors", () => {
     ]);
     expect(calls).toEqual([
       "pull docker.io/library/hello-world:latest",
-      `image inspect ${reference}`,
+      `image inspect ${entry.mirror}@${entry.digest}`,
       `pull ${reference}`,
-      `image inspect --format {{json .RepoDigests}} ${reference}`,
+      `image inspect --format {{json .RepoDigests}} ${entry.mirror}@${entry.digest}`,
     ]);
   });
 
