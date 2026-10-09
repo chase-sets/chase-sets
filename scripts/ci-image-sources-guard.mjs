@@ -1,4 +1,4 @@
-// Required-CI image guard (#9230). Discovers every image a required job can
+// Required-CI image guard. Discovers every image a required job can
 // pull or build: workflow services and containers, docker:// actions,
 // setup-buildx builders (including the implicit default), shell
 // pull/run/build commands, Dockerfiles (FROM, syntax, COPY --from), and
