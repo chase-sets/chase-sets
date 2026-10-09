@@ -27,6 +27,7 @@ import {
   type ChannelOrderFulfillmentObservation,
 } from "../../order-fulfillment-observations/domain/contracts";
 import { identifier, record, refuse } from "./operation-codec";
+import { utcInstant } from "./extension-records";
 
 type AdmissionState = "planned" | "dispatched" | "captured202";
 export type OrderPullPost = Readonly<{
@@ -142,9 +143,7 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
     !Number.isSafeInteger(usage.posts) ||
     Number(usage.posts) < 0 ||
     Number(usage.posts) > payload.bounds.maxObservationPosts ||
-    typeof usage.providerNotBefore !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(usage.providerNotBefore) ||
-    !Number.isFinite(Date.parse(usage.providerNotBefore)) ||
+    !utcInstant(usage.providerNotBefore) ||
     Date.parse(usage.providerNotBefore) < Date.parse(payload.providerNotBefore)
   )
     refuse();
@@ -235,6 +234,7 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
     if (observation.kind !== "summary" || observation.pullId !== payload.pullId) refuse();
   }
   if (posts + (handoff.summary ? 1 : 0) > payload.bounds.maxObservationPosts) refuse();
+  if (!handoff.summary && bundles.some((bundle) => bundle.posts?.some((post) => post.kind === "sale"))) refuse();
   if (new TextEncoder().encode(canonicalJson(value)).length > orderPullHandoffByteLimit(payload)) refuse();
   return structuredClone(handoff) as OrderPullHandoff;
 }
@@ -331,7 +331,7 @@ export function orderPullHandoffOutcome(
 ): ClaimedOrderPullOutcome["outcome"] {
   parseOrderPullHandoff(handoff, payload);
   if (
-    handoff.summary?.state !== "captured202" ||
+    (handoff.summary !== null && handoff.summary.state !== "captured202") ||
     handoff.bundles.some((bundle) => bundle.posts === null || bundle.posts.some((post) => post.state !== "captured202"))
   )
     refuse();
@@ -368,5 +368,16 @@ export function assertHandoffOutcome(
 ): void {
   assertOrderPullOutcomeMatchesPayload(outcome, payload);
   if (outcome.outcome.kind === "order-pull-unknown" || outcome.outcome.kind === "abandoned") return;
-  if (!handoff || canonicalJson(outcome.outcome) !== canonicalJson(orderPullHandoffOutcome(payload, handoff))) refuse();
+  if (!handoff || canonicalJson(outcome.outcome) !== canonicalJson(orderPullReportOutcome(payload, handoff))) refuse();
+}
+
+export function orderPullReportOutcome(
+  payload: OrderPullPayload,
+  handoff: OrderPullHandoff,
+): ClaimedOrderPullOutcome["outcome"] {
+  const outcome = orderPullHandoffOutcome(payload, handoff);
+  // The claim carries one chunk, not the global pending set. Settlement rereads all retained chunks.
+  if (payload.work.chunkId !== null && (outcome.kind === "order-pull-complete" || outcome.kind === "order-pull-gaps"))
+    return { ...outcome, kind: "order-pull-pending" };
+  return outcome;
 }

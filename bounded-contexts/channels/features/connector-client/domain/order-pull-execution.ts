@@ -7,7 +7,7 @@ import {
 } from "../../outbound-sync/domain/order-pull-codec";
 import {
   assertSalePostIdentity,
-  orderPullHandoffOutcome,
+  orderPullReportOutcome,
   parseOrderPullHandoff,
   reconstructFulfillmentPost,
   type OrderPullHandoff,
@@ -214,7 +214,7 @@ export function createOrderPullExecution(ports: Ports) {
       const outcome = refusal
         ? { kind: "order-pull-unknown" as const, reason: refusal }
         : member.handoff
-          ? orderPullHandoffOutcome(member.payload, member.handoff)
+          ? orderPullReportOutcome(member.payload, member.handoff)
           : refuse();
       return {
         outcomes: [

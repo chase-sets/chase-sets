@@ -1,10 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { assertOrderPullCheckpoint, orderPullCheckpointDigest } from "../../outbound-sync/domain/order-pull-progress";
 import { syntheticPage } from "../../outbound-sync/tests/order-pull-fixtures";
-import { browserCheckpointDigest, orderPullHandoffOutcome, parseOrderPullHandoff } from "../domain/order-pull-handoff";
+import {
+  browserCheckpointDigest,
+  orderPullHandoffOutcome,
+  orderPullReportOutcome,
+  parseOrderPullHandoff,
+} from "../domain/order-pull-handoff";
+import { resolveOrderPullBudget } from "../../outbound-sync/domain/order-pull-codec";
 import { pullFixture } from "./connector-order-pull-test-support";
 
 describe("connector-order-pull-post-before-report", () => {
+  it("completes a qualified empty page without inventing a summary post outside a zero-post allocation", async () => {
+    const f = await pullFixture();
+    const budget = resolveOrderPullBudget(f.handoff.authority, { listReads: 1, intakeReads: 0, followUpReads: 0 });
+    if (budget.kind !== "fits") throw new Error("fixture drift");
+    const payload = { ...f.payload, bounds: budget.bounds };
+    const handoff = {
+      ...f.handoff,
+      bundles: [],
+      summary: null,
+      progress: { ...f.handoff.progress, pages: [syntheticPage([], { totalOrders: null })] },
+    };
+    expect(orderPullReportOutcome(payload, handoff).kind).toBe("order-pull-complete");
+    expect(f.posts).toEqual([]);
+  });
   it("will not dispatch a partial bundle or retry a post within the same job", async () => {
     const f = await pullFixture();
     f.dispatch.mockImplementation(async (_u, _s, pull) => {
@@ -116,6 +136,10 @@ describe("connector-order-pull-post-before-report", () => {
         "follow-up-tail": "continuation-required",
       };
       expect(orderPullHandoffOutcome(payload, handoff).kind).toBe(expected[control as keyof typeof expected]);
+      if (control === "accepted") {
+        // Another retained chunk can still be pending; only the server's settlement reader can close the burst.
+        expect(orderPullReportOutcome(payload, handoff).kind).toBe("order-pull-pending");
+      }
     },
   );
   it.each(["unsafe-cursor", "drift", "total-mismatch"])("refuses %s rather than reporting complete", async (fault) => {

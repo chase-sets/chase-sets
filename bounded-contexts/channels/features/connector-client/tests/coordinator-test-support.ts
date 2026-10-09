@@ -57,7 +57,7 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
   };
   const claims: unknown[] = [claim];
   const reports: string[] = [];
-  const settlement = {
+  const settlement: NonNullable<ExecutorResult["runSettlement"]> = {
     runId: "synthetic-run",
     expectedRunRevision: 1,
     fromState: "claimed",

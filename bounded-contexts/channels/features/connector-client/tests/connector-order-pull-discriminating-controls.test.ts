@@ -6,6 +6,7 @@ import * as progressCodec from "../../outbound-sync/domain/order-pull-progress-c
 import * as sale from "../../tcgplayer-orders/domain/contracts";
 import * as fulfillment from "../../order-fulfillment-observations/domain/contracts";
 import * as protocol from "../domain/operation-protocol";
+import * as records from "../domain/extension-records";
 import * as handoffModule from "../domain/order-pull-handoff";
 import { createOrderPullExecution } from "../domain/order-pull-execution";
 import { syntheticPage } from "../../outbound-sync/tests/order-pull-fixtures";
@@ -22,6 +23,7 @@ function mutatedHandoff(before: string, after: string) {
     "../../tcgplayer-orders/domain/contracts": sale,
     "../../order-fulfillment-observations/domain/contracts": fulfillment,
     "./operation-codec": protocol,
+    "./extension-records": records,
   }) as typeof handoffModule;
 }
 
@@ -74,7 +76,7 @@ describe("connector-order-pull discriminating controls", () => {
   it("kills report-early at the admission boundary", async () => {
     const f = await pullFixture();
     const source = readFileSync(new URL("../domain/order-pull-handoff.ts", import.meta.url), "utf8");
-    const start = source.lastIndexOf("  if", source.indexOf('handoff.summary?.state !== "captured202"'));
+    const start = source.lastIndexOf("  if", source.indexOf('handoff.summary.state !== "captured202"'));
     const end = source.indexOf("  let traversal", start);
     expect(start).toBeGreaterThan(0);
     const mutant = mutatedHandoff(source.slice(start, end), "");
