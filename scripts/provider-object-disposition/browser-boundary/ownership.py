@@ -102,18 +102,25 @@ def snapshot():
                 record['path'] = os.readlink(path / 'exe')
             except FileNotFoundError:
                 if record['state'] != 'Z' and not record['kernel']:
-                    raise CensusError()
+                    raise
                 record['image'], record['path'] = None, ''
             reread = parse_stat(bounded_read(path / 'stat'), pid)
-            if reread['start'] != record['start']:
+            if any(reread[key] != record[key] for key in ('start', 'parent', 'kernel')):
                 raise CensusError()
-        except OSError:
-            # Only a missing stat proves disappearance. Other missing fields do not.
+        except OSError as error:
+            if error.errno not in (errno.ENOENT, errno.ESRCH):
+                raise CensusError()
+            # A missing field alone is not exit proof. A terminal stat must still
+            # identify the same process, not a replacement or reparented owner.
             try:
-                bounded_read(path / 'stat')
+                terminal = parse_stat(bounded_read(path / 'stat'), pid)
             except OSError as gone:
                 if gone.errno in (errno.ENOENT, errno.ESRCH):
                     continue
+                raise CensusError()
+            if (all(terminal[key] == record[key] for key in ('start', 'parent', 'kernel')) and
+                    terminal['state'] in ('Z', 'X')):
+                continue
             raise CensusError()
         result[pid] = record
         if time.monotonic() - started > 1:

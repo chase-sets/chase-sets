@@ -48,6 +48,11 @@ by their own PID, parent PID and start time, not by age or name. The installer
 never signals a process. Removal validates target/profile/input paths before
 mutation, then requires two complete empty ownership censuses. Live, orphaned,
 ambiguous, unreadable, capped or missing-key states refuse without deletion.
+If metadata disappears mid-census, only a missing stat or a terminal Z/X stat
+with the same PID, start, parent and kernel flag proves that record exited.
+Live, replaced, reparented and unexplained records still refuse; permission
+errors are never exit evidence. This shared census governs native identity
+observation and per-case installation removal, without retries or new budgets.
 
 Success, failure, cancellation and handled shutdown require event-driven owned
 drain. No periodic sweep substitutes for terminal cleanup. Runner loss or an
