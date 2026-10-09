@@ -164,7 +164,9 @@ describe("Scrydex usage snapshot boundary", () => {
 
   it("reports zero remaining credits as exhausted and a tenth or less as low", async () => {
     const exhausted = usageAdapter({ body: syntheticUsageBody({ credits_remaining: 0 }) });
-    const low = usageAdapter({ body: syntheticUsageBody({ total_credits_consumed: 45_000, credits_remaining: 5_000 }) });
+    const low = usageAdapter({
+      body: syntheticUsageBody({ total_credits_consumed: 45_000, credits_remaining: 5_000 }),
+    });
 
     expect(await exhausted.adapter.getUsageSnapshot()).toMatchObject({ creditState: "exhausted", remainingCredits: 0 });
     expect(await low.adapter.getUsageSnapshot()).toMatchObject({ creditState: "low", totalCredits: 50_000 });
