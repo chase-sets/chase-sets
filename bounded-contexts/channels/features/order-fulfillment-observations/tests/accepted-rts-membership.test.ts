@@ -6,7 +6,7 @@ import {
   translateOrderStatus,
   type AcceptedReadyToShipQuery,
 } from "../domain/contracts";
-import { readAcceptedReadyToShipMembership } from "../../../server";
+import { readAcceptedReadyToShipMembership } from "../api/runtime";
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 
 const valid = { connectionId: "connection-1", orderReferences: ["synthetic-order"] };

@@ -15,14 +15,17 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { executeRetentionSweepBatch } from "@chase-sets/platform-runtime/retention-sweep";
 import { module as channelsModule } from "../../../index";
-import { readAcceptedReadyToShipMembership, acceptedReadyToShipReferenceLimit } from "../../../server";
 import { admitConnectorInbound, createConnectorInboundReader } from "../../connector-feed/read-model/inbound";
 import { hashChannelDesiredState } from "../../listing-composition/domain/canonical";
 import { seedManualSyncScenario } from "../../manual-sync/api/seed";
 import { tcgplayerSaleKey } from "../../tcgplayer-orders/domain/contracts";
 import { tcgplayerExternalListingId } from "../../tcgplayer-csv/domain/composition";
-import { createFulfillmentObservationRuntime } from "../api/runtime";
-import { composeChannelOrderFulfillmentInbound, type ChannelOrderFulfillmentObservation } from "../domain/contracts";
+import { createFulfillmentObservationRuntime, readAcceptedReadyToShipMembership } from "../api/runtime";
+import {
+  composeChannelOrderFulfillmentInbound,
+  acceptedReadyToShipReferenceLimit,
+  type ChannelOrderFulfillmentObservation,
+} from "../domain/contracts";
 import { buildFulfillmentObservationReactions } from "../integrations/reactions";
 import { fulfillmentObservationSchemaMigrations } from "../read-model/schema";
 import { fulfillmentFixture } from "./fixtures";
@@ -304,13 +307,15 @@ describeDb("accepted RTS owner", () => {
         sql.replace('{"surface":"detail","value":"Ready to Ship"}', '{"surface":"list","value":"Ready to Ship"}'),
     ];
     for (const mutate of mutations) {
-      const db: PgQueryable = { query: (sql, values) => pools.channels.query(mutate(sql), values) };
+      const db: PgQueryable = {
+        query: <Row>(sql: string, values?: readonly unknown[]) => pools.channels.query<Row>(mutate(sql), values),
+      };
       expect(await readAcceptedReadyToShipMembership(db, input)).not.toEqual(expected);
     }
     const onlyOne = { ...input, orderReferences: [reference] };
     const bypassReferences: PgQueryable = {
-      query: (sql, values) =>
-        pools.channels.query(sql.replace("order_reference=ANY($2::text[])", "$2::text[] IS NOT NULL"), values),
+      query: <Row>(sql: string, values?: readonly unknown[]) =>
+        pools.channels.query<Row>(sql.replace("order_reference=ANY($2::text[])", "$2::text[] IS NOT NULL"), values),
     };
     expect(await readAcceptedReadyToShipMembership(pools.channels, onlyOne)).toEqual([reference]);
     expect(await readAcceptedReadyToShipMembership(bypassReferences, onlyOne)).not.toEqual([reference]);
@@ -457,9 +462,9 @@ function intercept(beforeQuery: (sql: string) => Promise<void>): PgTransactional
       const client = await pools.channels.connect();
       return {
         release: client.release.bind(client),
-        query: async (sql, values) => {
+        query: async <Row>(sql: string, values?: readonly unknown[]) => {
           await beforeQuery(sql);
-          return client.query(sql, values);
+          return client.query<Row>(sql, values);
         },
       };
     },
