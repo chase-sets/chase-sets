@@ -28,6 +28,12 @@ describe("channel-publication-port-scope-fence", () => {
     ]);
     expect(manifest.hostPorts).toEqual([
       {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
+      {
         portName: "connectorOAuth",
         providedBy: "platform-api",
         purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",

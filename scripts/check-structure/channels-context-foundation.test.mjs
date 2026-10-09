@@ -222,7 +222,11 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   }
   if (
     JSON.stringify((candidate.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)) !==
-    JSON.stringify(["channels.publication-settings-to-detail"])
+    JSON.stringify([
+      "channels.activation-to-manual-sync",
+      "channels.connect-to-detail",
+      "channels.publication-settings-to-detail",
+    ])
   ) {
     violations.push("readAfterWriteRouteInventory");
   }
@@ -238,6 +242,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
+      {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
       {
         portName: "connectorOAuth",
         providedBy: "platform-api",
@@ -421,6 +431,12 @@ describe("channels-context-foundation", () => {
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "storageLocationAuthority",
+          providedBy: "platform-api, platform-worker",
+          purpose:
+            "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+        },
         {
           portName: "connectorOAuth",
           providedBy: "platform-api",
@@ -1611,7 +1627,11 @@ describe("channels-wake-registry-derivation", () => {
         "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
       ],
-      routeDependencyIds: ["channels.publication-settings-to-detail"],
+      routeDependencyIds: [
+        "channels.activation-to-manual-sync",
+        "channels.connect-to-detail",
+        "channels.publication-settings-to-detail",
+      ],
     });
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: manifests.length,

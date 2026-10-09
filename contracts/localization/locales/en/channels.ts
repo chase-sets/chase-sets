@@ -1,4 +1,9 @@
 export const channelsEnglishTranslations = {
+  "channels.connections.connect": "Connect a channel",
+  "channels.connections.provider": "Sales Channel",
+  "channels.connections.setup": "Connection setup",
+  "channels.connections.locations": "Storage locations",
+  "channels.connections.activate": "Activate",
   "channels.attention.orderReference": "Order {reference}",
   "channels.attention.orderUnmapped": "An order item could not be matched to inventory.",
   "channels.attention.orderIdentityAmbiguous": "Order item identities are missing or repeated.",

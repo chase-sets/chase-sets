@@ -1,11 +1,87 @@
 import { Hono } from "hono";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import { loadDeploymentEnvironment, type DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
 import type { ChannelsApiEnv } from "../../../api";
-import { ChannelConnectionError, type ChannelConnectionServices } from "../domain/contracts";
-import { assertClosedRecord } from "../domain/validation";
+import {
+  ChannelConnectionError,
+  type ChannelConnectionServices,
+  type ChannelStorageLocationAuthorityResolver,
+} from "../domain/contracts";
+import { assertClosedRecord, assertOpaqueId, assertProviderKey, assertSafeInteger } from "../domain/validation";
 import { closePublicChannelConnection, toPublicChannelConnection } from "../read-model/queries";
+import { resolveConnectionStorageLocation, withConnectionAuthoritySnapshot } from "./runtime";
 
-export function channelConnectionRoutes(services: ChannelConnectionServices) {
+export type ChannelConnectionRouteOptions = Readonly<{
+  deploymentEnvironment?: DeploymentEnvironment;
+  storageLocationAuthority?: ChannelStorageLocationAuthorityResolver;
+}>;
+
+export function channelConnectionRoutes(
+  services: ChannelConnectionServices,
+  options: ChannelConnectionRouteOptions = {},
+) {
   const app = new Hono<ChannelsApiEnv>();
+  const deploymentEnvironment = options.deploymentEnvironment ?? loadDeploymentEnvironment();
+
+  app.post("/", async (c) => {
+    try {
+      const body: unknown = await c.req.json().catch(() => null);
+      assertClosedRecord(body, ["providerKey"], "connect request");
+      assertProviderKey(body.providerKey);
+      const result = await services.connectChannel(
+        { connectionId: createId("chn"), accountId: c.get("actor").accountId, providerKey: body.providerKey },
+        { deploymentEnvironment },
+        c.get("context"),
+      );
+      return c.json(toPublicChannelConnection(result.state), 201);
+    } catch (error) {
+      return routeError(error);
+    }
+  });
+
+  app.post("/:id/activate", (c) =>
+    withConnectionAuthoritySnapshot(async () => {
+      try {
+        const body: unknown = await c.req.json().catch(() => null);
+        assertClosedRecord(body, ["storageLocationIds"], "activate request");
+        if (!Array.isArray(body.storageLocationIds) || body.storageLocationIds.length > 200) {
+          throw new ChannelConnectionError("invalid-input");
+        }
+        const ids: string[] = [];
+        for (const id of body.storageLocationIds) {
+          assertOpaqueId(id, "storageLocationId");
+          if (ids.includes(id)) throw new ChannelConnectionError("invalid-input");
+          ids.push(id);
+        }
+        const input = { accountId: c.get("actor").accountId, connectionId: c.req.param("id") };
+        if (!(await services.getConnection(input))) throw new ChannelConnectionError("connection-not-found");
+        const bindings = [];
+        for (const storageLocationId of ids) {
+          const current = options.storageLocationAuthority
+            ? await resolveConnectionStorageLocation(options.storageLocationAuthority, {
+                accountId: input.accountId,
+                storageLocationId,
+              }).catch(() => null)
+            : null;
+          if (!current) throw new ChannelConnectionError("binding-not-current");
+          assertClosedRecord(current, ["accountId", "storageLocationId", "revision", "status"], "storage authority");
+          assertSafeInteger(current.revision, "storage revision");
+          if (
+            current.accountId !== input.accountId ||
+            current.storageLocationId !== storageLocationId ||
+            current.status !== "active"
+          ) {
+            throw new ChannelConnectionError("binding-not-current");
+          }
+          bindings.push({ storageLocationId, revision: current.revision });
+        }
+        const result = await services.activateChannelConnection({ ...input, bindings }, c.get("context"));
+        return c.json(toPublicChannelConnection(result.state));
+      } catch (error) {
+        return routeError(error);
+      }
+    }),
+  );
 
   app.get("/", async (c) => {
     try {

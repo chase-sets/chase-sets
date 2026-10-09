@@ -6,6 +6,7 @@ export {
   type AcceptedReadyToShipQuery,
 } from "./features/order-fulfillment-observations/domain/contracts";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
+export type { ChannelStorageLocationAuthorityResolver } from "./features/connections/domain/contracts";
 export {
   composeTcgplayerOrderInbound,
   assertTcgplayerOrderRecord,

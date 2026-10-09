@@ -28,6 +28,7 @@ import type {
   InventoryDraftListingCreator,
   InventoryServices,
 } from "@chase-sets/inventory/server";
+import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import type {
   BulkRepriceIngestionServices,
@@ -341,6 +342,11 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
       ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      storageLocationAuthority: {
+        resolve: pools.inventory
+          ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority
+          : async () => null,
+      },
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       searchTelemetry: {
         recordSearchQuery: recordDiscoverySearchQuerySignal,

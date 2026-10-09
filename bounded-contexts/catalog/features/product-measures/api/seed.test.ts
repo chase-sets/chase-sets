@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedProductMeasures } from "./seed";
 
 function createSeedServices() {
   const productMeasures = {
-    upsertProfile: vi.fn(async () => undefined),
+    upsertProfile: vi.fn<CatalogServices["productMeasures"]["upsertProfile"]>(),
     resolveAllCatalogItemMeasures: vi.fn(async () => undefined),
   };
 
@@ -24,7 +25,23 @@ describe("product measure seed", () => {
       resolveExistingCatalogItems: false,
     });
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(11);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(13);
+    const profiles = productMeasures.upsertProfile.mock.calls.map(([profile]) => profile);
+    expect(profiles.find((profile) => profile.key === "one-piece-raw-single")).toEqual({
+      ...profiles.find((profile) => profile.key === "pokemon-raw-single"),
+      profileId: "pmp_seed_one_piece_raw_single",
+      key: "one-piece-raw-single",
+      name: "One Piece raw single",
+      matchBlueprintId: catalogSeedIds.blueprints.onePieceCardPrint,
+    });
+    expect(profiles.find((profile) => profile.key === "one-piece-booster-box")).toEqual({
+      ...profiles.find((profile) => profile.key === "pokemon-booster-box"),
+      profileId: "pmp_seed_one_piece_booster_box",
+      key: "one-piece-booster-box",
+      name: "One Piece booster box",
+      matchBlueprintId: catalogSeedIds.blueprints.onePieceSealedProduct,
+      matchCategoryIds: [catalogSeedIds.categories.onePieceBoosterBoxes],
+    });
     expect(productMeasures.upsertProfile).toHaveBeenCalledWith(
       expect.objectContaining({
         key: "pokemon-graded-slab",
@@ -47,7 +64,7 @@ describe("product measure seed", () => {
       resolveExistingCatalogItems: true,
     });
 
-    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(11);
+    expect(productMeasures.upsertProfile).toHaveBeenCalledTimes(13);
     expect(productMeasures.resolveAllCatalogItemMeasures).toHaveBeenCalledTimes(1);
   });
 });
