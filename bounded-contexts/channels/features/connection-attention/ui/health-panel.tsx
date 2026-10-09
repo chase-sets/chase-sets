@@ -26,6 +26,7 @@ const reasonKeys = {
   "provider-rate": "channels.attention.reason.provider-rate",
   "provider-availability": "channels.attention.reason.provider-availability",
   "sale-follow-up": "channels.attention.reason.sale-follow-up",
+  "connector-liveness": "channels.attention.reason.connector-liveness",
 } as const;
 const stateKeys = {
   unknown: "channels.attention.state.unknown",

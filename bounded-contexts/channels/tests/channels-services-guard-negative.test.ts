@@ -73,25 +73,32 @@ describe("channels-services-guard-negative", () => {
     ).toBe(false);
   });
 
-  it.each(["submitObservation", "readConnectionHealth", "listOpenReasonGenerations"] as const)(
-    "rejects an omitted or invalid health %s without losing manual sync",
-    (member) => {
-      const candidate = validCandidate();
-      expect(isChannelsServices(candidate)).toBe(true);
-      const missing = Object.fromEntries(Object.entries(candidate.connectionHealth).filter(([key]) => key !== member));
-      expect(isChannelsServices({ ...candidate, connectionHealth: missing })).toBe(false);
-      expect(
-        isChannelsServices({ ...candidate, connectionHealth: { ...candidate.connectionHealth, [member]: null } }),
-      ).toBe(false);
-    },
-  );
+  it.each([
+    "submitObservation",
+    "readConnectionHealth",
+    "listOpenReasonGenerations",
+    "sweepConnectorLiveness",
+  ] as const)("rejects an omitted or invalid health %s without losing manual sync", (member) => {
+    const candidate = validCandidate();
+    expect(isChannelsServices(candidate)).toBe(true);
+    const missing = Object.fromEntries(Object.entries(candidate.connectionHealth).filter(([key]) => key !== member));
+    expect(isChannelsServices({ ...candidate, connectionHealth: missing })).toBe(false);
+    expect(
+      isChannelsServices({ ...candidate, connectionHealth: { ...candidate.connectionHealth, [member]: null } }),
+    ).toBe(false);
+  });
 });
 
 function validCandidate() {
   return {
     credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
-    connectionHealth: { submitObservation: vi.fn(), readConnectionHealth: vi.fn(), listOpenReasonGenerations: vi.fn() },
+    connectionHealth: {
+      submitObservation: vi.fn(),
+      readConnectionHealth: vi.fn(),
+      listOpenReasonGenerations: vi.fn(),
+      sweepConnectorLiveness: vi.fn<ChannelsServices["connectionHealth"]["sweepConnectorLiveness"]>(),
+    },
     connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},
     outboundSync: {

@@ -43,12 +43,15 @@ import {
   writeHealthSnapshot,
 } from "../read-model/store";
 import { recordAttentionHealthTransition } from "../../connection-attention/api/lifecycle";
+import { createConnectorLivenessSweep } from "./connector-liveness";
+import type { ConnectorLivenessServices } from "../../connector-feed/read-model/liveness";
 
 export type ConnectionHealthDependencies = Readonly<{
   db: PgTransactionalPool;
   eventStore: PostgresEventStore;
   resolvePolicy: (db: PgQueryable, at: string) => Promise<Readonly<{ revision: string; value: ChannelHealthPolicy }>>;
   now?: () => string;
+  connectorLiveness: ConnectorLivenessServices;
 }>;
 
 export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies): ConnectionHealthServices {
@@ -64,8 +67,10 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
       at: string,
       context: EventStoreContext,
     ) => Promise<T>,
+    transaction?: PgQueryable,
+    expected?: ChannelHealthObservation,
   ): Promise<T> {
-    return withPgTransaction(deps.db, async (db) => {
+    const perform = async (db: PgQueryable) => {
       // The canonical lifecycle stream, rather than an asynchronously updated projection, owns admission.
       await db.query("SELECT stream_id FROM event_store_streams WHERE stream_id = $1 FOR UPDATE", [
         `channels.connection-${query.connectionId}`,
@@ -98,6 +103,14 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
         if (!(error instanceof ChannelHealthError)) throw error;
         resolved = null;
       }
+      if (
+        expected &&
+        (resolved?.revision !== expected.policyRevision ||
+          expected.evaluationGeneration !==
+            (health ? health.evaluationGeneration + Number(health.policyRevision !== resolved?.revision) : 1) ||
+          Date.parse(expected.occurredAt) > Date.parse(at))
+      )
+        throw new ChannelHealthError("health-snapshot-changed");
       if (!health) {
         health = {
           policyRevision: resolved?.revision ?? "0".repeat(64),
@@ -141,7 +154,8 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
         health = next;
       }
       return work(db, state.status, health, resolved?.value ?? null, at, context);
-    });
+    };
+    return transaction ? perform(transaction) : withPgTransaction(deps.db, perform);
   }
 
   async function publish(
@@ -188,6 +202,7 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
   }
 
   return {
+    sweepConnectorLiveness: createConnectorLivenessSweep(deps, submitObservationInTransaction),
     async readConnectionHealth(input) {
       const query = decodeChannelHealthQuery(input);
       return transact(query, async (_db, status, health, policy) => read(query, status, health, policy !== null));
@@ -197,12 +212,23 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
       return transact(query, async (_db, _status, health) => openHealthReasonGenerations(health));
     },
     async submitObservation(input, context: EventStoreContext) {
-      const observation = decodeChannelHealthObservation(input);
-      const query = decodeChannelHealthQuery({
-        connectionId: observation.connectionId,
-        accountId: context.audit.forAccountId,
-      });
-      return transact(query, async (db, status, health, policy, at, eventContext): Promise<ChannelHealthSubmission> => {
+      return submitObservationInTransaction(input, context);
+    },
+  };
+
+  async function submitObservationInTransaction(
+    input: ChannelHealthObservation,
+    context: EventStoreContext,
+    transaction?: PgQueryable,
+  ): Promise<ChannelHealthSubmission> {
+    const observation = decodeChannelHealthObservation(input);
+    const query = decodeChannelHealthQuery({
+      connectionId: observation.connectionId,
+      accountId: context.audit.forAccountId,
+    });
+    return transact(
+      query,
+      async (db, status, health, policy, at, eventContext): Promise<ChannelHealthSubmission> => {
         const result = (outcome: ChannelHealthSubmission["outcome"]) => ({
           outcome,
           health: read(query, status, health, policy !== null),
@@ -234,8 +260,7 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
           return result("stale");
         const previous = health.reasons.find((reason) => reason.reasonCode === observation.reasonCode);
         if (await staleObservation(db, observation, previous)) return result("stale");
-        const generation =
-          previous?.fingerprint === observation.fingerprint ? previous.generation : (previous?.generation ?? 0) + 1;
+        const generation = observeReason(previous, observation, 0, policy).generation;
         await db.query(
           `INSERT INTO channel_health_observations (source_kind, source_work_id, source_attempt, result_ordinal,
           connection_id, reason_code, reason_generation, fingerprint, outcome, occurred_at, observation)
@@ -269,9 +294,11 @@ export function createConnectionHealthRuntime(deps: ConnectionHealthDependencies
           await publish(db, query, reason, observation.occurredAt, eventContext);
         health = next;
         return result("accepted");
-      });
-    },
-  };
+      },
+      transaction,
+      transaction ? observation : undefined,
+    );
+  }
 }
 
 async function persist(

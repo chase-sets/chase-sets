@@ -272,6 +272,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     const connectionHealth = createConnectionHealthRuntime({
       db: pool,
       eventStore,
+      connectorLiveness: createConnectorLivenessReader(pool),
       resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
     });
     const readChannelHealthHold =

@@ -59,6 +59,7 @@ export const channelsEnglishTranslations = {
   "channels.attention.reason.provider-rate": "Channel rate limit",
   "channels.attention.reason.provider-availability": "Channel availability",
   "channels.attention.reason.sale-follow-up": "Sale follow-up",
+  "channels.attention.reason.connector-liveness": "Connector not responding",
   "channels.attention.resolution.handled-on-channel": "Handled on the channel",
   "channels.attention.resolution.reconnected": "Reconnected",
   "channels.attention.resolution.reselected-setup": "Updated connection setup",
