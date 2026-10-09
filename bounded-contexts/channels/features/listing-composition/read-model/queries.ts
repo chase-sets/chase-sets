@@ -345,6 +345,60 @@ export async function readChannelListingProviderProductReferences(
   });
 }
 
+export async function readComposeChannelListingProviderProductReferences(
+  db: PgQueryable,
+  input: Readonly<{
+    providerKey: string;
+    operations: readonly Readonly<{ channelListingId: string; listingId: string }>[];
+  }>,
+): Promise<readonly ChannelReferenceRead[]> {
+  if (input.operations.length === 0) return [];
+  const result = await db.query<{
+    channel_listing_id: string;
+    product_count: string | number;
+    product_provider_key: string | null;
+    product_external_key: string | null;
+    catalog_count: string | number;
+    catalog_provider_key: string | null;
+    catalog_external_key: string | null;
+  }>(
+    `SELECT operation.channel_listing_id,
+       product.candidate_count AS product_count,product.provider_key AS product_provider_key,product.external_key AS product_external_key,
+       catalog.candidate_count AS catalog_count,catalog.provider_key AS catalog_provider_key,catalog.external_key AS catalog_external_key
+     FROM unnest($1::text[],$2::text[]) AS operation(channel_listing_id,listing_id)
+     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=operation.listing_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) AS candidate_count,MIN(provider_key) AS provider_key,MIN(external_key) AS external_key
+       FROM channels_external_product_reference_facts
+       WHERE provider_key=$3 AND catalog_item_id=listing.catalog_item_id
+         AND selected_option_key=listing.selected_option_key AND link_state='linked'
+     ) AS product ON true
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) AS candidate_count,MIN(provider_key) AS provider_key,MIN(external_key) AS external_key
+       FROM channels_external_catalog_item_reference_facts
+       WHERE provider_key=$3 AND catalog_item_id=listing.catalog_item_id AND link_state='linked'
+     ) AS catalog ON true`,
+    [
+      input.operations.map((operation) => operation.channelListingId),
+      input.operations.map((operation) => operation.listingId),
+      input.providerKey,
+    ],
+  );
+  const byId = new Map(result.rows.map((row) => [row.channel_listing_id, row]));
+  return input.operations.map(({ channelListingId }) => {
+    const row = byId.get(channelListingId);
+    return {
+      channelListingId,
+      productReference: row
+        ? referenceFromCount(row.product_count, row.product_provider_key, row.product_external_key)
+        : { kind: "unlinked" },
+      catalogItemReference: row
+        ? referenceFromCount(row.catalog_count, row.catalog_provider_key, row.catalog_external_key)
+        : { kind: "unlinked" },
+    };
+  });
+}
+
 export async function readChannelMappingReviewQueue(
   db: PgQueryable,
   input: Readonly<{ connectionId: string; cursor?: string | null; limit?: number }>,

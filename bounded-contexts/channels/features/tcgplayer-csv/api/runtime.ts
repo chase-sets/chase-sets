@@ -11,7 +11,7 @@ import type { ChannelProviderRegistry } from "../../publication-port/domain/cont
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
 import type { ChannelCompositionProfileRegistry } from "../../listing-composition/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../listing-composition/api/runtime";
-import { readChannelListingProviderProductReferences } from "../../listing-composition/read-model/queries";
+import { readComposeChannelListingProviderProductReferences } from "../../listing-composition/read-model/queries";
 import { composeTcgplayerReservation, type ComposedTcgplayerReservation } from "../domain/composition";
 import { parseTcgplayerFullExport } from "../domain/csv";
 import {
@@ -290,13 +290,13 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
           db,
         );
         if (!reservation) return null;
-        const references = await readChannelListingProviderProductReferences(db, {
-          connectionId: input.connectionId,
-          channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
+        const references = await readComposeChannelListingProviderProductReferences(db, {
+          providerKey: identity.providerKey,
+          operations: reservation.operations,
         });
         const conditionMappings = await readTcgplayerConditionMappingInputs(db, {
           connectionId: input.connectionId,
-          channelListingIds: reservation.operations.map((operation) => operation.channelListingId),
+          operations: reservation.operations,
         });
         const pin = await readSchemaPin(db, input.connectionId);
         if (!pin) throw new ChannelSyncRunError("staged-basis-unavailable", "Staged schema is not pinned.");

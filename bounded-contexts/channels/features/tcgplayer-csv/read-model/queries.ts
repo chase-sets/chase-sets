@@ -89,15 +89,20 @@ export async function readLatestSnapshotRows(
 
 export async function readTcgplayerConditionMappingInputs(
   db: PgQueryable,
-  input: Readonly<{ connectionId: string; channelListingIds: readonly string[] }>,
+  input: Readonly<{
+    connectionId: string;
+    operations: readonly Readonly<{ channelListingId: string; listingId: string }>[];
+  }>,
 ): Promise<readonly TcgplayerConditionMappingRead[]> {
-  if (input.channelListingIds.length === 0) return [];
+  if (input.operations.length === 0) return [];
   const facts = await db.query<{ channel_listing_id: string; graded_card: unknown }>(
-    `SELECT link.channel_listing_id,listing.graded_card
-     FROM channels_channel_listing_links AS link
-     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=link.listing_id
-     WHERE link.connection_id=$1 AND link.channel_listing_id=ANY($2::text[])`,
-    [input.connectionId, input.channelListingIds],
+    `SELECT operation.channel_listing_id,listing.graded_card
+     FROM unnest($1::text[],$2::text[]) AS operation(channel_listing_id,listing_id)
+     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=operation.listing_id`,
+    [
+      input.operations.map((operation) => operation.channelListingId),
+      input.operations.map((operation) => operation.listingId),
+    ],
   );
   const sourceByListingId = new Map<string, string>();
   for (const fact of facts.rows) {
@@ -114,7 +119,7 @@ export async function readTcgplayerConditionMappingInputs(
     [input.connectionId, sourceKeys],
   );
   const targetsBySourceKey = new Map(mappings.rows.map((mapping) => [mapping.source_key, mapping.target_key]));
-  return input.channelListingIds.flatMap((channelListingId) => {
+  return input.operations.flatMap(({ channelListingId }) => {
     const sourceKey = sourceByListingId.get(channelListingId);
     return sourceKey
       ? [
