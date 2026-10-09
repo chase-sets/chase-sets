@@ -307,11 +307,11 @@ describeDb("canonical opportunity publication persistence", () => {
 
   function rewriteProofSql(rewrite: (sql: string) => string): PgTransactionalPool {
     return {
-      query: (sql, values) => pool.query(rewrite(sql), values),
+      query: <Row>(sql: string, values?: readonly unknown[]) => pool.query<Row>(rewrite(sql), values),
       async connect() {
         const client = await pool.connect();
         return {
-          query: (sql, values) => client.query(rewrite(sql), values),
+          query: <Row>(sql: string, values?: readonly unknown[]) => client.query<Row>(rewrite(sql), values),
           release: (error) => client.release(error),
         };
       },

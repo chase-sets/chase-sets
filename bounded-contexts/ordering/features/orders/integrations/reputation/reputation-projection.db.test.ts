@@ -58,7 +58,7 @@ function event(type: string, data: Record<string, unknown>): TransportEvent {
   return buildTransportEvent(type, data, {
     id: `evt_${sequence}`,
     streamId: `stream_${sequence}`,
-    globalPosition: type === reviewOpportunityFactType ? "0" : String(sequence),
+    globalPosition: String(sequence),
     tenantId: "tnt_test",
     audit: { performedByUserId: "usr_test", forAccountId: "acc_buyer" },
     timing: { occurredAt: "2026-04-02T00:00:00.000Z", recordedAt: "2026-04-02T00:00:00.000Z" },
@@ -97,6 +97,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   });
 
   beforeEach(async () => {
+    sequence = 0;
     await resetMultiContextTestSchemas(pools);
     await pools.ordering.query(orderingModule.schemaSql);
     await pools.ordering.query(eventSubscriptionSchemaSql);
@@ -270,6 +271,17 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   }
 
   async function current() {
+    // A labeled synthetic horizon supports handler-only SQL contract fixtures below.
+    // The real empty-source producer/consumer scenario never calls this helper.
+    await createPostgresEventStore({ pool: pools.marketplace }).appendToStream({
+      streamId: "marketplace.diagnostic-opportunity-contract",
+      expectedVersion: "no_stream",
+      context: {
+        tenantId: "tnt_test",
+        audit: { performedByUserId: "usr_test", forAccountId: "acc_buyer" },
+      } as EventStoreContext,
+      events: Array.from({ length: 40 }, () => ({ eventType: "diagnostic.horizon", payload: { synthetic: true } })),
+    });
     await createRuntime().drain();
   }
   function fact(generation = "1"): ReviewOpportunityChangedV1 {
@@ -434,7 +446,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     const { ordering, drain } = createRuntime();
     await drain();
     await buildOrderingReputationProjectionHandlers(pools.ordering)[reviewOpportunityFactType]!(
-      event(reviewOpportunityFactType, fact()),
+      buildTransportEvent(reviewOpportunityFactType, fact(), { globalPosition: "0" }),
     );
     expect((await read()).status).toBe("ready");
     const name = "ordering-order-review-opportunity-projection";
@@ -514,9 +526,9 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     const bypass = bypasses[guard];
     if (bypass) {
       const mutant: PgQueryable = {
-        query(sql, values) {
+        query<Row>(sql: string, values?: readonly unknown[]) {
           expect(sql.split(bypass[0])).toHaveLength(2);
-          return pools.ordering.query(sql.replace(bypass[0], bypass[1]), values);
+          return pools.ordering.query<Row>(sql.replace(bypass[0], bypass[1]), values);
         },
       };
       const mutantOutcome = await getOrderingOrderReviewOpportunity(mutant, {
