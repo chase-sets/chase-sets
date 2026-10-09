@@ -4125,7 +4125,7 @@
         {
           "identity": "list-loading-visible",
           "scope": "target",
-          "selector": "text=Loading channel connections…",
+          "selector": "text=\"Loading channel connections…\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4167,7 +4167,7 @@
         {
           "identity": "list-loading-visible",
           "scope": "target",
-          "selector": "text=Loading channel connections…",
+          "selector": "text=\"Loading channel connections…\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4209,7 +4209,7 @@
         {
           "identity": "list-empty-visible",
           "scope": "target",
-          "selector": "text=No channel connections",
+          "selector": "text=\"No channel connections\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4251,7 +4251,7 @@
         {
           "identity": "list-empty-visible",
           "scope": "target",
-          "selector": "text=No channel connections",
+          "selector": "text=\"No channel connections\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4293,7 +4293,7 @@
         {
           "identity": "list-error-visible",
           "scope": "target",
-          "selector": "text=Channels API error 503",
+          "selector": "text=\"Channels API error 503\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4335,7 +4335,7 @@
         {
           "identity": "list-error-visible",
           "scope": "target",
-          "selector": "text=Channels API error 503",
+          "selector": "text=\"Channels API error 503\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4377,7 +4377,7 @@
         {
           "identity": "list-success-visible",
           "scope": "target",
-          "selector": "text=fixture-provider",
+          "selector": "text=\"fixture-provider\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4419,7 +4419,7 @@
         {
           "identity": "list-success-visible",
           "scope": "target",
-          "selector": "text=fixture-provider",
+          "selector": "text=\"fixture-provider\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4545,7 +4545,7 @@
         {
           "identity": "connect-empty-visible",
           "scope": "target",
-          "selector": "text=No channel connections",
+          "selector": "text=\"No channel connections\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4587,7 +4587,7 @@
         {
           "identity": "connect-empty-visible",
           "scope": "target",
-          "selector": "text=No channel connections",
+          "selector": "text=\"No channel connections\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4629,7 +4629,7 @@
         {
           "identity": "connect-error-visible",
           "scope": "target",
-          "selector": "text=provider-setup-not-registered",
+          "selector": "text=\"provider-setup-not-registered\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4671,7 +4671,7 @@
         {
           "identity": "connect-error-visible",
           "scope": "target",
-          "selector": "text=provider-setup-not-registered",
+          "selector": "text=\"provider-setup-not-registered\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4713,7 +4713,7 @@
         {
           "identity": "connect-success-visible",
           "scope": "target",
-          "selector": "text=Pending setup",
+          "selector": "text=\"Pending setup\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4755,7 +4755,7 @@
         {
           "identity": "connect-success-visible",
           "scope": "target",
-          "selector": "text=Pending setup",
+          "selector": "text=\"Pending setup\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -4965,7 +4965,7 @@
         {
           "identity": "setup-error-visible",
           "scope": "target",
-          "selector": "text=binding-not-current",
+          "selector": "text=\"binding-not-current\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5007,7 +5007,7 @@
         {
           "identity": "setup-error-visible",
           "scope": "target",
-          "selector": "text=binding-not-current",
+          "selector": "text=\"binding-not-current\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5049,7 +5049,7 @@
         {
           "identity": "setup-success-visible",
           "scope": "target",
-          "selector": "text=Active",
+          "selector": "text=\"Active\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5091,7 +5091,7 @@
         {
           "identity": "setup-success-visible",
           "scope": "target",
-          "selector": "text=Active",
+          "selector": "text=\"Active\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5301,7 +5301,7 @@
         {
           "identity": "activate-error-visible",
           "scope": "target",
-          "selector": "text=binding-not-current",
+          "selector": "text=\"binding-not-current\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5343,7 +5343,7 @@
         {
           "identity": "activate-error-visible",
           "scope": "target",
-          "selector": "text=binding-not-current",
+          "selector": "text=\"binding-not-current\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5385,7 +5385,7 @@
         {
           "identity": "activate-success-visible",
           "scope": "target",
-          "selector": "text=Active",
+          "selector": "text=\"Active\"",
           "property": "visible",
           "assertion": {
             "equals": true
@@ -5427,7 +5427,7 @@
         {
           "identity": "activate-success-visible",
           "scope": "target",
-          "selector": "text=Active",
+          "selector": "text=\"Active\"",
           "property": "visible",
           "assertion": {
             "equals": true

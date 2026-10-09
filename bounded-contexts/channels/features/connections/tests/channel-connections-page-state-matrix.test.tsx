@@ -12,7 +12,7 @@ import AccountChannelsConnectionRoute, {
 import { allowedChannelConnectionActions } from "../ui/connection-pages";
 import { channelConnectionStatuses, type ChannelConnectionPage } from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
-import { channelConnectionStateFixture as fixtureFor } from "./browser-state-fixture";
+import { channelConnectionStateFixture as fixtureFor } from "./browser-state-fixture.test-data";
 
 afterEach(() => {
   cleanup();

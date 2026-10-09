@@ -3,4 +3,4 @@ export {
   mountChannelConnectionBrowserState,
   type ConnectionEvidenceState,
   type ConnectionEvidenceSurface,
-} from "../../features/connections/tests/browser-state-fixture";
+} from "../../features/connections/tests/browser-state-fixture.test-data";

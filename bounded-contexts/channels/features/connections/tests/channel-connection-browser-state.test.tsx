@@ -13,7 +13,7 @@ import {
   channelConnectionBrowserState,
   channelConnectionStateFixture,
   mountChannelConnectionBrowserState,
-} from "./browser-state-fixture";
+} from "./browser-state-fixture.test-data";
 
 type FixtureHost = {
   __reactRouterDataRouter: ReturnType<typeof createMemoryRouter>;
