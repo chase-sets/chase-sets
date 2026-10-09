@@ -224,73 +224,88 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
     }
   });
 
-  it.each(["success", "run-append", "projection", "receipt", "missing-origin"] as const)(
-    "connector-context-free-bound-settlement: real composed route/Postgres atomicity at %s",
-    async (phase) => {
-      const paired = await pairThroughHttp();
-      const body = await prepareConnectorBoundSettlement(pools.channels, channels, {
-        connectionId,
-        pairingId: paired.pairing.pairingId,
-        context: originContext,
+  async function assertContextFreeBoundSettlement(
+    phase: "success" | "run-append" | "projection" | "receipt" | "missing-origin",
+  ) {
+    const paired = await pairThroughHttp();
+    const body = await prepareConnectorBoundSettlement(pools.channels, channels, {
+      connectionId,
+      pairingId: paired.pairing.pairingId,
+      context: originContext,
+    });
+    if (phase === "missing-origin") {
+      await pools.channels.query(
+        "DELETE FROM event_store_events WHERE stream_id=$1 AND event_type='channels.tcgplayer-sync-run.composed'",
+        [`channels.tcgplayer-sync-run-${body.runSettlement!.runId}`],
+      );
+    }
+    const before = await connectorSettlementEffects(pools.channels);
+    const release =
+      phase === "success" || phase === "missing-origin" ? null : await failConnectorSettlementAt(pools.channels, phase);
+    const report = () =>
+      app.request(`http://localhost/channel-connector/oauth/connections/${connectionId}/report`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${paired.tokens.access_token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
       });
-      if (phase === "missing-origin") {
-        await pools.channels.query(
-          "DELETE FROM event_store_events WHERE stream_id=$1 AND event_type='channels.tcgplayer-sync-run.composed'",
-          [`channels.tcgplayer-sync-run-${body.runSettlement!.runId}`],
-        );
-      }
-      const before = await connectorSettlementEffects(pools.channels);
-      const release =
-        phase === "success" || phase === "missing-origin"
-          ? null
-          : await failConnectorSettlementAt(pools.channels, phase);
-      const report = () =>
-        app.request(`http://localhost/channel-connector/oauth/connections/${connectionId}/report`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${paired.tokens.access_token}`, "content-type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      const response = await report();
-      if (phase === "missing-origin") {
-        expect(response.status).toBe(503);
-        expect(await response.json()).toEqual({ code: "unavailable" });
-        expect(await connectorSettlementEffects(pools.channels)).toEqual(before);
-        return;
-      }
-      if (release) {
-        expect(response.status).toBe(503);
-        expect(await response.json()).toEqual({ code: "unavailable" });
-        expect(await connectorSettlementEffects(pools.channels)).toEqual(before);
-        await release();
-        expect((await report()).status).toBe(200);
-      } else {
-        expect(response.status).toBe(200);
-        expect(await response.text()).toBe("{}");
-      }
-      const committed = await connectorSettlementEffects(pools.channels);
-      expect(committed.e2).toEqual(before.e2);
-      expect(committed.e1).not.toEqual(before.e1);
-      expect((await channels.tcgplayerCsv.readRun(body.runSettlement!.runId))?.state).toBe("abandoned");
-      const events = await pools.channels.query(
-        "SELECT tenant_id,performed_by_user_id,for_account_id FROM event_store_events WHERE event_type='channels.tcgplayer-sync-run.transitioned'",
-      );
-      expect(events.rows).toEqual([
-        {
-          tenant_id: originContext.tenantId,
-          performed_by_user_id: originContext.audit.performedByUserId,
-          for_account_id: originContext.audit.forAccountId,
-        },
-      ]);
-      expect((await pools.channels.query("SELECT * FROM channel_outbound_reservation_settlements")).rows).toHaveLength(
-        1,
-      );
-      const replay = await report();
-      expect(replay.status).toBe(200);
-      expect(await replay.text()).toBe("{}");
-      if (phase === "success") expect([...replay.headers]).toEqual([...response.headers]);
-      expect(await connectorSettlementEffects(pools.channels)).toEqual(committed);
-    },
-  );
+    const response = await report();
+    if (phase === "missing-origin") {
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "unavailable" });
+      expect(await connectorSettlementEffects(pools.channels)).toEqual(before);
+      return;
+    }
+    if (release) {
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "unavailable" });
+      expect(await connectorSettlementEffects(pools.channels)).toEqual(before);
+      await release();
+      expect((await report()).status).toBe(200);
+    } else {
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("{}");
+    }
+    const committed = await connectorSettlementEffects(pools.channels);
+    expect(committed.e2).toEqual(before.e2);
+    expect(committed.e1).not.toEqual(before.e1);
+    expect((await channels.tcgplayerCsv.readRun(body.runSettlement!.runId))?.state).toBe("abandoned");
+    const events = await pools.channels.query(
+      "SELECT tenant_id,performed_by_user_id,for_account_id FROM event_store_events WHERE event_type='channels.tcgplayer-sync-run.transitioned'",
+    );
+    expect(events.rows).toEqual([
+      {
+        tenant_id: originContext.tenantId,
+        performed_by_user_id: originContext.audit.performedByUserId,
+        for_account_id: originContext.audit.forAccountId,
+      },
+    ]);
+    expect((await pools.channels.query("SELECT * FROM channel_outbound_reservation_settlements")).rows).toHaveLength(1);
+    const replay = await report();
+    expect(replay.status).toBe(200);
+    expect(await replay.text()).toBe("{}");
+    if (phase === "success") expect([...replay.headers]).toEqual([...response.headers]);
+    expect(await connectorSettlementEffects(pools.channels)).toEqual(committed);
+  }
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at success", async () => {
+    await assertContextFreeBoundSettlement("success");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at run-append", async () => {
+    await assertContextFreeBoundSettlement("run-append");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at projection", async () => {
+    await assertContextFreeBoundSettlement("projection");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at receipt", async () => {
+    await assertContextFreeBoundSettlement("receipt");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at missing-origin", async () => {
+    await assertContextFreeBoundSettlement("missing-origin");
+  });
 
   it("runs public registration, seller pairing, credential exchange and denies both principal substitutions", async () => {
     const paired = await pairThroughHttp();
