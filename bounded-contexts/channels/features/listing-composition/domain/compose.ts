@@ -39,6 +39,7 @@ export function composeChannelListingPublication(
   if (listing.offer.publishableQuantity.kind === "resolved" && listing.offer.publishableQuantity.value === 0) {
     listingReasons.push("sold-out");
   }
+  if (listing.offer.publishableQuantity.kind === "low-stock-withheld") listingReasons.push("low-stock-withheld");
   if (settings.excludedListingIds.includes(listing.listingId)) listingReasons.push("listing-excluded");
   if (listing.identity.categoryIds.some((categoryId) => !settings.categoryAllowlist.includes(categoryId))) {
     listingReasons.push("category-not-allowed");

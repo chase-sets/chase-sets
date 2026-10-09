@@ -31,6 +31,7 @@ export type ChannelPublicationSettings = Readonly<{
   categoryAllowlist: readonly string[];
   excludedListingIds: readonly string[];
   publishQuantityCap: number | null;
+  lowStockWithholdUnits: number | null;
 }>;
 
 export type ChannelCompositionProfileDerivation = Readonly<{
@@ -103,7 +104,10 @@ export type ChannelListingIdentity = Readonly<{
 
 export type ChannelListingOffer = Readonly<{
   price: Readonly<{ kind: "present"; amount: string; currencyCode: string }> | Readonly<{ kind: "absent" }>;
-  publishableQuantity: Readonly<{ kind: "resolved"; value: number }> | Readonly<{ kind: "unavailable" }>;
+  publishableQuantity:
+    | Readonly<{ kind: "resolved"; value: number }>
+    | Readonly<{ kind: "low-stock-withheld" }>
+    | Readonly<{ kind: "unavailable" }>;
 }>;
 
 export const channelListingPublishStates = ["pending", "published", "delisted", "failed", "blocked"] as const;
@@ -175,6 +179,7 @@ export const channelPublicationListingBlockingReasons = [
   "listing-not-active",
   "seller-unavailable",
   "sold-out",
+  "low-stock-withheld",
   "listing-excluded",
   "category-not-allowed",
   "provider-scope-not-current",

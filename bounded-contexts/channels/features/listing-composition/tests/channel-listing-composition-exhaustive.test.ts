@@ -51,6 +51,54 @@ void blockedWithDraft;
 void delistWithDraft;
 
 describe("channel-listing-composition-input-parse", () => {
+  it.each([0, 1_001, 1.5, -1, "1", undefined])(
+    "rejects every programming error before the composer can run: low-stock withhold %s",
+    (lowStockWithholdUnits) => {
+      const candidate = mutateInput((input) => {
+        if (input.settings.kind !== "configured") throw new Error("Expected settings.");
+        Object.assign(input.settings.settings, { lowStockWithholdUnits });
+      });
+      expect(parseChannelListingCompositionInput(candidate)).toEqual({
+        kind: "invalid",
+        programmingError: "bound-violation",
+      });
+    },
+  );
+
+  it("rejects every programming error before the composer can run: closed quantity variants", () => {
+    for (const publishableQuantity of [{ kind: "unknown" }, { kind: "low-stock-withheld", value: 0 }]) {
+      const candidate = mutateInput((input) => {
+        if (input.listing.kind !== "present") throw new Error("Expected listing.");
+        Object.assign(input.listing.offer, { publishableQuantity });
+      });
+      expect(parseChannelListingCompositionInput(candidate).kind).toBe("invalid");
+    }
+  });
+
+  it("low-stock withhold blocks new publication and delists published links without calling stocked items sold-out", () => {
+    const base = listingInput();
+    if (base.listing.kind !== "present") throw new Error("Expected listing.");
+    const withheld = {
+      ...base,
+      listing: {
+        ...base.listing,
+        offer: { ...base.listing.offer, publishableQuantity: { kind: "low-stock-withheld" as const } },
+      },
+    };
+    expect(parseChannelListingCompositionInput(withheld).kind).toBe("valid");
+    expect(composeChannelListingPublication(withheld)).toEqual({ kind: "blocked", reasons: ["low-stock-withheld"] });
+    expect(
+      composeChannelListingPublication({ ...withheld, link: { kind: "existing", state: publishedLink() } }),
+    ).toMatchObject({ kind: "publishable", intent: "delist", delist: { delistReasons: ["low-stock-withheld"] } });
+    expect(composeChannelListingPublication(base)).toMatchObject({ kind: "publishable", intent: "publish" });
+    expect(
+      composeChannelListingPublication({
+        ...base,
+        link: { kind: "existing", state: publishedLink({ publishState: "delisted" }) },
+      }),
+    ).toMatchObject({ kind: "publishable", intent: "update" });
+  });
+
   it.each([0, 1_001, 1.5, -1, "2", undefined])(
     "rejects every programming error before the composer can run: publish quantity cap %s",
     (publishQuantityCap) => {
@@ -516,6 +564,10 @@ function reasonCases(): Record<ChannelPublicationBlockingReason, () => ChannelLi
     "sold-out": mutate((input) => {
       if (input.listing.kind !== "present") throw new Error("expected listing facts");
       input.listing.offer.publishableQuantity = { kind: "resolved", value: 0 };
+    }),
+    "low-stock-withheld": mutate((input) => {
+      if (input.listing.kind !== "present") throw new Error("expected listing facts");
+      input.listing.offer.publishableQuantity = { kind: "low-stock-withheld" };
     }),
     "listing-excluded": mutate((input) => {
       if (input.settings.kind !== "configured") throw new Error("expected settings");

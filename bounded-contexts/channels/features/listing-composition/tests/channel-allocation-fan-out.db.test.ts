@@ -337,6 +337,7 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     expect(noDocument).toEqual(CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK);
     expect(
       deriveChannelPublishQuantity({
+        connectionLowStockWithholdUnits: null,
         available: 4,
         listingQuantityCap: 10,
         channelConnectionId: "connection-a",
@@ -390,6 +391,7 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     );
     expect(
       deriveChannelPublishQuantity({
+        connectionLowStockWithholdUnits: null,
         available: 4,
         listingQuantityCap: 10,
         channelConnectionId: "connection-a",

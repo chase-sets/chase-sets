@@ -141,7 +141,7 @@ export async function resolveChannelPublishableQuantity(
     buffer?: ChannelStockAllocationBufferPolicyValue;
   }>,
 ): Promise<
-  | Readonly<{ kind: "resolved"; publishableQuantity: number }>
+  | Readonly<{ kind: "resolved"; publishableQuantity: number; lowStockWithheld: boolean }>
   | Readonly<{ kind: "listing-facts-unavailable" }>
   | Readonly<{ kind: "inventory-facts-unavailable" }>
 > {
@@ -152,8 +152,9 @@ export async function resolveChannelPublishableQuantity(
     allocation_mode: "shared-pool" | "partitioned" | null;
     allocation_partitions: unknown;
     publish_quantity_cap: number | null;
+    low_stock_withhold_units: number | null;
   }>(
-    `SELECT listing.quantity_cap, item.total_quantity, settings.publish_quantity_cap,
+    `SELECT listing.quantity_cap, item.total_quantity, settings.publish_quantity_cap, settings.low_stock_withhold_units,
             allocation.mode AS allocation_mode, allocation.partitions AS allocation_partitions,
             COALESCE(SUM(hold.quantity) FILTER (WHERE hold.status='active'),0) AS held_quantity
      FROM channels_listing_publication_facts AS listing
@@ -163,7 +164,8 @@ export async function resolveChannelPublishableQuantity(
        ON allocation.item_id=listing.inventory_item_id AND allocation.account_id=listing.account_id
      LEFT JOIN channels_connection_publication_settings AS settings ON settings.connection_id=$2
      WHERE listing.listing_id=$1
-     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions,settings.publish_quantity_cap`,
+     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions,
+              settings.publish_quantity_cap,settings.low_stock_withhold_units`,
     [input.listingId, input.connectionId ?? null],
   );
   const row = result.rows[0];
@@ -180,10 +182,16 @@ export async function resolveChannelPublishableQuantity(
       available,
       listingQuantityCap: row.quantity_cap,
       connectionPublishQuantityCap: row.publish_quantity_cap ?? null,
+      connectionLowStockWithholdUnits: row.low_stock_withhold_units ?? null,
       channelConnectionId: input.connectionId ?? "",
       allocation,
       buffer: input.buffer ?? CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
     }),
+    lowStockWithheld:
+      allocation.mode === "shared-pool" &&
+      available > 0 &&
+      row.low_stock_withhold_units != null &&
+      available <= row.low_stock_withhold_units,
   };
 }
 
@@ -273,7 +281,9 @@ export async function readChannelListingCompositionFacts(
                 : { kind: "absent" },
             publishableQuantity:
               quantity.kind === "resolved"
-                ? { kind: "resolved", value: quantity.publishableQuantity }
+                ? quantity.lowStockWithheld
+                  ? { kind: "low-stock-withheld" }
+                  : { kind: "resolved", value: quantity.publishableQuantity }
                 : { kind: "unavailable" },
           },
         },
@@ -465,8 +475,10 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
     category_allowlist: unknown;
     excluded_listing_ids: unknown;
     publish_quantity_cap: number | null;
+    low_stock_withhold_units: number | null;
   }>(
-    `SELECT title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,publish_quantity_cap
+    `SELECT title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,publish_quantity_cap,
+            low_stock_withhold_units
       FROM channels_connection_publication_settings WHERE connection_id=$1`,
     [connectionId],
   );
@@ -479,6 +491,7 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
         categoryAllowlist: strings(row.category_allowlist),
         excludedListingIds: strings(row.excluded_listing_ids),
         publishQuantityCap: row.publish_quantity_cap,
+        lowStockWithholdUnits: row.low_stock_withhold_units,
       }
     : null;
 }
