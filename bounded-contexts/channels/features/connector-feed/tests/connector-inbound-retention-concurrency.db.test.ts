@@ -6,6 +6,7 @@ import {
   executeRetentionSweepBatch,
 } from "@chase-sets/platform-runtime/retention-sweep";
 import { connectorPolicyDefaults } from "../domain/policy";
+import { connectorInboundRetentionSweeps } from "../read-model/retention-policy";
 import type { ConnectorInboundKind } from "../domain/transport";
 import { describeDb, target, transportDatabase } from "./transport-test-support";
 import {
@@ -184,11 +185,10 @@ describeDb("connector-inbound-retention-concurrency", () => {
           return { rows: [], rowCount: 0 };
         }) as PgQueryable["query"],
       };
-      for (const sweep of [inventorySnapshotSweep, orderObservationSweep])
-        await executeRetentionSweepBatch(explain, sweep);
+      for (const sweep of connectorInboundRetentionSweeps) await executeRetentionSweepBatch(explain, sweep);
       return collected;
     });
-    expect(plans).toHaveLength(2);
+    expect(plans).toHaveLength(3);
     for (const plan of plans) {
       // LIMIT alone never bounds a scan: the candidate scan must be an index range on kind and deadline, unsorted.
       const limit = planNodes(JSON.parse(plan)[0].Plan).find((node) => node["Node Type"] === "Limit");

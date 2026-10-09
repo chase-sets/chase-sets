@@ -58,7 +58,7 @@ describe("connector-inbound-retention-registry-parity", () => {
     expect(() => buildConnectorInboundRetentionSweeps(registrations)).toThrow(refusal);
   });
 
-  it("derives one bounded, strictly-after, elapsed-second sweep per class from the registry", () => {
+  it("derives one bounded, strictly-after, elapsed-second sweep per kind from its registered class", () => {
     expect(connectorInboundRetentionBatchLimit).toBe(
       Math.floor((256 * 1_048_576) / manualSyncIngestContract.configuredBounds.bytes[1]),
     );
@@ -75,20 +75,23 @@ describe("connector-inbound-retention-registry-parity", () => {
         batchLimit,
       })),
     ).toEqual(
-      ["inventory-snapshot", "order-observation"].map((retentionClass) => ({
-        name: `connector-inbound-${retentionClass}`,
+      ["inventory-snapshot", "order-observation", "fulfillment-observation"].map((name) => ({
+        name: `connector-inbound-${name}`,
         tableName: "channel_connector_inbound_payloads",
-        orderBySql: "candidate.inbound_kind ASC, candidate.received_at ASC, candidate.provider_event_id ASC",
+        orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
         intervalMs: 3_600_000,
         batchLimit: 2,
       })),
     );
-    const [exportSweep, orderSweep] = connectorInboundRetentionSweeps;
+    const [exportSweep, orderSweep, fulfillmentSweep] = connectorInboundRetentionSweeps;
     expect(exportSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
-      "candidate.inbound_kind IN ('export') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 604800)",
+      "candidate.inbound_kind = 'export' AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 604800)",
     );
     expect(orderSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
-      "candidate.inbound_kind IN ('order', 'channel-order-fulfillment-observation/v1') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
+      "candidate.inbound_kind = 'order' AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
+    );
+    expect(fulfillmentSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
+      "candidate.inbound_kind = 'channel-order-fulfillment-observation/v1' AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
     );
   });
 

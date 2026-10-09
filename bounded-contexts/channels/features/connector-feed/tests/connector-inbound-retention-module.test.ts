@@ -8,7 +8,7 @@ import { connectorInboundRetentionExemptions, connectorInboundRetentionSweeps } 
 import { fulfillmentObservationRetentionSweeps } from "../../order-fulfillment-observations/read-model/schema";
 
 describe("connector-inbound-retention-module", () => {
-  it("mounts every registry class sweep on the Channels module and nothing that exempts the payload", () => {
+  it("mounts every registered kind sweep on the Channels module and nothing that exempts the payload", () => {
     expect(channelsModule.retentionSweeps).toEqual([
       ...connectorInboundRetentionSweeps,
       ...fulfillmentObservationRetentionSweeps,
@@ -44,7 +44,7 @@ describe("connector-inbound-retention-module", () => {
     ).toEqual([]);
   });
 
-  it("passes the shared runner's trusted-fragment gate as one bounded atomic DELETE per class", async () => {
+  it("passes the shared runner's trusted-fragment gate as one bounded atomic DELETE per kind", async () => {
     for (const sweep of connectorInboundRetentionSweeps) {
       const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
       await expect(executeRetentionSweepBatch({ query } as unknown as PgQueryable, sweep)).resolves.toBe(0);

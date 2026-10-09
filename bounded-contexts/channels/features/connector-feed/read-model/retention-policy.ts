@@ -1,9 +1,15 @@
 import type { BcRetentionExemption, BcRetentionSweep } from "@chase-sets/bounded-context-module";
 import { manualSyncIngestContract } from "../../manual-sync/domain/contracts";
 import { connectorInboundKindRetention, resolveConnectorInboundRetentionClasses } from "../domain/retention";
+import type { ConnectorInboundKind } from "../domain/transport";
 
 const HOUR_MS = 60 * 60 * 1_000;
 const RETENTION_BATCH_BYTES = 256 * 1_048_576;
+const sweepNames: Record<ConnectorInboundKind, string> = {
+  export: "connector-inbound-inventory-snapshot",
+  order: "connector-inbound-order-observation",
+  "channel-order-fulfillment-observation/v1": "connector-inbound-fulfillment-observation",
+};
 
 // Sized by the largest payload any policy revision could ever admit, so a batch
 // stays bounded for historical rows after the live policy is lowered.
@@ -14,17 +20,18 @@ export const connectorInboundRetentionBatchLimit = Math.floor(
 export function buildConnectorInboundRetentionSweeps(
   registrations: readonly unknown[] = connectorInboundKindRetention,
 ): readonly BcRetentionSweep[] {
-  return resolveConnectorInboundRetentionClasses(registrations).map(
-    ({ retentionClass, windowSeconds, inboundKinds }) => ({
-      name: `connector-inbound-${retentionClass}`,
+  return resolveConnectorInboundRetentionClasses(registrations).flatMap(({ windowSeconds, inboundKinds }) =>
+    inboundKinds.map((kind) => ({
+      name: sweepNames[kind],
       tableName: "channel_connector_inbound_payloads",
       // Strictly after the deadline, measured on the DELETE transaction's clock.
-      predicateSql: `candidate.inbound_kind IN (${inboundKinds.map((kind) => `'${kind}'`).join(", ")})
+      // One equality range per kind preserves index order without an unbounded bitmap/sort.
+      predicateSql: `candidate.inbound_kind = '${kind}'
       AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => ${windowSeconds})`,
-      orderBySql: "candidate.inbound_kind ASC, candidate.received_at ASC, candidate.provider_event_id ASC",
+      orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
       intervalMs: HOUR_MS,
       batchLimit: connectorInboundRetentionBatchLimit,
-    }),
+    })),
   );
 }
 
