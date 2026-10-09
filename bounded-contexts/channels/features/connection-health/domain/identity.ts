@@ -8,7 +8,7 @@ export function healthDigest(value: unknown): string {
 
 export function deriveChannelHealthSourceWorkId(
   input: Readonly<{
-    sourceKind: ChannelHealthSource;
+    sourceKind: Exclude<ChannelHealthSource, "connector-liveness">;
     connectionId: string;
     authorityIdentity: string;
     operationMode: string;
@@ -26,7 +26,8 @@ export function deriveChannelHealthSourceWorkId(
     "scheduleGeneration",
     "policyRevision",
   ]);
-  if (!channelHealthSources.includes(input.sourceKind)) throw new ChannelHealthError("invalid-health-contract");
+  if (!channelHealthSources.includes(input.sourceKind) || r.sourceKind === "connector-liveness")
+    throw new ChannelHealthError("invalid-health-contract");
   return healthDigest([
     r.sourceKind,
     identity(r.connectionId),

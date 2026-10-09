@@ -27,7 +27,7 @@ export async function prepareConnectorBoundSettlement(
   ]) {
     for (const event of connectionEvents) await handlers[event.eventType]?.(toTransportEvent(event));
   }
-  for (const reasonCode of channelHealthReasons) {
+  for (const reasonCode of channelHealthReasons.filter((reason) => reason !== "connector-liveness")) {
     const health = (await services.connectionHealth.readConnectionHealth({ accountId, connectionId })).health;
     await services.connectionHealth.submitObservation(
       {
