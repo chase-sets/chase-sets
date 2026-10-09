@@ -1,8 +1,3 @@
-export {
-  prepareConnectorBoundSettlement,
-  connectorSettlementEffects,
-  failConnectorSettlementAt,
-} from "./features/connector-feed/tests/settlement-test-support";
 export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export {

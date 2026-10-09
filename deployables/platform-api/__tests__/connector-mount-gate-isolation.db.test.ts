@@ -22,7 +22,7 @@ import {
   prepareConnectorBoundSettlement,
   connectorSettlementEffects,
   failConnectorSettlementAt,
-} from "@chase-sets/channels/server";
+} from "@chase-sets/channels/test-support";
 
 let pools: PlatformApiTestPools;
 let auth: ReturnType<typeof authModule.createServices>;
