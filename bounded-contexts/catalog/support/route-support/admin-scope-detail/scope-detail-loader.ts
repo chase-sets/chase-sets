@@ -8,6 +8,14 @@ import {
 import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { catalogScopeHasLanguageEditionsToReview } from "../../../features/source-observations/ui/admin-control-plane/scope-detail/language-editions/language-edition-review";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
+import type {
+  CatalogMergeCandidateBulkJob,
+  CatalogMergeCandidateBulkJobPage,
+} from "../../../features/source-observations/api/runtime";
+import {
+  candidateReviewJobsCursorParam,
+  type CatalogScopeCandidateReviewJobs,
+} from "../../../features/source-observations/ui/admin-control-plane/scope-detail/candidate-review-jobs-panel";
 import { loadDailySurfaceForRequest } from "../admin-integrations/integrations-loader-support";
 import { scopeDetailWorkbenchRequest } from "./scope-detail-route-context";
 
@@ -28,6 +36,9 @@ export type CatalogScopeDetailRouteData = Readonly<{
   coverageMatrix: ScopeCoverageMatrix | null;
   coverageMatrixFailed: boolean;
   journey: Awaited<ReturnType<typeof loadDailySurfaceForRequest>>;
+  candidateReviewJobs: CatalogScopeCandidateReviewJobs;
+  /** The completed-jobs page cursor this load rendered; null on the newest page. */
+  candidateReviewJobsCursor: string | null;
 }>;
 
 export async function loader({ request, params }: LoaderFunctionArgs): Promise<CatalogScopeDetailRouteData> {
@@ -39,12 +50,15 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<C
     resolveActor(request),
   ]);
 
-  const [aliasReview, coverage, journey] = await Promise.all([
+  const candidateReviewJobsCursor =
+    new URL(request.url).searchParams.get(candidateReviewJobsCursorParam)?.trim() || null;
+  const [aliasReview, coverage, journey, candidateReviewJobs] = await Promise.all([
     catalogScopeHasLanguageEditionsToReview(scope)
       ? loadLanguageEditionAliasReview(api, scope.referenceRecordId)
       : Promise.resolve({ readModel: emptyAliasReviewReadModel(scope.referenceRecordId), failed: false }),
     loadScopeCoverageMatrix(api, scope.scopeRecordId),
     loadDailySurfaceForRequest(scopeDetailWorkbenchRequest(request, scope)),
+    loadCandidateReviewJobs(api, scope.scopeRecordId, candidateReviewJobsCursor),
   ]);
 
   return {
@@ -55,7 +69,38 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<C
     coverageMatrix: coverage.matrix,
     coverageMatrixFailed: coverage.failed,
     journey,
+    candidateReviewJobs,
+    candidateReviewJobsCursor,
   };
+}
+
+// Supplementary read: a failed job-list load renders a degraded panel instead of
+// failing the scope page.
+async function loadCandidateReviewJobs(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  scopeRecordId: string,
+  cursor: string | null,
+): Promise<CatalogScopeCandidateReviewJobs> {
+  try {
+    const [active, completed] = await Promise.all([
+      api.listCatalogMergeCandidateBulkJobs<Readonly<{ items: readonly CatalogMergeCandidateBulkJob[] }>>({
+        scopeRecordId,
+        status: "active",
+      }),
+      api.listCatalogMergeCandidateBulkJobs<CatalogMergeCandidateBulkJobPage>({
+        scopeRecordId,
+        status: "completed",
+        cursor,
+      }),
+    ]);
+    return {
+      active: active.items,
+      completed: completed.cursor ? { items: completed.items, cursor: completed.cursor } : { items: completed.items },
+      failed: false,
+    };
+  } catch {
+    return { active: [], completed: { items: [] }, failed: true };
+  }
 }
 
 async function loadScopeCoverageMatrix(

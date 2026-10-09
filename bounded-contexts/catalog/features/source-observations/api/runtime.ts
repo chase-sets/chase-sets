@@ -48,6 +48,11 @@ import type {
   CatalogSyncRunFanoutResult,
   CatalogSyncRunPayload,
   BulkSourceObservationProgress,
+  CatalogMergeCandidateBulkJob,
+  CatalogMergeCandidateBulkJobPayload,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkUnitResult,
+  CatalogMergeCandidateBulkWorkUnitPayload,
   SourceObservationAliasCandidateSink,
   SourceObservationAliasPromotion,
   SourceObservationBulkJob,
@@ -90,6 +95,10 @@ import {
 } from "./source-observation-catalog-sync-run-runtime";
 import { createSourceObservationIntegrationJobRuntime } from "./source-observation-integration-job-runtime";
 import { createSourceObservationBulkReviewJobRuntime } from "./source-observation-bulk-review-job-runtime";
+import {
+  createSourceObservationMergeCandidateBulkJobRuntime,
+  toCatalogMergeCandidateBulkJobEventSnapshot,
+} from "./source-observation-merge-candidate-bulk-job-runtime";
 import { createSourceObservationIntegrationEngineRuntime } from "./source-observation-integration-engine-runtime";
 export {
   ensurePokemonReferenceHierarchy,
@@ -152,6 +161,12 @@ export type {
   SourceObservationReviewServices,
   PromotionReapplyServices,
   BulkReviewJobServices,
+  CatalogMergeCandidateBulkJob,
+  CatalogMergeCandidateBulkJobKind,
+  CatalogMergeCandidateBulkJobPage,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkJobServices,
+  CatalogMergeCandidateBulkUnitResult,
   CatalogScopeSyncUnitStateReadModel,
   IntegrationJobServices,
   SourceObservationReadServices,
@@ -167,6 +182,7 @@ export type {
 } from "./source-observation-runtime-contracts";
 export {
   SourceObservationIntegrationJobLifecycleCommandError,
+  catalogMergeCandidateBulkJobKinds,
   isSourceObservationIntegrationJobLifecycleCommandError,
 } from "./source-observation-runtime-contracts";
 
@@ -241,6 +257,46 @@ export function createSourceObservationRuntime(
     {
       workflowName: "catalog.source-observation-bulk-review",
       eventSnapshot: toSourceObservationBulkJobEventSnapshot,
+    },
+  );
+  // Catalog Merge Candidate scope jobs share the bulk review tables and claim
+  // budget; their own typed views keep candidate payloads out of the
+  // observation job serializers.
+  const mergeCandidateBulkJobStore = createPostgresDurableJobStore<
+    CatalogMergeCandidateBulkJobPayload,
+    BulkSourceObservationProgress,
+    CatalogMergeCandidateBulkJobResult,
+    CatalogMergeCandidateBulkJob
+  >(
+    deps.db,
+    {
+      jobsTable: "catalog_source_observation_bulk_review_jobs",
+      eventsTable: "catalog_source_observation_bulk_review_job_events",
+      notifyChannel: "catalog_source_observation_durable_job_events",
+    },
+    {
+      eventSnapshot: toCatalogMergeCandidateBulkJobEventSnapshot,
+      notificationWaiterPool: deps.notificationWaiterPool,
+    },
+  );
+  const mergeCandidateBulkWorkUnitStore = createPostgresDurableJobWorkUnitStore<
+    CatalogMergeCandidateBulkJobPayload,
+    BulkSourceObservationProgress,
+    CatalogMergeCandidateBulkJobResult,
+    CatalogMergeCandidateBulkWorkUnitPayload,
+    CatalogMergeCandidateBulkUnitResult,
+    CatalogMergeCandidateBulkJob
+  >(
+    deps.db,
+    {
+      jobsTable: "catalog_source_observation_bulk_review_jobs",
+      eventsTable: "catalog_source_observation_bulk_review_job_events",
+      workUnitsTable: "catalog_source_observation_bulk_review_work_units",
+      notifyChannel: "catalog_source_observation_durable_job_events",
+    },
+    {
+      workflowName: "catalog.source-observation-bulk-review",
+      eventSnapshot: toCatalogMergeCandidateBulkJobEventSnapshot,
     },
   );
   const integrationJobStore = createPostgresDurableJobStore<
@@ -362,6 +418,12 @@ export function createSourceObservationRuntime(
     scopeSyncState,
     enqueueIntegrationJob: integrationJobs.enqueueIntegrationJob,
   });
+  const mergeCandidateBulkJobs = createSourceObservationMergeCandidateBulkJobRuntime({
+    deps,
+    jobStore: mergeCandidateBulkJobStore,
+    workUnitStore: mergeCandidateBulkWorkUnitStore,
+    mergeCandidates,
+  });
   const bulkReviewJobs = createSourceObservationBulkReviewJobRuntime({
     deps,
     profileVersions,
@@ -369,6 +431,7 @@ export function createSourceObservationRuntime(
     bulkReviewJobStore,
     bulkReviewWorkUnitStore,
     promotionReapply,
+    processNextMergeCandidateBulkJob: mergeCandidateBulkJobs.services.processNextCatalogMergeCandidateBulkJob,
   });
   const integrationEngine = createSourceObservationIntegrationEngineRuntime({
     deps,
@@ -429,6 +492,7 @@ export function createSourceObservationRuntime(
       ...integrationEngine.services,
       ...promotionReapply.services,
       ...bulkReviewJobs.services,
+      ...mergeCandidateBulkJobs.services,
       ...scopeSyncState.services,
       ...catalogSyncRuns.services,
       ...integrationJobs.services,

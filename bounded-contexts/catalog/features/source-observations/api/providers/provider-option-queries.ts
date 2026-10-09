@@ -89,6 +89,7 @@ import {
 } from "../governance/catalog-integration-observability";
 import { staticCatalogProviderIntegrationProfileVersions } from "../source-observation-runtime-contracts";
 import type {
+  CatalogMergeCandidateBulkJobKind,
   SourceObservationIntegrationJobAction,
   SourceObservationBulkJobAction,
   SourceObservationIntegrationJobResult,
@@ -118,7 +119,7 @@ export function recordIntegrationJobTelemetry(
 
 export function recordBulkReviewWorkUnitTelemetry(
   telemetry: SourceObservationTelemetry | undefined,
-  jobKind: SourceObservationBulkJobAction,
+  jobKind: SourceObservationBulkJobAction | CatalogMergeCandidateBulkJobKind,
   result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled",
 ): void {
   telemetry?.recordBulkReviewWorkUnit?.({ jobKind, result });

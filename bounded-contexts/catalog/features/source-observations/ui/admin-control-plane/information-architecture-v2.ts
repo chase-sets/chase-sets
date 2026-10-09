@@ -340,7 +340,8 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     disclosure: "inline",
     // Single-candidate promote and the scope-level promote-all-ready bulk action
     // are the same entity verb applied to one candidate or to the ready set; the
-    // bulk form only ever carries `ready` candidate IDs.
+    // bulk form carries only the scope record ID and the server-side job selects
+    // the scope's `ready` candidates.
   },
   {
     id: "candidate.edit",
@@ -388,7 +389,8 @@ export const CATALOG_CONTROL_PLANE_ACTIONS = [
     feedbackShape: "row-transition",
     disclosure: "inline",
     // Single-candidate defer and the scope-level defer-remainder bulk action are
-    // the same entity verb over one candidate or the remainder set.
+    // the same entity verb over one candidate or the remainder set, which the
+    // server-side job selects as the scope's has-conflicts / stale candidates.
   },
   // alias (accept + auto-accept collapse to one accept action)
   {

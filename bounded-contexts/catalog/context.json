@@ -1056,6 +1056,7 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-promote/jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-reject",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /merge-candidate-bulk-jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /reapply",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/runs",
@@ -1098,6 +1099,7 @@
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-modules/route-integration-jobs.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-modules/route-provider-profile-admin.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-modules/route-review-controls.test.ts",

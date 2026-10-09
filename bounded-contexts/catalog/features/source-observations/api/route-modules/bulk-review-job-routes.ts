@@ -1,7 +1,16 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
-import type { BulkReviewJobServices, IntegrationJobServices } from "../runtime";
+import type {
+  BulkReviewJobServices,
+  CatalogMergeCandidateBulkJobKind,
+  CatalogMergeCandidateBulkJobServices,
+  IntegrationJobServices,
+} from "../runtime";
+import {
+  CatalogMergeCandidateBulkJobCursorError,
+  isCatalogMergeCandidateBulkJobKind,
+} from "../source-observation-merge-candidate-bulk-job-runtime";
 import {
   parseObservationIds,
   parsePromoteAsDraft,
@@ -16,7 +25,9 @@ import {
 } from "../governance/catalog-integration-rollout-controls";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
 
-export type BulkReviewJobRouteServices = BulkReviewJobServices & Pick<IntegrationJobServices, "enqueueIntegrationJob">;
+export type BulkReviewJobRouteServices = BulkReviewJobServices &
+  CatalogMergeCandidateBulkJobServices &
+  Pick<IntegrationJobServices, "enqueueIntegrationJob">;
 
 export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -232,17 +243,85 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     return c.json(job, 202);
   });
 
+  // One scope-wide Catalog Merge Candidate review job. Candidates are selected
+  // server-side when the job starts, never from the page that submitted it.
+  app.post("/merge-candidate-bulk-jobs", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      kind?: unknown;
+      scopeRecordId?: unknown;
+      reason?: unknown;
+    };
+    const scopeRecordId = typeof body.scopeRecordId === "string" ? body.scopeRecordId.trim() : "";
+    if (!isCatalogMergeCandidateBulkJobKind(body.kind) || !scopeRecordId) {
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid") },
+        400,
+      );
+    }
+
+    const job = await services.enqueueCatalogMergeCandidateBulkJob({
+      kind: body.kind,
+      scopeRecordId,
+      reason: typeof body.reason === "string" ? body.reason : null,
+      context: c.get("context"),
+    });
+
+    return c.json(job, 202);
+  });
+
+  // Unfiltered, this lists active observation bulk jobs exactly as before. The
+  // additive `scopeRecordId`, `kind` and `status=completed` filters list
+  // Catalog Merge Candidate scope jobs; completed jobs page newest first, 50 at
+  // a time, and callers follow `cursor` until it is absent.
   app.get("/bulk-jobs/active", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
     if (permissionError) {
       return permissionError;
     }
 
-    const items = await services.listActiveBulkReviewJobs({
+    const filter = mergeCandidateBulkJobListFilter(c.req.query());
+    if (filter === "invalid") {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.bulk.job.invalid.filter") }, 400);
+    }
+    if (!filter) {
+      const items = await services.listActiveBulkReviewJobs({
+        context: c.get("context"),
+      });
+
+      return c.json({ items, total: items.length, count: items.length });
+    }
+
+    if (filter.status === "completed") {
+      let page;
+      try {
+        page = await services.listCompletedCatalogMergeCandidateBulkJobs({
+          context: c.get("context"),
+          scopeRecordId: filter.scopeRecordId,
+          kind: filter.kind,
+          cursor: filter.cursor,
+        });
+      } catch (error) {
+        if (error instanceof CatalogMergeCandidateBulkJobCursorError) {
+          return c.json({ error: t("catalog.features.sourceObservations.api.route.bulk.job.invalid.cursor") }, 400);
+        }
+        throw error;
+      }
+
+      return c.json({ ...page, count: page.items.length });
+    }
+
+    const items = await services.listActiveCatalogMergeCandidateBulkJobs({
       context: c.get("context"),
+      scopeRecordId: filter.scopeRecordId,
+      kind: filter.kind,
     });
 
-    return c.json({ items, total: items.length, count: items.length });
+    return c.json({ items, count: items.length });
   });
 
   app.get("/bulk-jobs/:jobId", async (c) => {
@@ -251,7 +330,10 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const job = await services.getBulkReviewJob(c.req.param("jobId"), c.get("context"));
+    const jobId = c.req.param("jobId");
+    const job =
+      (await services.getBulkReviewJob(jobId, c.get("context"))) ??
+      (await services.getCatalogMergeCandidateBulkJob(jobId, c.get("context")));
     if (!job) {
       return c.json(
         {
@@ -315,6 +397,33 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   return app;
+}
+
+type MergeCandidateBulkJobListFilter = Readonly<{
+  scopeRecordId: string | null;
+  kind: CatalogMergeCandidateBulkJobKind | null;
+  status: "active" | "completed";
+  cursor: string | null;
+}>;
+
+function mergeCandidateBulkJobListFilter(
+  query: Readonly<Record<string, string | undefined>>,
+): MergeCandidateBulkJobListFilter | "invalid" | null {
+  const scopeRecordId = query.scopeRecordId?.trim() || null;
+  const kind = query.kind?.trim() || null;
+  const status = query.status?.trim() || null;
+  const cursor = query.cursor?.trim() || null;
+  if (!scopeRecordId && !kind && !status && !cursor) {
+    return null;
+  }
+  if (kind !== null && !isCatalogMergeCandidateBulkJobKind(kind)) {
+    return "invalid";
+  }
+  if ((status !== null && status !== "completed") || (cursor !== null && status !== "completed")) {
+    return "invalid";
+  }
+
+  return { scopeRecordId, kind, status: status === "completed" ? "completed" : "active", cursor };
 }
 
 function hasExplicitBulkReviewScope(scope: ReturnType<typeof parsePromotionScope> | undefined): boolean {

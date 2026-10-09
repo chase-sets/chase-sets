@@ -8,6 +8,7 @@ import type {
 } from "../../../api/primary-workbench-admin-contracts";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 import { CatalogIntegrationCommandActionProvider } from "./command-action-context";
+import { CATALOG_CONTROL_PLANE_ACTIONS } from "../information-architecture-v2";
 
 afterEach(cleanup);
 
@@ -26,11 +27,14 @@ function candidate(
 function readModel(
   rows: readonly CatalogPrimaryWorkbenchMergeCandidateReviewRow[],
   rbacAllowed = true,
+  scopeRecordId: string | null = "scope_base_set",
 ): CatalogPrimaryWorkbenchReadModel {
+  const query = new URLSearchParams({ providerKey: "tcgdex" });
+  if (scopeRecordId) {
+    query.set("scopeRecordId", scopeRecordId);
+  }
   return {
-    routeContext: parseCatalogPrimaryWorkbenchRouteContext(
-      "https://admin.example/catalog/integrations?providerKey=tcgdex",
-    ),
+    routeContext: parseCatalogPrimaryWorkbenchRouteContext(`https://admin.example/catalog/integrations?${query}`),
     readiness: { rbacAllowed, blockers: [] },
     mergeCandidateReview: { rows },
   } as unknown as CatalogPrimaryWorkbenchReadModel;
@@ -55,7 +59,7 @@ describe("partitionCandidates", () => {
 });
 
 describe("CatalogScopeBulkReviewActions", () => {
-  it("submits only the ready candidate IDs on the bulk promote form and reports the skipped remainder", () => {
+  it("submits the registered candidate actions with only the scope record ID, never page candidate IDs", () => {
     const rows = [
       candidate("ready_1", "ready", "ready"),
       candidate("ready_2", "ready", "ready"),
@@ -63,18 +67,56 @@ describe("CatalogScopeBulkReviewActions", () => {
       candidate("stale_1", "stale", "stale"),
     ];
     const { container } = render(<CatalogScopeBulkReviewActions readModel={readModel(rows)} />);
+    const registeredActionIds = new Set<string>(CATALOG_CONTROL_PLANE_ACTIONS.map((action) => action.id));
 
     const promoteForm = container.querySelector('[data-catalog-merge-candidate-bulk-promote="true"]');
-    expect(promoteForm?.querySelector('input[name="_intent"]')).toHaveProperty("value", "bulk-candidate.promotes");
-    expect(promoteForm?.querySelector('input[name="bulkCandidateIds"]')).toHaveProperty("value", "ready_1,ready_2");
+    const promoteIntent = promoteForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value;
+    expect(promoteIntent).toBe("candidate.promote");
+    expect(registeredActionIds.has(promoteIntent ?? "")).toBe(true);
+    expect(promoteForm?.querySelector('input[name="candidateSelection"]')).toHaveProperty("value", "scope");
+    expect(promoteForm?.querySelector('input[name="scopeRecordId"]')).toHaveProperty("value", "scope_base_set");
+    expect(promoteForm?.querySelector('input[name="candidateId"]')).toBeNull();
+    expect(promoteForm?.querySelector('input[name="bulkCandidateIds"]')).toBeNull();
 
     const deferForm = container.querySelector('[data-catalog-merge-candidate-bulk-defer="true"]');
-    expect(deferForm?.querySelector('input[name="bulkCandidateIds"]')).toHaveProperty("value", "conflicts_1,stale_1");
+    const deferIntent = deferForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value;
+    expect(deferIntent).toBe("candidate.defer");
+    expect(registeredActionIds.has(deferIntent ?? "")).toBe(true);
+    expect(deferForm?.querySelector('input[name="candidateSelection"]')).toHaveProperty("value", "scope");
+    expect(deferForm?.querySelector('input[name="scopeRecordId"]')).toHaveProperty("value", "scope_base_set");
+    expect(deferForm?.querySelector('input[name="bulkCandidateIds"]')).toBeNull();
 
-    // Reports how many the promote-all skips.
-    expect(screen.getByText("Skips 2 not ready (conflicts, stale, or deferred).")).toBeTruthy();
+    // The page partition only reports what this page shows; the job decides.
+    expect(
+      screen.getByText(
+        "2 on this page are not ready (conflicts, stale, or deferred); the job skips every candidate that is not ready.",
+      ),
+    ).toBeTruthy();
     // Jump-to-conflicts is available when conflicts exist.
     expect(screen.getByText("Jump to conflicts").closest("a")).toBeTruthy();
+  });
+
+  it("keeps the scope actions available when this page shows no ready candidate", () => {
+    // The 25-row page cannot prove the scope has nothing ready; a submit on a
+    // scope with nothing ready is a server-side no-op job.
+    const rows = [
+      candidate("promoted_1", "promoted", "terminal"),
+      candidate("conflicts_1", "has-conflicts", "blocked"),
+    ];
+    const { container } = render(<CatalogScopeBulkReviewActions readModel={readModel(rows)} />);
+
+    for (const marker of ["data-catalog-merge-candidate-bulk-promote", "data-catalog-merge-candidate-bulk-defer"]) {
+      expect(container.querySelector(`[${marker}="true"]`)?.querySelector("button")).toHaveProperty("disabled", false);
+    }
+  });
+
+  it("disables the scope actions without a scope record to submit", () => {
+    const rows = [candidate("ready_1", "ready", "ready")];
+    const { container } = render(<CatalogScopeBulkReviewActions readModel={readModel(rows, true, null)} />);
+
+    for (const marker of ["data-catalog-merge-candidate-bulk-promote", "data-catalog-merge-candidate-bulk-defer"]) {
+      expect(container.querySelector(`[${marker}="true"]`)?.querySelector("button")).toHaveProperty("disabled", true);
+    }
   });
 
   it("disables bulk actions for a view-only operator", () => {

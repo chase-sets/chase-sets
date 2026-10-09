@@ -151,6 +151,54 @@ describe("Catalog scope-detail route loader", () => {
     expect(routeData.languageEditionAliasReviewFailed).toBe(true);
   });
 
+  it("loads the scope's candidate review jobs, following the completed-jobs cursor from the URL", async () => {
+    const listCatalogMergeCandidateBulkJobs = vi.fn(async (input: { status: string }) =>
+      input.status === "completed"
+        ? { items: [{ jobId: "job_completed" }], cursor: "cursor_older" }
+        : { items: [{ jobId: "job_running" }] },
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      listCatalogMergeCandidateBulkJobs,
+    });
+
+    const routeData = await runLoader(
+      new Request(
+        "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?candidateJobsCursor=cursor_page_2",
+      ),
+    );
+
+    expect(listCatalogMergeCandidateBulkJobs).toHaveBeenCalledWith({
+      scopeRecordId: "scope_expansion_paldean_fates",
+      status: "active",
+    });
+    expect(listCatalogMergeCandidateBulkJobs).toHaveBeenCalledWith({
+      scopeRecordId: "scope_expansion_paldean_fates",
+      status: "completed",
+      cursor: "cursor_page_2",
+    });
+    expect(routeData.candidateReviewJobsCursor).toBe("cursor_page_2");
+    expect(routeData.candidateReviewJobs).toEqual({
+      active: [{ jobId: "job_running" }],
+      completed: { items: [{ jobId: "job_completed" }], cursor: "cursor_older" },
+      failed: false,
+    });
+  });
+
+  it("degrades the candidate review jobs panel instead of failing the scope page", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      listCatalogMergeCandidateBulkJobs: vi.fn().mockRejectedValue(new CatalogApiError(400, { error: "bad cursor" })),
+    });
+
+    const routeData = await runLoader(
+      new Request("https://admin.example/catalog/scopes/scope_expansion_paldean_fates?candidateJobsCursor=garbage"),
+    );
+
+    expect(routeData.scope.name).toBe("Paldean Fates");
+    expect(routeData.candidateReviewJobs).toEqual({ active: [], completed: { items: [] }, failed: true });
+  });
+
   it("resolves canManageAliases to false when the actor lacks catalog.manage", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ permissions: ["catalog.view"] });
     mockCreateCatalogRequestApiClient.mockReturnValue({

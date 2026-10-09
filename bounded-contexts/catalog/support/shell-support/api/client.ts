@@ -1867,6 +1867,45 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async enqueueCatalogMergeCandidateBulkJob<T>(
+      kind: "merge-candidate-promote" | "merge-candidate-defer",
+      scopeRecordId: string,
+      reason: string | null,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidate-bulk-jobs`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ kind, scopeRecordId, reason }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async listCatalogMergeCandidateBulkJobs<T>(input: {
+      scopeRecordId: string;
+      status: "active" | "completed";
+      cursor?: string | null;
+    }): Promise<T> {
+      const query = new URLSearchParams({ scopeRecordId: input.scopeRecordId });
+      if (input.status === "completed") {
+        query.set("status", "completed");
+      }
+      if (input.cursor) {
+        query.set("cursor", input.cursor);
+      }
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async getSourceObservationPromotionOutcome<T>(jobId: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(jobId)}/outcome`,

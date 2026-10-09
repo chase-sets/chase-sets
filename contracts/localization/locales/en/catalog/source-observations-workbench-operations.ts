@@ -135,13 +135,13 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferRemainder": "Defer remainder",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferReason": "Defer reason",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.description":
-    "Act on every candidate in this Catalog scope at once. Promote skips candidates with conflicts, stale, or already deferred.",
+    "Act on every candidate in this Catalog scope at once. Each action queues one job that selects the scope's candidates when it runs: promote takes only ready candidates, and defer takes those with conflicts or stale.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.empty":
     "No candidates in this scope yet.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts": "Jump to conflicts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll": "Promote all ready",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll.skip":
-    "Skips {count} not ready (conflicts, stale, or deferred).",
+    "{count} on this page are not ready (conflicts, stale, or deferred); the job skips every candidate that is not ready.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.conflict":
     "{count} need conflict resolution",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.ready":

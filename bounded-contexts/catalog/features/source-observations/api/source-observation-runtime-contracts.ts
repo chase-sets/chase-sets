@@ -227,6 +227,60 @@ export type SourceObservationPromotionOutcomeRecord = Readonly<{
 
 export type SourceObservationBulkJobResult = BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult;
 
+// Scope-wide Catalog Merge Candidate review jobs run on the bulk review runner
+// beside the observation actions. The kinds are additive: a worker that does not
+// claim them leaves the job queued.
+export const catalogMergeCandidateBulkJobKinds = ["merge-candidate-promote", "merge-candidate-defer"] as const;
+
+export type CatalogMergeCandidateBulkJobKind = (typeof catalogMergeCandidateBulkJobKinds)[number];
+
+export type CatalogMergeCandidateBulkJobPayload = Readonly<{
+  scopeRecordId: string;
+  reason: string;
+}>;
+
+export type CatalogMergeCandidateBulkWorkUnitPayload = Readonly<{
+  candidateId: string;
+}>;
+
+export type CatalogMergeCandidateBulkUnitResult = Readonly<{
+  candidateId: string;
+  status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
+  /** The Catalog Item the promoted candidate targets; null when it creates a new item or was not promoted. */
+  catalogItemId: string | null;
+  reason: string | null;
+}>;
+
+export type CatalogMergeCandidateBulkJobResult = Readonly<{
+  requested: number;
+  promoted: number;
+  deferred: number;
+  skippedNotEligible: number;
+  failed: number;
+  outcomes: readonly CatalogMergeCandidateBulkUnitResult[];
+}>;
+
+export type CatalogMergeCandidateBulkJob = Readonly<{
+  jobId: string;
+  kind: CatalogMergeCandidateBulkJobKind;
+  scopeRecordId: string;
+  reason: string;
+  status: SourceObservationBulkJobStatus;
+  progress: BulkSourceObservationProgress;
+  result: CatalogMergeCandidateBulkJobResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
+
+export type CatalogMergeCandidateBulkJobPage = Readonly<{
+  items: readonly CatalogMergeCandidateBulkJob[];
+  /** Opaque keyset cursor for the next (older) page; absent on the last page. */
+  cursor?: string;
+}>;
+
 export type SourceObservationJobRunContext = Readonly<{
   signal?: AbortSignal;
   throwIfLeaseLost?: () => void;
@@ -412,6 +466,21 @@ export type SourceObservationBulkReviewWorkUnitStore = DurableJobWorkUnitStore<
   SourceObservationBulkJobResult,
   SourceObservationBulkWorkUnitPayload,
   SourceObservationBulkWorkUnitResult
+>;
+
+export type CatalogMergeCandidateBulkJobStore = DurableJobStore<
+  CatalogMergeCandidateBulkJobPayload,
+  BulkSourceObservationProgress,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkJob
+>;
+
+export type CatalogMergeCandidateBulkWorkUnitStore = DurableJobWorkUnitStore<
+  CatalogMergeCandidateBulkJobPayload,
+  BulkSourceObservationProgress,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkWorkUnitPayload,
+  CatalogMergeCandidateBulkUnitResult
 >;
 
 export type SourceObservationIntegrationJobStore = DurableJobStore<
@@ -889,6 +958,33 @@ export type BulkReviewJobServices = Readonly<{
   getBulkReviewWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
 
+export type CatalogMergeCandidateBulkJobServices = Readonly<{
+  /** Enumerates the scope's non-terminal candidates once, one work unit each; each unit selects itself when it runs. */
+  enqueueCatalogMergeCandidateBulkJob: (input: {
+    kind: CatalogMergeCandidateBulkJobKind;
+    scopeRecordId: string;
+    reason?: string | null;
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateBulkJob>;
+  getCatalogMergeCandidateBulkJob: (
+    jobId: string,
+    context?: EventStoreContext | null,
+  ) => Promise<CatalogMergeCandidateBulkJob | null>;
+  listActiveCatalogMergeCandidateBulkJobs: (input: {
+    context: EventStoreContext;
+    scopeRecordId?: string | null;
+    kind?: CatalogMergeCandidateBulkJobKind | null;
+  }) => Promise<readonly CatalogMergeCandidateBulkJob[]>;
+  /** Newest-first pages of at most 50 completed jobs over a stable completion-time/job-id keyset. */
+  listCompletedCatalogMergeCandidateBulkJobs: (input: {
+    context: EventStoreContext;
+    scopeRecordId?: string | null;
+    kind?: CatalogMergeCandidateBulkJobKind | null;
+    cursor?: string | null;
+  }) => Promise<CatalogMergeCandidateBulkJobPage>;
+  processNextCatalogMergeCandidateBulkJob: BulkReviewJobServices["processNextBulkReviewJob"];
+}>;
+
 // One provider unit's durable sync state within a Catalog sync scope, read
 // back across runs. This is what the scope page renders instead of the
 // transient per-run child-job list: state survives after the run that
@@ -1101,6 +1197,7 @@ export type SourceObservationServices = ProviderSendWindowServices &
   SourceObservationReviewServices &
   PromotionReapplyServices &
   BulkReviewJobServices &
+  CatalogMergeCandidateBulkJobServices &
   IntegrationJobServices &
   SourceObservationReadServices &
   CatalogMergeCandidateServices &
