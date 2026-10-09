@@ -363,12 +363,17 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
 
 describeDb("connector-settlement-refusal-replay", () => {
   const h = transportDatabase("connector_settlement_9158");
-  const prepare = () =>
-    prepareConnectorBoundSettlement(h.db, h.services, {
+  const prepare = async () => {
+    const report = await prepareConnectorBoundSettlement(h.db, h.services, {
       ...target,
       pairingId: h.pairingId,
       context: transportContext,
     });
+    const { health } = await h.services.connectionHealth.readConnectionHealth(target);
+    expect(health.state).toBe("healthy");
+    expect(health.reasons.some((reason) => reason.reasonCode === "connector-liveness")).toBe(false);
+    return report;
+  };
   it.each(["omission-guard", "receipt-identity", "transaction-split", "runSettlement-removed"] as const)(
     "kills the %s bypass with the same real Postgres fixture and report oracle",
     async (mutant) => {

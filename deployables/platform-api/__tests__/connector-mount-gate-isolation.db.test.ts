@@ -233,12 +233,6 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
       pairingId: paired.pairing.pairingId,
       context: originContext,
     });
-    const { health } = await channels.connectionHealth.readConnectionHealth({
-      connectionId,
-      accountId: originContext.audit.forAccountId,
-    });
-    expect(health.state).toBe("healthy");
-    expect(health.reasons.some((reason) => reason.reasonCode === "connector-liveness")).toBe(false);
     if (phase === "missing-origin") {
       await pools.channels.query(
         "DELETE FROM event_store_events WHERE stream_id=$1 AND event_type='channels.tcgplayer-sync-run.composed'",
