@@ -34,6 +34,7 @@ on:
           - lorcana-matrix
           - full-matrix-uat
           - m50-final-proof
+          - scope-sync-batch-preview-probe
 
 permissions:
   contents: read
@@ -91,7 +92,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix)
+            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|scope-sync-batch-preview-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -148,7 +149,26 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run staging provider sync UAT
+        id: provider-uat
         timeout-minutes: 55
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+
+      # Scope Sync Batch preview probe (#9244): publish only the exact receipt,
+      # and only after it validates against this admitted SHA/run/attempt and
+      # proves the admin credential values are absent. Raw Playwright output
+      # (traces, reports, screenshots) is never uploaded.
+      - name: Validate Scope Sync Batch preview receipt
+        id: preview-receipt
+        if: ${{ always() && matrix.journey_scope == 'scope-sync-batch-preview-probe' && steps.provider-uat.outcome != 'skipped' }}
+        run: pnpm exec tsx scripts/catalog-staging-preview-probe.mjs validate --file artifacts/catalog-scale-probe/preview.json
+
+      - name: Upload Scope Sync Batch preview receipt
+        if: ${{ always() && steps.preview-receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scale-probe-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scale-probe/preview.json
+          if-no-files-found: error
+          retention-days: 30
