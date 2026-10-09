@@ -773,7 +773,23 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       expect(await readSale()).toMatchObject(expired);
       expect(await readSale()).toMatchObject(expired);
       expect(await marketplace.reviewOpportunityPublication.run(context)).toBe(0);
+      const eventsBeforeDeadline = await createPostgresEventStore({ pool: pools.marketplace }).readAll({ limit: 100 });
       vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-05-20T12:00:00Z"));
+      const allowedResponse = await app.request("/account/sales/ord_runtime");
+      expect(allowedResponse.status).toBe(200);
+      expect(await allowedResponse.json()).toMatchObject({
+        order_id: "ord_runtime",
+        reviewOutcome: {
+          status: "ready",
+          opportunity: {
+            author_role: "seller",
+            active_review_id: null,
+            submission_state: "allowed",
+            window_expired: false,
+          },
+        },
+      });
       vi.setSystemTime(new Date("2026-05-22T12:00:00Z"));
       for (let load = 0; load < 2; load++) {
         const response = await app.request("/account/sales/ord_runtime");
@@ -782,6 +798,9 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
         expect(dto).toMatchObject({ order_id: "ord_runtime", reviewOutcome: expired });
         expect(JSON.stringify(dto)).not.toContain("withdrawn private sentinel");
       }
+      expect(await createPostgresEventStore({ pool: pools.marketplace }).readAll({ limit: 100 })).toEqual(
+        eventsBeforeDeadline,
+      );
       const beforeRestart = await createPostgresEventStore({ pool: pools.marketplace }).readAll({
         eventTypes: [reviewOpportunityFactType],
         limit: 10,
