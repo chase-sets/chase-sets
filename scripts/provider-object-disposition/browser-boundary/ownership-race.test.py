@@ -19,8 +19,9 @@ variants = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(variants)
 
 
-def process_stat(pid, state='S', parent=1, start=100):
+def process_stat(pid, state='S', parent=1, start=100, flags=0):
     fields = [state, str(parent)] + ['0'] * 50
+    fields[6] = str(flags)
     fields[19] = str(start)
     return f'{pid} (SYNTHETIC_PRIVATE) ' + ' '.join(fields) + '\n'
 
@@ -28,8 +29,8 @@ def process_stat(pid, state='S', parent=1, start=100):
 class ProcRace:
     """PID 91 exits at one chosen metadata read, after its initial stat."""
     def __init__(self, field='exe-stat', terminal='Z', parent=1, start=100,
-                 code=errno.ENOENT, root=False):
-        self.field, self.terminal = field, terminal
+                 code=errno.ENOENT, root=False, flags=0):
+        self.field, self.terminal, self.flags = field, terminal, flags
         self.parent, self.start, self.code, self.root = parent, start, code, root
         self.raced = False
         self.passes = 0
@@ -56,7 +57,7 @@ class ProcRace:
                     raise ProcessLookupError(errno.ESRCH, 'SYNTHETIC_PRIVATE')
                 if self.terminal == 'malformed':
                     return 'SYNTHETIC_PRIVATE'
-                return process_stat(pid, self.terminal, self.parent, self.start)
+                return process_stat(pid, self.terminal, self.parent, self.start, self.flags)
             return process_stat(pid)
         self.fail('status', pid)
         return 'Uid:\t1001\t1001\t1001\t1001\n'
@@ -102,19 +103,43 @@ class OwnershipRaceFixtures(unittest.TestCase):
                     with self.assertRaises(ownership.CensusError):
                         ownership.snapshot()
 
-    def test_permission_errors_are_not_exit_evidence_even_if_stat_disappears(self):
-        for terminal in ('Z', 'absent'):
+    def test_permission_errors_are_not_exit_evidence_while_stat_remains(self):
+        for terminal, flags in (('Z', 0), ('R', 0x4), ('S', 0)):
             with self.subTest(terminal=terminal), ExitStack() as stack:
-                ProcRace(code=errno.EACCES, terminal=terminal).install(stack)
+                ProcRace(code=errno.EACCES, terminal=terminal, flags=flags).install(stack)
                 with self.assertRaises(ownership.CensusError):
                     ownership.snapshot()
 
-    def test_complete_metadata_does_not_hide_reparenting_or_pid_reuse(self):
-        for change in ({'parent': 2}, {'start': 101}):
+    def test_released_task_permission_error_with_missing_stat_is_gone(self):
+        for field in ('namespace', 'exe-stat', 'exe-link'):
+            with self.subTest(field=field), ExitStack() as stack:
+                ProcRace(field=field, code=errno.EACCES, terminal='absent').install(stack)
+                self.assertEqual(ownership.snapshot(), {})
+
+    def test_exiting_task_before_zombie_is_gone(self):
+        for field in ('status', 'namespace', 'exe-stat', 'exe-link'):
+            for terminal in ('R', 'D'):
+                with self.subTest(field=field, terminal=terminal), ExitStack() as stack:
+                    ProcRace(field=field, terminal=terminal, flags=0x4).install(stack)
+                    self.assertEqual(ownership.snapshot(), {})
+
+    def test_exiting_flag_does_not_excuse_replacement_or_reparenting(self):
+        for change in ({'start': 101}, {'parent': 2}):
             with self.subTest(change=change), ExitStack() as stack:
-                ProcRace(field='complete', terminal='S', **change).install(stack)
+                ProcRace(terminal='R', flags=0x4, **change).install(stack)
                 with self.assertRaises(ownership.CensusError):
                     ownership.snapshot()
+
+    def test_complete_metadata_refuses_pid_reuse(self):
+        with ExitStack() as stack:
+            ProcRace(field='complete', terminal='S', start=101).install(stack)
+            with self.assertRaises(ownership.CensusError):
+                ownership.snapshot()
+
+    def test_complete_metadata_records_the_reparented_parent(self):
+        with ExitStack() as stack:
+            ProcRace(field='complete', terminal='S', parent=2).install(stack)
+            self.assertEqual(ownership.snapshot()[91]['parent'], 2)
 
     def test_exited_parent_does_not_hide_a_surviving_namespace_member(self):
         with ExitStack() as stack:
