@@ -2374,7 +2374,7 @@ describe("DigitalOcean platform configuration", () => {
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
     expect(dbProfileJob).toContain("timeout-minutes: 30");
-    expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
+    expect(dbProfileJob).toContain("image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a");
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
     expect(dbProfileJob).toContain("id: platform-api-selected");
@@ -2764,8 +2764,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile.indexOf("RUN pnpm install --frozen-lockfile")).toBeLessThan(
       dockerfile.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
     );
-    expect(dockerfile).toContain("FROM node:24-bookworm-slim AS runtime");
-    const runtimeStage = dockerfile.slice(dockerfile.indexOf("FROM node:24-bookworm-slim AS runtime"));
+    expect(dockerfile).toContain("FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime");
+    const runtimeStage = dockerfile.slice(dockerfile.indexOf("FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime"));
     expect(runtimeStage).toContain("RUN pnpm install --frozen-lockfile --prod");
     expect(runtimeStage.indexOf("RUN pnpm install --frozen-lockfile --prod")).toBeLessThan(
       runtimeStage.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
