@@ -219,6 +219,8 @@ function startCensusPhaseClock() {
     esmResolverChildMs: 0,
     firstScanMs: undefined,
     utf8Bytes: 0,
+    literalNodes: 0,
+    ancestorElements: 0,
     compilerSpecifiers: 0,
     cjsRequests: 0,
     esmRequests: 0,
@@ -314,6 +316,10 @@ function scriptKindFor(path) {
 function literalIndex(sourceFile) {
   const byText = new Map();
   const visit = (node, ancestors = []) => {
+    if (censusPhaseClock) {
+      censusPhaseClock.literalNodes += 1;
+      censusPhaseClock.ancestorElements += ancestors.length;
+    }
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const values = byText.get(node.text) ?? [];
       values.push({ node, ancestors });
