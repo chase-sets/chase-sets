@@ -295,7 +295,12 @@ export function transportDatabase(suffix: string) {
       if (!event) throw new Error("missing-desired-state-event");
       for (const projector of services.projectors) await projector.handlers[event.eventType]?.(toTransportEvent(event));
       await services.outboundSync.enqueueDesiredState({
-        ...data,
+        connectionId: data.connectionId,
+        channelListingId: data.channelListingId,
+        listingId: data.listingId,
+        listingRevision: data.listingRevision,
+        desiredStateSequence: data.desiredStateSequence,
+        desiredStateHash: data.desiredStateHash,
         operationKind: "publish",
         payload: { kind: "draft", draft: data.draft },
         envelope: {
