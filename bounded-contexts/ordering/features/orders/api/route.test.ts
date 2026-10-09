@@ -491,27 +491,37 @@ describe("ordering purchase routes", () => {
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_seller");
   });
 
-  it.each(["orders-only", "view-only", "manage-only", "query-failure", "foreign", "buyer", "denied"] as const)(
+  it.each(["orders-only", "view-only", "manage-only", "query-failure", "foreign", "buyer", "guest", "denied"] as const)(
     "retains only authorized sale data under isolated Review/access control: %s",
     async (control) => {
       const services = {
         ...createServices(),
         getSale: vi.fn(async (_id: string, account: string) => (account === "acc_seller" ? order : null)),
         getOrderReviewOpportunity: vi.fn(async () => {
-          throw new Error("Synthetic query failure/private sentinel");
+          if (control === "query-failure") throw new Error("Synthetic query failure/private sentinel");
+          return { status: "ready" as const, opportunity: null };
         }),
       } as unknown as OrderingOrderServices;
-      const accountId = control === "foreign" ? "acc_foreign" : control === "buyer" ? "acc_buyer" : "acc_seller";
+      const accountId =
+        control === "foreign"
+          ? "acc_foreign"
+          : control === "buyer"
+            ? "acc_buyer"
+            : control === "guest"
+              ? "acc_guest"
+              : "acc_seller";
       const permissions =
-        control === "denied"
-          ? ["reputation.view", "reputation.manage"]
-          : control === "view-only"
-            ? ["orders.view", "reputation.view"]
-            : control === "manage-only"
-              ? ["orders.view", "reputation.manage"]
-              : control === "query-failure"
-                ? ["orders.view", "reputation.view", "reputation.manage"]
-                : ["orders.view"];
+        control === "guest"
+          ? ["guest-checkout.manage"]
+          : control === "denied"
+            ? ["reputation.view", "reputation.manage"]
+            : control === "view-only"
+              ? ["orders.view", "reputation.view"]
+              : control === "manage-only"
+                ? ["orders.view", "reputation.manage"]
+                : control === "query-failure"
+                  ? ["orders.view", "reputation.view", "reputation.manage"]
+                  : ["orders.view"];
       const app = buildApp({
         services,
         actor: {
@@ -520,13 +530,13 @@ describe("ordering purchase routes", () => {
           userId: "usr_test",
           accountId,
           membershipId: "mbr_1",
-          roleKey: "owner",
+          roleKey: control === "guest" ? "guest-buyer" : "owner",
           permissions,
         },
       });
       const response = await app.request("/account/sales/ord_1");
       expect(response.status).toBe(
-        control === "denied" ? 403 : control === "foreign" || control === "buyer" ? 404 : 200,
+        control === "denied" || control === "guest" ? 403 : control === "foreign" || control === "buyer" ? 404 : 200,
       );
       const dto = await response.json();
       if (response.status === 200)
@@ -535,6 +545,7 @@ describe("ordering purchase routes", () => {
           reviewOutcome: { status: "unavailable", opportunity: null },
         });
       expect(JSON.stringify(dto)).not.toContain("private sentinel");
+      expect(services.getSale).toHaveBeenCalledTimes(control === "denied" || control === "guest" ? 0 : 1);
       expect(services.getOrderReviewOpportunity).toHaveBeenCalledTimes(control === "query-failure" ? 1 : 0);
     },
   );

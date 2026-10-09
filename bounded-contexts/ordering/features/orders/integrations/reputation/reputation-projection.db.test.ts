@@ -441,6 +441,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     "consumer-lag",
     "missing-fact",
     "malformed-fact",
+    "provenance-lag",
   ] as const)("retains the sale under isolated consumer guard: %s", async (guard) => {
     await insertOrderPage(pools.ordering, "ord_1");
     const { ordering, drain } = createRuntime();
@@ -507,6 +508,11 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
         // Keep valid=true so only the structural parser can reject this row.
         await pools.ordering.query(`UPDATE ordering_order_review_opportunity_pages
           SET fact=jsonb_set(fact,'{factSchemaVersion}','2'), valid=true WHERE order_id='ord_1'`);
+        break;
+      case "provenance-lag":
+        await pools.ordering.query(
+          "INSERT INTO ordering_order_review_opportunity_sources VALUES ('ord_1','platform-operations',1001)",
+        );
         break;
     }
     expect(await read()).toEqual({ status: "unavailable", opportunity: null });
