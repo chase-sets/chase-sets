@@ -89,11 +89,7 @@ async function readOrderReviewOutcome(
   actor: OrderingApiEnv["Variables"]["actor"],
 ): Promise<OrderingOrderReviewOutcome> {
   if (!actor || !canViewReviewOpportunity(actor)) return { status: "unavailable", opportunity: null };
-  try {
-    return await services.getOrderReviewOpportunity(orderId, actor.accountId);
-  } catch {
-    return { status: "unavailable", opportunity: null };
-  }
+  return await services.getOrderReviewOpportunity(orderId, actor.accountId);
 }
 
 function refuseEvidenceWindowSourceAdmission(): never {
