@@ -694,6 +694,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "buyer-purchase-journey.spec.ts": [0, 0, 2, 0, "seeded-form"],
   "channel-publication-freshness.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "channel-connection-connect.spec.ts": [0, 0, 1, 0, "seeded-form"],
+  "channel-connection-states.evidence.spec.ts": [0, 1, 0, 0, "seeded"],
   "manual-sync-recovery.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "repricing-policies.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "seller-time-away-capacity.spec.ts": [0, 0, 1, 0, "seeded-form"],
@@ -903,7 +904,7 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 19,
+      totalRuntime: 20,
       synthetic: 4,
       direct: 9,
       receiptedSessionReads: 1,
@@ -938,7 +939,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(19);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(20);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {
