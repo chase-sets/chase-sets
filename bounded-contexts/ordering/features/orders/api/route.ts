@@ -610,7 +610,7 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
       return access.response;
     }
 
-    const order = await services.getSale(c.req.param("id"), access.actor.accountId);
+    const order = await services.getSale(c.req.param("id"), "acc_seller");
     if (!order) {
       return c.json(
         { error: { code: "not_found", message: t("ordering.features.orders.api.route.sale.not.found") } },
