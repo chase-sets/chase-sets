@@ -24,6 +24,7 @@ import {
 import {
   composeChannelOrderFulfillmentInbound,
   fulfillmentObservationDigest,
+  translateOrderStatus,
   type ChannelOrderFulfillmentObservation,
 } from "../../order-fulfillment-observations/domain/contracts";
 import { identifier, record, refuse } from "./operation-codec";
@@ -85,6 +86,7 @@ function parsePost(value: unknown): OrderPullPost {
   if (!["planned", "dispatched", "captured202"].includes(String(post.state))) refuse();
   identifier(post.externalReference);
   if (kind === "sale") {
+    if (!/^tcg[op]\.v1:[a-f0-9]{64}$/.test(String(post.externalReference))) refuse();
     if (
       typeof post.bytes !== "string" ||
       new TextEncoder().encode(post.bytes).length > tcgplayerOrderLimits.bytes + 2048
@@ -105,6 +107,7 @@ function parsePost(value: unknown): OrderPullPost {
   } else {
     if (
       kind !== "fulfillment" ||
+      !/^tcf\.v1:[a-f0-9]{64}$/.test(String(post.externalReference)) ||
       typeof post.digest !== "string" ||
       !/^[a-f0-9]{64}$/.test(post.digest) ||
       !["full", "status-only"].includes(String(post.variant))
@@ -112,12 +115,13 @@ function parsePost(value: unknown): OrderPullPost {
       refuse();
     const status = record(post.status, ["surface", "value"]);
     if (
-      !["list", "detail"].includes(String(status.surface)) ||
+      (status.surface !== "list" && status.surface !== "detail") ||
       typeof status.value !== "string" ||
       status.value.length < 1 ||
       status.value.length > 128
     )
       refuse();
+    translateOrderStatus({ surface: status.surface, value: status.value });
   }
   return structuredClone(post) as OrderPullPost;
 }

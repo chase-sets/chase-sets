@@ -5,6 +5,8 @@ import { parseOperationAttempt } from "../domain/operation-protocol";
 import { coordinatorFixture } from "./coordinator-test-support";
 import { pullFixture } from "./connector-order-pull-test-support";
 import { openDatabase } from "./raw-retention-test-support";
+import { parseOrderPullHandoff } from "../domain/order-pull-handoff";
+import { resolveOrderPullBudget } from "../../outbound-sync/domain/order-pull-codec";
 
 async function seedV2() {
   const f = await coordinatorFixture();
@@ -23,6 +25,38 @@ async function seedV2() {
 }
 
 describe("connector-order-pull-journal-upgrade", () => {
+  it("uses the producer's captured status vocabulary for follow-up descriptors, not arbitrary strings", async () => {
+    const f = await pullFixture();
+    const budget = resolveOrderPullBudget(f.handoff.authority, { listReads: 0, intakeReads: 0, followUpReads: 1 });
+    if (budget.kind !== "fits") throw new Error("fixture drift");
+    const payload = { ...f.payload, bounds: budget.bounds, followUpReferences: ["SYNTHETIC-ORDER-1"] };
+    const post = {
+      kind: "fulfillment" as const,
+      externalReference: `tcf.v1:${"a".repeat(64)}`,
+      digest: "a".repeat(64),
+      variant: "status-only" as const,
+      state: "planned" as const,
+      status: { surface: "detail" as const, value: "Ready to Ship" },
+    };
+    const handoff = {
+      ...f.handoff,
+      summary: null,
+      progress: { ...f.handoff.progress, pages: [] },
+      bundles: [{ reference: "SYNTHETIC-ORDER-1", source: "follow-up" as const, posts: [post] }],
+    };
+    expect(parseOrderPullHandoff(handoff, payload)).toEqual(handoff);
+    for (const change of [
+      { externalReference: "SYNTHETIC_PII_SENTINEL" },
+      { status: { surface: "detail", value: "SYNTHETIC_PII_SENTINEL" } },
+    ]) {
+      expect(() =>
+        parseOrderPullHandoff(
+          { ...handoff, bundles: [{ ...handoff.bundles[0], posts: [{ ...post, ...change }] }] },
+          payload,
+        ),
+      ).toThrow();
+    }
+  });
   it("upgrades v2 twice without rewriting either existing journal store", async () => {
     const f = await seedV2();
     const journal = createOperationJournal(f.indexedDB, IDBKeyRange);

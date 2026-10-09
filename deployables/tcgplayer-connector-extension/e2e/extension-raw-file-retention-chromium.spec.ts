@@ -53,10 +53,12 @@ for (const blocked of [false, true]) {
       const before = await custodyWitness(worker);
       await worker.evaluate(async (block) => {
         const nativeOpen = indexedDB.open.bind(indexedDB);
+        const currentVersion = (await indexedDB.databases()).find((db) => db.name === "connector-raw-exports")?.version;
+        if (!currentVersion) throw new Error("fixture-database-missing");
         let changed = false;
         let closedOnChange = false;
         const startUpgrade = () => {
-          const request = nativeOpen("connector-raw-exports", 3);
+          const request = nativeOpen("connector-raw-exports", currentVersion + 1);
           request.onupgradeneeded = () =>
             request.result.createObjectStore("pending-operations").add("SYNTHETIC_COMPETING_OWNER_7922", "pending");
           const committed = new Promise<void>((resolve, reject) => {
@@ -71,7 +73,7 @@ for (const blocked of [false, true]) {
         };
         if (block) {
           const holder = await new Promise<IDBDatabase>((resolve, reject) => {
-            const request = nativeOpen("connector-raw-exports", 2);
+            const request = nativeOpen("connector-raw-exports", currentVersion);
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
           });
@@ -151,7 +153,7 @@ for (const blocked of [false, true]) {
         await worker.evaluate(
           () =>
             new Promise<string>((resolve, reject) => {
-              const request = indexedDB.open("connector-raw-exports", 3);
+              const request = indexedDB.open("connector-raw-exports");
               request.onsuccess = () => {
                 const db = request.result;
                 const witness = db.transaction("pending-operations").objectStore("pending-operations").get("pending");
@@ -291,8 +293,10 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
     const time = await prepareRetention(worker);
     await clockAt(worker, time.before);
     await worker.evaluate(async () => {
+      const currentVersion = (await indexedDB.databases()).find((db) => db.name === "connector-raw-exports")?.version;
+      if (!currentVersion) throw new Error("fixture-database-missing");
       await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("connector-raw-exports", 3);
+        const request = indexedDB.open("connector-raw-exports", currentVersion + 1);
         request.onupgradeneeded = () => {
           request.result
             .createObjectStore("pending-operations", { keyPath: "id" })
@@ -329,7 +333,7 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
       JSON.stringify(
         {
           scenario: "f-older-client-newer-database",
-          mechanism: "real Chromium version-3 fixture; unchanged product v2 module through static-import observer",
+          mechanism: "real Chromium next-version fixture; unchanged product module through static-import observer",
           chromium: await chromiumVersion(context),
           digest: productDigest(),
           phases: { before, afterCallbacks: await observeRetention(worker) },
@@ -344,7 +348,7 @@ test("extension-raw-store-mixed-version Chromium preserves newer state; deleteDa
         const databases = await indexedDB.databases();
         if (!databases.some((db) => db.name === "connector-raw-exports")) return false;
         return new Promise<boolean>((resolve, reject) => {
-          const request = indexedDB.open("connector-raw-exports", 3);
+          const request = indexedDB.open("connector-raw-exports");
           request.onsuccess = () => {
             const db = request.result;
             const row = db.transaction("pending-operations").objectStore("pending-operations").get("pending");
