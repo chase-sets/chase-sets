@@ -13,7 +13,7 @@ import {
 import { createRequire } from "node:module";
 import { dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { tmpdir } from "node:os";
+import { cpus, loadavg, tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import vm from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -205,6 +205,43 @@ const censusTimings = [];
 const censusRows = [];
 const discoveredImporters = new Set();
 
+// Charged census diagnostics (#9156): phase timers and work units accumulate
+// inside the shard timer so a red hosted run attributes its own elapsed time.
+let censusPhaseClock = null;
+
+function startCensusPhaseClock() {
+  censusPhaseClock = {
+    readMs: 0,
+    preProcessFileMs: 0,
+    createSourceFileMs: 0,
+    literalIndexClassifyMs: 0,
+    cjsResolveMs: 0,
+    esmResolverChildMs: 0,
+    firstScanMs: undefined,
+    utf8Bytes: 0,
+    literalNodes: 0,
+    ancestorElements: 0,
+    compilerSpecifiers: 0,
+    cjsRequests: 0,
+    esmRequests: 0,
+    memoHits: 0,
+  };
+  return censusPhaseClock;
+}
+
+function chargePhase(phase, started) {
+  if (censusPhaseClock) censusPhaseClock[phase] += performance.now() - started;
+}
+
+function countWork(unit, amount = 1) {
+  if (censusPhaseClock) censusPhaseClock[unit] += amount;
+}
+
+function hostLoad() {
+  const processors = cpus();
+  return { cpuModel: processors[0]?.model ?? "unknown", cpuCount: processors.length, loadavg: loadavg() };
+}
+
 function recognizedErrorCode(result) {
   const text = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
   for (const code of RECOGNIZED_NOT_LOADABLE) if (text.includes(code)) return code;
@@ -279,6 +316,10 @@ function scriptKindFor(path) {
 function literalIndex(sourceFile) {
   const byText = new Map();
   const visit = (node, ancestors = []) => {
+    if (censusPhaseClock) {
+      censusPhaseClock.literalNodes += 1;
+      censusPhaseClock.ancestorElements += ancestors.length;
+    }
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const values = byText.get(node.text) ?? [];
       values.push({ node, ancestors });
@@ -339,19 +380,27 @@ function compilerRows(path, source, options = {}) {
   let sourceFile;
   try {
     if (options.forceScanFailure) throw new Error("injected scan failure");
+    const preProcessStarted = performance.now();
     preprocessed = ts.preProcessFile(source, true, true);
+    chargePhase("preProcessFileMs", preProcessStarted);
+    const createStarted = performance.now();
     sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, scriptKindFor(path));
+    chargePhase("createSourceFileMs", createStarted);
   } catch (error) {
     importerRefuse("IMPORTER_SCAN_FAILURE", `${path}: ${error.message}`);
   }
+  const classifyStarted = performance.now();
   const literals = literalIndex(sourceFile);
-  return preprocessed.importedFiles.map((span) => {
+  const rows = preprocessed.importedFiles.map((span) => {
     const classification = classifyCompilerSpan(sourceFile, span, { ...options, literals });
     if (classification.verdict === "INDETERMINATE") {
       importerRefuse("IMPORTER_SYNTAX_INDETERMINATE", `${path}:${span.pos}:${classification.owner}`);
     }
     return { path, specifier: span.fileName, pos: span.pos, end: span.end, ...classification };
   });
+  chargePhase("literalIndexClassifyMs", classifyStarted);
+  countWork("compilerSpecifiers", rows.length);
+  return rows;
 }
 
 function normalizedRealpath(path) {
@@ -475,11 +524,15 @@ function resolveRuntimeRows(rows, options = {}) {
     }
     const key = `${row.verdict === "RUNTIME_CJS_REQUIRE" ? "CJS" : "ESM"}\0${row.path}\0${row.specifier}`;
     if (!options.disableMemo && resolutionMemo.has(key)) {
+      countWork("memoHits");
       resolved.push({ ...row, resolution: resolutionMemo.get(key) });
       continue;
     }
     if (row.verdict === "RUNTIME_CJS_REQUIRE") {
+      const cjsStarted = performance.now();
       const resolution = classifyResolution(resolveCjs(row, options), row);
+      chargePhase("cjsResolveMs", cjsStarted);
+      countWork("cjsRequests");
       if (!options.disableMemo) resolutionMemo.set(key, resolution);
       resolved.push({ ...row, resolution });
     } else {
@@ -489,10 +542,13 @@ function resolveRuntimeRows(rows, options = {}) {
   if (esmPending.length > 0) {
     const uniquePending = [...new Map(esmPending.map((pending) => [pending.key, pending])).values()];
     const batchResolutions = new Map();
+    const esmStarted = performance.now();
     const batch = resolveEsmBatch(
       uniquePending.map(({ row, parentUrl }) => ({ specifier: row.specifier, parentUrl })),
       options,
     );
+    chargePhase("esmResolverChildMs", esmStarted);
+    countWork("esmRequests", uniquePending.length);
     batch.forEach((result, index) => {
       const { row, key } = uniquePending[index];
       const resolution = classifyResolution(result, row);
@@ -514,10 +570,13 @@ function scanEntry(entry, options = {}) {
   let source;
   try {
     if (options.forceReadFailure) throw new Error("injected read failure");
+    const readStarted = performance.now();
     source = (options.readFile ?? readFileSync)(options.absolutePath ?? resolve(ROOT, entry.path), "utf8");
+    chargePhase("readMs", readStarted);
   } catch (error) {
     importerRefuse("IMPORTER_READ_FAILURE", `${entry.path}: ${error.message}`);
   }
+  if (censusPhaseClock) countWork("utf8Bytes", Buffer.byteLength(source, "utf8"));
   return compilerRows(entry.path, source, options);
 }
 
@@ -940,7 +999,9 @@ describe.sequential("canonical importer authority", () => {
       for (const group of groups)
         capabilityResults.set(`${group.extension}\0${group.scopeType}`, probeCapability(group));
       const elapsedMs = performance.now() - started;
-      capabilityTimings.push({ shard: shard + 1, elapsedMs, groups: groups.length });
+      const timing = { shard: shard + 1, elapsedMs, groups: groups.length, ...hostLoad() };
+      capabilityTimings.push(timing);
+      console.info(JSON.stringify({ capabilityShard: timing }));
       expect(elapsedMs).toBeLessThan(SHARD_BUDGET_MS);
     });
   }
@@ -1039,26 +1100,38 @@ describe.sequential("canonical importer authority", () => {
 
   for (let shard = 0; shard < CENSUS_SHARDS; shard += 1) {
     it(`corpus census and memoized resolution stay inside the unchanged timeout [shard ${shard + 1}/${CENSUS_SHARDS}]`, () => {
+      const phases = startCensusPhaseClock();
       const started = performance.now();
       const entries = censusShardEntries[shard];
       const runtimeRows = [];
-      for (const entry of entries) {
-        const rows = scanEntry(entry);
-        censusRows.push(...rows);
-        runtimeRows.push(
-          ...rows.filter(({ verdict }) => RUNTIME_ESM_VERDICTS.has(verdict) || verdict === "RUNTIME_CJS_REQUIRE"),
-        );
+      let elapsedMs;
+      try {
+        for (const entry of entries) {
+          const scanStarted = performance.now();
+          const rows = scanEntry(entry);
+          phases.firstScanMs ??= performance.now() - scanStarted;
+          censusRows.push(...rows);
+          runtimeRows.push(
+            ...rows.filter(({ verdict }) => RUNTIME_ESM_VERDICTS.has(verdict) || verdict === "RUNTIME_CJS_REQUIRE"),
+          );
+        }
+        for (const row of resolveRuntimeRows(runtimeRows)) {
+          if (row.resolution === "TARGET") discoveredImporters.add(row.path);
+        }
+        elapsedMs = performance.now() - started;
+      } finally {
+        censusPhaseClock = null;
       }
-      for (const row of resolveRuntimeRows(runtimeRows)) {
-        if (row.resolution === "TARGET") discoveredImporters.add(row.path);
-      }
-      const elapsedMs = performance.now() - started;
-      censusTimings.push({
+      const timing = {
         shard: shard + 1,
         elapsedMs,
         candidates: entries.length,
         runtimeSpecifiers: runtimeRows.length,
-      });
+        ...phases,
+        ...hostLoad(),
+      };
+      censusTimings.push(timing);
+      console.info(JSON.stringify({ censusShard: timing }));
       expect(elapsedMs).toBeLessThan(SHARD_BUDGET_MS);
     });
   }
@@ -1210,13 +1283,17 @@ describe.sequential("canonical importer authority", () => {
   });
 
   it("corpus shards stay inside the unchanged timeout", () => {
-    expect(capabilityTimings).toHaveLength(CAPABILITY_SHARDS);
-    expect(censusTimings).toHaveLength(CENSUS_SHARDS);
-    expect(Math.max(...capabilityTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
-    expect(Math.max(...censusTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
-    const aggregateBudget = (CAPABILITY_SHARDS + CENSUS_SHARDS) * SHARD_BUDGET_MS;
-    const total = [...capabilityTimings, ...censusTimings].reduce((sum, { elapsedMs }) => sum + elapsedMs, 0);
-    expect(total).toBeLessThan(aggregateBudget);
+    // Uncharged diagnostic after every timed shard: the bare resolver child
+    // startup on this host, so its share of each shard's ESM phase is visible.
+    // A diagnostic never fails the suite; an unavailable child is recorded.
+    let resolverSpawnBaselineMs;
+    try {
+      const spawnStarted = performance.now();
+      resolveEsmBatch([]);
+      resolverSpawnBaselineMs = performance.now() - spawnStarted;
+    } catch (error) {
+      resolverSpawnBaselineMs = `unavailable: ${error.code ?? error.message}`;
+    }
     console.info(
       JSON.stringify({
         tracked: gitEntries.length,
@@ -1225,10 +1302,19 @@ describe.sequential("canonical importer authority", () => {
         groups: capabilityGroups.length,
         candidates: candidateEntries().length,
         specifiers: censusRows.length,
+        resolverSpawnBaselineMs,
+        ...hostLoad(),
         capabilityTimings,
         censusTimings,
       }),
     );
+    expect(capabilityTimings).toHaveLength(CAPABILITY_SHARDS);
+    expect(censusTimings).toHaveLength(CENSUS_SHARDS);
+    expect(Math.max(...capabilityTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
+    expect(Math.max(...censusTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
+    const aggregateBudget = (CAPABILITY_SHARDS + CENSUS_SHARDS) * SHARD_BUDGET_MS;
+    const total = [...capabilityTimings, ...censusTimings].reduce((sum, { elapsedMs }) => sum + elapsedMs, 0);
+    expect(total).toBeLessThan(aggregateBudget);
   });
 
   it("the authorized importer inventory is exact", () => {
