@@ -393,7 +393,7 @@ export function probeAnonymousMirrors({ sources, env = process.env, docker, now 
   };
 }
 
-export const publisherWorkflowPath = ".github/workflows/platform-ci-image-mirrors.yml";
+export const publisherWorkflowPath = ".github/workflows/ci-image-mirrors.yml";
 const publisherJobId = "publish";
 
 function grantsPackagesWrite(permissions) {
