@@ -77,6 +77,7 @@
     "bounded-contexts/catalog/features/source-observations/api/seeding/synthetic-display-identity-queryable.ts",
     "bounded-contexts/catalog/features/source-observations/api/source-observation-bulk-review-job-runtime.ts",
     "bounded-contexts/catalog/features/source-observations/api/source-observation-integration-job-runtime.ts",
+    "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-bulk-job-runtime.ts",
     "bounded-contexts/catalog/features/source-observations/api/source-observation-promotion-execution.ts",
     "bounded-contexts/catalog/features/source-observations/api/source-observation-promotion-reference-hierarchy.ts",
     "bounded-contexts/catalog/features/source-observations/read-model/catalog-merge-candidate-projection.ts",
@@ -492,7 +493,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 285,
+    "count": 286,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -509,6 +510,7 @@
       "bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts": 7,
       "bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts": 2,
       "bounded-contexts/catalog/features/reference-data/api/route.ts": 2,
+      "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts": 14,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 17,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts": 1,
