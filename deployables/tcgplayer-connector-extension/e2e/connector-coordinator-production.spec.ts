@@ -30,7 +30,7 @@ test.beforeAll(async () => {
 test.beforeEach(() => {
   if (!retainedSession) server.reset();
 });
-test.afterEach(async (_fixtures, info) => {
+test.afterEach(async ({}, info) => {
   if (retainedSession && info.status === info.expectedStatus) return;
   for (const context of active) await context.close();
   active.clear();

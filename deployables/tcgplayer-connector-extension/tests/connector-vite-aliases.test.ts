@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceSourceAliases } from "../../../scripts/workspace-source-aliases.mjs";
 import { connectorViteConfig } from "../vite.config";
 import { platformOrigin } from "../__tests__/harness/origins";
+import { loadConnectorBuildConfig } from "../e2e/connector-build-config";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -25,5 +26,12 @@ describe("connector Vite aliases", () => {
         : []),
     ]);
     expect(workspaceAliases.length).toBeGreaterThan(0);
+  });
+  it.each(["production", "harness"])("loads the canonical %s config outside Playwright collection", async (mode) => {
+    vi.stubEnv("VITE_PLATFORM_API_URL", platformOrigin);
+    const config = await loadConnectorBuildConfig(mode);
+    expect(config.resolve).toEqual(connectorViteConfig(mode).resolve);
+    expect(config.define?.["import.meta.env.VITE_PLATFORM_API_URL"]).toBe(JSON.stringify(platformOrigin));
+    expect(config.build?.outDir).toBe(mode === "harness" ? "dist-harness" : "dist");
   });
 });

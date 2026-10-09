@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { build } from "vite";
-import { buildConnectorManifest } from "@chase-sets/channels";
-import { connectorViteConfig } from "../vite.config";
+import { buildConnectorManifest } from "@chase-sets/channels/client";
+import { loadConnectorBuildConfig } from "./connector-build-config";
 import { packageRoot, proofRoot, retain } from "./coordinator-observation";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { synthetic } from "./loopback-platform";
@@ -18,11 +18,12 @@ export async function buildHistoricalRetentionProduct() {
   }
   const sources = new Map<string, string>();
   const destination = resolve(proofRoot, "product-7922-v1");
+  const config = await loadConnectorBuildConfig();
   await build({
     root: packageRoot,
     configFile: false,
     logLevel: "warn",
-    resolve: connectorViteConfig().resolve,
+    resolve: config.resolve,
     define: {
       "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(platformOrigin),
       "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(synthetic.clientId),

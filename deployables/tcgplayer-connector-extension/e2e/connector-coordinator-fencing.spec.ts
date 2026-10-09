@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { build } from "vite";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "@chase-sets/channels/client";
-import { connectorViteConfig } from "../vite.config";
+import { loadConnectorBuildConfig } from "./connector-build-config";
 import { startLoopback } from "../__tests__/harness/loopback";
 import { syntheticClaim } from "../__tests__/harness/claim";
 import { synthetic } from "./loopback-platform";
@@ -20,7 +20,7 @@ let context: BrowserContext | undefined;
 test.beforeAll(async () => {
   server = await startLoopback();
   extension = await buildHarness("operation");
-  const harness = connectorViteConfig("harness");
+  const harness = await loadConnectorBuildConfig("harness");
   await build({
     root: packageRoot,
     configFile: false,

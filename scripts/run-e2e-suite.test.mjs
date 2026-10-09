@@ -115,6 +115,7 @@ describe("run e2e suite", () => {
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "assertConnectorRunSettlement",
       "assertTcgplayerOrderRecord",
+      "buildConnectorManifest",
       "composeChannelOrderFulfillmentInbound",
       "composeChannelOrderFulfillmentReference",
       "composeTcgplayerOrderInbound",

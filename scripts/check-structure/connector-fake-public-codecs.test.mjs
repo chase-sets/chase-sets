@@ -15,7 +15,10 @@ describe("connector-fake-public-codecs", () => {
   });
   it.each(["assertConnectorClaim", "assertConnectorReport"])("rejects the unused-import %s mutant", async (codec) => {
     const original = await readFile(new URL(`../../${fake}`, import.meta.url), "utf8");
-    const overrides = new Map([[fake, original.replace(`${codec}(input);`, "void input;")]]);
+    const mutated = original
+      .replaceAll(`${codec}(input);`, "void input;")
+      .replaceAll(`${codec}(value);`, "void value;");
+    const overrides = new Map([[fake, mutated]]);
     expect((await validateConnectorFakeGraph({ repoRoot, overrides })).violations.join()).toContain(
       `must call public ${codec}`,
     );
