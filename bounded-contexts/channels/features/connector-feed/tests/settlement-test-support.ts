@@ -1,7 +1,7 @@
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ChannelsServices } from "../../../support/runtime-support/services";
+import type { module as channelsModule } from "../../../index";
 import type { ConnectorReport } from "../domain/transport";
 import { channelListingEventCodec } from "../../listing-composition/domain/codecs";
 import { buildChannelListingStateProjectionHandlers } from "../../listing-composition/read-model/state-projection";
@@ -14,7 +14,7 @@ import { healthDigest } from "../../connection-health/domain/identity";
 
 export async function prepareConnectorBoundSettlement(
   db: PgTransactionalPool,
-  services: ChannelsServices,
+  services: ReturnType<typeof channelsModule.createServices>,
   input: Readonly<{ connectionId: string; pairingId: string; context: EventStoreContext }>,
 ): Promise<ConnectorReport> {
   const { connectionId, pairingId, context } = input;
