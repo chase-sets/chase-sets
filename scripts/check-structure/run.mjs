@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import ts from "@chase-sets/typescript-compiler-api";
 import { readdir, readFile } from "node:fs/promises";
@@ -810,13 +810,14 @@ function isEventSubscriptionDeclaration(value) {
   return isPlainObject(value);
 }
 
-function isAllowedPublicExportName(value) {
+export function isAllowedPublicExportName(value) {
   return (
     value === "." ||
     value === "./context" ||
     value === "./client" ||
     value === "./host-config" ||
     value === "./seed-support/*" ||
+    value === "./test-support" ||
     value === "./server" ||
     value === "./web" ||
     value === "./routes/*"
@@ -916,7 +917,7 @@ function isRequestSupportAdapter(supportFile, usageRecord, contextManifests) {
   );
 }
 
-async function walk(dir) {
+export async function walk(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
   const directories = [dir];
@@ -1247,8 +1248,62 @@ function isApiDeployableFile(relativeFile) {
   return /deployables\/(platform-api|platform-worker)\//.test(relativeFile);
 }
 
+function hasSafePathSegments(value) {
+  return value.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+export function hasValidTestSupportDeclaration(targetContext) {
+  const target = targetContext?.packageJson?.exports?.["./test-support"];
+  if (
+    typeof targetContext?.packageName !== "string" ||
+    targetContext.packageName !== targetContext.packageJson?.name ||
+    targetContext.packageName !== targetContext.manifest?.packageName ||
+    !Array.isArray(targetContext.manifest?.publicExports) ||
+    !targetContext.manifest.publicExports.includes("./test-support") ||
+    typeof targetContext.rootAbs !== "string" ||
+    !path.isAbsolute(targetContext.rootAbs) ||
+    typeof target !== "string" ||
+    !target.startsWith("./") ||
+    /[\\:*?#[\]{}]/.test(target) ||
+    !hasSafePathSegments(target.slice(2)) ||
+    !/^\.\/features\/[^/]+\/tests\/(?:[^/]+\/)*[^/]+\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(target)
+  ) {
+    return false;
+  }
+  try {
+    const root = realpathSync(targetContext.rootAbs);
+    const file = realpathSync(path.resolve(targetContext.rootAbs, target));
+    const relative = path.relative(root, file).replaceAll("\\", "/");
+    const testsRoot = target.slice(2).split("/").slice(0, 3).join("/");
+    return relative.startsWith(`${testsRoot}/`) && hasSafePathSegments(relative) && statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function findTestSupportImportViolations(relativeFile, content, contexts) {
+  const targets = [...contexts];
+  return ts.preProcessFile(content, true, true).importedFiles.flatMap(({ fileName: specifier }) => {
+    const normalized = specifier.replaceAll("\\", "/");
+    const target = targets.find(({ packageName }) => normalized.startsWith(`${packageName}/test-support`));
+    if (!target || isAllowedDeployableBoundedContextImport(relativeFile, specifier, target)) return [];
+    return [
+      `bounded-context test-support requires a declared slice-local target and a platform-api DB witness (${specifier})`,
+    ];
+  });
+}
+
 export function isAllowedDeployableBoundedContextImport(relativeFile, specifier, targetContext) {
   const normalizedFile = relativeFile.replaceAll("\\", "/");
+  if (/^@chase-sets\/[^/]+\/test-support(?:[/\\?#]|$)/.test(specifier)) {
+    return (
+      /^deployables\/platform-api\/__tests__\/(?:[^/]+\/)*[^/]+\.db\.test\.ts$/.test(normalizedFile) &&
+      !/[:?#]/.test(normalizedFile) &&
+      hasSafePathSegments(normalizedFile) &&
+      specifier === `${targetContext?.packageName}/test-support` &&
+      hasValidTestSupportDeclaration(targetContext)
+    );
+  }
   if (normalizedFile.startsWith("deployables/tcgplayer-operator-extension/")) {
     return specifier === "@chase-sets/catalog/client";
   }
@@ -1992,6 +2047,16 @@ export async function runStructureCheck(options = {}) {
 
     const declaredPublicExports = new Set(manifest.publicExports ?? []);
     const packageExportKeys = new Set(Object.keys(packageJson.exports ?? {}).filter((key) => key !== "."));
+
+    if (
+      (declaredPublicExports.has("./test-support") || packageExportKeys.has("./test-support")) &&
+      !hasValidTestSupportDeclaration(context)
+    ) {
+      addPathViolation(
+        `${root}/package.json`,
+        "./test-support must declare an existing literal slice-local tests module",
+      );
+    }
 
     for (const exportKey of packageExportKeys) {
       if (!declaredPublicExports.has(exportKey)) {
@@ -3476,6 +3541,9 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "contracts must not read environment variables");
       }
 
+      for (const violation of findTestSupportImportViolations(normalizedFile, content, contextManifests.values())) {
+        addViolation(file, violation);
+      }
       for (const specifier of extractImportSpecifiers(content)) {
         checkImport(file, specifier, content);
       }

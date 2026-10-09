@@ -190,6 +190,7 @@ Allowed public surfaces:
 - `./web`
 - `./routes/*`
 - `./seed-support/*`
+- `./test-support`
 - `./host-config`
 
 Surface meanings:
@@ -201,6 +202,7 @@ Surface meanings:
 - `./web` is deployable-facing shell, layout, provider, and browser-entry code only
 - `./routes/*` is the feature-route surface consumed by manifest-driven deployable composition
 - `./seed-support/*` is seed, bootstrap, and test-only support
+- `./test-support` is one exact slice-local test-helper entry for thin platform-api DB witnesses, not a production contract
 - `./host-config` is an Auth-specific host integration surface for authentication entry points
 
 Private route and request helpers must stay inside the owning bounded context under explicit support folders, not as ad hoc top-level files.
@@ -221,6 +223,33 @@ deployables, including public-web and the connector extension. Relative deep
 imports into bounded-context source remain forbidden. Existing public
 entrypoint rules and the extension's Channels `./client` exception are unchanged;
 this does not execute seed or bootstrap code.
+
+A bounded context may declare one exact `./test-support` package export to an
+existing slice-owned test-helper module. The only new external consumers are
+repository-relative direct or nested `*.db.test.ts` files under
+`deployables/platform-api/__tests__/`. The import must be exactly
+`<actual target packageName>/test-support`. The target package identity,
+`package.json` name and `context.json` packageName must agree; `publicExports`
+must contain `./test-support` and `exports["./test-support"]` must be a literal
+relative string to an existing module file inside that same context's
+`features/<slice>/tests/` tree. No wildcard, conditional export, directory,
+absolute target, missing target or escaping target (including symlinks) is valid.
+Importer separators may be slash or backslash; complete repository-relative
+segments must have no empty, dot or traversal segment, drive or prefix. Target
+paths require `./`, forward slashes and no empty, dot or traversal segments,
+glob, query or fragment.
+
+This grants no production, non-DB-test, test-helper, other-deployable,
+seed/bootstrap or cross-context runtime import authority. Owner-local tests
+keep relative imports; external relative deep imports remain forbidden. Do not
+re-export the helper through a production barrel or move it into a context-root
+support bucket. Generate TypeScript aliases from package metadata with the
+existing workspace metadata producer; an alias alone grants no import authority.
+Docker pruning of test directories is unchanged, so every production entry's
+runtime graph must exclude the helper. Contract-package test-support exports
+do not authorize bounded-context imports. Structural eligibility is not DB
+enrollment or execution proof: ordinary command discovery, unit/fast exclusions
+and the existing enrollment/census guard still apply.
 
 ## Deployable Composition
 

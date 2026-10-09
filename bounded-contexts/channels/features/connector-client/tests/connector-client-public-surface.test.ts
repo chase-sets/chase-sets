@@ -46,6 +46,9 @@ describe("connector-client-public-surface", () => {
     }
     const source = readFileSync(resolve(import.meta.dirname, "../../../client.ts"), "utf8");
     const expected = [
+      "assertConnectorRunSettlement",
+      "ConnectorRunSettlement",
+      "ConnectorReport",
       "TCGPLAYER_CONNECTOR_EXTENSION_ID",
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",

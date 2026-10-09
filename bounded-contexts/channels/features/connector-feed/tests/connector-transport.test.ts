@@ -1,4 +1,8 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
+import { assertConnectorRunSettlement, type ConnectorRunSettlement } from "../domain/run-settlement";
+import type { ConnectorReport } from "../domain/transport";
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { manualSyncIngestContract } from "../../manual-sync/domain/contracts";
@@ -33,6 +37,68 @@ function snapshot() {
   if (parsed.kind !== "parsed") throw new Error("invalid-test-snapshot");
   return { parsed, fileSha256: "a".repeat(64), capturedAt: "2026-10-07T12:00:00Z" };
 }
+
+describe("connector-settlement-wire-contract client graph", () => {
+  const entry = resolve(import.meta.dirname, "../../../client.ts");
+  const settlement = resolve(import.meta.dirname, "../domain/run-settlement.ts");
+  function checkGraph(nodeImportBypass = false) {
+    const visited = new Set<string>();
+    function visit(path: string) {
+      if (visited.has(path)) return;
+      visited.add(path);
+      const source =
+        readFileSync(path, "utf8") + (nodeImportBypass && path === settlement ? '\nimport "node:crypto";' : "");
+      const runtime = ts.transpileModule(source, {
+        fileName: path,
+        compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+      }).outputText;
+      const file = ts.createSourceFile(path, runtime, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      function edge(specifier: string) {
+        if (specifier.startsWith("node:")) throw new Error(`client-node-edge: ${specifier}`);
+        const resolved = ts.resolveModuleName(
+          specifier,
+          path,
+          {
+            moduleResolution: ts.ModuleResolutionKind.Bundler,
+            module: ts.ModuleKind.ESNext,
+            allowJs: true,
+          },
+          ts.sys,
+        ).resolvedModule;
+        if (!resolved || resolved.resolvedFileName.endsWith(".d.ts")) {
+          throw new Error(`client-runtime-edge-unresolved: ${specifier}`);
+        }
+        visit(resolve(resolved.resolvedFileName));
+      }
+      function walk(node: ts.Node) {
+        if (
+          (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+          node.moduleSpecifier &&
+          ts.isStringLiteral(node.moduleSpecifier)
+        ) {
+          edge(node.moduleSpecifier.text);
+        }
+        if (
+          ts.isCallExpression(node) &&
+          (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+            (ts.isIdentifier(node.expression) && node.expression.text === "require"))
+        ) {
+          const argument = node.arguments[0];
+          if (!argument || !ts.isStringLiteral(argument)) throw new Error("client-dynamic-edge-unresolved");
+          edge(argument.text);
+        }
+        ts.forEachChild(node, walk);
+      }
+      walk(file);
+    }
+    visit(entry);
+    expect(visited.has(settlement)).toBe(true);
+  }
+  it("refuses transitive node: edges and kills a Node-import bypass in the settlement module", () => {
+    expect(() => checkGraph()).not.toThrow();
+    expect(() => checkGraph(true)).toThrow("client-node-edge: node:crypto");
+  });
+});
 function http() {
   const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] });
   const services = {
@@ -192,7 +258,7 @@ describe("connector-feed-malformed-payload", () => {
     ])
       expect(() => assertConnectorReport(invalid)).toThrow();
   });
-  it("validates every nested settlement branch without changing the posted producer contract", () => {
+  it("connector-settlement-wire-contract: validates every branch without changing context-free fields", () => {
     const runSettlement = {
       runId: "run_test",
       expectedRunRevision: 1,
@@ -208,32 +274,105 @@ describe("connector-feed-malformed-payload", () => {
         numberOfProducts: 1,
         recordedAt: "2026-10-07T12:00:00Z",
       },
-      context: {
-        tenantId: "tnt_test",
-        audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
-        trace: { traceId: "trace_test", spanId: "span_test" },
-      },
-    };
-    const report = { reservationId: "cor_test", outcomes: [], runSettlement };
+    } satisfies ConnectorRunSettlement;
+    const report: ConnectorReport = { reservationId: "cor_test", outcomes: [], runSettlement };
     const bytes = JSON.stringify(report);
     expect(() => assertConnectorReport(report)).not.toThrow();
     expect(JSON.stringify(report)).toBe(bytes);
+    assertConnectorRunSettlement(runSettlement);
+    const nullable = {
+      ...runSettlement,
+      expectedRunRevision: 0,
+      verificationSnapshotId: null,
+      verificationSnapshotGeneration: null,
+      uploadAttemptedAt: null,
+      uploadFileName: null,
+      importSummary: null,
+    };
+    for (const fromState of ["composed", "claimed", "awaiting-verification"] as const) {
+      for (const toState of [
+        "applied",
+        "validation-rejected",
+        "application-unknown",
+        "superseded",
+        "stale-basis",
+        "abandoned",
+      ] as const) {
+        const branch = { ...nullable, fromState, toState };
+        const before = JSON.stringify(branch);
+        assertConnectorRunSettlement(branch);
+        expect(JSON.stringify(branch)).toBe(before);
+      }
+    }
+    assertConnectorRunSettlement({
+      ...runSettlement,
+      runId: "x".repeat(512),
+      expectedRunRevision: Number.MAX_SAFE_INTEGER,
+      verificationSnapshotId: "x".repeat(512),
+      verificationSnapshotGeneration: Number.MAX_SAFE_INTEGER,
+      uploadFileName: "x".repeat(512),
+      importSummary: {
+        ...runSettlement.importSummary,
+        fileName: "x".repeat(512),
+        dateImportedText: "x".repeat(512),
+        numberOfProducts: Number.MAX_SAFE_INTEGER,
+      },
+    });
+    for (const key of Object.keys(runSettlement)) {
+      const missing = Object.fromEntries(Object.entries(runSettlement).filter(([name]) => name !== key));
+      expect(() => assertConnectorRunSettlement(missing), key).toThrow();
+    }
+    for (const key of Object.keys(runSettlement.importSummary)) {
+      const missing = Object.fromEntries(Object.entries(runSettlement.importSummary).filter(([name]) => name !== key));
+      expect(() => assertConnectorRunSettlement({ ...runSettlement, importSummary: missing }), key).toThrow();
+    }
     for (const invalid of [
+      null,
+      [],
+      {},
+      { ...runSettlement, context: null },
+      {
+        ...runSettlement,
+        context: { tenantId: "tnt_test", audit: { forAccountId: "acc_test", performedByUserId: "usr_test" } },
+      },
+      ...["tenantId", "audit", "trace", "claimant", "unknown"].map((key) => ({ ...runSettlement, [key]: "forged" })),
       { ...runSettlement, fromState: "applied" },
+      { ...runSettlement, toState: "claimed" },
+      { ...runSettlement, runId: 1 },
+      { ...runSettlement, runId: "" },
+      { ...runSettlement, runId: "bad\u0000" },
+      { ...runSettlement, runId: "\ud800" },
       { ...runSettlement, uploadAttemptedAt: "2026-10-07" },
+      { ...runSettlement, uploadAttemptedAt: "2026-10-07T12:00:00" },
+      { ...runSettlement, uploadAttemptedAt: `2026-10-07T12:00:00.${"0".repeat(512)}Z` },
       { ...runSettlement, expectedRunRevision: Number.MAX_SAFE_INTEGER + 1 },
+      ...[-1, 0.5, "1", null, NaN].map((expectedRunRevision) => ({ ...runSettlement, expectedRunRevision })),
+      ...[0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].map((verificationSnapshotGeneration) => ({
+        ...runSettlement,
+        verificationSnapshotGeneration,
+      })),
+      { ...runSettlement, verificationSnapshotId: "x".repeat(513) },
       { ...runSettlement, uploadFileName: "x".repeat(513) },
       { ...runSettlement, importSummary: { ...runSettlement.importSummary, numberOfProducts: "1" } },
       { ...runSettlement, importSummary: { ...runSettlement.importSummary, extra: true } },
-      { ...runSettlement, context: { ...runSettlement.context, extra: true } },
+      ...[-1, 0.5, Number.MAX_SAFE_INTEGER + 1].map((numberOfProducts) => ({
+        ...runSettlement,
+        importSummary: { ...runSettlement.importSummary, numberOfProducts },
+      })),
+      ...["fileName", "dateImportedText"].map((key) => ({
+        ...runSettlement,
+        importSummary: { ...runSettlement.importSummary, [key]: "x".repeat(513) },
+      })),
+      { ...runSettlement, importSummary: { ...runSettlement.importSummary, recordedAt: "2026-10-07" } },
       {
         ...runSettlement,
-        context: { ...runSettlement.context, audit: { ...runSettlement.context.audit, extra: true } },
+        importSummary: { ...runSettlement.importSummary, recordedAt: `2026-10-07T12:00:00.${"0".repeat(512)}Z` },
       },
-      { ...runSettlement, context: { ...runSettlement.context, trace: { traceId: 1 } } },
-      { ...runSettlement, context: { ...runSettlement.context, trace: { extra: true } } },
-    ])
+      { ...runSettlement, importSummary: { ...runSettlement.importSummary, context: null } },
+    ]) {
+      expect(() => assertConnectorRunSettlement(invalid)).toThrow();
       expect(() => assertConnectorReport({ ...report, runSettlement: invalid })).toThrow();
+    }
   });
   it("bounds opaque order content without interpreting consumer fields", () => {
     const payload = { version: 1, records: [{ order: { revision: 2, customer: ["synthetic", null, true] } }] };

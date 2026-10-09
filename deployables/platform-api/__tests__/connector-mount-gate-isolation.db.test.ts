@@ -17,11 +17,19 @@ import {
 } from "./bootstrap-db-test-support";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  prepareConnectorBoundSettlement,
+  connectorSettlementEffects,
+  failConnectorSettlementAt,
+} from "@chase-sets/channels/test-support";
 
 let pools: PlatformApiTestPools;
 let auth: ReturnType<typeof authModule.createServices>;
 let app: ReturnType<typeof buildPlatformApiApp>;
 let connectorFeed: ChannelsServices["connectorFeed"];
+let channels: ChannelsServices;
+let originContext: EventStoreContext;
 let cookie: string;
 let accountId: ReturnType<typeof createId<"acc">>;
 let userId: ReturnType<typeof createId<"usr">>;
@@ -120,6 +128,7 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
     userId = createId("usr");
     const sessionId = createId("ses");
     const context = { tenantId: createId("tnt"), audit: { performedByUserId: userId, forAccountId: accountId } };
+    originContext = context;
     await pools.auth.query(
       `INSERT INTO auth_identity_accounts (account_id, name, display_name, account_type, status, updated_at)
        VALUES ($1, '', $2, 'personal', 'active', now())
@@ -156,6 +165,7 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
     const services = runtime.services.channels;
     if (!isChannelsServices(services)) throw new Error("Channels real composition unavailable");
     connectorFeed = services.connectorFeed;
+    channels = services;
     const connections = channelsModule.createServices(pools.channels, {
       connectorOAuth: oauth,
       channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
@@ -176,7 +186,7 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
       },
     }).connections;
     await connections.connectChannel(
-      { accountId, connectionId, providerKey: "fixture-connector" },
+      { accountId, connectionId, providerKey: "tcgplayer" },
       { deploymentEnvironment: "test" },
       context,
     );
@@ -212,6 +222,89 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
     } finally {
       logs.forEach((log) => log.mockRestore());
     }
+  });
+
+  async function assertContextFreeBoundSettlement(
+    phase: "success" | "run-append" | "projection" | "receipt" | "missing-origin",
+  ) {
+    const paired = await pairThroughHttp();
+    const body = await prepareConnectorBoundSettlement(pools.channels, channels, {
+      connectionId,
+      pairingId: paired.pairing.pairingId,
+      context: originContext,
+    });
+    if (phase === "missing-origin") {
+      await pools.channels.query(
+        "DELETE FROM event_store_events WHERE stream_id=$1 AND event_type='channels.tcgplayer-sync-run.composed'",
+        [`channels.tcgplayer-sync-run-${body.runSettlement!.runId}`],
+      );
+    }
+    const before = await connectorSettlementEffects(pools.channels);
+    const release =
+      phase === "success" || phase === "missing-origin" ? null : await failConnectorSettlementAt(pools.channels, phase);
+    const report = () =>
+      app.request(`http://localhost/channel-connector/oauth/connections/${connectionId}/report`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${paired.tokens.access_token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const response = await report();
+    if (phase === "missing-origin") {
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "unavailable" });
+      expect(await connectorSettlementEffects(pools.channels)).toEqual(before);
+      return;
+    }
+    if (release) {
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "unavailable" });
+      expect(await connectorSettlementEffects(pools.channels)).toEqual(before);
+      await release();
+      expect((await report()).status).toBe(200);
+    } else {
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("{}");
+    }
+    const committed = await connectorSettlementEffects(pools.channels);
+    expect(committed.e2).toEqual(before.e2);
+    expect(committed.e1).not.toEqual(before.e1);
+    expect((await channels.tcgplayerCsv.readRun(body.runSettlement!.runId))?.state).toBe("abandoned");
+    const events = await pools.channels.query(
+      "SELECT tenant_id,performed_by_user_id,for_account_id FROM event_store_events WHERE event_type='channels.tcgplayer-sync-run.transitioned'",
+    );
+    expect(events.rows).toEqual([
+      {
+        tenant_id: originContext.tenantId,
+        performed_by_user_id: originContext.audit.performedByUserId,
+        for_account_id: originContext.audit.forAccountId,
+      },
+    ]);
+    expect((await pools.channels.query("SELECT * FROM channel_outbound_reservation_settlements")).rows).toHaveLength(1);
+    const replay = await report();
+    expect(replay.status).toBe(200);
+    expect(await replay.text()).toBe("{}");
+    if (phase === "success") expect([...replay.headers]).toEqual([...response.headers]);
+    expect(await connectorSettlementEffects(pools.channels)).toEqual(committed);
+  }
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at success", async () => {
+    await assertContextFreeBoundSettlement("success");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at run-append", async () => {
+    await assertContextFreeBoundSettlement("run-append");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at projection", async () => {
+    await assertContextFreeBoundSettlement("projection");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at receipt", async () => {
+    await assertContextFreeBoundSettlement("receipt");
+  });
+
+  it("connector-context-free-bound-settlement: real composed route/Postgres atomicity at missing-origin", async () => {
+    await assertContextFreeBoundSettlement("missing-origin");
   });
 
   it("runs public registration, seller pairing, credential exchange and denies both principal substitutions", async () => {

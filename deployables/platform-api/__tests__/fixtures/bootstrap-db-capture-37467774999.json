@@ -1,0 +1,351 @@
+{
+  "referenceRunId": 37467774999,
+  "referenceJobId": 112283047125,
+  "timing": {
+    "testFileFixedCostMs": 1761,
+    "executionUnitFixedCostMs": 51535,
+    "jobOverheadMs": 55066
+  },
+  "files": [
+    {
+      "fileName": "bootstrap-shared-seed-command.db.test.ts",
+      "databaseSuffix": "platform_api_bootstrap_shared_seed_command",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "boots every non-production profile on one shared max-one seed command pool",
+          "referenceDurationMs": 95443
+        }
+      ]
+    },
+    {
+      "fileName": "bootstrap-scenario.db.test.ts",
+      "databaseSuffix": "platform_api_bootstrap_scenario",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "boots with context-owned pools and replays cross-context projections",
+          "referenceDurationMs": 110964
+        },
+        {
+          "name": "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
+          "referenceDurationMs": 1480
+        },
+        {
+          "name": "records context schema migrations once during concurrent bootstrap",
+          "referenceDurationMs": 1698
+        }
+      ]
+    },
+    {
+      "fileName": "bootstrap-production-reconciliation.db.test.ts",
+      "databaseSuffix": "platform_api_bootstrap_production_reconciliation",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
+          "referenceDurationMs": 9034
+        },
+        {
+          "name": "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
+          "referenceDurationMs": 17862
+        },
+        {
+          "name": "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
+          "referenceDurationMs": 17473
+        },
+        {
+          "name": "limits and reconciles every production-like seed context against current-code state",
+          "referenceDurationMs": 24450
+        },
+        {
+          "name": "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
+          "referenceDurationMs": 25134
+        },
+        {
+          "name": "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
+          "referenceDurationMs": 1330
+        },
+        {
+          "name": "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
+          "referenceDurationMs": 708
+        },
+        {
+          "name": "rejects a conflicting retained representative Account profile with actionable detail",
+          "referenceDurationMs": 371
+        },
+        {
+          "name": "rejects a conflicting retained representative User profile with actionable detail",
+          "referenceDurationMs": 578
+        },
+        {
+          "name": "rejects a conflicting retained representative Shipping Address profile with actionable detail",
+          "referenceDurationMs": 535
+        },
+        {
+          "name": "resumes the real representative commerce command after offer acceptance without duplicate creation events",
+          "referenceDurationMs": 36939
+        }
+      ]
+    },
+    {
+      "fileName": "bootstrap-lock-contention.db.test.ts",
+      "databaseSuffix": "platform_api_bootstrap_lock_contention",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "recovers when bootstrap-touched table locks release within the retry budget",
+          "referenceDurationMs": 1166
+        },
+        {
+          "name": "fails closed when bootstrap-touched table locks exhaust the retry budget",
+          "referenceDurationMs": 1246
+        },
+        {
+          "name": "isolates partition databases and bootstrap advisory locks",
+          "referenceDurationMs": 2142
+        }
+      ]
+    },
+    {
+      "fileName": "seed-command-full-pools.db.test.ts",
+      "databaseSuffix": "platform_api_seed_command_full_pools",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "completes representative commerce seeds, projections, fan-outs and post-state",
+          "referenceDurationMs": 28470
+        },
+        {
+          "name": "completes admin-QA fixtures and retains their seeded identity post-state",
+          "referenceDurationMs": 11617
+        }
+      ]
+    },
+    {
+      "fileName": "connector-mount-gate-isolation.db.test.ts",
+      "databaseSuffix": "connector_composed_7993",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
+          "referenceDurationMs": 2149
+        },
+        {
+          "name": "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
+          "referenceDurationMs": 1237
+        },
+        {
+          "name": "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
+          "referenceDurationMs": 1095
+        },
+        {
+          "name": "audits every OAuth refusal and malformed transport once with unresolved identity",
+          "referenceDurationMs": 1105
+        },
+        {
+          "name": "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
+          "referenceDurationMs": 1967
+        }
+      ]
+    },
+    {
+      "fileName": "authoritative-seed-resume-recovery.db.test.ts",
+      "databaseSuffix": "platform_api_authoritative_seed_resume_recovery",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
+          "referenceDurationMs": 102210
+        },
+        {
+          "name": "recreates only a missing review-eligible payment after a sibling payment has completed",
+          "referenceDurationMs": 89821
+        }
+      ]
+    },
+    {
+      "fileName": "inventory-seed-resume.db.test.ts",
+      "databaseSuffix": "platform_api_inventory_seed_resume",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
+          "referenceDurationMs": 23942
+        },
+        {
+          "name": "appends events only on the first of three same-boot inventory and checkout seed invocations",
+          "referenceDurationMs": 22465
+        },
+        {
+          "name": "resumes inventory after only its first storage-location create commits",
+          "referenceDurationMs": 24946
+        },
+        {
+          "name": "resumes an archived storage location committed before its archive step",
+          "referenceDurationMs": 28702
+        },
+        {
+          "name": "resumes a checkout cart holding only one of its two seeded lines",
+          "referenceDurationMs": 28697
+        },
+        {
+          "name": "fails closed on conflicting retained inventory identity metadata",
+          "referenceDurationMs": 24643
+        },
+        {
+          "name": "fails closed on a terminal retained inventory aggregate",
+          "referenceDurationMs": 24913
+        },
+        {
+          "name": "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
+          "referenceDurationMs": 19879
+        }
+      ]
+    },
+    {
+      "fileName": "catalog-seed-aggregate-state.db.test.ts",
+      "databaseSuffix": "platform_api_catalog_seed_aggregate_state",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "reconciles all required aggregates for a clean scenario-seed-only module seed",
+          "referenceDurationMs": 12863
+        },
+        {
+          "name": "does not re-author unchanged Product Measures facts on scenario-seed repeat",
+          "referenceDurationMs": 23791
+        },
+        {
+          "name": "NC-1 resumes an undrained Dimension seed without duplicate creation",
+          "referenceDurationMs": 17062
+        },
+        {
+          "name": "NC-2 resumes a Component committed at created version one across two ordinary boots",
+          "referenceDurationMs": 19849
+        },
+        {
+          "name": "NC-3 restores lagging projections without re-authoring active aggregates",
+          "referenceDurationMs": 7389
+        },
+        {
+          "name": "rebuilds lost Catalog Item projections from retained streams without appending item events",
+          "referenceDurationMs": 28486
+        },
+        {
+          "name": "NC-4 ignores populated containers when required aggregates have zero events",
+          "referenceDurationMs": 31563
+        },
+        {
+          "name": "NC-5a repairs a draft partial aggregate rather than skipping it",
+          "referenceDurationMs": 20435
+        },
+        {
+          "name": "NC-5b rejects conflicting retained identity metadata on both boots",
+          "referenceDurationMs": 4054
+        },
+        {
+          "name": "NC-5c rejects a terminal retained aggregate on both boots",
+          "referenceDurationMs": 17662
+        }
+      ]
+    },
+    {
+      "fileName": "authoritative-seed-resume-core.db.test.ts",
+      "databaseSuffix": "platform_api_authoritative_seed_resume_core",
+      "bootBearingCases": [
+        "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+        "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+        "does not re-author Settlement while its payout projection lags the stream"
+      ],
+      "cases": [
+        {
+          "name": "derives the exact active and source-only seed universe for every host profile",
+          "referenceDurationMs": 565
+        },
+        {
+          "name": "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+          "referenceDurationMs": 108023
+        },
+        {
+          "name": "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+          "referenceDurationMs": 43918
+        },
+        {
+          "name": "does not re-author Settlement while its payout projection lags the stream",
+          "referenceDurationMs": 103906
+        }
+      ]
+    },
+    {
+      "fileName": "authoritative-seed-resume-reconciliation.db.test.ts",
+      "databaseSuffix": "platform_api_authoritative_seed_resume_reconciliation",
+      "bootBearingCases": [
+        "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+        "resumes every converted context after its UNLOGGED guard projections are truncated",
+        "accepts a seeded resolution after the real deadline sweep advances it to closed"
+      ],
+      "cases": [
+        {
+          "name": "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+          "referenceDurationMs": 104512
+        },
+        {
+          "name": "enumerates stream-sourced seed-state coverage from the runtime mount list",
+          "referenceDurationMs": 1155
+        },
+        {
+          "name": "resumes every converted context after its UNLOGGED guard projections are truncated",
+          "referenceDurationMs": 103490
+        },
+        {
+          "name": "accepts a seeded resolution after the real deadline sweep advances it to closed",
+          "referenceDurationMs": 78001
+        }
+      ]
+    },
+    {
+      "fileName": "catalog-seed-interruption-resume.db.test.ts",
+      "databaseSuffix": "platform_api_catalog_seed_interruption_resume",
+      "bootBearingCases": "all",
+      "cases": [
+        {
+          "name": "resumes after Dimensions under scenario-seed and production-like profiles",
+          "referenceDurationMs": 27688
+        },
+        {
+          "name": "resumes after Fields under scenario-seed and production-like profiles",
+          "referenceDurationMs": 25979
+        },
+        {
+          "name": "resumes after Reference Data under scenario-seed and production-like profiles",
+          "referenceDurationMs": 25411
+        },
+        {
+          "name": "resumes after Components under scenario-seed and production-like profiles",
+          "referenceDurationMs": 26256
+        },
+        {
+          "name": "resumes after Blueprints under scenario-seed and production-like profiles",
+          "referenceDurationMs": 28183
+        },
+        {
+          "name": "resumes after the final Category under scenario-seed and production-like profiles",
+          "referenceDurationMs": 26024
+        },
+        {
+          "name": "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+          "referenceDurationMs": 25585
+        },
+        {
+          "name": "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+          "referenceDurationMs": 16708
+        },
+        {
+          "name": "preserves duplicate CreateDimension rejection through the non-seed command handler",
+          "referenceDurationMs": 16419
+        }
+      ]
+    }
+  ]
+}
