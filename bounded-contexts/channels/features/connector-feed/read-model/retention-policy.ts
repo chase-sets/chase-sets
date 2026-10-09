@@ -20,19 +20,20 @@ export const connectorInboundRetentionBatchLimit = Math.floor(
 export function buildConnectorInboundRetentionSweeps(
   registrations: readonly unknown[] = connectorInboundKindRetention,
 ): readonly BcRetentionSweep[] {
-  return resolveConnectorInboundRetentionClasses(registrations).flatMap(({ windowSeconds, inboundKinds }) =>
-    inboundKinds.map((kind) => ({
-      name: sweepNames[kind],
-      tableName: "channel_connector_inbound_payloads",
-      // Strictly after the deadline, measured on the DELETE transaction's clock.
-      // One equality range per kind preserves index order without an unbounded bitmap/sort.
-      predicateSql: `candidate.inbound_kind = '${kind}'
-      AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => ${windowSeconds})`,
-      orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
-      intervalMs: HOUR_MS,
-      batchLimit: connectorInboundRetentionBatchLimit,
-    })),
+  const kinds = resolveConnectorInboundRetentionClasses(registrations).flatMap(({ windowSeconds, inboundKinds }) =>
+    inboundKinds.map((kind) => ({ kind, windowSeconds })),
   );
+  return kinds.map(({ kind, windowSeconds }) => ({
+    name: sweepNames[kind],
+    tableName: "channel_connector_inbound_payloads",
+    // Strictly after the deadline, measured on the DELETE transaction's clock.
+    // One equality range per kind preserves index order without an unbounded bitmap/sort.
+    predicateSql: `candidate.inbound_kind = '${kind}'
+      AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => ${windowSeconds})`,
+    orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
+    intervalMs: HOUR_MS,
+    batchLimit: connectorInboundRetentionBatchLimit,
+  }));
 }
 
 export const connectorInboundRetentionSweeps = buildConnectorInboundRetentionSweeps();
