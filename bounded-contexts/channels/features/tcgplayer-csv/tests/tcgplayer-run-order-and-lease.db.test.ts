@@ -9,10 +9,14 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as channelsModule } from "../../../index";
 import { testContext } from "../../connections/tests/test-support";
 import { createChannelListingCompositionRuntime } from "../../listing-composition/api/runtime";
 import { createChannelCompositionProfileRegistry } from "../../listing-composition/domain/canonical";
+import { channelListingEventCodec } from "../../listing-composition/domain/codecs";
+import { buildChannelOwnedDesiredStateReactionHandlers } from "../../listing-composition/integrations/reactions";
+import { readComposeChannelListingProviderProductReferences } from "../../listing-composition/read-model/queries";
 import { createOutboundSyncRuntime } from "../../outbound-sync/api/runtime";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import { createTcgplayerCsvRuntime } from "../api/runtime";
@@ -23,7 +27,12 @@ import { tcgplayerCompositionProfiles, tcgplayerLiveExportHeader } from "../doma
 import { createTcgplayerClaimedReservationRunSettlementPort } from "../integrations/outbound-sync-settlement";
 import { canonicalManualClaimLeasePolicySnapshotDigest } from "../domain/validation";
 import { projectChannelSyncRunComposed, projectChannelSyncRunTransitioned } from "../read-model/projection";
-import { readLatestSnapshotRows, readSnapshotRowsById, readRun } from "../read-model/queries";
+import {
+  readLatestSnapshotRows,
+  readSnapshotRowsById,
+  readRun,
+  readTcgplayerConditionMappingInputs,
+} from "../read-model/queries";
 import { tcgplayerCsvSchemaSql } from "../read-model/schema";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -65,6 +74,315 @@ describeDb("tcgplayer-run-order-and-lease", () => {
 
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("tcgplayer-compose-operation-identity composes before the link projector runs", async () => {
+    const services = createOwnedRuntime();
+    const listing = {
+      listingId: "synthetic-listing-operation",
+      channelListingId: "synthetic-channel-listing-operation",
+      catalogItemId: "synthetic-catalog-operation",
+      externalKey: "product:99009198",
+      gradedCard: null,
+    };
+    await seedProductionCompositionFacts([listing], { projectLinks: false });
+    await seedProductReference(listing, "sku:synthetic-operation");
+    await ingestStaged(services, "synthetic-operation-basis", [["99009198", "Near Mint", "2", "0", "0.26"]], 1);
+    await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("synthetic-operation-run", "connector", "synthetic-connector"),
+      testContext,
+    );
+    expect(result?.composition.members).toEqual([
+      expect.objectContaining({
+        channelListingId: listing.channelListingId,
+        listingId: listing.listingId,
+        memberKind: "composed",
+        externalKey: listing.externalKey,
+        refusalReason: null,
+        csvRow: expect.objectContaining({ "TCGplayer Id": "99009198", "Add to Quantity": "-1" }),
+      }),
+    ]);
+    expect(result?.composition.batch).not.toBeNull();
+    await expectNoProjectedLinks();
+  });
+
+  it.each([0, 1, 2])("tcgplayer-compose-reference-controls preserves catalog cardinality %i", async (count) => {
+    const services = createOwnedRuntime();
+    const listing = operationListing();
+    await seedProductionCompositionFacts([listing], { projectLinks: false });
+    await seedProductReference(listing, "sku:synthetic-operation");
+    await pools.channels.query(
+      `INSERT INTO channels_external_catalog_item_reference_facts
+       (provider_key,external_key,catalog_item_id,link_state,updated_at,reference_stream_version)
+       VALUES ('tcgplayer','product:99009199',$1,'unlinked','2026-09-09T00:00:00Z',1)`,
+      [listing.catalogItemId],
+    );
+    await pools.channels.query(
+      `UPDATE channels_external_catalog_item_reference_facts SET link_state=
+       CASE WHEN $1::integer=2 OR ($1::integer=1 AND external_key='product:99009198') THEN 'linked' ELSE 'unlinked' END`,
+      [count],
+    );
+    await ingestStaged(services, "synthetic-control-basis", [["99009198", "Near Mint", "2", "0", "0.26"]], 1);
+    await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("synthetic-control-run", "connector", "synthetic-connector"),
+      testContext,
+    );
+    expect(result?.composition.members).toHaveLength(1);
+    if (count === 1) {
+      expect(result?.composition.members[0]).toMatchObject({ memberKind: "composed", refusalReason: null });
+      expect(result?.composition.members[0]?.csvRow).not.toBeNull();
+      expect(result?.composition.batch).not.toBeNull();
+    } else {
+      expect(result?.composition.members[0]).toMatchObject({
+        memberKind: "refused",
+        refusalReason:
+          count === 0 ? "provider-catalog-item-reference-unlinked" : "provider-catalog-item-reference-ambiguous",
+        csvRow: null,
+      });
+      expect(result?.composition.batch).toBeNull();
+    }
+  });
+
+  it.each([0, 1, 2])(
+    "tcgplayer-compose-reference-controls preserves product cardinality %i and selected options",
+    async (count) => {
+      const listing = operationListing();
+      await seedProductionCompositionFacts([listing], { projectLinks: false });
+      for (const externalKey of [
+        "sku:synthetic-one",
+        "sku:synthetic-two",
+        "sku:synthetic-other-options",
+        "sku:synthetic-other-provider",
+      ]) {
+        await seedProductReference(listing, externalKey);
+      }
+      await pools.channels.query(
+        `UPDATE channels_external_product_reference_facts SET
+         provider_key=CASE WHEN external_key='sku:synthetic-other-provider' THEN 'synthetic-other' ELSE provider_key END,
+         selected_option_key=CASE WHEN external_key='sku:synthetic-other-options' THEN 'other-option' ELSE selected_option_key END,
+         link_state=CASE WHEN external_key IN ('sku:synthetic-other-options','sku:synthetic-other-provider')
+           OR $1::integer=2 OR ($1::integer=1 AND external_key='sku:synthetic-one') THEN 'linked' ELSE 'unlinked' END`,
+        [count],
+      );
+      const references = await readComposeChannelListingProviderProductReferences(pools.channels, {
+        providerKey: "tcgplayer",
+        operations: [listing],
+      });
+      expect(references).toEqual([
+        {
+          channelListingId: listing.channelListingId,
+          catalogItemReference: { kind: "linked", providerKey: "tcgplayer", externalKey: listing.externalKey },
+          productReference:
+            count === 0
+              ? { kind: "unlinked" }
+              : count === 1
+                ? { kind: "linked", providerKey: "tcgplayer", externalKey: "sku:synthetic-one" }
+                : { kind: "ambiguous", candidateCount: 2 },
+        },
+      ]);
+      await expectNoProjectedLinks();
+    },
+  );
+
+  it("tcgplayer-compose-condition-operation-identity resolves graded inputs without snapshot masking", async () => {
+    const services = createOwnedRuntime();
+    const listing = { ...operationListing(), gradedCard: gradedCard("PSA", "10") };
+    await seedProductionCompositionFacts([listing], { projectLinks: false });
+    await seedConditionMapping("connection-production", "graded-condition:PSA|10", "Lightly Played", "accepted");
+    await ingestStaged(
+      services,
+      "synthetic-condition-basis",
+      [
+        ["99009198", "Near Mint", "2", "0", "0.26"],
+        ["99009198", "Lightly Played", "3", "0", "0.26"],
+      ],
+      1,
+    );
+    await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+    expect(
+      await readTcgplayerConditionMappingInputs(pools.channels, {
+        connectionId: "connection-production",
+        operations: [listing],
+      }),
+    ).toEqual([
+      {
+        channelListingId: listing.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:PSA|10",
+        targetKey: "Lightly Played",
+      },
+    ]);
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("synthetic-condition-run", "connector", "synthetic-connector"),
+      testContext,
+    );
+    expect(result?.composition.members).toEqual([
+      expect.objectContaining({
+        memberKind: "composed",
+        listingId: listing.listingId,
+        channelListingId: listing.channelListingId,
+        conditionText: "Lightly Played",
+        refusalReason: null,
+        csvRow: expect.objectContaining({ Condition: "Lightly Played", "Add to Quantity": "-2" }),
+      }),
+    ]);
+    await expectNoProjectedLinks();
+  });
+
+  it("tcgplayer-compose-read-caller-closure batches distinct identities and retains provider/connection scope", async () => {
+    const services = createOwnedRuntime();
+    const listings = [
+      { ...operationListing(), gradedCard: gradedCard("PSA", "10") },
+      {
+        listingId: "synthetic-listing-second",
+        channelListingId: "synthetic-channel-second",
+        catalogItemId: "synthetic-catalog-second",
+        externalKey: "product:99009199",
+        gradedCard: gradedCard("BGS", "9"),
+      },
+    ];
+    await seedProductionCompositionFacts(listings, { projectLinks: false });
+    await cloneConnection("synthetic-other-connection");
+    await seedConditionMapping("connection-production", "graded-condition:PSA|10", "Near Mint", "accepted");
+    await seedConditionMapping("connection-production", "graded-condition:BGS|9", "Lightly Played", "auto-accepted");
+    await seedConditionMapping("synthetic-other-connection", "graded-condition:PSA|10", "Heavily Played", "accepted");
+    await seedConditionMapping("synthetic-other-connection", "graded-condition:BGS|9", "Damaged", "proposed");
+    for (const listing of listings) await seedProductReference(listing, `sku:${listing.listingId}`);
+    await pools.channels.query(
+      `INSERT INTO channels_external_catalog_item_reference_facts
+       (provider_key,external_key,catalog_item_id,link_state,updated_at,reference_stream_version)
+       VALUES ('synthetic-other','product:99009999',$1,'linked','2026-09-09T00:00:00Z',1)`,
+      [listings[0]!.catalogItemId],
+    );
+    const calls: string[] = [];
+    const db: PgQueryable = {
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        calls.push(sql);
+        return pools.channels.query<Row>(sql, values);
+      },
+    };
+    const missing = { listingId: "synthetic-missing", channelListingId: "synthetic-channel-missing" };
+    const operations = [listings[1]!, missing, listings[0]!];
+    expect(
+      await readComposeChannelListingProviderProductReferences(db, { providerKey: "tcgplayer", operations }),
+    ).toEqual([
+      {
+        channelListingId: listings[1]!.channelListingId,
+        catalogItemReference: { kind: "linked", providerKey: "tcgplayer", externalKey: listings[1]!.externalKey },
+        productReference: { kind: "linked", providerKey: "tcgplayer", externalKey: `sku:${listings[1]!.listingId}` },
+      },
+      {
+        channelListingId: missing.channelListingId,
+        catalogItemReference: { kind: "unlinked" },
+        productReference: { kind: "unlinked" },
+      },
+      {
+        channelListingId: listings[0]!.channelListingId,
+        catalogItemReference: { kind: "linked", providerKey: "tcgplayer", externalKey: listings[0]!.externalKey },
+        productReference: { kind: "linked", providerKey: "tcgplayer", externalKey: `sku:${listings[0]!.listingId}` },
+      },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(
+      await readTcgplayerConditionMappingInputs(db, { connectionId: "connection-production", operations }),
+    ).toEqual([
+      {
+        channelListingId: listings[1]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:BGS|9",
+        targetKey: "Lightly Played",
+      },
+      {
+        channelListingId: listings[0]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:PSA|10",
+        targetKey: "Near Mint",
+      },
+    ]);
+    expect(calls).toHaveLength(3);
+    expect(calls.join("\n")).not.toContain("channels_channel_listing_links");
+    expect(calls.join("\n")).not.toContain("channels_connection_facts");
+    expect(
+      await readTcgplayerConditionMappingInputs(db, { connectionId: "synthetic-other-connection", operations }),
+    ).toEqual([
+      {
+        channelListingId: listings[1]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:BGS|9",
+        targetKey: null,
+      },
+      {
+        channelListingId: listings[0]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:PSA|10",
+        targetKey: "Heavily Played",
+      },
+    ]);
+    expect(
+      await readComposeChannelListingProviderProductReferences(db, {
+        providerKey: "synthetic-other",
+        operations: [listings[0]!],
+      }),
+    ).toEqual([
+      {
+        channelListingId: listings[0]!.channelListingId,
+        productReference: { kind: "unlinked" },
+        catalogItemReference: { kind: "linked", providerKey: "synthetic-other", externalKey: "product:99009999" },
+      },
+    ]);
+    const beforeEmpty = calls.length;
+    expect(
+      await readComposeChannelListingProviderProductReferences(db, { providerKey: "tcgplayer", operations: [] }),
+    ).toEqual([]);
+    expect(
+      await readTcgplayerConditionMappingInputs(db, { connectionId: "connection-production", operations: [] }),
+    ).toEqual([]);
+    expect(calls).toHaveLength(beforeEmpty);
+    await ingestStaged(
+      services,
+      "synthetic-closure-basis",
+      [
+        ["99009198", "Near Mint", "2", "0", "0.26"],
+        ["99009198", "Lightly Played", "3", "0", "0.26"],
+        ["99009199", "Near Mint", "4", "0", "0.26"],
+        ["99009199", "Lightly Played", "5", "0", "0.26"],
+      ],
+      1,
+    );
+    const compose = composeInput("synthetic-empty-run", "connector", "synthetic-connector");
+    expect(await services.tcgplayerCsv.composeTcgplayerSyncRun(compose, testContext)).toBeNull();
+    for (const listing of listings) await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      { ...compose, runId: "synthetic-closure-run" },
+      testContext,
+    );
+    expect(result?.composition.members).toHaveLength(2);
+    expect(result?.composition.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          memberKind: "composed",
+          listingId: listings[0]!.listingId,
+          channelListingId: listings[0]!.channelListingId,
+          externalKey: listings[0]!.externalKey,
+          conditionText: "Near Mint",
+        }),
+        expect.objectContaining({
+          memberKind: "composed",
+          listingId: listings[1]!.listingId,
+          channelListingId: listings[1]!.channelListingId,
+          externalKey: listings[1]!.externalKey,
+          conditionText: "Lightly Played",
+        }),
+      ]),
+    );
+    await expectNoProjectedLinks();
   });
 
   it("snapshot-read-cap-boundary limits SQL materialization and returned rows on both paths", async () => {
@@ -1470,6 +1788,8 @@ function createOwnedRuntime(now?: string) {
     { assertDelistDirective: () => undefined },
   );
   return {
+    eventStore,
+    listingComposition,
     outboundSync,
     tcgplayerCsv: createTcgplayerCsvRuntime({
       db: pools.channels,
@@ -1682,7 +2002,10 @@ async function initialCompositionState(runId: string) {
   return { events: row.events, runs: row.runs, pending: row.pending, inFlight: row.in_flight };
 }
 
-async function seedProductionCompositionFacts(listings: readonly ProductionListingFixture[]): Promise<void> {
+async function seedProductionCompositionFacts(
+  listings: readonly ProductionListingFixture[],
+  { projectLinks = true }: Readonly<{ projectLinks?: boolean }> = {},
+): Promise<void> {
   await pools.channels.query(
     `INSERT INTO channel_connections
      (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
@@ -1708,12 +2031,13 @@ async function seedProductionCompositionFacts(listings: readonly ProductionListi
         listing.gradedCard === null ? null : JSON.stringify(listing.gradedCard),
       ],
     );
-    await pools.channels.query(
-      `INSERT INTO channels_channel_listing_links
+    if (projectLinks)
+      await pools.channels.query(
+        `INSERT INTO channels_channel_listing_links
        (connection_id,listing_id,channel_listing_id,publish_state,blocking_reason_codes,operation_bindings,updated_at,last_stream_version)
        VALUES ('connection-production',$1,$2,'pending','[]'::jsonb,'{}'::jsonb,'2026-09-09T00:00:00Z',1)`,
-      [listing.listingId, listing.channelListingId],
-    );
+        [listing.listingId, listing.channelListingId],
+      );
     if (listing.externalKey !== null) {
       await pools.channels.query(
         `INSERT INTO channels_external_catalog_item_reference_facts
@@ -1723,6 +2047,90 @@ async function seedProductionCompositionFacts(listings: readonly ProductionListi
       );
     }
   }
+}
+
+async function seedProductReference(listing: ProductionListingFixture, externalKey: string): Promise<void> {
+  await pools.channels.query(
+    `INSERT INTO channels_external_product_reference_facts
+     (provider_key,external_key,catalog_item_id,selected_options,selected_option_key,link_state,updated_at,reference_stream_version)
+     VALUES ('tcgplayer',$1,$2,'[]'::jsonb,'','linked','2026-09-09T00:00:00Z',1)`,
+    [externalKey, listing.catalogItemId],
+  );
+}
+
+function operationListing(): ProductionListingFixture {
+  return {
+    listingId: "synthetic-listing-operation",
+    channelListingId: "synthetic-channel-listing-operation",
+    catalogItemId: "synthetic-catalog-operation",
+    externalKey: "product:99009198",
+    gradedCard: null,
+  };
+}
+
+async function seedConditionMapping(
+  connectionId: string,
+  sourceKey: string,
+  targetKey: string,
+  reviewStatus: "accepted" | "auto-accepted" | "proposed",
+): Promise<void> {
+  await pools.channels.query(
+    `INSERT INTO channels_channel_mappings
+     (connection_id,dimension,source_key,target_key,confidence_tier,review_status,provenance,evidence,updated_at,last_stream_version)
+     VALUES ($1,'condition',$2,$3,'manual',$4,'operator','{}'::jsonb,'2026-09-09T00:00:00Z',1)`,
+    [connectionId, sourceKey, targetKey, reviewStatus],
+  );
+}
+
+async function expectNoProjectedLinks(): Promise<void> {
+  const result = await pools.channels.query("SELECT count(*)::text AS count FROM channels_channel_listing_links");
+  expect(result.rows).toEqual([{ count: "0" }]);
+}
+
+async function appendAndEnqueueDesiredState(
+  services: ReturnType<typeof createOwnedRuntime>,
+  listing: ProductionListingFixture,
+): Promise<void> {
+  const desired = desiredState(listing.listingId, listing.channelListingId, 1, 1, 26);
+  const event = {
+    type: "channels.channel-listing.desired-state-changed" as const,
+    data: {
+      connectionId: desired.connectionId,
+      channelListingId: desired.channelListingId,
+      listingId: desired.listingId,
+      listingRevision: desired.listingRevision,
+      desiredStateSequence: desired.desiredStateSequence,
+      desiredStateHash: desired.desiredStateHash,
+      intent: desired.operationKind,
+      draft: desired.payload.draft,
+    },
+  };
+  const [stored] = await services.eventStore.appendToStream({
+    streamId: desired.envelope.sourceStreamId,
+    expectedVersion: "no_stream",
+    context: testContext,
+    events: [channelListingEventCodec.encode(event)],
+  });
+  if (!stored) throw new Error("Synthetic desired state was not appended.");
+  const handlers = buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition, services.outboundSync);
+  await handlers[event.type]!(
+    buildTransportEvent(event.type, event.data, {
+      id: stored.eventId,
+      streamId: stored.streamId,
+      streamVersion: stored.streamVersion,
+      globalPosition: stored.globalPosition,
+    }),
+  );
+  expect(
+    await pools.channels.query(
+      "SELECT listing_id,channel_listing_id,source_event_id FROM channel_outbound_operations WHERE source_event_id=$1",
+      [stored.eventId],
+    ),
+  ).toMatchObject({
+    rows: [
+      { listing_id: listing.listingId, channel_listing_id: listing.channelListingId, source_event_id: stored.eventId },
+    ],
+  });
 }
 
 async function cloneConnection(connectionId: string): Promise<void> {
