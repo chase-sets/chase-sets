@@ -162,7 +162,11 @@ describe("selector-human-rehearsal-isolation", () => {
     expect(driver.monitoring({ exited: true, exportVerified: true, now: Date.now(), t0 })).toBe(false);
     for (const sealed of [true, false]) {
       const reports: string[] = [];
-      const isolation = new driver.WorkerIsolation(async () => ({}), metadata, (phase: string) => reports.push(phase));
+      const isolation = new driver.WorkerIsolation(
+        async () => ({}),
+        metadata,
+        (phase: string) => reports.push(phase),
+      );
       isolation.exportSealed = sealed;
       isolation.monitorClosed(false);
       expect(isolation.held).toBe(!sealed);
