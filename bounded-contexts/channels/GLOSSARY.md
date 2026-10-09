@@ -56,6 +56,12 @@ attempt and series, with ordinals 2 (heartbeat resumed), 3 (pairing superseded)
 and 4 (pairing removed), in reverse precedence order. A never-paired connection
 has no liveness reason. Seller pause and disconnect freeze existing generations.
 
+## Connector Liveness Sweep
+
+The **Connector Liveness Sweep** is the periodic worker pass that observes missed
+served poll windows and recovery through Connector Liveness Authority. It updates
+health, not seller status; outbound admission reads the resulting system pause.
+
 ## Served Policy Identity
 
 **Served Policy Identity** hashes the exact transport policy value and document

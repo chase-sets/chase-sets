@@ -1,4 +1,5 @@
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
+import { isChannelsServices } from "@chase-sets/channels/server";
 import type { InventoryServices } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
@@ -43,6 +44,7 @@ export type RegisteredScheduledRunnerConfig = Pick<
   | "leaseTtlMs"
   | "paymentReconciliationIntervalMs"
   | "paymentDeadlineSweepIntervalMs"
+  | "channelsConnectorLivenessSweepIntervalMs"
   | "supportRequestDeadlineSweepIntervalMs"
   | "customerFeedbackAttentionDigestIntervalMs"
   | "customerFeedbackAttentionTeamRecipientUserIds"
@@ -225,6 +227,23 @@ export function createRegisteredScheduledRunners({
     | undefined;
   const durableJobRetention = createDurableJobRetentionTask(services, logger);
   const runners: WorkerRunner[] = [];
+  const channels = services.channels;
+  if (input.channelsConnectorLivenessSweepIntervalMs && isChannelsServices(channels)) {
+    runners.push(
+      createScheduledJobRunner(
+        "channels.connector-liveness-sweep",
+        input.channelsConnectorLivenessSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await channels.connectionHealth.sweepConnectorLiveness({
+            now: new Date().toISOString(),
+            limit: 100,
+          });
+          return result.accepted;
+        },
+      ),
+    );
+  }
   const reviewOpportunityPublication = (services.marketplace as MarketplaceServices | undefined)
     ?.reviewOpportunityPublication;
   if (reviewOpportunityPublication) {
