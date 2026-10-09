@@ -5863,6 +5863,14 @@ async function waitForSourceOptionsToSettle(page: Page): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const previewProbeTraceControl = process.env.CATALOG_PREVIEW_PROBE_TRACE_CONTROL?.trim() ?? "";
+const previewProbeScopeSelected = providerUatJourneyScope === scopeSyncBatchPreviewProbeJourneyScope;
+
+// A trace, video or failure screenshot would capture the admin credential the
+// sign-in form receives (playwright-trace-secret-exposure). These options are
+// worker-scoped, so they apply file-wide, but only when the probe scope is
+// selected, which skips every other journey in this file.
+if (previewProbeScopeSelected) test.use({ trace: "off", video: "off", screenshot: "off" });
+
 const previewProbeClockSkewToleranceMs = 60_000;
 const previewProbeDeadlineReserveMs = 120_000;
 const previewProbeBudgetFieldNames = [
@@ -6593,11 +6601,9 @@ function readPreviewProbeReceiptFile(path: string): ScopeSyncBatchPreviewProbeRe
 }
 
 test.describe("catalog staging Scope Sync Batch preview probe", () => {
-  // Retries would repeat paid discovery refresh and rewrite the receipt, and a
-  // trace would serialize the admin credential the sign-in form receives
-  // (playwright-trace-secret-exposure); the probe runs once, untraced.
+  // Retries would repeat paid discovery refresh and rewrite the receipt, and
+  // the configured on-first-retry trace would record the sign-in credential.
   test.describe.configure({ retries: 0 });
-  test.use({ trace: "off", video: "off", screenshot: "off" });
 
   test("captures six unconfirmed previews through visible Admin controls @catalog-staging-preview-probe", async ({
     page,
@@ -6800,8 +6806,8 @@ test.describe("catalog staging Scope Sync Batch preview probe", () => {
     page,
   }, testInfo) => {
     test.skip(
-      previewProbeTraceControl !== "1",
-      "Set CATALOG_PREVIEW_PROBE_TRACE_CONTROL=1 for the retained-trace negative control.",
+      previewProbeTraceControl !== "1" || !previewProbeScopeSelected,
+      "Set CATALOG_PREVIEW_PROBE_TRACE_CONTROL=1 and the probe scope for the retained-trace negative control.",
     );
     const admin = createSyntheticPreviewProbeAdmin();
     await installSyntheticPreviewProbeAdmin(page, admin);
@@ -6823,8 +6829,8 @@ test.describe("catalog staging Scope Sync Batch preview probe trace bypass contr
 
   test("trace bypass control: default retry tracing retains the credential", async ({ page }, testInfo) => {
     test.skip(
-      previewProbeTraceControl !== "1",
-      "Set CATALOG_PREVIEW_PROBE_TRACE_CONTROL=1 for the retained-trace negative control.",
+      previewProbeTraceControl !== "1" || previewProbeScopeSelected,
+      "Set CATALOG_PREVIEW_PROBE_TRACE_CONTROL=1 without the probe scope for the trace bypass control.",
     );
     const admin = createSyntheticPreviewProbeAdmin();
     await installSyntheticPreviewProbeAdmin(page, admin);

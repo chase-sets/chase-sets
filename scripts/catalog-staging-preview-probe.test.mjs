@@ -264,9 +264,7 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     const ignoreMissing = workflow();
     ignoreMissing.jobs["staging-provider-uat"].steps.at(-1).with["if-no-files-found"] = "ignore";
     expect(() => assertReceiptUploadGated(ignoreMissing)).toThrow();
-    const corpus = Object.fromEntries(
-      fence.census.files.map((file) => [file, readFileSync(resolve(file), "utf8")]),
-    );
+    const corpus = Object.fromEntries(fence.census.files.map((file) => [file, readFileSync(resolve(file), "utf8")]));
     expect(inspectPlaywrightArtifactUploadCorpus(corpus).status).toBe("pass");
     corpus[workflowFile] = workflowSource.replace(
       `path: ${scopeSyncBatchPreviewProbeArtifactPath}`,
@@ -428,7 +426,7 @@ describe("Scope Sync Batch preview probe receipt (#9244)", () => {
     asTotal.rows[1].inbox.completeness = "within-bound";
     expect(validateScopeSyncBatchPreviewProbeReceipt(asTotal, expectedIdentity).errors).toEqual([
       "row magic matching-scope count at the bound must be capped",
-      "row pokemon-en inbox at the bound must be capped",
+      "row pokemon-en inbox at the row bound must be capped",
     ]);
   });
 
