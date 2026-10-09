@@ -93,7 +93,7 @@ export function isReviewOpportunityChangedV1(value: unknown): value is ReviewOpp
       "buyerToSeller",
       "sellerToBuyer",
     ]) &&
-    value.factSchemaVersion === 1 &&
+
     text(value.orderId) &&
     text(value.buyerAccountId) &&
     text(value.sellerAccountId) &&
