@@ -1,14 +1,28 @@
 import { createHash } from "node:crypto";
 import { OutboundSyncError } from "./contracts";
+import { assertRfc3339Instant } from "../../connections/domain/validation";
+import {
+  assertOrderPullCheckpoint,
+  assertOrderPullChunk,
+  assertOrderPullPredecessor,
+  assertOrderPullProgress,
+  assertOrderPullWork,
+  assertOrderPullSelector as assertSelector,
+  orderPullCheckpointDigest,
+  type OrderPullCheckpoint,
+  type OrderPullPredecessor,
+  type OrderPullProgress,
+  type OrderPullWork,
+} from "./order-pull-progress";
 
 /**
  * Channel Order Pull: one connection-subject Channel Outbound Operation that asks a capable connector to
- * read the TCGplayer Ready to Ship set once under the `ready-to-ship-intake/v1` completeness law.
+ * advance a bounded traversal under the `ready-to-ship-intake/v2` completeness law.
  * The executor derives every wire value from the qualified capture; the payload carries identities,
  * versions and bounds only.
  */
 export const orderPullOperationKind = "tcgplayer-order-pull" as const;
-export const orderPullLawVersion = "ready-to-ship-intake/v1" as const;
+export const orderPullLawVersion = "ready-to-ship-intake/v2" as const;
 export const orderPullProviderKey = "tcgplayer" as const;
 
 /** The unchanged pull deadline and lease margin every worst-case budget must fit. */
@@ -16,7 +30,6 @@ export const ORDER_PULL_DEADLINE_MS = 600_000;
 export const ORDER_PULL_LEASE_MARGIN_MS = 30_000;
 
 const maxBoundValue = 10_000;
-const externalOrderReferencePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/;
 
 export const orderPullUnknownReasons = [
   "authority-unavailable",
@@ -30,14 +43,20 @@ export type OrderPullUnknownReason = (typeof orderPullUnknownReasons)[number];
 
 export const orderPullAbandonReasons = ["released", "claimant-cancelled"] as const;
 
-export type OrderPullSelectorBinding = Readonly<{ identity: string; version: number; pageSize: number }>;
+export type OrderPullSelectorBinding = Readonly<{
+  identity: string;
+  version: number;
+  pageSize: number;
+  traversal: "snapshot-cursor" | "keyset-frontier";
+}>;
 
 /** Governed bound and qualified-selector authority. Absent or malformed authority denies scheduling. */
 export type OrderPullAuthority = Readonly<{
   revision: number;
   lawVersion: typeof orderPullLawVersion;
   selector: OrderPullSelectorBinding;
-  nRtsMax: number;
+  nIntakeReadMax: number;
+  nListReadMax: number;
   fMax: number;
   providerCadenceMs: number;
   providerCallTimeoutMs: number;
@@ -48,15 +67,20 @@ export type OrderPullAuthority = Readonly<{
 }>;
 
 export type OrderPullBounds = Readonly<{
-  nRtsMax: number;
+  nIntakeReadMax: number;
+  nListReadMax: number;
   fMax: number;
+  plan: OrderPullPlan;
+  providerCalls: number;
+  providerCadenceMs: number;
   maxObservationPosts: number;
   budgetMs: number;
 }>;
+export type OrderPullPlan = Readonly<{ listReads: number; intakeReads: number; followUpReads: number }>;
 
 export type OrderPullPayload = Readonly<{
   kind: "order-pull";
-  version: 1;
+  version: 2;
   connectionId: string;
   pullId: string;
   policyRevision: number;
@@ -64,6 +88,11 @@ export type OrderPullPayload = Readonly<{
   selector: OrderPullSelectorBinding;
   bounds: OrderPullBounds;
   followUpReferences: readonly string[];
+  checkpoint: OrderPullCheckpoint;
+  checkpointDigest: string;
+  work: OrderPullWork;
+  predecessor: OrderPullPredecessor | null;
+  providerNotBefore: string;
 }>;
 
 export type OrderPullAdmissionCounts = Readonly<{
@@ -81,10 +110,11 @@ export type ClaimedOrderPullOutcome = Readonly<{
   payloadDigest: string;
   outcome:
     | Readonly<{
-        kind: "order-pull-complete";
+        kind: "order-pull-complete" | "continuation-required" | "order-pull-pending" | "order-pull-gaps";
         lawVersion: typeof orderPullLawVersion;
         selector: OrderPullSelectorBinding;
         admissionCounts: OrderPullAdmissionCounts;
+        progress: OrderPullProgress;
       }>
     | Readonly<{ kind: "order-pull-unknown"; reason: OrderPullUnknownReason }>
     | Readonly<{ kind: "abandoned"; reason: (typeof orderPullAbandonReasons)[number] }>;
@@ -94,19 +124,17 @@ export type OrderPullBudgetDecision =
   | Readonly<{ kind: "fits"; authority: OrderPullAuthority; bounds: OrderPullBounds; providerCalls: number }>
   | Readonly<{ kind: "refused"; reason: "authority-unknown" | "over-deadline" }>;
 
-/**
- * Worst case: 1 session lookup + 1 search + (N_rts_max + F_max) detail reads, each at the governing
- * inter-request cadence plus its per-call timeout ceiling, then mapping/journal, one post per
- * observation, and the report. Unknown or over-deadline authority refuses before any provider call.
- */
-export function resolveOrderPullBudget(authority: unknown): OrderPullBudgetDecision {
+/** Budget the allocated work, never the account population or sum of independent maxima. */
+export function resolveOrderPullBudget(authority: unknown, plan?: OrderPullPlan): OrderPullBudgetDecision {
   try {
     assertOrderPullAuthority(authority);
+    if (plan) assertPlan(plan, authority);
   } catch {
     return { kind: "refused", reason: "authority-unknown" };
   }
-  const detailReads = authority.nRtsMax + authority.fMax;
-  const providerCalls = 2 + detailReads;
+  const allocated = plan ?? { listReads: 1, intakeReads: authority.nIntakeReadMax, followUpReads: authority.fMax };
+  const detailReads = allocated.intakeReads + allocated.followUpReads;
+  const providerCalls = 1 + allocated.listReads + detailReads;
   const maxObservationPosts = detailReads * authority.maxPostsPerOrder;
   const budgetMs =
     providerCalls * (authority.providerCadenceMs + authority.providerCallTimeoutMs) +
@@ -120,8 +148,35 @@ export function resolveOrderPullBudget(authority: unknown): OrderPullBudgetDecis
     kind: "fits",
     authority,
     providerCalls,
-    bounds: { nRtsMax: authority.nRtsMax, fMax: authority.fMax, maxObservationPosts, budgetMs },
+    bounds: {
+      nIntakeReadMax: authority.nIntakeReadMax,
+      nListReadMax: authority.nListReadMax,
+      fMax: authority.fMax,
+      plan: allocated,
+      providerCalls,
+      providerCadenceMs: authority.providerCadenceMs,
+      maxObservationPosts,
+      budgetMs,
+    },
   };
+}
+
+/** Keep the follow-up reservation while reducing intake until this allocation fits. */
+export function allocateOrderPullBudget(
+  authority: unknown,
+  listReads: number,
+  followUpReads: number,
+): OrderPullBudgetDecision {
+  try {
+    assertOrderPullAuthority(authority);
+  } catch {
+    return { kind: "refused", reason: "authority-unknown" };
+  }
+  for (let intakeReads = authority.nIntakeReadMax; intakeReads >= 0; intakeReads--) {
+    const decision = resolveOrderPullBudget(authority, { listReads, intakeReads, followUpReads });
+    if (decision.kind === "fits" || decision.reason === "authority-unknown") return decision;
+  }
+  return { kind: "refused", reason: "over-deadline" };
 }
 
 /** `now + budget + 30 s < leaseExpiresAt`; a pull that cannot finish inside its lease is never dispatched. */
@@ -134,41 +189,6 @@ export function orderPullFitsLease(input: Readonly<{ budgetMs: number; at: strin
     Number.isSafeInteger(input.budgetMs) &&
     at + input.budgetMs + ORDER_PULL_LEASE_MARGIN_MS < expires
   );
-}
-
-export type OrderPullSearchPage = Readonly<{
-  totalOrders: unknown;
-  orderNumbers: readonly unknown[];
-  everyRowReadyToShip: boolean;
-}>;
-
-/**
- * The single closed search page decides the set. There is never a second page: a total above the
- * intake bound is `budget-exceeded`, and a missing total, length mismatch, total at or above the page
- * size, duplicate identity or non-Ready-to-Ship row is `completeness-unproven`. Both read zero details.
- */
-export function decideOrderPullSearchPage(
-  payload: OrderPullPayload,
-  page: OrderPullSearchPage,
-):
-  | Readonly<{ kind: "read-details"; orderNumbers: readonly string[] }>
-  | Readonly<{ kind: "unknown"; reason: "budget-exceeded" | "completeness-unproven"; detailReads: 0 }> {
-  const unknown = (reason: "budget-exceeded" | "completeness-unproven") =>
-    ({ kind: "unknown", reason, detailReads: 0 }) as const;
-  const total = page.totalOrders;
-  if (typeof total !== "number" || !Number.isSafeInteger(total) || total < 0) return unknown("completeness-unproven");
-  if (total > payload.bounds.nRtsMax) return unknown("budget-exceeded");
-  if (
-    !Array.isArray(page.orderNumbers) ||
-    page.orderNumbers.length !== total ||
-    total >= payload.selector.pageSize ||
-    page.everyRowReadyToShip !== true ||
-    page.orderNumbers.some((value) => typeof value !== "string" || !externalOrderReferencePattern.test(value)) ||
-    new Set(page.orderNumbers).size !== page.orderNumbers.length
-  ) {
-    return unknown("completeness-unproven");
-  }
-  return { kind: "read-details", orderNumbers: page.orderNumbers as readonly string[] };
 }
 
 export function deriveOrderPullId(connectionId: string, scheduleGeneration: number): string {
@@ -186,7 +206,8 @@ export function assertOrderPullAuthority(value: unknown): asserts value is Order
       "revision",
       "lawVersion",
       "selector",
-      "nRtsMax",
+      "nIntakeReadMax",
+      "nListReadMax",
       "fMax",
       "providerCadenceMs",
       "providerCallTimeoutMs",
@@ -201,8 +222,8 @@ export function assertOrderPullAuthority(value: unknown): asserts value is Order
   integer(authority.revision, 1, Number.MAX_SAFE_INTEGER, "revision");
   if (authority.lawVersion !== orderPullLawVersion) invalid("lawVersion is not the bound intake law.");
   assertSelector(authority.selector);
-  const selector = authority.selector;
-  integer(authority.nRtsMax, 1, selector.pageSize - 1, "nRtsMax");
+  integer(authority.nIntakeReadMax, 1, maxBoundValue, "nIntakeReadMax");
+  integer(authority.nListReadMax, 1, 2, "nListReadMax");
   integer(authority.fMax, 0, maxBoundValue, "fMax");
   integer(authority.providerCadenceMs, 1, ORDER_PULL_DEADLINE_MS, "providerCadenceMs");
   integer(authority.providerCallTimeoutMs, 1, ORDER_PULL_DEADLINE_MS, "providerCallTimeoutMs");
@@ -225,32 +246,66 @@ export function assertOrderPullPayload(value: unknown): asserts value is OrderPu
       "selector",
       "bounds",
       "followUpReferences",
+      "checkpoint",
+      "checkpointDigest",
+      "work",
+      "predecessor",
+      "providerNotBefore",
     ],
     "order-pull payload",
     true,
   );
-  if (payload.kind !== "order-pull" || payload.version !== 1) invalid("order-pull payload kind/version is invalid.");
+  if (payload.kind !== "order-pull" || payload.version !== 2) invalid("order-pull payload kind/version is invalid.");
   opaque(payload.connectionId, "connectionId");
   pullId(payload.pullId);
   integer(payload.policyRevision, 1, Number.MAX_SAFE_INTEGER, "policyRevision");
   if (payload.lawVersion !== orderPullLawVersion) invalid("lawVersion is not the bound intake law.");
   assertSelector(payload.selector);
-  const selector = payload.selector;
-  const bounds = closed(payload.bounds, ["nRtsMax", "fMax", "maxObservationPosts", "budgetMs"], "bounds", true);
-  integer(bounds.nRtsMax, 1, selector.pageSize - 1, "nRtsMax");
+  const bounds = closed(
+    payload.bounds,
+    [
+      "nIntakeReadMax",
+      "nListReadMax",
+      "fMax",
+      "plan",
+      "providerCalls",
+      "providerCadenceMs",
+      "maxObservationPosts",
+      "budgetMs",
+    ],
+    "bounds",
+    true,
+  );
+  integer(bounds.nIntakeReadMax, 1, maxBoundValue, "nIntakeReadMax");
+  integer(bounds.nListReadMax, 1, 2, "nListReadMax");
   integer(bounds.fMax, 0, maxBoundValue, "fMax");
+  assertPlan(bounds.plan, bounds as OrderPullBounds);
+  integer(bounds.providerCalls, 1, 2 * maxBoundValue + 3, "providerCalls");
+  integer(bounds.providerCadenceMs, 1, ORDER_PULL_DEADLINE_MS, "providerCadenceMs");
+  if (bounds.providerCalls !== 1 + bounds.plan.listReads + bounds.plan.intakeReads + bounds.plan.followUpReads)
+    invalid("Provider count does not match allocation.");
   integer(bounds.maxObservationPosts, 0, 16 * 2 * maxBoundValue, "maxObservationPosts");
   integer(bounds.budgetMs, 1, ORDER_PULL_DEADLINE_MS, "budgetMs");
   const references = payload.followUpReferences;
   if (!Array.isArray(references) || references.length > Number(bounds.fMax)) {
     invalid("followUpReferences must hold 0..F_max references.");
   }
-  for (const reference of references) {
-    if (typeof reference !== "string" || !externalOrderReferencePattern.test(reference)) {
-      invalid("followUpReferences holds an invalid External Order Reference.");
-    }
-  }
-  if (new Set(references).size !== references.length) invalid("followUpReferences must be distinct.");
+  assertOrderPullChunk(payload.connectionId, references);
+  if (references.length > bounds.plan.followUpReads) invalid("Follow-ups exceed the allocated reservation.");
+  assertOrderPullCheckpoint(payload.checkpoint);
+  assertSelector(payload.checkpoint.selector);
+  if (
+    payload.checkpoint.policyRevision !== payload.policyRevision ||
+    !sameSelector(payload.checkpoint.selector, payload.selector) ||
+    payload.checkpointDigest !== orderPullCheckpointDigest(payload.checkpoint) ||
+    payload.checkpoint.drained
+  )
+    invalid("Checkpoint binding mismatch.");
+  assertOrderPullWork(payload.work, payload.connectionId);
+  assertOrderPullPredecessor(payload.predecessor);
+  assertRfc3339Instant(payload.providerNotBefore);
+  if (payload.predecessor && payload.predecessor.checkpointDigest !== payload.checkpointDigest)
+    invalid("Predecessor checkpoint mismatch.");
 }
 
 export function assertClaimedOrderPullOutcome(value: unknown): asserts value is ClaimedOrderPullOutcome {
@@ -275,12 +330,20 @@ export function assertClaimedOrderPullOutcome(value: unknown): asserts value is 
 export function assertOrderPullOutcomeBody(value: unknown): asserts value is ClaimedOrderPullOutcome["outcome"] {
   const outcome = closed(
     value,
-    ["kind", "lawVersion", "selector", "admissionCounts", "reason"],
+    ["kind", "lawVersion", "selector", "admissionCounts", "progress", "reason"],
     "order-pull outcome.outcome",
   );
   switch (outcome.kind) {
+    case "continuation-required":
+    case "order-pull-pending":
+    case "order-pull-gaps":
     case "order-pull-complete": {
-      closed(outcome, ["kind", "lawVersion", "selector", "admissionCounts"], "order-pull outcome.outcome", true);
+      closed(
+        outcome,
+        ["kind", "lawVersion", "selector", "admissionCounts", "progress"],
+        "order-pull outcome.outcome",
+        true,
+      );
       if (outcome.lawVersion !== orderPullLawVersion) invalid("complete lawVersion is invalid.");
       assertSelector(outcome.selector);
       const counts = closed(
@@ -292,6 +355,7 @@ export function assertOrderPullOutcomeBody(value: unknown): asserts value is Cla
       integer(counts.readyToShipMembers, 0, maxBoundValue, "readyToShipMembers");
       integer(counts.followUpReads, 0, maxBoundValue, "followUpReads");
       integer(counts.admitted, 0, 16 * 2 * maxBoundValue, "admitted");
+      assertOrderPullProgress(outcome.progress);
       return;
     }
     case "order-pull-unknown":
@@ -313,32 +377,50 @@ export function assertOrderPullOutcomeMatchesPayload(
   payload: OrderPullPayload,
 ): void {
   if (outcome.pullId !== payload.pullId) throw new OutboundSyncError("reservation-membership-mismatch");
-  if (outcome.outcome.kind !== "order-pull-complete") return;
+  if (outcome.outcome.kind === "order-pull-unknown" || outcome.outcome.kind === "abandoned") return;
   const complete = outcome.outcome;
   if (
     complete.lawVersion !== payload.lawVersion ||
-    complete.selector.identity !== payload.selector.identity ||
-    complete.selector.version !== payload.selector.version ||
-    complete.selector.pageSize !== payload.selector.pageSize ||
-    complete.admissionCounts.readyToShipMembers > payload.bounds.nRtsMax ||
+    !sameSelector(complete.selector, payload.selector) ||
+    complete.admissionCounts.readyToShipMembers > payload.bounds.plan.intakeReads ||
     complete.admissionCounts.followUpReads !== payload.followUpReferences.length ||
-    complete.admissionCounts.admitted > payload.bounds.maxObservationPosts
+    complete.admissionCounts.admitted > payload.bounds.maxObservationPosts ||
+    complete.progress.previousDigest !== payload.checkpointDigest ||
+    complete.progress.pages.length > payload.bounds.plan.listReads ||
+    complete.progress.postedReferences.length + complete.progress.gaps.length >
+      payload.bounds.plan.intakeReads + payload.bounds.plan.followUpReads
   ) {
     throw new OutboundSyncError("invalid-input", "order-pull-complete does not match the claimed pull authority.");
   }
+  for (const page of complete.progress.pages) assertOrderPullChunk(payload.connectionId, page.orderReferences);
 }
 
 export function isClaimedOrderPullOutcome(value: object): value is ClaimedOrderPullOutcome {
   return Object.hasOwn(value, "operationKind");
 }
 
-function assertSelector(value: unknown): asserts value is OrderPullSelectorBinding {
-  const selector = closed(value, ["identity", "version", "pageSize"], "selector", true);
-  if (typeof selector.identity !== "string" || !/^[a-z0-9][a-z0-9./-]{0,127}$/.test(selector.identity)) {
-    invalid("selector identity is invalid.");
-  }
-  integer(selector.version, 1, Number.MAX_SAFE_INTEGER, "selector version");
-  integer(selector.pageSize, 2, maxBoundValue, "selector pageSize");
+export function sameSelector(left: OrderPullSelectorBinding, right: OrderPullSelectorBinding): boolean {
+  return (
+    left.identity === right.identity &&
+    left.version === right.version &&
+    left.pageSize === right.pageSize &&
+    left.traversal === right.traversal
+  );
+}
+
+/** Claiming is due-now; provider execution must still respect the cross-job idle gap. */
+export function orderPullProviderReady(payload: OrderPullPayload, at: string): boolean {
+  return Date.parse(at) >= Date.parse(payload.providerNotBefore);
+}
+
+function assertPlan(
+  value: unknown,
+  bounds: Pick<OrderPullAuthority, "nIntakeReadMax" | "nListReadMax" | "fMax">,
+): asserts value is OrderPullPlan {
+  const plan = closed(value, ["listReads", "intakeReads", "followUpReads"], "plan", true);
+  integer(plan.listReads, 0, bounds.nListReadMax, "listReads");
+  integer(plan.intakeReads, 0, bounds.nIntakeReadMax, "intakeReads");
+  integer(plan.followUpReads, 0, bounds.fMax, "followUpReads");
 }
 
 function closed(value: unknown, keys: readonly string[], label: string, exact = false): Record<string, unknown> {

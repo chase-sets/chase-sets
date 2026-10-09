@@ -1,234 +1,272 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   ORDER_PULL_DEADLINE_MS,
-  ORDER_PULL_LEASE_MARGIN_MS,
+  allocateOrderPullBudget,
   assertClaimedOrderPullOutcome,
+  assertOrderPullAuthority,
   assertOrderPullOutcomeMatchesPayload,
   assertOrderPullPayload,
-  decideOrderPullSearchPage,
-  deriveOrderPullId,
   orderPullFitsLease,
   orderPullUnknownReasons,
   resolveOrderPullBudget,
   type ClaimedOrderPullOutcome,
-  type OrderPullAuthority,
-  type OrderPullPayload,
 } from "../domain/order-pull";
+import {
+  advanceOrderPullTraversal,
+  assertOrderPullChunk,
+  assertOrderPullProgress,
+  orderPullProgressKind,
+  type OrderPullTraversal,
+} from "../domain/order-pull-progress";
+import {
+  acceptedReadyToShipInputByteLimit,
+  acceptedReadyToShipReferenceLimit,
+} from "../../order-fulfillment-observations/domain/contracts";
 import { assertClaimedSubjectOutcome, payloadDigest } from "../domain/validation";
-import { OutboundSyncError } from "../domain/contracts";
+import {
+  syntheticAuthority as authority,
+  syntheticPage,
+  syntheticPayload,
+  syntheticProgress,
+} from "./order-pull-fixtures";
 
-// Synthetic authority: #8804 has not fixed N_rts_max/F_max and #8838 has not qualified a page size.
-// These values exercise the equation only and are never production authority.
-const syntheticAuthority: OrderPullAuthority = {
-  revision: 3,
-  lawVersion: "ready-to-ship-intake/v1",
-  selector: { identity: "synthetic-ready-to-ship-selector", version: 1, pageSize: 500 },
-  nRtsMax: 60,
-  fMax: 20,
-  providerCadenceMs: 1_000,
-  providerCallTimeoutMs: 3_000,
-  mappingJournalMs: 10_000,
-  maxPostsPerOrder: 3,
-  postTimeoutMs: 1_000,
-  reportTimeoutMs: 5_000,
-};
-
-function payload(overrides: Partial<OrderPullPayload> = {}): OrderPullPayload {
-  return {
-    kind: "order-pull",
-    version: 1,
-    connectionId: "connection_synthetic",
-    pullId: deriveOrderPullId("connection_synthetic", 1),
-    policyRevision: 3,
-    lawVersion: "ready-to-ship-intake/v1",
-    selector: syntheticAuthority.selector,
-    bounds: { nRtsMax: 60, fMax: 2, maxObservationPosts: 240, budgetMs: 583_000 },
-    followUpReferences: [],
-    ...overrides,
-  };
-}
-
-function invalid(run: () => void): void {
-  expect(run).toThrowError(OutboundSyncError);
-}
-
-describe("order-pull-budget-preflight", () => {
-  it("binds lookup + search + (N_rts_max + F_max) details, cadence plus timeout ceilings, mapping, posts and report", () => {
-    // (2 + 80) * (1000 + 3000) + 10000 + (80 * 3) * 1000 + 5000
-    expect(resolveOrderPullBudget(syntheticAuthority)).toEqual({
+describe("order-pull-budget-preflight: actual L/I/F allocation", () => {
+  it.each([
+    [1, 8, 5, 590_000],
+    [2, 7, 5, 570_000],
+    [2, 0, 5, 290_000],
+    [1, 1, 0, 110_000],
+  ])("L=%i I=%i F=%i budgets %i independently of population", (listReads, intakeReads, followUpReads, budgetMs) => {
+    const decision = resolveOrderPullBudget(authority, { listReads, intakeReads, followUpReads });
+    expect(decision).toMatchObject({
       kind: "fits",
-      authority: syntheticAuthority,
-      providerCalls: 82,
-      bounds: { nRtsMax: 60, fMax: 20, maxObservationPosts: 240, budgetMs: 583_000 },
+      providerCalls: 1 + listReads + intakeReads + followUpReads,
+      bounds: { budgetMs, maxObservationPosts: (intakeReads + followUpReads) * 4 },
     });
+    for (const pageSize of [1, 100, 1000])
+      expect(
+        resolveOrderPullBudget(
+          { ...authority, selector: { ...authority.selector, pageSize } },
+          { listReads, intakeReads, followUpReads },
+        ),
+      ).toMatchObject({ kind: "fits", bounds: { budgetMs } });
   });
-
-  it("accepts the largest valid budget at the unchanged deadline and refuses one millisecond more", () => {
-    const largest = { ...syntheticAuthority, reportTimeoutMs: 22_000 };
-    const decision = resolveOrderPullBudget(largest);
-    expect(decision.kind === "fits" && decision.bounds.budgetMs).toBe(ORDER_PULL_DEADLINE_MS);
-    expect(resolveOrderPullBudget({ ...largest, reportTimeoutMs: 22_001 })).toEqual({
+  it("refuses the 610000 allocation, replans intake to seven, never refuses the account", () => {
+    expect(resolveOrderPullBudget(authority, { listReads: 2, intakeReads: 8, followUpReads: 5 })).toEqual({
       kind: "refused",
       reason: "over-deadline",
     });
+    expect(allocateOrderPullBudget(authority, 2, 5)).toMatchObject({
+      kind: "fits",
+      bounds: { budgetMs: 570_000, plan: { listReads: 2, intakeReads: 7, followUpReads: 5 } },
+    });
   });
-
-  it.each([
-    ["absent authority", null],
-    ["absent N_rts_max", { ...syntheticAuthority, nRtsMax: undefined }],
-    ["absent F_max", (({ fMax: _fMax, ...rest }) => rest)(syntheticAuthority)],
-    ["N_rts_max not below the page size", { ...syntheticAuthority, nRtsMax: 500 }],
-    ["zero cadence", { ...syntheticAuthority, providerCadenceMs: 0 }],
-    ["nested unknown selector key", { ...syntheticAuthority, selector: { ...syntheticAuthority.selector, page: 2 } }],
-    ["another law", { ...syntheticAuthority, lawVersion: "ready-to-ship-intake/v2" }],
-  ])("refuses %s before any provider call", (_label, authority) => {
-    expect(resolveOrderPullBudget(authority)).toEqual({ kind: "refused", reason: "authority-unknown" });
+  it("freezes all other fields at the deadline and strict actual-lease boundaries", () => {
+    const plan = { listReads: 1, intakeReads: 8, followUpReads: 5 };
+    const exact = { ...authority, reportTimeoutMs: 20_000 };
+    expect(resolveOrderPullBudget(exact, plan)).toMatchObject({
+      kind: "fits",
+      bounds: { budgetMs: ORDER_PULL_DEADLINE_MS },
+    });
+    expect(resolveOrderPullBudget({ ...exact, reportTimeoutMs: 20_001 }, plan)).toEqual({
+      kind: "refused",
+      reason: "over-deadline",
+    });
+    const at = "2026-10-09T00:00:00.000Z";
+    expect(orderPullFitsLease({ budgetMs: 590_000, at, leaseExpiresAt: "2026-10-09T00:10:20.000Z" })).toBe(false);
+    expect(orderPullFitsLease({ budgetMs: 590_000, at, leaseExpiresAt: "2026-10-09T00:10:20.001Z" })).toBe(true);
   });
-
-  it("requires now + budget + 30 s strictly before lease expiry", () => {
-    const at = "2026-10-08T12:00:00.000Z";
-    const boundary = new Date(Date.parse(at) + 583_000 + ORDER_PULL_LEASE_MARGIN_MS).toISOString();
-    expect(orderPullFitsLease({ budgetMs: 583_000, at, leaseExpiresAt: boundary })).toBe(false);
+  it("requires exactly I/L/F and six governed ceilings; every numeric clause rejects independently", () => {
+    const fields = [
+      "nIntakeReadMax",
+      "nListReadMax",
+      "fMax",
+      "providerCadenceMs",
+      "providerCallTimeoutMs",
+      "mappingJournalMs",
+      "maxPostsPerOrder",
+      "postTimeoutMs",
+      "reportTimeoutMs",
+    ] as const;
     expect(
-      orderPullFitsLease({
-        budgetMs: 583_000,
-        at,
-        leaseExpiresAt: new Date(Date.parse(boundary) + 1).toISOString(),
-      }),
-    ).toBe(true);
-    expect(orderPullFitsLease({ budgetMs: 583_000, at: "not-an-instant", leaseExpiresAt: boundary })).toBe(false);
-  });
-
-  it("accepts the largest valid follow-up list and refuses cap+1, duplicates and nested unknown keys", () => {
-    expect(() => assertOrderPullPayload(payload({ followUpReferences: ["ORDER-1", "ORDER-2"] }))).not.toThrow();
-    invalid(() => assertOrderPullPayload(payload({ followUpReferences: ["ORDER-1", "ORDER-2", "ORDER-3"] })));
-    invalid(() => assertOrderPullPayload(payload({ followUpReferences: ["ORDER-1", "ORDER-1"] })));
-    invalid(() => assertOrderPullPayload(payload({ followUpReferences: [" leading-space"] })));
-    invalid(() => assertOrderPullPayload({ ...payload(), bounds: { ...payload().bounds, sellerKey: "x" } }));
-    invalid(() => assertOrderPullPayload({ ...payload(), listingId: "fake" }));
-    invalid(() => assertOrderPullPayload(payload({ bounds: { ...payload().bounds, budgetMs: 600_001 } })));
-    invalid(() => assertOrderPullPayload(payload({ pullId: "pull_1" })));
-    invalid(() => assertOrderPullPayload((({ followUpReferences: _references, ...rest }) => rest)(payload())));
-  });
-
-  it("closes pull outcomes recursively and binds complete to the claimed authority", () => {
-    const pull = payload();
-    const complete: ClaimedOrderPullOutcome = {
-      operationKind: "tcgplayer-order-pull",
-      operationId: `cop_${"a".repeat(40)}`,
-      attemptId: "coa_1",
-      claimGeneration: 1,
-      pullId: pull.pullId,
-      payloadDigest: payloadDigest(pull),
-      outcome: {
-        kind: "order-pull-complete",
-        lawVersion: "ready-to-ship-intake/v1",
-        selector: pull.selector,
-        admissionCounts: { readyToShipMembers: 60, followUpReads: 0, admitted: 240 },
-      },
-    };
-    expect(() => assertClaimedSubjectOutcome(complete)).not.toThrow();
-    expect(() => assertOrderPullOutcomeMatchesPayload(complete, pull)).not.toThrow();
-    for (const reason of orderPullUnknownReasons) {
-      expect(() =>
-        assertClaimedOrderPullOutcome({ ...complete, outcome: { kind: "order-pull-unknown", reason } }),
-      ).not.toThrow();
+      Object.keys(authority)
+        .filter((key) => !["revision", "lawVersion", "selector"].includes(key))
+        .sort(),
+    ).toEqual([...fields].sort());
+    for (const field of [...fields, "revision"] as const) {
+      const { [field]: _removed, ...missing } = authority;
+      expect(() => assertOrderPullAuthority(missing), field).toThrow();
+      for (const value of [undefined, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+        expect(() => assertOrderPullAuthority({ ...authority, [field]: value }), `${field}=${value}`).toThrow();
+      }
     }
-    invalid(() =>
-      assertClaimedOrderPullOutcome({ ...complete, outcome: { kind: "order-pull-unknown", reason: "timeout" } }),
-    );
-    invalid(() =>
-      assertClaimedOrderPullOutcome({ ...complete, outcome: { kind: "abandoned", reason: "superseded-basis" } }),
-    );
-    invalid(() =>
-      assertClaimedOrderPullOutcome({
-        ...complete,
-        outcome: {
-          ...complete.outcome,
-          admissionCounts: { readyToShipMembers: 1, followUpReads: 0, admitted: 1, extra: 1 },
-        },
-      }),
-    );
-    invalid(() => assertClaimedOrderPullOutcome({ ...complete, outcome: { kind: "applied", result: {} } }));
-    // Subject bypass: a pull member reported in the listing grammar is refused by the closed listing codec.
-    invalid(() =>
-      assertClaimedSubjectOutcome({
-        operationId: complete.operationId,
-        attemptId: complete.attemptId,
-        claimGeneration: 1,
-        desiredStateSequence: 1,
-        pullId: complete.pullId,
-        outcome: { kind: "outcome-unknown" },
-      }),
-    );
-    if (complete.outcome.kind !== "order-pull-complete") throw new Error("fixture");
-    const counts = complete.outcome.admissionCounts;
-    for (const mutant of [
-      { ...complete.outcome, selector: { ...pull.selector, version: 2 } },
-      { ...complete.outcome, admissionCounts: { ...counts, readyToShipMembers: 61 } },
-      { ...complete.outcome, admissionCounts: { ...counts, followUpReads: 1 } },
-      { ...complete.outcome, admissionCounts: { ...counts, admitted: 241 } },
+    for (const invalid of [
+      null,
+      { ...authority, nRtsMax: 100 },
+      { ...authority, lawVersion: "ready-to-ship-intake/v1" },
+      { ...authority, selector: { ...authority.selector, traversal: "mutable-offset" } },
+      { ...authority, selector: { ...authority.selector, pageSize: 1001 } },
     ]) {
-      invalid(() => assertOrderPullOutcomeMatchesPayload({ ...complete, outcome: mutant }, pull));
+      expect(resolveOrderPullBudget(invalid)).toEqual({ kind: "refused", reason: "authority-unknown" });
+    }
+    for (const plan of [
+      { listReads: 3, intakeReads: 7, followUpReads: 5 },
+      { listReads: 1, intakeReads: 9, followUpReads: 5 },
+      { listReads: 1, intakeReads: 7, followUpReads: 6 },
+      { listReads: 1, intakeReads: 7.5, followUpReads: 5 },
+    ]) {
+      expect(resolveOrderPullBudget(authority, plan)).toEqual({ kind: "refused", reason: "authority-unknown" });
     }
   });
 });
 
-describe("8608-decision-r4 ruling fixture: one closed Ready to Ship search page", () => {
-  const pull = payload();
-  const read = (orderNumbers: readonly string[]) => ({ kind: "read-details", orderNumbers });
-  const unknown = (reason: string) => ({ kind: "unknown", reason, detailReads: 0 });
-  const numbers = (count: number) => Array.from({ length: count }, (_, index) => `ORDER-${index + 1}`);
-  it.each([
-    ["certified empty set", { totalOrders: 0, orderNumbers: [], everyRowReadyToShip: true }, read([])],
-    ["N_rts_max members", { totalOrders: 60, orderNumbers: numbers(60), everyRowReadyToShip: true }, read(numbers(60))],
-    [
-      "totalOrders above N_rts_max",
-      { totalOrders: 61, orderNumbers: numbers(61), everyRowReadyToShip: true },
-      unknown("budget-exceeded"),
-    ],
-    [
-      "a full page (total >= page size)",
-      { totalOrders: 500, orderNumbers: numbers(500), everyRowReadyToShip: true },
-      unknown("budget-exceeded"),
-    ],
-    [
-      "missing total",
-      { totalOrders: undefined, orderNumbers: [], everyRowReadyToShip: true },
-      unknown("completeness-unproven"),
-    ],
-    [
-      "length mismatch",
-      { totalOrders: 3, orderNumbers: numbers(2), everyRowReadyToShip: true },
-      unknown("completeness-unproven"),
-    ],
-    [
-      "duplicate order numbers",
-      { totalOrders: 2, orderNumbers: ["ORDER-1", "ORDER-1"], everyRowReadyToShip: true },
-      unknown("completeness-unproven"),
-    ],
-    [
-      "a row outside Ready to Ship",
-      { totalOrders: 2, orderNumbers: numbers(2), everyRowReadyToShip: false },
-      unknown("completeness-unproven"),
-    ],
-  ])("%s", (_label, page, expected) => {
-    expect(decideOrderPullSearchPage(pull, page)).toEqual(expected);
+describe("qualified synthetic traversal, never provider authority", () => {
+  it.each([0, 101, 300, 301, 500, 800])("enumerates %i including the decisive member beyond page one", (total) => {
+    let traversal: OrderPullTraversal | null = null;
+    const found: string[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const refs = Array.from({ length: Math.min(100, total - offset) }, (_, i) => `ORDER-${offset + i}`);
+      const nextCursor = refs.length === 100 ? `cursor-${offset + 100}` : null;
+      traversal = advanceOrderPullTraversal(
+        authority.selector,
+        traversal,
+        syntheticPage(refs, {
+          cursor: offset ? `cursor-${offset}` : null,
+          nextCursor,
+          totalOrders: total,
+        }),
+      );
+      found.push(...refs);
+      if (nextCursor === null) break;
+      expect(traversal.exhausted).toBe(false);
+    }
+    expect(traversal).toMatchObject({ exhausted: true, discovered: total });
+    expect(new Set(found).size).toBe(total);
+    if (total > 100) expect(found).toContain(`ORDER-${total - 1}`);
   });
-
-  it("never treats a page at the page size as complete even when the bound would admit it", () => {
-    const wide = payload({
-      selector: { ...pull.selector, pageSize: 61 },
-      bounds: { ...pull.bounds, nRtsMax: 60 },
+  it("full, missing, mismatched, mutable and endless pages cannot certify empty or complete", () => {
+    const first = syntheticPage(
+      Array.from({ length: 100 }, (_, i) => `ORDER-${i}`),
+      { totalOrders: 101, nextCursor: "next" },
+    );
+    const state = advanceOrderPullTraversal(authority.selector, null, first);
+    for (const page of [
+      { ...first, nextCursor: null },
+      { ...first, totalOrders: undefined },
+      { ...first, totalOrders: 99 },
+      { ...first, orderReferences: ["same", "same"] },
+      { ...first, everyRowReadyToShip: false },
+      { ...first, extra: true },
+    ])
+      expect(() => advanceOrderPullTraversal(authority.selector, null, page as never)).toThrow();
+    const tail = syntheticPage(["TAIL"], { cursor: "next", totalOrders: 101 });
+    for (const page of [
+      { ...tail, cursor: "wrong" },
+      { ...tail, sessionDigest: "b".repeat(64) },
+      { ...tail, frontier: "changed" },
+      { ...tail, totalOrders: 102 },
+      { ...tail, nextCursor: "next" },
+      { ...tail, orderReferences: [], nextCursor: "endless" },
+    ])
+      expect(() => advanceOrderPullTraversal(authority.selector, state, page)).toThrow();
+    expect(() => advanceOrderPullTraversal(authority.selector, state, tail)).not.toThrow();
+    expect(advanceOrderPullTraversal(authority.selector, null, syntheticPage())).toMatchObject({
+      exhausted: true,
+      discovered: 0,
     });
-    expect(
-      decideOrderPullSearchPage(wide, { totalOrders: 60, orderNumbers: numbers(60), everyRowReadyToShip: true }),
-    ).toEqual(read(numbers(60)));
-    expect(
-      decideOrderPullSearchPage(
-        payload({ selector: { ...pull.selector, pageSize: 60 }, bounds: { ...pull.bounds, nRtsMax: 60 } }),
-        { totalOrders: 60, orderNumbers: numbers(60), everyRowReadyToShip: true },
-      ),
-    ).toEqual(unknown("completeness-unproven"));
+  });
+  it("never completes with unread or unaccepted work and never spins on posted-only pending work", () => {
+    const base = { exhausted: true, unread: false, pending: false, followUpTail: false, gapCount: 0 };
+    expect(orderPullProgressKind(base)).toBe("order-pull-complete");
+    expect(orderPullProgressKind({ ...base, pending: true })).toBe("order-pull-pending");
+    expect(orderPullProgressKind({ ...base, unread: true, pending: true })).toBe("continuation-required");
+    expect(orderPullProgressKind({ ...base, exhausted: false })).toBe("continuation-required");
+    expect(orderPullProgressKind({ ...base, followUpTail: true })).toBe("continuation-required");
+    expect(orderPullProgressKind({ ...base, gapCount: 1 })).toBe("order-pull-gaps");
+  });
+});
+
+describe("closed bounded owner-compatible payload and report", () => {
+  it("accepts empty/count cap, refuses count cap+1, duplicates and complete-JSON byte cap+1", () => {
+    const connection = "connection_synthetic";
+    const refs = Array.from({ length: acceptedReadyToShipReferenceLimit }, (_, i) => `ORDER-${i}`);
+    expect(() => assertOrderPullChunk(connection, [])).not.toThrow();
+    expect(() => assertOrderPullChunk(connection, refs)).not.toThrow();
+    expect(() => assertOrderPullChunk(connection, [...refs, "EXTRA"])).toThrow();
+    expect(() => assertOrderPullChunk(connection, ["same", "same"])).toThrow();
+    expect(() => assertOrderPullChunk(connection, ["x".repeat(129)])).toThrow();
+    const large = Array.from({ length: 1000 }, (_, i) => `${i.toString().padStart(4, "0")}${"\u4e00".repeat(86)}`);
+    const size = () => Buffer.byteLength(JSON.stringify({ connectionId: connection, orderReferences: large }), "utf8");
+    while (size() > acceptedReadyToShipInputByteLimit) {
+      const index = large.findIndex((ref) => ref.endsWith("\u4e00"));
+      large[index] = large[index]!.slice(0, -1);
+    }
+    large[0] += "x".repeat(acceptedReadyToShipInputByteLimit - size());
+    expect(size()).toBe(acceptedReadyToShipInputByteLimit);
+    expect(() => assertOrderPullChunk(connection, large)).not.toThrow();
+    large[0] += "x";
+    expect(size()).toBe(acceptedReadyToShipInputByteLimit + 1);
+    expect(() => assertOrderPullChunk(connection, large)).toThrow();
+  });
+  it("round-trips progress outcomes and unknown reasons; binds checkpoint, selector, counts and membership", () => {
+    const payload = syntheticPayload();
+    expect(() => assertOrderPullPayload(payload)).not.toThrow();
+    const report: ClaimedOrderPullOutcome = {
+      operationKind: "tcgplayer-order-pull",
+      operationId: "operation",
+      attemptId: "attempt",
+      claimGeneration: 1,
+      pullId: payload.pullId,
+      payloadDigest: payloadDigest(payload),
+      outcome: {
+        kind: "order-pull-complete",
+        lawVersion: payload.lawVersion,
+        selector: payload.selector,
+        admissionCounts: { readyToShipMembers: 0, followUpReads: 0, admitted: 0 },
+        progress: syntheticProgress(payload),
+      },
+    };
+    for (const kind of [
+      "order-pull-complete",
+      "continuation-required",
+      "order-pull-pending",
+      "order-pull-gaps",
+    ] as const) {
+      expect(() =>
+        assertClaimedSubjectOutcome(JSON.parse(JSON.stringify({ ...report, outcome: { ...report.outcome, kind } }))),
+      ).not.toThrow();
+    }
+    expect(() => assertOrderPullOutcomeMatchesPayload(report, payload)).not.toThrow();
+    for (const reason of orderPullUnknownReasons)
+      expect(() =>
+        assertClaimedOrderPullOutcome({ ...report, outcome: { kind: "order-pull-unknown", reason } }),
+      ).not.toThrow();
+    for (const mutant of [
+      { ...payload, version: 1 },
+      { ...payload, checkpointDigest: "0".repeat(64) },
+      { ...payload, checkpoint: { ...payload.checkpoint, extra: 1 } },
+      { ...payload, work: { ...payload.work, acceptedReferences: ["not-requested"] } },
+      { ...payload, bounds: { ...payload.bounds, plan: { ...payload.bounds.plan, extra: 1 } } },
+      { ...payload, bounds: { ...payload.bounds, providerCalls: 999 } },
+    ])
+      expect(() => assertOrderPullPayload(mutant)).toThrow();
+    const progress = syntheticProgress(payload);
+    expect(() =>
+      assertOrderPullProgress({ ...progress, pages: [syntheticPage(), syntheticPage(), syntheticPage()] }),
+    ).toThrow();
+    for (const bad of [
+      { ...progress, extra: true },
+      { ...progress, pages: [{ ...syntheticPage(), sellerKey: "forbidden" }] },
+      { ...progress, gaps: [{ reference: "ORDER", reason: "unqualified" }] },
+    ])
+      expect(() => assertOrderPullProgress(bad)).toThrow();
+  });
+  it("inventories removal of the coupled/single-page law and the direct owner seam", () => {
+    const domain = readFileSync(new URL("../domain/order-pull.ts", import.meta.url), "utf8");
+    expect(domain).not.toMatch(/nRtsMax|decideOrderPullSearchPage|intake-deferred/);
+    const coordinator = readFileSync(new URL("../api/order-pull-progress.ts", import.meta.url), "utf8");
+    expect(coordinator).toContain("readAcceptedReadyToShipMembership(db,");
+    expect(coordinator).not.toMatch(/channel_fulfillment_orders|channel_connector_inbound|provider_order_status/);
   });
 });
