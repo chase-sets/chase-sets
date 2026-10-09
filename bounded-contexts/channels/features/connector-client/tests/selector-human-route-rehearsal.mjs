@@ -352,6 +352,15 @@ export class WorkerIsolation {
     if (this.exportSealed) this.report("PENDING_HOST_REVIEW", "worker_absent_human_ui_observation_required");
     else this.hold("worker_detached_no_restart");
   }
+  // After the export seals, Chrome closing tears down the monitor before the process exits.
+  monitorClosed(exited) {
+    if (!exited && !this.exportSealed) this.hold("monitor_disconnected");
+  }
+}
+
+// The T0+15 min window bounds capture and UI removal; HUMAN close/disposal may finish later.
+export function monitoring({ exited, exportVerified, now, t0 }) {
+  return !exited && (exportVerified || now <= Date.parse(t0) + 900000);
 }
 
 export class WorkerCdp {
@@ -495,15 +504,13 @@ async function run(out) {
         if (event.method === "Target.attachedToTarget") void isolation.attached(event.params);
         if (event.method === "Target.detachedFromTarget") isolation.detached(event.params);
       },
-      () => {
-        if (!exited) isolation.hold("monitor_disconnected");
-      },
+      () => isolation.monitorClosed(exited),
     );
     isolation = new WorkerIsolation(cdp.send.bind(cdp), metadata, report);
     await isolation.start();
     console.log(`HUMAN instructions: ${path.join(out, "HUMAN.md")}`);
     let exportVerified = false;
-    while (!exited && Date.now() <= Date.parse(metadata.preparation.t0) + 900000) {
+    while (monitoring({ exited, exportVerified, now: Date.now(), t0: metadata.preparation.t0 })) {
       if (isolation.held) throw new Error("isolation_hold");
       if (
         isolation.ready &&

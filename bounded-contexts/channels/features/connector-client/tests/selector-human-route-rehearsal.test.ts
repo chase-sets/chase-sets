@@ -155,6 +155,21 @@ function seamContext(count = 1) {
 }
 
 describe("selector-human-rehearsal-isolation", () => {
+  it("sealed export survives late HUMAN close and monitor teardown; unsealed failures still hold", () => {
+    const t0 = new Date(Date.now() - 900001).toISOString();
+    expect(driver.monitoring({ exited: false, exportVerified: true, now: Date.now(), t0 })).toBe(true);
+    expect(driver.monitoring({ exited: false, exportVerified: false, now: Date.now(), t0 })).toBe(false);
+    expect(driver.monitoring({ exited: true, exportVerified: true, now: Date.now(), t0 })).toBe(false);
+    for (const sealed of [true, false]) {
+      const reports: string[] = [];
+      const isolation = new driver.WorkerIsolation(async () => ({}), metadata, (phase: string) => reports.push(phase));
+      isolation.exportSealed = sealed;
+      isolation.monitorClosed(false);
+      expect(isolation.held).toBe(!sealed);
+      expect(reports.includes("HOLD")).toBe(!sealed);
+    }
+  });
+
   it("startup arguments are unconditional; seam routes only exact local files and fixed requests", async () => {
     expect(() => driver.chromeArguments(metadata.preparation.profileDirectory)).toThrow("owned_deny_proxy_required");
     const args = driver.chromeArguments(metadata.preparation.profileDirectory, 9999);
