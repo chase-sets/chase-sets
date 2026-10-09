@@ -276,17 +276,91 @@ function scriptKindFor(path) {
   }
 }
 
-function literalIndex(sourceFile) {
+// Each literal keeps its immediate parent plus the nearest ancestor of every kind
+// the classifier inspects, so ancestry costs a fixed number of facts per node
+// instead of a copy of the whole chain (deep JSON-lines manifests nest ~2000 deep).
+const NO_ANCESTRY = Object.freeze({
+  parent: undefined,
+  importDeclaration: undefined,
+  exportDeclaration: undefined,
+  importType: undefined,
+  externalReference: undefined,
+  call: undefined,
+  literalType: undefined,
+});
+const ANCESTRY_FACTS = Object.keys(NO_ANCESTRY).length;
+const NEAREST_KIND_FACTS = new Map([
+  [ts.SyntaxKind.ImportDeclaration, "importDeclaration"],
+  [ts.SyntaxKind.ExportDeclaration, "exportDeclaration"],
+  [ts.SyntaxKind.ImportType, "importType"],
+  [ts.SyntaxKind.ExternalModuleReference, "externalReference"],
+  [ts.SyntaxKind.CallExpression, "call"],
+  [ts.SyntaxKind.LiteralType, "literalType"],
+]);
+// Fixed linear ceiling on charged ancestry operations: per visited node, indexed
+// literal and matched span. Bounded facts stay under it at any depth; copying the
+// ancestor chain per node does not.
+const ANCESTRY_OPERATIONS_PER_UNIT = 16;
+
+function newAncestryWork() {
+  return { visitedNodes: 0, indexedLiterals: 0, matchedSpans: 0, operations: 0, indexMs: 0 };
+}
+
+function ancestryWorkCeiling({ visitedNodes, indexedLiterals, matchedSpans }) {
+  return ANCESTRY_OPERATIONS_PER_UNIT * (visitedNodes + indexedLiterals + matchedSpans);
+}
+
+function childAncestry(node, ancestry) {
+  const next = { ...ancestry, parent: node };
+  const nearestKind = NEAREST_KIND_FACTS.get(node.kind);
+  if (nearestKind !== undefined) next[nearestKind] = node;
+  return next;
+}
+
+function literalIndex(sourceFile, work) {
   const byText = new Map();
-  const visit = (node, ancestors = []) => {
+  const nodes = [sourceFile];
+  const ancestries = [NO_ANCESTRY];
+  let visitedNodes = 0;
+  let indexedLiterals = 0;
+  let operations = 0;
+  while (nodes.length > 0) {
+    const node = nodes.pop();
+    const ancestry = ancestries.pop();
+    visitedNodes += 1;
+    operations += 1;
     if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const values = byText.get(node.text) ?? [];
-      values.push({ node, ancestors });
+      values.push({ node, ancestry });
       byText.set(node.text, values);
+      indexedLiterals += 1;
+      operations += 1;
     }
-    ts.forEachChild(node, (child) => visit(child, [node, ...ancestors]));
-  };
-  visit(sourceFile);
+    const firstChild = nodes.length;
+    let childrenAncestry;
+    ts.forEachChild(node, (child) => {
+      if (childrenAncestry === undefined) {
+        childrenAncestry = childAncestry(node, ancestry);
+        operations += ANCESTRY_FACTS;
+      }
+      nodes.push(child);
+      ancestries.push(childrenAncestry);
+      operations += 1;
+    });
+    // Reverse this node's children so they pop in source order; siblings share one
+    // ancestry, so only the node stack needs reordering.
+    for (let left = firstChild, right = nodes.length - 1; left < right; left += 1, right -= 1) {
+      const swapped = nodes[left];
+      nodes[left] = nodes[right];
+      nodes[right] = swapped;
+      operations += 1;
+    }
+  }
+  if (work) {
+    work.visitedNodes += visitedNodes;
+    work.indexedLiterals += indexedLiterals;
+    work.operations += operations;
+  }
   return byText;
 }
 
@@ -296,28 +370,33 @@ function classifyCompilerSpan(sourceFile, span, options = {}) {
     .filter(({ node }) => node.getStart(sourceFile) <= span.pos && node.end >= span.end)
     .sort(({ node: left }, { node: right }) => left.end - left.pos - (right.end - right.pos))[0];
   if (!match) importerRefuse("IMPORTER_SCAN_FAILURE", `${sourceFile.fileName}:${span.pos}:${span.fileName}`);
-  const { ancestors } = match;
-  const importDeclaration = ancestors.find(ts.isImportDeclaration);
+  const work = options.ancestryWork;
+  if (work) work.matchedSpans += 1;
+  const nearest = (fact) => {
+    if (work) work.operations += 1;
+    return match.ancestry[fact];
+  };
+  const importDeclaration = nearest("importDeclaration");
   if (importDeclaration) {
     return {
       verdict: importDeclaration.importClause?.isTypeOnly ? "ERASED_NON_LOADING" : "RUNTIME_ESM_IMPORT",
       owner: "ImportDeclaration",
     };
   }
-  const exportDeclaration = ancestors.find(ts.isExportDeclaration);
+  const exportDeclaration = nearest("exportDeclaration");
   if (exportDeclaration) {
     return {
       verdict: exportDeclaration.isTypeOnly ? "ERASED_NON_LOADING" : "RUNTIME_ESM_EXPORT",
       owner: "ExportDeclaration",
     };
   }
-  const importType = ancestors.find(ts.isImportTypeNode);
+  const importType = nearest("importType");
   if (importType) return { verdict: "ERASED_NON_LOADING", owner: "ImportTypeNode" };
-  const externalReference = ancestors.find(ts.isExternalModuleReference);
+  const externalReference = nearest("externalReference");
   if (externalReference) {
     return { verdict: "RUNTIME_UNSUPPORTED_NON_LOADING", owner: "ExternalModuleReference" };
   }
-  const call = ancestors.find(ts.isCallExpression);
+  const call = nearest("call");
   if (call) {
     if (call.expression.kind === ts.SyntaxKind.ImportKeyword && call.arguments.length === 1) {
       return { verdict: "RUNTIME_ESM_DYNAMIC", owner: "CallExpression.import" };
@@ -329,9 +408,9 @@ function classifyCompilerSpan(sourceFile, span, options = {}) {
       return { verdict: "KNOWN_NON_MODULE_CALL", owner: "CallExpression.propertyRequire" };
     }
   }
-  const literalType = ancestors.find(ts.isLiteralTypeNode);
+  const literalType = nearest("literalType");
   if (literalType) return { verdict: "ERASED_NON_LOADING", owner: "LiteralType" };
-  return { verdict: "INDETERMINATE", owner: ts.SyntaxKind[ancestors[0]?.kind] ?? "Unknown" };
+  return { verdict: "INDETERMINATE", owner: ts.SyntaxKind[nearest("parent")?.kind] ?? "Unknown" };
 }
 
 function compilerRows(path, source, options = {}) {
@@ -344,14 +423,18 @@ function compilerRows(path, source, options = {}) {
   } catch (error) {
     importerRefuse("IMPORTER_SCAN_FAILURE", `${path}: ${error.message}`);
   }
-  const literals = literalIndex(sourceFile);
-  return preprocessed.importedFiles.map((span) => {
+  const work = options.ancestryWork;
+  const indexStarted = work ? performance.now() : 0;
+  const literals = literalIndex(sourceFile, work);
+  const rows = preprocessed.importedFiles.map((span) => {
     const classification = classifyCompilerSpan(sourceFile, span, { ...options, literals });
     if (classification.verdict === "INDETERMINATE") {
       importerRefuse("IMPORTER_SYNTAX_INDETERMINATE", `${path}:${span.pos}:${classification.owner}`);
     }
     return { path, specifier: span.fileName, pos: span.pos, end: span.end, ...classification };
   });
+  if (work) work.indexMs += performance.now() - indexStarted;
+  return rows;
 }
 
 function normalizedRealpath(path) {
@@ -1042,24 +1125,31 @@ describe.sequential("canonical importer authority", () => {
       const started = performance.now();
       const entries = censusShardEntries[shard];
       const runtimeRows = [];
+      const ancestryWork = newAncestryWork();
       for (const entry of entries) {
-        const rows = scanEntry(entry);
+        const rows = scanEntry(entry, { ancestryWork });
         censusRows.push(...rows);
         runtimeRows.push(
           ...rows.filter(({ verdict }) => RUNTIME_ESM_VERDICTS.has(verdict) || verdict === "RUNTIME_CJS_REQUIRE"),
         );
       }
+      const resolveStarted = performance.now();
       for (const row of resolveRuntimeRows(runtimeRows)) {
         if (row.resolution === "TARGET") discoveredImporters.add(row.path);
       }
       const elapsedMs = performance.now() - started;
-      censusTimings.push({
+      const timing = {
         shard: shard + 1,
         elapsedMs,
         candidates: entries.length,
         runtimeSpecifiers: runtimeRows.length,
-      });
+        resolveMs: performance.now() - resolveStarted,
+        ancestryWork: { ...ancestryWork, ceiling: ancestryWorkCeiling(ancestryWork) },
+      };
+      censusTimings.push(timing);
+      console.info(JSON.stringify({ censusShard: timing }));
       expect(elapsedMs).toBeLessThan(SHARD_BUDGET_MS);
+      expect(ancestryWork.operations).toBeLessThanOrEqual(ancestryWorkCeiling(ancestryWork));
     });
   }
 
@@ -1210,13 +1300,6 @@ describe.sequential("canonical importer authority", () => {
   });
 
   it("corpus shards stay inside the unchanged timeout", () => {
-    expect(capabilityTimings).toHaveLength(CAPABILITY_SHARDS);
-    expect(censusTimings).toHaveLength(CENSUS_SHARDS);
-    expect(Math.max(...capabilityTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
-    expect(Math.max(...censusTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
-    const aggregateBudget = (CAPABILITY_SHARDS + CENSUS_SHARDS) * SHARD_BUDGET_MS;
-    const total = [...capabilityTimings, ...censusTimings].reduce((sum, { elapsedMs }) => sum + elapsedMs, 0);
-    expect(total).toBeLessThan(aggregateBudget);
     console.info(
       JSON.stringify({
         tracked: gitEntries.length,
@@ -1229,10 +1312,122 @@ describe.sequential("canonical importer authority", () => {
         censusTimings,
       }),
     );
+    expect(capabilityTimings).toHaveLength(CAPABILITY_SHARDS);
+    expect(censusTimings).toHaveLength(CENSUS_SHARDS);
+    expect(Math.max(...capabilityTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
+    expect(Math.max(...censusTimings.map(({ elapsedMs }) => elapsedMs))).toBeLessThan(SHARD_BUDGET_MS);
+    const aggregateBudget = (CAPABILITY_SHARDS + CENSUS_SHARDS) * SHARD_BUDGET_MS;
+    const total = [...capabilityTimings, ...censusTimings].reduce((sum, { elapsedMs }) => sum + elapsedMs, 0);
+    expect(total).toBeLessThan(aggregateBudget);
   });
 
   it("the authorized importer inventory is exact", () => {
     assertUniqueSetEqual([...discoveredImporters].sort(), [...AUTHORIZED_IMPORTERS]);
+  });
+
+  // Competing kinds (a literal type under an import type, a dynamic import inside
+  // require, require inside an unrelated call), siblings after export and import
+  // declarations, escapes, a template literal and one specifier text in three spans.
+  const nestedAncestrySource = [
+    'import "./static.mjs";',
+    'import type { T } from "./type-only.mjs";',
+    'import { type U } from "./specifier-type.mjs";',
+    'export { value } from "./export.mjs";',
+    'export type { V } from "./export-type.mjs";',
+    'require("./after-export.cjs");',
+    'type I = import("./import-type.mjs").X;',
+    'import legacy = require("./import-equals.cjs");',
+    'const dynamic = await import("./esc\\u0061ped.mjs");',
+    'const nested = wrap(require("./nested-require.cjs"), [import("./nested-dynamic.mjs")]);',
+    'const inner = require(import("./inner-dynamic.mjs"));',
+    'const viaProperty = module.require("./property-require.cjs");',
+    "const template = require(`./template.cjs`);",
+    'import "./duplicate.mjs";',
+    'require("./duplicate.mjs");',
+    'export * from "./duplicate.mjs";',
+  ].join("\n");
+  // The JSON-lines caller-manifest shape: each line indexes the previous one, so
+  // the first line's literals sit about `lines` element accesses deep.
+  const deepJsonLinesSource = (lines) =>
+    [
+      '[require("./deep-first.cjs"), import("./deep-dynamic.mjs")]',
+      ...Array.from(
+        { length: lines },
+        (_, line) => `["candidate","edges",{"from":"a/${line}.ts","specifier":"./b","resolved":"repo:/b.ts"}]`,
+      ),
+      'export { deep } from "./after-deep.mjs";',
+    ].join("\n");
+  const ruleRows = (rows) => rows.map(({ specifier, verdict, owner }) => [specifier, verdict, owner]);
+
+  it("ancestor facts preserve nested classification", () => {
+    const rows = compilerRows("nested-ancestry.ts", nestedAncestrySource);
+    expect(ruleRows(rows)).toEqual([
+      ["./static.mjs", "RUNTIME_ESM_IMPORT", "ImportDeclaration"],
+      ["./type-only.mjs", "ERASED_NON_LOADING", "ImportDeclaration"],
+      ["./specifier-type.mjs", "RUNTIME_ESM_IMPORT", "ImportDeclaration"],
+      ["./export.mjs", "RUNTIME_ESM_EXPORT", "ExportDeclaration"],
+      ["./export-type.mjs", "ERASED_NON_LOADING", "ExportDeclaration"],
+      ["./after-export.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./import-type.mjs", "ERASED_NON_LOADING", "ImportTypeNode"],
+      ["./import-equals.cjs", "RUNTIME_UNSUPPORTED_NON_LOADING", "ExternalModuleReference"],
+      ["./escaped.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./nested-require.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./nested-dynamic.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./inner-dynamic.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./property-require.cjs", "KNOWN_NON_MODULE_CALL", "CallExpression.propertyRequire"],
+      ["./template.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./duplicate.mjs", "RUNTIME_ESM_IMPORT", "ImportDeclaration"],
+      ["./duplicate.mjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./duplicate.mjs", "RUNTIME_ESM_EXPORT", "ExportDeclaration"],
+    ]);
+    expect(rows.map(({ pos }) => pos)).toEqual(rows.map(({ pos }) => pos).sort((left, right) => left - right));
+    expect(ruleRows(compilerRows("deep-ancestry.ts", deepJsonLinesSource(1_800)))).toEqual([
+      ["./deep-first.cjs", "RUNTIME_CJS_REQUIRE", "CallExpression.require"],
+      ["./deep-dynamic.mjs", "RUNTIME_ESM_DYNAMIC", "CallExpression.import"],
+      ["./after-deep.mjs", "RUNTIME_ESM_EXPORT", "ExportDeclaration"],
+    ]);
+  });
+
+  it("ancestor work stays linear on deep inputs", () => {
+    const withinCeiling = (work) => work.operations <= ancestryWorkCeiling(work);
+    for (const [fileName, source] of [
+      ["shallow-ancestry.ts", nestedAncestrySource],
+      ["deep-ancestry.ts", deepJsonLinesSource(1_800)],
+      ["deeper-ancestry.ts", deepJsonLinesSource(3_600)],
+    ]) {
+      const ancestryWork = newAncestryWork();
+      const rows = compilerRows(fileName, source, { ancestryWork });
+      const evidence = JSON.stringify({ fileName, ...ancestryWork, ceiling: ancestryWorkCeiling(ancestryWork) });
+      expect(rows.length, evidence).toBeGreaterThan(0);
+      expect(ancestryWork.matchedSpans, evidence).toBe(rows.length);
+      expect(withinCeiling(ancestryWork), evidence).toBe(true);
+    }
+    // Negative control: the replaced per-node `[node, ...ancestors]` copy breaches
+    // the same ceiling on the same deep input.
+    const copiedWork = newAncestryWork();
+    const pending = [
+      [
+        ts.createSourceFile(
+          "deep-ancestry.ts",
+          deepJsonLinesSource(1_800),
+          ts.ScriptTarget.Latest,
+          false,
+          ts.ScriptKind.TS,
+        ),
+        [],
+      ],
+    ];
+    while (pending.length > 0) {
+      const [node, ancestors] = pending.pop();
+      copiedWork.visitedNodes += 1;
+      copiedWork.operations += 1;
+      ts.forEachChild(node, (child) => {
+        const childAncestors = [node, ...ancestors];
+        copiedWork.operations += childAncestors.length;
+        pending.push([child, childAncestors]);
+      });
+    }
+    expect(withinCeiling(copiedWork), JSON.stringify(copiedWork)).toBe(false);
   });
 });
 
