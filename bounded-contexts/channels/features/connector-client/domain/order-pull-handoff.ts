@@ -10,6 +10,7 @@ import {
 } from "../../outbound-sync/domain/order-pull-codec";
 import {
   advanceOrderPullTraversal,
+  assertOrderPullChunk,
   assertOrderPullProgress,
   orderPullChunkInputByteLimit,
   orderPullProgressByteLimit,
@@ -161,6 +162,7 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
   const discovered = new Set(payload.work.references);
   let traversal = payload.checkpoint.traversal;
   for (const page of progress.pages) {
+    assertOrderPullChunk(payload.connectionId, page.orderReferences);
     traversal = advanceOrderPullTraversal(payload.selector, traversal, page);
     for (const reference of page.orderReferences) {
       if (discovered.has(reference)) refuse();
@@ -218,7 +220,8 @@ export function parseOrderPullHandoff(value: unknown, payload: OrderPullPayload)
       posts++;
     }
   }
-  if (posts > payload.bounds.maxObservationPosts || intake > payload.bounds.plan.intakeReads) refuse();
+  if (posts > payload.bounds.maxObservationPosts || intake + progress.gaps.length > payload.bounds.plan.intakeReads)
+    refuse();
   for (const gap of progress.gaps)
     if (
       !discovered.has(gap.reference) ||
@@ -247,7 +250,13 @@ export function assertHandoffTransition(previous: OrderPullHandoff, next: OrderP
   if (
     next.usage.providerCalls < previous.usage.providerCalls ||
     next.usage.posts < previous.usage.posts ||
-    Date.parse(next.usage.providerNotBefore) < Date.parse(previous.usage.providerNotBefore)
+    Date.parse(next.usage.providerNotBefore) < Date.parse(previous.usage.providerNotBefore) ||
+    previous.progress.gaps.some(
+      (gap) =>
+        !next.progress.gaps.some(
+          (candidate) => candidate.reference === gap.reference && candidate.reason === gap.reason,
+        ),
+    )
   )
     refuse();
   if (
@@ -264,7 +273,7 @@ export function assertHandoffTransition(previous: OrderPullHandoff, next: OrderP
         (bundle) =>
           !next.bundles.some(
             (candidate) => candidate.reference === bundle.reference && candidate.source === bundle.source,
-          ),
+          ) && !(bundle.source === "intake" && next.progress.gaps.some((gap) => gap.reference === bundle.reference)),
       ) ||
       next.bundles.some((bundle) => bundle.posts?.some((post) => post.state !== "planned")) ||
       (next.summary && next.summary.state !== "planned")
@@ -277,8 +286,14 @@ export function assertHandoffTransition(previous: OrderPullHandoff, next: OrderP
     canonicalJson(previous.progress.pages) !== canonicalJson(next.progress.pages) ||
     previous.progress.previousDigest !== next.progress.previousDigest ||
     previous.progress.followUpTail !== next.progress.followUpTail ||
-    canonicalJson(previous.progress.gaps) !== canonicalJson(next.progress.gaps) ||
-    previous.bundles.length !== next.bundles.length
+    next.progress.gaps.some(
+      (gap) =>
+        !previous.progress.gaps.some((old) => old.reference === gap.reference) &&
+        !previous.bundles.some(
+          (bundle) => bundle.reference === gap.reference && bundle.source === "intake" && bundle.posts === null,
+        ),
+    ) ||
+    next.bundles.some((bundle) => !previous.bundles.some((old) => old.reference === bundle.reference))
   )
     refuse();
   const transition = (old: OrderPullPost, next: OrderPullPost) => {
@@ -290,8 +305,17 @@ export function assertHandoffTransition(previous: OrderPullHandoff, next: OrderP
     )
       refuse();
   };
-  previous.bundles.forEach((old, index) => {
-    const bundle = next.bundles[index]!;
+  previous.bundles.forEach((old) => {
+    const bundle = next.bundles.find((candidate) => candidate.reference === old.reference);
+    if (!bundle) {
+      if (
+        old.posts !== null ||
+        old.source !== "intake" ||
+        !next.progress.gaps.some((gap) => gap.reference === old.reference)
+      )
+        refuse();
+      return;
+    }
     if (old.reference !== bundle.reference || old.source !== bundle.source) refuse();
     if (old.posts) {
       if (!bundle.posts || old.posts.length !== bundle.posts.length) refuse();
@@ -335,6 +359,9 @@ export function orderPullHandoffOutcome(
 ): ClaimedOrderPullOutcome["outcome"] {
   parseOrderPullHandoff(handoff, payload);
   if (
+    payload.followUpReferences.some(
+      (reference) => !handoff.bundles.some((bundle) => bundle.source === "follow-up" && bundle.reference === reference),
+    ) ||
     (handoff.summary !== null && handoff.summary.state !== "captured202") ||
     handoff.bundles.some((bundle) => bundle.posts === null || bundle.posts.some((post) => post.state !== "captured202"))
   )

@@ -2,15 +2,100 @@ import { describe, expect, it } from "vitest";
 import { assertOrderPullCheckpoint, orderPullCheckpointDigest } from "../../outbound-sync/domain/order-pull-progress";
 import { syntheticPage } from "../../outbound-sync/tests/order-pull-fixtures";
 import {
+  assertHandoffTransition,
   browserCheckpointDigest,
   orderPullHandoffOutcome,
   orderPullReportOutcome,
   parseOrderPullHandoff,
 } from "../domain/order-pull-handoff";
 import { resolveOrderPullBudget } from "../../outbound-sync/domain/order-pull-codec";
+import { acceptedReadyToShipInputByteLimit } from "../../order-fulfillment-observations/domain/contracts";
 import { pullFixture } from "./connector-order-pull-test-support";
 
 describe("connector-order-pull-post-before-report", () => {
+  it("bounds qualified gaps before effects and refuses unperformed selected follow-ups", async () => {
+    const f = await pullFixture();
+    const budget = resolveOrderPullBudget(f.handoff.authority, { listReads: 1, intakeReads: 1, followUpReads: 1 });
+    if (budget.kind !== "fits") throw new Error("fixture drift");
+    const payload = { ...f.payload, bounds: budget.bounds, followUpReferences: ["SYNTHETIC-FOLLOW-UP"] };
+    const handoff = { ...f.handoff, bundles: [], summary: null };
+    expect(() => orderPullHandoffOutcome(payload, handoff)).toThrow();
+    expect(() =>
+      parseOrderPullHandoff(
+        {
+          ...handoff,
+          progress: {
+            ...handoff.progress,
+            pages: [syntheticPage(["SYNTHETIC-1", "SYNTHETIC-2"])],
+            gaps: [
+              { reference: "SYNTHETIC-1", reason: "unavailable" },
+              { reference: "SYNTHETIC-2", reason: "unmappable" },
+            ],
+          },
+        },
+        payload,
+      ),
+    ).toThrow();
+    expect(f.posts).toEqual([]);
+  });
+  it("checks page byte bounds with the actual connection before effects", async () => {
+    const f = await pullFixture();
+    const references = Array.from({ length: 1000 }, (_, i) => `${String(i).padStart(4, "0")}${"\u4e00".repeat(86)}`);
+    const bytes = () =>
+      new TextEncoder().encode(JSON.stringify({ connectionId: "S", orderReferences: references })).length;
+    while (bytes() > acceptedReadyToShipInputByteLimit) {
+      const i = references.findIndex((reference) => reference.endsWith("\u4e00"));
+      references[i] = references[i]!.slice(0, -1);
+    }
+    references[0] += "x".repeat(acceptedReadyToShipInputByteLimit - bytes());
+    const selector = { ...f.payload.selector, pageSize: 1000 };
+    const checkpoint = { ...f.payload.checkpoint, selector };
+    const payload = { ...f.payload, selector, checkpoint, checkpointDigest: orderPullCheckpointDigest(checkpoint) };
+    const handoff = {
+      ...f.handoff,
+      authority: { ...f.handoff.authority, selector },
+      bundles: [],
+      summary: null,
+      progress: {
+        ...f.handoff.progress,
+        previousDigest: payload.checkpointDigest,
+        pages: [syntheticPage(references, { nextCursor: "synthetic-next", totalOrders: null })],
+      },
+    };
+    expect(() => parseOrderPullHandoff(handoff, { ...payload, connectionId: "S" })).not.toThrow();
+    expect(() => parseOrderPullHandoff(handoff, payload)).toThrow();
+  });
+  it("closes a later unread member as a gap without rewriting an earlier admitted bundle", async () => {
+    const f = await pullFixture();
+    const initial = {
+      ...f.handoff,
+      bundles: [{ reference: "SYNTHETIC-ORDER-2", source: "intake" as const, posts: null }, ...f.handoff.bundles],
+      progress: { ...f.handoff.progress, pages: [syntheticPage(["SYNTHETIC-ORDER-1", "SYNTHETIC-ORDER-2"])] },
+    };
+    f.dispatch.mockImplementation(async (_u, _s, pull) => {
+      await pull!.save(initial);
+      await pull!.sale("SYNTHETIC-ORDER-1", 0, f.post);
+      const snapshot = await f.journal.read(f.input.connectionId);
+      const member = snapshot.members[0];
+      if (member.operationKind !== "tcgplayer-order-pull" || !member.handoff) throw new Error("fixture drift");
+      const previous = member.handoff;
+      const next = {
+        ...previous,
+        bundles: previous.bundles.slice(1),
+        progress: { ...previous.progress, gaps: [{ reference: "SYNTHETIC-ORDER-2", reason: "unavailable" as const }] },
+      };
+      await pull!.save(next);
+      expect(() => assertHandoffTransition(next, { ...next, progress: { ...next.progress, gaps: [] } })).toThrow();
+      expect(() => assertHandoffTransition(previous, { ...next, bundles: [] })).toThrow();
+      await pull!.sale(null, 0, f.post);
+      return pull!.result();
+    });
+    await f.coordinator().coordinate(f.input);
+    expect(f.posts).toHaveLength(2);
+    expect(JSON.parse(f.reports[0]).outcomes[0].outcome.progress.gaps).toEqual([
+      { reference: "SYNTHETIC-ORDER-2", reason: "unavailable" },
+    ]);
+  });
   it("completes a qualified empty page without inventing a summary post outside a zero-post allocation", async () => {
     const f = await pullFixture();
     const budget = resolveOrderPullBudget(f.handoff.authority, { listReads: 1, intakeReads: 0, followUpReads: 0 });

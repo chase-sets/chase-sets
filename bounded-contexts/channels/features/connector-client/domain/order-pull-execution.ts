@@ -144,8 +144,12 @@ export function createOrderPullExecution(ports: Ports) {
         if (
           previous &&
           (canonicalJson(previous.usage) !== canonicalJson(handoff.usage) ||
-            previous.bundles.some((bundle, i) =>
-              bundle.posts?.some((post, j) => post.state !== handoff.bundles[i]?.posts?.[j]?.state),
+            previous.bundles.some((bundle) =>
+              bundle.posts?.some(
+                (post, j) =>
+                  post.state !==
+                  handoff.bundles.find((candidate) => candidate.reference === bundle.reference)?.posts?.[j]?.state,
+              ),
             ) ||
             (previous.summary && previous.summary.state !== handoff.summary?.state))
         )
