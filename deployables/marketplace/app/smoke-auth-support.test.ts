@@ -916,7 +916,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=19 synthetic=4 direct=9 receipted-session=1 seeded-form=6 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=20 synthetic=4 direct=9 receipted-session=1 seeded-form=6 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
