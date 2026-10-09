@@ -42,7 +42,15 @@ describe("tcgplayer-member-outcomes-and-field-provenance", () => {
         ...reservation,
         operations: [
           {
-            ...operation("operation-withheld", "listing-synthetic", result.delist.channelListingId, 12, 5, 0, 27),
+            ...operation(
+              "operation-withheld",
+              "listing-synthetic",
+              result.delist.channelListingId,
+              12,
+              result.delist.listingRevision,
+              0,
+              27,
+            ),
             operationKind: "delist",
             payload: { kind: "delist", delist: result.delist },
           },

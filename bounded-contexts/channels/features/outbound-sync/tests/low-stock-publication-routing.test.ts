@@ -3,7 +3,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { composeChannelListingPublication } from "../../listing-composition/domain/compose";
 import { assertChannelListingDelistDirective } from "../../listing-composition/domain/codecs";
 import { listingInput, publishedLink } from "../../listing-composition/tests/test-support";
-import type { ChannelProviderRegistry } from "../../publication-port/domain/contracts";
+import { createChannelProviderRegistry } from "../../publication-port/api/registry";
 import { createOutboundSyncRuntime } from "../api/runtime";
 import type { mapOutboundOperationRow } from "../api/store";
 
@@ -31,9 +31,8 @@ describe("low-stock publication routing", () => {
     const updatePriceQuantity = vi.fn(succeeded);
     const delistListing = vi.fn(succeeded);
     const identity = { providerKey: "synthetic-provider", environment: "sandbox" as const };
-    const registry: ChannelProviderRegistry = {
-      list: () => [identity],
-      get: () => ({
+    const registry = createChannelProviderRegistry([
+      {
         identity,
         setup: {
           ...identity,
@@ -51,8 +50,8 @@ describe("low-stock publication routing", () => {
             throw new Error("No sale fetch expected.");
           },
         },
-      }),
-    };
+      },
+    ]);
     const now = "2026-10-08T00:00:00.000Z";
     type Row = Parameters<typeof mapOutboundOperationRow>[0];
     let row: Row | null =
