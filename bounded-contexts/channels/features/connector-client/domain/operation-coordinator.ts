@@ -1,6 +1,9 @@
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import { RetentionError } from "./raw-export-record";
-import type { ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
+import type { ClaimedOperationReservation, ClaimedSubjectOperation } from "../../outbound-sync/domain/contracts";
+import { browserCheckpointDigest } from "./order-pull-handoff";
+import { createOrderPullExecution } from "./order-pull-execution";
+import { orderPullFitsLease, orderPullProviderReady } from "../../outbound-sync/domain/order-pull-codec";
 import type { ConnectorReport } from "../../connector-feed/domain/transport";
 import { createOperationJournal, type OperationJournal } from "../integrations/connector-indexeddb";
 import {
@@ -69,6 +72,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         pairs.has(key) ||
         !(
           (pair[0] === "delist" && pair[1] === "delist") ||
+          (pair[0] === "tcgplayer-order-pull" && pair[1] === "order-pull" && executor.unit === "operation") ||
           (["publish", "update"].includes(pair[0]) && pair[1] === "draft")
         )
       )
@@ -130,7 +134,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
   async function authority(input: CoordinatorInput) {
     return input.authority ? input.authority() : "absent";
   }
-  function select(claim: ClaimedOperationReservation): ConnectorExecutor | undefined {
+  function select(claim: ClaimedOperationReservation<ClaimedSubjectOperation>): ConnectorExecutor | undefined {
     return [...executors.values()].find((executor) =>
       claim.operations.every((operation) =>
         executor.accepts.some(
@@ -144,24 +148,43 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     kind: "abandoned" | "rejected" | "outcome-unknown",
   ): ExecutorResult {
     return {
-      outcomes: members.map((member) => ({
-        operationId: member.operationId,
-        attemptId: member.attemptId,
-        claimGeneration: member.claimGeneration,
-        desiredStateSequence: member.desiredStateSequence,
-        outcome:
-          kind === "abandoned"
-            ? { kind, reason: "claimant-cancelled" }
-            : kind === "rejected"
-              ? { kind, code: "validation" }
-              : { kind },
-      })),
+      outcomes: members.map((member) =>
+        member.operationKind === "tcgplayer-order-pull"
+          ? {
+              operationKind: member.operationKind,
+              operationId: member.operationId,
+              attemptId: member.attemptId,
+              claimGeneration: member.claimGeneration,
+              pullId: member.payload.pullId,
+              payloadDigest: member.payloadDigest,
+              outcome:
+                kind === "abandoned"
+                  ? { kind, reason: "claimant-cancelled" }
+                  : { kind: "order-pull-unknown", reason: "admission-ambiguous" },
+            }
+          : {
+              operationId: member.operationId,
+              attemptId: member.attemptId,
+              claimGeneration: member.claimGeneration,
+              desiredStateSequence: member.desiredStateSequence,
+              outcome:
+                kind === "abandoned"
+                  ? { kind, reason: "claimant-cancelled" }
+                  : kind === "rejected"
+                    ? { kind, code: "validation" }
+                    : { kind },
+            },
+      ),
     };
   }
   function receiptFor(member: OperationAttempt, result: ExecutorResult): ExecutorResult {
     return { ...result, outcomes: result.outcomes.filter((outcome) => outcome.operationId === member.operationId) };
   }
-  async function admit(input: CoordinatorInput, claim: ClaimedOperationReservation, state: OperationJournal) {
+  async function admit(
+    input: CoordinatorInput,
+    claim: ClaimedOperationReservation<ClaimedSubjectOperation>,
+    state: OperationJournal,
+  ) {
     const existingReservation = state.reservations.find((row) => row.reservationId === claim.reservationId);
     if (existingReservation) throw new OperationProtocolError("incomplete-authority");
     const executor = select(claim);
@@ -175,7 +198,9 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         (old.payloadDigest !== operation.payloadDigest ||
           old.state === "acked" ||
           old.operationKind !== operation.operationKind ||
-          old.desiredStateSequence !== operation.desiredStateSequence ||
+          (old.operationKind !== "tcgplayer-order-pull" &&
+            operation.operationKind !== "tcgplayer-order-pull" &&
+            old.desiredStateSequence !== operation.desiredStateSequence) ||
           canonicalJson(old.payload) !== canonicalJson(operation.payload))
       )
         refuse();
@@ -196,11 +221,20 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         operationId: operation.operationId,
         attemptId: operation.attemptId,
         claimGeneration: operation.claimGeneration,
-        desiredStateSequence: operation.desiredStateSequence,
         reservationId: claim.reservationId,
         leaseExpiresAt: claim.leaseExpiresAt,
-        operationKind: operation.operationKind,
-        payload: operation.payload,
+        ...(operation.operationKind === "tcgplayer-order-pull"
+          ? {
+              operationKind: operation.operationKind,
+              payload: operation.payload,
+              scheduleGeneration: operation.scheduleGeneration,
+              ...(old?.operationKind === "tcgplayer-order-pull" && old.handoff ? { handoff: old.handoff } : {}),
+            }
+          : {
+              operationKind: operation.operationKind,
+              payload: operation.payload,
+              desiredStateSequence: operation.desiredStateSequence,
+            }),
         payloadDigest: operation.payloadDigest,
         state: old?.state === "dispatched" ? "outcome-unknown" : (old?.state ?? "prepared"),
         preparedAt: old?.preparedAt ?? instant(),
@@ -222,7 +256,9 @@ export function createConnectorOperationCoordinator(ports: Ports) {
               ...prior,
               attemptId: operation.attemptId,
               claimGeneration: operation.claimGeneration,
-              desiredStateSequence: operation.desiredStateSequence,
+              ...(operation.operationKind === "tcgplayer-order-pull"
+                ? {}
+                : { desiredStateSequence: operation.desiredStateSequence }),
             },
           ],
         },
@@ -320,6 +356,28 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     if (reservation.phase === "acked") return { outcome: "ok" };
     if (reservation.phase === "reported") return report(input, state, reservation);
     let exact = unit(state, reservation);
+    const execution = (operationId: string, signal: AbortSignal) => {
+      const current = () => {
+        const member = state.members.find((row) => row.operationId === operationId);
+        if (!member || member.operationKind !== "tcgplayer-order-pull") refuse();
+        return member;
+      };
+      if (state.members.find((row) => row.operationId === operationId)?.operationKind !== "tcgplayer-order-pull")
+        return undefined;
+      return createOrderPullExecution({
+        current,
+        signal,
+        now: () => ports.clock.now(),
+        fence: async () =>
+          (await authority(input)) === "paired-idle" &&
+          input.reason !== "unpair" &&
+          canonicalJson(await journal.read(input.connectionId)) === canonicalJson(state),
+        save: async (handoff) => {
+          state = await write(input, state, revise(reservation, {}), [revise(current(), { handoff })]);
+          reservation = state.reservations.find((row) => row.reservationId === reservation.reservationId)!;
+        },
+      });
+    };
     const executor = executors.get(reservation.executorKey);
     if (executor?.unit !== "reservation" && ports.clock.now() >= Date.parse(reservation.leaseExpiresAt))
       return { outcome: "unknown" };
@@ -337,7 +395,14 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     }
     if (exact.members.some((member) => member.state === "outcome-unknown")) {
       if ((await authority(input)) === "absent") return { outcome: "unknown" };
-      const reconciled = await executor?.reconcileAmbiguous?.(exact);
+      const recovery = execution(
+        exact.members[0]!.operationId,
+        AbortSignal.timeout(executor?.dispatchDeadlineMs ?? 1000),
+      );
+      if (recovery && ((await authority(input)) !== "paired-idle" || input.reason === "unpair"))
+        return { outcome: "unknown" };
+      const reconciled = await executor?.reconcileAmbiguous?.(exact, recovery);
+      exact = unit(state, reservation);
       if (!reconciled) {
         if (executor?.unit !== "operation") return { outcome: "unknown" };
         const result: ExecutorResult = {
@@ -419,6 +484,20 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       return report(input, state, state.reservations.find((row) => row.reservationId === reservation.reservationId)!);
     }
     const preparedMembers = exact.members.filter((member) => member.state === "prepared");
+    if (
+      preparedMembers.some(
+        (member) =>
+          member.operationKind === "tcgplayer-order-pull" &&
+          (!orderPullFitsLease({
+            budgetMs: member.payload.bounds.budgetMs,
+            at: instant(),
+            leaseExpiresAt: member.leaseExpiresAt,
+          }) ||
+            !orderPullProviderReady(member.payload, instant()) ||
+            member.payload.bounds.budgetMs > executor.dispatchDeadlineMs),
+      )
+    )
+      return { outcome: "unknown" };
     if (executor.unit === "reservation" && preparedMembers.length !== exact.members.length)
       return { outcome: "unknown" };
     const prepared = await executor.prepare({ reservation, members: preparedMembers });
@@ -427,7 +506,9 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       assertTotalResult(result, preparedMembers);
       if (
         result.outcomes.some(
-          (outcome) => outcome.outcome.kind !== "rejected" || outcome.outcome.code !== "validation",
+          (outcome) =>
+            (outcome.outcome.kind !== "rejected" || outcome.outcome.code !== "validation") &&
+            outcome.outcome.kind !== "order-pull-unknown",
         ) ||
         (executor.unit === "reservation" && !result.runSettlement)
       )
@@ -460,7 +541,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         members.map((member) => revise(member, { state: "dispatched", dispatchedAt: instant() })),
       );
       reservation = state.reservations.find((row) => row.reservationId === reservation.reservationId)!;
-      const dispatched = unit(state, reservation).members.filter((member) =>
+      let dispatched = unit(state, reservation).members.filter((member) =>
         members.some((original) => original.operationId === member.operationId),
       );
       if ((await authority(input)) !== "paired-idle") return { outcome: "unknown" };
@@ -469,7 +550,11 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       try {
         result = parseExecutorResult(
           await Promise.race([
-            executor.dispatchOnce({ reservation, members: dispatched }, signal),
+            executor.dispatchOnce(
+              { reservation, members: dispatched },
+              signal,
+              execution(dispatched[0]!.operationId, signal),
+            ),
             new Promise<never>((_resolve, reject) =>
               signal.addEventListener("abort", () => reject(new OperationProtocolError("incomplete-authority")), {
                 once: true,
@@ -477,10 +562,16 @@ export function createConnectorOperationCoordinator(ports: Ports) {
             ),
           ]),
         );
+        dispatched = unit(state, reservation).members.filter((member) =>
+          members.some((original) => original.operationId === member.operationId),
+        );
         assertTotalResult(result, dispatched);
         if (executor.unit === "reservation" && !result.runSettlement) refuse();
         if (signal.aborted) throw new OperationProtocolError("incomplete-authority");
       } catch {
+        dispatched = unit(state, reservation).members.filter((member) =>
+          members.some((original) => original.operationId === member.operationId),
+        );
         await write(
           input,
           state,
@@ -507,7 +598,12 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       if (!input.accessToken || (await authority(input)) === "absent") return { outcome: "unknown" };
       let state = await journal.read(input.connectionId);
       for (const member of state.members)
-        if ((await browserPayloadDigest(member.payload)) !== member.payloadDigest) refuse();
+        if (
+          (await browserPayloadDigest(member.payload)) !== member.payloadDigest ||
+          (member.operationKind === "tcgplayer-order-pull" &&
+            (await browserCheckpointDigest(member.payload)) !== member.payload.checkpointDigest)
+        )
+          refuse();
       const expired = state.reservations
         .filter((row) => row.phase === "acked" && ports.clock.now() >= Date.parse(row.ackedAt!) + 86400000)
         .slice(0, 32);
@@ -529,7 +625,12 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       const seen = new Set<string>();
       for (let count = 0; count < 8; count++) {
         if (input.reason === "unpair" || (await authority(input)) !== "paired-idle") break;
-        const response = await request(input, "claim", {});
+        const capabilities = [...executors.values()].some((executor) =>
+          executor.accepts.some(([kind]) => kind === "tcgplayer-order-pull"),
+        )
+          ? { capabilities: ["tcgplayer-order-pull"] }
+          : {};
+        const response = await request(input, "claim", capabilities);
         if (!response.ok)
           return {
             outcome:
@@ -548,7 +649,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
           refuse();
         pollWindowSeconds = Number(body.pollWindowSeconds);
         if (body.reservation === null) break;
-        let claim: ClaimedOperationReservation;
+        let claim: ClaimedOperationReservation<ClaimedSubjectOperation>;
         try {
           claim = await parseOperationClaim(body.reservation, input.connectionId);
         } catch (error) {

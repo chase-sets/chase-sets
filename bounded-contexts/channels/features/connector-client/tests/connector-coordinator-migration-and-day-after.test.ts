@@ -20,7 +20,7 @@ describe("connector-coordinator-migration-and-day-after", () => {
     old.close();
     for (let boot = 0; boot < 2; boot++) {
       const db = await openConnectorDatabase(indexedDB);
-      expect(db.version).toBe(2);
+      expect(db.version).toBe(3);
       expect([...db.objectStoreNames]).toEqual(["operation-attempts", "raw-exports", "reservations"]);
       db.close();
       expect(await createOperationJournal(indexedDB, IDBKeyRange).read("connection-1")).toEqual({

@@ -16,8 +16,8 @@ and revision fencing remain internal to the slice. Startup and retained install
 reconcile owned records without resetting paired or paused profiles. Missing
 alarm reconciliation is not implemented here; no alarm persistence is assumed.
 The coordinator is inert unless supplied. `createConnectorOperationCoordinator`
-owns the listing-operation journal and executor registry. It uses the same
-`connector-raw-exports` database, additively upgraded to v2 with
+owns the operation journal and executor registry. It uses the same
+`connector-raw-exports` database, additively upgraded to v3 with
 `operation-attempts` and `reservations`. Both stores are enumerated in one
 transaction against independent counts before work; every mutation uses the
 same transaction and retained revisions. Reservation executors commit all
@@ -27,6 +27,14 @@ never repeated. Reconciliation can supply proof, otherwise unbound operations
 report unknown and bound operations retain unknown until settlement can be proven.
 The canonical total report is committed before HTTP and retained unchanged on
 refusal or response loss. Acknowledged rows are inert until 24-hour compaction.
+The optional order-pull handoff retains allocated work and closed admission
+bundles inside that journal. Sale admissions retain exact non-PII bytes;
+fulfillment admissions retain only identity, status, variant and digest for a
+fenced member reread. Captured 202 responses permit report-only recovery, not
+an acceptance claim. Producer-owned accepted references and v2 progress keep
+unread continuation, posted-but-unaccepted pending work and terminal outcomes
+distinct. The existing executor registry exposes this custody boundary without
+activating a provider executor or advancing a local successor.
 The background runs retention first on boot, update, work and unpair, then calls
 the supplied coordinator with current revision-qualified authority. Unpair
 permits reports only and leaves both journal stores intact. Malformed claims

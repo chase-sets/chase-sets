@@ -1,5 +1,6 @@
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import { RetentionError } from "../domain/raw-export-record";
+import { assertHandoffTransition } from "../domain/order-pull-handoff";
 import {
   OperationProtocolError,
   assertTotalResult,
@@ -12,7 +13,7 @@ import {
 } from "../domain/operation-protocol";
 
 export const connectorDatabaseName = "connector-raw-exports";
-export const connectorDatabaseVersion = 2;
+export const connectorDatabaseVersion = 3;
 export const connectorStores = ["raw-exports", "operation-attempts", "reservations"] as const;
 
 export function openConnectorDatabase(indexedDB: IDBFactory): Promise<IDBDatabase> {
@@ -34,15 +35,21 @@ export function openConnectorDatabase(indexedDB: IDBFactory): Promise<IDBDatabas
       const db = request.result;
       if (
         refused ||
-        (event.oldVersion === 1 && (db.objectStoreNames.length !== 1 || !db.objectStoreNames.contains("raw-exports")))
+        (event.oldVersion === 1 &&
+          (db.objectStoreNames.length !== 1 || !db.objectStoreNames.contains("raw-exports"))) ||
+        (event.oldVersion === 2 &&
+          (db.objectStoreNames.length !== connectorStores.length ||
+            connectorStores.some((name) => !db.objectStoreNames.contains(name))))
       ) {
         request.transaction!.abort();
         return;
       }
       if (event.oldVersion === 0)
         db.createObjectStore("raw-exports", { keyPath: "rawExportId" }).createIndex("expiresAt", "expiresAt");
-      db.createObjectStore("operation-attempts", { keyPath: ["connectionId", "operationId"] });
-      db.createObjectStore("reservations", { keyPath: ["connectionId", "reservationId"] });
+      if (event.oldVersion < 2) {
+        db.createObjectStore("operation-attempts", { keyPath: ["connectionId", "operationId"] });
+        db.createObjectStore("reservations", { keyPath: ["connectionId", "reservationId"] });
+      }
     };
     request.onsuccess = () => {
       clearTimeout(timer);
@@ -78,7 +85,8 @@ export function assertCompleteJournal(journal: OperationJournal): void {
       !reservation ||
       !reservation.memberOperationIds.includes(member.operationId) ||
       reservation.connectionId !== member.connectionId ||
-      reservation.leaseExpiresAt !== member.leaseExpiresAt
+      reservation.leaseExpiresAt !== member.leaseExpiresAt ||
+      (member.operationKind === "tcgplayer-order-pull" && reservation.memberOperationIds.length !== 1)
     )
       throw new OperationProtocolError("incomplete-authority");
     if (member.receipt) assertTotalResult(member.receipt, [member]);
@@ -160,6 +168,29 @@ export function createOperationJournal(indexedDB: IDBFactory, ranges: typeof IDB
               for (const row of after) {
                 if (row.connectionId !== connectionId) throw new OperationProtocolError("incomplete-authority");
                 const prior = old.get(id(row));
+                if (prior && "operationKind" in prior && prior.operationKind === "tcgplayer-order-pull") {
+                  if (
+                    !("operationKind" in row) ||
+                    row.operationKind !== "tcgplayer-order-pull" ||
+                    prior.payloadDigest !== row.payloadDigest ||
+                    canonicalJson(prior.payload) !== canonicalJson(row.payload) ||
+                    prior.scheduleGeneration !== row.scheduleGeneration
+                  )
+                    throw new OperationProtocolError("stale-fence");
+                  if (prior.handoff) {
+                    if (!row.handoff) throw new OperationProtocolError("stale-fence");
+                    assertHandoffTransition(prior.handoff, row.handoff);
+                  } else if (
+                    row.handoff &&
+                    (row.handoff.usage.posts !== 0 ||
+                      row.handoff.usage.providerCalls !== 0 ||
+                      row.handoff.progress.postedReferences.length !== 0 ||
+                      row.handoff.bundles.some((bundle) => bundle.posts?.some((post) => post.state !== "planned")) ||
+                      (row.handoff.summary && row.handoff.summary.state !== "planned"))
+                  ) {
+                    throw new OperationProtocolError("stale-fence");
+                  }
+                }
                 if (prior && canonicalJson(prior) === canonicalJson(row)) {
                   old.delete(id(row));
                   continue;
