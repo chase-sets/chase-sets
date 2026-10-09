@@ -7,7 +7,7 @@ import {
   type ExecutorResult,
   type OperationUnit,
 } from "../domain/operation-protocol";
-import { createOperationJournal } from "../integrations/operation-indexeddb";
+import { createOperationJournal } from "../integrations/connector-indexeddb";
 import type { ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
 
 export async function coordinatorFixture(unit: "operation" | "reservation" = "operation") {

@@ -2,7 +2,7 @@ import { canonicalJson } from "../../outbound-sync/domain/validation";
 import { RetentionError } from "./raw-export-record";
 import type { ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
 import type { ConnectorReport } from "../../connector-feed/domain/transport";
-import { createOperationJournal, type OperationJournal } from "../integrations/operation-indexeddb";
+import { createOperationJournal, type OperationJournal } from "../integrations/connector-indexeddb";
 import {
   OperationProtocolError,
   assertTotalResult,
@@ -392,8 +392,30 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       input.reason === "unpair" ||
       ports.clock.now() + executor.dispatchDeadlineMs + 30000 >= Date.parse(reservation.leaseExpiresAt)
     ) {
-      if (executor.unit === "reservation") return { outcome: "unknown" };
-      state = await envelope(input, state, reservation, outcome(exact.members, "abandoned"));
+      if (exact.members.some((member) => !["prepared", "receipt-captured"].includes(member.state)))
+        return { outcome: "unknown" };
+      const settlements = exact.members.flatMap((member) =>
+        member.receipt?.runSettlement ? [member.receipt.runSettlement] : [],
+      );
+      if (
+        (executor.unit === "reservation" && !settlements.length) ||
+        settlements.some((value) => canonicalJson(value) !== canonicalJson(settlements[0]))
+      )
+        return { outcome: "unknown" };
+      const result: ExecutorResult = {
+        outcomes: exact.members.flatMap((member) =>
+          member.state === "prepared"
+            ? outcome([member], "abandoned").outcomes
+            : member.receipt!.outcomes.filter((item) => item.operationId === member.operationId),
+        ),
+        ...(settlements[0] ? { runSettlement: settlements[0] } : {}),
+      };
+      try {
+        assertTotalResult(result, exact.members);
+      } catch {
+        return { outcome: "unknown" };
+      }
+      state = await envelope(input, state, reservation, result);
       return report(input, state, state.reservations.find((row) => row.reservationId === reservation.reservationId)!);
     }
     const preparedMembers = exact.members.filter((member) => member.state === "prepared");

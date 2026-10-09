@@ -1,8 +1,7 @@
 import { IDBDatabase, IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
-import { openConnectorDatabase } from "../integrations/connector-indexeddb";
-import { createOperationJournal } from "../integrations/operation-indexeddb";
+import { createOperationJournal, openConnectorDatabase } from "../integrations/connector-indexeddb";
 import { coordinatorFixture } from "./coordinator-test-support";
 import { backgroundFixture } from "./connector-background-test-support";
 

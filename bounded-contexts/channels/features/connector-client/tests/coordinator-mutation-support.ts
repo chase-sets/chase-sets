@@ -3,11 +3,11 @@ import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import * as validation from "../../outbound-sync/domain/validation";
 import * as protocol from "../domain/operation-protocol";
-import * as journal from "../integrations/operation-indexeddb";
-import * as database from "../integrations/connector-indexeddb";
+import * as journal from "../integrations/connector-indexeddb";
 import * as retention from "../domain/raw-export-record";
 
 type Mutant =
+  | "captured-cancellation-bypass"
   | "prepare-dispatch"
   | "report-invalid"
   | "per-member-batch-transaction"
@@ -31,6 +31,8 @@ function evaluate(source: string, dependencies: Record<string, unknown>): Record
       Response,
       AbortSignal,
       TextEncoder,
+      setTimeout,
+      clearTimeout,
       crypto: globalThis.crypto,
       require: (specifier: string) => {
         if (!Object.hasOwn(dependencies, specifier)) throw new Error(`coordinator-mutant-import-unbound: ${specifier}`);
@@ -45,6 +47,12 @@ export function mutatedCoordinator(
 ): typeof import("../domain/operation-coordinator").createConnectorOperationCoordinator {
   let source = readFileSync(new URL("../domain/operation-coordinator.ts", import.meta.url), "utf8");
   let journalModule: unknown = journal;
+  if (mutant === "captured-cancellation-bypass")
+    source = replace(
+      source,
+      'member.state === "prepared"\n            ? outcome([member], "abandoned").outcomes',
+      'true\n            ? outcome([member], "abandoned").outcomes',
+    );
   if (mutant === "prepare-dispatch") source = replace(source, "if (!prepared.ready)", "if (false)");
   if (mutant === "per-member-batch-transaction")
     source = replace(
@@ -73,7 +81,7 @@ export function mutatedCoordinator(
     }`,
     );
   if (mutant === "completeness-bypass" || mutant === "fence-removed") {
-    let changed = readFileSync(new URL("../integrations/operation-indexeddb.ts", import.meta.url), "utf8");
+    let changed = readFileSync(new URL("../integrations/connector-indexeddb.ts", import.meta.url), "utf8");
     if (mutant === "completeness-bypass")
       changed = replace(changed, "rows.some((values, index) => counts[index] !== values.length)", "false");
     else {
@@ -82,14 +90,14 @@ export function mutatedCoordinator(
     }
     journalModule = evaluate(changed, {
       "../../outbound-sync/domain/validation": validation,
-      "./connector-indexeddb": database,
+      "../domain/raw-export-record": retention,
       "../domain/operation-protocol": protocol,
     });
   }
   const result = evaluate(source, {
     "../../outbound-sync/domain/validation": validation,
     "./raw-export-record": retention,
-    "../integrations/operation-indexeddb": journalModule,
+    "../integrations/connector-indexeddb": journalModule,
     "./operation-protocol": protocol,
   });
   if (typeof result.createConnectorOperationCoordinator !== "function")

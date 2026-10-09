@@ -5,6 +5,28 @@ import { mutatedCoordinator } from "./coordinator-mutation-support";
 
 afterEach(() => vi.restoreAllMocks());
 describe("connector-coordinator discriminating controls", () => {
+  it.each([false, true])("captured-cancellation bypass=%s changes the retained-success witness", async (bypass) => {
+    const f = await coordinatorFixture();
+    f.claims[0] = {
+      ...f.claim,
+      operations: [f.claim.operations[0], { ...f.claim.operations[0], operationId: "operation-2" }],
+    };
+    f.dispatchOnce.mockImplementation(async (work) => {
+      f.setAuthority("report-only");
+      return f.result(work);
+    });
+    await f.coordinator().coordinate(f.input);
+    expect((await f.journal.read(f.input.connectionId)).members.map((member) => member.state)).toEqual([
+      "receipt-captured",
+      "prepared",
+    ]);
+    await (bypass ? mutatedCoordinator("captured-cancellation-bypass")(f.ports) : f.coordinator()).coordinate(f.input);
+    expect(JSON.parse(f.reports[0]).outcomes.map((item: { outcome: { kind: string } }) => item.outcome.kind)).toEqual(
+      bypass ? ["abandoned", "abandoned"] : ["applied", "abandoned"],
+    );
+    expect(f.dispatchOnce).toHaveBeenCalledTimes(1);
+    expect((await f.journal.read(f.input.connectionId)).reservations[0].phase).toBe("acked");
+  });
   it.each([false, true])("prepare-dispatch bypass=%s changes the zero-dispatch witness", async (bypass) => {
     const f = await coordinatorFixture();
     f.prepare.mockImplementation(async (work) => ({

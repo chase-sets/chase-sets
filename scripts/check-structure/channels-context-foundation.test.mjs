@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -53,6 +62,33 @@ const requiredReadmeSections = [
   "## Invariants",
 ];
 const tempRoots = [];
+
+it("changed claim-to-prepared persistence trace opens at most three non-test files", () => {
+  const root = path.join(channelsRoot, "features/connector-client");
+  const journalPath = existsSync(path.join(root, "integrations/operation-indexeddb.ts"))
+    ? "integrations/operation-indexeddb.ts"
+    : "integrations/connector-indexeddb.ts";
+  const anchors = [
+    [
+      "domain/operation-coordinator.ts",
+      "claim = await parseOperationClaim(body.reservation, input.connectionId);",
+      "return journal.change(input.connectionId, state, {",
+      `from "../${journalPath.replace(/\.ts$/, "")}"`,
+    ],
+    ["domain/operation-protocol.ts", "export async function parseOperationClaim"],
+    [journalPath, "const db = await openConnectorDatabase(indexedDB);", "store.put(row);"],
+    [
+      "integrations/connector-indexeddb.ts",
+      "export function openConnectorDatabase",
+      "indexedDB.open(connectorDatabaseName, connectorDatabaseVersion)",
+    ],
+  ];
+  for (const [file, ...tokens] of anchors) {
+    const source = readFileSync(path.join(root, file), "utf8");
+    for (const token of tokens) expect(source).toContain(token);
+  }
+  expect([...new Set(anchors.map(([file]) => file))]).toHaveLength(3);
+});
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
@@ -118,7 +154,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector|operation)-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/(?:raw-export|connector)-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -741,17 +777,14 @@ describe("channels-foundation-deployable-registration", () => {
 });
 
 describe("channels-foundation-surface-fence", () => {
-  it.each(["connector-indexeddb.ts", "operation-indexeddb.ts"])(
-    "admits the exact connector coordination integration %s",
-    (file) => {
-      expect(
-        collectChannelsSurfaceViolations(readJson(manifestPath), [
-          ...listFiles(channelsRoot),
-          `features/connector-client/integrations/${file}`,
-        ]),
-      ).toEqual([]);
-    },
-  );
+  it.each(["connector-indexeddb.ts"])("admits the exact connector coordination integration %s", (file) => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        `features/connector-client/integrations/${file}`,
+      ]),
+    ).toEqual([]);
+  });
   it("admits exactly the ruled raw-export IndexedDB integration", () => {
     expect(
       collectChannelsSurfaceViolations(readJson(manifestPath), [
@@ -773,6 +806,7 @@ describe("channels-foundation-surface-fence", () => {
   );
 
   it.each([
+    "integrations/operation-indexeddb.ts",
     "integrations/synthetic-forbidden-sibling/worker.js",
     "integrations/raw-export-indexeddb.ts.backup",
     "integrations/raw-export-indexeddb.ts/extra.ts",
