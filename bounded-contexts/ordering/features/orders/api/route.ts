@@ -34,7 +34,7 @@ function requireOrderAccess(
     };
   }
 
-  if (!actor.permissions.includes(permission)) {
+  if (!actor.permissions.includes(permission) && actor.roleKey !== "guest-buyer") {
     if (options.allowGuestCheckout && actor.permissions.includes("guest-checkout.manage")) {
       return { actor, response: null };
     }
