@@ -7,6 +7,7 @@ import {
   assertOrderPullAuthority,
   assertOrderPullOutcomeMatchesPayload,
   assertOrderPullPayload,
+  deriveOrderPullId,
   orderPullFitsLease,
   orderPullUnknownReasons,
   resolveOrderPullBudget,
@@ -16,12 +17,14 @@ import {
   advanceOrderPullTraversal,
   assertOrderPullChunk,
   assertOrderPullProgress,
+  orderPullCheckpointDigest,
   orderPullProgressKind,
   type OrderPullTraversal,
 } from "../domain/order-pull-progress";
 import {
   acceptedReadyToShipInputByteLimit,
   acceptedReadyToShipReferenceLimit,
+  assertAcceptedReadyToShipQuery,
 } from "../../order-fulfillment-observations/domain/contracts";
 import { assertClaimedSubjectOutcome, payloadDigest } from "../domain/validation";
 import {
@@ -209,6 +212,55 @@ describe("closed bounded owner-compatible payload and report", () => {
     expect(size()).toBe(acceptedReadyToShipInputByteLimit + 1);
     expect(() => assertOrderPullChunk(connection, large)).toThrow();
   });
+  it.each(["report", "traversal", "posted references"] as const)(
+    "admits a one-scalar connection's exact 262144-byte owner request through %s",
+    (boundary) => {
+      const { payload, references, page, report } = syntheticExactCapReport();
+      expect(
+        Buffer.byteLength(JSON.stringify({ connectionId: payload.connectionId, orderReferences: references })),
+      ).toBe(262144);
+      expect(() =>
+        assertAcceptedReadyToShipQuery({ connectionId: payload.connectionId, orderReferences: references }),
+      ).not.toThrow();
+      expect(() => assertOrderPullPayload(payload)).not.toThrow();
+      expect(() => assertOrderPullOutcomeMatchesPayload(report, payload)).not.toThrow();
+      if (boundary === "report") expect(() => assertClaimedOrderPullOutcome(report)).not.toThrow();
+      if (boundary === "traversal")
+        expect(advanceOrderPullTraversal(payload.selector, null, page)).toMatchObject({
+          discovered: 1000,
+          pages: 1,
+          exhausted: false,
+          nextCursor: "synthetic-next",
+        });
+      if (boundary === "posted references")
+        expect(() =>
+          assertOrderPullProgress(syntheticProgress(payload, { pages: [], postedReferences: references })),
+        ).not.toThrow();
+    },
+  );
+  it.each(["262145 bytes", "1001 references"] as const)("refuses a short-ID request with %s", (boundary) => {
+    const { payload, references, page, report } = syntheticExactCapReport();
+    if (boundary === "262145 bytes") {
+      references[0] += "x";
+      expect(
+        Buffer.byteLength(JSON.stringify({ connectionId: payload.connectionId, orderReferences: references })),
+      ).toBe(262145);
+    } else {
+      references.splice(0, references.length, ...Array.from({ length: 1001 }, (_, i) => `SYNTHETIC-${i}`));
+    }
+    expect(() => assertOrderPullChunk(payload.connectionId, references)).toThrow();
+    expect(() => assertOrderPullOutcomeMatchesPayload(report, payload)).toThrow();
+    expect(() => assertClaimedOrderPullOutcome(report)).toThrow();
+    expect(() => advanceOrderPullTraversal(payload.selector, null, page)).toThrow();
+    expect(() =>
+      assertOrderPullProgress(syntheticProgress(payload, { pages: [], postedReferences: references })),
+    ).toThrow();
+  });
+  it("retains the real connection overhead when matching an otherwise valid exact-cap report", () => {
+    const { payload, report } = syntheticExactCapReport();
+    expect(() => assertClaimedOrderPullOutcome(report)).not.toThrow();
+    expect(() => assertOrderPullOutcomeMatchesPayload(report, { ...payload, connectionId: "SS" })).toThrow();
+  });
   it("round-trips progress outcomes and unknown reasons; binds checkpoint, selector, counts and membership", () => {
     const payload = syntheticPayload();
     expect(() => assertOrderPullPayload(payload)).not.toThrow();
@@ -270,3 +322,41 @@ describe("closed bounded owner-compatible payload and report", () => {
     expect(coordinator).not.toMatch(/channel_fulfillment_orders|channel_connector_inbound|provider_order_status/);
   });
 });
+
+function syntheticExactCapReport() {
+  const connectionId = "S"; // Synthetic minimum-overhead identity, not provider authority.
+  const references = Array.from({ length: 1000 }, (_, i) => `${String(i).padStart(4, "0")}${"\u4e00".repeat(86)}`);
+  const bytes = () => Buffer.byteLength(JSON.stringify({ connectionId, orderReferences: references }), "utf8");
+  while (bytes() > acceptedReadyToShipInputByteLimit) {
+    const index = references.findIndex((reference) => reference.endsWith("\u4e00"));
+    references[index] = references[index]!.slice(0, -1);
+  }
+  references[0] += "x".repeat(acceptedReadyToShipInputByteLimit - bytes());
+  const pullId = deriveOrderPullId(connectionId, 1);
+  const selector = { ...authority.selector, pageSize: 1000 };
+  const checkpoint = { ...syntheticPayload().checkpoint, burstId: pullId, selector };
+  const payload = syntheticPayload({
+    connectionId,
+    pullId,
+    selector,
+    checkpoint,
+    checkpointDigest: orderPullCheckpointDigest(checkpoint),
+  });
+  const page = syntheticPage(references, { totalOrders: 1001, nextCursor: "synthetic-next" });
+  const report: ClaimedOrderPullOutcome = {
+    operationKind: "tcgplayer-order-pull",
+    operationId: "synthetic-operation",
+    attemptId: "synthetic-attempt",
+    claimGeneration: 1,
+    pullId,
+    payloadDigest: payloadDigest(payload),
+    outcome: {
+      kind: "continuation-required",
+      lawVersion: payload.lawVersion,
+      selector,
+      admissionCounts: { readyToShipMembers: 0, followUpReads: 0, admitted: 0 },
+      progress: syntheticProgress(payload, { pages: [page] }),
+    },
+  };
+  return { payload, references, page, report };
+}

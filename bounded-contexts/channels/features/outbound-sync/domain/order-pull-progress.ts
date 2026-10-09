@@ -13,6 +13,10 @@ export const orderPullChunkReferenceLimit = acceptedReadyToShipReferenceLimit;
 export const orderPullChunkInputByteLimit = acceptedReadyToShipInputByteLimit;
 export const orderPullProgressByteLimit = 1_048_576;
 
+// Preliminary structural checks use the smallest admissible JSON ID overhead.
+// Matching, owner reads and persistence still validate the actual connection's complete request.
+const minimumConnectionId = "S";
+
 export type OrderPullTraversal = Readonly<{
   sessionDigest: string;
   frontier: string;
@@ -158,14 +162,14 @@ export function assertOrderPullProgress(value: unknown): asserts value is OrderP
     cursor(page.cursor);
     cursor(page.nextCursor);
     if (page.totalOrders !== null) integer(page.totalOrders, 0);
-    assertOrderPullChunk("codec", page.orderReferences);
+    assertOrderPullChunk(minimumConnectionId, page.orderReferences);
     if (page.everyRowReadyToShip !== true) fail("Unqualified page rows.");
   }
-  assertOrderPullChunk("codec", progress.postedReferences);
+  assertOrderPullChunk(minimumConnectionId, progress.postedReferences);
   if (!Array.isArray(progress.gaps) || progress.gaps.length > orderPullChunkReferenceLimit) fail("Invalid gaps.");
   for (const value of progress.gaps) {
     const gap = record(value, ["reference", "reason"]);
-    assertOrderPullChunk("codec", [gap.reference]);
+    assertOrderPullChunk(minimumConnectionId, [gap.reference]);
     if (!orderPullGapReasons.includes(gap.reason as never)) fail("Invalid qualified gap.");
   }
   const gaps = progress.gaps as OrderPullProgress["gaps"];
