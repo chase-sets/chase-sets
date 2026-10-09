@@ -264,13 +264,17 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     const ignoreMissing = workflow();
     ignoreMissing.jobs["staging-provider-uat"].steps.at(-1).with["if-no-files-found"] = "ignore";
     expect(() => assertReceiptUploadGated(ignoreMissing)).toThrow();
-    const raw = inspectPlaywrightArtifactUploadCorpus({
-      [workflowFile]: workflowSource.replace(
-        `path: ${scopeSyncBatchPreviewProbeArtifactPath}`,
-        "path: artifacts/playwright/test-results",
-      ),
-    });
+    const corpus = Object.fromEntries(
+      fence.census.files.map((file) => [file, readFileSync(resolve(file), "utf8")]),
+    );
+    expect(inspectPlaywrightArtifactUploadCorpus(corpus).status).toBe("pass");
+    corpus[workflowFile] = workflowSource.replace(
+      `path: ${scopeSyncBatchPreviewProbeArtifactPath}`,
+      "path: artifacts/playwright/test-results",
+    );
+    const raw = inspectPlaywrightArtifactUploadCorpus(corpus);
     expect(raw.status).toBe("fail");
+    expect(raw.findings.map((finding) => finding.file)).toEqual([workflowFile]);
   });
 
   it("pre-upload validation refuses absent, masked, malformed, unbound and credential-bearing receipts", () => {
