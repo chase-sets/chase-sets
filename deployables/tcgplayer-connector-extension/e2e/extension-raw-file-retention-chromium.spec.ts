@@ -209,18 +209,79 @@ test("extension-raw-file-retention-chromium acceptance and unpair", async () => 
 });
 
 test("extension-raw-file-retention-chromium deadline-cleared mutant is caught independently of read refusal", async () => {
-  const { context, worker } = await launchRetention();
+  const candidate = await launchRetention();
+  const arms = [candidate];
+  const phases: unknown[] = [];
   try {
-    const time = await prepareRetention(worker);
-    await clockAt(worker, time.deadline);
-    await worker.evaluate(() => chrome.alarms.clear("connector-retention-deadline"));
-    const uncleared = await observeRetention(worker);
-    expect(uncleared.R).toBe(false);
-    expect(() => expect(uncleared.ciphertext).toBe(false)).toThrow();
-    await retentionCallback(worker);
-    expect((await observeRetention(worker)).ciphertext).toBe(false);
+    arms.push(await launchRetention());
+    const before = Date.now();
+    for (const { worker } of arms) {
+      await clockAt(worker, before);
+      const time = await prepareRetention(worker);
+      expect(time).toEqual({ before, deadline: before + 86400000 });
+      await clockAt(worker, time.deadline);
+      const observation = await observeRetention(worker);
+      phases.push({ phase: "before-callback", observedAtUtc: new Date().toISOString(), ...observation });
+      expect(observation).toMatchObject({ R: false, ciphertext: true });
+    }
+    const callbackAt = Date.now() + 3000;
+    const windowEnd = callbackAt + 3000;
+    const callbacks = await Promise.all(
+      arms.map(({ worker }, index) =>
+        worker.evaluate(
+          async ({ callbackAt, windowEnd, clearDeadline }) => {
+            const deadlineName = "connector-retention-deadline";
+            const windowName = "synthetic-retention-control-window-7922";
+            let deadlineCallbacks = 0;
+            const window = new Promise<void>((resolve) => {
+              const listener = (alarm: chrome.alarms.Alarm) => {
+                if (alarm.name === deadlineName) deadlineCallbacks++;
+                if (alarm.name === windowName) {
+                  chrome.alarms.onAlarm.removeListener(listener);
+                  resolve();
+                }
+              };
+              chrome.alarms.onAlarm.addListener(listener);
+            });
+            await chrome.alarms.create(deadlineName, { when: callbackAt });
+            const scheduledTime = (await chrome.alarms.get(deadlineName))?.scheduledTime;
+            await chrome.alarms.create(windowName, { when: windowEnd });
+            if (clearDeadline) await chrome.alarms.clear(deadlineName);
+            await window;
+            return { scheduledTime, deadlineCallbacks };
+          },
+          { callbackAt, windowEnd, clearDeadline: index === 1 },
+        ),
+      ),
+    );
+    // Neither arm schedules a replacement deadline callback after the mutation.
+    const assertCleanup = (observation: Awaited<ReturnType<typeof observeRetention>>) =>
+      expect(observation.ciphertext).toBe(false);
+    const observations: Awaited<ReturnType<typeof observeRetention>>[] = [];
+    for (const [index, { worker }] of arms.entries()) {
+      const observation = await observeRetention(worker);
+      phases.push({
+        phase: index === 0 ? "candidate-window-end" : "cleared-deadline-window-end",
+        observedAtUtc: new Date().toISOString(),
+        callbackAt,
+        windowEnd,
+        ...callbacks[index],
+        ...observation,
+      });
+      expect(callbacks[index]?.scheduledTime).toBe(callbackAt);
+      expect(observation.R).toBe(false);
+      observations.push(observation);
+    }
+    assertCleanup(observations[0]!);
+    expect(() => assertCleanup(observations[1]!)).toThrow();
   } finally {
-    await context.close();
+    const evidence = resolve(import.meta.dirname, "../../../artifacts/7922-retention");
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(
+      resolve(evidence, "deadline-cleared.json"),
+      JSON.stringify({ digest: productDigest(), phases }, null, 2),
+    );
+    await Promise.all(arms.map(({ context }) => context.close()));
   }
 });
 

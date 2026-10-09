@@ -75,3 +75,28 @@ it("each transition terminal stimulus owns its installation cycle", () => {
   expect(concurrent).toBeGreaterThan(cycle);
   expect(source.slice(signals, source.indexOf('stage("15-peer-holder")'))).toContain("`${name}-${signal}`");
 });
+
+it("a removal census refusal reproduces ready-outer cleanup failure without reinstall or readmission", async () => {
+  execute.mockClear();
+  admit.mockClear();
+  // Synthetic bytes from the two shell emitters, not recovered historical output.
+  const stdout = Buffer.from(
+    "provider-boundary-cleanup-stage:remove-installation\n" +
+      "provider-boundary-installer-stage:source-location\n" +
+      "provider-boundary-installer-stage:remove-ownership\n" +
+      "provider-boundary-cleanup-installer-status:1\n",
+  );
+  const stderr = Buffer.from(
+    "provider-boundary-installer-refused:remove-ownership-census\n" +
+      "provider-boundary-cleanup-refused:remove-installation\n",
+  );
+  expect([stdout.length, stderr.length]).toEqual([198, 114]);
+  execute.mockRejectedValueOnce({ code: 1, stdout, stderr });
+  const output = vi.spyOn(console, "error").mockImplementation(() => {});
+  await expect(installationCycle("ready-outer")).rejects.toThrow("per-case-installation-incomplete");
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(admit).not.toHaveBeenCalled();
+  expect(output).toHaveBeenCalledWith(
+    'installed-boundary per-case ready-outer cleanup: FAIL; {"status":1,"signal":null,"stdoutBytes":198,"stderrBytes":114,"redacted":true,"truncated":false}',
+  );
+});

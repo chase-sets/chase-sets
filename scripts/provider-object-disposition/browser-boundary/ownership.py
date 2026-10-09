@@ -37,7 +37,8 @@ def parse_stat(text, pid):
     start, parent, flags = int(fields[19]), int(fields[1]), int(fields[6])
     if start < 0 or parent < 0 or flags < 0:
         raise CensusError()
-    return {'pid': pid, 'parent': parent, 'start': start, 'state': fields[0], 'kernel': bool(flags & 0x200000)}
+    return {'pid': pid, 'parent': parent, 'start': start, 'state': fields[0],
+            'kernel': bool(flags & 0x200000), 'exiting': bool(flags & 0x4)}
 
 
 def classify(previous, current, uid, image, initial, target_device):
@@ -102,18 +103,28 @@ def snapshot():
                 record['path'] = os.readlink(path / 'exe')
             except FileNotFoundError:
                 if record['state'] != 'Z' and not record['kernel']:
-                    raise CensusError()
+                    raise
                 record['image'], record['path'] = None, ''
             reread = parse_stat(bounded_read(path / 'stat'), pid)
-            if reread['start'] != record['start']:
+            if any(reread[key] != record[key] for key in ('start', 'kernel')):
                 raise CensusError()
-        except OSError:
-            # Only a missing stat proves disappearance. Other missing fields do not.
+            # Reparenting is not a new identity; keep the parent seen last.
+            record['parent'] = reread['parent']
+        except OSError as error:
+            # A missing field alone is not exit proof. A terminal stat must still
+            # identify the same process, not a replacement or reparented owner.
+            # A released task can surface as EACCES on its exe/ns links; only a
+            # missing stat accepts that, never a still-present process.
             try:
-                bounded_read(path / 'stat')
+                terminal = parse_stat(bounded_read(path / 'stat'), pid)
             except OSError as gone:
                 if gone.errno in (errno.ENOENT, errno.ESRCH):
                     continue
+                raise CensusError()
+            if (error.errno in (errno.ENOENT, errno.ESRCH) and
+                    all(terminal[key] == record[key] for key in ('start', 'parent', 'kernel')) and
+                    (terminal['state'] in ('Z', 'X') or terminal['exiting'])):
+                continue
             raise CensusError()
         result[pid] = record
         if time.monotonic() - started > 1:
