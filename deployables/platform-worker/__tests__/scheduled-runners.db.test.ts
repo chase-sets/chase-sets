@@ -44,7 +44,8 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-const EXPECTED_REGISTERED_RUNNER_COUNT = 28;
+// 33 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
@@ -60,6 +61,7 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
   leaseTtlMs: 30_000,
   paymentReconciliationIntervalMs: 1,
   paymentDeadlineSweepIntervalMs: 1,
+  channelsConnectorLivenessSweepIntervalMs: 1,
   supportRequestDeadlineSweepIntervalMs: 1,
   customerFeedbackAttentionDigestIntervalMs: 1,
   customerFeedbackAttentionTeamRecipientUserIds: [],
@@ -189,7 +191,8 @@ describeDatabase("registered platform-worker scheduled runners", () => {
   it("keeps the complete production registration set enumerable", () => {
     const names = registeredRunners.map((runner) => runner.name);
 
-    expect(registeredRunners.length).toBeGreaterThanOrEqual(EXPECTED_REGISTERED_RUNNER_COUNT);
+    expect(registeredRunners.length).toBe(EXPECTED_REGISTERED_RUNNER_COUNT);
+    expect(names.filter((name) => name === "channels.connector-liveness-sweep")).toHaveLength(1);
     expect(new Set(names).size).toBe(names.length);
   });
 

@@ -85,6 +85,7 @@ const envNames = [
   "DATABASE_POOL_CONNECTION_TIMEOUT_MS",
   "PAYMENT_RECONCILIATION_INTERVAL_MS",
   "PAYMENT_DEADLINE_SWEEP_INTERVAL_MS",
+  "CHANNELS_CONNECTOR_LIVENESS_SWEEP_INTERVAL_MS",
   "SELLER_AVAILABILITY_RESTORE_SWEEP_INTERVAL_MS",
   "SELLER_AWAY_WINDOW_START_SWEEP_INTERVAL_MS",
   "SELLER_FUNDS_RELEASE_INTERVAL_MS",
@@ -176,6 +177,17 @@ afterEach(() => {
 });
 
 describe("platform worker config", () => {
+  it.each([
+    [undefined, 60_000],
+    ["120000", 120_000],
+    ["0", null],
+    ["-1", null],
+  ])("configures connector liveness interval %s as %s", (value, expected) => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    if (value !== undefined) process.env.CHANNELS_CONNECTOR_LIVENESS_SWEEP_INTERVAL_MS = value;
+    expect(loadConfig().channelsConnectorLivenessSweepIntervalMs).toBe(expected);
+  });
+
   it("carries the normalized deployment environment into Settlement bootstrap selection", () => {
     process.env.DATABASE_URL = "postgresql://localhost:5432/local";
     process.env.DEPLOYMENT_ENVIRONMENT = "Staging";
