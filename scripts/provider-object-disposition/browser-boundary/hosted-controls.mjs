@@ -14,6 +14,7 @@ import { peerControls } from "./peer-controls.mjs";
 import { withOwnershipStimulus } from "./ownership-controls.mjs";
 import { browserLifecycleControls } from "./browser-lifecycle-controls.mjs";
 import { installationCycle, withInstallationCycle } from "./installation-cycle.mjs";
+import { assertIdentitySurvival } from "./identity-controls.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -23,6 +24,35 @@ const input = "/usr/local/lib/chase-sets-provider-window-input";
 const environment = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", LANG: "C", LC_ALL: "C" };
 let control = "host-admission";
 const pass = (id) => console.log(`installed-boundary control ${id}: PASS`);
+
+async function launchIdentities(mode, value) {
+  try {
+    const { stdout, stderr } = await execute(
+      "/usr/bin/sudo",
+      [
+        "-n",
+        "/usr/bin/python3",
+        `${input}/scripts/provider-object-disposition/browser-boundary/identity-controls.py`,
+        mode,
+        ...(mode === "baseline" ? [String(process.pid), String(value)] : [value.map(({ pid }) => pid).join(",")]),
+      ],
+      { env: environment, timeout: 1000, maxBuffer: 4096 },
+    );
+    assert.equal(stderr, "");
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error(
+      `installed-boundary identity-observer:${JSON.stringify({
+        mode,
+        status: Number.isInteger(error.code) ? error.code : null,
+        exact: error.stderr === "provider-boundary-identity-refused\n",
+        redacted: true,
+        truncated: error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+      })}`,
+    );
+    throw new Error("identity-observer-failed");
+  }
+}
 
 async function tree() {
   const { stdout, stderr } = await execute("/usr/bin/sudo", ["-n", "/usr/bin/python3", observer, String(process.pid)], {
@@ -80,24 +110,9 @@ async function installationIdentity(inputLink = false) {
 }
 
 async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
-  // The cap control intentionally makes the bounded global observer refuse.
-  // Re-read only the browser identities recorded BEFORE constructing its leaves;
-  // this is survival evidence, not a successful or enlarged global census.
-  const survivalRecords = async () => {
-    if (id !== "13g") return tree();
-    assert.ok(owned.length <= 256);
-    return Promise.all(
-      owned.map(async ({ pid }) => {
-        const value = await readFile(`/proc/${pid}/stat`, "utf8");
-        const fields = value
-          .slice(value.lastIndexOf(") ") + 2)
-          .trim()
-          .split(/\s+/);
-        assert.notEqual(fields[0], "Z");
-        return { pid, parent: Number(fields[1]), start: Number(fields[19]) };
-      }),
-    );
-  };
+  // Survival is a reread of the readiness-bound L/I1/browser identities, never
+  // a second global census or a replacement baseline under the cap stimulus.
+  const survivalRecords = () => launchIdentities("survival", owned);
   const missingFrom = (records) =>
     owned
       .filter(
@@ -107,15 +122,21 @@ async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
               r.pid === record.pid &&
               r.start === record.start &&
               r.parent === record.parent &&
-              (id === "13g" || r.image === record.image),
+              r.image === record.image &&
+              r.device === record.device &&
+              r.inode === record.inode,
           ),
       )
       .map(({ pid, start, parent, image }) => ({ pid, start, parent, image }));
   control = `${id}-${mode}-installation-before`;
   const before = await installationIdentity(stage === "input-not-symlink");
   control = `${id}-${mode}-identity-before`;
-  const missingBeforeRemoval = missingFrom(await survivalRecords());
-  assert.deepEqual(missingBeforeRemoval, []);
+  const beforeRemoval = await survivalRecords();
+  const missingBeforeRemoval = missingFrom(beforeRemoval);
+  console.log(
+    `installed-boundary control ${id} identity-before:${JSON.stringify({ mode, beforeCount: owned.length, missingBeforeRemoval })}`,
+  );
+  assertIdentitySurvival(owned, beforeRemoval);
   control = `${id}-${mode}-refusal`;
   if (id === "13g") {
     const limits = await readFile(`/proc/${censusOwner.pid}/limits`, "utf8");
@@ -178,7 +199,7 @@ async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
       missingAfterRemoval: missing,
     })}`,
   );
-  assert.deepEqual(missing, []);
+  assertIdentitySurvival(owned, after);
   for (const context of contexts) {
     control = `${id}-${mode}-new-page`;
     const page = await context.newPage();
@@ -193,7 +214,7 @@ async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
 
 async function missingOwnerKey(contexts, mode) {
   control = `13d-${mode}-identity-baseline`;
-  const owned = await tree();
+  const owned = await launchIdentities("baseline", contexts.length);
   const stimulus = `${input}/scripts/provider-object-disposition/browser-boundary/hosted-stimulus.py`;
   const mutate = async (action) => {
     const { stdout, stderr } = await execute("/usr/bin/sudo", ["-n", "/usr/bin/python3", stimulus, action], {
@@ -248,6 +269,7 @@ async function ownerCase(id, count, test) {
     let owned = [];
     let primary;
     try {
+      control = `${id}-browser-readiness`;
       for (let index = 0; index < count; index++) {
         const browser = await openConfinedBrowser();
         browsers.push(browser);
@@ -256,7 +278,8 @@ async function ownerCase(id, count, test) {
         const page = await context.newPage();
         await page.setContent("<!doctype html><title>SYNTHETIC_OWNER_CASE</title>");
       }
-      owned = await tree();
+      control = `${id}-identity-baseline`;
+      owned = await launchIdentities("baseline", count);
       await test(contexts, owned);
     } catch (error) {
       primary = error;
@@ -371,8 +394,9 @@ async function ownershipCases() {
       assert.equal(stdout, "provider-boundary-owned-realpath:target-input-refusal-order-bypass:PASS\n");
       assert.equal(stderr, "");
       assert.deepEqual(await installationIdentity(), before);
-      const after = await tree();
-      for (const record of owned) assert.ok(after.some((r) => r.pid === record.pid && r.start === record.start));
+      control = `13h-owned-realpath-${count ? "concurrent-live" : "alone"}-identity-survival`;
+      const after = await launchIdentities("survival", owned);
+      assertIdentitySurvival(owned, after);
       for (const context of contexts) {
         const page = await context.newPage();
         await page.setContent("<!doctype html><title>SYNTHETIC_REALPATH_SURVIVAL</title>");

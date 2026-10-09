@@ -121,8 +121,21 @@ it("missing-key survival binds its own pre-stimulus snapshot, not the preceding 
     controls.indexOf("async function setupNamesAbsent("),
   );
   expect(missing).toContain("missingOwnerKey(contexts, mode)");
-  expect(missing).toContain("const owned = await tree();");
-  expect(missing.indexOf("const owned = await tree();")).toBeLessThan(missing.indexOf('await mutate("apply")'));
+  const baseline = 'const owned = await launchIdentities("baseline", contexts.length);';
+  expect(missing).toContain(baseline);
+  expect(missing.indexOf(baseline)).toBeLessThan(missing.indexOf('await mutate("apply")'));
   expect(missing).toContain('await ownerRefusal(contexts, owned, mode, "remove-ownership-census", "13d")');
-  expect(controls).toContain("assert.deepEqual(missing, []);");
+  const refusal = controls.slice(
+    controls.indexOf("async function ownerRefusal("),
+    controls.indexOf("async function missingOwnerKey("),
+  );
+  expect(refusal).toContain('const survivalRecords = () => launchIdentities("survival", owned);');
+  expect(refusal).toContain("assertIdentitySurvival(owned, beforeRemoval);");
+  expect(refusal).toContain("assertIdentitySurvival(owned, after);");
+  expect(refusal.indexOf("assertIdentitySurvival(owned, beforeRemoval);")).toBeLessThan(
+    refusal.indexOf('await execute("/bin/bash"'),
+  );
+  expect(refusal.indexOf("assertIdentitySurvival(owned, after);")).toBeGreaterThan(
+    refusal.indexOf('await execute("/bin/bash"'),
+  );
 });

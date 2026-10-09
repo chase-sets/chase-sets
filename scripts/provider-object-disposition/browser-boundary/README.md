@@ -88,6 +88,15 @@ shared ledger and shared FD table retains leaf ownership if the shard dies.
 The guardian subreaps and retires only those leaves through their pidfds; EOF
 cancels construction/lifetime and the unchanged 2000ms drain bounds retirement.
 No inherited resource limit or production census bound is raised.
+Control 13 records the readiness-bound L/I1/main-Chromium chain, not every
+short-lived Chromium startup helper as a permanent identity. The read-only
+`identity-controls.py` discovers that exact parent chain and then rereads only
+its recorded PIDs before and after refusal, including start, parent and executable
+device/inode. Missing, dead, reparented or replaced identities fail; the baseline
+is never refreshed to hide loss. Functional `newPage` and installation/refusal
+checks remain separate. The full descendant confinement observer and production
+ownership census are unchanged. The synthetic identity-loss negatives exercise
+each required role; startup-helper churn is a separate discovery fixture.
 The complete AC-D3 matrix is not yet discharged. A green subset is not
 AC-B1..B5 PASS; exact-head hosted logs, not this inventory, provide proof.
 
