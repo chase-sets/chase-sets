@@ -111,7 +111,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/order-authority-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/raw-export-indexeddb\.ts$|integrations\/order-authority-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -733,6 +733,14 @@ describe("channels-foundation-deployable-registration", () => {
 });
 
 describe("channels-foundation-surface-fence", () => {
+  it("admits exactly the ruled raw-export IndexedDB integration", () => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        "features/connector-client/integrations/raw-export-indexeddb.ts",
+      ]),
+    ).toEqual([]);
+  });
   it.each(["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"])(
     "admits the exact order-authority probe path %s",
     (file) => {
@@ -747,6 +755,8 @@ describe("channels-foundation-surface-fence", () => {
 
   it.each([
     "integrations/synthetic-forbidden-sibling/worker.js",
+    "integrations/raw-export-indexeddb.ts.backup",
+    "integrations/raw-export-indexeddb.ts/extra.ts",
     "integrations/order-authority-probe/extra.js",
     "integrations/order-authority-probe/nested/worker.js",
     "integrations/order-authority-probe/worker.js/extra.js",
