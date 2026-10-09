@@ -44,9 +44,16 @@ export const channelHealthSchemaMigrations: readonly BcSchemaMigration[] = [
     migrationId: "20261009_channels_connector_liveness_reason",
     description: "Admit the ninth closed health reason without changing existing reason generations.",
     statements: [
-      "ALTER TABLE channel_connection_health DROP CONSTRAINT channel_connection_health_reasons_check",
-      "ALTER TABLE channel_connection_health ADD CONSTRAINT channel_connection_health_reasons_check CHECK (jsonb_typeof(reasons) = 'array' AND jsonb_array_length(reasons) <= 9)",
-      livenessIndex.replace("INDEX IF", "INDEX CONCURRENTLY IF"),
+      `DO $migration$ BEGIN
+        SET LOCAL lock_timeout = '5s';
+        ALTER TABLE channel_connection_health DROP CONSTRAINT IF EXISTS channel_connection_health_reasons_check;
+        ALTER TABLE channel_connection_health ADD CONSTRAINT channel_connection_health_reasons_check
+          CHECK (jsonb_typeof(reasons) = 'array' AND jsonb_array_length(reasons) <= 9) NOT VALID;
+      END $migration$`,
+      "ALTER TABLE channel_connection_health VALIDATE CONSTRAINT channel_connection_health_reasons_check",
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connection_health_open_liveness_idx
+        ON channel_connection_health (connection_id)
+        WHERE reasons @> '[{"reasonCode":"connector-liveness","state":"failing"}]'::jsonb`,
     ],
   },
 ];
