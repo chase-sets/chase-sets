@@ -1285,9 +1285,15 @@ describe.sequential("canonical importer authority", () => {
   it("corpus shards stay inside the unchanged timeout", () => {
     // Uncharged diagnostic after every timed shard: the bare resolver child
     // startup on this host, so its share of each shard's ESM phase is visible.
-    const spawnStarted = performance.now();
-    resolveEsmBatch([]);
-    const resolverSpawnBaselineMs = performance.now() - spawnStarted;
+    // A diagnostic never fails the suite; an unavailable child is recorded.
+    let resolverSpawnBaselineMs;
+    try {
+      const spawnStarted = performance.now();
+      resolveEsmBatch([]);
+      resolverSpawnBaselineMs = performance.now() - spawnStarted;
+    } catch (error) {
+      resolverSpawnBaselineMs = `unavailable: ${error.code ?? error.message}`;
+    }
     console.info(
       JSON.stringify({
         tracked: gitEntries.length,
