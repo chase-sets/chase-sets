@@ -2,12 +2,14 @@ import { definePolicy } from "@chase-sets/platform-policy/define-policy";
 import { manualSyncIngestContract } from "../../manual-sync/domain/contracts";
 import { OUTBOUND_CLAIM_LEASE_MIN_MS, OUTBOUND_CLAIM_LEASE_MAX_MS } from "../../outbound-sync/domain/validation";
 import { assertClosedRecord } from "../../connections/domain/validation";
+import { orderPullProgressByteLimit } from "../../outbound-sync/domain/order-pull-progress";
 
 // Mirrors assertReserveClaimedOutboundOperationsInput; the source-parity test binds this ceiling.
 export const connectorMaxOperations = 1_000_000;
 
 export function connectorReportMaxBytes(policy: ConnectorPolicy): number {
-  return policy.maxOperationsPerClaim * 16_384 + 65_536;
+  // A connection has at most one pull; its bounded progress does not shrink with the listing count.
+  return policy.maxOperationsPerClaim * 16_384 + 65_536 + orderPullProgressByteLimit;
 }
 
 export const connectorPolicyKeys = [

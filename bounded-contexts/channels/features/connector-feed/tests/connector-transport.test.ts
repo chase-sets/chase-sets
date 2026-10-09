@@ -320,7 +320,7 @@ describe("connector-feed-audit-completeness", () => {
     async (maxOperationsPerClaim) => {
       const h = http();
       h.services.resolveTransportPolicy.mockResolvedValue({ ...connectorPolicyDefaults, maxOperationsPerClaim });
-      const bound = maxOperationsPerClaim * 16_384 + 65_536;
+      const bound = maxOperationsPerClaim * 16_384 + 65_536 + 1_048_576;
       const response = await h.request("report", "x".repeat(bound - 1));
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ code: "report-refused", reason: "invalid-input" });
@@ -333,7 +333,7 @@ describe("connector-feed-audit-completeness", () => {
     async (maxOperationsPerClaim) => {
       const h = http();
       h.services.resolveTransportPolicy.mockResolvedValue({ ...connectorPolicyDefaults, maxOperationsPerClaim });
-      const bound = maxOperationsPerClaim * 16_384 + 65_536;
+      const bound = maxOperationsPerClaim * 16_384 + 65_536 + 1_048_576;
       const value = "x".repeat(bound - 2);
       const response = await h.request("report", value);
       expect(response.status).toBe(200);

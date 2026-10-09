@@ -13,7 +13,7 @@ describe("outbound-bootstrap-and-manifest", () => {
     expect(outboundSyncSchemaSql.split(`${expansion};`)).toHaveLength(2);
   });
 
-  it("keeps all six tables and both lane uniqueness fences in boot and migration SQL", () => {
+  it("keeps producer tables and lane uniqueness fences in boot and migration SQL", () => {
     const migrationSql = outboundSyncSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
     for (const expected of [
       "channel_outbound_operations",
@@ -31,6 +31,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "operation_origin",
       "channel_order_pull_operations",
       "channel_order_pull_schedules",
+      "channel_order_pull_chunks",
       "channel_order_pull_operations_one_live_uidx",
       "channel_order_pull_schedules_due_idx",
     ]) {
@@ -43,6 +44,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "20260912_channels_reconciliation_repair_origin",
       "20260912_channels_outbound_pending_lane_order",
       "20261008_channels_order_pull_producer",
+      "20261009_channels_order_pull_progress",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",

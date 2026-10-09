@@ -21,11 +21,21 @@ import {
   orderPullOperationKind,
   orderPullProviderKey,
   resolveOrderPullBudget,
+  allocateOrderPullBudget,
+  sameSelector,
   type ClaimedOrderPullOutcome,
   type OrderPullAuthority,
   type OrderPullPayload,
 } from "../domain/order-pull";
 import { assertOutboundClaimLeaseMs, payloadDigest } from "../domain/validation";
+import {
+  assertOrderPullCheckpoint,
+  orderPullCheckpointDigest,
+  type OrderPullCheckpoint,
+  type OrderPullPredecessor,
+} from "../domain/order-pull-progress";
+import { commitOrderPullProgress, readOrderPullWork } from "./order-pull-progress";
+import { canonicalJson } from "../../listing-composition/domain/canonical-json";
 
 type OrderPullRow = Readonly<{
   operation_id: string;
@@ -55,6 +65,8 @@ type ScheduleRow = Readonly<{
   next_due_at: Date | string;
   last_scheduled_at: Date | string;
   revision: string | number;
+  checkpoint: OrderPullCheckpoint | null;
+  checkpoint_digest: string | null;
 }>;
 
 // The data-path envelope: one tick examines at most 100 indexed due connections, never an unbounded drain.
@@ -110,7 +122,9 @@ export async function scheduleDueOrderPulls(
     producer.resolveAuthority,
     "The order-pull authority could not be resolved.",
   );
-  const budget = resolveOrderPullBudget(authority);
+  const preflight = resolveOrderPullBudget(authority);
+  const budget =
+    preflight.kind === "fits" ? allocateOrderPullBudget(authority, preflight.authority.nListReadMax, 0) : preflight;
   if (budget.kind !== "fits") return 0;
   const cadence = await resolveScheduleInput(
     async () => decodeCadence(await producer.resolveConnectorPolicy()),
@@ -206,7 +220,7 @@ async function scheduleConnectionPull(
   assertAdditionalOutboundHold(hold);
   if (hold.held) return false;
   const schedule = await db.query<ScheduleRow>(
-    `SELECT generation, next_due_at, last_scheduled_at, revision FROM channel_order_pull_schedules
+    `SELECT generation, next_due_at, last_scheduled_at, revision, checkpoint, checkpoint_digest FROM channel_order_pull_schedules
      WHERE connection_id = $1 FOR UPDATE`,
     [input.connectionId],
   );
@@ -222,6 +236,28 @@ async function scheduleConnectionPull(
   );
   if (live.rows.length > 0) return false;
   const generation = current ? Number(current.generation) + 1 : 1;
+  if (!Number.isSafeInteger(generation)) throw new OutboundSyncError("stale-fence");
+  const pullId = deriveOrderPullId(input.connectionId, generation);
+  const checkpoint =
+    current?.checkpoint && !current.checkpoint.drained
+      ? current.checkpoint
+      : {
+          burstId: pullId,
+          policyRevision: input.authority.revision,
+          selector: input.authority.selector,
+          traversal: null,
+          gapCount: 0,
+          drained: false,
+          followUpTail: false,
+        };
+  assertOrderPullCheckpoint(checkpoint);
+  if (
+    checkpoint.policyRevision !== input.authority.revision ||
+    !sameSelector(checkpoint.selector, input.authority.selector)
+  )
+    return false;
+  if (current?.checkpoint && orderPullCheckpointDigest(current.checkpoint) !== current.checkpoint_digest)
+    throw new OutboundSyncError("stale-fence");
   const boundary = persisted
     ? advanceScheduledBoundary(persisted.lastScheduledAt, input.at, input.pollWindowMs)
     : input.at;
@@ -229,31 +265,57 @@ async function scheduleConnectionPull(
   const advanced = current
     ? await db.query(
         `UPDATE channel_order_pull_schedules
-         SET generation = $2, next_due_at = $3, last_scheduled_at = $4, revision = revision + 1, updated_at = $5
+         SET generation = $2, next_due_at = $3, last_scheduled_at = $4, revision = revision + 1, updated_at = $5,
+             checkpoint=$8::jsonb, checkpoint_digest=$9
          WHERE connection_id = $1 AND revision = $6 AND generation = $7
          RETURNING connection_id`,
-        [input.connectionId, generation, nextDueAt, boundary, input.at, current.revision, current.generation],
+        [
+          input.connectionId,
+          generation,
+          nextDueAt,
+          boundary,
+          input.at,
+          current.revision,
+          current.generation,
+          JSON.stringify(checkpoint),
+          orderPullCheckpointDigest(checkpoint),
+        ],
       )
     : await db.query(
         `INSERT INTO channel_order_pull_schedules
-           (connection_id, generation, next_due_at, last_scheduled_at, revision, updated_at)
-         VALUES ($1, $2, $3, $4, 1, $5)
+           (connection_id, generation, next_due_at, last_scheduled_at, revision, updated_at, checkpoint, checkpoint_digest)
+         VALUES ($1, $2, $3, $4, 1, $5, $6::jsonb, $7)
          ON CONFLICT (connection_id) DO NOTHING
          RETURNING connection_id`,
-        [input.connectionId, generation, nextDueAt, boundary, input.at],
+        [
+          input.connectionId,
+          generation,
+          nextDueAt,
+          boundary,
+          input.at,
+          JSON.stringify(checkpoint),
+          orderPullCheckpointDigest(checkpoint),
+        ],
       );
   // A concurrent tick that inserted the first schedule row owns this boundary.
   if (advanced.rows.length !== 1) {
     if (current) throw new OutboundSyncError("stale-fence");
     return false;
   }
-  const pullId = deriveOrderPullId(input.connectionId, generation);
-  const payload = buildPayload({
+  const payload = await buildPayload(db, {
     connectionId: input.connectionId,
     pullId,
     authority: input.authority,
     bounds: input.bounds,
+    checkpoint,
+    predecessor: null,
+    providerNotBefore: new Date(Date.parse(input.at) + input.authority.providerCadenceMs).toISOString(),
   });
+  await insertPull(db, payload, generation, input.at);
+  return true;
+}
+
+async function insertPull(db: PgQueryable, payload: OrderPullPayload, generation: number, at: string): Promise<void> {
   assertOrderPullPayload(payload);
   await db.query(
     `INSERT INTO channel_order_pull_operations (
@@ -261,30 +323,33 @@ async function scheduleConnectionPull(
        status, revision, enqueued_at
      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'pending', 1, $8)`,
     [
-      deriveOrderPullOperationId(input.connectionId, pullId),
-      input.connectionId,
+      deriveOrderPullOperationId(payload.connectionId, payload.pullId),
+      payload.connectionId,
       orderPullOperationKind,
-      pullId,
+      payload.pullId,
       generation,
       JSON.stringify(payload),
       payloadDigest(payload),
-      input.at,
+      at,
     ],
   );
-  return true;
 }
 
-function buildPayload(
+async function buildPayload(
+  db: PgQueryable,
   input: Readonly<{
     connectionId: string;
     pullId: string;
     authority: OrderPullAuthority;
     bounds: OrderPullPayload["bounds"];
+    checkpoint: OrderPullCheckpoint;
+    predecessor: OrderPullPredecessor | null;
+    providerNotBefore: string;
   }>,
-): OrderPullPayload {
+): Promise<OrderPullPayload> {
   return {
     kind: "order-pull",
-    version: 1,
+    version: 2,
     connectionId: input.connectionId,
     pullId: input.pullId,
     policyRevision: input.authority.revision,
@@ -293,10 +358,16 @@ function buildPayload(
       identity: input.authority.selector.identity,
       version: input.authority.selector.version,
       pageSize: input.authority.selector.pageSize,
+      traversal: input.authority.selector.traversal,
     },
     bounds: input.bounds,
     // The follow-up reference source is not wired into Channels yet, so the server selects none.
     followUpReferences: [],
+    checkpoint: input.checkpoint,
+    checkpointDigest: orderPullCheckpointDigest(input.checkpoint),
+    work: await readOrderPullWork(db, input.connectionId, input.checkpoint.burstId),
+    predecessor: input.predecessor,
+    providerNotBefore: input.providerNotBefore,
   };
 }
 
@@ -327,6 +398,7 @@ export function advanceScheduledBoundary(lastScheduledAt: string, at: string, po
  */
 export async function reserveOrderPull(
   db: PgQueryable,
+  dependencies: OutboundSyncRuntimeDependencies,
   input: Readonly<{
     connectionId: string;
     providerIdentity: ChannelProviderIdentity;
@@ -349,6 +421,21 @@ export async function reserveOrderPull(
   const row = pending.rows[0];
   if (!row) return null;
   const record = mapOrderPullRow(row);
+  if (!dependencies.orderPull) return null;
+  const authority = await dependencies.orderPull.resolveAuthority();
+  const budget = resolveOrderPullBudget(authority, record.payload.bounds.plan);
+  if (
+    budget.kind !== "fits" ||
+    budget.authority.revision !== record.payload.policyRevision ||
+    !sameSelector(budget.authority.selector, record.payload.selector) ||
+    canonicalJson(budget.bounds) !== canonicalJson(record.payload.bounds)
+  )
+    return null;
+  const refreshedPayload = {
+    ...record.payload,
+    work: await readOrderPullWork(db, record.subject.connectionId, record.payload.checkpoint.burstId),
+  };
+  assertOrderPullPayload(refreshedPayload);
   if (
     !orderPullFitsLease({
       budgetMs: record.payload.bounds.budgetMs,
@@ -362,7 +449,8 @@ export async function reserveOrderPull(
     `UPDATE channel_order_pull_operations
      SET status = 'in-flight', revision = revision + 1, attempt_id = $2, claim_generation = claim_generation + 1,
          claimant_kind = 'connector', claim_owner_id = $3, reservation_id = $4, claimed_until = $5,
-         attempt_count = attempt_count + 1, first_claimed_at = COALESCE(first_claimed_at, $6)
+         attempt_count = attempt_count + 1, first_claimed_at = COALESCE(first_claimed_at, $6),
+         payload=$8::jsonb, payload_digest=$9
      WHERE operation_id = $1 AND status = 'pending' AND revision = $7
      RETURNING ${orderPullColumns}`,
     [
@@ -373,6 +461,8 @@ export async function reserveOrderPull(
       input.leaseExpiresAt,
       input.reservedAt,
       record.revision,
+      JSON.stringify(refreshedPayload),
+      payloadDigest(refreshedPayload),
     ],
   );
   const claimed = updated.rows[0] ? mapOrderPullRow(updated.rows[0]) : null;
@@ -432,10 +522,38 @@ export function assertOrderPullReportFence(
  */
 export async function settleOrderPullMember(
   db: PgQueryable,
+  dependencies: OutboundSyncRuntimeDependencies,
   member: OrderPullOperationRecord,
   report: ClaimedOrderPullOutcome,
   settledAt: string,
 ): Promise<void> {
+  const progress = report.outcome.kind !== "abandoned" && report.outcome.kind !== "order-pull-unknown";
+  let schedule: ScheduleRow | undefined;
+  let checkpoint: OrderPullCheckpoint | undefined;
+  let settledOutcome = report.outcome;
+  if (progress) {
+    const locked = await db.query<ScheduleRow>(
+      `SELECT generation, next_due_at, last_scheduled_at, revision, checkpoint, checkpoint_digest
+       FROM channel_order_pull_schedules WHERE connection_id=$1 FOR UPDATE`,
+      [member.subject.connectionId],
+    );
+    schedule = locked.rows[0];
+    if (
+      !schedule ||
+      Number(schedule.generation) !== member.scheduleGeneration ||
+      schedule.checkpoint_digest !== member.payload.checkpointDigest ||
+      !schedule.checkpoint ||
+      orderPullCheckpointDigest(schedule.checkpoint) !== schedule.checkpoint_digest
+    )
+      throw new OutboundSyncError("stale-fence");
+    const body = report.outcome as Exclude<
+      ClaimedOrderPullOutcome["outcome"],
+      { kind: "abandoned" | "order-pull-unknown" }
+    >;
+    const committed = await commitOrderPullProgress(db, member.payload, body);
+    checkpoint = committed.checkpoint;
+    settledOutcome = { ...body, kind: committed.kind };
+  }
   const fence = [member.operationId, member.revision, member.attemptId, member.claimGeneration, member.reservationId];
   const result =
     report.outcome.kind === "abandoned"
@@ -454,12 +572,64 @@ export async function settleOrderPullMember(
              AND claim_generation = $4 AND reservation_id = $5`,
           [
             ...fence,
-            report.outcome.kind === "order-pull-complete" ? "succeeded" : "failed",
-            JSON.stringify(report.outcome),
+            settledOutcome.kind === "order-pull-complete" ? "succeeded" : "failed",
+            JSON.stringify(settledOutcome),
             settledAt,
           ],
         );
   if (Number(result.rowCount ?? 0) !== 1) throw new OutboundSyncError("stale-fence");
+  if (!checkpoint || !schedule) return;
+  let generation = member.scheduleGeneration;
+  let successor: OrderPullPayload | null = null;
+  if (settledOutcome.kind === "continuation-required") {
+    const authority = await dependencies.orderPull?.resolveAuthority();
+    const preflight = resolveOrderPullBudget(authority);
+    const budget =
+      preflight.kind === "fits" ? allocateOrderPullBudget(authority, preflight.authority.nListReadMax, 0) : preflight;
+    if (
+      budget.kind !== "fits" ||
+      budget.authority.revision !== checkpoint.policyRevision ||
+      !sameSelector(budget.authority.selector, checkpoint.selector)
+    )
+      throw new OutboundSyncError("stale-fence");
+    const cadence = decodeCadence(await dependencies.orderPull!.resolveConnectorPolicy());
+    if (budget.bounds.budgetMs + ORDER_PULL_LEASE_MARGIN_MS >= cadence.leaseMs)
+      throw new OutboundSyncError("invalid-input", "Continuation cannot fit fresh lease.");
+    generation++;
+    if (!Number.isSafeInteger(generation)) throw new OutboundSyncError("stale-fence");
+    successor = await buildPayload(db, {
+      connectionId: member.subject.connectionId,
+      pullId: deriveOrderPullId(member.subject.connectionId, generation),
+      authority: budget.authority,
+      bounds: budget.bounds,
+      checkpoint,
+      predecessor: {
+        operationId: member.operationId,
+        attemptId: member.attemptId!,
+        claimGeneration: member.claimGeneration,
+        checkpointDigest: orderPullCheckpointDigest(checkpoint),
+      },
+      providerNotBefore: new Date(Date.parse(settledAt) + budget.authority.providerCadenceMs).toISOString(),
+    });
+  }
+  const advanced = await db.query(
+    `UPDATE channel_order_pull_schedules SET generation=$2, checkpoint=$3::jsonb, checkpoint_digest=$4,
+       revision=revision+1, updated_at=$5
+     WHERE connection_id=$1 AND generation=$6 AND revision=$7 AND checkpoint_digest=$8 RETURNING connection_id`,
+    [
+      member.subject.connectionId,
+      generation,
+      JSON.stringify(checkpoint),
+      orderPullCheckpointDigest(checkpoint),
+      settledAt,
+      member.scheduleGeneration,
+      schedule.revision,
+      member.payload.checkpointDigest,
+    ],
+  );
+  if (advanced.rows.length !== 1) throw new OutboundSyncError("stale-fence");
+  // Pending is immediately claimable. The idle schedule is untouched; provider cadence remains in the new payload.
+  if (successor) await insertPull(db, successor, generation, settledAt);
 }
 
 /** Lease expiry returns the same pull to pending; the next claim gets a new attempt and generation. */
