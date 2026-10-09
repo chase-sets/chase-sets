@@ -102,6 +102,9 @@
       "@chase-sets/channels/server": [
         "./bounded-contexts/channels/server.ts"
       ],
+      "@chase-sets/channels/test-support": [
+        "./bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts"
+      ],
       "@chase-sets/checkout": [
         "./bounded-contexts/checkout/index.ts"
       ],
