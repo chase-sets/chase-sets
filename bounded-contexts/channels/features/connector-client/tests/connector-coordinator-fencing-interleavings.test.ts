@@ -74,4 +74,28 @@ describe("connector-coordinator-fencing-interleavings", () => {
     expect(f.dispatchOnce).not.toHaveBeenCalled();
     expect((await f.journal.read(f.input.connectionId)).members[0].state).toBe("prepared");
   });
+  it.each([1, 2, 3])(
+    "capture abort at member/reservation write %s retains the entire unit as dispatched",
+    async (abortAt) => {
+      const f = await coordinatorFixture("reservation");
+      f.claims[0] = {
+        ...f.claim,
+        operations: [f.claim.operations[0], { ...f.claim.operations[0], operationId: "operation-2" }],
+      };
+      let captured = 0;
+      const put = IDBObjectStore.prototype.put;
+      vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, ...args) {
+        const request = put.apply(this, args);
+        if ((args[0].phase === "receipt-captured" || args[0].state === "receipt-captured") && ++captured === abortAt)
+          this.transaction.abort();
+        return request;
+      });
+      await f.coordinator().coordinate(f.input);
+      const retained = await f.journal.read(f.input.connectionId);
+      expect(retained.members.map((member) => member.state)).toEqual(["dispatched", "dispatched"]);
+      expect(retained.reservations[0].phase).toBe("dispatched");
+      expect(f.dispatchOnce).toHaveBeenCalledTimes(1);
+      expect(f.reports).toEqual([]);
+    },
+  );
 });

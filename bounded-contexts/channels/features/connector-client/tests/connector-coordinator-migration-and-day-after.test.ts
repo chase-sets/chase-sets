@@ -1,6 +1,6 @@
 import { IDBDatabase, IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openDatabase } from "./raw-retention-test-support";
+import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
 import { openConnectorDatabase } from "../integrations/connector-indexeddb";
 import { createOperationJournal } from "../integrations/operation-indexeddb";
 import { coordinatorFixture } from "./coordinator-test-support";
@@ -9,9 +9,14 @@ import { backgroundFixture } from "./connector-background-test-support";
 afterEach(() => vi.restoreAllMocks());
 describe("connector-coordinator-migration-and-day-after", () => {
   it("upgrades v1 additively once and retains its raw-export marker", async () => {
+    const seed = retentionFixture();
+    await seed.store.write(seed.input());
+    const [raw] = await retainedRows(seed.indexedDB);
     const indexedDB = new IDBFactory();
     const old = await openDatabase(indexedDB, 1, (db) => {
-      db.createObjectStore("raw-exports", { keyPath: "rawExportId" }).createIndex("expiresAt", "expiresAt");
+      const store = db.createObjectStore("raw-exports", { keyPath: "rawExportId" });
+      store.createIndex("expiresAt", "expiresAt");
+      store.add(raw);
     });
     old.close();
     for (let boot = 0; boot < 2; boot++) {
@@ -23,6 +28,7 @@ describe("connector-coordinator-migration-and-day-after", () => {
         members: [],
         reservations: [],
       });
+      expect(await retainedRows(indexedDB)).toEqual([raw]);
     }
   });
   it("aborted additive migration preserves the original version and store", async () => {
