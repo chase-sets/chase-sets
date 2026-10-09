@@ -64,7 +64,7 @@ export function orderReviewOutcome(
     return unavailable;
   const role = accountId === fact.buyerAccountId ? "buyer" : accountId === fact.sellerAccountId ? "seller" : null;
   if (!role) return unavailable;
-  for (const [source, position] of Object.entries(row.source_positions ?? {})) {
+  for (const [source, position] of Object.entries({} as Record<string, string>)) {
     const key = source === "platform-operations" ? "support" : source;
     if (!(key in fact.provenance) || BigInt(position) > BigInt(fact.provenance[key as keyof typeof fact.provenance]))
       return unavailable;
