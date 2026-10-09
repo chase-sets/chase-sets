@@ -385,7 +385,7 @@
       return { ok: true };
     }
     if (!active) {
-      if (message.kind === "finish" && terminal) {
+      if (["finish", "abort", "cancel"].includes(message.kind) && terminal) {
         const output = terminal;
         terminal = undefined;
         return { ok: true, receipt: output };

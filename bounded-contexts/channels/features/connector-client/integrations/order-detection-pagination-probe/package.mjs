@@ -66,20 +66,49 @@ function inventory(directory) {
   );
 }
 
+export function assertPrepareSeat({
+  synthetic,
+  platform,
+  outParent,
+  expectedParent,
+  porcelain,
+  chromePresent,
+  now,
+  t0,
+}) {
+  if (
+    !synthetic &&
+    (platform !== "win32" || outParent !== expectedParent || porcelain || !chromePresent || Math.abs(now - t0) > 1000)
+  )
+    fail("reviewed_seat_required");
+}
+
+export function assertPackageSeat({ evidence, head, expectedHead, porcelain, sourceHashes, expectedHashes }) {
+  if (
+    evidence === "operator" &&
+    (head !== expectedHead ||
+      porcelain ||
+      core.some((name) => name !== "manifest.json" && sourceHashes[name] !== expectedHashes[name]))
+  )
+    fail("reviewed_seat_required");
+}
+
 export function prepare({ out, synthetic = false, t0 = Date.now() }) {
   real(out);
   number(t0);
   if (existsSync(out)) fail("new_directory_required");
   const chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-  if (
-    !synthetic &&
-    (process.platform !== "win32" ||
-      path.dirname(out) !== path.join(repo, "artifacts", "9142") ||
-      git("status", "--porcelain") ||
-      !existsSync(chrome) ||
-      Math.abs(Date.now() - t0) > 1000)
-  )
-    fail("reviewed_seat_required");
+  if (!synthetic)
+    assertPrepareSeat({
+      synthetic,
+      platform: process.platform,
+      outParent: path.dirname(out),
+      expectedParent: path.join(repo, "artifacts", "9142"),
+      porcelain: git("status", "--porcelain"),
+      chromePresent: existsSync(chrome),
+      now: Date.now(),
+      t0,
+    });
   const head = git("rev-parse", "HEAD");
   const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const manifest = {
@@ -124,6 +153,7 @@ Synthetic controls prove software only. Live provider authority and independent 
 Prepare/install/open/reload dispatch zero provider calls. One durable begin, no renewals, retries, fallback or second session.
 This helper does not discover undocumented protocols: current native evidence supports lookup plus the observed first-page shape only.
 Live detection/all-eligible range/stable next/hard caps remain discovery_unknown; no cursor/enum/endpoint is invented or relayed.
+Operator total stays null at receipt level (the first page records its observed total); effectiveSize stays null, even for eight rows.
 LastTwoYears is an observed restriction, NOT all-eligible authority. Size 8 is a byte-safe requested chunk, NOT a population cap.
 Total <=8 cannot qualify first/next. A full page requires continuation; an unread tail is unknown.
 No production engine, product authority, #9115 extension, permission expansion or provider writes are delivered.
@@ -215,15 +245,19 @@ export function verifyPackage(out) {
     ...Object.fromEntries(Object.entries(actual).map(([name, digest]) => [`package/${name}`, digest])),
   };
   if (!same(read(path.join(out, "preparation-inventory.json")), { files })) fail("digests");
-  if (
-    config.evidence === "operator" &&
-    (git("rev-parse", "HEAD") !== config.head ||
-      git("status", "--porcelain") ||
-      core.some(
-        (name) => name !== "manifest.json" && hash(readFileSync(path.join(source, name))) !== config.files[name],
-      ))
-  )
-    fail("reviewed_seat_required");
+  if (config.evidence === "operator")
+    assertPackageSeat({
+      evidence: config.evidence,
+      head: git("rev-parse", "HEAD"),
+      expectedHead: config.head,
+      porcelain: git("status", "--porcelain"),
+      sourceHashes: Object.fromEntries(
+        core
+          .filter((name) => name !== "manifest.json")
+          .map((name) => [name, hash(readFileSync(path.join(source, name)))]),
+      ),
+      expectedHashes: config.files,
+    });
   return preparation;
 }
 
@@ -258,7 +292,7 @@ const reasons = [
   "qualified",
   "invalid_message",
 ];
-function assertReceipt(value, p) {
+export function assertReceipt(value, p) {
   keys(value, [
     "format",
     "evidence",

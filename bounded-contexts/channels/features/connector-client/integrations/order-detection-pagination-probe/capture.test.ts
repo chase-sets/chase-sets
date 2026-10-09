@@ -374,6 +374,12 @@ function scrub(value: unknown) {
 function retain(page: ReturnType<typeof helper>) {
   for (const [name, text] of page.exports) writeFileSync(path.join(out, "receipt", name), text);
 }
+function rehash(value: ReturnType<typeof JSON.parse>, index: ReturnType<typeof JSON.parse>) {
+  const text = json(value);
+  index.files["9142-receipt.json"] = hash(text);
+  writeFileSync(path.join(out, "receipt", "9142-receipt.json"), text);
+  writeFileSync(path.join(out, "receipt", "9142-inventory.json"), json(index));
+}
 async function capture(options: Parameters<typeof harness>[0] = {}) {
   const worker = harness(options);
   const page = helper(worker);
@@ -495,6 +501,8 @@ describe("detection-pagination-helper-lifecycle", () => {
       expect(worker.wire).toEqual([]);
     }
     const page = helper(harness());
+    expect(await page.api.detectionPaginationCapture.run(PRIVATE)).toEqual({ ok: false, code: "wrong_origin" });
+    expect(page.messages).toEqual([]);
     page.location.href += "?input";
     expect(await page.run()).toEqual({ ok: false, code: "wrong_origin" });
     expect(page.messages).toEqual([]);
@@ -503,6 +511,112 @@ describe("detection-pagination-helper-lifecycle", () => {
 });
 
 describe("detection-pagination-authority-controls", () => {
+  it("operator receipt validates but rehashed synthetic authority cannot qualify it", async () => {
+    const worker = harness({ evidence: "operator", pages: cohort(0) });
+    const value = (await worker.run()).receipt;
+    const p = { ...packaging.verifyPackage(out), evidence: "operator" };
+    expect(value.reason).toBe("discovery_unknown");
+    expect(worker.wire).toHaveLength(2);
+    expect(() => packaging.assertReceipt(value, p)).not.toThrow();
+    const forged = structuredClone(value);
+    Object.assign(forged, {
+      state: "qualified",
+      reason: "qualified",
+      total: 0,
+      facts: {
+        detection: "qualified",
+        range: "qualified",
+        pagination: "unknown",
+        caps: "qualified",
+        envelope: "qualified",
+      },
+    });
+    Object.assign(forged.pages[0], {
+      effectiveSize: 8,
+      snapshotCount: 0,
+      snapshotPresent: true,
+      snapshotEqual: true,
+      sameSession: true,
+      allEligible: true,
+      hardResultCap: 1000,
+      hardPageCap: 1000,
+      stable: true,
+      negativeCovered: true,
+      terminal: true,
+    });
+    // The synthetic-evidence positive holds every qualification field fixed.
+    expect(() =>
+      packaging.assertReceipt({ ...forged, evidence: "synthetic" }, { ...p, evidence: "synthetic" }),
+    ).not.toThrow();
+    expect(() => packaging.assertReceipt(forged, p)).toThrow(/^verdict$/);
+  });
+  const prepareSeat = {
+    synthetic: false,
+    platform: "win32",
+    outParent: path.join(scratch, "seat"),
+    expectedParent: path.join(scratch, "seat"),
+    porcelain: "",
+    chromePresent: true,
+    now: T0,
+    t0: T0,
+  };
+  it.each([
+    { name: "platform", change: { platform: "linux" } },
+    { name: "output parent", change: { outParent: path.join(scratch, "other") } },
+    { name: "clean porcelain", change: { porcelain: " M synthetic-file" } },
+    { name: "Chrome presence", change: { chromePresent: false } },
+    { name: "late T0", change: { now: T0 + 1001 } },
+    { name: "future T0", change: { now: T0 - 1001 } },
+  ])("operator prepare seat binds $name independently", ({ change }) => {
+    expect(() => packaging.assertPrepareSeat(prepareSeat)).not.toThrow();
+    for (const now of [T0 - 1000, T0 + 1000])
+      expect(() => packaging.assertPrepareSeat({ ...prepareSeat, now })).not.toThrow();
+    expect(() => packaging.assertPrepareSeat({ ...prepareSeat, ...change })).toThrow(/^reviewed_seat_required$/);
+    expect(() => packaging.assertPrepareSeat({ ...prepareSeat, ...change, synthetic: true })).not.toThrow();
+  });
+  const sourceHashes = {
+    "capture.html": "synthetic-html",
+    "helper.js": "synthetic-helper",
+    "worker.js": "synthetic-worker",
+  };
+  const packageSeat = {
+    evidence: "operator",
+    head: "a".repeat(40),
+    expectedHead: "a".repeat(40),
+    porcelain: "",
+    sourceHashes,
+    expectedHashes: { ...sourceHashes },
+  };
+  it.each([
+    { name: "HEAD", change: { head: "b".repeat(40) } },
+    { name: "clean porcelain", change: { porcelain: " M synthetic-file" } },
+    ...Object.keys(sourceHashes).map((name) => ({
+      name,
+      change: { sourceHashes: { ...sourceHashes, [name]: "changed" } },
+    })),
+  ])("operator package seat binds $name independently", ({ change }) => {
+    expect(() => packaging.assertPackageSeat(packageSeat)).not.toThrow();
+    expect(() => packaging.assertPackageSeat({ ...packageSeat, ...change })).toThrow(/^reviewed_seat_required$/);
+    expect(() => packaging.assertPackageSeat({ ...packageSeat, ...change, evidence: "synthetic" })).not.toThrow();
+  });
+  it("same-snapshot total churn refuses on the total clause before export validation", async () => {
+    const pages = cohort(17);
+    pages[1].totalOrders = 16;
+    pages[1].syntheticAuthority.snapshotCount = 16;
+    const worker = harness({ pages });
+    const value = (await worker.run()).receipt;
+    expect(value.reason).toBe("frontier_replaced");
+    expect(worker.wire).toHaveLength(3);
+  });
+  it("worker independently refuses a ninth page after eight next replies", async () => {
+    const worker = harness({ pages: cohort(800) });
+    expect((await worker.send({ kind: "begin" })).ok).toBe(true);
+    expect((await worker.send({ kind: "lookup" })).ok).toBe(true);
+    for (let page = 0; page < 8; page += 1)
+      expect(await worker.send({ kind: "page" })).toEqual({ ok: true, code: "next" });
+    expect((await worker.send({ kind: "page" })).receipt.reason).toBe("request_cap");
+    expect(worker.wire).toHaveLength(9);
+  });
   it("older-entry negative needs entry coverage despite equal totals and known head; bypass is discriminating", async () => {
     const positive = await capture({ pages: cohort(0) });
     expect(positive.value.facts.detection).toBe("qualified");
@@ -584,6 +698,11 @@ describe("detection-pagination-authority-controls", () => {
     const cycle = cohort(17);
     cycle[1].syntheticAuthority.next = cycle[0].syntheticAuthority.next;
     expect((await capture({ pages: cycle })).value.reason).toBe("unsafe_next");
+    const olderCycle = cohort(25);
+    olderCycle[2].syntheticAuthority.next = olderCycle[0].syntheticAuthority.next;
+    const cycled = await capture({ pages: olderCycle });
+    expect(cycled.value.reason).toBe("unsafe_next");
+    expect(cycled.worker.wire).toHaveLength(4);
     const full = cohort(8, { next: null, terminal: true });
     expect((await capture({ pages: full })).value.reason).toBe("tail_missing");
     expect((await capture({ pages: cohort(8) })).value.facts.pagination).toBe("unknown");
@@ -617,6 +736,24 @@ describe("detection-pagination-authority-controls", () => {
 });
 
 describe("detection-pagination-custody-and-byte-controls", () => {
+  it("fixed expiry while the helper awaits a native confirm still exports the expired receipt", async () => {
+    const worker = harness();
+    let confirms = 0;
+    const page = helper(worker, {
+      onConfirm: () => {
+        if (++confirms === 3) worker.advance(900000);
+      },
+    });
+    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    expect(page.exports.size).toBe(2);
+    expect(JSON.parse(page.exports.get("9142-receipt.json")!).state).toBe("expired");
+    expect(worker.wire).toHaveLength(2);
+    retain(page);
+    expect(() => packaging.verifyExport(out)).not.toThrow();
+    for (const kind of ["finish", "begin"])
+      expect(await worker.send({ kind })).toEqual({ ok: false, code: "repeat_invocation" });
+    expect(worker.wire).toHaveLength(2);
+  });
   it.each(["lookup", "page"])("%s largest-valid/cap+1/endless body; no partial qualification", async (kind) => {
     const cap = kind === "lookup" ? 65536 : 1048576;
     const base = json(kind === "lookup" ? { seller: { sellerKey: seller } } : cohort(0)[0]);
@@ -747,7 +884,15 @@ describe("detection-pagination-custody-and-byte-controls", () => {
     const { page } = await capture();
     const original = page.exports.get("9142-receipt.json")!;
     const originalIndex = page.exports.get("9142-inventory.json")!;
-    for (const field of ["leak", "nested", "old", "verdict", "count", "bytes", "size"]) {
+    for (const [field, code] of [
+      ["leak", "closed_schema"],
+      ["nested", "closed_schema"],
+      ["old", "closed_schema"],
+      ["verdict", "verdict"],
+      ["count", "bounds"],
+      ["bytes", "bounds"],
+      ["size", "verdict"],
+    ]) {
       const value = JSON.parse(original);
       const index = JSON.parse(originalIndex);
       if (field === "leak") value.snapshot = PRIVATE;
@@ -757,11 +902,8 @@ describe("detection-pagination-custody-and-byte-controls", () => {
       if (field === "count") value.counts.page = 1;
       if (field === "bytes") value.totalBytes += 1;
       if (field === "size") value.pages[0].effectiveSize = 500;
-      const text = json(value);
-      index.files["9142-receipt.json"] = hash(text);
-      writeFileSync(path.join(out, "receipt", "9142-receipt.json"), text);
-      writeFileSync(path.join(out, "receipt", "9142-inventory.json"), json(index));
-      expect(() => packaging.verifyExport(out), field).toThrow();
+      rehash(value, index);
+      expect(() => packaging.verifyExport(out), field).toThrow(new RegExp(`^${code}$`));
     }
     retain(page);
     const duplicateKey = original.replace('"requestedSize": 8,', '"requestedSize": 500, "requestedSize": 8,');
@@ -812,6 +954,97 @@ describe("detection-pagination-custody-and-byte-controls", () => {
     retain(leaking);
     expect(() => packaging.verifyExport(out)).toThrow("closed_schema");
     retain(page);
+  });
+  it.each([
+    {
+      name: "serial gap",
+      code: "chronology",
+      change: (value: ReturnType<typeof JSON.parse>) => {
+        value.requests[1].startedAt = value.requests[0].startedAt + 29999;
+      },
+    },
+    {
+      name: "finished deadline",
+      code: "chronology",
+      change: (value: ReturnType<typeof JSON.parse>) => {
+        value.finishedAt = value.deadline + 1;
+      },
+    },
+    {
+      name: "lookup first",
+      code: "chronology",
+      change: (value: ReturnType<typeof JSON.parse>) => {
+        const [lookup, page] = value.requests;
+        // Reorder requests while preserving ordinal and timestamp validity at each slot.
+        value.requests = [
+          { ...page, ordinal: 0, startedAt: lookup.startedAt },
+          { ...lookup, ordinal: 1, startedAt: page.startedAt },
+        ];
+      },
+    },
+    {
+      name: "FINAL classification",
+      code: "chronology",
+      change: (value: ReturnType<typeof JSON.parse>) => {
+        value.requests[1].withinFinalCall = !value.requests[1].withinFinalCall;
+      },
+    },
+    {
+      name: "successful status",
+      code: "bounds",
+      change: (value: ReturnType<typeof JSON.parse>) => {
+        value.requests[1].status = 500;
+      },
+    },
+  ])("rehashed unknown receipt isolates $name", async ({ change, code }) => {
+    const { page, value } = await capture({ pages: cohort(9, { allEligible: false }) });
+    expect(value.state).toBe("unknown");
+    const index = JSON.parse(page.exports.get("9142-inventory.json")!);
+    change(value);
+    rehash(value, index);
+    expect(() => packaging.verifyExport(out)).toThrow(new RegExp(`^${code}$`));
+    retain(page);
+  });
+  it("rehashed qualified receipt cannot declare a full last page terminal", async () => {
+    const { page, value } = await capture({ pages: cohort(15) });
+    expect(value.state).toBe("qualified");
+    expect(value.pages.at(-1).rowCount).toBe(7);
+    value.pages.at(-1).rowCount = 8;
+    value.pages.at(-1).distinctCount = 8;
+    value.total = 16;
+    value.distinctCount = 16;
+    for (const item of value.pages) item.total = item.snapshotCount = 16;
+    rehash(value, JSON.parse(page.exports.get("9142-inventory.json")!));
+    expect(() => packaging.verifyExport(out)).toThrow(/^verdict$/);
+    retain(page);
+  });
+  it("rehashed removal isolates the UI deadline and actual profile disposal", async () => {
+    const { page, value } = await capture();
+    const index = JSON.parse(page.exports.get("9142-inventory.json")!);
+    index.removal = {
+      extensionAbsent: true,
+      profileDisposed: true,
+      processesAbsent: true,
+      extensionAbsentAt: value.finishedAt,
+    };
+    const profile = path.resolve(preparation.profileDirectory);
+    expect(path.dirname(profile)).toBe(path.resolve(out));
+    expect(profile.startsWith(scratch + path.sep)).toBe(true);
+    rmdirSync(profile);
+    try {
+      rehash(value, index);
+      expect(() => packaging.verifyExport(out)).not.toThrow();
+      index.removal.extensionAbsentAt = value.deadline + 1;
+      rehash(value, index);
+      expect(() => packaging.verifyExport(out)).toThrow(/^custody$/);
+      index.removal.extensionAbsentAt = value.finishedAt;
+      rehash(value, index);
+      mkdirSync(profile);
+      expect(() => packaging.verifyExport(out)).toThrow(/^custody$/);
+    } finally {
+      retain(page);
+      if (!readdirSync(out).includes("profile")) mkdirSync(profile);
+    }
   });
   it("export cap+1 creates no partial downloads; removal remains pending until all custody observations", async () => {
     const { page, value } = await capture();

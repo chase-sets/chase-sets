@@ -77,7 +77,7 @@
       for (let index = 0; index < 8 && !output.receipt; index += 1) {
         if (
           !confirm(
-            "Same approved seller/session, no disclosure or recording, and enough time remains for UI removal? No stops this window.",
+            "Same approved seller/session, no disclosure or recording, and enough time remains for UI removal? Cancel stops this window.",
           )
         ) {
           output = await send("cancel");
