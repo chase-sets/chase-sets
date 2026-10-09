@@ -907,7 +907,9 @@ async function terminalCapture({ kind, phase, trigger }: TerminalControl) {
 }
 
 describe("detection-pagination-inflight-terminal-chronology", () => {
-  it.each(terminalControls)("$kind/$phase/$trigger seals after finalization", terminalCapture);
+  it.each(terminalControls)("$kind/$phase/$trigger seals after finalization", async (control) => {
+    await terminalCapture(control);
+  });
 });
 
 describe("detection-pagination-terminal-cleanup-chronology", () => {
