@@ -55,6 +55,7 @@ describe("connector-client-public-surface", () => {
       "translateOrderShippingType",
       "translateOrderStatus",
       "ChannelOrderFulfillmentObservation",
+      "createConnectorRetentionStore",
       "ConnectorCommand",
       "ConnectorStatus",
       "ConnectorBackgroundPorts",

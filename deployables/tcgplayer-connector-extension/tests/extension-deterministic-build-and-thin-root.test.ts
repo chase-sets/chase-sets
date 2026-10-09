@@ -9,21 +9,25 @@ const read = (file: string) => readFileSync(resolve(root, file), "utf8");
 function assertThinRoot(worker: string) {
   expect(worker).toContain("createConnectorBackground({");
   expect(worker).not.toMatch(/\bchrome\.|\b(?:if|switch|for|while)\s*\(|\bclass\s|\.then\(/);
-  expect(worker).toContain("sweep: { run: async () => ({ ok: true, nextDeadline: null }) }");
-  for (const adapter of ["Storage", "Session", "Alarms", "Identity", "Action", "Runtime"])
-    expect(worker).toContain(`: chrome${adapter}(),`);
+  expect(worker).toContain("sweep: retentionStore,");
+  expect(worker).toContain("createConnectorRetentionStore({");
+  expect(worker).toContain("const session = chromeSession();");
+  expect(worker).toContain("const alarms = chromeAlarms();");
+  expect(worker).toContain("...chromeIndexedDB(),");
+  for (const adapter of ["Storage", "Identity", "Action", "Runtime"]) expect(worker).toContain(`: chrome${adapter}(),`);
   expect(worker.match(/\bawait\b/g)).toBeNull();
   expect(worker.match(/background\.boot\(\)/g)).toHaveLength(1);
 }
 
 describe("extension-deterministic-build-and-thin-root", () => {
-  it("keeps one composition-only entry, six adapters, and no superseded probe sources", () => {
+  it("keeps one composition-only entry, seven adapters, and no superseded probe sources", () => {
     const worker = read("src/background.ts");
     assertThinRoot(worker);
     expect(readdirSync(resolve(root, "src/adapters")).sort()).toEqual([
       "chrome-action.ts",
       "chrome-alarms.ts",
       "chrome-identity.ts",
+      "chrome-indexeddb.ts",
       "chrome-runtime.ts",
       "chrome-session.ts",
       "chrome-storage.ts",
@@ -45,7 +49,7 @@ describe("extension-deterministic-build-and-thin-root", () => {
     const worker = read("src/background.ts");
     assertThinRoot(worker);
     for (const mutant of [
-      worker.replace("session: chromeSession(),", ""),
+      worker.replace("const session = chromeSession();", ""),
       `await sweep.run({ reason: 'boot' });\n${worker}`,
       `${worker}\nchrome.runtime.onInstalled.addListener(() => chrome.storage.local.clear());`,
     ])

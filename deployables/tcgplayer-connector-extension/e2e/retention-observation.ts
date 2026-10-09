@@ -1,0 +1,188 @@
+/// <reference types="chrome" />
+import { createHash } from "node:crypto";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { chromium, expect, type BrowserContext, type Worker } from "@playwright/test";
+
+type Product = typeof import("../src/background");
+declare global {
+  var __retentionProduct: Product;
+  var __retentionSyntheticHolder: IDBDatabase | undefined;
+}
+export const retentionDist = resolve(import.meta.dirname, "../dist");
+export const productDigest = () =>
+  createHash("sha256")
+    .update(readFileSync(join(retentionDist, "background.js")))
+    .digest("hex");
+export async function launchRetention(profile = mkdtempSync(join(tmpdir(), "connector-retention-"))) {
+  const fixture = join(profile, "extension-under-test");
+  cpSync(retentionDist, fixture, { recursive: true });
+  const manifest = JSON.parse(readFileSync(join(fixture, "manifest.json"), "utf8"));
+  manifest.background.service_worker = "retention-probe.js";
+  writeFileSync(join(fixture, "manifest.json"), JSON.stringify(manifest));
+  // Static imports are required by ServiceWorkerGlobalScope. The observer adds no
+  // product hooks: background.js is copied byte-for-byte from the product dist.
+  writeFileSync(
+    join(fixture, "retention-probe.js"),
+    'import * as product from "./background.js"; globalThis.__retentionProduct = product;',
+  );
+  expect(readFileSync(join(fixture, "background.js"))).toEqual(readFileSync(join(retentionDist, "background.js")));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium",
+    headless: false,
+    args: [
+      `--disable-extensions-except=${fixture}`,
+      `--load-extension=${fixture}`,
+      "--enable-unsafe-extension-debugging",
+      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+    ],
+  });
+  const worker =
+    context.serviceWorkers().find((item) => item.url().endsWith("/retention-probe.js")) ??
+    (await context.waitForEvent("serviceworker"));
+  await worker.evaluate(async () => {
+    const product = globalThis.__retentionProduct;
+    await product.boot;
+  });
+  return { context, worker, profile };
+}
+
+export async function prepareRetention(worker: Worker) {
+  return worker.evaluate(async () => {
+    const product = globalThis.__retentionProduct;
+    const now = Date.now();
+    const state = "paired-idle";
+    await chrome.storage.local.set({
+      "channel-connector-profile": {
+        schemaVersion: 1,
+        revision: 7,
+        state,
+        connectionId: "connection_A",
+        servedPollWindowSeconds: 60,
+        pauseReason: null,
+      },
+      "channel-connector-credential": {
+        schemaVersion: 1,
+        issuer: "https://platform.example",
+        clientId: "cc_client_synthetic",
+        connectionId: "connection_A",
+        accessToken: "cc_at_SYNTHETIC_RETENTION_TOKEN",
+        refreshToken: "cc_rt_SYNTHETIC_RETENTION_TOKEN",
+        accessExpiresAt: "2099-01-01T00:00:00.000Z",
+        rotatedAt: new Date(now).toISOString(),
+        boundProfileRevision: 7,
+        boundProfileState: state,
+      },
+    });
+    await product.retentionStore.write({
+      rawExportId: "synthetic_raw",
+      connectionId: "connection_A",
+      downloadedAt: new Date(now).toISOString(),
+      bytes: new TextEncoder().encode("SYNTHETIC_RETENTION_RAW_7922"),
+      maxBytes: 100,
+    });
+    return { before: now, deadline: now + 86400000 };
+  });
+}
+
+export async function clockAt(worker: Worker, now: number) {
+  await worker.evaluate((value) => {
+    Date.now = () => value;
+  }, now);
+}
+
+export async function observeRetention(worker: Worker, useSyntheticHolder = false) {
+  return worker.evaluate(async (useHolder) => {
+    const product = globalThis.__retentionProduct;
+    const rows = await new Promise<Record<string, unknown>[]>((resolve, reject) => {
+      const readRows = (db: IDBDatabase, owned: boolean) => {
+        const read = db.transaction("raw-exports").objectStore("raw-exports").getAll();
+        read.onsuccess = () => {
+          if (owned) db.close();
+          resolve(read.result as Record<string, unknown>[]);
+        };
+        read.onerror = () => {
+          if (owned) db.close();
+          reject(new Error("observation-read-failed"));
+        };
+      };
+      // A new observer open would queue behind the same synthetic blocked upgrade.
+      if (useHolder) readRows(globalThis.__retentionSyntheticHolder!, false);
+      else {
+        const request = indexedDB.open("connector-raw-exports");
+        request.onerror = () => reject(new Error("observation-open-failed"));
+        request.onsuccess = () => readRows(request.result, true);
+      }
+    });
+    const allSession = await chrome.storage.session.get(null);
+    let materiallyObtainableKey = Object.entries(allSession).some(
+      ([name, value]) => name.startsWith("connector-raw-key:") && Array.isArray(value) && value.length === 32,
+    );
+    let recoverablePlaintext = false;
+    for (const row of rows) {
+      const bytes = (await chrome.storage.session.get(row.keyId as string))[row.keyId as string];
+      if (!Array.isArray(bytes) || bytes.length !== 32) continue;
+      materiallyObtainableKey = true;
+      try {
+        const key = await crypto.subtle.importKey("raw", new Uint8Array(bytes), "AES-GCM", false, ["decrypt"]);
+        const aad = new TextEncoder().encode(
+          JSON.stringify([
+            row.schemaVersion,
+            row.rawExportId,
+            row.connectionId,
+            row.downloadedAt,
+            row.expiresAt,
+            row.digest,
+            row.byteLength,
+            row.acceptedSnapshotAt,
+            row.revision,
+            row.keyId,
+          ]),
+        );
+        const raw = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: row.nonce as Uint8Array<ArrayBuffer>, additionalData: aad },
+          key,
+          row.ciphertext as ArrayBuffer,
+        );
+        recoverablePlaintext ||= new TextDecoder().decode(raw) === "SYNTHETIC_RETENTION_RAW_7922";
+      } catch {
+        /* P is observed recoverability, not inferred from key presence. */
+      }
+    }
+    let readAllowed = false;
+    try {
+      readAllowed = (await product.retentionStore.read("synthetic_raw")).length > 0;
+    } catch {
+      /* refusal */
+    }
+    return {
+      at: new Date(Date.now()).toISOString(),
+      P: recoverablePlaintext,
+      K: materiallyObtainableKey,
+      R: readAllowed,
+      ciphertext: rows.some((row) => row.ciphertext instanceof ArrayBuffer),
+      state: await product.background.status(),
+    };
+  }, useSyntheticHolder);
+}
+
+export async function retentionCallback(worker: Worker) {
+  // Exercise a real Chrome alarm callback, using Chrome's real clock rather than the controlled application clock.
+  await worker.evaluate(() => chrome.alarms.create("connector-retention-deadline", { delayInMinutes: 0.001 }));
+  await expect.poll(async () => (await observeRetention(worker)).ciphertext).toBe(false);
+}
+
+export async function bootRetention(worker: Worker) {
+  await worker.evaluate(async () => {
+    const product = globalThis.__retentionProduct;
+    await product.background.boot();
+  });
+}
+
+export async function chromiumVersion(context: BrowserContext) {
+  const session = await context.newCDPSession(context.pages()[0]!);
+  const version = await session.send("Browser.getVersion");
+  await session.detach();
+  return version.product;
+}

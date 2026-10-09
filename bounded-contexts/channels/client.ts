@@ -18,6 +18,7 @@ export type {
   TcgplayerSaleLine,
 } from "./features/tcgplayer-orders/domain/contracts";
 export { createConnectorBackground } from "./features/connector-client/domain/connector-background";
+export { createConnectorRetentionStore } from "./features/connector-client/domain/connector-retention-store";
 export type {
   ConnectorStatus,
   ConnectorCommand,
