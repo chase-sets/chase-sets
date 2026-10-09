@@ -134,6 +134,34 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
     });
     expect(response.status).toBe(200);
   }
+  it("connector-settlement-refusal-replay: pull plus settlement refuses, then unbound pull settles without one", async () => {
+    await tick();
+    const reservation = await claim();
+    const member = pullMember(reservation);
+    const body = { reservationId: reservation!.reservationId, outcomes: [pullReport(member, complete(member))] };
+    const before = await pullState();
+    const refused = await h.request("report", {
+      ...body,
+      runSettlement: {
+        runId: "not-a-pull-run",
+        expectedRunRevision: 0,
+        fromState: "composed",
+        toState: "abandoned",
+        verificationSnapshotId: null,
+        verificationSnapshotGeneration: null,
+        uploadAttemptedAt: null,
+        uploadFileName: null,
+        importSummary: null,
+      },
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ code: "report-refused", reason: "invalid-input" });
+    expect(await pullState()).toEqual(before);
+    expect((await h.request("report", body)).status).toBe(200);
+    const settled = await pullState();
+    expect((await h.request("report", body)).status).toBe(200);
+    expect(await pullState()).toEqual(settled);
+  });
   async function schedule(connectionId = target.connectionId) {
     const result = await h.db.query<{
       generation: string;

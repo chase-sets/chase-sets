@@ -1785,6 +1785,68 @@ describeDb(
       ).resolves.toBeUndefined();
     });
 
+    it.each(["composed", "claimed", "awaiting-verification"] as const)(
+      "connector-settlement-refusal-replay: refuses a nonterminal %s omission with unchanged members, then settles once",
+      async (state) => {
+        const port = createBoundRunFixturePort();
+        const lock = vi.spyOn(port, "lockBoundRun");
+        const runtime = createOutboundSyncRuntime(
+          { db: pools.channels, recordOutcome: async () => "applied", claimedReservationRunSettlement: port },
+          { assertDelistDirective: () => undefined },
+        );
+        await runtime.enqueueDesiredState(desiredState("listing-omission", 1, 7, "event-omission"));
+        const claimant = { claimantKind: "connector" as const, claimantId: "connector-a" };
+        const reservation = (await runtime.reserveClaimedOutboundOperations({
+          registry: claimedRegistry,
+          connectionId: "connection-a",
+          claimant,
+          maxOperations: 1,
+          leaseMs: 60_000,
+        }))!;
+        const outcomes = [memberOutcome(reservation.operations[0]!, { kind: "abandoned", reason: "released" })];
+        await insertBoundRun(pools.channels, {
+          runId: "run-omission",
+          reservationId: reservation.reservationId,
+          claimant,
+          state,
+          submitMayHaveOccurred: state === "awaiting-verification",
+          uploadAttemptedAt: null,
+          outcomes,
+        });
+        const before = await outboundStateSnapshot(pools.channels);
+        const report = { reservationId: reservation.reservationId, claimant, outcomes };
+        await expect(runtime.reportClaimedOperationOutcomes(report)).rejects.toMatchObject({
+          code: "run-settlement-unavailable",
+        });
+        expect(lock).toHaveBeenCalledWith(expect.anything(), { reservationId: reservation.reservationId });
+        expect(await outboundStateSnapshot(pools.channels)).toEqual(before);
+        expect(await boundRunState(pools.channels, "run-omission")).toEqual({ state, revision: "1" });
+        const settled = { ...report, runSettlement: { ...fixtureRunSettlement("run-omission", 1), fromState: state } };
+        await Promise.all([
+          runtime.reportClaimedOperationOutcomes(settled),
+          runtime.reportClaimedOperationOutcomes(settled),
+        ]);
+        expect(await boundRunState(pools.channels, "run-omission")).toEqual({ state: "abandoned", revision: "2" });
+        const after = await outboundStateSnapshot(pools.channels);
+        await expect(
+          runtime.reportClaimedOperationOutcomes({
+            ...settled,
+            runSettlement: { ...settled.runSettlement, context: productionCompositionContext },
+          }),
+        ).resolves.toBeUndefined();
+        await expect(runtime.reportClaimedOperationOutcomes(report)).rejects.toMatchObject({
+          code: "reservation-membership-mismatch",
+        });
+        await expect(
+          runtime.reportClaimedOperationOutcomes({
+            ...settled,
+            runSettlement: { ...settled.runSettlement, uploadFileName: "changed.csv" },
+          }),
+        ).rejects.toMatchObject({ code: "reservation-membership-mismatch" });
+        expect(await outboundStateSnapshot(pools.channels)).toEqual(after);
+      },
+    );
+
     it("outbound-operation-log-completeness / outbound-event-to-ack-latency pages to the independent total", async () => {
       const current = new Date("2026-09-07T19:00:00.000Z");
       const runtime = createOutboundSyncRuntime(

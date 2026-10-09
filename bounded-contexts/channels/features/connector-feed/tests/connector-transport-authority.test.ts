@@ -6,6 +6,8 @@ import { createConnectorFeedRuntime, type ConnectorFeedServices } from "../api/r
 import { createConnectorTransport } from "../api/transport";
 import { ConnectorPairingError, type ConnectorAuthority } from "../domain/contracts";
 import { connectorPolicyDefaults, connectorTransportPolicy } from "../domain/policy";
+import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
+import type { ConnectorRunSettlement } from "../domain/run-settlement";
 
 function harness(paused = false, member = true) {
   const calls: string[] = [];
@@ -49,7 +51,7 @@ function harness(paused = false, member = true) {
     calls.push("reserve");
     return null;
   });
-  const report = vi.fn(async () => {
+  const report = vi.fn<OutboundSyncServices["reportClaimedOperationOutcomes"]>(async () => {
     calls.push("report");
   });
   const pairing = createConnectorFeedRuntime({ db, eventStore: createPostgresEventStore({ pool: db }) });
@@ -149,5 +151,59 @@ describe("connector authority and producer boundary", () => {
       ...value,
       claimant: { claimantKind: "connector", claimantId: "pair_test" },
     });
+  });
+});
+
+describe("connector-settlement-authority", () => {
+  const runSettlement: ConnectorRunSettlement = {
+    runId: "run_test",
+    expectedRunRevision: 2,
+    fromState: "claimed",
+    toState: "abandoned",
+    verificationSnapshotId: null,
+    verificationSnapshotGeneration: null,
+    uploadAttemptedAt: null,
+    uploadFileName: null,
+    importSummary: null,
+  };
+  const value = { reservationId: "cor_test", outcomes: [], runSettlement };
+  it("adds server-only null context and the pairing claimant once inside authority, with zero E2", async () => {
+    const h = harness();
+    const before = JSON.stringify(value);
+    await h.services.report(h.input, value, h.identify);
+    expect(h.calls).toEqual(["authority", "report", "commit"]);
+    expect(h.report).toHaveBeenCalledTimes(1);
+    expect(h.report).toHaveBeenCalledWith({
+      ...value,
+      runSettlement: { ...runSettlement, context: null },
+      claimant: { claimantKind: "connector", claimantId: "pair_test" },
+    });
+    expect(JSON.stringify(value)).toBe(before);
+  });
+  it("refuses lost membership before any producer effect", async () => {
+    const h = harness(false, false);
+    await expect(h.services.report(h.input, value, h.identify)).rejects.toMatchObject({
+      code: "authorization-refused",
+    });
+    expect(h.calls).toEqual(["authority"]);
+    expect(h.report).not.toHaveBeenCalled();
+  });
+  it("refuses client authority rather than stripping or forwarding it", async () => {
+    for (const body of [
+      { ...value, claimant: { claimantKind: "connector", claimantId: "forged" } },
+      { ...value, runSettlement: { ...runSettlement, context: null } },
+      {
+        ...value,
+        runSettlement: {
+          ...runSettlement,
+          context: { tenantId: "forged", audit: { forAccountId: "acc_test", performedByUserId: "usr_test" } },
+        },
+      },
+    ]) {
+      const h = harness();
+      await expect(h.services.report(h.input, body, h.identify)).rejects.toMatchObject({ code: "invalid-input" });
+      expect(h.calls).toEqual([]);
+      expect(h.report).not.toHaveBeenCalled();
+    }
   });
 });

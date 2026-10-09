@@ -9,6 +9,12 @@ import type { ConnectorReport } from "../domain/transport";
 import { describeDb, target, transportContext, transportDatabase } from "./transport-test-support";
 import { deriveClaimedOperationOutcomes } from "../../tcgplayer-csv/domain/lifecycle";
 import { connectorPolicyDefaults } from "../domain/policy";
+import { prepareConnectorBoundSettlement, failConnectorSettlementAt } from "./settlement-test-support";
+import { createOutboundSyncRuntime } from "../../outbound-sync/api/runtime";
+import { mutatedOutboundRuntime } from "../../outbound-sync/tests/runtime-mutation-support";
+import { createTcgplayerClaimedReservationRunSettlementPort } from "../../tcgplayer-csv/integrations/outbound-sync-settlement";
+import { createChannelListingPublicationOutcomeRecorder } from "../../outbound-sync/integrations/listing-composition";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 
 function report(
   reservation: ClaimedOperationReservation,
@@ -95,7 +101,6 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
         uploadAttemptedAt: null,
         uploadFileName: null,
         importSummary: null,
-        context: transportContext,
       },
     };
     const first = await h.request("report", body);
@@ -354,4 +359,204 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
       ).toEqual(beforeDownload.rows);
     },
   );
+});
+
+describeDb("connector-settlement-refusal-replay", () => {
+  const h = transportDatabase("connector_settlement_9158");
+  const prepare = () =>
+    prepareConnectorBoundSettlement(h.db, h.services, {
+      ...target,
+      pairingId: h.pairingId,
+      context: transportContext,
+    });
+  it.each(["omission-guard", "receipt-identity", "transaction-split", "runSettlement-removed"] as const)(
+    "kills the %s bypass with the same real Postgres fixture and report oracle",
+    async (mutant) => {
+      const body = await prepare();
+      let posted: unknown = body;
+      if (mutant === "receipt-identity") {
+        expect((await h.request("report", body)).status).toBe(200);
+        posted = { ...body, runSettlement: { ...body.runSettlement!, uploadFileName: "changed.csv" } };
+      } else if (mutant === "omission-guard") {
+        posted = { reservationId: body.reservationId, outcomes: body.outcomes };
+      }
+      const release = mutant === "transaction-split" ? await failConnectorSettlementAt(h.db, "run-append") : null;
+      const before = await h.effects();
+      let observedStatus = 0;
+      const oracle = async () => {
+        const response = await h.request("report", posted);
+        observedStatus = response.status;
+        expect(response.status).toBe(
+          mutant === "runSettlement-removed" ? 200 : mutant === "transaction-split" ? 503 : 409,
+        );
+        if (mutant !== "runSettlement-removed") expect((await h.effects()).e1).toEqual(before.e1);
+      };
+      // For the removal control, run the bypass before the successful control so
+      // the fixture is still nonterminal; a retained receipt must not mask it.
+      if (mutant === "runSettlement-removed") {
+        const original = h.services.outboundSync.reportClaimedOperationOutcomes;
+        const spy = vi
+          .spyOn(h.services.outboundSync, "reportClaimedOperationOutcomes")
+          .mockImplementation(({ runSettlement: _removed, ...input }) => original(input));
+        await expect(oracle()).rejects.toThrow();
+        expect(observedStatus).toBe(409);
+        spy.mockRestore();
+        expect((await h.effects()).e1).toEqual(before.e1);
+        await oracle();
+      } else {
+        await oracle();
+        const runtime = mutatedOutboundRuntime(mutant)(
+          {
+            db: h.db,
+            clock: { now: () => new Date() },
+            recordOutcome: createChannelListingPublicationOutcomeRecorder(h.services.listingComposition),
+            claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(
+              createPostgresEventStore({ pool: h.db }),
+            ),
+            readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
+          },
+          { assertDelistDirective: () => undefined },
+        );
+        const spy = vi
+          .spyOn(h.services.outboundSync, "reportClaimedOperationOutcomes")
+          .mockImplementation(runtime.reportClaimedOperationOutcomes);
+        await expect(oracle()).rejects.toThrow();
+        expect(observedStatus).toBe(mutant === "transaction-split" ? 503 : 200);
+        if (mutant === "transaction-split") expect((await h.effects()).e1).not.toEqual(before.e1);
+        spy.mockRestore();
+      }
+      await release?.();
+    },
+  );
+  it("refuses omitted settlement on a nonterminal bound run, stale fences and incomplete membership before E1/E2", async () => {
+    const body = await prepare();
+    const settlement = body.runSettlement!;
+    const first = body.outcomes[0]!;
+    const before = await h.effects();
+    for (const invalid of [
+      { reservationId: body.reservationId, outcomes: body.outcomes },
+      { ...body, runSettlement: { ...settlement, runId: "foreign" } },
+      { ...body, runSettlement: { ...settlement, expectedRunRevision: settlement.expectedRunRevision + 1 } },
+      { ...body, runSettlement: { ...settlement, fromState: "claimed" } },
+      { ...body, outcomes: body.outcomes.slice(1) },
+      { ...body, outcomes: [first, first] },
+      { ...body, outcomes: body.outcomes.map((o) => ({ ...o, operationId: "foreign" })) },
+      { ...body, outcomes: body.outcomes.map((o) => ({ ...o, attemptId: "foreign" })) },
+      { ...body, outcomes: body.outcomes.map((o) => ({ ...o, claimGeneration: o.claimGeneration + 1 })) },
+      { ...body, outcomes: body.outcomes.map((o) => ({ ...o, desiredStateSequence: 99 })) },
+    ]) {
+      const response = await h.request("report", invalid);
+      expect(response.status).toBe(409);
+      expect((await response.json()).code).toBe("report-refused");
+      const after = await h.effects();
+      expect(after.e1).toEqual(before.e1);
+      expect(after.e2).toEqual(before.e2);
+    }
+    expect((await h.request("report", body)).status).toBe(200);
+  });
+  it("settles competing reports once and returns identical public bytes and headers after restart/response loss", async () => {
+    const body = await prepare();
+    const before = await h.effects();
+    const responses = await Promise.all([h.request("report", body), h.request("report", body)]);
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("{}");
+      expect([...response.headers]).toEqual([...responses[0]!.headers]);
+    }
+    const settled = await h.effects();
+    expect(settled.e2).toEqual(before.e2);
+    expect((await h.db.query("SELECT * FROM channel_outbound_reservation_settlements")).rows).toHaveLength(1);
+    expect(
+      (await h.db.query("SELECT * FROM event_store_events WHERE event_type='channels.tcgplayer-sync-run.transitioned'"))
+        .rows,
+    ).toHaveLength(1);
+    h.restart();
+    const replay = await h.request("report", body);
+    expect(replay.status).toBe(200);
+    expect(await replay.text()).toBe("{}");
+    expect([...replay.headers]).toEqual([...responses[0]!.headers]);
+    for (const changed of [
+      { reservationId: body.reservationId, outcomes: body.outcomes },
+      { ...body, runSettlement: { ...body.runSettlement!, uploadFileName: "changed.csv" } },
+      { ...body, outcomes: body.outcomes.map((o) => ({ ...o, attemptId: "changed" })) },
+    ])
+      expect((await h.request("report", changed)).status).toBe(409);
+    const after = await h.effects();
+    expect(after.e1).toEqual(settled.e1);
+    expect(after.e2).toEqual(settled.e2);
+  });
+  it("pins missing origin to 503 unavailable and zero E1/E2", async () => {
+    const body = await prepare();
+    await h.db.query(
+      "DELETE FROM event_store_events WHERE stream_id=$1 AND event_type='channels.tcgplayer-sync-run.composed'",
+      [`channels.tcgplayer-sync-run-${body.runSettlement!.runId}`],
+    );
+    const before = await h.effects();
+    const response = await h.request("report", body);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "unavailable" });
+    const after = await h.effects();
+    expect(after.e1).toEqual(before.e1);
+    expect(after.e2).toEqual(before.e2);
+  });
+  it("refuses a bound omission even in a test runtime without the production-installed run port", async () => {
+    const body = await prepare();
+    const recordOutcome = vi.fn(async () => "applied" as const);
+    const runtime = createOutboundSyncRuntime(
+      { db: h.db, recordOutcome, readAdditionalOutboundHold: async () => ({ held: false, sources: [] }) },
+      { assertDelistDirective: () => undefined },
+    );
+    const before = await h.effects();
+    await expect(
+      runtime.reportClaimedOperationOutcomes({
+        reservationId: body.reservationId,
+        outcomes: body.outcomes,
+        claimant: { claimantKind: "connector", claimantId: h.pairingId },
+      }),
+    ).rejects.toMatchObject({ code: "run-settlement-unavailable" });
+    expect(recordOutcome).not.toHaveBeenCalled();
+    expect((await h.effects()).e1).toEqual(before.e1);
+  });
+  it("refuses withheld/revoked grants, lost membership and foreign connection/account before settlement", async () => {
+    const body = await prepare();
+    await h.connection("connection_same_account");
+    await h.services.connections.connectChannel(
+      { accountId: "acc_foreign", connectionId: "connection_foreign_account", providerKey: "tcgplayer" },
+      { deploymentEnvironment: "test" },
+      { ...transportContext, audit: { ...transportContext.audit, forAccountId: "acc_foreign" } },
+    );
+    const before = await h.effects();
+    expect((await h.request("report", body, { token: "" })).status).toBe(403);
+    expect((await h.request("report", body, { connectionId: "foreign" })).status).toBe(403);
+    for (const connectionId of ["connection_same_account", "connection_foreign_account"]) {
+      expect((await h.request("report", body, { connectionId })).status).toBe(403);
+    }
+    await h.membership(false);
+    expect((await h.request("report", body)).status).toBe(403);
+    await h.membership(true);
+    await h.revokeAuthGrant();
+    expect((await h.request("report", body)).status).toBe(403);
+    const after = await h.effects();
+    expect(after.e1).toEqual(before.e1);
+    expect(after.e2).toEqual(before.e2);
+    expect(after.e3.length - before.e3.length).toBe(6);
+  });
+  it("retains the receipt when E3 audit fails after E1 commits, then replays without false rollback", async () => {
+    const body = await prepare();
+    const release = await failConnectorSettlementAt(h.db, "audit");
+    const response = await h.request("report", body);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "unavailable" });
+    await release();
+    expect((await h.services.tcgplayerCsv.readRun(body.runSettlement!.runId))?.state).toBe("abandoned");
+    const committed = await h.effects();
+    h.restart();
+    const retry = await h.request("report", body);
+    expect(retry.status).toBe(200);
+    expect(await retry.text()).toBe("{}");
+    const after = await h.effects();
+    expect(after.e1).toEqual(committed.e1);
+    expect(after.e2).toEqual(committed.e2);
+    expect(after.e3.length).toBe(committed.e3.length + 1);
+  });
 });
