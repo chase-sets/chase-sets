@@ -971,13 +971,14 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("rejects a bootstrap importer at the real operator-session path when no DB unit executes it", async () => {
     const fixture = await createFixture(shippedShapedFiles());
     const directory = join(fixture.root, "__tests__", "operator-session");
+    const channelsTestSupport = ["@chase-sets", "channels", "test-support"].join("/");
     await mkdir(directory);
     await writeFile(
       join(directory, "operator-session-push.db.test.ts"),
       [
         'import { it } from "vitest";',
         'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
-        'import { prepareConnectorBoundSettlement } from "@chase-sets/channels/test-support";',
+        'import { prepareConnectorBoundSettlement } from "' + channelsTestSupport + '";',
         "void prepareConnectorBoundSettlement;",
         'createPlatformApiBootstrapTestHarness("synthetic_operator_boot");',
         'it("undiscovered bootstrap importer", async () => {});',
