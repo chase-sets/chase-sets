@@ -5,6 +5,38 @@ import { resolveManualSyncActions, type ManualSyncPanel } from "../domain/contra
 import { ManualSyncPanelView } from "./manual-sync-panel";
 
 describe("channels-manual-sync-design-system", () => {
+  it("replaces the dark banner with live coverage without clearing clamp recovery", () => {
+    const current = panel("composed");
+    const markup = renderToStaticMarkup(
+      <ManualSyncPanelView
+        panel={{
+          ...current,
+          inboundCoverage: { state: "live", reason: null },
+          attentionReason: "recovery",
+          actions: ["retry-clamp"],
+        }}
+      />,
+    );
+    expect(markup).toContain("Inbound sales visibility is live");
+    expect(markup).not.toContain("Inbound sales visibility is dark");
+    expect(markup).toContain("Inbound clamp recovery needs review");
+    expect(markup).toContain("Retry inbound clamp");
+    expect(markup).not.toContain("Clamp and download CSV");
+  });
+
+  it.each([
+    ["no-inbound-authority", "No paired connector currently authorizes inbound data."],
+    ["inbound-authority-revoked", "inbound authorization has ended"],
+    ["provider-has-no-inbound", "This provider does not support inbound coverage."],
+    ["inbound-authority-failing", "Inbound authorization is failing."],
+  ] as const)("renders the closed dark reason %s", (reason, description) => {
+    const markup = renderToStaticMarkup(
+      <ManualSyncPanelView panel={{ ...panel(null), inboundCoverage: { state: "dark", reason } }} />,
+    );
+    expect(markup).toContain(description);
+    expect(markup).not.toContain("Inbound sales visibility is live");
+  });
+
   it.each([
     [null, ["Compose Staged batch", "Ingest Live export", "Ingest Staged export"]],
     ["composed", ["Clamp and download CSV"]],

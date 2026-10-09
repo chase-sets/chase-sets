@@ -49,6 +49,23 @@ describe("createCheckpointKey", () => {
 
 describe("loadSubscriptionCheckpointRecoveryState", () => {
   it.each([
+    { rows: [], expected: { checkpoint: null, recoveryRequired: false } },
+    {
+      rows: [{ last_global_position: "0", recovery_global_position: "0" }],
+      expected: { checkpoint: "0", recoveryRequired: false },
+    },
+    {
+      rows: [{ last_global_position: "0", recovery_global_position: null }],
+      expected: { checkpoint: "0", recoveryRequired: true },
+    },
+  ])("distinguishes absent, persisted zero and invalid zero authority", async ({ rows, expected }) => {
+    const db = { query: async () => ({ rows }) };
+    await expect(loadSubscriptionCheckpointRecoveryState(db as never, "synthetic.items:source:v1")).resolves.toEqual(
+      expected,
+    );
+  });
+
+  it.each([
     { recoveryPosition: null, recoveryRequired: true },
     { recoveryPosition: "9", recoveryRequired: true },
     { recoveryPosition: "10", recoveryRequired: false },

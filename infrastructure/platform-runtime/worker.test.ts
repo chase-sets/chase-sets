@@ -1078,6 +1078,87 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("distinguishes release initiation from completion when a wake contends during drained-holder handoff", async () => {
+    vi.useFakeTimers();
+    const leases = new Map<string, PlatformLease>();
+    const events: WorkerHolderLifecycleEvent[] = [];
+    const contenders: Array<{ phase: string; acquired: boolean; released: boolean }> = [];
+    const pending = [1, 2, 2];
+    let fence = 0;
+    let retainedPass: WorkerHolderLifecycleEvent | undefined;
+    let checkedRelease = false;
+    const contenderInput = { leaseName: "projection-group:handoff-0", ownerId: "wake", ttlMs: 30_000 };
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        if (leases.has(input.leaseName)) return null;
+        const lease = {
+          ...input,
+          fencingToken: String(++fence),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+        leases.set(input.leaseName, lease);
+        return lease;
+      },
+      releaseLease: async (lease) => {
+        if (lease.leaseName === contenderInput.leaseName && !checkedRelease) {
+          checkedRelease = true;
+          // Exercise the database release's pending state, without delaying or pausing a runner.
+          const contender = await controlPlane.acquireLease(contenderInput);
+          contenders.push({
+            phase: "release-pending",
+            acquired: contender !== null,
+            released: events.some(
+              (event) => event.leaseIntervalId === retainedPass?.leaseIntervalId && event.phase === "released",
+            ),
+          });
+        }
+        if (leases.get(lease.leaseName)?.fencingToken === lease.fencingToken) leases.delete(lease.leaseName);
+      },
+    });
+    const runners: WorkerRunner[] = pending.map((_, index) => ({
+      name: `handoff-${index}`,
+      kind: "projection-group",
+      priority: () => pending[index],
+      runOnce: async () => {
+        const processed = pending[index] > 0 ? 1 : 0;
+        pending[index] -= processed;
+        return { processed, lastGlobalPosition: "0" as never };
+      },
+    }));
+    const loop = createWorkerRunnerLoop({
+      workerId: "poll",
+      controlPlane,
+      runners,
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      observer: {
+        holderLifecycle: (event) => {
+          events.push(event);
+          if (event.runnerName === runners[0].name && event.phase === "pass-end" && !retainedPass) {
+            retainedPass = event;
+          }
+        },
+      },
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(retainedPass).toMatchObject({ disposition: "retained", processed: 1 });
+      expect(contenders).toEqual([{ phase: "release-pending", acquired: false, released: false }]);
+      const interval = events.filter((event) => event.leaseIntervalId === retainedPass!.leaseIntervalId);
+      expect(interval.filter((event) => event.phase === "pass-start")).toHaveLength(1);
+      expect(interval.at(-1)).toMatchObject({ phase: "released", reason: "idle" });
+      const contender = await controlPlane.acquireLease(contenderInput);
+      expect(contender).not.toBeNull();
+      await controlPlane.releaseLease(contender!);
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not release a retained projection lease while a different runner shares its active pass", async () => {
     vi.useFakeTimers();
     const releaseLease = vi.fn(async () => {});
