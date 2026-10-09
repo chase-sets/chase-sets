@@ -66,6 +66,20 @@ export type OrderPullAuthority = Readonly<{
   reportTimeoutMs: number;
 }>;
 
+/** Governed envelope only; revision and captured selector authority are still required. */
+export const tcgplayerOrderPullGovernedBounds = Object.freeze({
+  lawVersion: "ready-to-ship-intake/v2",
+  nIntakeReadMax: 8,
+  nListReadMax: 2,
+  fMax: 5,
+  providerCadenceMs: 10_000,
+  providerCallTimeoutMs: 10_000,
+  mappingJournalMs: 20_000,
+  maxPostsPerOrder: 4,
+  postTimeoutMs: 5_000,
+  reportTimeoutMs: 10_000,
+} satisfies Omit<OrderPullAuthority, "revision" | "selector">);
+
 export type OrderPullBounds = Readonly<{
   nIntakeReadMax: number;
   nListReadMax: number;
