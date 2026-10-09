@@ -11,6 +11,7 @@ import {
   orderPullFitsLease,
   orderPullUnknownReasons,
   resolveOrderPullBudget,
+  tcgplayerOrderPullGovernedBounds,
   type ClaimedOrderPullOutcome,
 } from "../domain/order-pull";
 import {
@@ -33,6 +34,115 @@ import {
   syntheticPayload,
   syntheticProgress,
 } from "./order-pull-fixtures";
+
+describe("governed order-pull bounds, synthetic selector only", () => {
+  // The envelope is governed; the revision and cursor selector remain synthetic, not provider qualification.
+  const governedAuthority = {
+    ...tcgplayerOrderPullGovernedBounds,
+    revision: authority.revision,
+    selector: authority.selector,
+  };
+  const plan = { listReads: 1, intakeReads: 8, followUpReads: 5 };
+
+  it("pins every governed field and freezes the binding without revision or selector", () => {
+    expect(tcgplayerOrderPullGovernedBounds).toEqual({
+      lawVersion: "ready-to-ship-intake/v2",
+      nIntakeReadMax: 8,
+      nListReadMax: 2,
+      fMax: 5,
+      providerCadenceMs: 10_000,
+      providerCallTimeoutMs: 10_000,
+      mappingJournalMs: 20_000,
+      maxPostsPerOrder: 4,
+      postTimeoutMs: 5_000,
+      reportTimeoutMs: 10_000,
+    });
+    expect(Object.isFrozen(tcgplayerOrderPullGovernedBounds)).toBe(true);
+    expect(() => assertOrderPullAuthority(governedAuthority)).not.toThrow();
+    expect(() => assertOrderPullAuthority(tcgplayerOrderPullGovernedBounds)).toThrow();
+  });
+
+  it("governed deadline control: only L1 to L2 changes 590000 fit to 610000 refusal", () => {
+    expect(resolveOrderPullBudget(governedAuthority, plan)).toMatchObject({
+      kind: "fits",
+      bounds: { budgetMs: 590_000 },
+    });
+    expect(resolveOrderPullBudget(governedAuthority, { ...plan, listReads: 2 })).toEqual({
+      kind: "refused",
+      reason: "over-deadline",
+    });
+  });
+
+  it("governed reallocation control: only I8 to I7 changes 610000 refusal to 570000 fit", () => {
+    const twoLists = { ...plan, listReads: 2 };
+    expect(resolveOrderPullBudget(governedAuthority, twoLists)).toEqual({
+      kind: "refused",
+      reason: "over-deadline",
+    });
+    expect(resolveOrderPullBudget(governedAuthority, { ...twoLists, intakeReads: 7 })).toMatchObject({
+      kind: "fits",
+      bounds: { budgetMs: 570_000 },
+    });
+  });
+
+  it.each([
+    [1, 8, 590_000],
+    [2, 7, 570_000],
+  ])("governed L%i I%i retains strict lease margin for %i ms", (listReads, intakeReads, budgetMs) => {
+    const decision = resolveOrderPullBudget(governedAuthority, { ...plan, listReads, intakeReads });
+    expect(decision.kind).toBe("fits");
+    if (decision.kind !== "fits") throw new Error("Expected governed plan to fit.");
+    expect(decision.bounds.budgetMs).toBe(budgetMs);
+    const at = "2026-10-09T00:00:00.000Z";
+    const fitsLease = (remainingMs: number) =>
+      orderPullFitsLease({
+        budgetMs: decision.bounds.budgetMs,
+        at,
+        leaseExpiresAt: new Date(Date.parse(at) + remainingMs).toISOString(),
+      });
+    expect(fitsLease(1_800_000)).toBe(true);
+    expect(fitsLease(budgetMs + 30_000)).toBe(false);
+    expect(fitsLease(budgetMs + 30_001)).toBe(true);
+  });
+
+  it.each([
+    ["pageSize", "missing", undefined],
+    ["pageSize", "invalid", 0],
+    ["pageSize", "over codec cap", 1001],
+    ["traversal", "missing", undefined],
+    ["traversal", "invalid", "mutable-offset"],
+  ] as const)("governed selector control: %s %s refuses independently of budget", (field, _label, value) => {
+    expect(resolveOrderPullBudget(governedAuthority, plan)).toMatchObject({
+      kind: "fits",
+      bounds: { budgetMs: 590_000 },
+    });
+    const selector: Record<string, unknown> = { ...governedAuthority.selector };
+    if (value === undefined) delete selector[field];
+    else selector[field] = value;
+    const invalidAuthority = { ...governedAuthority, selector };
+    expect(() => assertOrderPullAuthority(invalidAuthority)).toThrow();
+    expect(resolveOrderPullBudget(invalidAuthority, plan)).toEqual({ kind: "refused", reason: "authority-unknown" });
+  });
+
+  it("governed page size is a chunk, not an intake or population bound", () => {
+    for (const pageSize of [1, 8, 100, 1000]) {
+      const chunkAuthority = { ...governedAuthority, selector: { ...governedAuthority.selector, pageSize } };
+      expect(() => assertOrderPullAuthority(chunkAuthority)).not.toThrow();
+      expect(resolveOrderPullBudget(chunkAuthority, plan)).toMatchObject({
+        kind: "fits",
+        bounds: { budgetMs: 590_000 },
+      });
+    }
+  });
+
+  it("governed bounds never replace absent authority", () => {
+    expect(resolveOrderPullBudget(null, plan)).toEqual({ kind: "refused", reason: "authority-unknown" });
+    expect(resolveOrderPullBudget(tcgplayerOrderPullGovernedBounds, plan)).toEqual({
+      kind: "refused",
+      reason: "authority-unknown",
+    });
+  });
+});
 
 describe("order-pull-budget-preflight: actual L/I/F allocation", () => {
   it.each([
