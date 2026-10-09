@@ -483,7 +483,7 @@ describe("marketplace account sale route", () => {
         expect(screen.getByText("Report a problem")).toBeTruthy();
         expect(screen.queryByText("Leave account review")).toBeNull();
         expect(screen.queryByText("Review window expired") !== null).toBe(state === "expired");
-        expect(screen.queryByText("Review status unavailable") !== null).toBe(state === "unavailable");
+        expect(screen.queryByText("Review status is temporarily unavailable") !== null).toBe(state === "unavailable");
         expect(view.container.textContent).not.toContain("withdrawn private sentinel");
         view.unmount();
       }
