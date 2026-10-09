@@ -529,7 +529,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         let claim: ClaimedOperationReservation;
         try {
           claim = await parseOperationClaim(body.reservation, input.connectionId);
-        } catch {
+        } catch (error) {
+          if (error instanceof OperationProtocolError && error.code === "incomplete-authority") throw error;
           refuse();
         }
         if (seen.has(claim.reservationId)) break;

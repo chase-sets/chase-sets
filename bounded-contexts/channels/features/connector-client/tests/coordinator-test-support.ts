@@ -14,12 +14,13 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
   const indexedDB = new IDBFactory();
   let now = Date.parse("2026-10-09T00:00:00.000Z");
   let authority: "paired-idle" | "report-only" | "absent" = "paired-idle";
+  const fixtureTitle = "Synthetic";
   const payload = {
     kind: "draft",
     draft: {
       channelListingId: "link-1",
       listingRevision: 1,
-      title: "Synthetic",
+      title: fixtureTitle,
       description: "",
       categoryKey: "card",
       conditionKey: "new",

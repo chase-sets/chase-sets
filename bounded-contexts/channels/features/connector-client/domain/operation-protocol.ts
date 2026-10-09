@@ -259,7 +259,8 @@ export async function parseOperationClaim(value: unknown, connectionId: string):
   instant(row.reservedAt);
   instant(row.leaseExpiresAt);
   if (Date.parse(String(row.reservedAt)) >= Date.parse(String(row.leaseExpiresAt))) refuse();
-  if (!Array.isArray(row.operations) || row.operations.length < 1 || row.operations.length > journalLimit) refuse();
+  if (!Array.isArray(row.operations) || row.operations.length < 1) refuse();
+  if (row.operations.length > journalLimit) throw new OperationProtocolError("incomplete-authority");
   const ids = new Set<string>();
   for (const member of row.operations) {
     const operation = record(member, [

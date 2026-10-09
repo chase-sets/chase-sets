@@ -53,6 +53,21 @@ describe("connector-coordinator-complete-authority-list", () => {
     expect(await f.coordinator().coordinate(f.input)).toEqual({ outcome: "unknown" });
     expect(f.request).not.toHaveBeenCalled();
   });
+  it("a served claim beyond journal capacity is bounded unknown, not a protocol pause", async () => {
+    const f = await coordinatorFixture();
+    f.claims[0] = {
+      ...f.claim,
+      operations: Array.from({ length: 4097 }, (_, index) => ({
+        ...f.claim.operations[0],
+        operationId: `synthetic-${index}`,
+      })),
+    };
+    expect(await f.coordinator().coordinate(f.input)).toEqual({ outcome: "unknown" });
+    expect(await f.journal.read(f.input.connectionId)).toEqual({ members: [], reservations: [] });
+    expect(f.dispatchOnce).not.toHaveBeenCalled();
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.reports).toEqual([]);
+  });
   it("a complete cap-plus-one retained corpus fails closed before claims", async () => {
     const f = await coordinatorFixture();
     f.prepare.mockRejectedValueOnce(new Error("synthetic-stop"));
