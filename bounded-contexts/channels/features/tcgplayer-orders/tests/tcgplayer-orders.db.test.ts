@@ -654,6 +654,47 @@ describeDb("TCGplayer connector sale interpretation", () => {
     ]);
   });
 
+  it("channel-order-observation-await-and-unmapped: #7030 and fulfillment attention writers interleave on one order without lost update", async () => {
+    await prepareFulfillment();
+    await pools.channels.query(`DELETE FROM channels_channel_listing_links`);
+    await admit(order);
+    await admitFulfillment(fulfillmentFixture());
+    const lock = await pools.channels.connect();
+    await lock.query("BEGIN");
+    await lock.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+      JSON.stringify(["channels.order-attention", "connection-1", order.orderNumber]),
+    ]);
+    const writers = Promise.all([
+      runtime().interpretConnection("connection-1"),
+      fulfillment().interpretConnection("connection-1"),
+    ]);
+    try {
+      let waiting = 0;
+      for (let attempt = 0; attempt < 100 && waiting < 2; attempt++) {
+        waiting = Number(
+          (
+            await pools.channels.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_locks
+          WHERE locktype='advisory' AND NOT granted AND database=(SELECT oid FROM pg_database WHERE datname=current_database())`)
+          ).rows[0]!.count,
+        );
+        if (waiting < 2) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBeGreaterThanOrEqual(2);
+    } finally {
+      await lock.query("ROLLBACK");
+      lock.release();
+    }
+    await writers;
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT reason FROM channel_order_attention WHERE order_reference=$1 AND resolved_at IS NULL ORDER BY reason`,
+          [order.orderNumber],
+        )
+      ).rows,
+    ).toEqual([{ reason: "channel-order-unmapped" }, { reason: "tcgplayer-order-unmapped" }]);
+  });
+
   it("channel-order-observation-sale-key-equality: live sale source is required, storage comes from the committed sale", async () => {
     await prepareFulfillment();
     await admit(order);
@@ -716,6 +757,18 @@ describeDb("TCGplayer connector sale interpretation", () => {
       new Date(Date.now() - 25 * 3600000).toISOString(),
     );
     await fulfillment().interpretConnection("connection-1");
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT order_reference,reason FROM channel_order_attention
+          WHERE resolved_at IS NULL AND reason LIKE 'channel-order-%' ORDER BY order_reference,reason`,
+        )
+      ).rows,
+    ).toEqual([
+      { order_reference: "synthetic-order", reason: "channel-order-unmapped" },
+      { order_reference: "unrelated-bad-order", reason: "channel-order-sale-absent" },
+      { order_reference: "unrelated-bad-order", reason: "channel-order-unmapped" },
+    ]);
     const snapshot = await fulfillmentEffects();
     for (let index = 0; index < 3; index++) await fulfillment().interpretConnection("connection-1");
     expect(await fulfillmentEffects()).toEqual(snapshot);
@@ -755,6 +808,14 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await prepareFulfillment();
     await admitFulfillment(fulfillmentFixture(), new Date(Date.now() - 25 * 3600000).toISOString());
     await fulfillment().interpretConnection("connection-1");
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT order_reference,generation::int AS generation FROM channel_order_attention
+          WHERE reason='channel-order-sale-absent' AND resolved_at IS NULL`,
+        )
+      ).rows,
+    ).toEqual([{ order_reference: "synthetic-order", generation: 1 }]);
     expect((await pools.channels.query(`SELECT state FROM channel_fulfillment_observations`)).rows).toEqual([
       { state: "sale-absent" },
     ]);
@@ -823,6 +884,14 @@ describeDb("TCGplayer connector sale interpretation", () => {
     await prepareFulfillment();
     await admitFulfillment(fulfillmentFixture(), new Date(Date.now() - 25 * 3600000).toISOString());
     await fulfillment().interpretConnection("connection-1");
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT order_reference,generation::int AS generation FROM channel_order_attention
+          WHERE reason='channel-order-sale-absent' AND resolved_at IS NULL`,
+        )
+      ).rows,
+    ).toEqual([{ order_reference: "synthetic-order", generation: 1 }]);
     await admitFulfillment({ ...fulfillmentFixture(), providerOrderStatus: { surface: "list", value: "Canceled" } });
     await fulfillment().interpretConnection("connection-1");
     expect(await fulfillmentEvents()).toEqual([]);
