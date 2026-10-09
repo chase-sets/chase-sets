@@ -433,6 +433,65 @@ describe("marketplace account sale route", () => {
     expect(screen.getByText("Leave account review")).toBeTruthy();
   });
 
+  it.each(["expired", "current-null", "unavailable"] as const)(
+    "pins the seller panel across loader re-entry: %s (not browser proof)",
+    async (state) => {
+      const reviewOutcome = {
+        status: state === "unavailable" ? "unavailable" : "ready",
+        opportunity:
+          state === "expired"
+            ? {
+                order_id: "ord_1",
+                subject_account_id: "acc_buyer",
+                subject_display_name: "Buyer",
+                author_role: "seller",
+                eligible_at: "2026-03-22T12:00:00.000Z",
+                window_expires_at: "2026-05-21T12:00:00.000Z",
+                active_review_id: null,
+                active_review_revealed_at: null,
+                submission_state: "expired",
+                window_expired: true,
+                hold_reason: null,
+                revealed: false,
+              }
+            : null,
+      };
+      const requests: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestUrl(input);
+          requests.push(url);
+          if (!url.includes("/account/sales/ord_1")) throw new Error("Foreign Review request forbidden");
+          return jsonResponse({ ...order, reviewOutcome });
+        }),
+      );
+      for (let load = 0; load < 2; load++) {
+        const result = await loader({
+          request: new Request("http://localhost/account/sales/ord_1"),
+          params: { orderId: "ord_1" },
+          context: undefined,
+        } as never);
+        expect(result.sale.order_id).toBe("ord_1");
+        expect(result.reviewOutcome).toEqual(reviewOutcome);
+        mockUseLoaderData.mockReturnValue(result);
+        const view = render(
+          <ChaseRoot>
+            <MarketplaceAccountSaleRoute />
+          </ChaseRoot>,
+        );
+        expect(screen.getByText("Report a problem")).toBeTruthy();
+        expect(screen.queryByText("Leave account review")).toBeNull();
+        expect(screen.queryByText("Review window expired") !== null).toBe(state === "expired");
+        expect(screen.queryByText("Review status unavailable") !== null).toBe(state === "unavailable");
+        expect(view.container.textContent).not.toContain("withdrawn private sentinel");
+        view.unmount();
+      }
+      expect(requests).toHaveLength(2);
+      expect(requests.every((url) => url.includes("/account/sales/ord_1"))).toBe(true);
+    },
+  );
+
   it("starts seller-cannot-fulfill intake from the sale detail without a role query", () => {
     expect(order.shipping_destination_snapshot.verification?.source).toBe("verification-sentinel");
     mockUseLoaderData.mockReturnValue({
