@@ -10,7 +10,7 @@ const packaging = await import(new URL("./package.mjs", import.meta.url).href);
 const scratch = path.resolve(source, "../../../../../../artifacts/9142/tests");
 const T0 = Date.parse("2030-01-01T00:00:00.000Z");
 const PRIVATE = "SYNTHETIC_PRIVATE_9142";
-const seller = `${PRIVATE}/seller`;
+const seller = `${PRIVATE}:seller`;
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 type Reply = { ok: boolean; code?: string; receipt?: ReturnType<typeof JSON.parse> };
