@@ -1,4 +1,4 @@
-// CI image mirrors (#9230): the upstream images required CI pulls are pinned
+// CI image mirrors: the upstream images required CI pulls are pinned
 // in ci-image-sources.json by sha256 and copied byte-for-byte to public GHCR,
 // so no required job pulls anonymously from Docker Hub. The publisher job runs
 // this file with packages: write, so it imports node builtins only and never
