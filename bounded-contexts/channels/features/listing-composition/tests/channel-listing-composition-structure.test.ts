@@ -8,8 +8,12 @@ const contextRoot = path.resolve(import.meta.dirname, "../../..");
 
 describe("channel-subscription-order-fence", () => {
   it("keeps five ordered projection subscriptions below all four reactions", () => {
-    const subscriptions = contextManifest.eventSubscriptions;
-    const reactions = contextManifest.eventReactions;
+    const subscriptions = contextManifest.eventSubscriptions.filter(
+      (entry) => entry.projectionName !== "channel-fulfillment-item-facts",
+    );
+    const reactions = contextManifest.eventReactions.filter(
+      (entry) => entry.reactionName === "channel-listing-desired-state-reaction",
+    );
     expect(subscriptions.map((entry) => entry.sourceContextName)).toEqual([
       "marketplace",
       "catalog",
@@ -30,8 +34,12 @@ describe("channel-subscription-order-fence", () => {
   });
 
   it("enumerates every producer event once and reacts only after the owning projection", () => {
-    const subscriptions = contextManifest.eventSubscriptions;
-    const reactions = contextManifest.eventReactions;
+    const subscriptions = contextManifest.eventSubscriptions.filter(
+      (entry) => entry.projectionName !== "channel-fulfillment-item-facts",
+    );
+    const reactions = contextManifest.eventReactions.filter(
+      (entry) => entry.reactionName === "channel-listing-desired-state-reaction",
+    );
     expect(
       subscriptions.map((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes.length : 0)),
     ).toEqual([9, 6, 9, 14, 0]);

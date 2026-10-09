@@ -122,6 +122,8 @@ export function ChannelConnectionHealthPanel({
 }
 
 const orderReasonKeys = {
+  "channel-order-unmapped": "channels.attention.orderUnmapped",
+  "channel-order-sale-absent": "channels.attention.orderRecordingRefused",
   "tcgplayer-order-unmapped": "channels.attention.orderUnmapped",
   "tcgplayer-order-identity-ambiguous": "channels.attention.orderIdentityAmbiguous",
   "tcgplayer-order-recording-refused": "channels.attention.orderRecordingRefused",

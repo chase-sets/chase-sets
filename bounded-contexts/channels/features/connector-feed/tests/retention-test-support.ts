@@ -11,6 +11,7 @@ import { connectorInboundRetentionSweeps } from "../read-model/retention-policy"
 export const [inventorySnapshotSweep, orderObservationSweep] = connectorInboundRetentionSweeps as [
   BcRetentionSweep,
   BcRetentionSweep,
+  BcRetentionSweep,
 ];
 
 export function orderInbound(

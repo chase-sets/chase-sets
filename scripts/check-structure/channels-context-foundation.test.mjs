@@ -249,8 +249,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("allowedSupportDirectories");
   }
-  if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
-  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.eventSubscriptions?.length !== 6) violations.push("eventSubscriptions");
+  if (candidate.eventReactions?.length !== 6) violations.push("eventReactions");
   if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
@@ -403,15 +403,16 @@ describe("channels-context-foundation", () => {
         },
       ],
     });
-    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
+    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([31, 10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
+      "inventory",
       "marketplace",
       "catalog",
       "inventory",
       "channels",
       "channels",
     ]);
-    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([64, 65, 60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
@@ -1231,6 +1232,7 @@ describe("channels-wake-registry-derivation", () => {
     expect(derive(manifests)).toEqual({
       affectedProjectionNames: [
         "channels:channel-connection-projection",
+        "channels:channel-fulfillment-observation-retry",
         "channels:channel-listing-desired-state-reaction",
         "channels:channel-owned-publication-state",
         "channels:platform-policy-document-projection",
@@ -1253,6 +1255,7 @@ describe("channels-wake-registry-derivation", () => {
     ]);
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
+      "channels:channel-fulfillment-observation-retry",
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-owned-publication-state",
       "channels:platform-policy-document-projection",

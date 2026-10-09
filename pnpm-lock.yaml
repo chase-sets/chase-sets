@@ -279,6 +279,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox

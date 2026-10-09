@@ -45,6 +45,9 @@ export function createChannelsReconciliationRunners(
     createScheduledJobRunner("channels-tcgplayer-orders", 60_000, input.controlPlane, async () =>
       input.services.tcgplayerOrders.interpretDueConnections(),
     ),
+    createScheduledJobRunner("channels-order-fulfillment-observations", 60_000, input.controlPlane, async () =>
+      input.services.fulfillmentObservations.interpretDueConnections(),
+    ),
   ];
 }
 

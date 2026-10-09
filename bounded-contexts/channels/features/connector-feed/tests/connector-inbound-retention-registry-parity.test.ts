@@ -18,11 +18,16 @@ describe("connector-inbound-retention-registry-parity", () => {
   it("resolves exactly one closed class per admitted kind with elapsed-second windows", () => {
     expect(resolveConnectorInboundRetentionClasses(connectorInboundKindRetention)).toEqual([
       { retentionClass: "inventory-snapshot", windowSeconds: 604_800, inboundKinds: ["export"] },
-      { retentionClass: "order-observation", windowSeconds: 7_776_000, inboundKinds: ["order"] },
+      {
+        retentionClass: "order-observation",
+        windowSeconds: 7_776_000,
+        inboundKinds: ["order", "channel-order-fulfillment-observation/v1"],
+      },
     ]);
     expect(connectorInboundRetentionClasses).toEqual({
       export: { retentionClass: "inventory-snapshot", windowSeconds: 604_800 },
       order: { retentionClass: "order-observation", windowSeconds: 7_776_000 },
+      "channel-order-fulfillment-observation/v1": { retentionClass: "order-observation", windowSeconds: 7_776_000 },
     });
   });
 
@@ -53,7 +58,7 @@ describe("connector-inbound-retention-registry-parity", () => {
     expect(() => buildConnectorInboundRetentionSweeps(registrations)).toThrow(refusal);
   });
 
-  it("derives one bounded, strictly-after, elapsed-second sweep per class from the registry", () => {
+  it("derives one bounded, strictly-after, elapsed-second sweep per kind from its registered class", () => {
     expect(connectorInboundRetentionBatchLimit).toBe(
       Math.floor((256 * 1_048_576) / manualSyncIngestContract.configuredBounds.bytes[1]),
     );
@@ -70,26 +75,29 @@ describe("connector-inbound-retention-registry-parity", () => {
         batchLimit,
       })),
     ).toEqual(
-      ["inventory-snapshot", "order-observation"].map((retentionClass) => ({
-        name: `connector-inbound-${retentionClass}`,
+      ["inventory-snapshot", "order-observation", "fulfillment-observation"].map((name) => ({
+        name: `connector-inbound-${name}`,
         tableName: "channel_connector_inbound_payloads",
         orderBySql: "candidate.received_at ASC, candidate.provider_event_id ASC",
         intervalMs: 3_600_000,
         batchLimit: 2,
       })),
     );
-    const [exportSweep, orderSweep] = connectorInboundRetentionSweeps;
+    const [exportSweep, orderSweep, fulfillmentSweep] = connectorInboundRetentionSweeps;
     expect(exportSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
-      "candidate.inbound_kind IN ('export') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 604800)",
+      "candidate.inbound_kind = 'export' AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 604800)",
     );
     expect(orderSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
-      "candidate.inbound_kind IN ('order') AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
+      "candidate.inbound_kind = 'order' AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
+    );
+    expect(fulfillmentSweep?.predicateSql.replace(/\s+/g, " ")).toBe(
+      "candidate.inbound_kind = 'channel-order-fulfillment-observation/v1' AND candidate.received_at < CURRENT_TIMESTAMP - make_interval(secs => 7776000)",
     );
   });
 
   it("covers every kind the payload table admits and no other", () => {
-    const tableKinds = connectorInboundSchemaSql
-      .match(/inbound_kind text NOT NULL CHECK \(inbound_kind IN \(([^)]*)\)\)/)?.[1]
+    const tableKinds = [...connectorInboundSchemaSql.matchAll(/CHECK \(inbound_kind IN \(([^)]*)\)\)/g)]
+      .at(-1)?.[1]
       ?.split(",")
       .map((kind) => kind.trim().replaceAll("'", ""));
     expect(new Set(tableKinds)).toEqual(new Set(connectorInboundKinds));

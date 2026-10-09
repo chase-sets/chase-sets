@@ -14,6 +14,9 @@ import {
   parseMarketplaceListingOperatorUnlistedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
+  ChannelOrderFulfillmentAcceptedPayload,
+  ChannelOrderFulfillmentStatusChangedPayload,
+  ChannelsEventPayloads,
   AuthSessionStartedPayload,
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
@@ -375,6 +378,17 @@ function partitionShardModules(moduleFileNames: readonly string[], reExportedFil
 }
 
 describe("public event payload shard partition", () => {
+  it("channel-order-observation-callers: registers accepted and PII-free status facts in the Channels shard", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["channels.order-fulfillment-observation.accepted"]
+    >().toEqualTypeOf<ChannelOrderFulfillmentAcceptedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["channels.order-fulfillment-observation.status-changed"]
+    >().toEqualTypeOf<ChannelOrderFulfillmentStatusChangedPayload>();
+    expectTypeOf<
+      Extract<keyof ChannelOrderFulfillmentStatusChangedPayload, "shipTo" | "lines" | "productAmount">
+    >().toEqualTypeOf<never>();
+  });
   const moduleFileNames = listShardModules(shardDirectory);
   const reExportedFileNames = listAggregateReExports(
     readFileSync(path.join(shardDirectory, aggregateFileName), "utf8"),
@@ -615,6 +629,7 @@ const aggregateTypeIdentity = {
 } as const;
 
 type IndependentlyComposedPublicEventKeys =
+  | keyof ChannelsEventPayloads
   | keyof AuthEventPayloads
   | keyof IdentityEventPayloads
   | keyof CheckoutEventPayloads
