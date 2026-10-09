@@ -111,7 +111,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/connector-client/") &&
-        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/raw-export-indexeddb\.ts$|integrations\/order-authority-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/raw-export-indexeddb\.ts$|integrations\/order-(?:authority|detection-pagination)-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
           file,
         ),
     )
@@ -249,8 +249,8 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("allowedSupportDirectories");
   }
-  if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");
-  if (candidate.eventReactions?.length !== 4) violations.push("eventReactions");
+  if (candidate.eventSubscriptions?.length !== 6) violations.push("eventSubscriptions");
+  if (candidate.eventReactions?.length !== 6) violations.push("eventReactions");
   if (candidate.deployableContributions?.[0]?.routes?.length !== 5) violations.push("deployableContributions");
   if (candidate.shellContributions?.[0]?.requiredPermissions?.[0] !== "channels.view")
     violations.push("shellContributions");
@@ -403,15 +403,16 @@ describe("channels-context-foundation", () => {
         },
       ],
     });
-    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([10, 20, 30, 40, 50]);
+    expect(manifest.eventSubscriptions.map((entry) => entry.order)).toEqual([31, 10, 20, 30, 40, 50]);
     expect(manifest.eventSubscriptions.map((entry) => entry.sourceContextName)).toEqual([
+      "inventory",
       "marketplace",
       "catalog",
       "inventory",
       "channels",
       "channels",
     ]);
-    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([60, 61, 62, 63]);
+    expect(manifest.eventReactions.map((entry) => entry.order)).toEqual([64, 65, 60, 61, 62, 63]);
     expect(manifest.deployableContributions[0].routes.map((route) => route.authorization.requiredPermissions)).toEqual([
       ["channels.view"],
       ["channels.view"],
@@ -761,6 +762,16 @@ describe("channels-foundation-surface-fence", () => {
     "integrations/order-authority-probe/nested/worker.js",
     "integrations/order-authority-probe/worker.js/extra.js",
     "integrations/order-authority-probe/worker.js.backup",
+    "integrations/order-detection-pagination-probe/extra.js",
+    "integrations/order-detection-pagination-probe/nested/worker.js",
+    "integrations/order-detection-pagination-probe/worker.js/extra.js",
+    "integrations/order-detection-pagination-probe/worker.js.backup",
+    ...["order-authority-probe", "order-detection-pagination-probe"].flatMap((probe) => [
+      `integrations/prefix-${probe}/worker.js`,
+      `integrations/${probe}-suffix/worker.js`,
+      `integrations/${probe}extra/worker.js`,
+      `integrations/${probe}/nested/${probe}/worker.js`,
+    ]),
     "ui/synthetic-forbidden-sibling.ts",
     "synthetic-forbidden-sibling.ts",
   ])("rejects the forbidden connector-client sibling %s", (file) => {
@@ -771,6 +782,31 @@ describe("channels-foundation-surface-fence", () => {
       ]),
     ).toEqual(["connector-client-buckets"]);
   });
+
+  it.each(["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"])(
+    "admits the exact order-detection-pagination probe path %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/connector-client/integrations/order-detection-pagination-probe/${file}`,
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["order-authority-probe", "order-detection-pagination-probe"])(
+    "admits the complete six-file %s package alongside the real Channels inventory",
+    (probe) => {
+      const files = ["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"];
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          ...files.map((file) => `features/connector-client/integrations/${probe}/${file}`),
+        ]),
+      ).toEqual([]);
+    },
+  );
 
   it("accepts the desired-state slice while freezing forbidden context dependencies and excluding landing", () => {
     const manifest = readJson(manifestPath);
@@ -1196,6 +1232,7 @@ describe("channels-wake-registry-derivation", () => {
     expect(derive(manifests)).toEqual({
       affectedProjectionNames: [
         "channels:channel-connection-projection",
+        "channels:channel-fulfillment-observation-retry",
         "channels:channel-listing-desired-state-reaction",
         "channels:channel-owned-publication-state",
         "channels:platform-policy-document-projection",
@@ -1218,6 +1255,7 @@ describe("channels-wake-registry-derivation", () => {
     ]);
     expect(projectionMutant.affectedProjectionNames).toEqual([
       "channels:channel-connection-projection",
+      "channels:channel-fulfillment-observation-retry",
       "channels:channel-listing-desired-state-reaction",
       "channels:channel-owned-publication-state",
       "channels:platform-policy-document-projection",

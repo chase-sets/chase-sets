@@ -157,3 +157,9 @@ export {
   decodeChannelAttentionResolve,
 } from "./features/connection-attention/domain/codecs";
 export { createChannelConnectionsOperatorReadSourceFromReadModel } from "./features/connections/read-model/operator-read-source";
+export {
+  composeChannelOrderFulfillmentInbound,
+  translateOrderShippingType,
+  translateOrderStatus,
+  type ChannelOrderFulfillmentObservation,
+} from "./features/order-fulfillment-observations/domain/contracts";

@@ -40,6 +40,7 @@
     "@chase-sets/marketplace": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
     "hono": "^4.12.12",

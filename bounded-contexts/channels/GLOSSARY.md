@@ -68,6 +68,17 @@ An **Operation Acknowledgement** reports the complete producer reservation outco
 vector with unchanged attempt, generation and desired-state sequence. Only the
 producer settles it; an identical replay returns the same empty success response.
 
+## Channel Order Fulfillment Observation
+
+A **Channel Order Fulfillment Observation** is a closed, revision-qualified
+shipping observation joined to committed External Channel Sales. Admission is
+transport evidence, not acceptance. Before a matching sale it waits; after 24
+hours it contributes `channel-order-sale-absent` to the existing Channel Action.
+An unmapped order contributes `channel-order-unmapped`. Neither is connection
+health or a reason to pause other orders. Sale and mapping recovery resolve only
+the affected order reasons. Accepted ship-to is immutable; subsequent status
+facts contain no address, lines, or money.
+
 ## Channel Order Fulfillment Observation Reference
 
 A **Channel Order Fulfillment Observation Reference** identifies one observed

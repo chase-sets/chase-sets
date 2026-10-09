@@ -176,8 +176,8 @@ describe("platform worker projection wake interest graph", () => {
       "platform-policy-document-projection:payments:v1",
     ]);
     expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 250,
-      sha256: "2a02b795286c223b9f35244d60788004451a73c89ecd3790a8fbfb90ee4f2fbf",
+      count: 253,
+      sha256: "16a9353d0a9d54c0ae8d3bfdbaf94e801a712b8fc196a5ac59e0d634fbd692fd",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -201,8 +201,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 250,
-      sha256: "716e5e66a87f506c5789a0dd0fd841aba23228465f9cc201320f3d467bc218eb",
+      count: 253,
+      sha256: "0416b820abe0f2cfc8f8f6d622e1b5d8c24a2a5469525e37d9b4192f009a8deb",
     });
     expect(
       fingerprint(
@@ -212,24 +212,24 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 155,
-      sha256: "785c0191fe64f887dc7be64548425888dd7f2901a083aa44978a3723537a9137",
+      count: 158,
+      sha256: "d2d2bf02744c21eb3fd41523246f9795eb74e1362888aaeca098647237d683f0",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 155,
-      sha256: "664bd2d6f9a37a84c0e2243b8e3573ff5fb975df8f90804f490838a318b37c7d",
+      count: 158,
+      sha256: "03a03ff79ac04775c9d0cd7d35807ad72cfbf86d7b63ffa421ae6aae3df07615",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 250,
-      sha256: "a655aa3aec7d130199810affdb7e46fb0248cc6fc259bad42b23dc80345e35ee",
+      count: 253,
+      sha256: "aa9a64b5407d65b13dbd5d8ecf8f3f2c8f1daef1345c9dcac6ced67d6aab788f",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 120,
-      distinctSharedNames: 20,
-      runnersUsingSharedNames: 55,
+      distinctNames: 122,
+      distinctSharedNames: 21,
+      runnersUsingSharedNames: 57,
     });
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);

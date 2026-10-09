@@ -54,6 +54,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `channels:channel-catalog-publication-facts` | Channels | **catalog** | push-enabled | 1/1 |
 | `channels:channel-connection-projection` | Channels | channels | push-eligible | 0/1 |
 | `channels:channel-inventory-publication-facts` | Channels | **inventory** | push-enabled | 1/1 |
+| `channels:channel-fulfillment-item-facts` | Channels | **inventory** | push-enabled | 1/1 |
+| `channels:channel-fulfillment-observation-retry` | Channels | channels, **inventory** | push-eligible | 1/2 |
 | `channels:channel-listing-desired-state-reaction` | Channels | **catalog**, channels, **inventory**, **marketplace** | push-eligible | 3/4 |
 | `channels:channel-marketplace-publication-facts` | Channels | **marketplace** | push-enabled | 1/1 |
 | `channels:channel-owned-publication-state` | Channels | channels | push-eligible | 0/1 |

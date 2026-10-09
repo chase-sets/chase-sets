@@ -1,4 +1,6 @@
 export const channelOrderAttentionReasons = [
+  "channel-order-unmapped",
+  "channel-order-sale-absent",
   "tcgplayer-order-unmapped",
   "tcgplayer-order-identity-ambiguous",
   "tcgplayer-order-recording-refused",

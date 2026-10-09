@@ -64,6 +64,15 @@
   ],
   "eventSubscriptions": [
     {
+      "sourceContextName": "inventory",
+      "projectionName": "channel-fulfillment-item-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.item.created"],
+      "order": 31,
+      "projectionHandlerSetNames": ["channel-fulfillment-item-facts"]
+    },
+    {
       "sourceContextName": "marketplace",
       "projectionName": "channel-marketplace-publication-facts",
       "subscriptionVersion": 1,
@@ -151,6 +160,33 @@
     }
   ],
   "eventReactions": [
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "channel-fulfillment-observation-retry",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.external-channel-sale.recorded"],
+      "order": 64,
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "channels",
+      "reactionName": "channel-fulfillment-observation-retry",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.channel-listing.desired-state-changed",
+        "channels.channel-publication-configuration.mapping-review-decided"
+      ],
+      "order": 65,
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
     {
       "sourceContextName": "marketplace",
       "reactionName": "channel-listing-desired-state-reaction",
@@ -241,6 +277,22 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "channel-fulfillment-observation-retry",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-fulfillment-item-facts",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["channel_fulfillment_item_facts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "channel-connection-projection",
       "sourceContextNames": ["channels"],

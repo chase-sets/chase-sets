@@ -147,6 +147,11 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 
 ## Cross-Context Disambiguation
 
+Channel Sale Observations are Channels' PII-free sale-recording inputs to Inventory.
+Channel Order Fulfillment Observations are Channels' shipping facts joined to those
+committed sales, not another sale or Fulfillment record. Both definitions and
+External Order Reference are owned by the [Channels glossary](../bounded-contexts/channels/GLOSSARY.md).
+
 | Term | Source of truth | Other context use |
 | --- | --- | --- |
 | Channel Inbound Clamp | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Marketplace owns the revision-fenced Listing pause and recovery record; [Channels](../bounded-contexts/channels/GLOSSARY.md) coordinates it from a genuine Channel Sync Run and presents its outcome. |

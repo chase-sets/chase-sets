@@ -27,3 +27,9 @@ export type {
   ConnectorCommand,
   ConnectorBackgroundPorts,
 } from "./features/connector-client/domain/connector-background-contract";
+export {
+  composeChannelOrderFulfillmentInbound,
+  translateOrderShippingType,
+  translateOrderStatus,
+  type ChannelOrderFulfillmentObservation,
+} from "./features/order-fulfillment-observations/domain/contracts";

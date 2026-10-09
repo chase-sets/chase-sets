@@ -13,11 +13,14 @@ import {
 } from "../../tcgplayer-csv/domain/derived-snapshot";
 import { connectorMaxOperations, type ConnectorPolicy } from "./policy";
 
-export const connectorInboundKinds = ["order", "export"] as const;
+export const connectorInboundKinds = ["order", "export", "channel-order-fulfillment-observation/v1"] as const;
 export type ConnectorInboundKind = (typeof connectorInboundKinds)[number];
 export type ConnectorInbound = Readonly<{ externalReference: string }> &
   (
-    | Readonly<{ inboundKind: "order"; payload: Readonly<{ version: 1; records: readonly JsonObject[] }> }>
+    | Readonly<{
+        inboundKind: "order" | "channel-order-fulfillment-observation/v1";
+        payload: Readonly<{ version: 1; records: readonly JsonObject[] }>;
+      }>
     | Readonly<{ inboundKind: "export"; payload: DerivedTcgplayerSnapshot }>
   );
 export type ConnectorClaim = Readonly<{ capabilities?: readonly ConnectorClaimCapability[] }>;
@@ -44,7 +47,7 @@ export function assertConnectorInbound(value: unknown, policy: ConnectorPolicy):
       maxBytes: policy.maxIngestBytes,
       maxRecords: policy.maxIngestRecords,
     });
-  } else if (value.inboundKind === "order") {
+  } else if (value.inboundKind === "order" || value.inboundKind === "channel-order-fulfillment-observation/v1") {
     assertClosedRecord(value.payload, ["version", "records"], "opaque order payload");
     if (
       value.payload.version !== 1 ||

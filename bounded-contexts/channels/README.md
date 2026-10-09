@@ -165,6 +165,17 @@ target validation. Connector gaps never write reconciliation findings or health.
 Order-scoped Channel Action contributions preserve other order, manual and health
 work. Backdated sales and cancellations stay open without automatic resolution.
 
+Fulfillment observations use `channel-order-fulfillment-observation/v1` on the
+same connector owner-reader and 90-day payload sweep. The interpreter reuses
+the TCGplayer sale composer/resolver and committed Inventory sale receipts,
+never an item-default ship-from. Inventory creation facts supply the canonical
+product identity. Candidate state is PII-free and swept at 90 days; retained
+order identity/status/digests prevent duplicate acceptance after expiry.
+The worker's bounded scanner and sale/mapping reactions recover admitted input
+after interruption. Publication and candidate/order changes commit together.
+Order attention is reconciled with the existing sale contributions under one
+order-scoped transaction fence, independently of health and seller pause.
+
 ## Does Not Own
 
 - Account capability, standing, membership, or credential behavior (Identity)
