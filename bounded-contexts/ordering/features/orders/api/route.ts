@@ -131,7 +131,7 @@ function staleAuthenticityFeeQuoteResponse(c: { json: (body: unknown, status?: n
 }
 
 function canViewReviewOpportunity(actor: OrderingApiEnv["Variables"]["actor"]) {
-  return Boolean(actor?.permissions.includes("reputation.view") && actor.permissions.includes("reputation.manage"));
+  return Boolean(actor);
 }
 
 function parseShippingAddress(value: unknown) {
