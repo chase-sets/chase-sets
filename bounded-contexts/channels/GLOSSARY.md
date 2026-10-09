@@ -291,6 +291,13 @@ A **connection-subject Channel Outbound Operation** is a Channel Outbound Operat
 
 ## Channel Order Pull
 
+An **Order Pull Handoff** is the connector journal's durable allocation and
+required-admission plan for one claimed Channel Order Pull. It closes each
+member's immutable bundle before its first post, retains unread work, and
+distinguishes captured admission responses from producer-owned acceptance.
+Fulfillment bytes remain volatile; recovery rereads the member and must match
+the retained identity, status, variant and canonical digest.
+
 A **Channel Order Pull** (`tcgplayer-order-pull`) is the connection-subject operation
 that advances Ready to Ship intake under `ready-to-ship-intake/v2`. `nIntakeReadMax`,
 `nListReadMax` and `fMax` bound a job's allocated reads, never account population.

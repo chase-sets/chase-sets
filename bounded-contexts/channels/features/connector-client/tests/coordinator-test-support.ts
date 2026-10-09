@@ -8,7 +8,7 @@ import {
   type OperationUnit,
 } from "../domain/operation-protocol";
 import { createOperationJournal } from "../integrations/connector-indexeddb";
-import type { ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
+import type { ClaimedOperationOutcome, ClaimedOperationReservation } from "../../outbound-sync/domain/contracts";
 
 export async function coordinatorFixture(unit: "operation" | "reservation" = "operation") {
   const indexedDB = new IDBFactory();
@@ -68,16 +68,20 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
     uploadFileName: null,
     importSummary: null,
   } as const;
-  const result = (work: OperationUnit): ExecutorResult => ({
-    outcomes: work.members.map((member) => ({
-      operationId: member.operationId,
-      attemptId: member.attemptId,
-      claimGeneration: member.claimGeneration,
-      desiredStateSequence: member.desiredStateSequence,
-      outcome: { kind: "applied", result: { kind: "succeeded", externalListingId: "synthetic-external" } },
-    })),
-    ...(unit === "reservation" ? { runSettlement: settlement } : {}),
-  });
+  const result = (work: OperationUnit) =>
+    ({
+      outcomes: work.members.map((member): ClaimedOperationOutcome => {
+        if (member.operationKind === "tcgplayer-order-pull") throw new Error("listing fixture received a pull");
+        return {
+          operationId: member.operationId,
+          attemptId: member.attemptId,
+          claimGeneration: member.claimGeneration,
+          desiredStateSequence: member.desiredStateSequence,
+          outcome: { kind: "applied", result: { kind: "succeeded", externalListingId: "synthetic-external" } },
+        };
+      }),
+      ...(unit === "reservation" ? { runSettlement: settlement } : {}),
+    }) satisfies ExecutorResult;
   const dispatchOnce = vi.fn(async (work: OperationUnit, _signal: AbortSignal) => result(work));
   const prepare = vi.fn<ConnectorExecutor["prepare"]>(async () => ({ ready: true }));
   const executor: ConnectorExecutor = {

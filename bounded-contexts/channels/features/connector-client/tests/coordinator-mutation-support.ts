@@ -5,6 +5,9 @@ import * as validation from "../../outbound-sync/domain/validation";
 import * as protocol from "../domain/operation-protocol";
 import * as journal from "../integrations/connector-indexeddb";
 import * as retention from "../domain/raw-export-record";
+import * as handoff from "../domain/order-pull-handoff";
+import * as execution from "../domain/order-pull-execution";
+import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
 
 type Mutant =
   | "captured-cancellation-bypass"
@@ -18,7 +21,7 @@ function replace(source: string, before: string, after: string): string {
   if (source.split(before).length !== 2) throw new Error(`coordinator-mutant-anchor-moved: ${before}`);
   return source.replace(before, after);
 }
-function evaluate(source: string, dependencies: Record<string, unknown>): Record<string, unknown> {
+export function evaluate(source: string, dependencies: Record<string, unknown>): Record<string, unknown> {
   const exports: Record<string, unknown> = {};
   runInNewContext(
     ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } })
@@ -92,11 +95,15 @@ export function mutatedCoordinator(
       "../../outbound-sync/domain/validation": validation,
       "../domain/raw-export-record": retention,
       "../domain/operation-protocol": protocol,
+      "../domain/order-pull-handoff": handoff,
     });
   }
   const result = evaluate(source, {
     "../../outbound-sync/domain/validation": validation,
     "./raw-export-record": retention,
+    "./order-pull-handoff": handoff,
+    "./order-pull-execution": execution,
+    "../../outbound-sync/domain/order-pull-codec": pullCodec,
     "../integrations/connector-indexeddb": journalModule,
     "./operation-protocol": protocol,
   });

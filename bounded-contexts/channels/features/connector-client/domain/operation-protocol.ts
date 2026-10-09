@@ -1,6 +1,7 @@
 import {
   outboundOperationKinds,
-  type ClaimedOperationOutcome,
+  type ClaimedSubjectOutcome,
+  type ClaimedSubjectOperation,
   type ClaimedOperationReservation,
   type OutboundOperationKind,
   type OutboundOperationPayload,
@@ -15,6 +16,20 @@ import { assertChannelProviderIdentity } from "../../publication-port/domain/val
 import { assertConnectorRunSettlement, type ConnectorRunSettlement } from "../../connector-feed/domain/run-settlement";
 import type { ConnectorReport } from "../../connector-feed/domain/transport";
 import { utcInstant, safeRevision } from "./extension-records";
+import {
+  assertClaimedOrderPullOutcome,
+  assertOrderPullPayloadStructure,
+  type OrderPullPayload,
+} from "../../outbound-sync/domain/order-pull-codec";
+import {
+  assertHandoffOutcome,
+  browserCheckpointDigest,
+  parseOrderPullHandoff,
+  type OrderPullHandoff,
+} from "./order-pull-handoff";
+import type { OrderPullExecution } from "./order-pull-execution";
+import { OperationProtocolError, identifier, record, refuse } from "./operation-codec";
+export { OperationProtocolError, identifier, record, refuse } from "./operation-codec";
 
 export const operationStates = [
   "prepared",
@@ -27,7 +42,7 @@ export const operationStates = [
 export type OperationState = (typeof operationStates)[number];
 export const journalLimit = 4096;
 export type ExecutorResult = Readonly<{
-  outcomes: readonly ClaimedOperationOutcome[];
+  outcomes: readonly ClaimedSubjectOutcome[];
   runSettlement?: ConnectorRunSettlement;
 }>;
 export type OperationAttempt = Readonly<{
@@ -37,18 +52,28 @@ export type OperationAttempt = Readonly<{
   operationId: string;
   attemptId: string;
   claimGeneration: number;
-  desiredStateSequence: number;
   reservationId: string;
   leaseExpiresAt: string;
-  operationKind: OutboundOperationKind;
-  payload: OutboundOperationPayload;
   payloadDigest: string;
   state: OperationState;
   preparedAt: string;
   dispatchedAt?: string;
   receipt?: ExecutorResult;
   unknownReason?: "interrupted" | "unprovable-response" | "incomplete-rebind";
-}>;
+}> &
+  (
+    | Readonly<{
+        operationKind: OutboundOperationKind;
+        payload: OutboundOperationPayload;
+        desiredStateSequence: number;
+      }>
+    | Readonly<{
+        operationKind: "tcgplayer-order-pull";
+        payload: OrderPullPayload;
+        scheduleGeneration: number;
+        handoff?: OrderPullHandoff;
+      }>
+  );
 export type OperationReservation = Readonly<{
   schemaVersion: 1;
   connectionId: string;
@@ -67,43 +92,17 @@ export type OperationReservation = Readonly<{
 export type OperationUnit = Readonly<{ reservation: OperationReservation; members: readonly OperationAttempt[] }>;
 export type ConnectorExecutor = Readonly<{
   key: string;
-  accepts: readonly (readonly [OutboundOperationKind, OutboundOperationPayload["kind"]])[];
+  accepts: readonly (readonly [
+    OutboundOperationKind | "tcgplayer-order-pull",
+    OutboundOperationPayload["kind"] | "order-pull",
+  ])[];
   unit: "operation" | "reservation";
   dispatchDeadlineMs: number;
   prepare(unit: OperationUnit): Promise<Readonly<{ ready: true }> | Readonly<{ ready: false; result: ExecutorResult }>>;
-  dispatchOnce(unit: OperationUnit, signal: AbortSignal): Promise<ExecutorResult>;
-  reconcileAmbiguous?(unit: OperationUnit): Promise<ExecutorResult | null>;
+  dispatchOnce(unit: OperationUnit, signal: AbortSignal, pull?: OrderPullExecution): Promise<ExecutorResult>;
+  reconcileAmbiguous?(unit: OperationUnit, pull?: OrderPullExecution): Promise<ExecutorResult | null>;
 }>;
 
-export class OperationProtocolError extends Error {
-  constructor(readonly code: "protocol-violation" | "incomplete-authority" | "upgrade-required" | "stale-fence") {
-    super(code);
-  }
-}
-export function refuse(): never {
-  throw new OperationProtocolError("protocol-violation");
-}
-export function record(
-  value: unknown,
-  required: readonly string[],
-  optional: readonly string[] = [],
-): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) refuse();
-  const row = value as Record<string, unknown>;
-  if (
-    required.some((key) => !Object.hasOwn(row, key)) ||
-    Object.keys(row).some((key) => !required.includes(key) && !optional.includes(key))
-  )
-    refuse();
-  return row;
-}
-export function identifier(value: unknown): asserts value is string {
-  if (typeof value !== "string" || value.length < 1 || value.length > 512) refuse();
-  for (const character of value) {
-    const point = character.codePointAt(0)!;
-    if (point === 0 || (point >= 0xd800 && point <= 0xdfff)) refuse();
-  }
-}
 function positive(value: unknown): void {
   if (!safeRevision(value) || value < 1) refuse();
 }
@@ -116,12 +115,16 @@ function digest(value: unknown): void {
 function state(value: unknown): void {
   if (!operationStates.some((candidate) => candidate === value)) refuse();
 }
-function payload(value: unknown, kind: unknown): asserts value is OutboundOperationPayload {
+function payload(value: unknown, kind: unknown): asserts value is OutboundOperationPayload | OrderPullPayload {
+  if (kind === "tcgplayer-order-pull") {
+    assertOrderPullPayloadStructure(value);
+    return;
+  }
   if (!outboundOperationKinds.some((candidate) => candidate === kind)) refuse();
   assertOutboundOperationPayload(value, kind as OutboundOperationKind, assertChannelListingDelistDirective);
 }
 export async function browserPayloadDigest(
-  value: OutboundOperationPayload,
+  value: OutboundOperationPayload | OrderPullPayload,
   crypto: Crypto = globalThis.crypto,
 ): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value)));
@@ -132,7 +135,8 @@ export function parseExecutorResult(value: unknown): ExecutorResult {
   if (!Array.isArray(row.outcomes) || row.outcomes.length < 1 || row.outcomes.length > journalLimit) refuse();
   const ids = new Set<string>();
   for (const outcome of row.outcomes) {
-    assertClaimedOperationOutcome(outcome);
+    if (outcome && typeof outcome === "object" && "operationKind" in outcome) assertClaimedOrderPullOutcome(outcome);
+    else assertClaimedOperationOutcome(outcome);
     if (ids.has(outcome.operationId) || new TextEncoder().encode(canonicalJson(outcome)).length > 16384) refuse();
     ids.add(outcome.operationId);
   }
@@ -149,7 +153,6 @@ export function parseOperationAttempt(value: unknown): OperationAttempt {
       "operationId",
       "attemptId",
       "claimGeneration",
-      "desiredStateSequence",
       "reservationId",
       "leaseExpiresAt",
       "operationKind",
@@ -158,18 +161,29 @@ export function parseOperationAttempt(value: unknown): OperationAttempt {
       "state",
       "preparedAt",
     ],
-    ["dispatchedAt", "receipt", "unknownReason"],
+    ["dispatchedAt", "receipt", "unknownReason", "desiredStateSequence", "scheduleGeneration", "handoff"],
   );
   if (row.schemaVersion !== 1) throw new OperationProtocolError("upgrade-required");
   if (!safeRevision(row.revision)) refuse();
   for (const key of ["connectionId", "operationId", "attemptId", "reservationId"]) identifier(row[key]);
   positive(row.claimGeneration);
-  positive(row.desiredStateSequence);
+  if (row.operationKind === "tcgplayer-order-pull") {
+    if (Object.hasOwn(row, "desiredStateSequence")) refuse();
+    positive(row.scheduleGeneration);
+  } else {
+    if (Object.hasOwn(row, "scheduleGeneration") || Object.hasOwn(row, "handoff")) refuse();
+    positive(row.desiredStateSequence);
+  }
   instant(row.leaseExpiresAt);
   instant(row.preparedAt);
   state(row.state);
   digest(row.payloadDigest);
   payload(row.payload, row.operationKind);
+  if (row.payload.kind === "order-pull") {
+    if (row.payload.connectionId !== row.connectionId) refuse();
+    if (Object.hasOwn(row, "handoff")) parseOrderPullHandoff(row.handoff, row.payload);
+    if (row.state === "prepared" && row.handoff !== undefined) refuse();
+  }
   if (Object.hasOwn(row, "dispatchedAt")) instant(row.dispatchedAt);
   if (Object.hasOwn(row, "receipt")) parseExecutorResult(row.receipt);
   if (
@@ -240,7 +254,10 @@ export function parseOperationReservation(value: unknown): OperationReservation 
   if (row.phase === "acked" && !row.ackedAt) refuse();
   return structuredClone(row) as OperationReservation;
 }
-export async function parseOperationClaim(value: unknown, connectionId: string): Promise<ClaimedOperationReservation> {
+export async function parseOperationClaim(
+  value: unknown,
+  connectionId: string,
+): Promise<ClaimedOperationReservation<ClaimedSubjectOperation>> {
   const row = record(value, [
     "reservationId",
     "connectionId",
@@ -263,6 +280,43 @@ export async function parseOperationClaim(value: unknown, connectionId: string):
   if (row.operations.length > journalLimit) throw new OperationProtocolError("incomplete-authority");
   const ids = new Set<string>();
   for (const member of row.operations) {
+    if (member && typeof member === "object" && member.operationKind === "tcgplayer-order-pull") {
+      const operation = record(member, [
+        "operationId",
+        "attemptId",
+        "claimGeneration",
+        "connectionId",
+        "providerIdentity",
+        "subject",
+        "operationKind",
+        "pullId",
+        "scheduleGeneration",
+        "payload",
+        "payloadDigest",
+        "enqueuedAt",
+      ]);
+      if (
+        row.operations.length !== 1 ||
+        operation.connectionId !== connectionId ||
+        canonicalJson(operation.providerIdentity) !== canonicalJson(row.providerIdentity)
+      )
+        refuse();
+      for (const key of ["operationId", "attemptId"]) identifier(operation[key]);
+      positive(operation.claimGeneration);
+      positive(operation.scheduleGeneration);
+      instant(operation.enqueuedAt);
+      const subject = record(operation.subject, ["kind", "connectionId"]);
+      if (subject.kind !== "connection" || subject.connectionId !== connectionId) refuse();
+      assertOrderPullPayloadStructure(operation.payload);
+      if (
+        operation.payload.connectionId !== connectionId ||
+        operation.payload.pullId !== operation.pullId ||
+        (await browserCheckpointDigest(operation.payload)) !== operation.payload.checkpointDigest ||
+        (await browserPayloadDigest(operation.payload)) !== operation.payloadDigest
+      )
+        refuse();
+      continue;
+    }
     const operation = record(member, [
       "operationId",
       "attemptId",
@@ -302,20 +356,19 @@ export async function parseOperationClaim(value: unknown, connectionId: string):
       refuse();
     if ((await browserPayloadDigest(operation.payload)) !== operation.payloadDigest) refuse();
   }
-  return structuredClone(row) as ClaimedOperationReservation;
+  return structuredClone(row) as ClaimedOperationReservation<ClaimedSubjectOperation>;
 }
 export function assertTotalResult(result: ExecutorResult, members: readonly OperationAttempt[]): void {
   parseExecutorResult(result);
   if (result.outcomes.length !== members.length) refuse();
   for (const member of members) {
     const outcome = result.outcomes.find((candidate) => candidate.operationId === member.operationId);
-    if (
-      !outcome ||
-      outcome.attemptId !== member.attemptId ||
-      outcome.claimGeneration !== member.claimGeneration ||
-      outcome.desiredStateSequence !== member.desiredStateSequence
-    )
+    if (!outcome || outcome.attemptId !== member.attemptId || outcome.claimGeneration !== member.claimGeneration)
       refuse();
+    if (member.operationKind === "tcgplayer-order-pull") {
+      if (!("operationKind" in outcome) || outcome.payloadDigest !== member.payloadDigest) refuse();
+      assertHandoffOutcome(outcome, member.payload, member.handoff);
+    } else if ("operationKind" in outcome || outcome.desiredStateSequence !== member.desiredStateSequence) refuse();
   }
 }
 export function nextRevision(revision: number): number {
