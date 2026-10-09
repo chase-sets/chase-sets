@@ -42,6 +42,15 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
     await page.screenshot({ path: testInfo.outputPath("channels-connect-list-390.png"), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: testInfo.outputPath("channels-connect-list-1440.png"), fullPage: true });
+    const provider = page.getByRole("combobox", { name: "Sales Channel", exact: true });
+    await provider.evaluate((element) => {
+      if (!(element instanceof HTMLSelectElement)) throw new Error("Sales Channel control must be a select");
+      element.add(new Option("Unregistered", "unregistered"));
+    });
+    await provider.selectOption("unregistered");
+    await page.getByRole("button", { name: "Connect a channel", exact: true }).click();
+    await expect(page.getByText("provider-setup-not-registered", { exact: true })).toBeVisible();
+    await captureViewports(page, testInfo, "channels-connect-error");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("combobox", { name: "Sales Channel", exact: true }).selectOption("tcgplayer");
     await page.getByRole("button", { name: "Connect a channel", exact: true }).click();
@@ -175,6 +184,8 @@ type FreshnessCapture = {
   receipt: ReturnType<typeof readFreshWriteToken>;
   targetContext: "marketplace";
   pending: boolean;
+  lastResponseAt: string | null;
+  pendingProjections: readonly Readonly<Record<string, string | null>>[];
   outcome: "reading" | "ready" | "transient" | "rejected" | "exhausted";
   classification: Pick<ReturnType<typeof classifyFreshWriteReadError>, "kind" | "status" | "errorCode"> | null;
 };
@@ -236,6 +247,14 @@ function createExecutionCapture(testInfo: TestInfo) {
   };
 }
 
+async function captureViewports(page: Page, testInfo: TestInfo, name: string) {
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`${name}-${width}.png`), fullPage: true });
+  }
+}
+
 async function capturePanelRead(response: APIResponse) {
   const body: unknown = await response.json().catch(() => null);
   const panel = response.ok() ? (body as ManualSyncPanel) : null;
@@ -283,6 +302,8 @@ async function readFreshListing<Result>(
     receipt: readFreshWriteToken(request),
     targetContext: "marketplace",
     pending: false,
+    lastResponseAt: null,
+    pendingProjections: [],
     outcome: "reading",
     classification: null,
   };
@@ -295,8 +316,10 @@ async function readFreshListing<Result>(
           read.pending = true;
           const response = await page.request.get(request, { headers });
           read.pending = false;
+          read.lastResponseAt = new Date().toISOString();
           if (!response.ok()) {
             const body: unknown = await response.json().catch(() => null);
+            read.pendingProjections = capturePendingProjections(body);
             const { kind, status, errorCode } = classifyFreshWriteReadError({
               request,
               error: response,
@@ -334,6 +357,31 @@ async function successfulJson<Result = unknown>(response: APIResponse): Promise<
   expect(response.ok(), `${response.url()}: ${await response.text()}`).toBe(true);
   expect(response.headers()["content-type"]).toContain("application/json");
   return attachResponseMetadata(await response.json(), { headers: new Headers(response.headers()) });
+}
+
+function capturePendingProjections(body: unknown): readonly Readonly<Record<string, string | null>>[] {
+  if (!body || typeof body !== "object" || !("error" in body)) return [];
+  const error = body.error;
+  if (!error || typeof error !== "object" || !("pending" in error) || !Array.isArray(error.pending)) return [];
+  const fields = [
+    "targetContextName",
+    "projectionName",
+    "sourceContextName",
+    "requiredGlobalPosition",
+    "lastGlobalPosition",
+    "state",
+    "lastError",
+  ];
+  return error.pending.map((entry: unknown) =>
+    Object.fromEntries(
+      fields.map((key) => [
+        key,
+        entry && typeof entry === "object" && typeof Reflect.get(entry, key) === "string"
+          ? String(Reflect.get(entry, key))
+          : null,
+      ]),
+    ),
+  );
 }
 
 function marketplaceFreshReadHeaders(source: unknown) {

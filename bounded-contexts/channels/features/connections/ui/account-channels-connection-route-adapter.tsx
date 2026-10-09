@@ -90,7 +90,7 @@ export async function loader({ request, params }: Pick<LoaderFunctionArgs, "requ
   let setupLocations: ConnectionSetupLocations = { kind: "loaded", items: [] };
   if (connection.status === "pending-setup" && actor.permissions.includes("channels.manage")) {
     try {
-      const { readConnectionSetupLocations } = await import("../../../support/request-support/setup-locations");
+      const { readConnectionSetupLocations } = await import("../api/setup-locations");
       setupLocations = { kind: "loaded", items: await readConnectionSetupLocations(request) };
     } catch {
       setupLocations = { kind: "read-error" };
