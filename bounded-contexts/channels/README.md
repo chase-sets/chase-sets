@@ -36,6 +36,10 @@ complete inline channel observations with expected Link state, retains seller
 drift decisions, records missed external sales through Inventory, and applies
 outbound-only health and operator holds.
 
+The [Order Pull Scalability Worksheet](./docs/order-pull-scalability.md) records
+the governed allocation envelope and conditional intake/follow-up estimates.
+It is not provider qualification or evidence that the executor has shipped.
+
 ## Test Support
 
 `@chase-sets/channels/seed-support/channel-publication-browser` provides test-only
