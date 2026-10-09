@@ -48,7 +48,7 @@ export async function readOpportunitySourceProof(db: PgQueryable): Promise<{
      WHERE stream_id LIKE 'marketplace.review-%'
        AND stream_id NOT LIKE 'marketplace.review-opportunity-%'`,
   );
-  if ([6, 7].some((index) => BigInt(position(index)) < BigInt(head.rows[0]!.position))) return null;
+
   return {
     sourceGeneration: opportunitySourceProjections
       .map(([name]) => result.rows.find((row) => row.projection_name === name)!.generation)
