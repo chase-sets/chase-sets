@@ -135,8 +135,8 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
-            captureParent: 'f7db5d367b0ba1ffb9caf17d1acd46aa60d10798',
-            sourceBase: '7ccec3acc74bf4d4c272ee2c67d52fe429b43988',
+            captureParent: '92622c9be4faf1c724a2012061c4e3492cccb70b',
+            sourceBase: '92622c9be4faf1c724a2012061c4e3492cccb70b',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
               .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
@@ -180,7 +180,7 @@ jobs:
           const sourceBytes = Buffer.from(JSON.stringify({ sourceBase: identity.sourceBase,
             files: Object.fromEntries(sourceFiles.map(file => [file, hash(readFileSync(resolve(root, file)))])),
           }, null, 2) + '\n');
-          assert.equal(hash(sourceBytes), 'd54e758e9e3cf34a59befb326772ea137d8673927af3d5cc72d391f7581461c4', 'frozen runtime/helper/dependency source list');
+          assert.equal(hash(sourceBytes), 'dd6989cb922ae735b61d373b8cea3962ac11aab83d11af6cbc1705470d52e3f9', 'frozen runtime/helper/dependency source list');
           const sourceBinding = JSON.parse(sourceBytes);
           assert.equal(sourceBinding.sourceBase, identity.sourceBase);
           for (const [file, expected] of Object.entries(sourceBinding.files)) {
