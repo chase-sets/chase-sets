@@ -9,22 +9,8 @@ import {
   type OrderPullScanCursor,
 } from "../api/order-pull";
 import { OutboundSyncError, type OrderPullProducerDependencies } from "../domain/contracts";
-import type { OrderPullAuthority } from "../domain/order-pull";
+import { syntheticAuthority } from "./order-pull-fixtures";
 
-// Synthetic authority and connection identities: these exercise the scheduler only, never a provider.
-const syntheticAuthority: OrderPullAuthority = {
-  revision: 3,
-  lawVersion: "ready-to-ship-intake/v1",
-  selector: { identity: "synthetic-ready-to-ship-selector", version: 1, pageSize: 500 },
-  nRtsMax: 60,
-  fMax: 20,
-  providerCadenceMs: 1_000,
-  providerCallTimeoutMs: 3_000,
-  mappingJournalMs: 10_000,
-  maxPostsPerOrder: 3,
-  postTimeoutMs: 1_000,
-  reportTimeoutMs: 5_000,
-};
 const startedAt = Date.parse("2026-10-07T12:00:00.000Z");
 const iso = (offsetMs: number) => new Date(startedAt + offsetMs).toISOString();
 const synthetic = (index: number) => `connection_synthetic_${String(index).padStart(3, "0")}`;
@@ -50,6 +36,7 @@ function syntheticProducer(connectionIds: readonly string[], options: Readonly<{
   const query = vi.fn(async (sql: string, params: readonly unknown[] = []) => {
     const id = params[0] as string;
     if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return result([]);
+    if (sql.includes("FROM channel_order_pull_chunks")) return result([]);
     if (sql.includes("FROM channel_connections AS connection")) {
       const [at, , limit, cadenceFloor, after] = params as [string, string, number, string, string | null];
       const rows = [...connectionIds]

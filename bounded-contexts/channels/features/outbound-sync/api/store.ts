@@ -470,7 +470,7 @@ async function reserveClaimedOutboundOperations(
   const reservedAt = now();
   const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
   const pull = orderPull
-    ? await reserveOrderPull(db, {
+    ? await reserveOrderPull(db, dependencies, {
         connectionId: input.connectionId,
         providerIdentity: admission.providerIdentity,
         claimant: input.claimant,

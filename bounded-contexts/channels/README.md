@@ -128,12 +128,26 @@ pairing state.
 
 A claim body of `{}` is incapable and only ever receives listing operations. A
 claim declaring `{"capabilities":["tcgplayer-order-pull"]}` may also receive the
-connection's single Channel Order Pull, which Channels background schedules on
-its persisted cadence boundary (never the claim endpoint). The pull reports a
-closed `order-pull-complete`, `order-pull-unknown` or `abandoned` outcome fenced
-on attempt, generation, pull identity and payload digest; it never writes listing
-lanes or Link state. Scheduling stays denied until #8804/#8838 supply governed
-order-pull authority.
+connection's single Channel Order Pull. Background schedules new idle work on its
+persisted cadence boundary; the existing report transaction commits bounded
+discovery/checkpoint progress and exactly one due-now successor when traversal,
+unread references or a due follow-up tail remain. Claim does not schedule work.
+The successor bypasses only the idle cadence: fresh authority, budget, lease,
+holds and `providerNotBefore` still apply. Connector-side immediate re-claim and
+provider execution belong to the consuming executor, not this server contract.
+
+The closed `ready-to-ship-intake/v2` contract budgets allocated list/intake/follow-up
+reads, not population. Frozen qualified cursor/frontier traversal reconciles an
+independent total when supplied and rejects duplicate references/cursors. Discovery
+chunks retain references and post progress, never an accepted-status authority.
+Membership comes only from the fulfillment fact owner's bounded reader, refreshed
+at claim and settlement. Both its reference and complete-input UTF-8 caps apply.
+Posted-unaccepted-only work stays pending at idle cadence; it never mints a
+no-progress immediate successor. `order-pull-gaps` distinguishes qualified gaps
+from successful all-order intake. Attempt, generation, checkpoint, selector/policy
+and digest fences protect every transition; report replay recovers the same
+successor. Listing lanes and Link state remain separate. The production authority
+resolver remains null, so this contract activates no provider execution.
 
 Inbound `order` envelopes contain versioned opaque records; `export` envelopes
 contain a recursively validated derived live snapshot, never raw CSV. The tuple

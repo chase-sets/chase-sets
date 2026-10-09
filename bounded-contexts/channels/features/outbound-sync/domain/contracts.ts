@@ -7,12 +7,7 @@ import type {
   ChannelPublicationRejectionCode,
   ChannelPublicationSuccess,
 } from "../../publication-port/domain/contracts";
-import type {
-  ClaimedOrderPullOutcome,
-  OrderPullPayload,
-  OrderPullUnknownReason,
-  orderPullOperationKind,
-} from "./order-pull";
+import type { ClaimedOrderPullOutcome, OrderPullPayload, orderPullOperationKind } from "./order-pull";
 
 export const outboundOperationKinds = ["publish", "update", "delist"] as const;
 export type OutboundOperationKind = (typeof outboundOperationKinds)[number];
@@ -162,10 +157,7 @@ export type OrderPullOperationRecord = Readonly<{
   reservationId: string | null;
   claimedUntil: string | null;
   attemptCount: number;
-  outcome:
-    | Extract<ClaimedOrderPullOutcome["outcome"], { kind: "order-pull-complete" }>
-    | Readonly<{ kind: "order-pull-unknown"; reason: OrderPullUnknownReason }>
-    | null;
+  outcome: Exclude<ClaimedOrderPullOutcome["outcome"], { kind: "abandoned" }> | null;
   enqueuedAt: string;
   firstClaimedAt: string | null;
   terminalAt: string | null;
