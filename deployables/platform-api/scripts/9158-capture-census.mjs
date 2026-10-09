@@ -53,9 +53,7 @@ export function deriveCaptureCensusCaseNames(file, source, fixtureSource) {
     const declarations = fixture.statements.flatMap((statement) =>
       ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : [],
     );
-    const declaration = declarations.filter(
-      (item) => ts.isIdentifier(item.name) && item.name.text === "deniedOrigins",
-    );
+    const declaration = declarations.filter((item) => ts.isIdentifier(item.name) && item.name.text === "deniedOrigins");
     assert.equal(declaration.length, 1, "ambiguous deniedOrigins");
     assert(ts.isArrayLiteralExpression(declaration[0].initializer), "dynamic deniedOrigins");
     return [...declaration[0].initializer.elements];
