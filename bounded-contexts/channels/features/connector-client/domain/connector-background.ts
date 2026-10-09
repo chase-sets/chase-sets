@@ -343,7 +343,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       await serial(async () => {
         const profile = await read();
         if (profile && ["paired-idle", "paused"].includes(profile.state)) {
-          await sweep(profile, "unpair");
+          await sweep(profile, "unpair", true);
           const retained = await read();
           if (retained) await advance(retained, "unpairing");
           if (!rawUpgradeRequired) await ports.alarms.clear(workAlarm);
