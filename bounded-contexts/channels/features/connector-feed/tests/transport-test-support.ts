@@ -319,11 +319,8 @@ export function transportDatabase(
       );
       return {
         e1,
-        e2: (
-          await pools.channels.query(
-            "SELECT pairing_id,revision,last_seen_at,served_poll_window_seconds FROM channel_connector_pairings ORDER BY pairing_id",
-          )
-        ).rows,
+        e2: (await pools.channels.query("SELECT * FROM channel_connector_liveness_authority ORDER BY connection_id"))
+          .rows,
         e3: (await pools.channels.query("SELECT * FROM channel_connector_audit ORDER BY request_id")).rows,
       };
     },

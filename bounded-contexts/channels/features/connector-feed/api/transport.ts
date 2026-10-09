@@ -1,8 +1,11 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { ResolvedPolicy } from "@chase-sets/platform-policy/resolver";
 import type { ChannelProviderRegistry } from "../../publication-port/domain/contracts";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
 import { ConnectorPairingError, type ConnectorIdentity } from "../domain/contracts";
-import { decodeConnectorPolicy, type ConnectorPolicy } from "../domain/policy";
+import type { ConnectorPolicy } from "../domain/policy";
+import { decodeServedConnectorPolicy, deriveServedPolicyIdentity } from "../domain/served-policy-identity";
+import { recordConnectorHeartbeat } from "../read-model/liveness";
 import {
   assertConnectorClaim,
   assertConnectorInbound,
@@ -20,46 +23,41 @@ export function createConnectorTransport(
     authority: ConnectorFeedServices;
     outboundSync: OutboundSyncServices;
     registry: ChannelProviderRegistry;
-    resolvePolicy: () => Promise<ConnectorPolicy>;
+    resolvePolicy: () => Promise<ResolvedPolicy<ConnectorPolicy>>;
     now?: () => Date;
   }>,
 ) {
   const now = deps.now ?? (() => new Date());
-  async function policy(): Promise<ConnectorPolicy> {
+  async function snapshot(): Promise<ResolvedPolicy<ConnectorPolicy>> {
     try {
-      return decodeConnectorPolicy(await deps.resolvePolicy());
+      return decodeServedConnectorPolicy(await deps.resolvePolicy());
     } catch {
       throw new ConnectorTransportError("policy-unavailable");
     }
+  }
+  async function policy(): Promise<ConnectorPolicy> {
+    return (await snapshot()).value;
   }
   return {
     resolveTransportPolicy: policy,
     readAdmittedConnectorInboundEvents: createConnectorInboundReader(deps.db),
     async claim(input: RequestAuthority, value: unknown, identify: Identify) {
       assertConnectorClaim(value);
-      const resolved = await policy();
+      const admittedPolicy = await snapshot();
+      const resolved = admittedPolicy.value;
+      const policyIdentity = deriveServedPolicyIdentity(admittedPolicy);
       const admission = await deps.authority.withAuthority(
         { ...input, operation: "claim" },
         async (authority, db: PgQueryable) => {
           if (!authority.pairingId || !authority.grant) throw new ConnectorPairingError("invalid-credential");
           const at = now().toISOString();
-          const observed = await db.query<{ revision: number }>(
-            `SELECT revision FROM channel_connector_pairings
-          WHERE pairing_id=$1 AND grant_id=$2 AND state='paired' FOR UPDATE`,
-            [authority.pairingId, authority.grant.grantId],
-          );
-          const revision = observed.rows[0]?.revision;
-          if (revision === undefined) throw new ConnectorPairingError("conflict");
-          const updated = await db.query(
-            `UPDATE channel_connector_pairings SET
-          last_seen_at=GREATEST(COALESCE(last_seen_at,$1::timestamptz),$1::timestamptz),
-          served_poll_window_seconds=CASE WHEN last_seen_at IS NULL OR last_seen_at <= $1::timestamptz
-            THEN $2 ELSE served_poll_window_seconds END
-          WHERE pairing_id=$3 AND revision=$4 AND state='paired' AND grant_id=$5
-          RETURNING pairing_id`,
-            [at, resolved.pollWindowSeconds, authority.pairingId, revision, authority.grant.grantId],
-          );
-          if (updated.rows.length !== 1) throw new ConnectorPairingError("conflict");
+          await recordConnectorHeartbeat(db, {
+            connectionId: input.connectionId,
+            pairingId: authority.pairingId,
+            at,
+            pollWindowSeconds: resolved.pollWindowSeconds,
+            policyIdentity,
+          });
           return { paused: authority.connectionState === "paused", pairingId: authority.pairingId };
         },
         identify,

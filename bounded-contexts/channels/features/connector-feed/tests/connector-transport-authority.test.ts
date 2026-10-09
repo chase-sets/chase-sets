@@ -5,7 +5,7 @@ import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests
 import { createConnectorFeedRuntime, type ConnectorFeedServices } from "../api/runtime";
 import { createConnectorTransport } from "../api/transport";
 import { ConnectorPairingError, type ConnectorAuthority } from "../domain/contracts";
-import { connectorPolicyDefaults } from "../domain/policy";
+import { connectorPolicyDefaults, connectorTransportPolicy } from "../domain/policy";
 
 function harness(paused = false, member = true) {
   const calls: string[] = [];
@@ -62,7 +62,15 @@ function harness(paused = false, member = true) {
       reportClaimedOperationOutcomes: report,
     },
     registry: createChannelProviderRegistry([]),
-    resolvePolicy: async () => connectorPolicyDefaults,
+    resolvePolicy: async () => ({
+      policyKey: connectorTransportPolicy.policyKey,
+      value: connectorPolicyDefaults,
+      source: "fallback",
+      documentId: null,
+      effectiveFrom: null,
+      effectiveUntil: null,
+      resolvedAt: "2026-10-07T12:00:00Z",
+    }),
     now: () => new Date("2026-10-07T12:00:00Z"),
   });
   return {
@@ -79,7 +87,7 @@ describe("connector authority and producer boundary", () => {
   it("commits fenced E2 before the sole producer reservation call", async () => {
     const h = harness();
     expect(await h.services.claim(h.input, {}, h.identify)).toEqual({ reservation: null, pollWindowSeconds: 60 });
-    expect(h.calls).toEqual(["authority", "pairing-fence", "E2", "commit", "reserve"]);
+    expect(h.calls).toEqual(["authority", "E2", "commit", "reserve"]);
     expect(h.reserve).toHaveBeenCalledTimes(1);
     expect(h.reserve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -112,7 +120,7 @@ describe("connector authority and producer boundary", () => {
     const h = harness(true);
     h.reserve.mockRejectedValue(new Error("must-not-call-reserve"));
     expect(await h.services.claim(h.input, {}, h.identify)).toEqual({ reservation: null, pollWindowSeconds: 60 });
-    expect(h.calls).toEqual(["authority", "pairing-fence", "E2", "commit"]);
+    expect(h.calls).toEqual(["authority", "E2", "commit"]);
     expect(h.reserve).not.toHaveBeenCalled();
   });
   it("refuses membership before E2 and reserve", async () => {

@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
 import { isChannelsServices, OutboundSyncError, type ChannelsServices } from "@chase-sets/channels/server";
+import {
+  readConnectorLivenessAuthority,
+  readConnectorLivenessAuthorityInTransaction,
+  listConnectorLivenessCandidates,
+} from "@chase-sets/channels/server";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkerRunnerLoop } from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +15,16 @@ import {
 } from "../src/channels-outbound-runners";
 
 describe("Channels outbound worker wiring", () => {
+  it("can call the published liveness readers through the real server entrypoint", async () => {
+    const db: PgQueryable = { query: vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] }) };
+    const input = { connectionId: "connection_never_paired" };
+    expect(await readConnectorLivenessAuthority(db, input)).toBeNull();
+    expect(await readConnectorLivenessAuthorityInTransaction(db, input)).toBeNull();
+    expect(await listConnectorLivenessCandidates(db, { dueAt: "2026-10-07T12:00:00Z", limit: 100 })).toEqual({
+      candidates: [],
+      nextCursor: null,
+    });
+  });
   it("registers the isolated Channels runner in the existing jobs group", () => {
     const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
     expect(source).toContain('import { createChannelsOutboundRunners } from "./channels-outbound-runners";');
@@ -270,6 +286,10 @@ function validChannelsCandidate(
       report: vi.fn(),
       ingest: vi.fn(),
       readAdmittedConnectorInboundEvents: vi.fn(),
+      readConnectorLivenessAuthority: vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthority"]>(),
+      readConnectorLivenessAuthorityInTransaction:
+        vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthorityInTransaction"]>(),
+      listConnectorLivenessCandidates: vi.fn<ChannelsServices["connectorFeed"]["listConnectorLivenessCandidates"]>(),
     },
     projectors: [],
     db: {},
