@@ -144,7 +144,7 @@ export function transportDatabase(
   }
   async function observation(
     connectionId: string,
-    reasonCode: ChannelHealthReason,
+    reasonCode: Exclude<ChannelHealthReason, "connector-liveness">,
     outcome: "success" | "failure",
     attempt = 1,
   ) {
@@ -169,7 +169,8 @@ export function transportDatabase(
     );
   }
   async function healthy(connectionId = target.connectionId) {
-    for (const reason of channelHealthReasons) await observation(connectionId, reason, "success");
+    for (const reason of channelHealthReasons)
+      if (reason !== "connector-liveness") await observation(connectionId, reason, "success");
   }
   async function pair(connectionId = target.connectionId) {
     const registration = await oauth.register({

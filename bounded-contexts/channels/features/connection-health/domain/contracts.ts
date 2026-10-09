@@ -11,6 +11,7 @@ export const channelHealthReasons = [
   "provider-rate",
   "provider-availability",
   "sale-follow-up",
+  "connector-liveness",
 ] as const;
 export const channelHealthSources = [
   "credential",
@@ -21,6 +22,7 @@ export const channelHealthSources = [
   "provider-rate",
   "provider-availability",
   "sale-follow-up",
+  "connector-liveness",
 ] as const;
 export type ChannelHealthState = (typeof channelHealthStates)[number];
 export type ChannelHealthReason = (typeof channelHealthReasons)[number];
@@ -85,13 +87,29 @@ export type ChannelHealthSubmission = Readonly<{
   health: ChannelHealthRead;
 }>;
 export type ConnectionHealthServices = Readonly<{
+  sweepConnectorLiveness: (input: Readonly<{ now: string; limit: number }>) => Promise<ConnectorLivenessSweep>;
   submitObservation: (input: ChannelHealthObservation, context: EventStoreContext) => Promise<ChannelHealthSubmission>;
   readConnectionHealth: (input: ChannelHealthQuery) => Promise<ChannelHealthRead>;
   listOpenReasonGenerations: (input: ChannelHealthQuery) => Promise<readonly ChannelHealthReasonGeneration[]>;
 }>;
 
+export type ConnectorLivenessSweep = Readonly<{
+  examined: number;
+  accepted: number;
+  refusals: readonly Readonly<{
+    connectionId: string;
+    reason: "authority-missing" | "snapshot-changed" | "connection-projection-rebuilding";
+  }>[];
+}>;
+
 export class ChannelHealthError extends Error {
-  constructor(readonly code: "invalid-health-contract" | "connection-not-found" | "health-write-conflict") {
+  constructor(
+    readonly code:
+      | "invalid-health-contract"
+      | "connection-not-found"
+      | "health-write-conflict"
+      | "health-snapshot-changed",
+  ) {
     super(code);
     this.name = "ChannelHealthError";
   }

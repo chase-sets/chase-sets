@@ -90,6 +90,7 @@ export {
   decodeChannelHealthRead,
 } from "./features/connection-health/domain/codecs";
 export { channelHealthPolicy } from "./features/connection-health/domain/policy";
+export { evaluateConnectorLiveness } from "./features/connection-health/domain/connector-liveness";
 export {
   OutboundSyncError,
   type ClaimedOperationClaimant,

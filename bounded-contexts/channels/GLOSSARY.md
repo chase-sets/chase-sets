@@ -46,6 +46,16 @@ and remains available after membership loss while the pairing and grant are live
 connection's pairing generation and admitted heartbeat. Pairing changes clear the
 heartbeat, not its monotonic revision. Missing authority admits no liveness decision.
 
+## Connector Liveness
+
+**Connector Liveness** is the health reason opened by one missed policy-served
+poll window. Only the periodic sweep detects absence and recovery. Its series
+identity is the canonical JSON tuple of producer kind, connection, pairing,
+heartbeat revision and served policy identity. A close reuses the opening window,
+attempt and series, with ordinals 2 (heartbeat resumed), 3 (pairing superseded)
+and 4 (pairing removed), in reverse precedence order. A never-paired connection
+has no liveness reason. Seller pause and disconnect freeze existing generations.
+
 ## Served Policy Identity
 
 **Served Policy Identity** hashes the exact transport policy value and document

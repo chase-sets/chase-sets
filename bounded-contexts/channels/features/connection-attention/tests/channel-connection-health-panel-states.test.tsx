@@ -77,7 +77,10 @@ describe("channel-connection-health-panel-states", () => {
     expect(screen.getByText("Healthy")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
-  it("renders exact generation and only seller resolution choices", () => {
+  it.each([
+    { reasonCode: "polling", label: "Channel polling" },
+    { reasonCode: "connector-liveness", label: "Connector not responding" },
+  ] as const)("renders $reasonCode generation and only seller resolution choices", ({ reasonCode, label }) => {
     panel({
       kind: "loaded",
       data: {
@@ -86,19 +89,26 @@ describe("channel-connection-health-panel-states", () => {
         manual: null,
         health: [
           {
-            reasonCode: "polling",
+            reasonCode,
             generation: 7,
-            fingerprint: "a".repeat(64),
+            fingerprint: reasonCode === "connector-liveness" ? "pair_synthetic" : "a".repeat(64),
             state: "failing",
             consecutiveFailures: 3,
             trailingFailures: 3,
-            opening: { sourceWorkId: "b".repeat(64), sourceAttempt: 1, occurredAt: "2026-09-13T00:00:00Z" },
+            opening: {
+              sourceWorkId:
+                reasonCode === "connector-liveness"
+                  ? JSON.stringify([reasonCode, "synthetic", "pair_synthetic", 1, "b".repeat(64)])
+                  : "b".repeat(64),
+              sourceAttempt: 1,
+              occurredAt: "2026-09-13T00:00:00Z",
+            },
             lastOccurredAt: "2026-09-13T00:00:00Z",
           },
         ],
       },
     });
-    expect(screen.getByText("Channel polling")).toBeTruthy();
+    expect(screen.getByText(label)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resolve attention" })).toBeTruthy();
     expect(screen.getAllByRole("option")).toHaveLength(5);
     expect(screen.queryByRole("option", { name: "Recovered automatically" })).toBeNull();

@@ -23,6 +23,18 @@ describe("severity mapping", () => {
 });
 
 describe("resolveAttentionSummary", () => {
+  it("labels connector liveness without exposing its reason code", () => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "synthetic-liveness",
+      severity: "warning",
+      summary: { code: "channel-action-open", params: { reasonCount: 1, topReason: "connector-liveness" } },
+      observedAt: "2026-10-07T12:01:00.000Z",
+    });
+    expect(resolveAttentionSummary(item)).toBe("Health reasons needing attention: 1. First: Connector not responding.");
+    expect(attentionSourceLabel(item.source)).toBe("Channel action");
+    expect(attentionActionLabel(item)).toBe("Review channel attention");
+  });
   it.each([
     [1, 0, "Order issues needing attention: 1."],
     [100, 1, "Order issues needing attention: more than 100."],
