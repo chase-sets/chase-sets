@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createConnectorBackground } from "../domain/connector-background";
+import { backgroundFixture } from "./connector-background-test-support";
+
+vi.mock("../domain/connector-background", { spy: true });
 
 const dbFiles = [
   "features/connector-client/tests/extension-connector-scope-separation.db.test.ts",
@@ -29,9 +33,19 @@ describe("extension-db-enrollment", () => {
     expect(dbSource).not.toContain("deployables/");
     if (dbFile.includes("pairing-redirect")) {
       const support = readFileSync(resolve(import.meta.dirname, "connector-background-test-support.ts"), "utf8");
-      expect(support).toContain("createConnectorBackground(ports)");
+      expect(support).toContain('import { createConnectorBackground } from "../domain/connector-background"');
+      expect(support).toContain("factory = createConnectorBackground");
+      expect(support).toContain("const background = factory(ports)");
       expect(dbSource).toContain("backgroundFixture(");
     }
+  });
+  it("enrolls the real background as the default even when factory injection is supported", async () => {
+    vi.mocked(createConnectorBackground).mockClear();
+    const fixture = backgroundFixture("unpaired");
+    expect(createConnectorBackground).toHaveBeenCalledExactlyOnceWith(fixture.ports);
+    expect(vi.mocked(createConnectorBackground).mock.results[0]?.value).toBe(fixture.background);
+    expect((await fixture.background.boot()).state).toBe("unpaired");
+    expect((await fixture.background.status()).state).toBe("unpaired");
   });
   it.each(dbFiles)("unlisted-importer control and missing unit exclusion cannot certify %s enrollment", (dbFile) => {
     const unlisted = {

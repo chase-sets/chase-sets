@@ -31,15 +31,18 @@ export function connectorViteConfig(mode = "production"): UserConfig {
   }
   return {
     resolve: {
-      alias: {
-        ...(harness
-          ? {
-              "./executors": resolve(import.meta.dirname, "__tests__/harness/executors.harness.ts"),
-              "./host-registry": resolve(import.meta.dirname, "__tests__/harness/origins.ts"),
-            }
-          : {}),
+      alias: [
         ...createWorkspaceSourceAliases(),
-      },
+        ...(harness
+          ? [
+              {
+                find: "./executors",
+                replacement: resolve(import.meta.dirname, "__tests__/harness/executors.harness.ts"),
+              },
+              { find: "./host-registry", replacement: resolve(import.meta.dirname, "__tests__/harness/origins.ts") },
+            ]
+          : []),
+      ],
     },
     define: {
       "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(input.platformOrigin),

@@ -49,16 +49,14 @@ export async function loopbackPlatform(
         return;
       }
       pairingExpiresAt = Date.now() + 600000;
-      reply
-        .writeHead(200, { "Content-Type": "application/json" })
-        .end(
-          JSON.stringify({
-            pairingId: "synthetic-pairing",
-            revision: 1,
-            code: "SYNTHETIC_PAIRING_CODE",
-            expiresAt: new Date(pairingExpiresAt).toISOString(),
-          }),
-        );
+      reply.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          pairingId: "synthetic-pairing",
+          revision: 1,
+          code: "SYNTHETIC_PAIRING_CODE",
+          expiresAt: new Date(pairingExpiresAt).toISOString(),
+        }),
+      );
       return;
     }
     if (url.pathname === "/channel-connector/oauth/authorize") {
