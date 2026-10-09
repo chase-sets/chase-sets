@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import {
+  createPgPool,
   createPostgresEventStore,
   eventCorePostgresSchemaSql,
   withPgTransaction,
@@ -53,11 +54,13 @@ const now = () => new Date("2026-05-01T00:00:00Z");
 describeDb("canonical opportunity publication persistence", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
   let pool: PgTransactionalPool;
+  let workerPool: PgTransactionalPool;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(url!, contextNames, "opportunity_publication");
     await ensureMultiContextTestDatabases(url!, urls);
     pools = createMultiContextTestPools(urls);
     pool = pools.marketplace;
+    workerPool = createPgPool(urls.marketplace, { idleInTransactionSessionTimeoutMillis: 15_000, max: 1 });
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
@@ -67,7 +70,7 @@ describeDb("canonical opportunity publication persistence", () => {
       await pools[name].query(eventCorePostgresSchemaSql);
     await caughtUp();
   });
-  afterAll(async () => closeMultiContextTestPools(pools));
+  afterAll(async () => closeMultiContextTestPools({ ...pools, worker: workerPool }));
 
   function createRuntime() {
     const services = marketplaceModule.createServices(pool, {});
@@ -167,6 +170,115 @@ describeDb("canonical opportunity publication persistence", () => {
   async function facts() {
     return createPostgresEventStore({ pool }).readAll({ eventTypes: [reviewOpportunityFactType], limit: 100 });
   }
+
+  it("publishes and acknowledges durable work on the composed-worker pool, then stays caught up after restart", async () => {
+    await order();
+    expect(await facts()).toHaveLength(0);
+    const pending = (
+      await pool.query<{ generation: string; published_generation: string }>(
+        "SELECT generation::text, published_generation::text FROM marketplace_review_opportunity_work WHERE order_id = 'ord_1'",
+      )
+    ).rows[0]!;
+    expect(BigInt(pending.generation)).toBeGreaterThan(BigInt(pending.published_generation));
+
+    await expect(createMarketplaceServices(workerPool).reviewOpportunityPublication.run(context)).resolves.toBe(1);
+    const published = await facts();
+    expect(published).toHaveLength(1);
+    expect(published[0]!.payload).toMatchObject({
+      orderId: "ord_1",
+      generation: pending.generation,
+      buyerToSeller: { authorRole: "buyer", activeReviewId: null },
+      sellerToBuyer: { authorRole: "seller", activeReviewId: null },
+    });
+    expect(
+      (
+        await pool.query(
+          "SELECT generation::text, published_generation::text, published_stream_version, last_fact FROM marketplace_review_opportunity_work WHERE order_id = 'ord_1'",
+        )
+      ).rows,
+    ).toEqual([
+      {
+        generation: pending.generation,
+        published_generation: pending.generation,
+        published_stream_version: published[0]!.streamVersion,
+        last_fact: published[0]!.payload,
+      },
+    ]);
+    expect(await createMarketplaceServices(workerPool).reviewOpportunityPublication.run(context)).toBe(0);
+    expect(await facts()).toEqual(published);
+  });
+
+  it("takes the worker publication snapshot after locking refilled sources and does not leak isolation on reuse", async () => {
+    await order();
+    let refilled = false;
+    const settings: unknown[] = [];
+    const observedPool: PgTransactionalPool = {
+      idleInTransactionSessionTimeoutMillis: workerPool.idleInTransactionSessionTimeoutMillis,
+      query: <Row>(sql: string, values?: readonly unknown[]) => workerPool.query<Row>(sql, values),
+      async connect() {
+        const client = await workerPool.connect();
+        return {
+          async query<Row>(sql: string, values?: readonly unknown[]) {
+            if (sql.startsWith("LOCK TABLE") && !refilled) {
+              await withPgTransaction(pool, async (db) => {
+                await db.query(
+                  "CREATE TEMP TABLE saved_eligibility ON COMMIT DROP AS TABLE marketplace_review_eligibility_pages",
+                );
+                await db.query("TRUNCATE marketplace_review_eligibility_pages");
+                await db.query("INSERT INTO marketplace_review_eligibility_pages SELECT * FROM saved_eligibility");
+                await db.query("UPDATE marketplace_review_eligibility_pages SET submission_state = 'held'");
+              });
+              refilled = true;
+            }
+            const result = await client.query<Row>(sql, values);
+            if (sql.startsWith("LOCK TABLE")) {
+              settings.push(
+                (
+                  await client.query(
+                    "SELECT current_setting('transaction_isolation') AS isolation, current_setting('idle_in_transaction_session_timeout') AS idle_timeout",
+                  )
+                ).rows[0],
+              );
+            }
+            return result;
+          },
+          release: (error) => client.release(error),
+        };
+      },
+    };
+    expect(await createMarketplaceServices(observedPool).reviewOpportunityPublication.run(context)).toBe(1);
+    expect(refilled).toBe(true);
+    expect(settings).toEqual([
+      { isolation: "repeatable read", idle_timeout: "15s" },
+      { isolation: "repeatable read", idle_timeout: "15s" },
+    ]);
+    expect((await facts()).at(-1)!.payload).toMatchObject({
+      buyerToSeller: { held: true, submissionState: "held" },
+      sellerToBuyer: { held: true, submissionState: "held" },
+    });
+    async function expectDefaultIsolation() {
+      await withPgTransaction(workerPool, async (db) => {
+        expect(
+          (
+            await db.query(
+              "SELECT current_setting('transaction_isolation') AS isolation, current_setting('idle_in_transaction_session_timeout') AS idle_timeout",
+            )
+          ).rows,
+        ).toEqual([{ isolation: "read committed", idle_timeout: "15s" }]);
+      });
+    }
+    await expectDefaultIsolation();
+    await expect(
+      withPgTransaction(
+        workerPool,
+        async () => {
+          throw new Error("rollback isolation probe");
+        },
+        { isolationLevel: "repeatable read" },
+      ),
+    ).rejects.toThrow("rollback isolation probe");
+    await expectDefaultIsolation();
+  });
 
   it("publishes both canonical directions, real reveal JSON, held feedback, withdrawal and absence without content", async () => {
     await order();

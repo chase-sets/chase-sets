@@ -25,10 +25,17 @@ export type PgTransactionalPool = PgQueryable &
 
 export const POSTGRES_RETRYABLE_TRANSIENT_CODES = new Set(["40001", "40P01", "55P03", "57014"]);
 
+const transactionBegin = {
+  "read committed": "BEGIN ISOLATION LEVEL READ COMMITTED",
+  "repeatable read": "BEGIN ISOLATION LEVEL REPEATABLE READ",
+  serializable: "BEGIN ISOLATION LEVEL SERIALIZABLE",
+} as const;
+
 export async function withPgTransaction<T>(
   pool: PgTransactionalPool,
   work: (client: PgPoolClient) => Promise<T>,
   options: Readonly<{
+    isolationLevel?: keyof typeof transactionBegin;
     afterCommit?: (client: PgPoolClient, result: T) => Promise<void>;
   }> = {},
 ): Promise<T> {
@@ -37,11 +44,15 @@ export async function withPgTransaction<T>(
   let releaseError: unknown;
 
   try {
-    await client.query("BEGIN");
+    await client.query(options.isolationLevel ? transactionBegin[options.isolationLevel] : "BEGIN");
     if (isPositiveFiniteNumber(pool.idleInTransactionSessionTimeoutMillis)) {
-      await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [
-        `${Math.ceil(pool.idleInTransactionSessionTimeoutMillis)}ms`,
-      ]);
+      const timeout = `${Math.ceil(pool.idleInTransactionSessionTimeoutMillis)}ms`;
+      if (options.isolationLevel) {
+        // Unlike SELECT set_config, SET LOCAL does not take a snapshot before work can lock its sources.
+        await client.query(`SET LOCAL idle_in_transaction_session_timeout = '${timeout}'`);
+      } else {
+        await client.query("SELECT set_config('idle_in_transaction_session_timeout', $1, true)", [timeout]);
+      }
     }
     const result = await work(client);
     await client.query("COMMIT");

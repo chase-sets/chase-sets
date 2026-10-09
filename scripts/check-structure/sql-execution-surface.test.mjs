@@ -328,7 +328,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
-      ["infrastructure/event-core-postgres/types.ts", 40, "client"],
+      ["infrastructure/event-core-postgres/types.ts", 47, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 158, "deps.db"],
