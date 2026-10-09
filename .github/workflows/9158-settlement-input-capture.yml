@@ -135,6 +135,7 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
+            captureParent: '371905004316261ed9820dfe7727efab875c2d75',
             sourceBase: '3b943db654dfd1d8c9c28c221e9c318a962c141d',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
@@ -156,7 +157,7 @@ jobs:
             || identity.runAttempt !== '1' || identity.event !== 'push'
             || identity.repository !== 'chase-sets/chase-sets'
             || identity.ref !== 'refs/heads/codex/9158-context-free-run-settlements'
-            || JSON.stringify(identity.parents) !== JSON.stringify([identity.sourceBase])
+            || JSON.stringify(identity.parents) !== JSON.stringify([identity.captureParent])
             || identity.laneMode !== null || !identity.node.startsWith('v24.') || identity.pnpm !== '11.0.9'
             || !identity.imageOS || !identity.imageVersion || identity.postgresImageDigests.length === 0) {
             throw new Error('Capture identity, source parent, or current settings mismatch');
@@ -170,7 +171,7 @@ jobs:
           const assert = (await import('node:assert/strict')).default;
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
           const manifestBytes = readFileSync(resolve(cwd, 'scripts/9158-capture-manifest.json'));
-          assert.equal(hash(manifestBytes), '5c098e115f6aab12f8f0da99675dd99a8666749ff977891fa3f68a9fe2217992', 'frozen manifest bytes');
+          assert.equal(hash(manifestBytes), '9de16f7fbae82005af1bdf062d56d5b31359f4fba881f4fcc5230b0d25c0f892', 'frozen manifest bytes');
           const manifest = JSON.parse(manifestBytes);
           const sourceBytes = readFileSync(resolve(cwd, 'scripts/9158-capture-sources.json'));
           assert.equal(hash(sourceBytes), 'a8d1a67b6a8f3f49382accef7d1c4f9732edee06462ac4311e1024d6e6fbd676', 'frozen runtime/helper/dependency source list');

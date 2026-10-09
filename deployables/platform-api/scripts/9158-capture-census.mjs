@@ -9,11 +9,12 @@ export const captureGroups = Object.freeze({
     "bootstrap-lock-contention.db.test.ts",
     "seed-command-full-pools.db.test.ts",
     "connector-mount-gate-isolation.db.test.ts",
+    "authoritative-seed-resume-recovery.db.test.ts",
   ],
   "test:db:2": [
-    "authoritative-seed-resume-recovery.db.test.ts",
     "inventory-seed-resume.db.test.ts",
     "catalog-seed-aggregate-state.db.test.ts",
+    "catalog-seed-interruption-resume.db.test.ts",
     "operator-session/operator-session-grant-mint.db.test.ts",
     "operator-session/operator-session-grant-lifecycle.db.test.ts",
     "operator-session/operator-session-grant-scope.db.test.ts",
@@ -21,11 +22,7 @@ export const captureGroups = Object.freeze({
     "operator-session/operator-extension-route-contract.db.test.ts",
     "seed-command-catalog.db.test.ts",
   ],
-  "test:db:3": [
-    "authoritative-seed-resume-core.db.test.ts",
-    "authoritative-seed-resume-reconciliation.db.test.ts",
-    "catalog-seed-interruption-resume.db.test.ts",
-  ],
+  "test:db:3": ["authoritative-seed-resume-core.db.test.ts", "authoritative-seed-resume-reconciliation.db.test.ts"],
 });
 
 export const captureCensusFiles = Object.freeze(captureGroups["test:db:2"].slice(3));

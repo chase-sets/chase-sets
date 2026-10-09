@@ -156,7 +156,7 @@
     ]
   },
   "authoritative-seed-resume-recovery.db.test.ts": {
-    "executionUnit": "test:db:2",
+    "executionUnit": "test:db:1",
     "sourceSha256": "43b284d738b7817e5e2eebf314bd42697058f120ed8118323cb1b8a13490baee",
     "cases": [
       {
@@ -250,6 +250,48 @@
       {
         "name": "NC-5c rejects a terminal retained aggregate on both boots",
         "identity": "547ba56539985bfc"
+      }
+    ]
+  },
+  "catalog-seed-interruption-resume.db.test.ts": {
+    "executionUnit": "test:db:2",
+    "sourceSha256": "9bcb4e559dfd6f0868e962c64d3c7feb19049aef1e79b91381a8ce04120450f4",
+    "cases": [
+      {
+        "name": "resumes after Dimensions under scenario-seed and production-like profiles",
+        "identity": "b006b495c2b4a662"
+      },
+      {
+        "name": "resumes after Fields under scenario-seed and production-like profiles",
+        "identity": "13b82872bb3ba0b8"
+      },
+      {
+        "name": "resumes after Reference Data under scenario-seed and production-like profiles",
+        "identity": "3cfe7d19f03127f2"
+      },
+      {
+        "name": "resumes after Components under scenario-seed and production-like profiles",
+        "identity": "7ef841ec166b46d3"
+      },
+      {
+        "name": "resumes after Blueprints under scenario-seed and production-like profiles",
+        "identity": "9a1c524b0483b012"
+      },
+      {
+        "name": "resumes after the final Category under scenario-seed and production-like profiles",
+        "identity": "cb5ecec3a418a82a"
+      },
+      {
+        "name": "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+        "identity": "ea939096e104ab7e"
+      },
+      {
+        "name": "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+        "identity": "2be8f4782fdbd9eb"
+      },
+      {
+        "name": "preserves duplicate CreateDimension rejection through the non-seed command handler",
+        "identity": "b21990765232df57"
       }
     ]
   },
@@ -515,48 +557,6 @@
       {
         "name": "accepts a seeded resolution after the real deadline sweep advances it to closed",
         "identity": "0efa7d5e61dc8603"
-      }
-    ]
-  },
-  "catalog-seed-interruption-resume.db.test.ts": {
-    "executionUnit": "test:db:3",
-    "sourceSha256": "9bcb4e559dfd6f0868e962c64d3c7feb19049aef1e79b91381a8ce04120450f4",
-    "cases": [
-      {
-        "name": "resumes after Dimensions under scenario-seed and production-like profiles",
-        "identity": "b006b495c2b4a662"
-      },
-      {
-        "name": "resumes after Fields under scenario-seed and production-like profiles",
-        "identity": "13b82872bb3ba0b8"
-      },
-      {
-        "name": "resumes after Reference Data under scenario-seed and production-like profiles",
-        "identity": "3cfe7d19f03127f2"
-      },
-      {
-        "name": "resumes after Components under scenario-seed and production-like profiles",
-        "identity": "7ef841ec166b46d3"
-      },
-      {
-        "name": "resumes after Blueprints under scenario-seed and production-like profiles",
-        "identity": "9a1c524b0483b012"
-      },
-      {
-        "name": "resumes after the final Category under scenario-seed and production-like profiles",
-        "identity": "cb5ecec3a418a82a"
-      },
-      {
-        "name": "resumes mid catalog.component.created under scenario-seed and production-like profiles",
-        "identity": "ea939096e104ab7e"
-      },
-      {
-        "name": "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
-        "identity": "2be8f4782fdbd9eb"
-      },
-      {
-        "name": "preserves duplicate CreateDimension rejection through the non-seed command handler",
-        "identity": "b21990765232df57"
       }
     ]
   }
