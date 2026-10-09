@@ -236,7 +236,11 @@ export function publisherCredentials(env) {
 
 function run(command, args, { input, env } = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", input, env, maxBuffer: 16 * 1024 * 1024 });
-  return { status: result.error ? -1 : result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? String(result.error ?? "") };
+  return {
+    status: result.error ? -1 : result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? String(result.error ?? ""),
+  };
 }
 
 function tail(text) {
@@ -372,12 +376,21 @@ export function probeAnonymousMirrors({ sources, env = process.env, docker, now 
     const inspect = docker(["image", "inspect", "--format", "{{json .RepoDigests}}", reference]);
     const repoDigests = inspect.status === 0 ? JSON.parse(inspect.stdout.trim() || "[]") : [];
     if (!repoDigests.includes(`${entry.mirror}@${entry.digest}`)) {
-      throw new Error(`${entry.id}: pulled image records ${JSON.stringify(repoDigests)}, not ${entry.mirror}@${entry.digest}.`);
+      throw new Error(
+        `${entry.id}: pulled image records ${JSON.stringify(repoDigests)}, not ${entry.mirror}@${entry.digest}.`,
+      );
     }
     rows.push({ id: entry.id, reference, pulledAt, repoDigests });
   }
 
-  return { kind: "anonymous-probe", startedAt, finishedAt: now(), hubCanary: anonymousProbeHubCanary, sources: sources.length, rows };
+  return {
+    kind: "anonymous-probe",
+    startedAt,
+    finishedAt: now(),
+    hubCanary: anonymousProbeHubCanary,
+    sources: sources.length,
+    rows,
+  };
 }
 
 export const publisherWorkflowPath = ".github/workflows/platform-ci-image-mirrors.yml";
@@ -407,7 +420,9 @@ export function publisherBoundaryViolations(workflows) {
       const isPublisher = file === publisherWorkflowPath && jobId === publisherJobId;
       const grants = grantsPackagesWrite(job?.permissions ?? document?.permissions);
       if (grants && !isPublisher) {
-        violations.push(`${file}: job '${jobId}' must not hold packages: write; only the CI image mirror publisher may.`);
+        violations.push(
+          `${file}: job '${jobId}' must not hold packages: write; only the CI image mirror publisher may.`,
+        );
       }
       if (isPublisher && !grantsPackagesWrite(job?.permissions)) {
         violations.push(`${file}: job '${jobId}' must declare packages: write at job level.`);

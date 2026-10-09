@@ -38,12 +38,17 @@ function syntheticIndex(platforms, { attestations = true, salt = "" } = {}) {
         mediaType: "application/vnd.oci.image.manifest.v1+json",
         digest: `sha256:${createHash("sha256").update(`synthetic-attestation-${platform}-${salt}`).digest("hex")}`,
         size: 50,
-        annotations: { "vnd.docker.reference.digest": child.digest, "vnd.docker.reference.type": "attestation-manifest" },
+        annotations: {
+          "vnd.docker.reference.digest": child.digest,
+          "vnd.docker.reference.type": "attestation-manifest",
+        },
         platform: { os: "unknown", architecture: "unknown" },
       },
     ];
   });
-  return Buffer.from(JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests }));
+  return Buffer.from(
+    JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests }),
+  );
 }
 
 const digestOf = (raw) => `sha256:${createHash("sha256").update(raw).digest("hex")}`;
@@ -192,7 +197,9 @@ describe("pinned identity verification", () => {
   });
 
   it("refuses a single-platform manifest in place of the pinned index", () => {
-    const single = Buffer.from(JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.manifest.v1+json" }));
+    const single = Buffer.from(
+      JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.manifest.v1+json" }),
+    );
     expect(() => verifyPinnedIdentity(syntheticEntry(single), single, "mirror")).toThrow(/multi-platform index/);
   });
 });
@@ -202,23 +209,31 @@ describe("publishMirrors", () => {
   const entry = syntheticEntry(sourceRaw);
 
   it.each([
-    ["an untrusted branch ref", { GITHUB_REF: "refs/heads/codex/feature" }, /untrusted ref 'refs\/heads\/codex\/feature'/],
-    ["a pull request event", { GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/1/merge" }, /event 'pull_request'/],
+    [
+      "an untrusted branch ref",
+      { GITHUB_REF: "refs/heads/codex/feature" },
+      /untrusted ref 'refs\/heads\/codex\/feature'/,
+    ],
+    [
+      "a pull request event",
+      { GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/1/merge" },
+      /event 'pull_request'/,
+    ],
     ["a missing default branch", { CI_IMAGE_MIRROR_DEFAULT_BRANCH: "" }, /untrusted ref/],
   ])("refuses %s before touching any registry", async (_label, patch, message) => {
     const registry = publishableRegistry(entry, sourceRaw);
-    await expect(
-      publishMirrors({ sources: [entry], env: { ...trustedEnv, ...patch }, ...registry }),
-    ).rejects.toThrow(message);
+    await expect(publishMirrors({ sources: [entry], env: { ...trustedEnv, ...patch }, ...registry })).rejects.toThrow(
+      message,
+    );
     expect(registry.calls).toEqual([]);
     expect(registry.copies).toEqual([]);
   });
 
   it.each(["GHCR_PUBLISH_TOKEN", "GHCR_PUBLISH_USER"])("refuses when %s is withheld", async (name) => {
     const registry = publishableRegistry(entry, sourceRaw);
-    await expect(
-      publishMirrors({ sources: [entry], env: { ...trustedEnv, [name]: "" }, ...registry }),
-    ).rejects.toThrow(/GHCR_PUBLISH_USER and GHCR_PUBLISH_TOKEN are required/);
+    await expect(publishMirrors({ sources: [entry], env: { ...trustedEnv, [name]: "" }, ...registry })).rejects.toThrow(
+      /GHCR_PUBLISH_USER and GHCR_PUBLISH_TOKEN are required/,
+    );
     expect(registry.calls).toEqual([]);
   });
 
@@ -248,7 +263,9 @@ describe("publishMirrors", () => {
       "linux/arm64",
       "unknown/unknown",
     ]);
-    expect(registry.calls.filter(([, , auth]) => auth === "anonymous").every(([, ref]) => ref.startsWith("docker.io/"))).toBe(true);
+    expect(
+      registry.calls.filter(([, , auth]) => auth === "anonymous").every(([, ref]) => ref.startsWith("docker.io/")),
+    ).toBe(true);
   });
 
   it("refuses a mirror whose bytes do not match the source digest after copy", async () => {
@@ -295,9 +312,15 @@ describe("probeAnonymousMirrors", () => {
     const calls = [];
     const docker = (args) => {
       calls.push(args.join(" "));
-      if (args[0] === "pull" && args[1].startsWith("docker.io/")) return { status: hubReachable ? 0 : 1, stdout: "", stderr: "" };
+      if (args[0] === "pull" && args[1].startsWith("docker.io/"))
+        return { status: hubReachable ? 0 : 1, stdout: "", stderr: "" };
       if (args[0] === "image" && args.length === 3) return { status: warm ? 0 : 1, stdout: "", stderr: "" };
-      if (args[0] === "pull") return { status: pullFails ? 1 : 0, stdout: "", stderr: pullFails ? "denied: requested access to the resource is denied" : "" };
+      if (args[0] === "pull")
+        return {
+          status: pullFails ? 1 : 0,
+          stdout: "",
+          stderr: pullFails ? "denied: requested access to the resource is denied" : "",
+        };
       return { status: 0, stdout: JSON.stringify(repoDigests ?? [`${entry.mirror}@${entry.digest}`]), stderr: "" };
     };
     return { docker, calls };
@@ -306,7 +329,9 @@ describe("probeAnonymousMirrors", () => {
   it("pulls every pinned mirror anonymously from a cold daemon with Hub unreachable", () => {
     const { docker, calls } = fakeDocker();
     const receipt = probeAnonymousMirrors({ sources: [entry], env: {}, docker, now: () => "t" });
-    expect(receipt.rows).toEqual([{ id: "synthetic", reference, pulledAt: "t", repoDigests: [`${entry.mirror}@${entry.digest}`] }]);
+    expect(receipt.rows).toEqual([
+      { id: "synthetic", reference, pulledAt: "t", repoDigests: [`${entry.mirror}@${entry.digest}`] },
+    ]);
     expect(calls).toEqual([
       "pull docker.io/library/hello-world:latest",
       `image inspect ${reference}`,
@@ -316,11 +341,23 @@ describe("probeAnonymousMirrors", () => {
   });
 
   it.each([
-    ["registry credentials are present", { env: { GITHUB_TOKEN: "x" } }, /without registry credentials; found GITHUB_TOKEN/],
+    [
+      "registry credentials are present",
+      { env: { GITHUB_TOKEN: "x" } },
+      /without registry credentials; found GITHUB_TOKEN/,
+    ],
     ["Docker Hub is reachable", { docker: { hubReachable: true } }, /Docker Hub is reachable/],
     ["the image is already cached", { docker: { warm: true } }, /already present locally; the probe must start cold/],
-    ["the mirror is private, missing or deleted", { docker: { pullFails: true } }, /anonymous pull of .* failed \(private, missing or deleted mirror\): denied/],
-    ["the pulled digest differs", { docker: { repoDigests: [`${entry.mirror}@sha256:${"0".repeat(64)}`] } }, /pulled image records/],
+    [
+      "the mirror is private, missing or deleted",
+      { docker: { pullFails: true } },
+      /anonymous pull of .* failed \(private, missing or deleted mirror\): denied/,
+    ],
+    [
+      "the pulled digest differs",
+      { docker: { repoDigests: [`${entry.mirror}@sha256:${"0".repeat(64)}`] } },
+      /pulled image records/,
+    ],
   ])("fails visibly when %s", (_label, { env = {}, docker = {} }, message) => {
     expect(() => probeAnonymousMirrors({ sources: [entry], env, docker: fakeDocker(docker).docker })).toThrow(message);
   });
@@ -335,7 +372,11 @@ describe("publisher boundary", () => {
       .map((name) => ({ path: `.github/workflows/${name}`, text: readFileSync(path.join(workflowDir, name), "utf8") }));
   const parse = (workflows) => workflows.map(({ path: file, text }) => ({ path: file, document: YAML.parse(text) }));
   const plantInto = (file, mutate) =>
-    parse(realWorkflows().map((workflow) => (workflow.path === file ? { ...workflow, text: mutate(workflow.text) } : workflow)));
+    parse(
+      realWorkflows().map((workflow) =>
+        workflow.path === file ? { ...workflow, text: mutate(workflow.text) } : workflow,
+      ),
+    );
 
   it("holds for every committed workflow", () => {
     expect(publisherBoundaryViolations(parse(realWorkflows()))).toEqual([]);
@@ -351,19 +392,32 @@ describe("publisher boundary", () => {
   it("refuses packages: write on the probe, Compose, E2E or an arbitrarily named workflow", () => {
     expect(
       publisherBoundaryViolations(
-        plantInto(publisherWorkflowPath, (text) => text.replace("    permissions:\n      contents: read\n    steps:", "    permissions:\n      contents: read\n      packages: write\n    steps:")),
+        plantInto(publisherWorkflowPath, (text) =>
+          text.replace(
+            "    permissions:\n      contents: read\n    steps:",
+            "    permissions:\n      contents: read\n      packages: write\n    steps:",
+          ),
+        ),
       ),
-    ).toContain(`${publisherWorkflowPath}: job 'anonymous-probe' must not hold packages: write; only the CI image mirror publisher may.`);
+    ).toContain(
+      `${publisherWorkflowPath}: job 'anonymous-probe' must not hold packages: write; only the CI image mirror publisher may.`,
+    );
     expect(
       publisherBoundaryViolations(
-        plantInto(".github/workflows/platform-compose-boot-smoke.yml", (text) => text.replace("permissions:\n  contents: read\n", "permissions:\n  contents: read\n  packages: write\n")),
+        plantInto(".github/workflows/platform-compose-boot-smoke.yml", (text) =>
+          text.replace("permissions:\n  contents: read\n", "permissions:\n  contents: read\n  packages: write\n"),
+        ),
       ),
-    ).toContain(".github/workflows/platform-compose-boot-smoke.yml: job 'verify' must not hold packages: write; only the CI image mirror publisher may.");
+    ).toContain(
+      ".github/workflows/platform-compose-boot-smoke.yml: job 'verify' must not hold packages: write; only the CI image mirror publisher may.",
+    );
     const arbitrary = [
       ...parse(realWorkflows()),
       {
         path: ".github/workflows/zz-arbitrary-name.yml",
-        document: YAML.parse("on: pull_request\npermissions: write-all\njobs:\n  any:\n    runs-on: ubuntu-latest\n    steps: []\n"),
+        document: YAML.parse(
+          "on: pull_request\npermissions: write-all\njobs:\n  any:\n    runs-on: ubuntu-latest\n    steps: []\n",
+        ),
       },
     ];
     expect(publisherBoundaryViolations(arbitrary)).toContain(
@@ -373,12 +427,35 @@ describe("publisher boundary", () => {
 
   it("refuses untrusted triggers, inputs, secrets and an unthreaded or widened token", () => {
     const cases = [
-      [(text) => text.replace("on:\n  workflow_dispatch:\n", "on:\n  workflow_dispatch:\n  pull_request:\n"), /trigger only on workflow_dispatch/],
-      [(text) => text.replace("on:\n  workflow_dispatch:\n", "on:\n  workflow_dispatch:\n    inputs:\n      source:\n        type: string\n"), /must not accept inputs/],
+      [
+        (text) => text.replace("on:\n  workflow_dispatch:\n", "on:\n  workflow_dispatch:\n  pull_request:\n"),
+        /trigger only on workflow_dispatch/,
+      ],
+      [
+        (text) =>
+          text.replace(
+            "on:\n  workflow_dispatch:\n",
+            "on:\n  workflow_dispatch:\n    inputs:\n      source:\n        type: string\n",
+          ),
+        /must not accept inputs/,
+      ],
       [(text) => text.replace("${{ github.token }}", "${{ secrets.GHCR_PAT }}"), /must not read repository secrets/],
-      [(text) => text.replace("          GHCR_PUBLISH_TOKEN: ${{ github.token }}\n", ""), /exactly one publish step must thread GHCR_PUBLISH_TOKEN/],
-      [(text) => text.replace("      - name: Pull every pinned mirror anonymously\n", "      - name: Pull every pinned mirror anonymously\n        env:\n          GITHUB_TOKEN: ${{ github.token }}\n"), /exactly one publish step must thread GHCR_PUBLISH_TOKEN/],
-      [(text) => text.replace("permissions: {}\n", "permissions:\n  contents: read\n"), /top-level permissions must be \{\}/],
+      [
+        (text) => text.replace("          GHCR_PUBLISH_TOKEN: ${{ github.token }}\n", ""),
+        /exactly one publish step must thread GHCR_PUBLISH_TOKEN/,
+      ],
+      [
+        (text) =>
+          text.replace(
+            "      - name: Pull every pinned mirror anonymously\n",
+            "      - name: Pull every pinned mirror anonymously\n        env:\n          GITHUB_TOKEN: ${{ github.token }}\n",
+          ),
+        /exactly one publish step must thread GHCR_PUBLISH_TOKEN/,
+      ],
+      [
+        (text) => text.replace("permissions: {}\n", "permissions:\n  contents: read\n"),
+        /top-level permissions must be \{\}/,
+      ],
     ];
     for (const [mutate, message] of cases) {
       expect(publisherBoundaryViolations(plantInto(publisherWorkflowPath, mutate)).join("\n")).toMatch(message);
