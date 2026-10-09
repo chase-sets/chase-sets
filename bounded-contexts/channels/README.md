@@ -100,8 +100,19 @@ The existing sessionless `/channel-connector/oauth` mount also serves POST
 the connection-bound connector bearer, never seller or agent authority. Claim
 commits its fenced last-seen and served-window observation before invoking the
 producer's own reservation transaction and canonical health hold. Report preserves
-the producer outcome and run-settlement contracts. Accepted report and ingest
+the producer outcome and context-free run-settlement fields. Client-supplied
+context or authority is refused, not stripped. Inside authenticated report
+authority, the server adds null context; the producer resolves the retained run
+origin in its settlement transaction. A nonterminal bound reservation requires
+settlement through the installed run port, which production always supplies.
+`./client` exports the pure `ConnectorRunSettlement` assertion and report types,
+not the server-only report validator. Accepted report and ingest
 replays return the same exact `{}` bytes without a duplicate signal.
+
+The server surface also exposes the synthetic connector settlement DB fixture
+and fault controls for the thin platform API composition witness. Production
+composition does not invoke these test-only helpers; Channels owns their setup
+and effect snapshots.
 
 `ChannelsServices.connectorFeed` and `./server` expose Connector Liveness Authority
 reads, a caller-owned READ COMMITTED transactional read, and due candidates with a

@@ -710,7 +710,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "be67510b16f8e5e57adf10621c605a3679c77acc128a3137ce0592bd5b803b10",
+      "374325dddbce542465d9bb7620a937bc8655de347f697468a0bdb923fdca1852",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -727,6 +727,15 @@ describe("Platform API bootstrap DB enrollment", () => {
       scheduleModel: bootstrapDbScheduleModel,
     };
     const candidateRepository = checkBootstrapDbEnrollment(repositoryInputs);
+    const { candidate: candidateScheduler } = exactScheduleProbes();
+    for (let mask = 1; mask < 1 << candidateRepository.schedule.files.length; mask++) {
+      const durations = candidateRepository.schedule.files
+        .filter((_, index) => mask & (1 << index))
+        .map((file) => file.durationMs);
+      expect(old.worstCaseListScheduleMs(durations, bootstrapDbScheduleModel.maxWorkersPerExecutionUnit)).toBe(
+        candidateScheduler.worstCaseListScheduleMs(durations, bootstrapDbScheduleModel.maxWorkersPerExecutionUnit),
+      );
+    }
     const started = performance.now();
     const oldRepository = old.checkBootstrapDbEnrollment(repositoryInputs);
     process.stdout.write(
@@ -769,10 +778,10 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(62);
+    expect(result.expectedCaseCount).toBe(67);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
-    expect(result.partitionUnitCount).toBe(3);
+    expect(result.partitionUnitCount).toBe(2);
   });
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
@@ -962,12 +971,15 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("rejects a bootstrap importer at the real operator-session path when no DB unit executes it", async () => {
     const fixture = await createFixture(shippedShapedFiles());
     const directory = join(fixture.root, "__tests__", "operator-session");
+    const channelsTestSupport = ["@chase-sets", "channels", "test-support"].join("/");
     await mkdir(directory);
     await writeFile(
       join(directory, "operator-session-push.db.test.ts"),
       [
         'import { it } from "vitest";',
         'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
+        'import { prepareConnectorBoundSettlement } from "' + channelsTestSupport + '";',
+        "void prepareConnectorBoundSettlement;",
         'createPlatformApiBootstrapTestHarness("synthetic_operator_boot");',
         'it("undiscovered bootstrap importer", async () => {});',
       ].join("\n"),
@@ -1540,14 +1552,25 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.units[0]!.makespanMs).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
-  it("never under-states the accepted twelve-file capture's three units or owning-job wall clock", async () => {
-    expect(bootstrapDbScheduleModel.referenceRunId).toBe(37467774999);
-    expect(bootstrapDbScheduleModel.referenceJobId).toBe(112283047125);
-    expect(bootstrapDbScheduleModel.referenceJobName).toBe("Diagnostic API Bootstrap Measurement Only");
-    expect(bootstrapDbScheduleModel.referenceHeadSha).toBe("07596de363a9d5d557923010ce46be986307782d");
-    expect(bootstrapDbScheduleModel.referenceEvent).toBe("push");
-    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(1_761);
-    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(51_535);
+  it("preserves the immutable historical twelve-file capture without assigning its durations to new cases", async () => {
+    const bytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-capture-37467774999.json"));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+      "957f5dccb19eb2bde1a906c3b27e9ded81886898ae375899f283a879eb01aff6",
+    );
+    const capture = JSON.parse(bytes.toString()) as {
+      referenceRunId: number;
+      referenceJobId: number;
+      timing: SyntheticScheduleModelTimingOverrides;
+      files: (Omit<FixtureFile, "executionUnit" | "cases"> & {
+        cases: readonly Pick<FixtureCase, "name" | "referenceDurationMs">[];
+      })[];
+    };
+    expect(capture.referenceRunId).toBe(37467774999);
+    expect(capture.referenceJobId).toBe(112283047125);
+    expect(capture.files.flatMap((file) => file.cases)).toHaveLength(62);
+    expect(
+      capture.files.find((file) => file.fileName === "connector-mount-gate-isolation.db.test.ts")!.cases,
+    ).toHaveLength(5);
     const measuredUnitOne = new Set([
       "bootstrap-shared-seed-command.db.test.ts",
       "bootstrap-scenario.db.test.ts",
@@ -1561,32 +1584,20 @@ describe("Platform API bootstrap DB enrollment", () => {
       "inventory-seed-resume.db.test.ts",
       "catalog-seed-aggregate-state.db.test.ts",
     ]);
-    // The fixture keeps synthetic provenance; only its timing inputs reproduce
-    // the complete, immutable measurement, never another run or local timing.
     const fixture = await createShippedFixture(
-      shippedShapedFiles().map((file) => ({
+      capture.files.map((file) => ({
         ...file,
-        // Preserve this capture's inputs, not #7918's later accepted callback timings.
-        cases:
-          file.fileName === "connector-mount-gate-isolation.db.test.ts"
-            ? file.cases.map((testCase, index) => ({
-                ...testCase,
-                referenceDurationMs: [2_149, 1_237, 1_095, 1_105, 1_967][index]!,
-              }))
-            : file.cases,
+        cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
         executionUnit: measuredUnitOne.has(file.fileName)
           ? "test:db:1"
           : measuredUnitTwo.has(file.fileName)
             ? "test:db:2"
             : "test:db:3",
       })),
-      {
-        model: acceptedTimingInputs(),
-      },
+      { model: capture.timing },
     );
     const { schedule, violations } = runFixture(fixture);
     expect(violations).toEqual([]);
-    // U2'' derivation R14: capture membership, not the canonical shipping witness.
     expect(schedule.units.map((unit) => unit.makespanMs)).toEqual([245_187, 251_483, 340_454]);
     expect(schedule.units[0]!.makespanMs).toBeGreaterThanOrEqual(173_573.99125300001);
     expect(schedule.units[1]!.makespanMs).toBeGreaterThanOrEqual(249_915.893999);
@@ -1595,16 +1606,100 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(779_000);
   });
 
+  it("binds all 67 cases to the new capture and conservatively projects its complete measured workload", async () => {
+    const bytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-capture-37916297464.json"));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+      "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
+    );
+    const capture = JSON.parse(bytes.toString()) as {
+      provenance: Record<string, unknown>;
+      model: BootstrapDbScheduleModel;
+      jobWallMs: number;
+      measuredUnits: { observedDurationMs: number; residualMs: number }[];
+      files: {
+        fileName: string;
+        executionUnit: string;
+        sourceSha256: string;
+        residualMs: number;
+        cases: { name: string; identity: string; durationMs: number; referenceDurationMs: number }[];
+      }[];
+    };
+    expect(capture.provenance).toMatchObject({
+      runId: "37916297464",
+      runAttempt: "1",
+      referenceJobId: 113773192932,
+      checkoutSha: "77f61c4cc6bf4e2cb544f436c21439ed5a1c67bb",
+      sourceBase: "5c9693752fe4b37090f7a62a5216e26615a3e563",
+      captureParent: "5c9693752fe4b37090f7a62a5216e26615a3e563",
+      artifactId: 11610446204,
+      artifactSha256: "8fb7df0e0bb1cf06bdfdd69d77c847ccc2aff299cba89bf3f1ec170be3fff1f5",
+      sourceManifestSha256: "5ed6308816a2dc7fc0e1be8cd9d4c40e3b12b2fecdb1bf4687c62365ecc62d0d",
+      caseManifestSha256: "a2e61c75b7f87340703e73b27b9bc58ae7853a18cffc7be27ffbc9fe4d1ab6db",
+      commandsSha256: "b197ae5d46e3d8121efc1a991482e24ca9d1305a8cd061826744f9f87cb424dc",
+      censusSha256: "ece3ea8ef3448dc682a15ad331881b102d687c704e5a538e93780bbde6286f0c",
+      maxWorkers: 3,
+      laneMode: null,
+    });
+    expect(bootstrapDbScheduleModel).toEqual(capture.model);
+    expect(platformApiNonBootstrapDbCensus.referenceRunId).toBe(capture.model.referenceRunId);
+    expect(platformApiNonBootstrapDbCensus.referenceJobId).toBe(capture.model.referenceJobId);
+    expect(capture.files).toHaveLength(12);
+    expect(capture.files.flatMap((file) => file.cases)).toHaveLength(67);
+    for (const file of capture.files) {
+      const partition = bootstrapDbEnrollmentManifest[file.fileName]!;
+      expect(
+        createHash("sha256")
+          .update(readFileSync(join(testDirectory, file.fileName)))
+          .digest("hex"),
+      ).toBe(file.sourceSha256);
+      expect(partition.cases).toEqual(
+        file.cases.map((testCase) => ({
+          name: testCase.name,
+          identity: testCase.identity,
+          referenceDurationMs: Math.ceil(testCase.durationMs),
+        })),
+      );
+    }
+    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(
+      Math.ceil(Math.max(0, ...capture.files.map((file) => file.residualMs))),
+    );
+    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(
+      Math.ceil(Math.max(0, ...capture.measuredUnits.map((unit) => unit.residualMs))),
+    );
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(
+      Math.ceil(capture.jobWallMs - capture.measuredUnits.reduce((sum, unit) => sum + unit.observedDurationMs, 0)),
+    );
+    const fixture = await createShippedFixture(
+      capture.files.map((file) => ({
+        ...bootstrapDbEnrollmentManifest[file.fileName]!,
+        fileName: file.fileName,
+        executionUnit: file.executionUnit,
+        cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
+      })),
+      { model: acceptedTimingInputs() },
+    );
+    const { schedule, violations } = runFixture(fixture);
+    expect(violations).toEqual([
+      "test:db:1 has a projected makespan of 602116ms, exceeding the 420000ms per-unit ceiling",
+    ]);
+    expect(schedule.units.map((unit) => unit.makespanMs)).toEqual([602116, 275388]);
+    schedule.units.forEach((unit, index) =>
+      expect(unit.makespanMs).toBeGreaterThanOrEqual(capture.measuredUnits[index]!.observedDurationMs),
+    );
+    expect(schedule.aggregateWithOverheadMs).toBe(933618);
+    expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(capture.jobWallMs);
+  });
+
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(55_066);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(56114);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1_771_111,
+      1679725,
     );
   });
 
@@ -1614,19 +1709,17 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 387_817],
-      ["test:db:2", 271_549],
-      ["test:db:3", 340_454],
+      ["test:db:1", 416359],
+      ["test:db:2", 322492],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [27, 27],
-      [27, 27],
-      [6, 6],
+      [48, 48],
+      [17, 17],
     ]);
-    expect(schedule.aggregateMs).toBe(999_820);
-    expect(schedule.aggregateWithOverheadMs).toBe(1_054_886);
-    expect(schedule.minimumUnitCount).toBe(3);
-    expect(schedule.observedUnitCount).toBe(3);
+    expect(schedule.aggregateMs).toBe(738851);
+    expect(schedule.aggregateWithOverheadMs).toBe(794965);
+    expect(schedule.minimumUnitCount).toBe(2);
+    expect(schedule.observedUnitCount).toBe(2);
   });
 
   it("accepts the shipped schedule model as a null-prototype plain record", () => {
@@ -1636,9 +1729,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 387_817],
-      ["test:db:2", 271_549],
-      ["test:db:3", 340_454],
+      ["test:db:1", 416359],
+      ["test:db:2", 322492],
     ]);
   });
 
@@ -2115,8 +2207,8 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("computes a minimumUnitCount of 2 for the shipped manifest and ships exactly that", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
-    expect(schedule.minimumUnitCount).toBe(3);
-    expect(schedule.observedUnitCount).toBe(3);
+    expect(schedule.minimumUnitCount).toBe(2);
+    expect(schedule.observedUnitCount).toBe(2);
     for (const unit of schedule.units) {
       expect(unit.makespanMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.executionUnitCeilingMs);
     }
@@ -2126,9 +2218,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("shows a one-fewer-unit alternative whose binding unit is above the 420-second ceiling", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
-    expect(schedule.oneFewerUnit?.unitCount).toBe(2);
+    expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(445_275);
+    expect(worst).toBe(756833);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
@@ -2137,18 +2229,18 @@ describe("Platform API bootstrap DB enrollment", () => {
     // under 420s, the aggregate stays under 1080s, every case keeps its name,
     // file, database suffix, and identity — only the unit count is wasteful.
     const extraUnitAssignment: Record<string, string> = {
-      "authoritative-seed-resume-core.db.test.ts": "test:db:1",
-      "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
-      "catalog-seed-interruption-resume.db.test.ts": "test:db:1",
-      "catalog-seed-aggregate-state.db.test.ts": "test:db:3",
-      "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
-      "inventory-seed-resume.db.test.ts": "test:db:3",
-      "bootstrap-scenario.db.test.ts": "test:db:2",
-      "bootstrap-production-reconciliation.db.test.ts": "test:db:2",
-      "bootstrap-lock-contention.db.test.ts": "test:db:2",
-      "bootstrap-shared-seed-command.db.test.ts": "test:db:3",
-      "seed-command-full-pools.db.test.ts": "test:db:2",
-      "connector-mount-gate-isolation.db.test.ts": "test:db:2",
+      "bootstrap-shared-seed-command.db.test.ts": "test:db:1",
+      "bootstrap-scenario.db.test.ts": "test:db:1",
+      "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
+      "bootstrap-lock-contention.db.test.ts": "test:db:1",
+      "seed-command-full-pools.db.test.ts": "test:db:1",
+      "connector-mount-gate-isolation.db.test.ts": "test:db:1",
+      "authoritative-seed-resume-recovery.db.test.ts": "test:db:1",
+      "inventory-seed-resume.db.test.ts": "test:db:1",
+      "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
+      "authoritative-seed-resume-core.db.test.ts": "test:db:2",
+      "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:2",
+      "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
     };
     const files = shippedShapedFiles().map((file) => ({
       ...file,
@@ -2184,14 +2276,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     });
     const result = runFixture(fixture);
 
-    expect(result.partitionUnitCount).toBe(4);
-    expect(result.schedule.observedUnitCount).toBe(4);
+    expect(result.partitionUnitCount).toBe(3);
+    expect(result.schedule.observedUnitCount).toBe(3);
     expect(result.violations).toEqual([
       "test:db:4 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:4 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
-      "the shipped topology spends 4 execution units where the schedule model's minimumUnitCount for the same " +
-        "file set is 3; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
+      "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
+        "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
         "budget",
     ]);
     await editScripts(fixture, (scripts) => {
@@ -2230,7 +2322,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       .filter((name) => name.startsWith("test:db:") && typeof packageScripts[name] === "string")
       .sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
 
-    expect(selected).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(selected).toEqual(["test:db:1", "test:db:2"]);
     expect(checkBootstrapDbEnrollment().schedule.units.map((unit) => unit.scriptName)).toEqual(selected);
   });
 
@@ -2705,10 +2797,11 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("rejects one boot-bearing case moved into the largest execution unit", async () => {
     const files = shippedShapedFiles();
-    const donor = files.find((file) => file.fileName === "authoritative-seed-resume-core.db.test.ts")!;
+    const donor = files.find((file) => file.fileName === "authoritative-seed-resume-reconciliation.db.test.ts")!;
     const receiver = files.find((file) => file.fileName === "authoritative-seed-resume-recovery.db.test.ts")!;
+    expect(donor.executionUnit).not.toBe(receiver.executionUnit);
     const moved = donor.cases.find(
-      (testCase) => testCase.name === "does not re-author Settlement while its payout projection lags the stream",
+      (testCase) => testCase.name === "accepts a seeded resolution after the real deadline sweep advances it to closed",
     )!;
     const relocated = files.map((file) => {
       if (file.fileName === donor.fileName) {
@@ -2729,7 +2822,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([
-        `test:db:1 has 28 boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"]}`,
+        `test:db:1 has ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"] + 1} boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"]}`,
       ]),
     );
   });
@@ -2890,7 +2983,7 @@ describe("bootstrap DB evidence", () => {
   it("keeps the guard prefix and both reporters on every numbered DB script", () => {
     const { scripts } = JSON.parse(readFileSync(join(testDirectory, "../package.json"), "utf8"));
     const units = Object.keys(scripts).filter((name) => /^test:db:\d+$/.test(name));
-    expect(units).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(units).toEqual(["test:db:1", "test:db:2"]);
     for (const name of units) {
       expect(scripts[name]).toMatch(/^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /);
       expect(scripts[name]).toContain(

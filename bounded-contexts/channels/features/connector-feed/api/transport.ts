@@ -80,23 +80,12 @@ export function createConnectorTransport(
       assertConnectorReport(value);
       await deps.authority.withAuthority(
         { ...input, operation: "report" },
-        async (authority, db: PgQueryable) => {
+        async (authority) => {
           if (!authority.pairingId) throw new ConnectorPairingError("invalid-credential");
-          const context = value.runSettlement?.context;
-          if (context) {
-            const opening = await db.query<{ tenant_id: string }>(
-              "SELECT tenant_id FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version LIMIT 1",
-              [`channels.connection-${input.connectionId}`],
-            );
-            if (
-              context.audit.forAccountId !== authority.accountId ||
-              context.audit.performedByUserId !== authority.grant?.userId ||
-              context.tenantId !== opening.rows[0]?.tenant_id
-            )
-              throw new ConnectorPairingError("authorization-refused");
-          }
           await deps.outboundSync.reportClaimedOperationOutcomes({
-            ...value,
+            reservationId: value.reservationId,
+            outcomes: value.outcomes,
+            ...(value.runSettlement ? { runSettlement: { ...value.runSettlement, context: null } } : {}),
             claimant: { claimantKind: "connector", claimantId: authority.pairingId },
           });
         },

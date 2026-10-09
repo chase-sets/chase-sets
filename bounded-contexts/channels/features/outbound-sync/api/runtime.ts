@@ -201,18 +201,36 @@ export function createOutboundSyncRuntime(
             "The downstream run settlement port is not installed.",
           );
         }
+        if (!port) {
+          const table = await db.query<{ run_table: string | null }>(
+            "SELECT to_regclass('channel_sync_runs')::text AS run_table",
+          );
+          if (table.rows[0]?.run_table === "channel_sync_runs") {
+            const bound = await db.query(
+              `SELECT 1 FROM channel_sync_runs WHERE reservation_id=$1
+               AND state IN ('composed','claimed','awaiting-verification') FOR UPDATE`,
+              [input.reservationId],
+            );
+            if (bound.rows.length > 0) throw new OutboundSyncError("run-settlement-unavailable");
+          }
+        }
         const currentInstant = now();
         const expired = [
           ...members.rows.map((row) => timestamp(row.claimed_until)!),
           ...pullMembers.map((member) => member.claimedUntil!),
         ].every((claimedUntil) => Date.parse(claimedUntil) <= Date.parse(currentInstant));
-        let boundRun: BoundClaimedReservationRun | null = null;
+        const boundRun = port
+          ? await port.lockBoundRun(db, {
+              reservationId: input.reservationId,
+              ...(input.runSettlement
+                ? { runId: input.runSettlement.runId, expectedRunRevision: input.runSettlement.expectedRunRevision }
+                : {}),
+            })
+          : null;
+        if (boundRun && boundRun.state !== "terminal" && !input.runSettlement) {
+          throw new OutboundSyncError("run-settlement-unavailable", "The bound run requires a settlement.");
+        }
         if (input.runSettlement) {
-          boundRun = await port!.lockBoundRun(db, {
-            reservationId: input.reservationId,
-            runId: input.runSettlement.runId,
-            expectedRunRevision: input.runSettlement.expectedRunRevision,
-          });
           if (!boundRun) throw new OutboundSyncError("stale-fence", "The bound run fence did not match.");
           assertBoundRunIdentity(boundRun, input.claimant, members.rows);
           if (

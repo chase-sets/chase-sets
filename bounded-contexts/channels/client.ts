@@ -1,3 +1,6 @@
+export { assertConnectorRunSettlement } from "./features/connector-feed/domain/run-settlement";
+export type { ConnectorRunSettlement } from "./features/connector-feed/domain/run-settlement";
+export type { ConnectorReport } from "./features/connector-feed/domain/transport";
 export { composeChannelOrderFulfillmentReference } from "./features/order-fulfillment-observations/domain/fulfillment-reference";
 export {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,

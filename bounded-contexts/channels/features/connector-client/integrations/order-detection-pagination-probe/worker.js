@@ -119,18 +119,22 @@
     };
   }
   function stop(state, code) {
+    state.stopCode ??= code;
     state.stopped = true;
+    state.cancelRead?.();
     state.controller?.abort();
     state.cancelWait?.();
     clearInterval(state.heartbeat);
     clearTimeout(state.expiry);
-    terminal = receipt(state, code);
+    active = undefined;
+    if (state.reading) return { ok: true };
+    if (state.receipt) return { ok: true, receipt: state.receipt };
+    terminal = state.receipt = receipt(state, state.stopCode);
     state.seller = null;
     state.frontier = null;
     state.cursor = null;
     state.cursors.clear();
     state.seen.clear();
-    active = undefined;
     return { ok: true, receipt: terminal };
   }
   async function wait(state) {
@@ -173,29 +177,35 @@
     if (requestBytes > LIMITS.request) fail("request_bytes");
     if (state.bytes + requestBytes > LIMITS.session) fail("session_bytes");
     state.latch.counts[kind] += 1;
-    await chrome.storage.local.set({ [LATCH]: state.latch });
-    state.last = Date.now();
-    if (state.stopped || state.last >= state.config.t0 + 900000) fail("expired");
-    state.bytes += requestBytes;
+    state.reading = true;
     const observation = {
       kind,
       ordinal: state.requests.length,
-      startedAt: state.last,
+      startedAt: Date.now(),
       elapsedMs: 0,
       withinFinalCall: false,
-      requestBytes,
+      requestBytes: 0,
       responseBytes: 0,
       responseComplete: false,
       status: null,
       failure: null,
     };
+    // Reserve an observation before persistence; sent bytes stay zero until dispatch.
     state.requests.push(observation);
-    const controller = new AbortController();
-    state.controller = controller;
+    let controller;
     let reader;
     let timer;
     let timedOut = false;
     try {
+      await chrome.storage.local.set({ [LATCH]: state.latch });
+      state.last = Date.now();
+      if (state.stopped) fail(state.stopCode);
+      if (state.last >= state.config.t0 + 900000) fail("expired");
+      observation.startedAt = state.last;
+      state.bytes += requestBytes;
+      observation.requestBytes = requestBytes;
+      controller = new AbortController();
+      state.controller = controller;
       return await Promise.race([
         new Promise((_, reject) => {
           timer = setTimeout(
@@ -271,12 +281,13 @@
       throw new Error(observation.failure);
     } finally {
       clearTimeout(timer);
-      controller.abort();
+      controller?.abort();
       void reader?.cancel().catch(() => {});
       state.controller = undefined;
       state.cancelRead = undefined;
       observation.elapsedMs = Date.now() - observation.startedAt;
       observation.withinFinalCall = observation.elapsedMs <= 10000;
+      state.reading = false;
     }
   }
 
@@ -371,13 +382,11 @@
       if (Date.now() >= config.t0 + 900000 || Date.now() < config.t0) return stop(state, "expired");
       state.heartbeat = setInterval(() => {
         void chrome.runtime.getPlatformInfo().catch(() => {
-          state.cancelRead?.();
           stop(state, "custody_loss");
         });
       }, 20000);
       state.expiry = setTimeout(
         () => {
-          state.cancelRead?.();
           stop(state, "expired");
         },
         config.t0 + 900000 - Date.now(),
@@ -417,7 +426,7 @@
       }
       fail("invalid_message");
     } catch (error) {
-      if (state.stopped) return { ok: true, receipt: terminal };
+      if (state.stopped) return stop(state, state.stopCode);
       return stop(state, codes.has(error?.message) ? error.message : "custody_loss");
     }
   }
@@ -436,7 +445,6 @@
       !["begin", "lookup", "page", "finish", "cancel", "abort"].includes(message.kind)
     ) {
       if (active) {
-        active.cancelRead?.();
         stop(active, "invalid_message");
       }
       respond({ ok: false, code: "invalid_message" });

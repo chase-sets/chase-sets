@@ -98,7 +98,6 @@
     "bounded-contexts/channels/features/connections/read-model/projection.ts",
     "bounded-contexts/channels/features/connections/read-model/queries.ts",
     "bounded-contexts/channels/features/connector-feed/api/runtime.ts",
-    "bounded-contexts/channels/features/connector-feed/api/transport.ts",
     "bounded-contexts/channels/features/connector-feed/read-model/audit.ts",
     "bounded-contexts/channels/features/connector-feed/read-model/inbound.ts",
     "bounded-contexts/channels/features/connector-feed/read-model/liveness.ts",

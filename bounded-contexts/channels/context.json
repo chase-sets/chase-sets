@@ -37,7 +37,7 @@
     "reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"],
+  "publicExports": [".", "./client", "./context", "./server", "./test-support", "./routes/*", "./seed-support/*"],
   "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
