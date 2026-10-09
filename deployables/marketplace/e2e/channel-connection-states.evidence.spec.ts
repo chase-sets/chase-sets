@@ -95,23 +95,80 @@ async function showState(page: Page, surface: ConnectionEvidenceSurface, state: 
   }
 }
 
+async function frameState(
+  page: Page,
+  surface: ConnectionEvidenceSurface,
+  state: ConnectionEvidenceState,
+  width: 390 | 1440,
+) {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+  const target =
+    surface === "list"
+      ? page.getByText(
+          state === "loading"
+            ? "Loading channel connections…"
+            : state === "empty"
+              ? "No channel connections"
+              : state === "error"
+                ? "Channels API error 503"
+                : "fixture-provider",
+          { exact: true },
+        )
+      : state === "loading"
+        ? page.locator(
+            surface === "connect"
+              ? 'form:has(select[name="providerKey"]) button[type="submit"]'
+              : 'form:has(input[name="intent"][value="activate"]) button[type="submit"]',
+          )
+        : state === "empty"
+          ? surface === "connect"
+            ? page.getByText("No channel connections", { exact: true })
+            : page.getByRole("link", { name: "Storage locations", exact: true })
+          : page.getByText(
+              state === "error"
+                ? surface === "connect"
+                  ? "provider-setup-not-registered"
+                  : "binding-not-current"
+                : surface === "connect"
+                  ? "Pending setup"
+                  : "Active",
+              { exact: true },
+            );
+  await target.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+  await expect(target).toBeVisible();
+  expect(
+    await target.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      return hit !== null && (element.contains(hit) || hit.contains(element));
+    }),
+    "the visible state target must not be covered by fixed navigation",
+  ).toBe(true);
+}
+
 test("channels-connect-design-system-list-loading @marketplace-account @browser-e2e-seed", async ({
   page,
 }, testInfo) => {
   await showState(page, "list", "loading");
+  await frameState(page, "list", "loading", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-loading-390" });
+  await frameState(page, "list", "loading", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-loading-desktop" });
 });
 
 test("channels-connect-design-system-list-empty @marketplace-account @browser-e2e-seed", async ({ page }, testInfo) => {
   await showState(page, "list", "empty");
+  await frameState(page, "list", "empty", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-empty-390" });
+  await frameState(page, "list", "empty", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-empty-desktop" });
 });
 
 test("channels-connect-design-system-list-error @marketplace-account @browser-e2e-seed", async ({ page }, testInfo) => {
   await showState(page, "list", "error");
+  await frameState(page, "list", "error", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-error-390" });
+  await frameState(page, "list", "error", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-error-desktop" });
 });
 
@@ -119,7 +176,9 @@ test("channels-connect-design-system-list-success @marketplace-account @browser-
   page,
 }, testInfo) => {
   await showState(page, "list", "success");
+  await frameState(page, "list", "success", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-success-390" });
+  await frameState(page, "list", "success", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-list-success-desktop" });
 });
 
@@ -127,7 +186,9 @@ test("channels-connect-design-system-connect-loading @marketplace-account @brows
   page,
 }, testInfo) => {
   await showState(page, "connect", "loading");
+  await frameState(page, "connect", "loading", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-connect-loading-390" });
+  await frameState(page, "connect", "loading", 1440);
   await captureResponsiveEvidence({
     page,
     testInfo,
@@ -139,7 +200,9 @@ test("channels-connect-design-system-connect-empty @marketplace-account @browser
   page,
 }, testInfo) => {
   await showState(page, "connect", "empty");
+  await frameState(page, "connect", "empty", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-connect-empty-390" });
+  await frameState(page, "connect", "empty", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-connect-empty-desktop" });
 });
 
@@ -147,7 +210,9 @@ test("channels-connect-design-system-connect-error @marketplace-account @browser
   page,
 }, testInfo) => {
   await showState(page, "connect", "error");
+  await frameState(page, "connect", "error", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-connect-error-390" });
+  await frameState(page, "connect", "error", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-connect-error-desktop" });
 });
 
@@ -155,7 +220,9 @@ test("channels-connect-design-system-connect-success @marketplace-account @brows
   page,
 }, testInfo) => {
   await showState(page, "connect", "success");
+  await frameState(page, "connect", "success", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-connect-success-390" });
+  await frameState(page, "connect", "success", 1440);
   await captureResponsiveEvidence({
     page,
     testInfo,
@@ -167,7 +234,9 @@ test("channels-connect-design-system-setup-loading @marketplace-account @browser
   page,
 }, testInfo) => {
   await showState(page, "setup", "loading");
+  await frameState(page, "setup", "loading", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-loading-390" });
+  await frameState(page, "setup", "loading", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-loading-desktop" });
 });
 
@@ -175,7 +244,9 @@ test("channels-connect-design-system-setup-empty @marketplace-account @browser-e
   page,
 }, testInfo) => {
   await showState(page, "setup", "empty");
+  await frameState(page, "setup", "empty", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-empty-390" });
+  await frameState(page, "setup", "empty", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-empty-desktop" });
 });
 
@@ -183,7 +254,9 @@ test("channels-connect-design-system-setup-error @marketplace-account @browser-e
   page,
 }, testInfo) => {
   await showState(page, "setup", "error");
+  await frameState(page, "setup", "error", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-error-390" });
+  await frameState(page, "setup", "error", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-error-desktop" });
 });
 
@@ -191,7 +264,9 @@ test("channels-connect-design-system-setup-success @marketplace-account @browser
   page,
 }, testInfo) => {
   await showState(page, "setup", "success");
+  await frameState(page, "setup", "success", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-success-390" });
+  await frameState(page, "setup", "success", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-setup-success-desktop" });
 });
 
@@ -199,7 +274,9 @@ test("channels-connect-design-system-activate-loading @marketplace-account @brow
   page,
 }, testInfo) => {
   await showState(page, "activate", "loading");
+  await frameState(page, "activate", "loading", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-activate-loading-390" });
+  await frameState(page, "activate", "loading", 1440);
   await captureResponsiveEvidence({
     page,
     testInfo,
@@ -211,7 +288,9 @@ test("channels-connect-design-system-activate-empty @marketplace-account @browse
   page,
 }, testInfo) => {
   await showState(page, "activate", "empty");
+  await frameState(page, "activate", "empty", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-activate-empty-390" });
+  await frameState(page, "activate", "empty", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-activate-empty-desktop" });
 });
 
@@ -219,7 +298,9 @@ test("channels-connect-design-system-activate-error @marketplace-account @browse
   page,
 }, testInfo) => {
   await showState(page, "activate", "error");
+  await frameState(page, "activate", "error", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-activate-error-390" });
+  await frameState(page, "activate", "error", 1440);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-activate-error-desktop" });
 });
 
@@ -227,7 +308,9 @@ test("channels-connect-design-system-activate-success @marketplace-account @brow
   page,
 }, testInfo) => {
   await showState(page, "activate", "success");
+  await frameState(page, "activate", "success", 390);
   await captureResponsiveEvidence({ page, testInfo, claimId: "channels-connect-design-system-activate-success-390" });
+  await frameState(page, "activate", "success", 1440);
   await captureResponsiveEvidence({
     page,
     testInfo,

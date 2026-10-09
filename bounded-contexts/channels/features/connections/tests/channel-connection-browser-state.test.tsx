@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +8,6 @@ import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { index, route } from "@react-router/dev/routes";
 import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
-import contextManifest from "../../../context.json" with { type: "json" };
 import AccountChannelsRoute, { loader as listLoader } from "../../../routes/marketplace/account-channels";
 import AccountChannelsConnectionRoute, {
   loader as detailLoader,
@@ -25,6 +26,9 @@ type FixtureHost = {
 const host = window as unknown as FixtureHost;
 
 function productionRouteId(routePath: string) {
+  const contextManifest: typeof import("../../../context.json") = JSON.parse(
+    readFileSync(path.resolve(import.meta.dirname, "../../../context.json"), "utf8"),
+  );
   const contribution = contextManifest.deployableContributions.find((entry) => entry.deployable === "marketplace-web");
   const record = contribution?.routes.find((entry) => entry.routePath === routePath);
   if (!record) throw new Error(`Missing Channels route ${routePath}`);
