@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { OperationalStatusBanner, Stack } from "@chase-sets/design-system";
+import { classifyFreshWriteReadError } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthHeaders,
@@ -9,7 +10,14 @@ import {
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
-import { ChannelConnectionDetailPage, type ChannelConnectionAllowedAction } from "./connection-pages";
+import {
+  ChannelConnectionDetailPage,
+  ChannelConnectionListPage,
+  ChannelConnectionSetupSection,
+  type ConnectionSetupLocations,
+  type ChannelConnectionAllowedAction,
+} from "./connection-pages";
+import { createConnectionSetupRequestApiClient } from "./setup-api-client";
 import {
   ChannelsConnectionsApiError,
   createChannelsConnectionsRequestApiClient,
@@ -39,6 +47,7 @@ type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind:
 type LoadedData = Readonly<{
   kind: "ready";
   connection: PublicChannelConnection;
+  setupLocations: ConnectionSetupLocations;
   drift: ChannelDriftDetail;
   canManageDrift: boolean;
   loadIdentity: string;
@@ -54,7 +63,7 @@ type LoadedData = Readonly<{
       }>
     | Readonly<{ kind: "read-error" }>;
 }>;
-type RouteData = LoadedData | Readonly<{ kind: "not-found" }>;
+type RouteData = LoadedData | Readonly<{ kind: "not-found" }> | Readonly<{ kind: "loading" }>;
 type ConnectionActionData =
   | Readonly<{ kind: "applied"; connection: PublicChannelConnection }>
   | Readonly<{ kind: "command-error"; message: string }>;
@@ -66,7 +75,7 @@ function required(value: string | undefined): string {
   return value;
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs): Promise<RouteData> {
+export async function loader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">): Promise<RouteData> {
   const actor = await requireActorFromAuthApi({ request, permission: "channels.view" });
   const connectionId = required(params.connectionId);
   const connectionApi = createChannelsConnectionsRequestApiClient(request);
@@ -78,6 +87,15 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
     throw error;
   }
   const position = readOutboundOperationLogPosition(new URL(request.url).searchParams);
+  let setupLocations: ConnectionSetupLocations = { kind: "loaded", items: [] };
+  if (connection.status === "pending-setup" && actor.permissions.includes("channels.manage")) {
+    try {
+      const { readConnectionSetupLocations } = await import("../../../support/request-support/setup-locations");
+      setupLocations = { kind: "loaded", items: await readConnectionSetupLocations(request) };
+    } catch {
+      setupLocations = { kind: "read-error" };
+    }
+  }
   const apiBaseUrl = resolveRequestApiBaseUrl(request, "/api/channels", { requireInternalApiOrigin: true });
   const query = new URLSearchParams({ limit: "50" });
   if (position.cursor !== null) query.set("cursor", position.cursor);
@@ -96,6 +114,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
         credentials: "include",
         headers,
       }),
+      request,
     ),
     readAuxiliary<ChannelConnectionAttention>(
       fetch(
@@ -130,6 +149,7 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   return {
     kind: "ready",
     connection,
+    setupLocations,
     manualSync,
     attention,
     pairing,
@@ -140,11 +160,16 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   };
 }
 
-async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryRead<T>> {
+async function readAuxiliary<T>(response: Promise<Response>, request?: Request): Promise<AuxiliaryRead<T>> {
   try {
     const resolved = await response;
-    return resolved.ok ? { kind: "loaded", data: (await resolved.json()) as T } : { kind: "read-error" };
-  } catch {
+    const body: unknown = await resolved.json();
+    if (resolved.ok) return { kind: "loaded", data: body as T };
+    const error = new ChannelsConnectionsApiError(resolved.status, body);
+    if (request && classifyFreshWriteReadError({ request, error }).transient) throw error;
+    return { kind: "read-error" };
+  } catch (error) {
+    if (error instanceof ChannelsConnectionsApiError) throw error;
     return { kind: "read-error" };
   }
 }
@@ -163,6 +188,13 @@ async function readPairing(response: Promise<Response>): Promise<PairingPanelSta
 const connectionAction = defineFormAction({
   authorization: { permission: "channels.manage" },
   intents: {
+    activate: async ({ request, params, formData }) => ({
+      kind: "applied" as const,
+      connection: await createConnectionSetupRequestApiClient(request).activate(
+        required(params.connectionId),
+        formData.getAll("storageLocationIds").map(String),
+      ),
+    }),
     pause: async ({ request, params }) => ({
       kind: "applied" as const,
       connection: await createChannelsConnectionsRequestApiClient(request).pauseConnection(
@@ -233,7 +265,7 @@ export async function action(
 > {
   const form = await args.request.clone().formData();
   const intent = String(form.get("intent") ?? "");
-  if (["pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
+  if (["activate", "pause", "resume", "disconnect"].includes(intent)) return connectionAction(args);
   await requireActorFromAuthApi({ request: args.request, permission: "channels.manage" });
   const connectionId = required(args.params.connectionId);
   const apiBaseUrl = resolveRequestApiBaseUrl(args.request, "/api/channels", { requireInternalApiOrigin: true });
@@ -387,16 +419,25 @@ export default function AccountChannelsConnectionRoute() {
       ? ((navigation.formData?.get("intent") as ChannelConnectionAllowedAction | null) ?? null)
       : null;
   if (data.kind === "not-found") return <ChannelConnectionDetailPage state={{ kind: "not-found" }} />;
-  if (isConnectionActionError(actionData))
-    return (
-      <ChannelConnectionDetailPage
-        state={{ kind: "command-error", message: actionData.message, connection: data.connection }}
-      />
-    );
+  if (data.kind === "loading") return <ChannelConnectionListPage state={{ kind: "loading" }} />;
   const connection = isAppliedConnectionAction(actionData) ? actionData.connection : data.connection;
   const actionError = readActionError(actionData);
   return (
-    <ChannelConnectionDetailPage state={{ kind: "ready", connection }} pendingIntent={pendingIntent}>
+    <ChannelConnectionDetailPage
+      state={
+        isConnectionActionError(actionData)
+          ? { kind: "command-error", connection, message: actionData.message }
+          : { kind: "ready", connection }
+      }
+      pendingIntent={pendingIntent}
+    >
+      {connection.status === "pending-setup" && data.canManageDrift ? (
+        <ChannelConnectionSetupSection
+          key={connection.connectionId}
+          locations={data.setupLocations}
+          pending={navigation.state !== "idle"}
+        />
+      ) : null}
       <Stack gap={4}>
         <ChannelDriftPanel
           key={connection.connectionId}
