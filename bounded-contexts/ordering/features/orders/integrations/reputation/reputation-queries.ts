@@ -136,5 +136,5 @@ export async function getOrderingOrderReviewOpportunity(
     [params.orderId, params.authorAccountId],
   );
 
-  return orderReviewOutcome(result.rows[0], params.authorAccountId, params.now ?? new Date());
+  return result.rows.length === 0 ? { status: "ready", opportunity: null } : orderReviewOutcome(result.rows[0], params.authorAccountId, params.now ?? new Date());
 }
