@@ -1,9 +1,12 @@
 import { vi } from "vitest";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
-import type { ConnectorExecutor, OperationUnit } from "@chase-sets/channels/client";
+import type { composeConnectorBackground } from "../src/compose";
 import { chromeFixture } from "./chrome-test-support";
 import { connectorHostRegistry, platformOrigin } from "../__tests__/harness/origins";
 import { createSyntheticPairingCode, synthetic } from "../e2e/loopback-platform";
+
+type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
 
 const network = globalThis.fetch;
 export async function compose(

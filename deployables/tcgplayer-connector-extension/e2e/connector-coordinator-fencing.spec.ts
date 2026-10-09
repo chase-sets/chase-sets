@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { build } from "vite";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "@chase-sets/channels/client";
-import { createWorkspaceSourceAliases } from "../../../scripts/workspace-source-aliases.mjs";
+import { connectorViteConfig } from "../vite.config";
 import { startLoopback } from "../__tests__/harness/loopback";
 import { syntheticClaim } from "../__tests__/harness/claim";
 import { synthetic } from "./loopback-platform";
@@ -20,17 +20,18 @@ let context: BrowserContext | undefined;
 test.beforeAll(async () => {
   server = await startLoopback();
   extension = await buildHarness("operation");
+  const harness = connectorViteConfig("harness");
   await build({
     root: packageRoot,
     configFile: false,
     logLevel: "warn",
-    resolve: { alias: createWorkspaceSourceAliases() },
-    define: { "import.meta.env.VITE_HARNESS_EXECUTOR_UNIT": JSON.stringify("operation") },
+    resolve: harness.resolve,
+    define: { ...harness.define, "import.meta.env.VITE_HARNESS_EXECUTOR_UNIT": JSON.stringify("operation") },
     build: {
       outDir: extension,
       emptyOutDir: false,
       rolldownOptions: {
-        input: { "fence-worker": resolve(packageRoot, "__tests__/harness/fence-worker.ts") },
+        input: { "fence-worker": resolve(packageRoot, "e2e/connector-coordinator-fence-worker.ts") },
         output: { entryFileNames: "[name].js", codeSplitting: false },
       },
     },

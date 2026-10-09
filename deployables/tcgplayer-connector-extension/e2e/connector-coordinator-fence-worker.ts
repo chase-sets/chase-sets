@@ -1,7 +1,7 @@
 import { createConnectorOperationCoordinator, type ConnectorExecutor } from "@chase-sets/channels/client";
-import { connectorTransport } from "../../src/adapters/connector-transport";
-import { syntheticExecutor } from "./executors.harness";
-import { connectorHostRegistry, platformOrigin } from "./origins";
+import { connectorTransport } from "../src/adapters/connector-transport";
+import { syntheticExecutor } from "../__tests__/harness/executors.harness";
+import { connectorHostRegistry, platformOrigin } from "../__tests__/harness/origins";
 
 let authority: "paired-idle" | "report-only" | "absent" = "paired-idle";
 let clock: number | undefined;

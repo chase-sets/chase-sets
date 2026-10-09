@@ -1,5 +1,4 @@
-import { buildConnectorManifest } from "@chase-sets/channels";
-import type { ConnectorBackgroundPorts } from "@chase-sets/channels/client";
+import { buildConnectorManifest, type ConnectorBackgroundPorts } from "@chase-sets/channels/client";
 
 export function connectorTransport(
   input: Parameters<typeof buildConnectorManifest>[0],

@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
-import type { ConnectorExecutor, OperationUnit } from "@chase-sets/channels/client";
+import type { composeConnectorBackground } from "../src/compose";
 import { chromeFixture } from "./chrome-test-support";
 import { startLoopback } from "../__tests__/harness/loopback";
 import { syntheticClaim } from "../__tests__/harness/claim";
 import { syntheticExecutor } from "../__tests__/harness/executors.harness";
 import { connectorHostRegistry, platformOrigin } from "../__tests__/harness/origins";
 import { createSyntheticPairingCode, synthetic } from "../e2e/loopback-platform";
+
+type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
+const composeWithoutCoordinatorPort = "../src/compose?coordinator-port-removed";
 
 const network = globalThis.fetch;
 let server: Awaited<ReturnType<typeof startLoopback>> | undefined;
@@ -17,10 +21,12 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.doUnmock("../src/host-registry");
-  vi.doUnmock("@chase-sets/channels/client");
 });
 
-async function compose(executors: readonly ConnectorExecutor[]) {
+async function compose(
+  executors: readonly ConnectorExecutor[],
+  load: () => Promise<typeof import("../src/compose")> = () => import("../src/compose"),
+) {
   vi.resetModules();
   vi.doMock("../src/host-registry", () => ({ connectorHostRegistry }));
   const fixture = chromeFixture();
@@ -39,7 +45,7 @@ async function compose(executors: readonly ConnectorExecutor[]) {
     });
     return reply.headers.get("location")!;
   });
-  const { composeConnectorBackground } = await import("../src/compose");
+  const { composeConnectorBackground } = await load();
   const product = composeConnectorBackground({ executors });
   await product.background.boot();
   await createSyntheticPairingCode(platformOrigin);
@@ -100,16 +106,11 @@ describe("connector-coordinator-loopback-production-path", () => {
     });
   });
   it("removed coordinator port has zero claims and kills the path witness", async () => {
-    vi.doMock("@chase-sets/channels/client", async (load) => {
-      const actual = await load<typeof import("@chase-sets/channels/client")>();
-      return {
-        ...actual,
-        createConnectorBackground: (ports: Parameters<typeof actual.createConnectorBackground>[0]) =>
-          actual.createConnectorBackground({ ...ports, transport: { ...ports.transport, coordinate: undefined } }),
-      };
-    });
     server = await startLoopback();
-    const f = await compose([syntheticExecutor("operation")]);
+    const f = await compose(
+      [syntheticExecutor("operation")],
+      () => import(/* @vite-ignore */ composeWithoutCoordinatorPort),
+    );
     server.claims.push(syntheticClaim());
     await f.fixture.alarm("connector-work");
     expect(server.claimCount()).toBe(0);

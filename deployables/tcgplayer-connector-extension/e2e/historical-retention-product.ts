@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { build } from "vite";
 import { buildConnectorManifest } from "@chase-sets/channels";
-import { createWorkspaceSourceAliases } from "../../../scripts/workspace-source-aliases.mjs";
+import { connectorViteConfig } from "../vite.config";
 import { packageRoot, proofRoot, retain } from "./coordinator-observation";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { synthetic } from "./loopback-platform";
@@ -22,7 +22,7 @@ export async function buildHistoricalRetentionProduct() {
     root: packageRoot,
     configFile: false,
     logLevel: "warn",
-    resolve: { alias: createWorkspaceSourceAliases() },
+    resolve: connectorViteConfig().resolve,
     define: {
       "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(platformOrigin),
       "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(synthetic.clientId),

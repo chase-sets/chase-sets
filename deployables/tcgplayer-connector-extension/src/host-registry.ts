@@ -1,3 +1,3 @@
-import type { buildConnectorManifest } from "@chase-sets/channels";
+import type { buildConnectorManifest } from "@chase-sets/channels/client";
 
 export const connectorHostRegistry: Parameters<typeof buildConnectorManifest>[0]["hostRegistry"] = [];

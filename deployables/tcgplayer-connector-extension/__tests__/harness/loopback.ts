@@ -1,6 +1,5 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { assertConnectorClaim, assertConnectorReport } from "@chase-sets/channels/server";
-import { assertConnectorRunSettlement, type ConnectorReport } from "@chase-sets/channels/client";
 import { loopbackPlatform, synthetic } from "../../e2e/loopback-platform";
 import { assertHarnessOrigins, connectorHostRegistry, platformOrigin, portalOrigin, sentinel } from "./origins";
 import type { Claim } from "./claim";
@@ -92,7 +91,6 @@ export async function startLoopback() {
               .end(JSON.stringify({ reservation, pollWindowSeconds }));
           } else {
             assertConnectorReport(input);
-            if (input.runSettlement) assertConnectorRunSettlement(input.runSettlement);
             const claim = admitted.get(input.reservationId);
             if (
               !claim ||
@@ -172,7 +170,11 @@ export async function startLoopback() {
     setPollWindow: (seconds: number) => {
       pollWindowSeconds = seconds;
     },
-    report: (index = 0): ConnectorReport => JSON.parse(reports[index]!),
+    report: (index = 0) => {
+      const value: unknown = JSON.parse(reports[index]!);
+      assertConnectorReport(value);
+      return value;
+    },
     hold(route: "claim" | "portal" | "report") {
       holds.set(route, new Promise<void>((resolve) => releases.set(route, resolve)));
     },
