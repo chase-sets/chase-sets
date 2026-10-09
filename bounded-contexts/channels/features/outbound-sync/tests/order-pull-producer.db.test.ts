@@ -27,29 +27,21 @@ import type {
   ClaimedSubjectOperation,
   ClaimedOutboundOperation,
 } from "../domain/contracts";
-import {
-  decideOrderPullSearchPage,
-  deriveOrderPullId,
-  orderPullFitsLease,
-  type ClaimedOrderPullOutcome,
-  type OrderPullAuthority,
-} from "../domain/order-pull";
+import { deriveOrderPullId, orderPullFitsLease, type ClaimedOrderPullOutcome } from "../domain/order-pull";
 import { outboundSyncSchemaMigrations } from "../read-model/schema";
+import { syntheticAuthority, syntheticPage, syntheticPayload, syntheticProgress } from "./order-pull-fixtures";
+import { advanceOrderPullTraversal } from "../domain/order-pull-progress";
+import { orderPullProviderReady } from "../domain/order-pull";
+import {
+  composeChannelOrderFulfillmentInbound,
+  type ChannelOrderFulfillmentObservation,
+} from "../../order-fulfillment-observations/domain/contracts";
+import { readAcceptedReadyToShipMembership } from "../../order-fulfillment-observations/api/runtime";
+import { seedOrderPullSale } from "./order-pull-owner-fixtures";
+import * as ownerReader from "../../order-fulfillment-observations/api/runtime";
+import * as pullCoordinator from "../api/order-pull";
+import { readOrderPullWork } from "../api/order-pull-progress";
 
-// Synthetic authority: #8804/#8838 have not fixed production bounds; these values exercise the producer only.
-const syntheticAuthority: OrderPullAuthority = {
-  revision: 3,
-  lawVersion: "ready-to-ship-intake/v1",
-  selector: { identity: "synthetic-ready-to-ship-selector", version: 1, pageSize: 500 },
-  nRtsMax: 60,
-  fMax: 20,
-  providerCadenceMs: 1_000,
-  providerCallTimeoutMs: 3_000,
-  mappingJournalMs: 10_000,
-  maxPostsPerOrder: 3,
-  postTimeoutMs: 1_000,
-  reportTimeoutMs: 5_000,
-};
 const capable = { capabilities: ["tcgplayer-order-pull"] };
 const startedAt = Date.parse("2026-10-07T12:00:00.000Z");
 
@@ -108,12 +100,13 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
   }
   function complete(
     member: ClaimedOrderPullOperation,
-  ): Extract<ClaimedOrderPullOutcome["outcome"], { kind: "order-pull-complete" }> {
+  ): Exclude<ClaimedOrderPullOutcome["outcome"], { kind: "order-pull-unknown" | "abandoned" }> {
     return {
       kind: "order-pull-complete",
       lawVersion: member.payload.lawVersion,
       selector: member.payload.selector,
-      admissionCounts: { readyToShipMembers: 2, followUpReads: 0, admitted: 2 },
+      admissionCounts: { readyToShipMembers: 0, followUpReads: 0, admitted: 0 },
+      progress: syntheticProgress(member.payload),
     };
   }
   function listingReport(operation: ClaimedOutboundOperation): ClaimedOperationOutcome {
@@ -160,6 +153,371 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
     };
   }
 
+  async function admitOwner(observation: ChannelOrderFulfillmentObservation, accept = true) {
+    const response = await h.request("ingest", await composeChannelOrderFulfillmentInbound(observation));
+    expect(response.status).toBe(202);
+    if (accept) await h.services.fulfillmentObservations.interpretConnection(target.connectionId);
+  }
+
+  it("AC3/4 discovery commits exactly one claimable successor; report/claim loss, pause and restart preserve it", async () => {
+    await tick();
+    const firstReservation = await claim();
+    const first = pullMember(firstReservation);
+    const body = {
+      reservationId: firstReservation!.reservationId,
+      outcomes: [
+        pullReport(first, {
+          ...complete(first),
+          kind: "continuation-required",
+          progress: syntheticProgress(first.payload, { pages: [syntheticPage(["ORDER-A", "ORDER-B"])] }),
+        }),
+      ],
+    };
+    const results = await Promise.all([h.request("report", body), h.request("report", body)]);
+    expect(results.map((result) => result.status)).toEqual([200, 200]);
+    const committed = await pullState();
+    h.restart();
+    expect((await h.request("report", body)).status).toBe(200);
+    expect(await pullState()).toEqual(committed);
+    expect(await tick()).toBe(0);
+    const operations = await h.services.outboundSync.readOrderPullOperations(target);
+    expect(operations).toHaveLength(2);
+    expect(operations[0]).toMatchObject({
+      status: "pending",
+      payload: {
+        checkpoint: {
+          burstId: first.payload.checkpoint.burstId,
+          traversal: { exhausted: true, discovered: 2 },
+          drained: false,
+        },
+        predecessor: {
+          operationId: first.operationId,
+          attemptId: first.attemptId,
+          claimGeneration: first.claimGeneration,
+        },
+        work: { references: ["ORDER-A", "ORDER-B"], acceptedReferences: [] },
+      },
+    });
+    await h.pause();
+    expect(await claim()).toBeNull();
+    await h.services.connections.resumeChannelConnection(target, transportContext);
+    await h.projectConnection();
+    const secondReservation = await claim(); // SAME commit instant; no 60-second wait.
+    const second = pullMember(secondReservation);
+    expect(second.operationId).toBe(operations[0]!.operationId);
+    expect(orderPullProviderReady(second.payload, new Date().toISOString())).toBe(false);
+    expect(orderPullProviderReady(second.payload, new Date(startedAt + 10_000).toISOString())).toBe(true);
+    // Lost claim response: recover the same successor, with fresh lease/generation, never another row.
+    at(1_800_001);
+    await h.services.outboundSync.recoverExpiredClaimedOperations();
+    h.restart();
+    const recovered = pullMember(await claim());
+    expect(recovered).toMatchObject({ operationId: second.operationId, pullId: second.pullId, claimGeneration: 2 });
+    const stale = await h.request("report", {
+      reservationId: secondReservation!.reservationId,
+      outcomes: [pullReport(second, { kind: "order-pull-unknown", reason: "session-lost" })],
+    });
+    expect(stale.status).toBe(409);
+    expect(await h.services.outboundSync.readOrderPullOperations(target)).toHaveLength(2);
+  });
+
+  it("AC3 owner-only membership refreshes at claim; 202/partial/foreign facts never count and latest non-RTS removes it", async () => {
+    const observation = await seedOrderPullSale(h.db, target.connectionId, target.accountId, "ORDER-A");
+    await admitOwner(observation, false);
+    expect(
+      await readAcceptedReadyToShipMembership(h.db, {
+        connectionId: target.connectionId,
+        orderReferences: ["ORDER-A"],
+      }),
+    ).toEqual([]);
+    await tick();
+    const reservation = await claim();
+    const first = pullMember(reservation);
+    expect(
+      (
+        await h.request("report", {
+          reservationId: reservation!.reservationId,
+          outcomes: [
+            pullReport(first, {
+              ...complete(first),
+              kind: "continuation-required",
+              progress: syntheticProgress(first.payload, { pages: [syntheticPage(["ORDER-A", "ORDER-B"])] }),
+            }),
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    await h.services.fulfillmentObservations.interpretConnection(target.connectionId);
+    expect(
+      await readAcceptedReadyToShipMembership(h.db, {
+        connectionId: target.connectionId,
+        orderReferences: ["ORDER-A", "ORDER-B"],
+      }),
+    ).toEqual(["ORDER-A"]);
+    expect(
+      await readAcceptedReadyToShipMembership(h.db, { connectionId: "foreign", orderReferences: ["ORDER-A"] }),
+    ).toEqual([]);
+    const positive = await readOrderPullWork(h.db, target.connectionId, first.payload.checkpoint.burstId);
+    expect(positive.acceptedReferences).toEqual(["ORDER-A"]);
+    const omitted = vi.spyOn(ownerReader, "readAcceptedReadyToShipMembership").mockResolvedValue([]);
+    try {
+      const sourceOmission = await readOrderPullWork(h.db, target.connectionId, first.payload.checkpoint.burstId);
+      expect(sourceOmission.acceptedReferences).toEqual([]);
+      expect(sourceOmission.acceptedReferences).not.toEqual(positive.acceptedReferences);
+    } finally {
+      omitted.mockRestore();
+    }
+    const scheduledDigest = (await h.services.outboundSync.readOrderPullOperations(target))[0]!.payloadDigest;
+    const secondReservation = await claim();
+    const second = pullMember(secondReservation);
+    expect(second.payload.work.acceptedReferences).toEqual(["ORDER-A"]);
+    expect(second.payloadDigest).not.toBe(scheduledDigest);
+    expect(
+      (
+        await h.request("report", {
+          reservationId: secondReservation!.reservationId,
+          outcomes: [pullReport(second, { kind: "abandoned", reason: "released" })],
+        })
+      ).status,
+    ).toBe(200);
+    await admitOwner({
+      version: 1,
+      variant: "status-only",
+      providerKey: "tcgplayer",
+      externalOrderReference: "ORDER-A",
+      providerOrderStatus: { surface: "list", value: "Shipped - In Transit" },
+      revision: "synthetic-shipped",
+    });
+    h.restart();
+    const third = pullMember(await claim());
+    expect(third.operationId).toBe(second.operationId);
+    expect(third.payload.work.acceptedReferences).toEqual([]);
+    expect(third.payloadDigest).not.toBe(second.payloadDigest);
+  });
+
+  it("AC4 owner-delayed posts remain pending at idle cadence, never falsely complete or mint no-progress successors", async () => {
+    const observation = await seedOrderPullSale(h.db, target.connectionId, target.accountId, "ORDER-PENDING");
+    await admitOwner(observation, false);
+    await tick();
+    const reservation = await claim();
+    const first = pullMember(reservation);
+    const outcome = {
+      ...complete(first),
+      kind: "order-pull-pending" as const,
+      admissionCounts: { readyToShipMembers: 1, followUpReads: 0, admitted: 1 },
+      progress: syntheticProgress(first.payload, {
+        pages: [syntheticPage(["ORDER-PENDING"])],
+        postedReferences: ["ORDER-PENDING"],
+      }),
+    };
+    expect(
+      (
+        await h.request("report", {
+          reservationId: reservation!.reservationId,
+          outcomes: [pullReport(first, { ...outcome, kind: "order-pull-complete" })],
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await h.request("report", { reservationId: reservation!.reservationId, outcomes: [pullReport(first, outcome)] }))
+        .status,
+    ).toBe(200);
+    expect(await claim()).toBeNull();
+    expect(await tick()).toBe(0);
+    at(60_000);
+    h.restart();
+    expect(await tick()).toBe(1);
+    const recheckReservation = await claim();
+    const recheck = pullMember(recheckReservation);
+    expect(recheck.payload.work).toMatchObject({
+      references: ["ORDER-PENDING"],
+      postedReferences: ["ORDER-PENDING"],
+      acceptedReferences: [],
+    });
+    expect(recheck.payload.checkpoint.drained).toBe(false);
+    // Acceptance races a conservative pending report. Exact-byte retries still succeed, with no spurious continuation.
+    await h.services.fulfillmentObservations.interpretConnection(target.connectionId);
+    const body = {
+      reservationId: recheckReservation!.reservationId,
+      outcomes: [
+        pullReport(recheck, {
+          ...complete(recheck),
+          kind: "order-pull-pending",
+          progress: syntheticProgress(recheck.payload, { pages: [] }),
+        }),
+      ],
+    };
+    expect((await h.request("report", body)).status).toBe(200);
+    expect((await h.request("report", body)).status).toBe(200);
+    expect(await claim()).toBeNull();
+    const operations = await h.services.outboundSync.readOrderPullOperations(target);
+    expect(operations).toHaveLength(2);
+    expect(operations[0]).toMatchObject({ status: "succeeded", outcome: { kind: "order-pull-complete" } });
+  });
+
+  it("AC3 checkpoint/chunk/successor roll back on a losing generation, then report-only recovery commits once", async () => {
+    await tick();
+    const reservation = await claim();
+    const first = pullMember(reservation);
+    const body = {
+      reservationId: reservation!.reservationId,
+      outcomes: [
+        pullReport(first, {
+          ...complete(first),
+          kind: "continuation-required",
+          progress: syntheticProgress(first.payload, { pages: [syntheticPage(["TAIL"])] }),
+        }),
+      ],
+    };
+    // Synthetic concurrent-newer-write control; it does not fabricate an accepted owner fact.
+    await h.db.query("UPDATE channel_order_pull_schedules SET generation=generation+1 WHERE connection_id=$1", [
+      target.connectionId,
+    ]);
+    const before = await pullState();
+    expect((await h.request("report", body)).status).toBe(409);
+    expect(await pullState()).toEqual(before);
+    expect((await h.db.query("SELECT chunk_id FROM channel_order_pull_chunks")).rows).toEqual([]);
+    await h.db.query("UPDATE channel_order_pull_schedules SET generation=generation-1 WHERE connection_id=$1", [
+      target.connectionId,
+    ]);
+    await h.db.query(`CREATE FUNCTION synthetic_refuse_successor() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.schedule_generation > 1 THEN RAISE EXCEPTION 'synthetic crash before successor commit'; END IF; RETURN NEW; END $$`);
+    await h.db.query(
+      "CREATE TRIGGER synthetic_successor_crash BEFORE INSERT ON channel_order_pull_operations FOR EACH ROW EXECUTE FUNCTION synthetic_refuse_successor()",
+    );
+    expect((await h.request("report", body)).status).toBe(503);
+    expect((await h.db.query("SELECT chunk_id FROM channel_order_pull_chunks")).rows).toEqual([]);
+    expect(await h.services.outboundSync.readOrderPullOperations(target)).toHaveLength(1);
+    await h.db.query("DROP TRIGGER synthetic_successor_crash ON channel_order_pull_operations");
+    h.restart();
+    expect((await h.request("report", body)).status).toBe(200);
+    expect(await h.services.outboundSync.readOrderPullOperations(target)).toHaveLength(2);
+  });
+
+  it("AC2/3 largest bounded chunk reaches claim without truncation; cap+1, bytes, cursor and cross-page duplicates refuse", async () => {
+    authority = { ...syntheticAuthority, selector: { ...syntheticAuthority.selector, pageSize: 1000 } };
+    await tick();
+    const reservation = await claim();
+    const first = pullMember(reservation);
+    const references = Array.from({ length: 1000 }, (_, i) => `ORDER-${i}`);
+    const page = syntheticPage(references, { totalOrders: 1001, nextCursor: "tail" });
+    const outcome = {
+      ...complete(first),
+      kind: "continuation-required" as const,
+      progress: syntheticProgress(first.payload, { pages: [page] }),
+    };
+    const before = await pullState();
+    for (const progress of [
+      { ...outcome.progress, previousDigest: "0".repeat(64) },
+      { ...outcome.progress, pages: [{ ...page, orderReferences: [...references, "EXTRA"] }] },
+      {
+        ...outcome.progress,
+        pages: [{ ...page, orderReferences: references.map((ref) => ref + "\u4e00".repeat(110)) }],
+      },
+      { ...outcome.progress, pages: [{ ...page, orderReferences: ["duplicate", "duplicate"] }] },
+      { ...outcome.progress, pages: [{ ...page, cursor: "wrong" }] },
+    ]) {
+      expect(
+        (
+          await h.request("report", {
+            reservationId: reservation!.reservationId,
+            outcomes: [pullReport(first, { ...outcome, progress })],
+          })
+        ).status,
+      ).toBe(400);
+      expect(await pullState()).toEqual(before);
+    }
+    expect(
+      (await h.request("report", { reservationId: reservation!.reservationId, outcomes: [pullReport(first, outcome)] }))
+        .status,
+    ).toBe(200);
+    const secondReservation = await claim();
+    const second = pullMember(secondReservation);
+    expect(second.payload.work.references).toEqual(references);
+    expect(second.payload.work.acceptedReferences).toEqual([]);
+    const committed = await pullState();
+    expect(
+      (
+        await h.request("report", {
+          reservationId: secondReservation!.reservationId,
+          outcomes: [
+            pullReport(second, {
+              ...complete(second),
+              kind: "continuation-required",
+              progress: syntheticProgress(second.payload, {
+                pages: [syntheticPage([references[0]!], { cursor: "tail", totalOrders: 1001 })],
+              }),
+            }),
+          ],
+        })
+      ).status,
+    ).toBe(400);
+    expect(await pullState()).toEqual(committed);
+  });
+
+  it("AC4 due follow-up tail uses the same atomic successor seam even with certified empty intake", async () => {
+    await tick();
+    const reservation = await claim();
+    const first = pullMember(reservation);
+    expect(
+      (
+        await h.request("report", {
+          reservationId: reservation!.reservationId,
+          outcomes: [
+            pullReport(first, {
+              ...complete(first),
+              kind: "continuation-required",
+              progress: syntheticProgress(first.payload, { followUpTail: true }),
+            }),
+          ],
+        })
+      ).status,
+    ).toBe(200);
+    const second = pullMember(await claim());
+    expect(second.payload.checkpoint).toMatchObject({
+      traversal: { exhausted: true, discovered: 0 },
+      followUpTail: true,
+      drained: false,
+    });
+    expect(second.payload.predecessor?.operationId).toBe(first.operationId);
+  });
+
+  it.each(["attemptId", "claimGeneration", "payloadDigest"] as const)(
+    "AC3 frozen %s fence bypass admits a report the candidate refuses",
+    async (field) => {
+      await tick();
+      const reservation = await claim();
+      const member = pullMember(reservation);
+      const report = pullReport(member, { kind: "order-pull-unknown", reason: "session-lost" });
+      const bad = {
+        ...report,
+        [field]:
+          field === "claimGeneration"
+            ? report.claimGeneration + 1
+            : field === "payloadDigest"
+              ? "0".repeat(64)
+              : "synthetic-wrong-attempt",
+      };
+      const body = { reservationId: reservation!.reservationId, outcomes: [bad] };
+      const before = await pullState();
+      expect((await h.request("report", body)).status).toBe(409);
+      expect(await pullState()).toEqual(before);
+      const original = pullCoordinator.assertOrderPullReportFence;
+      // Freeze DB, claimant, receipt and all other predicates. Mask exactly this comparison in memory.
+      const bypass = vi
+        .spyOn(pullCoordinator, "assertOrderPullReportFence")
+        .mockImplementation((stored, incoming, claimant) => {
+          original({ ...stored, [field]: incoming[field] }, incoming, claimant);
+        });
+      try {
+        expect((await h.request("report", body)).status).toBe(200);
+        expect((await h.services.outboundSync.readOrderPullOperations(target))[0]!.status).toBe("failed");
+      } finally {
+        bypass.mockRestore();
+      }
+    },
+  );
+
   it("AC1 schedules one connection pull; racing, repeated, restarted and not-due ticks stay one with zero writes", async () => {
     const listingBefore = await h.effects();
     const minted = await Promise.all(Array.from({ length: 3 }, () => tick()));
@@ -174,13 +532,13 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
       pullId: deriveOrderPullId(target.connectionId, 1),
       payload: {
         kind: "order-pull",
-        version: 1,
+        version: 2,
         connectionId: target.connectionId,
         pullId: deriveOrderPullId(target.connectionId, 1),
         policyRevision: 3,
-        lawVersion: "ready-to-ship-intake/v1",
+        lawVersion: "ready-to-ship-intake/v2",
         selector: syntheticAuthority.selector,
-        bounds: { nRtsMax: 60, fMax: 20, maxObservationPosts: 240, budgetMs: 583_000 },
+        bounds: syntheticPayload().bounds,
         followUpReferences: [],
       },
     });
@@ -288,8 +646,8 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
     const empty = await pullState();
     for (const denied of [
       null,
-      { ...syntheticAuthority, reportTimeoutMs: 22_001 },
-      { ...syntheticAuthority, nRtsMax: undefined },
+      { ...syntheticAuthority, reportTimeoutMs: 600_000 },
+      { ...syntheticAuthority, nIntakeReadMax: undefined },
       { ...syntheticAuthority, selector: { ...syntheticAuthority.selector, qualifiedAt: "x" } },
     ]) {
       authority = denied;
@@ -357,7 +715,7 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
     expect(member).not.toHaveProperty("listingId");
     expect(member).not.toHaveProperty("desiredStateSequence");
 
-    // Test executor: lease preflight, then one closed search page decides the set before any detail read.
+    // Synthetic empty traversal, not a provider qualification or admission-as-acceptance claim.
     expect(
       orderPullFitsLease({
         budgetMs: member.payload.bounds.budgetMs,
@@ -365,13 +723,10 @@ describeDb("order-pull-scheduler-and-claim / order-pull-subject-feed-contract", 
         leaseExpiresAt: reservation!.leaseExpiresAt,
       }),
     ).toBe(true);
-    expect(
-      decideOrderPullSearchPage(member.payload, {
-        totalOrders: 2,
-        orderNumbers: ["ORDER-1", "ORDER-2"],
-        everyRowReadyToShip: true,
-      }),
-    ).toEqual({ kind: "read-details", orderNumbers: ["ORDER-1", "ORDER-2"] });
+    expect(advanceOrderPullTraversal(member.payload.selector, null, syntheticPage())).toMatchObject({
+      discovered: 0,
+      exhausted: true,
+    });
 
     const listingBefore = await listingEffects();
     const body = { reservationId: reservation!.reservationId, outcomes: [pullReport(member, complete(member))] };
@@ -505,7 +860,7 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
   });
 
   it("AC4 the ledgered migration adds the producer tables to a retained queue without touching pending listing operations", async () => {
-    const migrationId = "20261008_channels_order_pull_producer";
+    const migrationId = "20261009_channels_order_pull_progress";
     const migration = outboundSyncSchemaMigrations.find((entry) => entry.migrationId === migrationId)!;
     const predecessor = {
       ...channelsModule,
@@ -515,9 +870,9 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
       ),
       schemaMigrations: channelsModule.schemaMigrations!.filter((entry) => entry.migrationId !== migrationId),
     };
-    expect(predecessor.schemaSql).not.toContain("channel_order_pull_operations");
+    expect(predecessor.schemaSql).not.toContain("channel_order_pull_chunks");
     await bootstrapContextDatabase(predecessor, pools.channels);
-    expect(await producerTables()).toEqual([]);
+    expect(await producerTables()).toEqual(["channel_order_pull_operations", "channel_order_pull_schedules"]);
     await pools.channels.query(
       `INSERT INTO channel_connections
        (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
@@ -566,12 +921,18 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
 
     // Ledger-only upgrade: boot DDL is omitted, so only the real migration can create the producer tables.
     await bootstrapContextDatabase({ ...channelsModule, schemaSql: "" }, pools.channels);
-    expect(await producerTables()).toEqual(["channel_order_pull_operations", "channel_order_pull_schedules"]);
+    expect(await producerTables()).toEqual([
+      "channel_order_pull_chunks",
+      "channel_order_pull_operations",
+      "channel_order_pull_schedules",
+    ]);
     expect(
       (await pools.channels.query("SELECT * FROM channel_outbound_operations ORDER BY operation_id")).rows,
     ).toEqual(retained.rows);
     const upgradedIndexes = await producerIndexes();
     expect(upgradedIndexes).toEqual([
+      "channel_order_pull_chunks_pending_idx",
+      "channel_order_pull_chunks_references_idx",
       "channel_order_pull_operations_expiry_idx",
       "channel_order_pull_operations_one_live_uidx",
       "channel_order_pull_operations_reservation_idx",

@@ -244,7 +244,7 @@ export function createOutboundSyncRuntime(
           if (expired) throw new OutboundSyncError("reservation-expired");
         }
         for (const member of pullMembers) {
-          await settleOrderPullMember(db, member, pullReports.get(member.operationId)!, currentInstant);
+          await settleOrderPullMember(db, dependencies, member, pullReports.get(member.operationId)!, currentInstant);
         }
         for (const row of members.rows) {
           await settleClaimedMember(

@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { orderPullProgressSchemaStatements } from "./order-pull-progress-schema";
 
 const createOutboundOperationsTable = `CREATE TABLE IF NOT EXISTS channel_outbound_operations (
   operation_id text PRIMARY KEY,
@@ -182,6 +183,7 @@ ${createPendingLaneOrderIndex};
 ${createOrderPullOperationsTable};
 ${createOrderPullSchedulesTable};
 ${createOrderPullIndexes.map((statement) => `${statement};`).join("\n")}
+${orderPullProgressSchemaStatements.map((statement) => `${statement};`).join("\n")}
 `;
 
 export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -242,5 +244,10 @@ export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
     description:
       "Create connection-subject TCGplayer order-pull operations and their per-connection due schedule without touching listing operations.",
     statements: [createOrderPullOperationsTable, createOrderPullSchedulesTable, ...createOrderPullIndexes],
+  },
+  {
+    migrationId: "20261009_channels_order_pull_progress",
+    description: "Retain bounded discovery checkpoints and atomic successor progress in the existing pull coordinator.",
+    statements: orderPullProgressSchemaStatements,
   },
 ];

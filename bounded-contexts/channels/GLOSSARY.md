@@ -275,7 +275,27 @@ A **connection-subject Channel Outbound Operation** is a Channel Outbound Operat
 
 ## Channel Order Pull
 
-A **Channel Order Pull** (`tcgplayer-order-pull`) is the connection-subject operation that asks a capable Connector to read the TCGplayer Ready to Ship set once under the `ready-to-ship-intake/v1` law. Channels background schedules at most one live pull per due, active, paired connection on its persisted cadence boundary, never before both the stored due time and the last scheduled boundary plus the effective poll window; it binds the pull identity, policy revision, qualified selector, `N_rts_max`/`F_max` bounds and a pre-accounted worst-case budget that fits the unchanged deadline and lease. Its closed outcomes are `order-pull-complete` and `order-pull-unknown`; neither is server sale or fulfillment acceptance. Contract: `features/outbound-sync/domain/order-pull.ts`.
+A **Channel Order Pull** (`tcgplayer-order-pull`) is the connection-subject operation
+that advances Ready to Ship intake under `ready-to-ship-intake/v2`. `nIntakeReadMax`,
+`nListReadMax` and `fMax` bound a job's allocated reads, never account population.
+The six governed timing/post ceilings budget that allocation inside the unchanged
+deadline and lease. Chunk and traversal codec bounds are not governed numeric fields.
+
+A **burst** freezes selector/policy and session/frontier traversal across jobs.
+Its **checkpoint** records bounded traversal progress, qualified gap count and
+remaining work; its digest binds the predecessor's attempt and claim generation
+to one successor. `continuation-required` advances pages, unread references or a
+due follow-up tail without waiting for the next idle poll. The successor is
+claimable at commit but cannot execute before `providerNotBefore` or bypass fresh
+budget, lease and connection authority. A posted-unaccepted-only burst stays
+`order-pull-pending` at idle cadence, never complete or immediately spinning.
+
+`order-pull-complete` requires exhausted qualified traversal and owner-accepted
+members. `order-pull-gaps` instead records explicit qualified unresolved gaps;
+neither transport admission nor a local/projection record establishes membership.
+`order-pull-unknown` retains committed work under the existing error policy, and
+`abandoned` returns the same pull for a fresh claim. Contract:
+`features/outbound-sync/domain/order-pull.ts`.
 
 ## Outbound Operation Lane
 
