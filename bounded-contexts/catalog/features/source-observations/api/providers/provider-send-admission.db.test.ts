@@ -139,7 +139,6 @@ describeDb("Catalog provider-send durable window", () => {
         async () => expect((await app.request("/integration-control-plane/readiness")).status).toBe(200),
         async () => expect((await connections()).complete).toBe(true),
       ];
-      let previousAttempts = 0;
       for (let repeat = 0; repeat < 2; repeat++) {
         for (const read of reads) {
           readiness.mockClear();
@@ -161,12 +160,13 @@ describeDb("Catalog provider-send durable window", () => {
           const persisted = await ledger.read();
           expect(persisted).toMatchObject({ state: "armed", refusal: null, inFlight: 0 });
           if (persisted.state === "unarmed") throw new Error("Expected armed window");
-          expect(persisted.attempts.length).toBeGreaterThan(previousAttempts);
+          // Every health read shares one cached usage observation per freshness window,
+          // so the first read admits the only usage request and later reads send none.
+          expect(persisted.attempts).toHaveLength(1);
           expect(
             persisted.attempts.every((attempt) => attempt.category === "usage" && attempt.provider === "scrydex"),
           ).toBe(true);
           expect(persisted.used).toBe(http.mock.calls.length);
-          previousAttempts = persisted.attempts.length;
         }
       }
     } finally {
