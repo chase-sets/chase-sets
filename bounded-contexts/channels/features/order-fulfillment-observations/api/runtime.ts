@@ -16,12 +16,14 @@ import { hashChannelDesiredState } from "../../listing-composition/domain/canoni
 import { reconcileOrderAttention } from "../../connection-attention/read-model/order-contributions";
 import {
   assertFulfillmentObservation,
+  assertAcceptedReadyToShipQuery,
   composeChannelOrderFulfillmentInbound,
   fulfillmentObservationDigest,
   fulfillmentObservationKind,
   translateOrderStatus,
   translateOrderShippingType,
   type ChannelOrderFulfillmentObservation,
+  type AcceptedReadyToShipQuery,
 } from "../domain/contracts";
 
 type Dependencies = Readonly<{
@@ -39,6 +41,21 @@ type Order = {
 type State = "awaiting-sale" | "sale-absent" | "accepted" | "refused" | "expired";
 
 export type FulfillmentObservationServices = ReturnType<typeof createFulfillmentObservationRuntime>;
+
+export async function readAcceptedReadyToShipMembership(db: PgQueryable, input: AcceptedReadyToShipQuery) {
+  assertAcceptedReadyToShipQuery(input);
+  if (input.orderReferences.length === 0) return [];
+  const result = await db.query<{ order_reference: string }>(
+    `SELECT order_reference FROM channel_fulfillment_orders
+    WHERE connection_id=$1 AND order_reference=ANY($2::text[]) AND accepted_at IS NOT NULL
+      AND provider_order_status IN ('{"surface":"list","value":"Ready to Ship"}'::jsonb,
+        '{"surface":"detail","value":"Ready to Ship"}'::jsonb)
+    ORDER BY order_reference`,
+    [input.connectionId, input.orderReferences],
+  );
+  return result.rows.map((row) => row.order_reference);
+}
+
 export function createFulfillmentObservationRuntime(deps: Dependencies) {
   let afterConnection = "";
   async function interpretConnection(connectionId: string) {
@@ -81,6 +98,8 @@ export function createFulfillmentObservationRuntime(deps: Dependencies) {
     });
   }
   return {
+    readAcceptedReadyToShipMembership: (input: AcceptedReadyToShipQuery) =>
+      readAcceptedReadyToShipMembership(deps.db, input),
     interpretConnection,
     async interpretDueConnections() {
       const due = await deps.db.query<{ connection_id: string }>(
@@ -176,14 +195,23 @@ async function interpret(
       const contentDigest = await fullContentDigest(observation);
       if (contentDigest !== order.content_digest) return save("refused", "accepted-content-changed");
     }
+    const updated = await db.query(
+      `UPDATE channel_fulfillment_orders SET status=$3,last_sequence=$4,revision=revision+1,provider_order_status=$6::jsonb
+      WHERE connection_id=$1 AND order_reference=$2 AND revision=$5 AND last_sequence<$4 AND accepted_at IS NOT NULL
+      RETURNING order_reference`,
+      [
+        event.connectionId,
+        observation.externalOrderReference,
+        status,
+        event.sequence,
+        order.revision,
+        JSON.stringify(observation.providerOrderStatus),
+      ],
+    );
+    if (updated.rows.length !== 1) throw new Error("Fulfillment acceptance concurrency conflict");
     if (order.status !== status) {
       await publish("channels.order-fulfillment-observation.status-changed", { ...identity, status });
     }
-    await db.query(
-      `UPDATE channel_fulfillment_orders SET status=$3,last_sequence=$4,revision=revision+1
-      WHERE connection_id=$1 AND order_reference=$2 AND revision=$5`,
-      [event.connectionId, observation.externalOrderReference, status, event.sequence, order.revision],
-    );
     return save("accepted", null);
   }
   if (observation.variant !== "full") return 0;
@@ -221,13 +249,15 @@ async function interpret(
     shippingAmount: observation.shippingAmount,
     currencyCode: observation.currency.code,
   };
-  await publish("channels.order-fulfillment-observation.accepted", payload);
-  await db.query(
+  const accepted = await db.query(
     `INSERT INTO channel_fulfillment_orders
-    (connection_id,order_reference,account_id,status,content_digest,last_sequence,accepted_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (connection_id,order_reference) DO UPDATE
-    SET status=$4,content_digest=$5,last_sequence=$6,accepted_at=$7,revision=channel_fulfillment_orders.revision+1
-    WHERE channel_fulfillment_orders.accepted_at IS NULL AND channel_fulfillment_orders.last_sequence<$6`,
+    (connection_id,order_reference,account_id,status,content_digest,last_sequence,accepted_at,provider_order_status)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) ON CONFLICT (connection_id,order_reference) DO UPDATE
+    SET status=$4,content_digest=$5,last_sequence=$6,accepted_at=$7,provider_order_status=$8::jsonb,
+      revision=channel_fulfillment_orders.revision+1
+    WHERE channel_fulfillment_orders.accepted_at IS NULL AND channel_fulfillment_orders.last_sequence<$6
+      AND channel_fulfillment_orders.revision=$9
+    RETURNING order_reference`,
     [
       event.connectionId,
       observation.externalOrderReference,
@@ -236,8 +266,12 @@ async function interpret(
       await fullContentDigest(observation),
       event.sequence,
       now,
+      JSON.stringify(observation.providerOrderStatus),
+      order?.revision ?? null,
     ],
   );
+  if (accepted.rows.length !== 1) throw new Error("Fulfillment acceptance concurrency conflict");
+  await publish("channels.order-fulfillment-observation.accepted", payload);
   await db.query(
     `UPDATE channel_fulfillment_observations SET state='refused',reason='superseded',changed_at=$3,revision=revision+1
     WHERE connection_id=$1 AND order_reference=$2 AND state IN ('awaiting-sale','sale-absent') AND sequence<$4`,

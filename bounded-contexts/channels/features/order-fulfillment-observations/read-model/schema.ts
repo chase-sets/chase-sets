@@ -29,7 +29,10 @@ const indexes = [
   `CREATE INDEX IF NOT EXISTS channel_order_committed_identity_idx ON channel_order_lines
     (connection_id, (committed_sale->'saleKey'->>'providerKey'), (committed_sale->'saleKey'->>'orderLineIdentity'))`,
 ] as const;
-export const fulfillmentObservationSchemaSql = [...tables, ...indexes].join(";\n") + ";";
+const acceptedStatusColumns = [
+  `ALTER TABLE channel_fulfillment_orders ADD COLUMN IF NOT EXISTS provider_order_status jsonb`,
+] as const;
+export const fulfillmentObservationSchemaSql = [...tables, ...acceptedStatusColumns, ...indexes].join(";\n") + ";";
 export const fulfillmentObservationSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261008_channels_fulfillment_observations",
@@ -43,6 +46,11 @@ export const fulfillmentObservationSchemaMigrations: readonly BcSchemaMigration[
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_committed_identity_idx ON channel_order_lines
         (connection_id, (committed_sale->'saleKey'->>'providerKey'), (committed_sale->'saleKey'->>'orderLineIdentity'))`,
     ],
+  },
+  {
+    migrationId: "20261009_channels_accepted_fulfillment_provider_status",
+    description: "Retain the qualified provider status on accepted fulfillment orders; old facts remain unknown.",
+    statements: acceptedStatusColumns,
   },
 ];
 export const fulfillmentObservationRetentionSweeps: readonly BcRetentionSweep[] = [
