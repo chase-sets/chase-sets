@@ -1,10 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as validation from "../../outbound-sync/domain/validation";
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import { payloadDigest } from "../../outbound-sync/api/payload-digest";
 import { browserPayloadDigest, parseExecutorResult, parseOperationClaim } from "../domain/operation-protocol";
 import { coordinatorFixture } from "./coordinator-test-support";
 
 describe("connector-operation-protocol-schema", () => {
+  it("retains the listing-only 16 KiB wire ceiling independently of stricter field bounds", () => {
+    // Isolate the transport ceiling; real schema validation has its own smaller scalar limits.
+    const validator = vi.spyOn(validation, "assertClaimedOperationOutcome").mockImplementation(() => {});
+    try {
+      const outcome = {
+        operationId: "synthetic",
+        attemptId: "synthetic",
+        claimGeneration: 1,
+        desiredStateSequence: 1,
+        outcome: { kind: "applied", result: { kind: "succeeded", externalListingId: "" } },
+      };
+      outcome.outcome.result.externalListingId = "x".repeat(
+        16384 - new TextEncoder().encode(canonicalJson(outcome)).length,
+      );
+      expect(parseExecutorResult({ outcomes: [outcome] }).outcomes).toEqual([outcome]);
+      outcome.outcome.result.externalListingId += "x";
+      expect(() => parseExecutorResult({ outcomes: [outcome] })).toThrow("protocol-violation");
+    } finally {
+      validator.mockRestore();
+    }
+  });
   it("preserves every landed identity and the server canonical digest", async () => {
     const f = await coordinatorFixture();
     expect(await parseOperationClaim(f.claim, f.input.connectionId)).toEqual(f.claim);

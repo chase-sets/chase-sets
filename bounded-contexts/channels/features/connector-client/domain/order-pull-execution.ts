@@ -115,6 +115,11 @@ export function createOrderPullExecution(ports: Ports) {
     }
     await save(next);
   };
+  const claimAttempt = (reference: string | null, index: number) => {
+    const identity = JSON.stringify([reference, index]);
+    if (attempted.has(identity)) throw new OperationProtocolError("stale-fence");
+    attempted.add(identity);
+  };
   const postBytes = async (
     reference: string | null,
     index: number,
@@ -122,9 +127,6 @@ export function createOrderPullExecution(ports: Ports) {
     post: (bytes: string, signal: AbortSignal) => Promise<Response>,
   ) => {
     const { handoff } = selected(reference, index);
-    const identity = JSON.stringify([reference, index]);
-    if (attempted.has(identity)) throw new OperationProtocolError("stale-fence");
-    attempted.add(identity);
     await check(handoff.authority.postTimeoutMs + handoff.authority.reportTimeoutMs);
     await consume("posts");
     await capture(reference, index, "dispatched");
@@ -174,6 +176,7 @@ export function createOrderPullExecution(ports: Ports) {
         const selectedPost = selected(reference, index).post;
         if (selectedPost.state === "captured202") return;
         if (selectedPost.kind !== "sale") refuse();
+        claimAttempt(reference, index);
         await assertSalePostIdentity(selectedPost);
         await postBytes(reference, index, selectedPost.bytes, post);
       }),
@@ -191,6 +194,7 @@ export function createOrderPullExecution(ports: Ports) {
         if (selectedPost.kind !== "fulfillment") refuse();
         const recovery = selectedPost.state === "dispatched";
         if (recovery !== (typeof observationOrReread === "function")) refuse();
+        claimAttempt(reference, index);
         await check(
           (recovery ? handoff.authority.providerCallTimeoutMs : 0) +
             handoff.authority.postTimeoutMs +

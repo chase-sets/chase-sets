@@ -136,8 +136,11 @@ export function parseExecutorResult(value: unknown): ExecutorResult {
   const ids = new Set<string>();
   for (const outcome of row.outcomes) {
     if (outcome && typeof outcome === "object" && "operationKind" in outcome) assertClaimedOrderPullOutcome(outcome);
-    else assertClaimedOperationOutcome(outcome);
-    if (ids.has(outcome.operationId) || new TextEncoder().encode(canonicalJson(outcome)).length > 16384) refuse();
+    else {
+      assertClaimedOperationOutcome(outcome);
+      if (new TextEncoder().encode(canonicalJson(outcome)).length > 16384) refuse();
+    }
+    if (ids.has(outcome.operationId)) refuse();
     ids.add(outcome.operationId);
   }
   if (Object.hasOwn(row, "runSettlement")) assertConnectorRunSettlement(row.runSettlement);
