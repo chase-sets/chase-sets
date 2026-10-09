@@ -912,6 +912,69 @@ describe("detection-pagination-inflight-terminal-chronology", () => {
   });
 });
 
+describe("detection-pagination-cadence-terminal-reuse", () => {
+  it.each(["custody_loss", "invalid_message"] as const)("%s reuses the promptly sealed receipt", async (trigger) => {
+    const worker = harness({ holdCadence: true });
+    let entered = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let confirmations = 0;
+    const page = helper(worker, {
+      onConfirm: () => {
+        confirmations += 1;
+        if (confirmations === 2) worker.advance(30000);
+        if (confirmations === 3) entered();
+      },
+    });
+    const pending = page.run();
+    await waiting;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(page.messages).toEqual([{ kind: "begin" }, { kind: "lookup" }, { kind: "page" }, { kind: "page" }]);
+    expect(worker.wire).toHaveLength(2);
+    expect([...worker.timers.values()].some((timer) => timer.at === T0 + 60000)).toBe(true);
+    expect(worker.intervals.size).toBe(1);
+    expect([...worker.timers.values()].some((timer) => timer.at === T0 + 900000)).toBe(true);
+    worker.advance(20000);
+    const stoppedAt = T0 + 50000;
+    if (trigger === "custody_loss") {
+      worker.loseCustody();
+      worker.heartbeat();
+      await Promise.resolve();
+      await Promise.resolve();
+    } else
+      expect(await worker.send({ kind: "SYNTHETIC_INVALID_MESSAGE_9181" })).toEqual({
+        ok: false,
+        code: "invalid_message",
+      });
+    expect(worker.intervals.size).toBe(0);
+    expect(worker.timers.size).toBe(0);
+    expect(worker.wire).toHaveLength(2);
+    expect(await pending).toEqual({ ok: true, code: "scrubbed_export_created" });
+    expect([...page.exports.keys()].sort()).toEqual(["9142-inventory.json", "9142-receipt.json"]);
+    retain(page);
+    packaging.verifyExport(out);
+    const value = JSON.parse(page.exports.get("9142-receipt.json")!);
+    expect(value.reason).toBe(trigger);
+    expect(value.state).toBe("unknown");
+    expect(value.finishedAt).toBe(stoppedAt);
+    expect(value.pages).toHaveLength(1);
+    expect(value.pages[0].distinctCount).toBe(8);
+    expect(value.distinctCount).toBe(8);
+    expect(value.distinctCount).toBe(value.pages[0].distinctCount);
+    expect(value.requests).toHaveLength(2);
+    expect(Object.values(value.facts)).toEqual(Array(5).fill("unknown"));
+    expect(await worker.send({ kind: "finish" })).toEqual({ ok: true, receipt: value });
+    for (const kind of ["finish", "begin", "lookup", "page"])
+      expect(await worker.send({ kind })).toEqual({ ok: false, code: "repeat_invocation" });
+    expect(await page.run()).toEqual({ ok: false, code: "repeat_invocation" });
+    worker.advance(900000);
+    expect(worker.wire).toHaveLength(2);
+    scrub({ value, exports: [...page.exports], storage: worker.storage, retained: worker.retained });
+  });
+});
+
 describe("detection-pagination-terminal-cleanup-chronology", () => {
   it.each(["custody_loss", "expired"] as const)("%s keeps actual completion and honest removal", async (trigger) => {
     const { value, page } = await terminalCapture({ kind: "page", phase: "body", trigger });
