@@ -25,6 +25,7 @@ async function generateMemo() {
     `
 const rawListSchedule = worstCaseListScheduleMs;
 export const entries = new Map();
+export { worstCaseListScheduleMs };
 worstCaseListScheduleMs = (durations, workers) => {
   const key = JSON.stringify([workers, durations]);
   const value = rawListSchedule(durations, workers);
@@ -37,12 +38,20 @@ worstCaseListScheduleMs = (durations, workers) => {
 `,
   );
   const oracle = await import(`data:text/javascript;base64,${Buffer.from(moduleSource).toString("base64")}`);
-  oracle.checkBootstrapDbEnrollment({
+  const result = oracle.checkBootstrapDbEnrollment({
     platformApiRoot: resolve(fileURLToPath(new URL("../../", import.meta.url))),
     manifest: bootstrapDbEnrollmentManifest,
     executionUnitBootBearingCaseCeilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
     scheduleModel: bootstrapDbScheduleModel,
   });
+  // A two-unit minimum can stop before visiting every subset. Keep the memo's
+  // complete corpus independent of which assignment first satisfies the model.
+  for (let mask = 1; mask < 1 << result.schedule.files.length; mask++) {
+    oracle.worstCaseListScheduleMs(
+      result.schedule.files.filter((_, index) => mask & (1 << index)).map((file) => file.durationMs),
+      bootstrapDbScheduleModel.maxWorkersPerExecutionUnit,
+    );
+  }
   assert.equal(oracle.entries.size, 4095, "Repository oracle scheduler key set changed");
   const entries = Object.fromEntries(
     [...oracle.entries].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),

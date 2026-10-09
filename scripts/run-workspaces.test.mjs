@@ -798,7 +798,7 @@ describe("DB duration scheduling", () => {
     );
     for (const [name, scripts] of [
       ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
-      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
     }
@@ -864,7 +864,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([7, 9, 2]);
+      expect(groups.map((files) => files.length)).toEqual([10, 8]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
