@@ -15,7 +15,7 @@ coupled equation, page relation and later-poll throughput claims do not.
 
 | Authority field         | Governed value            | Production basis                                                                                                |
 | ----------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `lawVersion`            | `ready-to-ship-intake/v1` | [FINAL r4][r4], retained spelling in #9130; #9138 owns closed-contract compatibility, not this worksheet        |
+| `lawVersion`            | `ready-to-ship-intake/v2` | Retained N8 / FINAL `8804-set-authority-decision-r1.report.md:54`: explicit v2, no legacy fallback                |
 | `nIntakeReadMax`        | 8                         | [FINAL r2, Envelope arithmetic][final]: per-job ceiling, not population                                         |
 | `nListReadMax`          | 2                         | [FINAL r2, Envelope arithmetic][final]: detection and all traversal pages count                                 |
 | `fMax`                  | 5                         | [FINAL r2, Fair follow-ups][final]: reserve five when five are due                                              |
@@ -29,9 +29,10 @@ coupled equation, page relation and later-poll throughput claims do not.
 This inventories every governed authority field except `revision` and `selector`
 in the decided contract. Remove `nRtsMax`; there is no page/population relation.
 Traversal chunk and byte bounds belong to qualified bounds/codecs, not invented
-governed authority fields. If #9138 changes the field set or law spelling, reconcile
-the binding with its explicit compatibility decision before admission; no missing
-field gets a guessed value. #9130 owns source equality and fail-closed controls.
+governed authority fields. #9138 retains N8's explicit v2/no-fallback contract;
+#9130 binds `ready-to-ship-intake/v2` with source equality and fail-closed controls.
+[FINAL r4][r4]'s `ready-to-ship-intake/v1` spelling is historical, not current
+binding authority. No missing field gets a guessed value.
 
 The deadline remains 600000 ms and the strict lease margin 30000 ms. Check the
 actual remaining lease; 1800000 ms is the default, not permission to assume a fresh
