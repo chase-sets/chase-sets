@@ -373,6 +373,85 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       "scope_gamma",
     ]);
   });
+
+  it("F1: an unmeasured sync counter is unknown and withheld, never zero; measured counters are exact", async () => {
+    const observe = () =>
+      queryProductionCatalogCompletionFacts(db, { batchId: "batch_f1", observedAt: new Date().toISOString() });
+    const gammaUnit = "scope_gamma/scrydex/scrydex:pokemon-card:en";
+
+    await seedSettledCreditedBatch(db, "batch_f1", "checked", null);
+    const unmeasured = await observe();
+    expect(unmeasured.unknownFacts).toEqual([
+      `observed-unit-counter:${gammaUnit}/changedCount`,
+      `observed-unit-counter:${gammaUnit}/failedCount`,
+      `observed-unit-counter:${gammaUnit}/observedCount`,
+    ]);
+    expect(unmeasured.manifest.observedUnits).toEqual([]);
+    expect(() => parseProductionCatalogCompletionManifest(unmeasured.manifest)).not.toThrow();
+
+    await resetMultiContextTestSchemas(pools);
+    await pools.catalog.query(catalogModule.schemaSql);
+    await seedSettledCreditedBatch(db, "batch_f1", "checked", { observed: 5, changed: null, failed: 0 });
+    const partial = await observe();
+    expect(partial.unknownFacts).toEqual([`observed-unit-counter:${gammaUnit}/changedCount`]);
+    expect(partial.manifest.observedUnits).toEqual([]);
+
+    for (const counts of [
+      { observed: 0, changed: 0, failed: 0 },
+      { observed: 12, changed: 3, failed: 1 },
+    ]) {
+      await resetMultiContextTestSchemas(pools);
+      await pools.catalog.query(catalogModule.schemaSql);
+      await seedSettledCreditedBatch(db, "batch_f1", "checked", counts);
+      const measured = await observe();
+      expect(measured.unknownFacts).toEqual([]);
+      expect(measured.manifest.observedUnits).toEqual([
+        expect.objectContaining({
+          scopeRecordId: "scope_gamma",
+          state: "settled",
+          observedCount: counts.observed,
+          changedCount: counts.changed,
+          failedCount: counts.failed,
+        }),
+      ]);
+      const report = reconcileProductionCatalogCompletion(measured.manifest, { generatedAt: new Date().toISOString() });
+      expect(report.result).toBe("complete");
+    }
+  });
+
+  it("F2: a frozen manifest binds to the live batch id and plan fingerprint and reports the live batch status", async () => {
+    await projectScope(db, "scope_gamma");
+    await projectMapping(db, "map_gamma_scrydex", "scope_gamma", scrydexUnit);
+    const batch = await createBatch(db, "batch_f2", [plan("scope_gamma", [scrydexUnit], ["scrydex"])]);
+    const frozenManifest = frozenManifestFor("batch_f2");
+    const observeBatch = async (manifest: ProductionCatalogCompletionManifest) =>
+      (
+        await queryProductionCatalogCompletionFacts(db, {
+          batchId: "batch_f2",
+          observedAt: new Date().toISOString(),
+          frozenManifest: manifest,
+        })
+      ).manifest;
+
+    const statuses: string[] = [];
+    statuses.push((await observeBatch(frozenManifest)).batch.status);
+    await batch.runUnit("scope_gamma", "run_gamma", async () => {
+      statuses.push((await observeBatch(frozenManifest)).batch.status);
+    });
+    const completed = await observeBatch(frozenManifest);
+    statuses.push(completed.batch.status);
+    expect(statuses).toEqual(["queued", "running", "completed"]);
+    expect(completed.batch).toEqual({ batchId: "batch_f2", planFingerprint: "fp_batch_f2", status: "completed" });
+    expect(completed.frozenAt).toBe(frozenManifest.frozenAt);
+    expect(completed.launchCutoff).toBe(frozenManifest.launchCutoff);
+    expect(completed.expectedUnits).toEqual(frozenManifest.expectedUnits);
+
+    const replanned = { ...frozenManifest, batch: { ...frozenManifest.batch, planFingerprint: "fp_other_plan" } };
+    await expect(observeBatch(replanned)).rejects.toMatchObject({
+      name: "ProductionCatalogCompletionFactsError",
+      code: "manifest-batch-mismatch",
+    });
+  });
 });
 
 type ProviderUnit = Readonly<{ providerKey: string; unitKey: string }>;
@@ -512,7 +591,12 @@ function importOutcome(providerKey: string, usageCheckState: string | null) {
 
 // One settled scope whose only unit is a credited provider; the import job's
 // usage evidence carries `usageCheckState` or omits the evidence when null.
-async function seedSettledCreditedBatch(db: PgTransactionalPool, batchId: string, usageCheckState: string | null) {
+async function seedSettledCreditedBatch(
+  db: PgTransactionalPool,
+  batchId: string,
+  usageCheckState: string | null,
+  counts: SyncCounts = measuredZeroCounts,
+) {
   await projectScope(db, "scope_gamma");
   await projectMapping(db, "map_gamma_scrydex", "scope_gamma", scrydexUnit);
   const batch = await createBatch(db, batchId, [plan("scope_gamma", [scrydexUnit], ["scrydex"])]);
@@ -525,7 +609,7 @@ async function seedSettledCreditedBatch(db: PgTransactionalPool, batchId: string
       { action: "import", scope: { provider: "scrydex" }, syncRunId: "run_gamma" },
       { completed: true, outcomes: [importOutcome("scrydex", usageCheckState)] },
     );
-    await recordSyncState(db, "scope_gamma", scrydexUnit, "completed", "run_gamma", "job_gamma_import");
+    await recordSyncState(db, "scope_gamma", scrydexUnit, "completed", "run_gamma", "job_gamma_import", counts);
   });
 }
 
@@ -562,6 +646,10 @@ function observedUnit(scopeRecordId: string, unit: ProviderUnit, state: "settled
   };
 }
 
+// A null count is one the job result never measured; the writer persists it as NULL.
+type SyncCounts = Readonly<{ observed: number | null; changed: number | null; failed: number | null }> | null;
+const measuredZeroCounts = { observed: 0, changed: 0, failed: 0 } as const;
+
 // The sync-run runtime's own writer. `scope_key` is a hashed descriptor key in
 // production, so it deliberately differs from the canonical Scope Record id.
 async function recordSyncState(
@@ -571,6 +659,7 @@ async function recordSyncState(
   status: "completed" | "failed",
   syncRunId: string,
   jobId: string,
+  counts: SyncCounts = measuredZeroCounts,
 ) {
   const completedAt = new Date(Date.now() + 60_000).toISOString();
   await upsertCatalogScopeSyncUnitState(db, {
@@ -589,6 +678,9 @@ async function recordSyncState(
     syncRunId,
     jobId,
     operatorStatus: status,
+    observedCount: counts?.observed ?? null,
+    changedCount: counts?.changed ?? null,
+    failedCount: counts?.failed ?? null,
     errorMessage: status === "failed" ? "Synthetic provider import failure." : null,
     completedAt: status === "completed" ? completedAt : null,
     updatedAt: new Date().toISOString(),

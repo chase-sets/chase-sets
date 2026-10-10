@@ -137,6 +137,15 @@ async function readProductionCatalogCompletionFacts(
       `The frozen manifest describes batch ${frozen.batch.batchId}, not ${batch.batch_id}.`,
     );
   }
+  if (frozen && frozen.batch.planFingerprint !== batch.plan_fingerprint) {
+    throw new ProductionCatalogCompletionFactsError(
+      "manifest-batch-mismatch",
+      `The frozen manifest's plan fingerprint does not match the live plan of batch ${batch.batch_id}.`,
+    );
+  }
+  // The batch is always the live row: a frozen manifest fixes the expected
+  // universe, never the batch's current lifecycle.
+  const liveBatch = { batchId: batch.batch_id, planFingerprint: batch.plan_fingerprint, status: batch.status };
 
   const unitResult = await tx.query<BatchUnitRow>(
     `SELECT scope_record_id, plan, sync_run_id
@@ -153,7 +162,7 @@ async function readProductionCatalogCompletionFacts(
     ? {
         frozenAt: frozen.frozenAt,
         launchCutoff: frozen.launchCutoff,
-        batch: frozen.batch,
+        batch: liveBatch,
         providerUnits: frozen.providerUnits,
         scopes: frozen.scopes,
         expectedUnits: frozen.expectedUnits,
@@ -163,7 +172,7 @@ async function readProductionCatalogCompletionFacts(
         plannedScopes,
         frozenAt: input.observedAt,
         launchCutoff: input.launchCutoff ?? batchStartedAt,
-        batch: { batchId: batch.batch_id, planFingerprint: batch.plan_fingerprint, status: batch.status },
+        batch: liveBatch,
       });
 
   const scopeRecordIds = [
@@ -175,7 +184,7 @@ async function readProductionCatalogCompletionFacts(
   const creditedProviderKeys = new Set(plannedScopes.flatMap((scope) => scope.creditConsumingProviderKeys));
 
   const unknownFacts: string[] = [];
-  const observedUnits = await queryObservedUnits(tx, scopeRecordIds);
+  const observedUnits = await queryObservedUnits(tx, { scopeRecordIds, unknownFacts });
   const mergeCandidates = await queryMergeCandidates(tx, scopeRecordIds);
   const promotions = await queryPromotionOutcomes(tx, scopeRecordIds);
   const catalogItemsByStatus = await queryCountsByStatus(tx, "catalog_items");
@@ -327,10 +336,15 @@ async function queryProviderUnits(
 // Sync state keyed by canonical Scope Record id. Rows written before Scope
 // Record linkage carry no `scope_record_id` and never match, so a unit synced
 // only through them reports as never-synced rather than borrowing a hashed key.
+// A NULL counter is one the sync job result never measured, and the counter
+// columns are their only persisted authority. Each such counter is named in
+// `unknownFacts` and the unit is withheld from the manifest rather than
+// reported with an invented zero.
 async function queryObservedUnits(
   tx: PgQueryable,
-  scopeRecordIds: readonly string[],
+  input: Readonly<{ scopeRecordIds: readonly string[]; unknownFacts: string[] }>,
 ): Promise<readonly ManifestObservedUnit[]> {
+  const { scopeRecordIds } = input;
   const result = await tx.query<{
     scope_record_id: string;
     provider_key: string;
@@ -350,17 +364,33 @@ async function queryObservedUnits(
       ORDER BY scope_record_id, provider_key, unit_key, updated_at DESC`,
     [scopeRecordIds],
   );
-  return result.rows.map((row) => ({
-    scopeRecordId: row.scope_record_id,
-    providerKey: row.provider_key,
-    unitKey: row.unit_key,
-    state: normalizeUnitState(row.state),
-    lastCompletedAt: row.last_completed_at ? toIso(row.last_completed_at) : null,
-    syncRunId: row.last_sync_run_id,
-    observedCount: Number(row.observed_count ?? 0),
-    changedCount: Number(row.changed_count ?? 0),
-    failedCount: Number(row.failed_count ?? 0),
-  }));
+  return result.rows.flatMap((row) => {
+    const counters = {
+      observedCount: row.observed_count,
+      changedCount: row.changed_count,
+      failedCount: row.failed_count,
+    };
+    const unmeasured = Object.entries(counters).filter(([, value]) => value === null);
+    for (const [name] of unmeasured) {
+      input.unknownFacts.push(
+        `observed-unit-counter:${row.scope_record_id}/${row.provider_key}/${row.unit_key}/${name}`,
+      );
+    }
+    if (unmeasured.length > 0) return [];
+    return [
+      {
+        scopeRecordId: row.scope_record_id,
+        providerKey: row.provider_key,
+        unitKey: row.unit_key,
+        state: normalizeUnitState(row.state),
+        lastCompletedAt: row.last_completed_at ? toIso(row.last_completed_at) : null,
+        syncRunId: row.last_sync_run_id,
+        observedCount: Number(counters.observedCount),
+        changedCount: Number(counters.changedCount),
+        failedCount: Number(counters.failedCount),
+      },
+    ];
+  });
 }
 
 async function queryMergeCandidates(
