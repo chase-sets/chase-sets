@@ -10,6 +10,7 @@ import {
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
@@ -19,6 +20,8 @@ import { seedCatalogDatabase } from "../../../support/authoring-support/seed";
 import { seedContext as context } from "../../../support/seed-support/context";
 import type { CatalogItemId } from "../../../ids";
 import fixture from "../api/__fixtures__/tcgdex/normal.json";
+import sealedFixture from "../api/__fixtures__/tcgplayer-pokemon-sealed-product/normal.json";
+import { tcgplayerPokemonSealedProductSourceObservationMappingContract } from "../api/providers/tcgplayer/executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { normalizeCatalogProviderSourceObservation } from "../api/promotion/provider-source-observation-normalizer";
 import {
@@ -303,6 +306,41 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     expect(await itemCreations()).toHaveLength(1);
   });
 
+  it("explains the actual exact-key locator queries over unrelated retained rows", async () => {
+    await record("access-unrelated", "product:unrelated");
+    const queries: { sql: string; values?: readonly unknown[] }[] = [];
+    const traced: PgQueryable = {
+      query: async <T>(sql: string, values?: readonly unknown[]) => {
+        queries.push({ sql, values });
+        return pool.query<T>(sql, values);
+      },
+    };
+    expect(
+      await locatePromotionReferenceStreams(traced, {
+        level: "item",
+        providerKey: "synthetic-absent",
+        externalKey: "absent",
+      }),
+    ).toEqual([]);
+    expect(queries).toHaveLength(2);
+    type PlanNode = { "Node Type": string; "Index Name"?: string; Plans?: PlanNode[] };
+    const nodes = (plan: PlanNode): { node: string; index?: string }[] => [
+      { node: plan["Node Type"], index: plan["Index Name"] },
+      ...(plan.Plans ?? []).flatMap(nodes),
+    ];
+    for (const query of queries) {
+      const explained = await pool.query<{ "QUERY PLAN": { Plan: PlanNode }[] }>(
+        `EXPLAIN (FORMAT JSON) ${query.sql}`,
+        query.values,
+      );
+      const plan = explained.rows[0]["QUERY PLAN"][0].Plan;
+      expect(plan["Node Type"]).toBeTruthy();
+      // Tiny retained sets may legitimately choose a sequential scan. Preserve
+      // the actual plan, not a forced enable_seqscan setting or invented PASS.
+      console.info("promotion-reference-access-plan", JSON.stringify(nodes(plan)));
+    }
+  });
+
   it.each(["edit", "revoke", "selection"])(
     "reads canonical profile %s after obtaining the write barrier",
     async (mutation) => {
@@ -386,6 +424,68 @@ describeDb("promotion target exclusion through real Catalog services", () => {
         context,
       });
       expect(reused.catalogItemId).toBe(winner.catalogItemId);
+      expect(await itemCreations()).toHaveLength(1);
+    },
+  );
+
+  it.each(["A", "B"].flatMap((first) => [false, true].map((conflictingOptions) => ({ first, conflictingOptions }))))(
+    "Product reference exclusion, $first first, conflicting Options=$conflictingOptions",
+    async ({ first, conflictingOptions }) => {
+      const identity = tcgplayerPokemonSealedProductSourceObservationMappingContract;
+      const version = await services.providerIntegrationProfiles.getProfileVersion(
+        identity.providerKey,
+        identity.profileVersion,
+        { profileKey: identity.profileKey },
+      );
+      if (!version) throw new Error("Seeded sealed-product profile is missing");
+      for (const member of ["A", "B"]) {
+        const externalKey = member === "A" ? "800001" : "800002";
+        const mapped = normalizeCatalogProviderSourceObservation({
+          contract: requireSourceObservationMappingContract(version),
+          payload: {
+            ...sealedFixture,
+            observationId: `sealed-${member}`,
+            externalKey,
+            productId: Number(externalKey),
+            externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: `product:${externalKey}` }],
+            externalProductReferences: sealedFixture.externalProductReferences.map((reference) => ({
+              ...reference,
+              selectedOptions: reference.selectedOptions.map((option) => ({
+                ...option,
+                optionKey: conflictingOptions && member !== first ? "opened" : option.optionKey,
+              })),
+            })),
+          },
+          observedAt: "2026-10-10T00:00:00.000Z",
+        });
+        expect(mapped.diagnostics).toEqual([]);
+        if (!mapped.observation) throw new Error("Sealed-product mapper produced no observation");
+        await services.sourceObservations.commandHandler({
+          streamId: `catalog.source-observation-sealed-${member}`,
+          command: { type: "RecordSourceObservation", ...mapped.observation },
+          context,
+        });
+      }
+      await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+      const winner = await services.sourceObservations.promoteObservation({
+        observationId: `sealed-${first}`,
+        context,
+      });
+      const before = await readCompleteStream(createPostgresEventStore({ pool }), {
+        streamId: `catalog.item-${winner.catalogItemId}`,
+      });
+      const incoming = createCatalogServices(pool).sourceObservations.promoteObservation({
+        observationId: `sealed-${first === "A" ? "B" : "A"}`,
+        context,
+      });
+      if (conflictingOptions) {
+        await expect(incoming).rejects.toThrow("promotion-target-product-options-conflict");
+        expect(
+          await readCompleteStream(createPostgresEventStore({ pool }), {
+            streamId: `catalog.item-${winner.catalogItemId}`,
+          }),
+        ).toEqual(before);
+      } else await expect(incoming).resolves.toMatchObject({ catalogItemId: winner.catalogItemId });
       expect(await itemCreations()).toHaveLength(1);
     },
   );
@@ -552,6 +652,37 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     expect(await itemCreations()).toHaveLength(0);
   });
 
+  it.each(["observed", "deferred", "rejected"] as const)(
+    "retains both reference revisions after an unattempted source is %s",
+    async (status) => {
+      await record("history-A", "product:old");
+      await record("history-A", "product:new", {
+        catalogHashMaterial: { ...fixture.catalogHashMaterial, name: "Synthetic revised hash material" },
+      });
+      if (status !== "observed")
+        await services.sourceObservations.commandHandler({
+          streamId: "catalog.source-observation-history-A",
+          command: status === "rejected" ? { type: "RejectSourceObservation", reason: "Synthetic retained history" } : { type: "DeferSourceObservation", reason: "Synthetic retained history", deferredAt: "2026-10-10T00:00:00.000Z" },
+          context,
+        });
+      await record("history-B", "product:old");
+      const winner = await services.sourceObservations.promoteObservation({ observationId: "history-B", context });
+      if (!winner.catalogItemId) throw new Error("Expected an item promotion");
+      const session = await acquire(winner.catalogItemId, [{ level: "member", observationId: "history-B" }]);
+      expect(session.evidence.keys.has(JSON.stringify(["item", "tcgplayer", "product:new"]))).toBe(true);
+      expect(
+        session.evidence.sources
+          .get("history-A")!
+          .revisions.some((revision) =>
+            revision.normalized?.externalCatalogItemReferences?.some(
+              (reference) => reference.externalKey === "product:old",
+            ),
+          ),
+      ).toBe(true);
+      expect(await itemCreations()).toHaveLength(1);
+    },
+  );
+
   it("refuses an identity-poisoned retained stream instead of treating it as absence", async () => {
     const retained = await retainedPlan("poisoned-A");
     const store = createPostgresEventStore({ pool });
@@ -578,4 +709,92 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       await readCompleteStream(store, { streamId: `catalog.item-${sourceObservationTargetId("poisoned-B")}` }),
     ).toEqual([]);
   });
+
+  it("refuses a reachable source header with incomplete payload chunks", async () => {
+    const mapped = normalizeCatalogProviderSourceObservation({
+      contract: await persistedMappingContract(),
+      payload: {
+        ...fixture,
+        observationId: "chunk-A",
+        externalKey: "chunk-A",
+        sourcePayload: { ...fixture.sourcePayload, syntheticLargeEvidence: "x".repeat(500000) },
+      },
+      observedAt: "2026-10-10T00:00:00.000Z",
+    });
+    if (!mapped.observation) throw new Error("Chunk fixture did not map");
+    const events = decideSourceObservation(initialSourceObservationState, {
+      type: "RecordSourceObservation",
+      ...mapped.observation,
+    });
+    expect(events.length).toBeGreaterThan(1);
+    await createPostgresEventStore({ pool }).appendToStream({
+      streamId: "catalog.source-observation-chunk-A",
+      expectedVersion: 0,
+      context,
+      events: events.slice(0, -1).map(createPassthroughDomainEventCodec<SourceObservationEvent>().encode),
+    });
+    await record("chunk-B");
+    await expect(services.sourceObservations.promoteObservation({ observationId: "chunk-B", context })).rejects.toThrow(
+      "promotion-target-incomplete-source",
+    );
+    expect(await itemCreations()).toHaveLength(0);
+  });
+
+  it("refuses conflicting source terminal targets before any item effects", async () => {
+    const observation = await record("terminal-source");
+    const store = createPostgresEventStore({ pool });
+    const streamId = "catalog.source-observation-terminal-source";
+    const history = await readCompleteStream(store, { streamId });
+    await store.appendToStream({
+      streamId,
+      expectedVersion: history.length,
+      context,
+      events: ["cat_synthetic_one", "cat_synthetic_two"].map((catalogItemId) => ({
+        eventType: "catalog.source-observation.promoted",
+        payload: {
+          catalogItemId,
+          promotedAt: "2026-10-10T00:00:00.000Z",
+          promotionProfileKey: observation.sourceProfileKey,
+          promotionProfileVersion: observation.sourceProfileVersion,
+          promotionPlanFingerprint: "a".repeat(64),
+        },
+      })),
+    });
+    await expect(
+      services.sourceObservations.promoteObservation({ observationId: "terminal-source", context }),
+    ).rejects.toThrow("promotion-target-conflicting-source-terminal");
+    expect(await itemCreations()).toHaveLength(0);
+  });
+
+  it.each(["unknown-version", "malformed-execution"])(
+    "refuses %s binding records rather than reclaiming their keys",
+    async (poison) => {
+      await record("binding-poison");
+      const key = { level: "member", observationId: "binding-poison" } as const;
+      await createPostgresEventStore({ pool }).appendToStream({
+        streamId: promotionTargetBindingStream(key),
+        expectedVersion: 0,
+        context,
+        events: [
+          {
+            eventType: "catalog.promotion-target.bound",
+            payload: {
+              version: poison === "unknown-version" ? 2 : 1,
+              key,
+              targetId: "cat_synthetic_poison",
+              operationId: "synthetic-poison",
+              generation: 1,
+              ...(poison === "malformed-execution"
+                ? { execution: { planFingerprint: "a".repeat(64), baselineVersion: "0", batches: [] } }
+                : {}),
+            },
+          },
+        ],
+      });
+      await expect(
+        services.sourceObservations.promoteObservation({ observationId: "binding-poison", context }),
+      ).rejects.toThrow();
+      expect(await itemCreations()).toHaveLength(0);
+    },
+  );
 });

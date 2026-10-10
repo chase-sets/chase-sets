@@ -38,7 +38,7 @@ const indexes = [
 export const promotionTargetIndexMigrations = [
   {
     migrationId: "20261010_catalog_promotion_target_discovery",
-    description: "Install authoritative Catalog promotion target discovery indexes before writer activation.",
+    description: "catalog.promotion-target-discovery-indexes",
     statements: indexes.flatMap((index) => [
       `DO $repair$ BEGIN IF EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = to_regclass('${index.name}') AND NOT indisvalid) THEN EXECUTE 'DROP INDEX ${index.name}'; END IF; END $repair$`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${index.name} ON event_store_events USING ${index.method} ${index.columns} WHERE ${index.predicate}`,

@@ -4,6 +4,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import {
   decideSourceObservation,
+  evolveSourceObservation,
   initialSourceObservationState,
   type SourceObservationEvent,
 } from "../../domain/domain";
@@ -23,6 +24,7 @@ import { createPromotionTargetExclusion } from "./promotion-target-exclusion";
 import { sourceObservationLinkExternalKey } from "../../domain/domain";
 import { guardPromotionMaterial } from "./promotion-material-guards";
 import { requireCatalogItemPromotionObservation } from "../source-observation-promotion-execution";
+import { foldPromotionTargetSource } from "./promotion-target-discovery";
 import {
   decideCatalogItem,
   evolveCatalogItem,
@@ -32,6 +34,43 @@ import {
 } from "../../../catalog-items/domain/domain";
 
 describe("promotion target retained-reference exclusion", () => {
+  it("folds legitimate recorded revisions before the first promotion without losing old references", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const codec = createPassthroughDomainEventCodec<SourceObservationEvent>();
+    let state = initialSourceObservationState;
+    for (const externalKey of ["product:old", "product:new"]) {
+      const mapped = normalizeCatalogProviderSourceObservation({
+        contract: tcgdexPokemonCardSourceObservationMappingContract,
+        payload: {
+          ...fixture,
+          observationId: "revision-source",
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey }],
+          catalogHashMaterial: { ...fixture.catalogHashMaterial, revision: externalKey },
+        },
+        observedAt: "2026-10-10T00:00:00.000Z",
+      });
+      if (!mapped.observation) throw new Error("Revision fixture did not map");
+      const events = decideSourceObservation(state, { type: "RecordSourceObservation", ...mapped.observation });
+      const streamId = "catalog.source-observation-revision-source";
+      const history = await eventStore.readStream({ streamId });
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: history.length,
+        context,
+        events: events.map(codec.encode),
+      });
+      state = events.reduce(evolveSourceObservation, state);
+    }
+    const history = await eventStore.readStream({ streamId: "catalog.source-observation-revision-source" });
+    expect(history.map((event) => event.eventType)).toEqual([
+      "catalog.source-observation.recorded",
+      "catalog.source-observation.recorded",
+    ]);
+    const source = foldPromotionTargetSource("revision-source", history);
+    expect(
+      source.revisions.map((revision) => revision.normalized?.externalCatalogItemReferences?.[0]?.externalKey),
+    ).toEqual(["product:old", "product:new"]);
+  });
   it("enforces retained ownership even when a shared-port consumer selects another target", async () => {
     const { eventStore } = createInMemoryEventStore();
     const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
@@ -76,7 +115,7 @@ describe("promotion target retained-reference exclusion", () => {
       false,
     );
   });
-  it.each(["complete", "before-reference-link"] as const)(
+  it.each(["complete", "before-reference-link", "case-folded-before-reference-link"] as const)(
     "does not allocate beside retained A (%s) for incoming B sharing R under projection lag",
     async (crashPoint) => {
       const mapped = normalizeCatalogProviderSourceObservation({
@@ -89,16 +128,27 @@ describe("promotion target retained-reference exclusion", () => {
       const observation = mapped.observation;
       const mappedA = normalizeCatalogProviderSourceObservation({
         contract: tcgdexPokemonCardSourceObservationMappingContract,
-        payload: { ...fixture, observationId: "retained-member-A", externalKey: "retained-member-A" },
+        payload: {
+          ...fixture,
+          observationId: "retained-member-A",
+          externalKey: "retained-member-A",
+          externalCatalogItemReferences:
+            crashPoint === "case-folded-before-reference-link"
+              ? [{ providerKey: "tcgplayer", externalKey: "PRODUCT:493958" }]
+              : fixture.externalCatalogItemReferences,
+        },
         observedAt: "2026-10-10T00:00:00.000Z",
       });
       expect(mappedA.diagnostics).toEqual([]);
       if (!mappedA.observation) throw new Error("Mapper did not produce member A");
       const observationA = mappedA.observation;
       expect(observationA.observationId).not.toBe("obs_changed");
-      expect(observationA.normalized.externalCatalogItemReferences).toEqual(
-        observation.normalized.externalCatalogItemReferences,
-      );
+      expect(
+        observationA.normalized.externalCatalogItemReferences?.map((reference) => ({
+          ...reference,
+          externalKey: reference.externalKey.toLowerCase(),
+        })),
+      ).toEqual(observation.normalized.externalCatalogItemReferences);
       const harness = createChangedObservationRefreshHarness({
         normalized: observation.normalized,
         status: "observed",
@@ -210,6 +260,16 @@ describe("promotion target retained-reference exclusion", () => {
         (command) => command.type === "LinkExternalCatalogItemReference",
       );
       expect(referenceCommandIndex).toBeGreaterThan(0);
+      if (crashPoint === "case-folded-before-reference-link") {
+        const completeState = plan.plan.commands.reduce(
+          (state, command) => decideCatalogItem(state, command).reduce(evolveCatalogItem, state),
+          initialCatalogItemState,
+        );
+        expect(observationA.normalized.externalCatalogItemReferences?.[0]?.externalKey).toBe("PRODUCT:493958");
+        expect(completeState.externalCatalogItemReferences).toEqual(
+          observation.normalized.externalCatalogItemReferences,
+        );
+      }
       const commands =
         crashPoint === "complete" ? plan.plan.commands : plan.plan.commands.slice(0, referenceCommandIndex);
       for (const command of commands) {
@@ -269,7 +329,7 @@ describe("promotion target retained-reference exclusion", () => {
         }),
       );
       expect(creations).toHaveLength(1);
-      if (crashPoint === "before-reference-link") expect(attempt.status).toBe("rejected");
+      if (crashPoint !== "complete") expect(attempt.status).toBe("rejected");
       else {
         expect(attempt.status).toBe("fulfilled");
         if (attempt.status === "fulfilled") expect(attempt.result.catalogItemId).toBe(retainedId);

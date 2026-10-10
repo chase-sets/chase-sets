@@ -186,8 +186,6 @@ export function foldPromotionTargetSource(id: string, history: readonly StoredEv
   for (const [index, stored] of history.entries()) {
     if (index === 0 && stored.eventType !== "catalog.source-observation.recorded")
       throw new Error("promotion-target-invalid-source-history");
-    if (stored.eventType === "catalog.source-observation.recorded" && index !== 0)
-      throw new Error("promotion-target-conflicting-source-identity");
     if (
       state.pendingSourcePayloadChunks &&
       stored.eventType !== "catalog.source-observation.source-payload-chunk-recorded"
