@@ -35,18 +35,23 @@ export async function runIdentityTermsPopulation(argv, env, dependencies) {
   return dependencies.populate({ ...options, ownerId: `discovery-identity-terms:${randomUUID()}` });
 }
 
+export async function createIdentityTermsPopulationPools(env) {
+  const { createPgPool } = await import("../infrastructure/event-core-postgres/pool.ts");
+  return {
+    pool: createPgPool(env.DATABASE_URL_DISCOVERY, { max: 1 }),
+    controlPool: createPgPool(env.PLATFORM_CONTROL_DATABASE_URL, { max: 2 }),
+  };
+}
+
 async function main() {
   parseIdentityTermsPopulationOptions(process.argv.slice(2));
   const { register } = await import("node:module");
   register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
-  const [{ Pool }, { createPostgresPlatformControlPlane }, { populateDiscoverySearchIdentityTerms }] =
-    await Promise.all([
-      import("pg"),
-      import("../infrastructure/platform-runtime/control-plane.ts"),
-      import("../bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts"),
-    ]);
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL_DISCOVERY, max: 1 });
-  const controlPool = new Pool({ connectionString: process.env.PLATFORM_CONTROL_DATABASE_URL, max: 2 });
+  const [{ createPostgresPlatformControlPlane }, { populateDiscoverySearchIdentityTerms }] = await Promise.all([
+    import("../infrastructure/platform-runtime/control-plane.ts"),
+    import("../bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts"),
+  ]);
+  const { pool, controlPool } = await createIdentityTermsPopulationPools(process.env);
   const controlPlane = createPostgresPlatformControlPlane(controlPool);
   try {
     const receipt = await runIdentityTermsPopulation(process.argv.slice(2), process.env, {

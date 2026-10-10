@@ -104,6 +104,7 @@ const entrypointUrl = pathToFileURL(resolve(entrypoint));
 const command = await import(entrypointUrl);
 assert.equal(typeof command.parseIdentityTermsPopulationOptions, "function");
 assert.equal(typeof command.runIdentityTermsPopulation, "function");
+assert.equal(typeof command.createIdentityTermsPopulationPools, "function");
 const resolverUrl = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", entrypointUrl);
 const resolver = await import(resolverUrl);
 assert.equal(typeof resolver.resolve, "function");
@@ -118,7 +119,7 @@ for (const specifier of roots) {
   modules.set(specifier, await import(import.meta.resolve(specifier, entrypointUrl.href)));
 }
 for (const [specifier, name] of [
-  ["pg", "Pool"],
+  ["../infrastructure/event-core-postgres/pool.ts", "createPgPool"],
   ["../infrastructure/platform-runtime/control-plane.ts", "createPostgresPlatformControlPlane"],
   ["../bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts", "populateDiscoverySearchIdentityTerms"],
 ]) {

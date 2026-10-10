@@ -1,0 +1,32 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-preview-wildcard-tls.yml",
+      "jobId": "restore-preview-wildcard-tls",
+      "stepAnchor": "name:Configure staging Kubernetes context#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-wildcard-tls.yml",
+      "jobId": "restore-preview-wildcard-tls",
+      "stepAnchor": "name:Configure staging Kubernetes context#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-wildcard-tls.yml",
+      "jobId": "restore-preview-wildcard-tls",
+      "stepAnchor": "name:Configure staging Kubernetes context#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-preview-wildcard-tls.yml",
+      "jobId": "restore-preview-wildcard-tls",
+      "stepAnchor": "name:Converge staging preview DNS-01 token and renewal#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

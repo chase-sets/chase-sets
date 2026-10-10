@@ -13,6 +13,7 @@ const resolver = "infrastructure/platform-runtime/typescript-resolver.mjs";
 const control = "infrastructure/platform-runtime/control-plane.ts";
 const adapter = "bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts";
 const transitive = "infrastructure/platform-runtime/control-dependency.ts";
+const pool = "infrastructure/event-core-postgres/pool.ts";
 const dockerfile = readFileSync(path.join(repo, "Dockerfile"), "utf8");
 const assertion = dockerfile.match(/<<'POPULATION_IMAGE_ASSERT'\r?\n([\s\S]*?)\r?\nPOPULATION_IMAGE_ASSERT/)[1];
 const fixtures = [];
@@ -42,6 +43,12 @@ function fixture() {
   put(root, "package.json", '{"type":"module"}');
   put(root, resolver, readFileSync(path.join(repo, resolver)));
   put(root, transitive, "export const marker: string = 'synthetic';");
+  put(
+    root,
+    pool,
+    `import { Pool } from 'pg';
+    export function createPgPool() { return new Pool(); }`,
+  );
   put(
     root,
     control,
@@ -119,7 +126,7 @@ test("exact Dockerfile assertion accepts valid synthetic assets and imports with
   assert.equal((result.stdout.match(/sha256=[a-f0-9]{64}/g) ?? []).length, 2);
 });
 
-test.each([entrypoint, manifest, resolver, transitive, "node_modules/pg"])(
+test.each([entrypoint, manifest, resolver, transitive, pool, "node_modules/pg"])(
   "exact Dockerfile assertion rejects omitted runtime asset/import %s",
   (omitted) => {
     const f = fixture();
@@ -162,8 +169,8 @@ test("manifest caller edges drive imports beyond the three required roots", () =
 
 test("exact Dockerfile assertion rejects missing expected exports", () => {
   const f = fixture();
-  put(f.root, "node_modules/pg/index.mjs", "export const notPool = true;");
+  put(f.root, pool, "export const notCreatePgPool = true;");
   const result = runAssertion(f);
   assert.equal(result.status, 1, result.error?.message ?? result.stderr);
-  assert.match(result.stderr, /pg: missing Pool/);
+  assert.match(result.stderr, /pool.ts: missing createPgPool/);
 });

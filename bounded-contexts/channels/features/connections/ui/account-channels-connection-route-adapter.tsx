@@ -43,6 +43,10 @@ import {
 } from "../../connector-feed/ui/pairing-panel";
 import { decodeConnectorPairingDetail, decodeGeneratedPairingCode } from "../../connector-feed/domain/codecs";
 
+const setupLocationsModule = import.meta.env.SSR
+  ? await import("../../../support/request-support/setup-locations").catch(() => null)
+  : null;
+
 type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
 type LoadedData = Readonly<{
   kind: "ready";
@@ -90,8 +94,10 @@ export async function loader({ request, params }: Pick<LoaderFunctionArgs, "requ
   let setupLocations: ConnectionSetupLocations = { kind: "loaded", items: [] };
   if (connection.status === "pending-setup" && actor.permissions.includes("channels.manage")) {
     try {
-      const { readConnectionSetupLocations } = await import("../../../support/request-support/setup-locations");
-      setupLocations = { kind: "loaded", items: await readConnectionSetupLocations(request) };
+      setupLocations =
+        setupLocationsModule === null
+          ? { kind: "read-error" }
+          : { kind: "loaded", items: await setupLocationsModule.readConnectionSetupLocations(request) };
     } catch {
       setupLocations = { kind: "read-error" };
     }
