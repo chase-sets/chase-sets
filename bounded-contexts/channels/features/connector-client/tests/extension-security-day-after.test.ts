@@ -63,6 +63,7 @@ describe("extension-security-day-after", () => {
         const healthyRemove = remove.getMockImplementation()!;
         remove.mockRejectedValue(new Error("deletion failed"));
         const boot = () => (entry === "startup" ? f.startup() : f.installed(entry));
+        f.alarms.set("connector-retention-deadline", { when: Date.parse(now) });
         const result = await boot().catch((error: unknown) => error);
         expect((await f.background.status()).state).toBe("cleanup-pending");
         expect(result).not.toBeInstanceOf(Error);

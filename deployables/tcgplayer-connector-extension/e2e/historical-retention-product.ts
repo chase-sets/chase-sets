@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { build } from "vite";
 import { buildConnectorManifest } from "@chase-sets/channels/client";
@@ -7,6 +7,7 @@ import { loadConnectorBuildConfig } from "./connector-build-config";
 import { packageRoot, proofRoot, retain } from "./coordinator-observation";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { synthetic } from "./loopback-platform";
+import { bundleIdentity } from "./extension-installation";
 
 export const retentionProductHead = "e0d8ef5c001cde4397b16eed95ad8e22457bc71c";
 export async function buildHistoricalRetentionProduct() {
@@ -80,9 +81,17 @@ export async function buildHistoricalRetentionProduct() {
   });
   retain("historical-product-source", { head: retentionProductHead, files: [...sources.keys()].sort() });
   mkdirSync(destination, { recursive: true });
+  const identity = bundleIdentity(
+    readFileSync(resolve(destination, "background.js")),
+    `historical-${retentionProductHead}`,
+  );
+  writeFileSync(resolve(destination, "execution-identity.json"), JSON.stringify(identity));
   writeFileSync(
     resolve(destination, "seed.js"),
-    'import * as product from "./background.js"; globalThis.__connectorSeed = product;',
+    `import * as product from "./background.js"; globalThis.__connectorSeed = product;
+globalThis.__connectorExecutedBundle = ${JSON.stringify(identity)};
+globalThis.__connectorHistoricalReasons = [];
+chrome.runtime.onInstalled.addListener(({ reason }) => globalThis.__connectorHistoricalReasons.push(reason));`,
   );
   const manifest = buildConnectorManifest({
     platformOrigin,

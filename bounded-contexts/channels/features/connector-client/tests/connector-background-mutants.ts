@@ -8,7 +8,9 @@ import * as pairing from "../domain/connector-pairing";
 import * as identity from "../domain/identity";
 import type { createConnectorBackground } from "../domain/connector-background";
 
-export function mutatedBackground(kind: "unconditional-reensure" | "unserialized"): typeof createConnectorBackground {
+export function mutatedBackground(
+  kind: "unconditional-reensure" | "unserialized" | "suppressed-retention-retry",
+): typeof createConnectorBackground {
   let source = readFileSync(new URL("../domain/connector-background.ts", import.meta.url), "utf8");
   const replace = (before: string, after: string) => {
     if (source.split(before).length !== 2) throw new Error("background-mutant-anchor-moved");
@@ -19,7 +21,12 @@ export function mutatedBackground(kind: "unconditional-reensure" | "unserialized
       "await coordinate(reason);",
       "await ports.alarms.create(workAlarm, { periodInMinutes: 0.5 });\n    await coordinate(reason);",
     );
-  else {
+  else if (kind === "suppressed-retention-retry") {
+    replace(
+      'await retention(result.nextDeadline, !result.ok, reason === "boot" && result.ok);',
+      'if (!(reason === "boot" && await ports.alarms.get(retentionAlarm))) await retention(result.nextDeadline, !result.ok);',
+    );
+  } else {
     replace(
       'async function startWorker(reason: "boot" | "update") {\n    await serial(async () => {',
       'async function startWorker(reason: "boot" | "update") {\n    await (async () => {',

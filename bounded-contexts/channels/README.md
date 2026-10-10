@@ -15,7 +15,9 @@ retention alarms. Chrome adapters implement `ConnectorBackgroundPorts`; records
 and revision fencing remain internal to the slice. Startup and retained install
 reconcile owned records without resetting paired or paused profiles. Missing
 alarms are re-created on worker start only when required by retained state;
-existing schedules are preserved. No alarm persistence is assumed.
+valid existing schedules are preserved during no-op reconciliation. Cleanup
+failures still schedule the existing retention retry, even when an expired alarm
+is present. No alarm persistence is assumed.
 The coordinator is inert unless supplied. `createConnectorOperationCoordinator`
 owns the operation journal and executor registry. It uses the same
 `connector-raw-exports` database, additively upgraded to v3 with

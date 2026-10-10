@@ -1,12 +1,17 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { build } from "vite";
+import { build, type Plugin } from "vite";
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { expect, type BrowserContext, type Worker } from "@playwright/test";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "@chase-sets/channels/client";
-import { fixtureWorker, launchFixture } from "../__tests__/support/browser-observation";
+import {
+  attestInstallation,
+  executedIdentity,
+  executionIdentityPlugin,
+  installationDiagnostics,
+  launchInstallation,
+} from "./extension-installation";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { createSyntheticPairingCode, synthetic } from "./loopback-platform";
 
@@ -28,7 +33,8 @@ export const authority = {
   binding: "https://github.com/chase-sets/chase-sets/issues/7940#issuecomment-6087950378",
 };
 
-export async function buildHarness(unit: "operation" | "reservation", replayMutant = false) {
+export async function buildHarness(unit: "operation" | "reservation", replayMutant = false, suppressTransform = false) {
+  let transformVisits = 0;
   process.env.VITE_PLATFORM_API_URL = platformOrigin;
   process.env.VITE_CONNECTOR_CLIENT_ID = synthetic.clientId;
   process.env.CONNECTOR_HARNESS_EXECUTOR_UNIT = unit;
@@ -40,18 +46,23 @@ export async function buildHarness(unit: "operation" | "reservation", replayMuta
     configLoader: "runner",
     mode: "harness",
     logLevel: "warn",
-    plugins: replayMutant
-      ? [
-          {
-            name: "synthetic-replay-guard-removed",
-            enforce: "pre",
-            transform(source, id) {
-              if (!id.replaceAll("\\", "/").endsWith("/connector-client/domain/operation-coordinator.ts")) return null;
-              const anchor = "const executor = executors.get(reservation.executorKey);";
-              if (source.split(anchor).length !== 2) throw new Error("replay-mutant-anchor-moved");
-              return source.replace(
-                anchor,
-                `${anchor}
+    plugins: [
+      executionIdentityPlugin(replayMutant && !suppressTransform ? "replay-guard-removed" : `normal-${unit}`),
+      ...(replayMutant
+        ? [
+            {
+              name: "synthetic-replay-guard-removed",
+              enforce: "pre",
+              transform(source, id) {
+                if (!id.replaceAll("\\", "/").endsWith("/connector-client/domain/operation-coordinator.ts"))
+                  return null;
+                const anchor = "const executor = executors.get(reservation.executorKey);";
+                if (source.split(anchor).length !== 2) throw new Error("replay-mutant-anchor-moved");
+                transformVisits++;
+                if (suppressTransform) return source;
+                return source.replace(
+                  anchor,
+                  `${anchor}
           if (exact.members.some(member => ["dispatched", "outcome-unknown"].includes(member.state))) {
             state = await write(input, state, revise(reservation, { phase: "prepared" }), exact.members.map(member => {
               const { dispatchedAt, unknownReason, receipt, ...retained } = member;
@@ -60,33 +71,45 @@ export async function buildHarness(unit: "operation" | "reservation", replayMuta
             reservation = state.reservations.find(row => row.reservationId === reservation.reservationId)!;
             exact = unit(state, reservation);
           }`,
-              );
-            },
-          },
-        ]
-      : [],
+                );
+              },
+            } satisfies Plugin,
+          ]
+        : []),
+    ],
   });
-  const destination = resolve(proofRoot, `dist-harness-${unit}${replayMutant ? "-replay-mutant" : ""}`);
+  expect(transformVisits).toBe(replayMutant ? 1 : 0);
+  const destination = resolve(
+    proofRoot,
+    `dist-harness-${unit}${replayMutant ? "-replay-mutant" : ""}${suppressTransform ? "-suppressed" : ""}`,
+  );
   mkdirSync(destination, { recursive: true });
-  for (const file of ["background.js", "manifest.json"])
+  for (const file of ["background.js", "manifest.json", "execution-identity.json"])
     cpSync(resolve(packageRoot, "dist-harness", file), join(destination, file));
   const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8"));
   expect(manifest.host_permissions).toEqual([`${platformOrigin}/*`, "http://127.0.0.1:46175/*"]);
   return destination;
 }
 
-export async function launchCoordinator(extension: string, profile = mkdtempSync(join(tmpdir(), "connector-7940-"))) {
-  const context = await launchFixture(extension, profile, [
-    `--disable-extensions-except=${extension}`,
-    "--enable-unsafe-extension-debugging",
-    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
-  ]);
-  expect(context.browser()!.version()).toBe("148.0.7778.96");
-  const worker = await fixtureWorker(context, "/background.js");
-  await worker.evaluate(async () => {
-    await globalThis.__connectorHarness.product.boot;
-  });
-  return { context, worker, profile };
+export async function launchCoordinator(extension: string, profile?: string) {
+  const installation = await launchInstallation(extension, profile);
+  try {
+    const worker = await attestInstallation(installation);
+    await worker.evaluate(async () => {
+      await globalThis.__connectorHarness.product.boot;
+    });
+    return { ...installation, worker };
+  } catch (error) {
+    retain("coordinator-launch-failure", {
+      profile: installation.profile,
+      directory: installation.directory,
+      expected: installation.identity,
+      error: String(error),
+      workers: await installationDiagnostics(installation.context),
+    });
+    await installation.context.close();
+    throw error;
+  }
 }
 
 export async function pair(context: BrowserContext, worker: Worker) {
@@ -110,7 +133,8 @@ export async function pair(context: BrowserContext, worker: Worker) {
 }
 
 export async function snapshot(worker: Worker) {
-  return worker.evaluate(async () => {
+  const identity = await executedIdentity(worker);
+  const state = await worker.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("connector-raw-exports");
       request.onsuccess = () => resolve(request.result);
@@ -129,6 +153,7 @@ export async function snapshot(worker: Worker) {
         stores: Array.from(db.objectStoreNames),
         members: await read("operation-attempts"),
         reservations: await read("reservations"),
+        rawExports: await read("raw-exports"),
         alarms: await chrome.alarms.getAll(),
         observation: globalThis.__connectorHarness.observation.snapshot(),
       };
@@ -136,6 +161,7 @@ export async function snapshot(worker: Worker) {
       db.close();
     }
   });
+  return { ...state, identity };
 }
 
 export async function wake(worker: Worker) {

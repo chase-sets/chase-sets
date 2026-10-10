@@ -72,9 +72,43 @@ describe("connector-startup-alarm-reconciliation", () => {
     await f.background.boot();
     expect(f.alarms.get("connector-retention-deadline")).toEqual({ when });
     vi.mocked(f.ports.alarms.create).mockClear();
-    await f.startup();
-    expect(f.ports.alarms.create).not.toHaveBeenCalled();
+    for (const start of [
+      f.background.boot,
+      f.startup,
+      () => f.installed(),
+      () => f.installed("update"),
+      () => Promise.all([f.background.boot(), f.startup(), f.installed(), f.installed("update")]),
+    ]) {
+      await start();
+      expect(f.alarms.get("connector-retention-deadline")).toEqual({ when });
+      expect(f.alarms.has("connector-work")).toBe(state === "paired-idle");
+      expect(f.ports.alarms.create).not.toHaveBeenCalled();
+    }
   });
+  it.each(["boot", "startup", "install", "update", "overlap"] as const)(
+    "preserves a future revocation retry at %s but renews an expired retry",
+    async (entry) => {
+      const f = backgroundFixture("unpairing");
+      vi.mocked(f.ports.transport.request).mockRejectedValue(new Error("synthetic-offline"));
+      const when = f.ports.clock.now() + 60000;
+      f.alarms.set("connector-revocation-retry", { when });
+      const start = () =>
+        entry === "boot"
+          ? f.background.boot()
+          : entry === "startup"
+            ? f.startup()
+            : entry === "overlap"
+              ? Promise.all([f.background.boot(), f.startup(), f.installed()])
+              : f.installed(entry);
+      await start();
+      expect(f.alarms.get("connector-revocation-retry")).toEqual({ when });
+      expect(f.ports.alarms.create).not.toHaveBeenCalled();
+      f.setTime(when);
+      await start();
+      expect(f.alarms.get("connector-revocation-retry")?.when).toBe(when + 60000);
+      expect(f.alarms.has("connector-work")).toBe(false);
+    },
+  );
   it("serializes a pause overlapping the missing-alarm read", async () => {
     const f = backgroundFixture("paired-idle");
     const held = deferred<void>();
@@ -89,5 +123,29 @@ describe("connector-startup-alarm-reconciliation", () => {
     await Promise.all([boot, pause]);
     expect((await f.background.status()).state).toBe("paused");
     expect(f.alarms.has("connector-work")).toBe(false);
+  });
+  it("unknown retained versions leave missing alarms and all storage untouched across starts", async () => {
+    const f = backgroundFixture("paired-idle");
+    await f.ports.storage.set({ [extensionProfileKey]: { schemaVersion: 99 } });
+    const before = {
+      local: f.fake.rows(),
+      session: f.session.rows(),
+      writes: f.fake.writes() + f.fake.deletes() + f.session.writes() + f.session.deletes(),
+    };
+    for (const start of [
+      f.background.boot,
+      f.startup,
+      () => f.installed(),
+      () => f.installed("update"),
+      () => Promise.all([f.background.boot(), f.startup(), f.installed(), f.installed("update")]),
+    ]) {
+      await start();
+      expect((await f.background.status()).state).toBe("upgrade-required");
+      expect(f.fake.rows()).toEqual(before.local);
+      expect(f.session.rows()).toEqual(before.session);
+      expect(f.fake.writes() + f.fake.deletes() + f.session.writes() + f.session.deletes()).toBe(before.writes);
+      expect(f.ports.alarms.create).not.toHaveBeenCalled();
+      expect(f.ports.alarms.clear).not.toHaveBeenCalled();
+    }
   });
 });

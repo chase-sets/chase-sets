@@ -6,6 +6,7 @@ import { syntheticClaim } from "../__tests__/harness/claim";
 import { journalPhases } from "../__tests__/harness/journal-boundaries";
 import { observeUntil } from "../__tests__/support/browser-observation";
 import { scanRetainedArtifacts } from "./retained-artifacts";
+import { installationDiagnostics } from "./extension-installation";
 import {
   buildHarness,
   launchCoordinator,
@@ -26,6 +27,12 @@ test.beforeAll(async () => {
   server = await startLoopback();
   for (const unit of ["operation", "reservation"] as const) bundles.set(unit, await buildHarness(unit));
   bundles.set("replay-mutant", await buildHarness("operation", true));
+  bundles.set("replay-mutant-suppressed", await buildHarness("operation", true, true));
+  const bytes = (name: string, file: string) => readFileSync(join(bundles.get(name)!, file), "utf8");
+  expect(bytes("replay-mutant", "execution-identity.json")).not.toBe(bytes("operation", "execution-identity.json"));
+  expect(bytes("replay-mutant-suppressed", "background.js")).toBe(bytes("operation", "background.js"));
+  for (const arm of ["replay-mutant", "replay-mutant-suppressed"])
+    expect(bytes(arm, "manifest.json")).toBe(bytes("operation", "manifest.json"));
 });
 test.beforeEach(() => {
   if (!retainedSession) server.reset();
@@ -60,29 +67,62 @@ test("connector-coordinator-loopback-production-path-chromium @tcgplayer-connect
   retain("extension-retained-artifact-scan", { inspected, zipBase64: readFileSync(path).toString("base64") });
 });
 
-test("connector-coordinator-replay-guard-removed mutant fails commit-before-receipt @tcgplayer-connector-extension-authority", async () => {
-  const first = await launchCoordinator(bundles.get("operation")!);
-  active.add(first.context);
-  await pair(first.context, first.worker);
-  server.hold("portal");
-  server.claims.push(syntheticClaim());
-  await wake(first.worker);
-  await expect.poll(() => server.portalCalls.length).toBe(1);
-  const before = await snapshot(first.worker);
-  await first.context.close();
-  active.delete(first.context);
-  server.release("portal");
-  const second = await launchCoordinator(bundles.get("replay-mutant")!, first.profile);
-  active.add(second.context);
-  await expect.poll(() => server.portalCalls.length).toBe(2);
-  expect(() => expect(server.portalCalls.length).toBe(1)).toThrow();
-  retain("replay-guard-removed-mutant", {
-    before,
-    after: await snapshot(second.worker),
-    portalCalls: server.portalCalls.length,
-    singleDispatchWitness: "FAIL",
+for (const arm of ["operation", "replay-mutant", "replay-mutant-suppressed"] as const)
+  test(`connector-coordinator-replay-guard-removed ${arm} commit-before-receipt @tcgplayer-connector-extension-authority`, async () => {
+    const evidence: Record<string, unknown> = { arm };
+    try {
+      const first = await launchCoordinator(bundles.get("operation")!);
+      active.add(first.context);
+      await pair(first.context, first.worker);
+      server.hold("portal");
+      server.claims.push(syntheticClaim());
+      await wake(first.worker);
+      await expect.poll(() => server.portalCalls.length).toBe(1);
+      const before = await snapshot(first.worker);
+      evidence.before = before;
+      evidence.profile = first.profile;
+      evidence.installation = first.directory;
+      expect(before.members[0]?.state).toBe("dispatched");
+      expect(before.reservations[0]?.phase).toBe("dispatched");
+      expect(Date.parse(String(before.reservations[0]?.leaseExpiresAt))).toBeGreaterThan(Date.now());
+      await first.context.close();
+      active.delete(first.context);
+      server.release("portal");
+      const second = await launchCoordinator(bundles.get(arm)!, first.profile);
+      active.add(second.context);
+      expect(second.directory).toBe(first.directory);
+      evidence.reentry = await snapshot(second.worker);
+      if (arm === "replay-mutant") {
+        await expect.poll(() => server.portalCalls.length).toBe(2);
+        expect(() => expect(server.portalCalls.length).toBe(1)).toThrow();
+        evidence.singleDispatchWitness = "FAIL";
+      } else {
+        if (arm === "replay-mutant-suppressed") {
+          const witnessError = await expect
+            .poll(() => server.portalCalls.length)
+            .toBe(2)
+            .then(
+              () => null,
+              (error: unknown) => String(error),
+            );
+          evidence.mutantWitnessError = witnessError;
+          expect(witnessError).not.toBeNull();
+        }
+        await expect.poll(async () => (await snapshot(second.worker)).reservations[0]?.phase).toBe("acked");
+        expect(server.report(0).outcomes[0]?.outcome.kind).toBe("outcome-unknown");
+        expect(server.portalCalls.length).toBe(1);
+        evidence.singleDispatchWitness = "PASS";
+      }
+      evidence.after = await snapshot(second.worker);
+    } catch (error) {
+      evidence.error = String(error);
+      throw error;
+    } finally {
+      evidence.portalCalls = server.portalCalls.length;
+      evidence.workers = await Promise.all([...active].map(installationDiagnostics));
+      retain(`replay-guard-${arm}`, evidence);
+    }
   });
-});
 
 for (const boundary of ["portal-held", "receipt-before-report", "report-held"] as const) {
   test.describe(`connector-coordinator-restart-chromium ${boundary} @tcgplayer-connector-extension-authority`, () => {

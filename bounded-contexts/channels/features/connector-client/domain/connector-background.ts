@@ -144,8 +144,11 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     if (retentionDeadline !== null && retentionDeadline > now) next = Math.min(next ?? Infinity, retentionDeadline);
     retentionDeadline = next;
     if (next === null) await ports.alarms.clear(retentionAlarm);
-    else if (!missingOnly || !(await ports.alarms.get(retentionAlarm)))
+    else {
+      const present = missingOnly ? await ports.alarms.get(retentionAlarm) : undefined;
+      if (present && present.scheduledTime > now && present.scheduledTime <= next) return;
       await ports.alarms.create(retentionAlarm, { when: Math.max(now, next) });
+    }
   }
   async function sweep(profile: ExtensionProfile, reason: "boot" | "work" | "unpair" | "retention", deleteAll = false) {
     let result: Awaited<ReturnType<ConnectorBackgroundPorts["sweep"]["run"]>>;
@@ -160,7 +163,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     }
     if (!(await current(profile))) return false;
     if (deleteAll && result.ok) retentionDeadline = null;
-    await retention(result.nextDeadline, !result.ok, reason === "boot");
+    await retention(result.nextDeadline, !result.ok, reason === "boot" && result.ok);
     if (!result.ok && ["paired-idle", "paused"].includes(profile.state)) {
       // An operator pause remains operator-owned even if cleanup also fails.
       await advance(profile, "paused", profile.pauseReason ?? "cleanup-failed");
@@ -194,7 +197,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     await ports.alarms.clear(workAlarm);
     await ports.alarms.clear(retryAlarm);
     if (deletionFailed) {
-      await retention(null, true, reason === "boot");
+      await retention(null, true);
       return;
     }
     try {
@@ -202,7 +205,7 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
       await custody.inspect();
       await ports.session.remove([pairingSessionKey]);
     } catch {
-      await retention(null, true, reason === "boot");
+      await retention(null, true);
       return;
     }
     if (await sweep(profile, reason, true)) await advance(profile, destination);
@@ -245,7 +248,8 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
           retrySeconds = 30;
           await cleanup(profile, "unpaired", "unpair");
         } else {
-          if (!missingOnly || !(await ports.alarms.get(retryAlarm)))
+          const present = missingOnly ? await ports.alarms.get(retryAlarm) : undefined;
+          if (!present || present.scheduledTime <= ports.clock.now())
             await ports.alarms.create(retryAlarm, { when: ports.clock.now() + retrySeconds * 1000 });
           retrySeconds = Math.min(3600, retrySeconds * 2);
         }
