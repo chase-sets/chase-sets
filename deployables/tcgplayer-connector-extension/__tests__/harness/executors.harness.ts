@@ -1,10 +1,16 @@
-import type { composeConnectorBackground } from "../../src/compose";
+import type { ConnectorExecutor, ExecutorResult, OperationUnit } from "@chase-sets/channels/client";
 import { connectorTransport } from "../../src/adapters/connector-transport";
 import { connectorHostRegistry, platformOrigin, portalOrigin, sentinel } from "./origins";
 
-type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
-type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
-type ExecutorResult = Awaited<ReturnType<ConnectorExecutor["dispatchOnce"]>>;
+type OperationAttempt = OperationUnit["members"][number];
+
+function outboundMembers(work: OperationUnit) {
+  return work.members.map((member: OperationAttempt) => {
+    if (member.operationKind !== "publish" || member.payload.kind !== "draft")
+      throw new Error("synthetic-executor-unsupported-operation");
+    return member;
+  });
+}
 
 export const settlement = {
   runId: "synthetic-7940-run",
@@ -25,7 +31,7 @@ export function syntheticExecutor(unit: ConnectorExecutor["unit"]): ConnectorExe
     permissionRegistry: ["identity", "storage", "alarms"],
   });
   const result = (work: OperationUnit): ExecutorResult => ({
-    outcomes: work.members.map(({ operationId, attemptId, claimGeneration, desiredStateSequence }) => ({
+    outcomes: outboundMembers(work).map(({ operationId, attemptId, claimGeneration, desiredStateSequence }) => ({
       operationId,
       attemptId,
       claimGeneration,
@@ -39,8 +45,12 @@ export function syntheticExecutor(unit: ConnectorExecutor["unit"]): ConnectorExe
     unit,
     dispatchDeadlineMs: 5000,
     accepts: [["publish", "draft"]],
-    prepare: async () => ({ ready: true }),
+    prepare: async (work) => {
+      outboundMembers(work);
+      return { ready: true };
+    },
     async dispatchOnce(work: OperationUnit, signal): Promise<ExecutorResult> {
+      outboundMembers(work);
       const response = await request(
         new Request(`${portalOrigin}/portal/mutate`, {
           method: "POST",
@@ -67,6 +77,7 @@ export function syntheticExecutor(unit: ConnectorExecutor["unit"]): ConnectorExe
       return result(work);
     },
     async reconcileAmbiguous(work) {
+      outboundMembers(work);
       if (!Reflect.get(globalThis, "__connectorSyntheticProof")) return null;
       const body = {
         sentinel,
