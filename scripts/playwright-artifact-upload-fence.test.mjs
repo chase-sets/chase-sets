@@ -60,10 +60,10 @@ describe("raw Playwright artifact upload fence (#6895)", () => {
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
     expect(result.discovery).toMatchObject({
-      trackedFiles: 61,
-      parsedFiles: 61,
-      workflowFiles: 58,
-      compositeActionFiles: 3,
+      trackedFiles: 63,
+      parsedFiles: 63,
+      workflowFiles: 59,
+      compositeActionFiles: 4,
     });
     expect(result.discovery.uploadSteps).toBeGreaterThan(0);
     expect(result.discovery.evaluatedUploadPaths).toBeGreaterThan(result.discovery.uploadSteps);
