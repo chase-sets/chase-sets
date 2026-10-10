@@ -1,0 +1,76 @@
+name: Browser Boundary Diagnostics
+
+# Nongoverning, manually dispatched repetition of one allowlisted installed-boundary
+# control (#9259). It is never a required check, never satisfies #8952 or a
+# delivery circuit, and an all-green run means no reproduction, not attribution.
+on:
+  workflow_dispatch:
+    inputs:
+      selector:
+        description: Allowlisted control; runs exactly 20 serial iterations
+        required: true
+        type: choice
+        options:
+          - 13c-alone
+          - 13c-concurrent-live
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-boundary-diagnostics-${{ github.ref }}-${{ inputs.selector }}
+  cancel-in-progress: false
+
+jobs:
+  repetition:
+    name: Installed-boundary diagnostic subset (NOT PROVEN)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      BOUNDARY_HEAD_SHA: ${{ github.sha }}
+    steps:
+      - name: Refuse an unlisted selector before installation
+        env:
+          SELECTOR: ${{ inputs.selector }}
+        run: |
+          case "$SELECTOR" in
+            13c-alone | 13c-concurrent-live) printf 'provider-boundary-diagnostic-selector:%s\n' "$SELECTOR" ;;
+            *)
+              printf 'provider-boundary-diagnostic-refused:selector\n' >&2
+              exit 1
+              ;;
+          esac
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Install provider browser boundary
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
+
+      - name: Run isolated serial repetition
+        id: repetition
+        env:
+          SELECTOR: ${{ inputs.selector }}
+        run: node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs --diagnostic "$SELECTOR" --out artifacts/browser-boundary-diagnostics/summary.json
+
+      - name: Remove owned provider browser boundary
+        if: always()
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh
+
+      - name: Validate diagnostic summary payload
+        if: always() && (steps.repetition.outcome == 'success' || steps.repetition.outcome == 'failure')
+        run: test -s artifacts/browser-boundary-diagnostics/summary.json
+
+      - name: Upload nongoverning diagnostic summary
+        if: always() && (steps.repetition.outcome == 'success' || steps.repetition.outcome == 'failure')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-boundary-diagnostics-${{ inputs.selector }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/browser-boundary-diagnostics/summary.json
+          if-no-files-found: error
+          retention-days: 14

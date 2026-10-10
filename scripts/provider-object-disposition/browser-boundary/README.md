@@ -107,6 +107,25 @@ each required role; startup-helper churn is a separate discovery fixture.
 The complete AC-D3 matrix is not yet discharged. A green subset is not
 AC-B1..B5 PASS; exact-head hosted logs, not this inventory, provide proof.
 
+The 13c orphan helper also samples its own generated tree (PID, start and
+executable) at readiness and again at EOF, before signalling. It reports closed
+states for both final execs (setpriv to shell, shell child to sleep) and whether
+the tree changed between those endpoints. An unchanged tree is not foreign
+attribution: endpoint samples can miss a transient drift. Retirement failures
+name a closed reason with only an allowlisted errno. Hosted reporting separates
+construction, refusal, survival, page, retirement, admission, browser drain and
+per-case cleanup, so a page-close PASS followed by retirement failure reports
+retirement. This is observation only; readiness, retirement and census
+predicates are unchanged.
+
+`.github/workflows/browser-boundary-diagnostics.yml` is a manual, nongoverning
+repetition: one allowlisted selector (`13c-alone` or `13c-concurrent-live`),
+exactly 20 serial iterations with per-case cleanup, every iteration retained and
+any unrecovered failure reported as not-run. It ends with a SUBSET / NOT PROVEN
+line, never the full step's terminal line, and its check and summary artifact
+cannot satisfy a required check, #8952 or delivery-circuit recovery. All green
+means no reproduction, not a cause. Static Checks still runs the complete step.
+
 ## Callers And Ownership
 
 The bound caller census is Packet P in #8951 comment 6031379240. Main did not

@@ -82,6 +82,18 @@ it.each(["remove-orphan-owner", "remove-ambiguous-owner"])(
   },
 );
 
+it("control 13c exact orphan refusal is 198/110 bytes; the 198/113 ambiguous shape is not orphan", () => {
+  const orphan = { ...liveRemoval, stderr: liveRemoval.stderr.replace("remove-live-owner", "remove-orphan-owner") };
+  const ambiguous = {
+    ...liveRemoval,
+    stderr: liveRemoval.stderr.replace("remove-live-owner", "remove-ambiguous-owner"),
+  };
+  expect([Buffer.byteLength(orphan.stdout), Buffer.byteLength(orphan.stderr)]).toEqual([198, 110]);
+  expect([Buffer.byteLength(ambiguous.stdout), Buffer.byteLength(ambiguous.stderr)]).toEqual([198, 113]);
+  expect(removalRefusal(orphan, "remove-orphan-owner")).toBe(true);
+  expect(removalRefusal(ambiguous, "remove-orphan-owner")).toBe(false);
+});
+
 it("CP-B distinguishes dropped launch authority from proved nested sandbox authority", () => {
   expect(browserCapabilityProof(dropped)).toBe(true);
   expect(browserCapabilityProof(scoped)).toBe(true);

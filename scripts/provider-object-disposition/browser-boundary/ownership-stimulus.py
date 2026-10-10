@@ -1,4 +1,5 @@
 """Root-owned, stdin-scoped synthetic owners. Only generated children are signalled."""
+import errno
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,79 @@ from ownership import bounded_read, parse_stat
 TARGET = Path('/usr/local/lib/chase-sets-provider-window')
 FOREIGN = TARGET / 'SYNTHETIC_AMBIGUOUS_OWNER_CONTROL'
 ENV = {'PATH': '/usr/bin:/bin', 'LANG': 'C', 'LC_ALL': 'C'}
+IMAGES = (('setpriv', '/usr/bin/setpriv'), ('sh', '/bin/sh'), ('sleep', '/usr/bin/sleep'))
+ERRNOS = ('ENOENT', 'ESRCH', 'EACCES', 'EPERM', 'EINVAL', 'EIO')
+STATES = {((0, 'setpriv'),): 'init-pre-exec', ((0, 'sh'),): 'child-absent',
+          ((0, 'sh'), (1, 'sh')): 'child-pre-exec', ((0, 'sh'), (1, 'sleep')): 'final'}
+
+
+def errno_name(error):
+    name = errno.errorcode.get(getattr(error, 'errno', None), '')
+    return name if name in ERRNOS else 'other'
+
+
+def proc_children(pid):
+    return Path(f'/proc/{pid}/task/{pid}/children').read_text().split()
+
+
+def exe_image(member):
+    info = os.stat(f'/proc/{member}/exe')
+    return info.st_dev, info.st_ino
+
+
+def generated_tree(root, images):
+    """Read-only sample of the generated tree below the unshare child. Observation only."""
+    try:
+        tree = []
+        pending = [(root, -1)]
+        while pending:
+            parent, depth = pending.pop(0)
+            for member in proc_children(parent):
+                if not member.isdecimal() or len(tree) == 4:
+                    return None
+                pid = int(member)
+                before = parse_stat(bounded_read(Path('/proc') / member / 'stat'), pid)
+                image = exe_image(member)
+                after = parse_stat(bounded_read(Path('/proc') / member / 'stat'), pid)
+                if before['start'] != after['start'] or before['parent'] != parent:
+                    return None
+                tree.append((depth + 1, pid, before['start'], images.get(image, 'other')))
+                pending.append((pid, depth + 1))
+        return tuple(tree)
+    except Exception:
+        return None
+
+
+def image_names():
+    try:
+        return {(info.st_dev, info.st_ino): name for name, path in IMAGES for info in [os.stat(path)]}
+    except Exception:
+        return {}
+
+
+def tree_state(tree):
+    return 'incomplete' if tree is None else STATES.get(tuple((depth, image) for depth, _, _, image in tree), 'incomplete')
+
+
+def generated_drift(ready, boundary):
+    # Endpoint samples only: an unchanged tree can still hide a transient
+    # drift, so neither value attributes the census outcome to a foreign PID.
+    if 'incomplete' in (tree_state(ready), tree_state(boundary)):
+        return 'unproven'
+    return 'unchanged' if ready == boundary else 'changed'
+
+
+def observed(ready, boundary):
+    return (f'provider-boundary-owner-stimulus:observed:ready={tree_state(ready)};'
+            f'boundary={tree_state(boundary)};generated={generated_drift(ready, boundary)}')
+
+
+def retirement_reason(step, error):
+    if step == 'foreign':
+        return 'foreign-file'
+    if step == 'member':
+        return 'member-read-' + errno_name(error) if isinstance(error, OSError) else 'member-parse'
+    return step + '-' + (errno_name(error) if isinstance(error, OSError) else 'other')
 
 
 def principal():
@@ -29,6 +103,8 @@ def principal():
 def main():
     children = []
     members = []
+    images = None
+    ready_tree = None
     created = False
     result = 1
     constructed = True
@@ -84,6 +160,8 @@ def main():
                 time.sleep(.01)
             if not observed:
                 raise ValueError()
+            images = image_names()
+            ready_tree = generated_tree(process.pid, images)
         elif mode == 'foreign':
             if FOREIGN.exists() or FOREIGN.is_symlink():
                 raise ValueError()
@@ -107,23 +185,31 @@ def main():
     except Exception:
         print('provider-boundary-owner-stimulus-refused:' + stage, file=sys.stderr)
     finally:
+        # The boundary sample is read-only and precedes signalling; the closed
+        # reasons below name the first retirement failure without changing it.
+        boundary_tree = generated_tree(children[0][0].pid, images) if images is not None else None
+        step = 'signal'
+        reasons = []
         try:
             deadline = time.monotonic() + 2
-            failed = False
             for fd in [entry[2] for entry in members] + [entry[1] for entry in children]:
                 try:
                     signal.pidfd_send_signal(fd, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                except OSError:
-                    failed = True
+                except OSError as error:
+                    reasons.append('signal-' + errno_name(error))
+            step = 'wait'
             for process, fd in children:
                 try:
                     process.wait(timeout=max(.001, deadline - time.monotonic()))
-                except (OSError, subprocess.TimeoutExpired):
-                    failed = True
+                except subprocess.TimeoutExpired:
+                    reasons.append('wait-timeout')
+                except OSError as error:
+                    reasons.append('wait-' + errno_name(error))
                 finally:
                     os.close(fd)
+            step = 'member'
             for pid, start, fd in members:
                 os.close(fd)
                 while time.monotonic() < deadline:
@@ -135,17 +221,24 @@ def main():
                         break
                     time.sleep(.01)
                 else:
-                    failed = True
-            if failed:
+                    reasons.append('member-live')
+            if not reasons:
+                step = 'foreign'
+                if created:
+                    info = FOREIGN.lstat()
+                    if FOREIGN.resolve(strict=True) != FOREIGN or not stat.S_ISREG(info.st_mode) or info.st_uid != 0:
+                        raise ValueError()
+                    FOREIGN.unlink()
+        except Exception as error:
+            reasons.append(retirement_reason(step, error))
+        try:
+            if images is not None:
+                print(observed(ready_tree, boundary_tree), flush=True)
+            if reasons:
                 raise ValueError()
-            if created:
-                info = FOREIGN.lstat()
-                if FOREIGN.resolve(strict=True) != FOREIGN or not stat.S_ISREG(info.st_mode) or info.st_uid != 0:
-                    raise ValueError()
-                FOREIGN.unlink()
             print('provider-boundary-owner-stimulus:retired', flush=True)
         except Exception:
-            print('provider-boundary-owner-stimulus-refused:retirement', file=sys.stderr)
+            print('provider-boundary-owner-stimulus-refused:retirement:' + (reasons or ['output'])[0], file=sys.stderr)
             result = 1
     return result
 

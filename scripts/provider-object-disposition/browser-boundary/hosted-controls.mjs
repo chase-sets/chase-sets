@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, lstat, stat, readdir } from "node:fs/promises";
+import { readFile, lstat, stat, readdir, mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { dirname } from "node:path";
@@ -11,7 +11,13 @@ import { bootstrapControls } from "./bootstrap-controls.mjs";
 import { nativeDiagnosticControls } from "./native-diagnostics.mjs";
 import { nativeControls } from "./native-controls.mjs";
 import { peerControls } from "./peer-controls.mjs";
-import { withOwnershipStimulus } from "./ownership-controls.mjs";
+import {
+  diagnosticProvenance,
+  diagnosticReport,
+  diagnosticSelection,
+  refusalStage,
+  withOwnershipStimulus,
+} from "./ownership-controls.mjs";
 import { browserLifecycleControls } from "./browser-lifecycle-controls.mjs";
 import { installationCycle, withInstallationCycle } from "./installation-cycle.mjs";
 import { assertIdentitySurvival } from "./identity-controls.mjs";
@@ -23,6 +29,7 @@ const install = "/usr/local/lib/chase-sets-provider-window";
 const input = "/usr/local/lib/chase-sets-provider-window-input";
 const environment = { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", LANG: "C", LC_ALL: "C" };
 let control = "host-admission";
+let observations = null;
 const pass = (id) => console.log(`installed-boundary control ${id}: PASS`);
 
 async function launchIdentities(mode, value) {
@@ -172,18 +179,19 @@ async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
     failure = error;
   }
   const exact = removalRefusal(failure, stage);
-  console.log(
-    `installed-boundary control ${id} refusal:${JSON.stringify({
-      expectedStatus: 1,
-      actualStatus: Number.isInteger(failure?.code) ? failure.code : null,
-      installerStatus: exact && !stage.startsWith("input-") ? 1 : null,
-      exact,
-      stdoutBytes: failure?.stdout?.length ?? null,
-      stderrBytes: failure?.stderr?.length ?? null,
-      redacted: true,
-      truncated: failure?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
-    })}`,
-  );
+  const refusal = {
+    expectedStatus: 1,
+    actualStatus: Number.isInteger(failure?.code) ? failure.code : null,
+    installerStatus: exact && !stage.startsWith("input-") ? 1 : null,
+    exact,
+    observedStage: refusalStage(failure),
+    stdoutBytes: failure?.stdout?.length ?? null,
+    stderrBytes: failure?.stderr?.length ?? null,
+    redacted: true,
+    truncated: failure?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+  };
+  observations?.refusals.push(refusal);
+  console.log(`installed-boundary control ${id} refusal:${JSON.stringify(refusal)}`);
   assert.ok(exact);
   control = `${id}-${mode}-installation-after`;
   assert.deepEqual(await installationIdentity(stage === "input-not-symlink"), before);
@@ -263,6 +271,19 @@ async function setupNamesAbsent() {
 }
 
 async function ownerCase(id, count, test) {
+  let caseFailed = false;
+  try {
+    await ownerCaseCycle(id, count, test, () => {
+      caseFailed = true;
+    });
+  } catch (error) {
+    // The case's own first failure keeps its label; otherwise per-case cleanup failed.
+    if (!caseFailed) control = `${id}-per-case-cleanup`;
+    throw error;
+  }
+}
+
+async function ownerCaseCycle(id, count, test, failed) {
   await withInstallationCycle(id, async () => {
     const browsers = [];
     const contexts = [];
@@ -288,16 +309,42 @@ async function ownerCase(id, count, test) {
         try {
           await browser.close();
         } catch (error) {
+          if (!primary) control = `${id}-browser-close`;
           primary ??= error;
         }
       }
       try {
         await drained(owned);
       } catch (error) {
+        if (!primary) control = `${id}-browser-drain`;
         primary ??= error;
       }
     }
-    if (primary) throw primary;
+    if (primary) {
+      failed();
+      throw primary;
+    }
+  });
+}
+
+async function stimulusCase(id, mode, count, stimulus, stage, record) {
+  await ownerCase(`${id}-${mode}`, count, async (contexts, owned) => {
+    const constructed = await withOwnershipStimulus(
+      stimulus,
+      (result) => ownerRefusal(contexts, owned, mode, stage, id, result),
+      undefined,
+      {
+        onPhase: (phase) => {
+          control = `${id}-${mode}-stimulus-${phase}`;
+        },
+        record,
+      },
+    );
+    control = `${id}-${mode}-restored-admission`;
+    await assertBrowserAdmission();
+    if (constructed) pass(`${id} ${mode} stimulus retired and admission restored`);
+    else
+      console.log(`installed-boundary control ${id} ${mode}: NOT CONSTRUCTED; cleanup and restored admission verified`);
   });
 }
 
@@ -359,18 +406,7 @@ async function ownershipCases() {
       ["foreign", "remove-ambiguous-owner", "13e"],
       ["cap", "remove-ownership-census", "13g"],
     ]) {
-      await ownerCase(`${id}-${mode}`, count, async (contexts, owned) => {
-        control = `${id}-${mode}-stimulus`;
-        const constructed = await withOwnershipStimulus(stimulus, (result) =>
-          ownerRefusal(contexts, owned, mode, stage, id, result),
-        );
-        await assertBrowserAdmission();
-        if (constructed) pass(`${id} ${mode} stimulus retired and admission restored`);
-        else
-          console.log(
-            `installed-boundary control ${id} ${mode}: NOT CONSTRUCTED; cleanup and restored admission verified`,
-          );
-      });
+      await stimulusCase(id, mode, count, stimulus, stage);
     }
     for (const [name, stage] of [
       ["target", "remove-target-symlink"],
@@ -532,12 +568,67 @@ async function wholeInstallerFailure() {
   });
 }
 
-async function run() {
+function hostedRunner() {
   assert.equal(process.platform, "linux");
   assert.equal(process.env.GITHUB_ACTIONS, "true");
   assert.equal(process.env.RUNNER_ENVIRONMENT, "github-hosted");
   assert.equal(process.env.ImageOS, "ubuntu24");
   acquireHeavySlot("playwright");
+}
+
+// Isolated, nongoverning repetition of one allowlisted control. It never runs
+// the full step and never prints the full step's terminal line.
+async function diagnose(selection) {
+  hostedRunner();
+  const provenance = diagnosticProvenance(process.env);
+  const results = [];
+  const write = async () => {
+    const report = diagnosticReport(selection, results, provenance);
+    await mkdir(dirname(selection.out), { recursive: true });
+    await writeFile(selection.out, `${JSON.stringify(report.summary, null, 2)}\n`);
+    return report;
+  };
+  try {
+    await write();
+    control = "12-setup-temporaries";
+    await setupNamesAbsent();
+    control = "1";
+    await assertBrowserAdmission();
+    for (let iteration = 1; iteration <= selection.iterations; iteration++) {
+      observations = { stimulus: null, refusals: [] };
+      let failure;
+      try {
+        await stimulusCase("13c", selection.mode, selection.count, "orphan", "remove-orphan-owner", (entry) => {
+          observations.stimulus = entry;
+        });
+      } catch (error) {
+        failure = error;
+      }
+      results.push({
+        iteration,
+        result: failure ? "fail" : "pass",
+        firstFailure: failure ? control : null,
+        recovered: failure ? failure.recovered === true : null,
+        stimulus: observations.stimulus,
+        refusal: observations.refusals[0] ?? null,
+      });
+      console.log(
+        `installed-boundary diagnostic ${selection.selector} iteration ${iteration}/${selection.iterations}: ${failure ? `FAIL; first failure ${control}; recovered=${failure.recovered === true}; raw output redacted` : "PASS"}`,
+      );
+      await write();
+      // Only a verified per-case reinstall makes the next iteration meaningful.
+      if (failure && failure.recovered !== true) break;
+    }
+  } finally {
+    observations = null;
+    const report = await write();
+    console.log(report.marker);
+    process.exitCode = report.exitCode;
+  }
+}
+
+async function run() {
+  hostedRunner();
   control = "12-setup-temporaries";
   await setupNamesAbsent();
   pass("12 setup temporaries absent");
@@ -641,7 +732,12 @@ async function run() {
   console.log("installed-boundary remaining controls: NOT PROVEN; see boundary README");
 }
 
-run().catch((error) => {
+(async () => {
+  control = "diagnostic-selector";
+  const selection = diagnosticSelection(process.argv.slice(2));
+  control = "host-admission";
+  await (selection ? diagnose(selection) : run());
+})().catch((error) => {
   const diagnostic = mediationDiagnostic(error);
   if (diagnostic) console.error(`installed-boundary mediation:${JSON.stringify(diagnostic)}`);
   console.error(`installed-boundary control ${control}: FAIL; raw output redacted`);

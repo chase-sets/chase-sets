@@ -64,6 +64,45 @@ node ./producer.mjs --out=evidence/equals.json`),
     },
   );
 
+  it("guards the nongoverning browser-boundary diagnostic summary as one exact fail-closed payload (#9259)", () => {
+    const file = ".github/workflows/browser-boundary-diagnostics.yml";
+    const workflow = readFileSync(resolve(file), "utf8");
+    const outPath = "artifacts/browser-boundary-diagnostics/summary.json";
+
+    const result = checkWorkflowCanonicalArtifacts(workflow, { workflowFile: file });
+    expect(result.violations).toEqual([]);
+    expect(result.surfaces).toEqual([
+      expect.objectContaining({
+        outPath,
+        uploadPath: outPath,
+        missingFileBehavior: "error",
+        explicitlyValidated: true,
+      }),
+    ]);
+
+    // Missing or partial evidence cannot hide behind a directory or a lenient upload.
+    for (const [mutant, expected] of [
+      [workflow.replace("if-no-files-found: error", "if-no-files-found: warn"), ["if-no-files-found=warn"]],
+      [
+        workflow
+          .replace(`path: ${outPath}`, "path: artifacts/browser-boundary-diagnostics")
+          .replace(`test -s ${outPath}`, "true"),
+        ["can be nonempty while canonical payload"],
+      ],
+      [
+        workflow
+          .replace(`path: ${outPath}`, "path: artifacts/browser-boundary-diagnostics")
+          .replace(`test -s ${outPath}`, "true")
+          .replace("if-no-files-found: error", "if-no-files-found: ignore"),
+        ["if-no-files-found=ignore", "can be nonempty while canonical payload"],
+      ],
+    ]) {
+      const broken = checkWorkflowCanonicalArtifacts(mutant, { workflowFile: file });
+      expect(broken.passed).toBe(false);
+      expect(broken.violations).toEqual(expected.map((text) => expect.stringContaining(text)));
+    }
+  });
+
   it("arbitrary-path negative runs through real discovery and reports the scanned/total surface", () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-artifact-guard-"));
     try {
@@ -112,10 +151,16 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 63, scannedSurfaces: 26, totalSurfaces: 26 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 64, scannedSurfaces: 27, totalSurfaces: 27 });
     expect(current.findings).toHaveLength(21);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          workflowFile: ".github/workflows/browser-boundary-diagnostics.yml",
+          outPath: "artifacts/browser-boundary-diagnostics/summary.json",
+          missingFileBehavior: "error",
+          explicitlyValidated: true,
+        }),
         expect.objectContaining({
           workflowFile: ".github/workflows/platform-production.yml",
           outPath: "artifacts/release-health/production-kubernetes-deployment-transition.json",
