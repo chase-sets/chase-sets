@@ -282,8 +282,8 @@ their case, so `C` is applied at the access path.
 | `catalog_promotion_reference_pairs_v1(jsonb)` | Immutable Catalog SQL function mapping a Source Observation `normalized` header to `{ externalCatalogItemReferences, externalProductReferences }` arrays of canonical `{ providerKey, externalKey }` pairs. It keeps level and pairing and never flattens or lowercases serialized JSON. |
 
 The dormant access paths these functions back are described in
-`docs/catalog-scope-sync-merge-candidate-handoff.md` under Promotion Reference
-Access Paths.
+`bounded-contexts/catalog/docs/catalog-scope-sync-merge-candidate-handoff.md`
+under Promotion Reference Access Paths.
 
 The promotion command planner and duplicate-prevention resolver use the same `languageCode:externalKey` composition after this normalization. Natural-key normalization does not rewrite historical event or reference keys.
 
