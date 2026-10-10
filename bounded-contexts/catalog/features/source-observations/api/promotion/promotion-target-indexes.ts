@@ -15,7 +15,7 @@ import {
 } from "./promotion-reference-canonicalization";
 
 /**
- * Dormant canonical promotion-reference access paths (#9278, B of the #9265 replan).
+ * Dormant canonical promotion-reference access paths.
  *
  * Three index families over retained `event_store_events` rows locate targets by
  * canonical `(level, C(providerKey), C(externalKey))` without an all-Catalog

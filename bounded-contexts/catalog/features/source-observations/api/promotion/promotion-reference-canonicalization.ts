@@ -6,7 +6,7 @@ import {
 } from "./promotion-reference-casing-data";
 
 /**
- * Canonical promotion-reference identity (#9265 Decision A).
+ * Canonical promotion-reference identity (keycase Decision A).
  *
  * C(s) is ECMAScript `s.trim().toLowerCase()`: Unicode default lowercase with the
  * language-independent SpecialCasing entries (dotted I expansion, final sigma),
