@@ -11,7 +11,11 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
-import { getAccountRecommendation, listAccountRecommendations } from "../read-model/queries";
+import {
+  getAccountRecommendation,
+  listAccountRecommendations,
+  listAccountRecommendationsByIds,
+} from "../read-model/queries";
 
 type MigrationFixture = Readonly<{
   provenance: Readonly<{ commit: string; rawSha256: string; commands: readonly string[] }>;
@@ -334,8 +338,8 @@ describeDb("Pricing recommendation-feed retained-schema upgrades", () => {
       lowest_listing_price_amount: expect.anything(),
       highest_offer_price_amount: expect.anything(),
     });
-    expect(Number(eurList.items[0]?.lowest_listing_price_amount)).toBe(18);
-    expect(Number(eurList.items[0]?.highest_offer_price_amount)).toBe(17);
+    expect(eurList.items[0]?.lowest_listing_price_amount).toBe(18);
+    expect(eurList.items[0]?.highest_offer_price_amount).toBe(17);
     expect(eurItem).toEqual(eurList.items[0]);
     expect(legacyList.items[0]).toMatchObject({
       current_price_currency_code: null,
@@ -343,6 +347,84 @@ describeDb("Pricing recommendation-feed retained-schema upgrades", () => {
       highest_offer_price_amount: null,
     });
     expect(legacyItem).toEqual(legacyList.items[0]);
+  });
+
+  it("maps PostgreSQL numeric recommendation amounts without losing null or zero", async () => {
+    const pool = pools.pricing;
+    await installRetainedState(pool);
+    await bootTwice(pool);
+    await seedCurrencyAwareRows(pool);
+    await pool.query(`
+      UPDATE pricing_recommendation_pages
+      SET market_price_amount = 388.99, current_price_amount = 399.99, recommended_list_amount = 0
+      WHERE recommendation_id = 'synthetic-7751-recommendation-eur';
+      UPDATE pricing_market_listing_inputs SET price_amount = 0
+      WHERE listing_id = 'synthetic-7751-listing-eur-competitor';
+      UPDATE pricing_buyer_offer_inputs SET price_amount = 388.99
+      WHERE offer_id = 'synthetic-7751-offer-eur';
+      INSERT INTO pricing_recommendation_pages (
+        recommendation_id, catalog_catalog_item_id, seller_account_id,
+        market_price_amount, market_currency, market_observed_at, updated_at
+      ) VALUES ('synthetic-8689-null', 'synthetic-8689-no-signals', 'synthetic-7751-seller-eur',
+        0, 'USD', '2026-09-03T00:00:00Z', '2026-09-03T00:00:00Z');
+    `);
+    const accountId = "synthetic-7751-seller-eur";
+    const raw = await pool.query<Record<string, unknown>>(
+      `
+      SELECT * FROM pricing_recommendation_feed WHERE seller_account_id = $1
+      ORDER BY updated_at DESC, recommendation_id DESC`,
+      [accountId],
+    );
+    const amounts = [
+      "market_price_amount",
+      "current_price_amount",
+      "recommended_list_amount",
+      "lowest_listing_price_amount",
+      "highest_offer_price_amount",
+    ] as const;
+    for (const field of amounts) expect(typeof raw.rows[1]![field]).toBe("string");
+    expect(raw.rows[1]).toMatchObject({
+      market_price_amount: "388.99",
+      current_price_amount: "399.99",
+      recommended_list_amount: "0.00",
+      lowest_listing_price_amount: "0.00",
+      highest_offer_price_amount: "388.99",
+    });
+    expect(raw.rows[0]).toMatchObject({
+      market_price_amount: "0.00",
+      current_price_amount: null,
+      recommended_list_amount: null,
+      lowest_listing_price_amount: null,
+      highest_offer_price_amount: null,
+    });
+    const list = await listAccountRecommendations(pool, { accountId });
+    expect(list.total).toBe(2);
+    expect(list.items[1]).toEqual({
+      ...raw.rows[1],
+      market_price_amount: 388.99,
+      current_price_amount: 399.99,
+      recommended_list_amount: 0,
+      lowest_listing_price_amount: 0,
+      highest_offer_price_amount: 388.99,
+    });
+    expect(list.items[0]).toEqual({ ...raw.rows[0], market_price_amount: 0 });
+    for (const item of list.items) {
+      for (const field of amounts) {
+        if (item[field] !== null) expect(typeof item[field]).toBe("number");
+      }
+      expect(await getAccountRecommendation(pool, item.recommendation_id, accountId)).toEqual(item);
+      expect(await getAccountRecommendation(pool, item.recommendation_id, "synthetic-8689-other")).toBeNull();
+    }
+    const ids = list.items.map((item) => item.recommendation_id);
+    expect(await listAccountRecommendationsByIds(pool, { accountId, recommendationIds: ids })).toEqual(list.items);
+    expect(
+      await listAccountRecommendationsByIds(pool, { accountId: "synthetic-8689-other", recommendationIds: ids }),
+    ).toEqual([]);
+    expect(await listAccountRecommendationsByIds(pool, { accountId, recommendationIds: [] })).toEqual([]);
+    expect(await listAccountRecommendations(pool, { accountId, limit: 1, offset: 1 })).toEqual({
+      items: [list.items[1]],
+      total: 2,
+    });
   });
 
   it("keeps currency-mismatched and unversioned market signals ineligible", async () => {

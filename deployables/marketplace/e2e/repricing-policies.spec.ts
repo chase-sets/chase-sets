@@ -191,7 +191,7 @@ test.describe("Seller Desk repricing policies", () => {
       // List: the policy row with status, scope kind and budget row.
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto("/account/desk/repricing", { waitUntil: "domcontentloaded" });
-      await expect(page.getByRole("heading", { name: "Repricing", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Repricing policies", exact: true })).toBeVisible();
       const policyLink = page.getByRole("link", { name: policyName }).filter({ visible: true });
       await expect(policyLink).toBeVisible();
       await expect(visibleText(page, "Active")).toBeVisible();
@@ -277,7 +277,7 @@ test.describe("Seller Desk repricing policies", () => {
       await page.getByRole("button", { name: "Delete policy", exact: true }).click();
       await page.getByRole("alertdialog").getByRole("button", { name: "Delete policy", exact: true }).click();
       await expectPathname(page, "/account/desk/repricing");
-      await expect(page.getByRole("heading", { name: "Repricing", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Repricing policies", exact: true })).toBeVisible();
       await expect(page.getByRole("link", { name: policyName })).toHaveCount(0);
     } finally {
       if (policyId) {

@@ -2,8 +2,9 @@
 
 import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import type { AccountRecommendationListItem } from "../read-model/queries";
+import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { listAccountRecommendations, type AccountRecommendationListItem } from "../read-model/queries";
 import { PricingRecommendationListPage } from "./recommendation-list-page";
 
 const recommendation = {
@@ -43,6 +44,69 @@ const recommendation = {
 } satisfies AccountRecommendationListItem;
 
 describe("PricingRecommendationListPage", () => {
+  it("renders PostgreSQL-shaped recommendation rows in every status", async () => {
+    const statuses = ["proposed", "applied", "dismissed", "failed"] as const;
+    const statusRows = statuses.map((status) => ({
+      ...recommendation,
+      recommendation_id: `synthetic-8689-${status}`,
+      status,
+      market_price_amount: "388.99",
+      current_price_amount: "399.99",
+      recommended_list_amount: "388.99",
+      lowest_listing_price_amount: "0.00",
+      highest_offer_price_amount: null,
+    }));
+    const rows = [
+      ...statusRows,
+      {
+        ...statusRows[2]!,
+        recommendation_id: "synthetic-8689-null",
+        current_price_amount: null,
+        recommended_list_amount: null,
+      },
+    ];
+    const db: PgQueryable = {
+      query: vi.fn().mockImplementation(async (sql: string) => ({
+        rows: sql.includes("COUNT(*)") ? [{ count: String(rows.length) }] : rows,
+      })),
+    };
+    const result = await listAccountRecommendations(db, { accountId: recommendation.seller_account_id });
+    const rendered = parse(renderToString(<PricingRecommendationListPage recommendations={result.items} />));
+    for (const status of statuses) expect(rendered.textContent).toContain(status);
+    expect(rendered.textContent).toContain("$388.99");
+    expect(rendered.textContent).toContain("Current: $399.99");
+    expect(rendered.textContent).toContain("Lowest active: $0.00");
+    expect(rendered.textContent).toContain("Highest: Not set");
+    expect(rendered.textContent).toContain("Current: Not set");
+    expect(rendered.textContent).not.toContain("Marketplace error");
+    const dismissed = parse(
+      renderToString(
+        <PricingRecommendationListPage recommendations={result.items.filter((row) => row.status === "dismissed")} />,
+      ),
+    );
+    expect(dismissed.textContent).toContain("dismissed");
+    expect(dismissed.textContent).toContain("$388.99");
+    expect(dismissed.textContent).toContain("Current: $399.99");
+  });
+
+  it("recommendations header links to repricing policies", () => {
+    const rendered = parse(
+      renderToString(
+        <PricingRecommendationListPage
+          recommendations={[recommendation]}
+          activeJobId={null}
+          initialActiveJob={null}
+          message={null}
+          errorMessage={null}
+        />,
+      ),
+    );
+    expect(rendered.querySelector("h1")?.textContent).toBe("Recommendations");
+    const link = rendered.querySelector('a[href="/account/desk/repricing"]');
+    expect(link?.textContent).toBe("Repricing policies");
+    expect(rendered.querySelector("h1")?.textContent).not.toBe(link?.textContent);
+  });
+
   it("renders feed signals and flattens batch-control furniture", () => {
     const html = renderToString(<PricingRecommendationListPage recommendations={[recommendation]} />);
 

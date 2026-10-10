@@ -198,9 +198,16 @@ export function PricingRepricingPolicyListPage({
     <Page>
       <PageHeader
         eyebrow={t("pricing.features.repricingPolicies.ui.policyList.eyebrow")}
-        title={t("pricing.features.repricingPolicies.ui.policyList.title")}
+        title={t("pricing.features.repricingPolicies.ui.policyList.caption")}
         description={t("pricing.features.repricingPolicies.ui.policyList.description")}
-        actions={createAction}
+        actions={
+          <>
+            <LinkButton href="/account/repricing" tone="secondary">
+              {t("pricing.features.recommendations.ui.recommendationListPage.recommendations")}
+            </LinkButton>
+            {createAction}
+          </>
+        }
       />
       <Stack gap={6}>
         {errorMessage ? (
