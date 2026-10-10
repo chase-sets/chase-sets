@@ -295,6 +295,16 @@ A **Channel Outbound Operation** is one durable instruction Channels issues agai
 
 A **connection-subject Channel Outbound Operation** is a Channel Outbound Operation whose subject is the Channel Connection itself, not a Channel Listing Link. It carries no listing identity, revision or desired-state sequence, never enters an Outbound Operation Lane, listing supersession or Link writer, and shares the claimed reservation, lease, attempt, generation and settlement receipt fences. Contract: `features/outbound-sync/domain/contracts.ts`.
 
+## Channel Live Export
+
+A **Channel Live Export** (`tcgplayer-live-export`) is one connection-subject
+Channel Outbound Operation requesting one Export From Live capture and its derived
+Channel Inventory Snapshot. Channels schedules at most one unsettled export per
+paired connection on a boundary-anchored cadence. A capable connector reserves it
+alone. Complete, unknown and abandoned reports are terminal; the next due boundary
+has a new export identity. An expired unreported attempt retains its identity under
+a new claim fence. HTTP 202 proves admission only, not consumer acceptance.
+
 ## Channel Order Pull
 
 An **Order Pull Handoff** is the connector journal's durable allocation and
