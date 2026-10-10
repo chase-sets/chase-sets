@@ -74,7 +74,7 @@ class OrphanObservation(unittest.TestCase):
             self.assertEqual(classify(ready, ready), ownership.ORPHAN)
             self.assertEqual(classify(boundary, boundary), ownership.ORPHAN)
             self.assertEqual(classify(ready, boundary), ownership.AMBIGUOUS)
-            lines[name] = stimulus.observed(sample(ready), sample(boundary))
+            lines[name] = stimulus.observation_line(sample(ready), sample(boundary))
         self.assertEqual(lines['generated'],
                          'provider-boundary-owner-stimulus:observed:ready=init-pre-exec;boundary=final;generated=changed')
         self.assertEqual(lines['foreign'],
@@ -108,7 +108,14 @@ class OrphanObservation(unittest.TestCase):
             self.assertIsNone(stimulus.generated_tree(30, IMAGES))
         # Unchanged endpoints are not foreign attribution: no such state exists.
         self.assertEqual(stimulus.generated_drift(final, final), 'unchanged')
-        self.assertNotIn('foreign', stimulus.observed(final, final))
+        self.assertNotIn('foreign', stimulus.observation_line(final, final))
+
+    def test_main_never_shadows_the_observation_helpers(self):
+        # A local of the same name turned the hosted observation print into a
+        # retirement:output refusal; main must call the module helpers.
+        helpers = {'errno_name', 'image_names', 'generated_tree', 'observation_line', 'retirement_reason'}
+        self.assertEqual(helpers & set(stimulus.main.__code__.co_varnames), set())
+        self.assertTrue(helpers <= set(stimulus.main.__code__.co_names))
 
     def test_retirement_reasons_are_closed_and_keep_errno_only(self):
         cases = [

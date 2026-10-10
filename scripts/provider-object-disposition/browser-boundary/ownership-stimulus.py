@@ -80,7 +80,7 @@ def generated_drift(ready, boundary):
     return 'unchanged' if ready == boundary else 'changed'
 
 
-def observed(ready, boundary):
+def observation_line(ready, boundary):
     return (f'provider-boundary-owner-stimulus:observed:ready={tree_state(ready)};'
             f'boundary={tree_state(boundary)};generated={generated_drift(ready, boundary)}')
 
@@ -233,7 +233,7 @@ def main():
             reasons.append(retirement_reason(step, error))
         try:
             if images is not None:
-                print(observed(ready_tree, boundary_tree), flush=True)
+                print(observation_line(ready_tree, boundary_tree), flush=True)
             if reasons:
                 raise ValueError()
             print('provider-boundary-owner-stimulus:retired', flush=True)
