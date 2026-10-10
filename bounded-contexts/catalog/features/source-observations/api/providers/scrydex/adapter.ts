@@ -2392,7 +2392,7 @@ function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBa
   return {
     totalCredits:
       usedCredits !== null && remainingCredits !== null && overageCreditsConsumed === 0
-        ? usedCredits + remainingCredits
+        ? creditCount(usedCredits + remainingCredits)
         : null,
     remainingCredits,
     usedCredits,
@@ -2400,8 +2400,10 @@ function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBa
   };
 }
 
+// A credit count is a non-negative safe integer, the range a JSON number represents
+// exactly. Anything else, including a derived sum past that range, is unreported.
 function creditCount(value: JsonValue | undefined): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function scrydexCreditState(

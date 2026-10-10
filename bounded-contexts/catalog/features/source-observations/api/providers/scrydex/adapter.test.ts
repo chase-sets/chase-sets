@@ -162,6 +162,36 @@ describe("Scrydex usage snapshot boundary", () => {
     });
   });
 
+  it("leaves the allowance unreported when the derived sum is not a representable count", async () => {
+    // Synthetic range controls, not claims about real Scrydex balances: each operand is a
+    // safe integer but their sum is not, and 1e308 operands sum to Infinity.
+    const largestSafe = Number.MAX_SAFE_INTEGER;
+    const unsafeSum = usageAdapter({
+      body: syntheticUsageBody({ total_credits_consumed: largestSafe, credits_remaining: largestSafe }),
+    });
+    const overflow = usageAdapter({
+      body: syntheticUsageBody({ total_credits_consumed: 1e308, credits_remaining: 1e308 }),
+    });
+
+    const unsafeSnapshot = await unsafeSum.adapter.getUsageSnapshot();
+    expect(unsafeSnapshot).toMatchObject({
+      creditState: "available",
+      totalCredits: null,
+      remainingCredits: largestSafe,
+      usedCredits: largestSafe,
+      diagnostic: expect.stringContaining("allowance is unreported"),
+    });
+
+    const overflowSnapshot = await overflow.adapter.getUsageSnapshot();
+    for (const snapshot of [unsafeSnapshot, overflowSnapshot]) {
+      for (const count of [snapshot!.totalCredits, snapshot!.remainingCredits, snapshot!.usedCredits]) {
+        expect(count === null || Number.isSafeInteger(count)).toBe(true);
+      }
+      expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
+    }
+    expect(overflowSnapshot).toMatchObject({ creditState: "unknown", totalCredits: null, remainingCredits: null });
+  });
+
   it("reports zero remaining credits as exhausted and a tenth or less as low", async () => {
     const exhausted = usageAdapter({ body: syntheticUsageBody({ credits_remaining: 0 }) });
     const low = usageAdapter({
