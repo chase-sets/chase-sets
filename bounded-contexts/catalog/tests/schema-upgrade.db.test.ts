@@ -7,7 +7,12 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { seedContext } from "../support/seed-support/context";
+import {
+  promotionTargetIndexMigrations,
+  requirePromotionTargetIndexes,
+} from "../features/source-observations/api/promotion/promotion-target-indexes";
 import { module as catalogModule } from "../index";
 import {
   cacheKeyForProviderOptionQuery,
@@ -43,6 +48,62 @@ describeDb("catalog schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("installs promotion discovery indexes over retained bytes and repeats boot without rewriting history", async () => {
+    const pool = pools.catalog;
+    await pool.query(catalogModule.schemaSql);
+    const store = createPostgresEventStore({ pool });
+    for (const streamId of ["catalog.item-retained-a", "catalog.item-retained-b"]) {
+      await store.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context: seedContext,
+        events: [
+          {
+            eventType: "catalog.catalog-item.external-catalog-item-reference-linked",
+            payload: { providerKey: "synthetic", externalKey: "same" },
+          },
+        ],
+      });
+    }
+    const bytes = () =>
+      pool.query<{ row_json: string }>(
+        "SELECT row_to_json(e)::text AS row_json FROM event_store_events e ORDER BY global_position",
+      );
+    const before = (await bytes()).rows;
+    await expect(requirePromotionTargetIndexes(pool)).rejects.toThrow("promotion-target-index-unavailable");
+    // Duplicate retained rows force a failed concurrent build to leave an invalid
+    // owned name. The migration must repair it, not trust IF NOT EXISTS.
+    await expect(
+      pool.query(
+        "CREATE UNIQUE INDEX CONCURRENTLY catalog_promotion_item_reference_idx ON event_store_events ((payload->>'providerKey'))",
+      ),
+    ).rejects.toThrow();
+    await bootstrapContextDatabase(catalogModule, pool);
+    await requirePromotionTargetIndexes(pool);
+    expect((await bytes()).rows).toEqual(before);
+    await bootstrapContextDatabase(catalogModule, pool);
+    expect((await bytes()).rows).toEqual(before);
+    expect(
+      (
+        await pool.query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id=$1", [
+          promotionTargetIndexMigrations[0].migrationId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it("refuses a valid but wrong discovery index definition", async () => {
+    const pool = pools.catalog;
+    await bootstrapContextDatabase(catalogModule, pool);
+    await pool.query("DROP INDEX catalog_promotion_item_reference_idx");
+    await pool.query("CREATE INDEX catalog_promotion_item_reference_idx ON event_store_events (stream_id)");
+    await expect(requirePromotionTargetIndexes(pool)).rejects.toThrow("promotion-target-index-unavailable");
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id=$1", [
+      promotionTargetIndexMigrations[0].migrationId,
+    ]);
+    await expect(bootstrapContextDatabase(catalogModule, pool)).rejects.toThrow("promotion-target-index-unavailable");
+  });
 
   it("upgrades the option cache in place and round-trips completed count metadata without changing display", async () => {
     const pool = pools.catalog;

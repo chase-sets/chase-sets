@@ -1,7 +1,4 @@
 import { createHash } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -10,13 +7,9 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
-import {
-  decideCatalogItem,
-  evolveCatalogItem,
-  initialCatalogItemState,
-  type CatalogItemCommand,
-  type CatalogItemEvent,
-} from "../../catalog-items/domain/domain";
+import type { PromotionTargetSession } from "./promotion/promotion-target-exclusion";
+import { guardPromotionMaterial } from "./promotion/promotion-material-guards";
+import type { CatalogPromotionCurrentItem } from "./promotion/promotion-display-identity";
 import type { ProductContentServices } from "../../product-contents/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import {
@@ -99,6 +92,8 @@ export async function createCatalogDraftFromObservation(input: {
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
   executeCommands?: boolean;
+  targetSession?: PromotionTargetSession;
+  currentItem?: CatalogPromotionCurrentItem | null;
   /** Explicit review choice; omitted or false fails closed on a degraded identity. */
   promoteAsDraft?: boolean;
 }): Promise<CatalogItemPromotionResult> {
@@ -115,6 +110,14 @@ export async function createCatalogDraftFromObservation(input: {
     normalized: input.normalized,
     targetReferenceRecordId,
   });
+  if (input.targetSession)
+    await guardPromotionMaterial({
+      deps: input.deps,
+      session: input.targetSession,
+      profile: input.providerProfile,
+      mapping: input.catalogMapping,
+      normalized: input.normalized,
+    });
   const productAssetSet = await normalizePromotionProductAssetSet(input);
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
@@ -128,6 +131,7 @@ export async function createCatalogDraftFromObservation(input: {
       : undefined;
   const plan = await planCatalogProviderPromotionCommands({
     db: input.deps.db,
+    currentItem: input.currentItem,
     promoteAsDraft: input.promoteAsDraft === true,
     profile: input.providerProfile,
     profileKey: input.providerProfileVersion.profileKey,
@@ -160,6 +164,7 @@ export async function createCatalogDraftFromObservation(input: {
       streamId,
       plan,
       context: input.context,
+      targetSession: input.targetSession,
     });
   }
 
@@ -183,6 +188,8 @@ export async function refreshCatalogItemFromObservation(input: {
   productAssetSource?: RepresentativeCatalogProductAssetSource | null;
   context: EventStoreContext;
   executeCommands?: boolean;
+  targetSession?: PromotionTargetSession;
+  currentItem?: CatalogPromotionCurrentItem | null;
   /** Explicit review choice; omitted or false fails closed on a degraded identity. */
   promoteAsDraft?: boolean;
 }): Promise<CatalogItemPromotionResult> {
@@ -199,6 +206,14 @@ export async function refreshCatalogItemFromObservation(input: {
     normalized: input.normalized,
     targetReferenceRecordId,
   });
+  if (input.targetSession)
+    await guardPromotionMaterial({
+      deps: input.deps,
+      session: input.targetSession,
+      profile: input.providerProfile,
+      mapping: input.catalogMapping,
+      normalized: input.normalized,
+    });
   const productAssetSet = await normalizePromotionProductAssetSet(input);
   const setReferenceId =
     input.normalized.kind === "magic-card-print" ||
@@ -219,6 +234,7 @@ export async function refreshCatalogItemFromObservation(input: {
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: "refresh",
+    currentItem: input.currentItem,
     catalogItemId: input.catalogItemId,
     normalized: input.normalized,
     catalog: {
@@ -244,6 +260,7 @@ export async function refreshCatalogItemFromObservation(input: {
       streamId,
       plan,
       context: input.context,
+      targetSession: input.targetSession,
     });
   }
 
@@ -267,6 +284,8 @@ export async function previewCatalogItemPromotionPlan(input: {
   providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   promoteAsDraft: boolean;
+  productAssetSet?: ProductAssetSet | null;
+  currentItem?: CatalogPromotionCurrentItem | null;
 }): Promise<CatalogProviderPromotionCommandPlanResult> {
   const { targetReferenceRecordId } = await resolvePromotionReferenceHierarchyReadOnly({
     deps: input.deps,
@@ -288,6 +307,7 @@ export async function previewCatalogItemPromotionPlan(input: {
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: input.mode,
+    currentItem: input.currentItem,
     catalogItemId: input.catalogItemId,
     normalized: input.normalized,
     catalog: {
@@ -301,7 +321,7 @@ export async function previewCatalogItemPromotionPlan(input: {
         : undefined,
     setReferenceId: setReferenceIdFor(input.normalized, targetReferenceRecordId),
     metadata,
-    productAssetSet: null,
+    productAssetSet: input.productAssetSet ?? null,
     preflight: { status: "ready" },
   });
 }
@@ -405,41 +425,22 @@ async function executeCatalogItemPromotionCommandPlan(input: {
   streamId: string;
   plan: CatalogProviderPromotionCommandPlanResult;
   context: EventStoreContext;
+  targetSession?: PromotionTargetSession;
 }) {
   if (input.plan.status === "blocked") {
     throw new Error(input.plan.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
   }
 
   const commands = input.plan.plan.commands;
-  let completedCommands = 0;
+  if (!input.targetSession) throw new Error("promotion-target-exclusion-required");
+  const completedCommands = await input.targetSession.preparePlan(input.plan.plan);
   let expectedVersion: number | undefined;
-  if (input.plan.plan.mode === "create") {
-    const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
-    const history = (await readCompleteStream(input.eventStore, { streamId: input.streamId })).map(codec.decode);
-    expectedVersion = history.length;
-    let expectedState = initialCatalogItemState;
-    const expectedEvents: CatalogItemEvent[] = [];
-    let matched = history.length === 0;
-    for (const [index, command] of commands.entries()) {
-      const events = decideCatalogItem(expectedState, command);
-      expectedState = events.reduce(evolveCatalogItem, expectedState);
-      expectedEvents.push(...events);
-      if (history.length === expectedEvents.length && isDeepStrictEqual(history, expectedEvents)) {
-        completedCommands = index + 1;
-        matched = true;
-      }
-    }
-    if (!matched) {
-      throw new Error(`promotion-catalog-item-history-invalid:${input.streamId}`);
-    }
-  }
   for (const command of commands.slice(completedCommands)) {
-    const result = await executeCatalogItemPromotionCommand({
-      items: input.items,
+    const result = await input.targetSession.commandHandler({
       streamId: input.streamId,
       command,
-      context: input.context,
       expectedVersion,
+      context: input.context,
     });
     expectedVersion = result.version;
   }
@@ -450,21 +451,6 @@ async function executeCatalogItemPromotionCommandPlan(input: {
     }
     await input.productContents.replaceProductContents(input.plan.plan.productContents.replacement, input.context);
   }
-}
-
-async function executeCatalogItemPromotionCommand(input: {
-  items: CatalogItemServices;
-  streamId: string;
-  command: CatalogItemCommand;
-  context: EventStoreContext;
-  expectedVersion: number | undefined;
-}) {
-  return input.items.commandHandler({
-    streamId: input.streamId,
-    command: input.command,
-    context: input.context,
-    expectedVersion: input.expectedVersion,
-  });
 }
 
 async function formatCatalogItemPromotionMetadata(input: {

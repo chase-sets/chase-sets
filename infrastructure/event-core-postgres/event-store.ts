@@ -157,6 +157,11 @@ export type PostgresEventStoreConfig = Readonly<{
 
 export interface PostgresEventStore extends EventStore {
   appendToStreamInTransaction(client: PgQueryable, input: AppendToStreamInput): Promise<readonly StoredEvent[]>;
+  /** The caller owns the active transaction and must roll it back on any error. */
+  appendToStreamsInTransaction(
+    client: PgQueryable,
+    inputs: readonly AppendToStreamInput[],
+  ): Promise<readonly AppendToStreamsResult[]>;
   readStreamInTransaction(client: PgQueryable, input: ReadStreamInput): Promise<readonly StoredEvent[]>;
 }
 
@@ -330,6 +335,43 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
             );
           } catch (error) {
             throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
+          }
+        },
+      );
+    },
+    appendToStreamsInTransaction: async (client, inputs) => {
+      if (inputs.length === 0) return [];
+      assertEventPayloadSizes(inputs);
+      return observeEventStoreOperation(
+        "append_to_streams_in_transaction",
+        { event_count: inputs.reduce((count, input) => count + input.events.length, 0), event_type: "multiple" },
+        async () => {
+          try {
+            const results = await appendEventsToStreams({
+              client,
+              inputs,
+              now,
+              createEventId,
+              upsertStreamSql,
+              readCurrentVersionSql,
+              eventsTable,
+              readEventsByIdsSql,
+              updateStreamVersionSql,
+            });
+            if (wakeNotifications) {
+              for (const [index, input] of inputs.entries()) {
+                await enqueueEventStoreWakeNotificationInTransaction({
+                  client,
+                  config: wakeNotifications,
+                  input,
+                  storedEvents: results[index].storedEvents,
+                  emittedAt: now(),
+                });
+              }
+            }
+            return results;
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events in a caller-owned Postgres transaction.");
           }
         },
       );

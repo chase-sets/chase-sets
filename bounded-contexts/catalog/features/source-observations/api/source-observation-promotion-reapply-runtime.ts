@@ -2,6 +2,8 @@ import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { createHash } from "node:crypto";
+import { acquireSourceObservationTarget, promotionCurrentItem } from "./promotion/source-observation-target-exclusion";
+import { trackPromotionProfileAuthority } from "./promotion/promotion-profile-authority";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -220,13 +222,29 @@ export function createSourceObservationPromotionReapplyRuntime({
       existingCatalogItemId ??
       (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
     const sourceCatalogItemId: CatalogItemId = `cat_source_${createHash("sha256").update(input.observation.observation_id).digest("hex")}`;
-    const catalogItemId = reusableCatalogItemId ?? sourceCatalogItemId;
+    if (!deps.promotionTargetExclusion) throw new Error("promotion-target-exclusion-required");
+    const authority = trackPromotionProfileAuthority(profileVersions, providerProfileVersion, (reader) =>
+      requireCatalogPromotionProfileVersion(reader, input.observation.provider_key, normalized),
+    );
+    const targetSession = await acquireSourceObservationTarget({
+      deps,
+      boundary: deps.promotionTargetExclusion,
+      observation: input.observation,
+      profileVersions: authority.reader,
+      selectedTargetId: reusableCatalogItemId,
+      expectedBlueprintId: catalogMapping.blueprintId,
+      context: input.context,
+      validateAuthority: authority.validate,
+    });
+    const catalogItemId = targetSession.targetId as CatalogItemId;
+    const targetState = targetSession.evidence.items.get(catalogItemId)!;
     const refreshExistingItem =
-      reusableCatalogItemId !== null &&
-      (existingCatalogItemId !== null || reusableCatalogItemId !== sourceCatalogItemId);
+      targetState.id !== null && (existingCatalogItemId !== null || catalogItemId !== sourceCatalogItemId);
 
     const { referenceRecordIdsByTypeKey, ...promotionEvidence } = refreshExistingItem
       ? await refreshCatalogItemFromObservation({
+          targetSession,
+          currentItem: promotionCurrentItem(targetState),
           items,
           referenceData,
           productContents,
@@ -245,6 +263,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           promoteAsDraft: input.promoteAsDraft === true,
         })
       : await createCatalogDraftFromObservation({
+          targetSession,
           items,
           referenceData,
           productContents,
@@ -497,7 +516,30 @@ export function createSourceObservationPromotionReapplyRuntime({
       throw new Error("Promoted source observation is missing its Catalog Item.");
     }
 
+    if (!deps.promotionTargetExclusion) throw new Error("promotion-target-exclusion-required");
+    const authority = trackPromotionProfileAuthority(profileVersions, providerProfileVersion, (reader) =>
+      requireCatalogPromotionProfileVersionForReapply(
+        reader,
+        input.observation,
+        normalized,
+        input.reapplyProfileMode,
+        input.profileSnapshot ?? null,
+      ),
+    );
+    const catalogMapping = await loadCatalogItemPromotionProfile(deps, providerProfile);
+    const targetSession = await acquireSourceObservationTarget({
+      deps,
+      boundary: deps.promotionTargetExclusion,
+      observation: input.observation,
+      profileVersions: authority.reader,
+      selectedTargetId: catalogItemId,
+      expectedBlueprintId: catalogMapping.blueprintId,
+      context: input.context,
+      validateAuthority: authority.validate,
+    });
     const { referenceRecordIdsByTypeKey, ...promotionEvidence } = await refreshCatalogItemFromObservation({
+      targetSession,
+      currentItem: promotionCurrentItem(targetSession.evidence.items.get(catalogItemId)!),
       items,
       referenceData,
       productContents,
@@ -508,7 +550,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       externalKey: input.observation.external_key,
       providerProfile,
       providerProfileVersion,
-      catalogMapping: await loadCatalogItemPromotionProfile(deps, providerProfile),
+      catalogMapping,
       sourceUpdatedAt: input.observation.source_updated_at,
       observedAt: input.observation.observed_at,
       context: input.context,

@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { promotionTargetIndexMigrations } from "../../features/source-observations/api/promotion/promotion-target-indexes";
 import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
@@ -81,6 +82,7 @@ export const catalogAuthoringSchemaSql = [
 ].join("\n\n");
 
 export const catalogAuthoringSchemaMigrations = [
+  ...promotionTargetIndexMigrations,
   ...durableJobSchemaMigrations({
     jobsTable: "catalog_authoring_bulk_jobs",
   }),

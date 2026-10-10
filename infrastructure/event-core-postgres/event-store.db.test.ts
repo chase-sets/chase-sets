@@ -146,31 +146,49 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
-  it("keeps transaction-bound appends and wake notifications inside the caller's commit boundary", async () => {
-    const notificationChannel = "event_store_transaction_test";
-    const notifications: string[] = [];
-    const listener = (await schema.pool.connect()) as PgPoolClient &
-      Readonly<{ on(event: "notification", handler: (message: { payload?: string }) => void): void }>;
-    listener.on("notification", (message) => notifications.push(message.payload ?? ""));
-    await listener.query(`LISTEN ${notificationChannel}`);
-    const store = createPostgresEventStore({
-      pool: schema.pool,
-      now: () => "2026-06-28T12:00:00.000Z" as never,
-      createEventId,
-      wakeNotifications: { enabled: true, channel: notificationChannel },
-    });
-    const input = {
-      streamId: "channels.tcgplayer-sync-run-transaction",
-      expectedVersion: "no_stream" as const,
-      context: eventContext("tenant_a"),
-      events: [eventToStore("channels.tcgplayer-sync-run.transitioned", { runId: "run-transaction" })],
-    };
+  it.each(["single", "multiple"] as const)(
+    "keeps %s transaction-bound appends and wake notifications inside the caller's commit boundary",
+    async (mode) => {
+      const notificationChannel = "event_store_transaction_test";
+      const notifications: string[] = [];
+      const listener = (await schema.pool.connect()) as PgPoolClient &
+        Readonly<{ on(event: "notification", handler: (message: { payload?: string }) => void): void }>;
+      listener.on("notification", (message) => notifications.push(message.payload ?? ""));
+      await listener.query(`LISTEN ${notificationChannel}`);
+      const store = createPostgresEventStore({
+        pool: schema.pool,
+        now: () => "2026-06-28T12:00:00.000Z" as never,
+        createEventId,
+        wakeNotifications: { enabled: true, channel: notificationChannel },
+      });
+      const input = {
+        streamId: "channels.tcgplayer-sync-run-transaction",
+        expectedVersion: "no_stream" as const,
+        context: eventContext("tenant_a"),
+        events: [eventToStore("channels.tcgplayer-sync-run.transitioned", { runId: "run-transaction" })],
+      };
 
-    const rolledBack = await schema.pool.connect();
-    try {
-      await rolledBack.query("BEGIN");
-      await store.appendToStreamInTransaction(rolledBack, input);
-      await expect(rolledBack.query("SELECT 1")).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+      const rolledBack = await schema.pool.connect();
+      try {
+        await rolledBack.query("BEGIN");
+        if (mode === "single") await store.appendToStreamInTransaction(rolledBack, input);
+        else
+          await store.appendToStreamsInTransaction(rolledBack, [
+            input,
+            { ...input, streamId: "catalog.guard-empty", events: [] },
+          ]);
+        await expect(rolledBack.query("SELECT 1")).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+        await expect(
+          schema.pool.query<{ count: string }>(
+            "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
+            [input.streamId],
+          ),
+        ).resolves.toMatchObject({ rows: [{ count: "0" }] });
+        expect(notifications).toEqual([]);
+        await rolledBack.query("ROLLBACK");
+      } finally {
+        rolledBack.release();
+      }
       await expect(
         schema.pool.query<{ count: string }>(
           "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
@@ -178,36 +196,57 @@ describeDb("postgres event store real database integration", () => {
         ),
       ).resolves.toMatchObject({ rows: [{ count: "0" }] });
       expect(notifications).toEqual([]);
-      await rolledBack.query("ROLLBACK");
-    } finally {
-      rolledBack.release();
-    }
-    await expect(
-      schema.pool.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
-        [input.streamId],
-      ),
-    ).resolves.toMatchObject({ rows: [{ count: "0" }] });
-    expect(notifications).toEqual([]);
 
-    const committed = await schema.pool.connect();
-    try {
-      await committed.query("BEGIN");
-      await store.appendToStreamInTransaction(committed, input);
-      expect(notifications).toEqual([]);
-      await committed.query("COMMIT");
-    } finally {
-      committed.release();
-    }
-    await waitFor(() => notifications.length === 1);
+      const committed = await schema.pool.connect();
+      try {
+        await committed.query("BEGIN");
+        if (mode === "single") await store.appendToStreamInTransaction(committed, input);
+        else
+          await store.appendToStreamsInTransaction(committed, [
+            input,
+            { ...input, streamId: "catalog.guard-empty", events: [] },
+          ]);
+        expect(notifications).toEqual([]);
+        await committed.query("COMMIT");
+      } finally {
+        committed.release();
+      }
+      await waitFor(() => notifications.length === 1);
+      await expect(
+        schema.pool.query<{ count: string }>(
+          "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
+          [input.streamId],
+        ),
+      ).resolves.toMatchObject({ rows: [{ count: "1" }] });
+      expect(notifications).toHaveLength(1);
+      listener.release();
+    },
+  );
+
+  it("rolls back caller-owned multi-stream writes when a late zero-event guard fails", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const context = eventContext("tenant_a");
+    await store.appendToStream({
+      streamId: "catalog.guard-existing",
+      expectedVersion: 0,
+      context,
+      events: [eventToStore("catalog.guard.changed", { revision: 1 })],
+    });
     await expect(
-      schema.pool.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id=$1",
-        [input.streamId],
-      ),
-    ).resolves.toMatchObject({ rows: [{ count: "1" }] });
-    expect(notifications).toHaveLength(1);
-    listener.release();
+      withPgTransaction(schema.pool, async (client) => {
+        await store.appendToStreamsInTransaction(client, [
+          {
+            streamId: "catalog.item-new",
+            expectedVersion: 0,
+            context,
+            events: [eventToStore("catalog.item.created", { itemId: "new" })],
+          },
+          { streamId: "catalog.guard-existing", expectedVersion: 0, context, events: [] },
+        ]);
+      }),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(await store.readStream({ streamId: "catalog.item-new" })).toEqual([]);
+    expect(await store.readStream({ streamId: "catalog.guard-existing" })).toHaveLength(1);
   });
 
   it("rolls back earlier stream appends when a later stream append conflicts", async () => {
