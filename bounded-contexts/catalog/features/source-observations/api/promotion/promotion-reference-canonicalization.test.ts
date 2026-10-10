@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CatalogItemId } from "../../../../ids";
 import { normalizedObservation } from "../../../../support/test-support/source-observation-fixtures";
 import { decideCatalogItem, evolveCatalogItem, initialCatalogItemState } from "../../../catalog-items/domain/domain";
@@ -32,6 +33,7 @@ import {
   promotionReferenceExpressions,
   promotionReferenceIndexes,
   promotionReferenceKeyBoundedQueries,
+  readPromotionReferenceAccessPathReadiness,
 } from "./promotion-target-indexes";
 
 const recordCommand = {
@@ -193,6 +195,7 @@ describe("pinned promotion reference identity", () => {
       expect(create).toContain(`WHERE ${index.predicate}`);
       expect(create).not.toMatch(/UNIQUE/);
       expect(verify).toContain("i.indisvalid AND i.indisready");
+      expect(verify).toContain("AND NOT i.indisunique");
       expect(verify).toContain(`catalog-promotion-reference-index-conflict:${index.name}`);
       expect(index.definition).toMatch(/^USING (btree|gin) \(/);
       expect(index.name).toMatch(/_v1_idx$/);
@@ -219,4 +222,43 @@ describe("pinned promotion reference identity", () => {
       `btrim(payload->>'externalKey', '${promotionReferenceTrimCharacters}')`,
     );
   });
+});
+
+describe("promotion reference readiness with synthetic catalog rows", () => {
+  it.each([null, ...promotionReferenceIndexes.filter((index) => index.method === "btree").map((index) => index.name)])(
+    "requires non-unique indexes (synthetic UNIQUE conflict: %s)",
+    async (uniqueName) => {
+      const query = vi.fn<PgQueryable["query"]>();
+      query.mockResolvedValueOnce({ rows: [{ server_encoding: "UTF8", c_collation_versionless: true }] });
+      for (const _fn of promotionReferenceFunctions) {
+        query.mockResolvedValueOnce({ rows: [{ identical: true, marker: promotionReferenceFunctionMarker }] });
+      }
+      query.mockResolvedValueOnce({
+        rows: promotionReferenceIndexes.map((index) => ({
+          name: index.name,
+          indisvalid: true,
+          indisready: true,
+          indisunique: index.name === uniqueName,
+          definition: index.definition,
+        })),
+      });
+
+      const readiness = await readPromotionReferenceAccessPathReadiness({ query });
+      expect(readiness.ready).toBe(uniqueName === null);
+      expect(readiness.failures).toEqual(uniqueName === null ? [] : [`index-definition-drift:${uniqueName}`]);
+      expect(readiness.indexes).toEqual(
+        promotionReferenceIndexes.map((index) => ({
+          name: index.name,
+          installed: true,
+          indisvalid: true,
+          indisready: true,
+          identical: index.name !== uniqueName,
+          definition: index.definition,
+        })),
+      );
+      expect(query).toHaveBeenLastCalledWith(expect.stringContaining("i.indisunique"), [
+        promotionReferenceIndexes.map((index) => index.name),
+      ]);
+    },
+  );
 });

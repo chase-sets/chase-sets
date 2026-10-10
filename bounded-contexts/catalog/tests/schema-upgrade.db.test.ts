@@ -476,6 +476,48 @@ describeDb("catalog schema upgrades", () => {
     expect(await digestEvents(pool)).toEqual(before);
   });
 
+  it("refuses a valid UNIQUE B-tree with identical columns and predicate without dropping it or recording the migration", async () => {
+    const pool = pools.catalog;
+    await bootstrapContextDatabase(catalogModule, pool);
+    await appendRetainedHistory(pool);
+    const before = await digestEvents(pool);
+
+    await pool.query(`DROP INDEX ${itemIndex.name}`);
+    await pool.query(
+      `CREATE UNIQUE INDEX CONCURRENTLY ${itemIndex.name} ON event_store_events USING ${itemIndex.method} ${itemIndex.columns} WHERE ${itemIndex.predicate}`,
+    );
+    const readConflict = () =>
+      pool.query<{ oid: number; indisvalid: boolean; indisready: boolean; indisunique: boolean; definition: string }>(
+        `SELECT i.indexrelid AS oid, i.indisvalid, i.indisready, i.indisunique,
+                pg_get_indexdef(i.indexrelid) AS definition
+         FROM pg_index i WHERE i.indexrelid = to_regclass($1)`,
+        [itemIndex.name],
+      );
+    const conflict = await readConflict();
+    expect(conflict.rows).toHaveLength(1);
+    expect(conflict.rows[0]).toMatchObject({ indisvalid: true, indisready: true, indisunique: true });
+    expect(conflict.rows[0].definition).toContain("CREATE UNIQUE INDEX");
+    expect(conflict.rows[0].definition.slice(conflict.rows[0].definition.indexOf("USING "))).toBe(itemIndex.definition);
+    const drifted = await readPromotionReferenceAccessPathReadiness(pool);
+    expect(drifted.ready).toBe(false);
+    expect(drifted.failures).toEqual([`index-definition-drift:${itemIndex.name}`]);
+    expect(drifted.indexes.find((index) => index.name === itemIndex.name)).toMatchObject({
+      installed: true,
+      indisvalid: true,
+      indisready: true,
+      identical: false,
+      definition: itemIndex.definition,
+    });
+
+    await deleteAccessPathLedgerRow(pool);
+    await expect(bootstrapContextDatabase(catalogModule, pool)).rejects.toThrow(
+      `catalog-promotion-reference-index-conflict:${itemIndex.name}`,
+    );
+    expect((await readConflict()).rows).toEqual(conflict.rows);
+    expect(await readAccessPathLedgerRows(pool)).toEqual([]);
+    expect(await digestEvents(pool)).toEqual(before);
+  });
+
   it("refuses a pre-existing same-named function with another body instead of replacing it", async () => {
     const pool = pools.catalog;
     await pool.query(

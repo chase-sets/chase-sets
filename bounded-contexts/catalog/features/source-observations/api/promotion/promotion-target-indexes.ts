@@ -172,6 +172,7 @@ END $repair$`,
     SELECT 1 FROM pg_index i
     WHERE i.indexrelid = to_regclass(${sqlLiteral(index.name)})
       AND i.indrelid = to_regclass('event_store_events') AND i.indisvalid AND i.indisready
+      AND NOT i.indisunique
       AND ${indexDefinitionSql} = ${sqlLiteral(index.definition)}
   ) THEN
     RAISE EXCEPTION 'catalog-promotion-reference-index-conflict:${index.name}';
@@ -262,9 +263,10 @@ export async function readPromotionReferenceAccessPathReadiness(
       name: string;
       indisvalid: boolean;
       indisready: boolean;
+      indisunique: boolean;
       definition: string | null;
     }>(
-      `SELECT c.relname AS name, i.indisvalid, i.indisready, ${indexDefinitionSql} AS definition
+      `SELECT c.relname AS name, i.indisvalid, i.indisready, i.indisunique, ${indexDefinitionSql} AS definition
        FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
        WHERE i.indrelid = to_regclass('event_store_events') AND c.relname = ANY($1::text[])`,
       [promotionReferenceIndexes.map((index) => index.name)],
@@ -277,7 +279,7 @@ export async function readPromotionReferenceAccessPathReadiness(
         installed: row !== undefined,
         indisvalid: row?.indisvalid === true,
         indisready: row?.indisready === true,
-        identical: row?.definition === index.definition,
+        identical: row?.indisunique === false && row.definition === index.definition,
         definition: row?.definition ?? null,
       };
       indexes.push(entry);
