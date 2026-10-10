@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildScopeSyncBatchPreviewProbeReceipt,
   catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
@@ -9,6 +10,7 @@ import {
   classifyScopeSyncBatchPreviewProbeRefresh,
   classifyScopeSyncBatchPreviewProbeRequest,
   deriveScopeSyncBatchPreviewProbeRoster,
+  readScopeSyncBatchPreviewProbeDeployedRoster,
   scopeSyncBatchPreviewProbeArtifactPath,
   scopeSyncBatchPreviewProbeCredentialGate,
   scopeSyncBatchPreviewProbeFormIntent,
@@ -23,7 +25,6 @@ import {
   type ScopeSyncBatchPreview,
   type ScopeSyncBatchPreviewProbeIdentity,
   type ScopeSyncBatchPreviewProbeInboxObservation,
-  type ScopeSyncBatchPreviewProbeProfileInput,
   type ScopeSyncBatchPreviewProbeReceipt,
   type ScopeSyncBatchPreviewProbeRefreshResult,
   type ScopeSyncBatchPreviewProbeRoster,
@@ -6064,37 +6065,24 @@ function isPreviewProbeRecord(value: unknown): value is Record<string, unknown> 
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+// The daily Integrations inventory names each unit and its profile pointer; the
+// visible provider-detail route at those coordinates supplies capabilities and
+// option-query scopes.
 async function readPreviewProbeRoster(page: Page, origin: string): Promise<ScopeSyncBatchPreviewProbeRoster> {
   await page.goto(`${origin}/catalog/integrations`, { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
-  const snapshot = await readPreviewProbeRouterSnapshot(page);
-  const deployed = new Map<string, ScopeSyncBatchPreviewProbeProfileInput>();
-  for (const node of previewProbeNodes(
-    snapshot?.loaderData,
-    (candidate) =>
-      typeof candidate.providerKey === "string" &&
-      typeof candidate.profileKey === "string" &&
-      typeof candidate.profileVersion === "string" &&
-      typeof candidate.ingestionUnitKey === "string" &&
-      typeof candidate.lifecycle === "string" &&
-      typeof candidate.active === "boolean" &&
-      isPreviewProbeRecord(candidate.profile) &&
-      Array.isArray(candidate.profile.capabilities) &&
-      Array.isArray(candidate.profile.optionQueries),
-  )) {
-    const profile = node as unknown as ScopeSyncBatchPreviewProbeProfileInput;
-    deployed.set(`${profile.providerKey}\u0000${profile.profileVersion}\u0000${profile.ingestionUnitKey}`, {
-      providerKey: profile.providerKey,
-      profileKey: profile.profileKey,
-      profileVersion: profile.profileVersion,
-      ingestionUnitKey: profile.ingestionUnitKey,
-      lifecycle: profile.lifecycle,
-      active: profile.active,
-      profile: { capabilities: profile.profile.capabilities, optionQueries: profile.profile.optionQueries },
-    });
-  }
-  if (deployed.size > 0)
-    return deriveScopeSyncBatchPreviewProbeRoster([...deployed.values()], "deployed-admin-profiles");
-  // The deployed Admin did not expose profile versions: fall back to the
+  const daily = await readPreviewProbeRouterSnapshot(page);
+  const deployed = await readScopeSyncBatchPreviewProbeDeployedRoster(
+    daily?.loaderData ?? null,
+    async ({ providerKey, unitKey, profileVersion }) => {
+      const url = new URL(`${origin}/catalog/providers/${encodeURIComponent(providerKey)}`);
+      url.searchParams.set("unitKey", unitKey);
+      if (profileVersion) url.searchParams.set("profileVersion", profileVersion);
+      await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
+      return (await readPreviewProbeRouterSnapshot(page))?.loaderData ?? null;
+    },
+  );
+  if (deployed) return deployed;
+  // The deployed Admin exposed no provider inventory: fall back to the
   // registry at the admitted SHA and keep the capture incomplete.
   return deriveScopeSyncBatchPreviewProbeRoster(
     catalogProviderIntegrationProfileVersions.map((version) => ({
@@ -6293,8 +6281,15 @@ function redactPreviewProbeText(value: string, options: PreviewProbeOptions): st
 
 type SyntheticPreviewProbeRunNow = "succeeded" | "failed" | "swallowed-error";
 
+type SyntheticPreviewProbeReadModelInput = Parameters<typeof buildCatalogPrimaryWorkbenchReadModelForSurface>[1];
+type SyntheticPreviewProbeReview = SyntheticPreviewProbeReadModelInput["profileReviews"]["items"][number];
+
 type SyntheticPreviewProbeAdmin = {
-  profiles: ScopeSyncBatchPreviewProbeProfileInput[] | null;
+  // Profile reviews as the Catalog API returns them; every page renders them
+  // through the canonical read-model builders the deployed loaders call.
+  profiles: SyntheticPreviewProbeReview[] | null;
+  // Units whose provider-detail page renders without their profile.
+  omitDetailUnits: Set<string>;
   schedules: Map<string, ScopeSyncBatchPreviewProbeScheduleState>;
   runNow: Map<string, SyntheticPreviewProbeRunNow>;
   inbox: Map<string, ScopeSyncBatchPreviewProbeInboxObservation | null>;
@@ -6313,21 +6308,74 @@ function syntheticPreviewProbeProfile(
   providerKey: string,
   unitKey: string,
   scopes: readonly string[],
-  overrides: Partial<ScopeSyncBatchPreviewProbeProfileInput> = {},
-): ScopeSyncBatchPreviewProbeProfileInput {
+  overrides: Partial<SyntheticPreviewProbeReview> = {},
+): SyntheticPreviewProbeReview {
+  const capabilities = scopes.length > 0 ? ["provider-option-query"] : [];
+  const productDomain = unitKey.split(":")[1] ?? "catalog";
   return {
     providerKey,
     profileKey: `${providerKey}-synthetic`,
-    profileVersion: `${unitKey}@synthetic-1`,
+    // One version across a provider's units, so only the unitKey coordinate
+    // tells TCGplayer's five units apart on the provider-detail route.
+    profileVersion: "2026.10.09",
     ingestionUnitKey: unitKey,
+    displayName: `${providerKey} ${productDomain} synthetic`,
     lifecycle: "active",
     active: true,
+    status: "active",
+    connectorKind: "synthetic",
     profile: {
-      capabilities: scopes.length > 0 ? ["provider-option-query"] : [],
-      optionQueries: scopes.map((scope) => ({ queryKind: `${scope}-options`, scope, parentScope: null })),
-    },
+      providerKey,
+      capabilities,
+      optionQueries: scopes.map((scope) => ({
+        queryKind: `${scope}-options`,
+        displayName: `${scope} options`,
+        scope,
+        parentScope: null,
+        operation: "list-options",
+        output: { valuePath: "id", labelPath: "name" },
+      })),
+    } as unknown as SyntheticPreviewProbeReview["profile"],
+    sourceContract: {
+      owner: "chase-sets/catalog",
+      repository: "chase-sets/chase-sets",
+      commit: null,
+      documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "synthetic-v1",
+    } as unknown as SyntheticPreviewProbeReview["sourceContract"],
+    fixtures: {
+      fixtureRoot: "synthetic",
+      coveredFlows: [],
+      liveProviderCallsAllowed: false,
+    } as unknown as SyntheticPreviewProbeReview["fixtures"],
+    retirementPlan: null,
+    executableMappingContract: {} as SyntheticPreviewProbeReview["executableMappingContract"],
+    referenceCount: 0,
+    capabilities,
+    supportedScopes: [`${productDomain}/card`],
+    languageOptions: ["en"],
+    sourceOptionKinds: [],
+    mappingOutputKind: "provider-product",
+    hasExecutableMappingContract: false,
+    migrationEvidence: null,
+    authoringAudit: null,
+    validation: { status: "valid", diagnostics: [] },
     ...overrides,
   };
+}
+
+function syntheticPreviewProbeReadModel(
+  surface: "daily" | "health",
+  requestUrl: URL,
+  reviews: readonly SyntheticPreviewProbeReview[],
+) {
+  return buildCatalogPrimaryWorkbenchReadModelForSurface(surface, {
+    requestUrl,
+    scopes: { items: [], total: 0, count: 0 },
+    profileReviews: { items: [...reviews], total: reviews.length, count: reviews.length },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  } as SyntheticPreviewProbeReadModelInput);
 }
 
 function createSyntheticPreviewProbeAdmin(): SyntheticPreviewProbeAdmin {
@@ -6353,6 +6401,7 @@ function createSyntheticPreviewProbeAdmin(): SyntheticPreviewProbeAdmin {
         lifecycle: "test",
       }),
     ],
+    omitDetailUnits: new Set(),
     schedules: new Map(["tcgplayer", "tcgdex", "scrydex"].map((providerKey) => [providerKey, { ...earlier }])),
     runNow: new Map(),
     inbox: new Map(
@@ -6513,7 +6562,17 @@ async function installSyntheticPreviewProbeAdmin(page: Page, admin: SyntheticPre
         syntheticPreviewProbeDocument(
           `<h1>Pull provider data, review Source Observations, promote Catalog facts</h1>`,
           {
-            loaderData: { "catalog-integrations": admin.profiles ? { readModel: { profiles: admin.profiles } } : {} },
+            loaderData: {
+              "catalog/catalog/integrations": admin.profiles
+                ? {
+                    readModel: syntheticPreviewProbeReadModel(
+                      "daily",
+                      new URL("/catalog/integrations", url),
+                      admin.profiles,
+                    ),
+                  }
+                : {},
+            },
           },
         ),
       );
@@ -6535,6 +6594,20 @@ async function installSyntheticPreviewProbeAdmin(page: Page, admin: SyntheticPre
     if (providerMatch) {
       const providerKey = decodeURIComponent(providerMatch[1] ?? "");
       const schedule = admin.schedules.get(providerKey);
+      // The provider-detail loader seeds providerKey from the path before
+      // composing the health surface.
+      const detailUrl = new URL(url);
+      detailUrl.searchParams.set("providerKey", providerKey);
+      const omitted = admin.omitDetailUnits.has(url.searchParams.get("unitKey") ?? "");
+      const readModel = admin.profiles
+        ? syntheticPreviewProbeReadModel(
+            "health",
+            detailUrl,
+            admin.profiles.filter(
+              (profile) => !omitted || profile.ingestionUnitKey !== url.searchParams.get("unitKey"),
+            ),
+          )
+        : null;
       return html(
         syntheticPreviewProbeDocument(
           schedule
@@ -6542,7 +6615,10 @@ async function installSyntheticPreviewProbeAdmin(page: Page, admin: SyntheticPre
             : "",
           {
             loaderData: {
-              "provider-detail": { providerRefreshSchedules: schedule ? [{ providerKey, ...schedule }] : [] },
+              "catalog/catalog/providers/$providerKey": {
+                ...(readModel ? { readModel } : {}),
+                providerRefreshSchedules: schedule ? [{ providerKey, ...schedule }] : [],
+              },
             },
           },
         ),
@@ -6697,6 +6773,65 @@ test.describe("catalog staging Scope Sync Batch preview probe", () => {
     expect(row("one-piece").preview.formBudget).toMatchObject({ scrydexRequestLimit: "0", tcgdexRequestLimit: "1000" });
     expect(receipt.spendDisclosure).toMatchObject({ scrydexRefreshClicked: true, scrydexLiveCallCount: "unknown" });
     expect(receipt.rows.every((candidate) => candidate.preview.wallClock.estimate === "unknown")).toBe(true);
+    // Deployed coverage for every production-capable unit, read from the
+    // canonical daily inventory and each unit's provider-detail page.
+    expect(receipt.rows.every((candidate) => candidate.roster.source === "deployed-admin-profiles")).toBe(true);
+    expect(receipt.rows.flatMap((candidate) => candidate.roster.unresolvedUnits)).toEqual([]);
+    expect([
+      ...new Set(receipt.rows.flatMap((candidate) => candidate.roster.units.map((unit) => unit.unitKey))),
+    ]).toEqual(
+      [
+        "mtgjson:mtg:single-card:source-observation-import",
+        "scrydex:one-piece:single-card:source-observation-import",
+        "tcgdex:pokemon:single-card:source-observation-import",
+        "tcgplayer:lorcana:single-card:source-observation-import",
+        "tcgplayer:mtg:single-card:source-observation-import",
+        "tcgplayer:one-piece:single-card:source-observation-import",
+        "tcgplayer:pokemon:single-card:source-observation-import",
+        "tcgplayer:yugioh:single-card:source-observation-import",
+      ].sort(),
+    );
+    const detailReads = admin.received.filter(
+      (request) => request.method === "GET" && request.path.startsWith("/catalog/providers/"),
+    );
+    expect(detailReads.length).toBeGreaterThan(0);
+  });
+
+  test("an omitted provider-detail profile leaves its deployed unit unresolved and the capture incomplete", async ({
+    page,
+  }, testInfo) => {
+    const omittedUnit = "tcgdex:pokemon:single-card:source-observation-import";
+    const admin = createSyntheticPreviewProbeAdmin();
+    admin.omitDetailUnits.add(omittedUnit);
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    const receipt = await runScopeSyncBatchPreviewProbe(page, syntheticPreviewProbeOptions(testInfo));
+
+    const posts = admin.received.filter((request) => request.method === "POST" && request.path !== "/access/sign-in");
+    expect(posts.filter((request) => request.intent === "run-provider-refresh").map((request) => request.path)).toEqual(
+      ["/catalog/providers/scrydex", "/catalog/providers/tcgplayer"],
+    );
+    for (const rowKey of ["pokemon-en", "pokemon-ja"]) {
+      const row = receipt.rows.find((candidate) => candidate.rowKey === rowKey)!;
+      expect(row.roster.source).toBe("deployed-admin-profiles");
+      expect(row.roster.unresolvedUnits).toEqual([
+        {
+          providerKey: "tcgdex",
+          unitKey: omittedUnit,
+          productDomain: "pokemon",
+          reason: "provider-detail-profile-stale-selection",
+        },
+      ]);
+      expect(row.gaps).toContain(`roster-unresolved:${omittedUnit}`);
+    }
+    expect(receipt.captureStatus).toBe("incomplete");
+    expect(receipt.incompleteReasons).toEqual([
+      `pokemon-en:roster-unresolved:${omittedUnit}`,
+      `pokemon-ja:roster-unresolved:${omittedUnit}`,
+    ]);
+    expect(validateScopeSyncBatchPreviewProbeReceipt(receipt, syntheticPreviewProbeIdentity)).toEqual({
+      ok: true,
+      errors: [],
+    });
   });
 
   test("request fence refuses confirm, retry-unit, pause and resume; the fence-bypass control reaches the spy", async ({

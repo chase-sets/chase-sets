@@ -158,9 +158,19 @@ export type ScopeSyncBatchPreviewProbeRosterUnit = Readonly<{
   discoveryLanguages: readonly string[];
 }>;
 
+// A deployed inventory unit whose governing profile could not be read. It stays
+// an explicit unknown that keeps its row incomplete, never a silent omission.
+export type ScopeSyncBatchPreviewProbeUnresolvedUnit = Readonly<{
+  providerKey: string;
+  unitKey: string;
+  productDomain: CatalogScopeProductDomain;
+  reason: string;
+}>;
+
 export type ScopeSyncBatchPreviewProbeRoster = Readonly<{
   source: ScopeSyncBatchPreviewProbeRosterSource;
   units: readonly ScopeSyncBatchPreviewProbeRosterUnit[];
+  unresolvedUnits: readonly ScopeSyncBatchPreviewProbeUnresolvedUnit[];
   discoveryProviders: readonly string[];
 }>;
 
@@ -170,6 +180,7 @@ export type ScopeSyncBatchPreviewProbeRoster = Readonly<{
 export function deriveScopeSyncBatchPreviewProbeRoster(
   profiles: readonly ScopeSyncBatchPreviewProbeProfileInput[],
   source: ScopeSyncBatchPreviewProbeRosterSource,
+  unresolvedUnits: readonly ScopeSyncBatchPreviewProbeUnresolvedUnit[] = [],
 ): ScopeSyncBatchPreviewProbeRoster {
   const versions = profiles.map(
     (profile) =>
@@ -210,10 +221,185 @@ export function deriveScopeSyncBatchPreviewProbeRoster(
   return {
     source,
     units: sortedUnits,
+    unresolvedUnits: [...unresolvedUnits].sort((left, right) => left.unitKey.localeCompare(right.unitKey)),
     discoveryProviders: [
       ...new Set(sortedUnits.filter((unit) => unit.disposition === "discovery-target").map((unit) => unit.providerKey)),
     ].sort(),
   };
+}
+
+// --- Deployed roster -------------------------------------------------------
+
+export type ScopeSyncBatchPreviewProbeInventoryUnit = Readonly<{
+  providerKey: string;
+  unitKey: string;
+  productDomain: CatalogScopeProductDomain;
+  profileVersion: string | null;
+}>;
+
+export type ScopeSyncBatchPreviewProbeDetailCoordinates = Readonly<{
+  providerKey: string;
+  unitKey: string;
+  profileVersion: string | null;
+}>;
+
+type ProviderDetailRead =
+  | Readonly<{
+      status: "resolved";
+      profile: ScopeSyncBatchPreviewProbeProfileInput;
+      activeProfileVersion: string | null;
+    }>
+  | Readonly<{ status: "unresolved"; reason: string; activeProfileVersion: string | null }>;
+
+const probeProductDomains = new Set<string>(scopeSyncBatchPreviewProbeRows.map((row) => row.productDomain));
+
+// The daily Integrations read model (providerScope.providers[].units) lists
+// every provider unit with the profile version it currently points at. Returns
+// null when the loader data carries no provider scope.
+export function readScopeSyncBatchPreviewProbeInventory(
+  loaderData: unknown,
+): readonly ScopeSyncBatchPreviewProbeInventoryUnit[] | null {
+  const readModel = findRecord(
+    loaderData,
+    (node) =>
+      isRecord(node.providerScope) && Array.isArray(node.providerScope.providers) && isRecord(node.routeContext),
+  );
+  if (!readModel || !isRecord(readModel.providerScope)) return null;
+  const units = new Map<string, ScopeSyncBatchPreviewProbeInventoryUnit>();
+  for (const provider of arrayOf(readModel.providerScope.providers)) {
+    if (!isRecord(provider) || typeof provider.providerKey !== "string") continue;
+    for (const unit of arrayOf(provider.units)) {
+      if (!isRecord(unit) || typeof unit.unitKey !== "string") continue;
+      const productDomain = unitProductDomain(unit.unitKey);
+      if (!productDomain || !probeProductDomains.has(productDomain) || units.has(unit.unitKey)) continue;
+      const pointer = isRecord(unit.activeProfile) ? unit.activeProfile : null;
+      units.set(unit.unitKey, {
+        providerKey: provider.providerKey,
+        unitKey: unit.unitKey,
+        productDomain,
+        profileVersion: typeof pointer?.profileVersion === "string" ? pointer.profileVersion : null,
+      });
+    }
+  }
+  return [...units.values()];
+}
+
+// Reads one unit's governing profile from the visible provider-detail route
+// (profileAuthoring.selectedProfile and its provider-options workspace), opened
+// with the unit's unitKey and profileVersion coordinates.
+export function readScopeSyncBatchPreviewProbeProviderDetail(
+  loaderData: unknown,
+  coordinates: ScopeSyncBatchPreviewProbeDetailCoordinates,
+): ProviderDetailRead {
+  const readModel = findRecord(loaderData, (node) => isRecord(node.profileAuthoring) && isRecord(node.routeContext));
+  const authoring = isRecord(readModel?.profileAuthoring) ? readModel.profileAuthoring : null;
+  const active = isRecord(authoring?.activeProfile) ? authoring.activeProfile : null;
+  const activeProfileVersion = typeof active?.profileVersion === "string" ? active.profileVersion : null;
+  const unresolved = (reason: string): ProviderDetailRead => ({ status: "unresolved", reason, activeProfileVersion });
+  if (!readModel || !authoring) return unresolved("provider-detail-unreadable");
+  if (!isRecord(readModel.routeContext) || readModel.routeContext.unitKey !== coordinates.unitKey) {
+    return unresolved("provider-detail-unit-mismatch");
+  }
+  // Without a requested version the route falls back to any profile of the
+  // provider, which need not belong to this unit.
+  if (!coordinates.profileVersion) return unresolved("profile-pointer-missing");
+  if (authoring.status !== "ready") return unresolved(`provider-detail-profile-${String(authoring.status)}`);
+  const selected = isRecord(authoring.selectedProfile) ? authoring.selectedProfile : null;
+  if (
+    !selected ||
+    selected.providerKey !== coordinates.providerKey ||
+    selected.profileVersion !== coordinates.profileVersion ||
+    typeof selected.profileKey !== "string" ||
+    typeof selected.lifecycle !== "string" ||
+    typeof selected.active !== "boolean"
+  ) {
+    return unresolved("provider-detail-profile-mismatch");
+  }
+  if (!Array.isArray(selected.capabilities) || !selected.capabilities.every((value) => typeof value === "string")) {
+    return unresolved("provider-detail-capabilities-unreadable");
+  }
+  const workspace = arrayOf(authoring.sectionWorkspaces).find(
+    (candidate) => isRecord(candidate) && candidate.sectionKey === "provider-options",
+  );
+  if (!isRecord(workspace) || !Array.isArray(workspace.optionQueries)) {
+    return unresolved("provider-options-workspace-missing");
+  }
+  const optionQueries: ScopeSyncBatchPreviewProbeProfileInput["profile"]["optionQueries"][number][] = [];
+  for (const query of workspace.optionQueries) {
+    if (
+      !isRecord(query) ||
+      typeof query.queryKind !== "string" ||
+      typeof query.scope !== "string" ||
+      !(query.parentScope === null || typeof query.parentScope === "string") ||
+      typeof query.parentRequired !== "boolean"
+    ) {
+      return unresolved("provider-option-query-unreadable");
+    }
+    optionQueries.push({
+      queryKind: query.queryKind,
+      scope: query.scope,
+      parentScope: query.parentScope,
+      parentValue: { required: query.parentRequired },
+    });
+  }
+  return {
+    status: "resolved",
+    activeProfileVersion,
+    profile: {
+      providerKey: coordinates.providerKey,
+      profileKey: selected.profileKey,
+      profileVersion: selected.profileVersion,
+      ingestionUnitKey: coordinates.unitKey,
+      lifecycle: selected.lifecycle,
+      active: selected.active,
+      profile: { capabilities: selected.capabilities as string[], optionQueries },
+    },
+  };
+}
+
+// Reconciles every five-domain unit of the deployed inventory against its
+// provider detail. A unit whose pointer is not production-capable is re-read at
+// the unit's active profile; one that cannot be read stays unresolved. Returns
+// null when the inventory is unreadable or yields no unit at all.
+export async function readScopeSyncBatchPreviewProbeDeployedRoster(
+  dailyLoaderData: unknown,
+  readProviderDetail: (coordinates: ScopeSyncBatchPreviewProbeDetailCoordinates) => Promise<unknown>,
+): Promise<ScopeSyncBatchPreviewProbeRoster | null> {
+  const inventory = readScopeSyncBatchPreviewProbeInventory(dailyLoaderData);
+  if (!inventory || inventory.length === 0) return null;
+  const profiles: ScopeSyncBatchPreviewProbeProfileInput[] = [];
+  const unresolved: ScopeSyncBatchPreviewProbeUnresolvedUnit[] = [];
+  const read = async (unit: ScopeSyncBatchPreviewProbeInventoryUnit, profileVersion: string | null) => {
+    const coordinates = { providerKey: unit.providerKey, unitKey: unit.unitKey, profileVersion };
+    return readScopeSyncBatchPreviewProbeProviderDetail(await readProviderDetail(coordinates), coordinates);
+  };
+  for (const unit of inventory) {
+    let detail = await read(unit, unit.profileVersion);
+    const readVersion = detail.status === "resolved" ? detail.profile.profileVersion : null;
+    if (
+      (detail.status === "unresolved" || !isProductionProfile(detail.profile)) &&
+      detail.activeProfileVersion &&
+      detail.activeProfileVersion !== readVersion
+    ) {
+      detail = await read(unit, detail.activeProfileVersion);
+    }
+    if (detail.status === "unresolved") {
+      unresolved.push({
+        providerKey: unit.providerKey,
+        unitKey: unit.unitKey,
+        productDomain: unit.productDomain,
+        reason: detail.reason,
+      });
+    } else if (isProductionProfile(detail.profile)) {
+      profiles.push(detail.profile);
+    }
+  }
+  if (profiles.length === 0 && unresolved.length === 0) return null;
+  return deriveScopeSyncBatchPreviewProbeRoster(profiles, "deployed-admin-profiles", unresolved);
+}
+
+function isProductionProfile(profile: ScopeSyncBatchPreviewProbeProfileInput): boolean {
+  return classifyProviderProductionClass({ lifecycle: profile.lifecycle, active: profile.active }) === "production";
 }
 
 function unitProductDomain(unitKey: string): CatalogScopeProductDomain | null {
@@ -424,10 +610,15 @@ export function summarizeScopeSyncBatchPreviewProbePreview(
       : { ...empty, reason: "preview-response-unreadable" };
   }
   const preview = observation.response;
-  if (preview.previewVersion !== "scope-sync-batch-preview-v1" || !isCount(preview.counts?.scopes)) {
+  if (preview.previewVersion !== "scope-sync-batch-preview-v1") {
     return { ...empty, reason: "preview-response-unrecognized" };
   }
-  const blockers = preview.blockers ?? [];
+  // A truncated or malformed response is not a capture: its absent metrics stay
+  // explicit unknowns instead of being omitted, zero-filled or read as
+  // non-participation.
+  const missing = missingPreviewFields(preview);
+  if (missing.length > 0) return { ...empty, reason: `preview-response-missing:${missing.join(",")}` };
+  const blockers = preview.blockers;
   const blockerCounts: Record<string, number> = {};
   for (const blocker of blockers) blockerCounts[blocker.code] = (blockerCounts[blocker.code] ?? 0) + 1;
   const scopeCount = preview.counts.scopes;
@@ -477,6 +668,48 @@ export function summarizeScopeSyncBatchPreviewProbePreview(
   };
 }
 
+function missingPreviewFields(preview: Readonly<Record<string, unknown>>): string[] {
+  const counts = isRecord(preview.counts) ? preview.counts : {};
+  const checks: readonly (readonly [string, boolean])[] = [
+    ["status", ["ready", "blocked", "empty"].includes(String(preview.status))],
+    ["selection", isRecord(preview.selection) && ["matching-scope", "ids"].includes(String(preview.selection.mode))],
+    ["budget", isBudget(preview.budget)],
+    ["planFingerprint", typeof preview.planFingerprint === "string" && preview.planFingerprint.length > 0],
+    ["resolvedAt", isTimestamp(preview.resolvedAt)],
+    ["confirmAllowed", typeof preview.confirmAllowed === "boolean"],
+    ["counts.scopes", isCount(counts.scopes)],
+    ["counts.readyScopes", isCount(counts.readyScopes)],
+    ["counts.blockedScopes", isCount(counts.blockedScopes)],
+    ["counts.providerUnits", isCount(counts.providerUnits)],
+    ["providerUnitTotals", isCountMap(preview.providerUnitTotals)],
+    ["providerRequestEstimates", isCountMap(preview.providerRequestEstimates, true)],
+    [
+      "blockers",
+      Array.isArray(preview.blockers) &&
+        preview.blockers.every(
+          (blocker) =>
+            isRecord(blocker) &&
+            typeof blocker.code === "string" &&
+            typeof blocker.message === "string" &&
+            (blocker.providerKey === null || typeof blocker.providerKey === "string"),
+        ),
+    ],
+  ];
+  return checks.filter(([, valid]) => !valid).map(([field]) => field);
+}
+
+function isBudget(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isCount(value.maxScopesPerTurn) &&
+    isCount(value.defaultProviderConcurrency) &&
+    isCount(value.providerFailureThreshold) &&
+    isCountMap(value.providerConcurrency) &&
+    isCountMap(value.providerRequestLimits) &&
+    isCountMap(value.creditedProviderRequestLimits)
+  );
+}
+
 // --- Envelope --------------------------------------------------------------
 
 export type ScopeSyncBatchPreviewProbeIdentity = Readonly<{
@@ -500,6 +733,7 @@ export type ScopeSyncBatchPreviewProbeRow = ScopeSyncBatchPreviewProbeRowDefinit
     roster: Readonly<{
       source: ScopeSyncBatchPreviewProbeRosterSource | null;
       units: readonly ScopeSyncBatchPreviewProbeRosterUnit[];
+      unresolvedUnits: readonly ScopeSyncBatchPreviewProbeUnresolvedUnit[];
       discoveryProviders: readonly string[];
       languageCoverage: Readonly<{ requested: string | null; discoveryLanguages: readonly string[]; gap: boolean }>;
     }>;
@@ -543,6 +777,8 @@ export function buildScopeSyncBatchPreviewProbeReceipt(
   const rows = scopeSyncBatchPreviewProbeRows.map((definition): ScopeSyncBatchPreviewProbeRow => {
     const capture = input.captures.find((candidate) => candidate.rowKey === definition.rowKey);
     const units = input.roster?.units.filter((unit) => unit.productDomain === definition.productDomain) ?? [];
+    const unresolvedUnits =
+      input.roster?.unresolvedUnits.filter((unit) => unit.productDomain === definition.productDomain) ?? [];
     const discoveryProviders = [
       ...new Set(units.filter((unit) => unit.disposition === "discovery-target").map((unit) => unit.providerKey)),
     ].sort();
@@ -566,6 +802,8 @@ export function buildScopeSyncBatchPreviewProbeReceipt(
     const gaps = [
       ...(input.roster ? [] : ["roster-unknown"]),
       ...(input.roster?.source === "registry-at-admitted-sha" ? ["roster-not-read-from-deployed-admin"] : []),
+      ...unresolvedUnits.map((unit) => `roster-unresolved:${unit.unitKey}`),
+      ...(input.roster && units.length === 0 && unresolvedUnits.length === 0 ? ["roster-no-units"] : []),
       ...(languageGap ? [`discovery-language-gap:${definition.languageCode}`] : []),
       ...units.filter((unit) => unit.disposition === "unsupported").map((unit) => `unsupported-unit:${unit.unitKey}`),
       ...refresh
@@ -586,6 +824,7 @@ export function buildScopeSyncBatchPreviewProbeReceipt(
       roster: {
         source: input.roster?.source ?? null,
         units,
+        unresolvedUnits,
         discoveryProviders,
         languageCoverage: { requested: definition.languageCode, discoveryLanguages, gap: languageGap },
       },
@@ -633,6 +872,10 @@ export function buildScopeSyncBatchPreviewProbeReceipt(
 function captureIncompleteReasons(row: ScopeSyncBatchPreviewProbeRow): string[] {
   return [
     ...(row.roster.source === "deployed-admin-profiles" ? [] : ["roster-not-from-deployed-admin"]),
+    ...row.roster.unresolvedUnits.map((unit) => `roster-unresolved:${unit.unitKey}`),
+    ...(row.roster.source !== null && row.roster.units.length === 0 && row.roster.unresolvedUnits.length === 0
+      ? ["roster-no-units"]
+      : []),
     ...row.refresh
       .filter((result) => result.status === "unknown")
       .map((result) => `refresh-unknown:${result.providerKey}`),
@@ -646,20 +889,53 @@ function captureIncompleteReasons(row: ScopeSyncBatchPreviewProbeRow): string[] 
 
 // --- Validation ------------------------------------------------------------
 
+const previewMetricFields = [
+  "effectiveBudget",
+  "selection",
+  "confirmAllowed",
+  "planFingerprint",
+  "resolvedAt",
+  "readyScopes",
+  "blockedScopes",
+  "participatingProviderUnits",
+  "providerUnitTotals",
+  "providerRequestEstimates",
+  "blockerCounts",
+] as const satisfies readonly (keyof ScopeSyncBatchPreviewProbePreviewResult)[];
+
+const previewResultFields = [
+  ...previewMetricFields,
+  "status",
+  "reason",
+  "submitted",
+  "formBudget",
+  "eligibleScopeRecords",
+  "scrydex",
+  "blockers",
+  "blockersRecorded",
+  "wallClock",
+] as const satisfies readonly (keyof ScopeSyncBatchPreviewProbePreviewResult)[];
+
 export function validateScopeSyncBatchPreviewProbeReceipt(
   value: unknown,
   expected: Readonly<{ sha?: string; runId?: string; runAttempt?: string; forbiddenValues?: readonly string[] }> = {},
 ): Readonly<{ ok: boolean; errors: readonly string[] }> {
   const errors: string[] = [];
-  const text = JSON.stringify(value ?? null);
-  if (text.length > maxReceiptBytes) errors.push("receipt exceeds the size bound");
-  for (const forbidden of expected.forbiddenValues ?? []) {
-    if (forbidden.trim().length >= 4 && text.includes(forbidden.trim()))
-      errors.push("receipt contains a forbidden value");
-  }
-  for (const key of objectKeys(value)) {
+  if (JSON.stringify(value ?? null).length > maxReceiptBytes) errors.push("receipt exceeds the size bound");
+  // Credential values are compared with the decoded keys and values, never with
+  // encoded JSON, where escaped quotes, backslashes and control characters would
+  // hide them. Every nonblank supplied value is checked, however short.
+  const decoded = decodedReceiptText(value);
+  const forbiddenValues = (expected.forbiddenValues ?? [])
+    .flatMap((forbidden) => [forbidden, forbidden.trim()])
+    .filter((candidate) => candidate.trim().length > 0);
+  const containsForbidden = (text: string) => forbiddenValues.some((candidate) => text.includes(candidate));
+  if (decoded.texts.some(containsForbidden)) errors.push("receipt contains a forbidden value");
+  for (const key of decoded.keys) {
     if (/password|cookie|authorization|secret|token|session|rawpayload|credential/i.test(key)) {
-      errors.push(`receipt contains forbidden key '${key}'`);
+      errors.push(
+        containsForbidden(key) ? "receipt contains a forbidden key" : `receipt contains forbidden key '${key}'`,
+      );
     }
   }
   if (!isRecord(value)) return { ok: false, errors: [...errors, "receipt is not an object"] };
@@ -707,7 +983,10 @@ export function validateScopeSyncBatchPreviewProbeReceipt(
       } catch {
         unread = ["malformed-row"];
       }
-      if (unread.length > 0) errors.push(`complete capture has an unread source in row ${String(row.rowKey)}`);
+      const rowKey = scopeSyncBatchPreviewProbeRows.some((definition) => definition.rowKey === row.rowKey)
+        ? String(row.rowKey)
+        : "unknown";
+      if (unread.length > 0) errors.push(`complete capture has an unread source in row ${rowKey}`);
     }
   } else if (value.captureStatus !== "incomplete") {
     errors.push("captureStatus must be complete or incomplete");
@@ -728,7 +1007,12 @@ function validateRow(definition: ScopeSyncBatchPreviewProbeRowDefinition, row: R
     errors.push(`row ${key} coordinates do not match the probe definition`);
   }
   const roster = isRecord(row.roster) ? row.roster : null;
-  if (!roster || !Array.isArray(roster.units) || !Array.isArray(roster.discoveryProviders)) {
+  if (
+    !roster ||
+    !Array.isArray(roster.units) ||
+    !Array.isArray(roster.unresolvedUnits) ||
+    !Array.isArray(roster.discoveryProviders)
+  ) {
     errors.push(`row ${key} roster is missing`);
   }
   if (!Array.isArray(row.refresh)) errors.push(`row ${key} refresh is missing`);
@@ -754,12 +1038,32 @@ function validateRow(definition: ScopeSyncBatchPreviewProbeRowDefinition, row: R
   if (eligible.count === null && eligible.completeness !== "unknown") {
     errors.push(`row ${key} missing Scope Record count must be unknown`);
   }
-  if (["ready", "blocked", "empty"].includes(String(preview.status))) {
+  // Every metric is written explicitly; an absent field is truncation, not an unknown.
+  const absent = previewResultFields.filter((field) => !Object.hasOwn(preview, field));
+  if (absent.length > 0) errors.push(`row ${key} preview omits ${absent.join(",")}`);
+  if (["ready", "blocked", "empty", "stale"].includes(String(preview.status))) {
     if (!preview.planFingerprint || !isTimestamp(preview.resolvedAt)) {
       errors.push(`row ${key} captured preview needs planFingerprint and resolvedAt`);
     }
-  } else if (eligible.count !== null) {
-    errors.push(`row ${key} uncaptured preview reports a Scope Record count`);
+    const scrydex = isRecord(preview.scrydex) ? preview.scrydex : {};
+    const invalid = [
+      ...(isCount(eligible.count) ? [] : ["eligibleScopeRecords.count"]),
+      ...(isCount(preview.readyScopes) ? [] : ["readyScopes"]),
+      ...(isCount(preview.blockedScopes) ? [] : ["blockedScopes"]),
+      ...(isCount(preview.participatingProviderUnits) ? [] : ["participatingProviderUnits"]),
+      ...(isCountMap(preview.providerUnitTotals) ? [] : ["providerUnitTotals"]),
+      ...(isCountMap(preview.providerRequestEstimates, true) ? [] : ["providerRequestEstimates"]),
+      ...(isBudget(preview.effectiveBudget) ? [] : ["effectiveBudget"]),
+      ...(isRecord(preview.selection) ? [] : ["selection"]),
+      ...(typeof preview.confirmAllowed === "boolean" ? [] : ["confirmAllowed"]),
+      ...(typeof scrydex.participating === "boolean" ? [] : ["scrydex.participating"]),
+      ...(isCountMap(preview.blockerCounts) ? [] : ["blockerCounts"]),
+    ];
+    if (invalid.length > 0) errors.push(`row ${key} captured preview lacks ${invalid.join(",")}`);
+  } else {
+    if (eligible.count !== null) errors.push(`row ${key} uncaptured preview reports a Scope Record count`);
+    const reported = previewMetricFields.filter((field) => preview[field] !== null && preview[field] !== undefined);
+    if (reported.length > 0) errors.push(`row ${key} uncaptured preview reports ${reported.join(",")}`);
   }
   const wallClock = isRecord(preview.wallClock) ? preview.wallClock : {};
   if (wallClock.estimate !== "unknown" && !isRecord(wallClock.rate)) {
@@ -789,6 +1093,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function arrayOf(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+// Breadth-first, so a route's top-level read model wins over nested look-alikes.
+function findRecord(
+  root: unknown,
+  predicate: (node: Record<string, unknown>) => boolean,
+  maxDepth = 8,
+): Record<string, unknown> | null {
+  let level: unknown[] = [root];
+  for (let depth = 0; depth <= maxDepth && level.length > 0; depth += 1) {
+    const next: unknown[] = [];
+    for (const node of level) {
+      if (!node || typeof node !== "object") continue;
+      if (isRecord(node) && predicate(node)) return node;
+      for (const child of Object.values(node)) next.push(child);
+    }
+    level = next;
+  }
+  return null;
+}
+
 function isCount(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0;
 }
@@ -797,11 +1124,28 @@ function isTimestamp(value: unknown): boolean {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
-function objectKeys(value: unknown, keys: string[] = [], depth = 0): string[] {
-  if (depth > 12 || !value || typeof value !== "object") return keys;
-  for (const [key, child] of Object.entries(value)) {
-    if (!Array.isArray(value)) keys.push(key);
-    objectKeys(child, keys, depth + 1);
+function isCountMap(value: unknown, allowNull = false): boolean {
+  return isRecord(value) && Object.values(value).every((entry) => isCount(entry) || (allowNull && entry === null));
+}
+
+// Every object key and every string or number value at any depth, decoded.
+// Iterative, so a deeply nested receipt cannot hide a value past a depth cap.
+function decodedReceiptText(value: unknown): Readonly<{ keys: readonly string[]; texts: readonly string[] }> {
+  const keys: string[] = [];
+  const texts: string[] = [];
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string") texts.push(current);
+    else if (typeof current === "number" || typeof current === "bigint") texts.push(String(current));
+    else if (Array.isArray(current)) for (const child of current) pending.push(child);
+    else if (current && typeof current === "object") {
+      for (const [key, child] of Object.entries(current)) {
+        keys.push(key);
+        texts.push(key);
+        pending.push(child);
+      }
+    }
   }
-  return keys;
+  return { keys, texts };
 }

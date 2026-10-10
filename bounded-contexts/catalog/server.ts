@@ -82,6 +82,7 @@ export {
   classifyScopeSyncBatchPreviewProbeRefresh,
   classifyScopeSyncBatchPreviewProbeRequest,
   deriveScopeSyncBatchPreviewProbeRoster,
+  readScopeSyncBatchPreviewProbeDeployedRoster,
   scopeSyncBatchPreviewProbeArtifactPath,
   scopeSyncBatchPreviewProbeCredentialGate,
   scopeSyncBatchPreviewProbeFormIntent,
@@ -96,7 +97,6 @@ export {
 export type {
   ScopeSyncBatchPreviewProbeIdentity,
   ScopeSyncBatchPreviewProbeInboxObservation,
-  ScopeSyncBatchPreviewProbeProfileInput,
   ScopeSyncBatchPreviewProbeReceipt,
   ScopeSyncBatchPreviewProbeRefreshResult,
   ScopeSyncBatchPreviewProbeRoster,
@@ -105,3 +105,4 @@ export type {
   ScopeSyncBatchPreviewProbeScheduleState,
 } from "./features/scope-sync-batches/domain/preview-probe-receipt";
 export type { ScopeSyncBatchPreview } from "./features/scope-sync-batches/domain/batch";
+export { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./features/source-observations/ui/primary-workbench-read-model";

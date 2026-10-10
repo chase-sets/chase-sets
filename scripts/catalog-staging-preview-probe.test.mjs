@@ -8,11 +8,14 @@ import { catalogProviderIntegrationProfileVersions } from "../bounded-contexts/c
 import { catalogProviderProfileVersionIngestionUnitKey } from "../bounded-contexts/catalog/features/source-observations/api/providers/registry.ts";
 import { listProviderScopeDiscoveryTargets } from "../bounded-contexts/catalog/features/provider-scope-discovery/api/discovery-targets.ts";
 import { classifyProviderScopeDiscoveryTarget } from "../bounded-contexts/catalog/features/provider-scope-discovery/api/scope-observation-matcher.ts";
+import { listCatalogProviderProfileVersionReviews } from "../bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-review.ts";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../bounded-contexts/catalog/features/source-observations/ui/primary-workbench-read-model.ts";
 import {
   buildScopeSyncBatchPreviewProbeReceipt,
   classifyScopeSyncBatchPreviewProbeRefresh,
   classifyScopeSyncBatchPreviewProbeRequest,
   deriveScopeSyncBatchPreviewProbeRoster,
+  readScopeSyncBatchPreviewProbeDeployedRoster,
   scopeSyncBatchPreviewProbeArtifactPath,
   scopeSyncBatchPreviewProbeCredentialGate,
   scopeSyncBatchPreviewProbeFormIntent,
@@ -195,6 +198,93 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function withPreview(rowKey, previewOutcome) {
+  return receipt({
+    captures: scopeSyncBatchPreviewProbeRows.map((row) => ({
+      rowKey: row.rowKey,
+      refresh: [refreshed()],
+      inbox: inbox(),
+      preview: row.rowKey === rowKey ? previewOutcome : previewResult(),
+    })),
+  });
+}
+
+function summarizeResponse(response) {
+  return summarizeScopeSyncBatchPreviewProbePreview({
+    submitted: { productDomain: "magic", scopeKind: "set", languageCode: null },
+    formBudget: { scrydexRequestLimit: "0" },
+    response,
+    error: null,
+    renderedPlanFingerprint: "fingerprint-1",
+  });
+}
+
+function deletePath(target, path) {
+  const segments = path.split(".");
+  const last = segments.pop();
+  delete segments.reduce((node, segment) => node[segment], target)[last];
+}
+
+const previewMetricFields = [
+  "effectiveBudget",
+  "selection",
+  "confirmAllowed",
+  "planFingerprint",
+  "resolvedAt",
+  "readyScopes",
+  "blockedScopes",
+  "participatingProviderUnits",
+  "providerUnitTotals",
+  "providerRequestEstimates",
+  "blockerCounts",
+];
+
+function registryProfiles() {
+  return catalogProviderIntegrationProfileVersions.map((version) => ({
+    providerKey: version.providerKey,
+    profileKey: version.profileKey,
+    profileVersion: version.profileVersion,
+    ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+    lifecycle: version.lifecycle,
+    active: version.active,
+    profile: version.profile,
+  }));
+}
+
+// Profile reviews as the Catalog API lists them, composed by the same read-model
+// builder the deployed daily and provider-detail loaders call, then serialized
+// as the router hands loader data to the page.
+async function registryReviews() {
+  return listCatalogProviderProfileVersionReviews({
+    listProfileVersions: async () => catalogProviderIntegrationProfileVersions,
+    countProfileVersionReferences: async () => 0,
+  });
+}
+
+function surfaceLoaderData(surface, requestUrl, reviews) {
+  const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface(surface, {
+    requestUrl,
+    scopes: { items: [], total: 0, count: 0 },
+    profileReviews: { items: reviews, total: reviews.length, count: reviews.length },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  });
+  return clone({ route: { readModel } });
+}
+
+function providerDetailReader(reviews, reads, omittedUnitKey = null) {
+  return async ({ providerKey, unitKey, profileVersion }) => {
+    reads.push({ providerKey, unitKey, profileVersion });
+    const url = new URL(`${identity.origin}/catalog/providers/${encodeURIComponent(providerKey)}`);
+    url.searchParams.set("providerKey", providerKey);
+    url.searchParams.set("unitKey", unitKey);
+    if (profileVersion) url.searchParams.set("profileVersion", profileVersion);
+    const visible =
+      unitKey === omittedUnitKey ? reviews.filter((review) => review.ingestionUnitKey !== omittedUnitKey) : reviews;
+    return surfaceLoaderData("health", url, visible);
+  };
+}
+
 function temporaryDirectory() {
   const directory = mkdtempSync(join(tmpdir(), "preview-probe-"));
   temporaryDirectories.push(directory);
@@ -316,6 +406,66 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     const result = validatePreviewProbeFile({ file, env });
     expect(result.errors).toContain("receipt contains a forbidden value");
     expect(JSON.stringify(result)).not.toContain(env.CATALOG_ADMIN_E2E_PASSWORD);
+  });
+
+  it("finds credential values in decoded receipt text, so JSON escaping cannot hide them", () => {
+    const file = join(temporaryDirectory(), "preview.json");
+    const env = (password) => ({
+      GITHUB_ACTIONS: "true",
+      GITHUB_SHA: identity.sha,
+      GITHUB_RUN_ID: identity.runId,
+      GITHUB_RUN_ATTEMPT: identity.runAttempt,
+      CATALOG_ADMIN_E2E_EMAIL: "probe-admin@example.invalid",
+      CATALOG_ADMIN_E2E_PASSWORD: password,
+    });
+    const rejects = (leaked, password) => {
+      writeFileSync(file, JSON.stringify(leaked));
+      const result = validatePreviewProbeFile({ file, env: env(password) });
+      expect(result.ok, JSON.stringify(password)).toBe(false);
+      expect(result.errors).toContain("receipt contains a forbidden value");
+      const printed = JSON.stringify({ ok: result.ok, summary: result.summary, errors: result.errors }, null, 2);
+      expect(printed.includes(password) || printed.includes(JSON.stringify(password).slice(1, -1))).toBe(false);
+      return result;
+    };
+
+    // The plain control and the quote/backslash markers survive the real
+    // refusal summarizer into the receipt; all three must be refused.
+    for (const password of ["PlainProbeMarker9244", 'Quote"ProbeMarker9244', "Back\\slash\\ProbeMarker9244"]) {
+      const refused = summarizeScopeSyncBatchPreviewProbePreview({
+        submitted: { productDomain: "magic", scopeKind: "set", languageCode: null },
+        formBudget: {},
+        response: null,
+        error: `Admin rejected sign-in for ${password}`,
+        renderedPlanFingerprint: null,
+      });
+      expect(refused.reason).toContain(password);
+      const leaked = withPreview("magic", refused);
+      expect(JSON.stringify(leaked)).toContain("ProbeMarker9244");
+      rejects(leaked, password);
+    }
+    // Newline, tab and control characters are escaped in JSON too.
+    for (const password of ["New\nLine\tProbeMarker9244", "Control\u0001ProbeMarker9244"]) {
+      const leaked = clone(receipt());
+      leaked.rows[0].preview.formBudget.note = `value ${password} value`;
+      rejects(leaked, password);
+    }
+    // A marker used as a key is found, and a forbidden-looking key carrying it is never echoed.
+    const keyed = clone(receipt());
+    keyed.rows[0].preview.formBudget['Key"ProbeMarker9244'] = "1";
+    rejects(keyed, 'Key"ProbeMarker9244');
+    const secretKeyed = clone(receipt());
+    secretKeyed.rows[0].preview.formBudget['Secret"ProbeMarker9244'] = "1";
+    expect(rejects(secretKeyed, 'Secret"ProbeMarker9244').errors).toContain("receipt contains a forbidden key");
+    // Short supplied values are not exempt.
+    const short = clone(receipt());
+    short.rows[0].preview.formBudget.note = "q7";
+    rejects(short, "q7");
+
+    writeFileSync(file, JSON.stringify(receipt()));
+    expect(validatePreviewProbeFile({ file, env: env('Quote"ProbeMarker9244') })).toMatchObject({
+      ok: true,
+      errors: [],
+    });
   });
 });
 
@@ -543,6 +693,91 @@ describe("Scope Sync Batch preview probe receipt (#9244)", () => {
     );
   });
 
+  it("never emits truncated or malformed preview metrics as a complete capture", () => {
+    const required = [
+      "status",
+      "selection",
+      "budget",
+      "planFingerprint",
+      "resolvedAt",
+      "confirmAllowed",
+      "counts.scopes",
+      "counts.readyScopes",
+      "counts.blockedScopes",
+      "counts.providerUnits",
+      "providerUnitTotals",
+      "providerRequestEstimates",
+      "blockers",
+    ];
+    const expectUnknownButUploadable = (result, reason) => {
+      expect(result).toMatchObject({ status: "unknown", reason });
+      expect(result.eligibleScopeRecords).toEqual({ count: null, completeness: "unknown", zeroReason: null });
+      expect(result.scrydex).toEqual({ participating: null, requestEstimate: null, creditLimit: null, refusal: null });
+      const truncated = withPreview("magic", result);
+      expect(truncated.captureStatus).toBe("incomplete");
+      expect(truncated.incompleteReasons).toEqual(["magic:preview-unknown"]);
+      const serialized = clone(truncated).rows[0].preview;
+      for (const field of previewMetricFields) expect(serialized, field).toHaveProperty(field, null);
+      expect(validateScopeSyncBatchPreviewProbeReceipt(truncated, expectedIdentity)).toEqual({ ok: true, errors: [] });
+    };
+
+    for (const field of required) {
+      const response = preview();
+      deletePath(response, field);
+      expectUnknownButUploadable(summarizeResponse(response), `preview-response-missing:${field}`);
+    }
+    const truncated = preview();
+    delete truncated.counts.providerUnits;
+    delete truncated.providerUnitTotals;
+    delete truncated.providerRequestEstimates;
+    expectUnknownButUploadable(
+      summarizeResponse(truncated),
+      "preview-response-missing:counts.providerUnits,providerUnitTotals,providerRequestEstimates",
+    );
+    const malformed = [
+      ["counts.providerUnits", { counts: { scopes: 10, readyScopes: 10, blockedScopes: 0, providerUnits: -1 } }],
+      ["counts.readyScopes", { counts: { scopes: 10, readyScopes: "10", blockedScopes: 0, providerUnits: 20 } }],
+      ["providerUnitTotals", { providerUnitTotals: { tcgplayer: "10" } }],
+      ["providerUnitTotals", { providerUnitTotals: null }],
+      ["providerRequestEstimates", { providerRequestEstimates: [] }],
+      ["providerRequestEstimates", { providerRequestEstimates: { tcgplayer: 1.5 } }],
+      ["budget", { budget: { ...preview().budget, creditedProviderRequestLimits: { scrydex: -1 } } }],
+      ["blockers", { blockers: [{ code: "empty-selection" }] }],
+    ];
+    for (const [field, overrides] of malformed) {
+      expectUnknownButUploadable(summarizeResponse(preview(overrides)), `preview-response-missing:${field}`);
+    }
+    // An unknown Scrydex estimate inside a complete map stays an explicit null.
+    expect(previewResult({ providerRequestEstimates: { scrydex: null, tcgplayer: 10 } }).scrydex).toMatchObject({
+      participating: true,
+      requestEstimate: null,
+    });
+
+    const complete = receipt();
+    expect(validateScopeSyncBatchPreviewProbeReceipt(complete, expectedIdentity)).toEqual({ ok: true, errors: [] });
+    for (const field of ["participatingProviderUnits", "providerUnitTotals", "providerRequestEstimates"]) {
+      const omitted = clone(complete);
+      delete omitted.rows[0].preview[field];
+      expect(validateScopeSyncBatchPreviewProbeReceipt(omitted, expectedIdentity).errors).toEqual(
+        expect.arrayContaining([`row magic preview omits ${field}`]),
+      );
+      const nulled = clone(complete);
+      nulled.rows[0].preview[field] = null;
+      expect(validateScopeSyncBatchPreviewProbeReceipt(nulled, expectedIdentity).errors).toEqual([
+        `row magic captured preview lacks ${field}`,
+      ]);
+    }
+    const reported = clone(withPreview("magic", summarizeResponse(truncated)));
+    reported.rows[0].preview.providerUnitTotals = { tcgplayer: 0 };
+    expect(validateScopeSyncBatchPreviewProbeReceipt(reported, expectedIdentity).errors).toEqual([
+      "row magic uncaptured preview reports providerUnitTotals",
+    ]);
+    // A stale preview keeps its metrics and remains an uploadable incomplete receipt.
+    expect(
+      validateScopeSyncBatchPreviewProbeReceipt(withPreview("magic", previewResult({}, null)), expectedIdentity),
+    ).toEqual({ ok: true, errors: [] });
+  });
+
   it("keeps a registry-fallback roster incomplete", () => {
     const fallback = receipt({ rosterOverride: { ...roster, source: "registry-at-admitted-sha" } });
     expect(fallback.captureStatus).toBe("incomplete");
@@ -585,6 +820,82 @@ describe("Scope Sync Batch preview probe roster and fence (#9244)", () => {
         domain,
       ).toBe(true);
     }
+  });
+
+  it("derives deployed coverage of every production-capable unit from the canonical daily and provider-detail read models", async () => {
+    const reviews = await registryReviews();
+    const registry = deriveScopeSyncBatchPreviewProbeRoster(registryProfiles(), "registry-at-admitted-sha");
+    const daily = surfaceLoaderData("daily", `${identity.origin}/catalog/integrations`, reviews);
+    const reads = [];
+    const deployed = await readScopeSyncBatchPreviewProbeDeployedRoster(daily, providerDetailReader(reviews, reads));
+
+    expect(deployed.source).toBe("deployed-admin-profiles");
+    expect(deployed.unresolvedUnits).toEqual([]);
+    expect(deployed.units).toEqual(registry.units);
+    expect(deployed.discoveryProviders).toEqual(registry.discoveryProviders);
+    expect(deployed.discoveryProviders.length).toBeGreaterThan(1);
+    for (const unit of registry.units) {
+      expect(
+        reads.some((read) => read.unitKey === unit.unitKey && read.profileVersion),
+        unit.unitKey,
+      ).toBe(true);
+    }
+    // One Run now per discovered provider covers every row it serves.
+    const complete = receipt({
+      rosterOverride: deployed,
+      captures: scopeSyncBatchPreviewProbeRows.map((row) => ({
+        rowKey: row.rowKey,
+        refresh: [
+          ...new Set(
+            deployed.units
+              .filter((unit) => unit.productDomain === row.productDomain && unit.disposition === "discovery-target")
+              .map((unit) => unit.providerKey),
+          ),
+        ].map((providerKey) => refreshed(providerKey)),
+        inbox: inbox(),
+        preview: previewResult(),
+      })),
+    });
+    expect(complete.captureStatus, complete.incompleteReasons.join("; ")).toBe("complete");
+
+    // The raw-profile shape the earlier synthetic Admin invented is not a deployed inventory.
+    const rawProfiles = clone({ route: { readModel: { profiles: registryProfiles() } } });
+    expect(
+      await readScopeSyncBatchPreviewProbeDeployedRoster(rawProfiles, providerDetailReader(reviews, [])),
+    ).toBeNull();
+  });
+
+  it("keeps a deployed unit whose provider detail omits its profile unresolved and the capture incomplete", async () => {
+    const reviews = await registryReviews();
+    const registry = deriveScopeSyncBatchPreviewProbeRoster(registryProfiles(), "registry-at-admitted-sha");
+    const omitted = registry.units.find((unit) => unit.disposition === "discovery-target");
+    const daily = surfaceLoaderData("daily", `${identity.origin}/catalog/integrations`, reviews);
+    const deployed = await readScopeSyncBatchPreviewProbeDeployedRoster(
+      daily,
+      providerDetailReader(reviews, [], omitted.unitKey),
+    );
+
+    expect(deployed.unresolvedUnits).toEqual([
+      {
+        providerKey: omitted.providerKey,
+        unitKey: omitted.unitKey,
+        productDomain: omitted.productDomain,
+        reason: expect.stringMatching(/^provider-detail-profile-/),
+      },
+    ]);
+    expect(deployed.units.map((unit) => unit.unitKey)).not.toContain(omitted.unitKey);
+    const partial = receipt({ rosterOverride: deployed });
+    expect(partial.captureStatus).toBe("incomplete");
+    const omittedRows = scopeSyncBatchPreviewProbeRows.filter((row) => row.productDomain === omitted.productDomain);
+    expect(partial.incompleteReasons).toEqual(
+      expect.arrayContaining(omittedRows.map((row) => `${row.rowKey}:roster-unresolved:${omitted.unitKey}`)),
+    );
+    const forged = clone(partial);
+    forged.captureStatus = "complete";
+    forged.incompleteReasons = [];
+    expect(validateScopeSyncBatchPreviewProbeReceipt(forged, expectedIdentity).errors).toContain(
+      `complete capture has an unread source in row ${omittedRows[0].rowKey}`,
+    );
   });
 
   it("allows only preview and run-now writes and refuses every execution intent", () => {
