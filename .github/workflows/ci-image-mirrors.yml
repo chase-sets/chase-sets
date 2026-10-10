@@ -4,8 +4,11 @@ name: CI Image Mirrors
 # (scripts/ci-image-sources.json) byte-for-byte to public GHCR, then proves
 # anonymous cold pulls on a fresh runner with Docker Hub unreachable (#9230).
 # Manual and default-branch only: no inputs and no pull request trigger, and
-# packages: write exists only on the publish job. The packages start private;
-# an operator makes them public, then re-runs the failed probe job.
+# packages: write exists only on the publish job. A dispatch from any other
+# branch or a tag skips the publish job before checkout, and every job checks
+# out the default branch, so no dispatched branch's code runs beside the token.
+# The packages start private; an operator makes them public, then re-runs the
+# failed probe job.
 
 on:
   workflow_dispatch:
@@ -19,6 +22,7 @@ concurrency:
 jobs:
   publish:
     name: Publish CI image mirrors
+    if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -27,6 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          ref: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
           persist-credentials: false
 
       - name: Copy pinned sources to GHCR
@@ -52,6 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          ref: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
           persist-credentials: false
 
       - uses: ./.github/actions/block-docker-hub

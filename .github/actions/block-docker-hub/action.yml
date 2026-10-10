@@ -1,5 +1,5 @@
 name: Block Docker Hub
-description: Make Docker Hub unreachable for the rest of this job and prove it, so any remaining Hub pull fails loudly (#9230).
+description: Make Docker Hub unreachable for the rest of this job and prove it, so any remaining Hub pull fails loudly (#9230). The block is host-local (/etc/hosts); it is not a firewall for a remote daemon or a container with its own resolver.
 
 runs:
   using: composite
@@ -9,22 +9,15 @@ runs:
       run: |
         set -euo pipefail
 
-        hub_hosts=(
-          docker.io
-          index.docker.io
-          registry-1.docker.io
-          registry.hub.docker.com
-          auth.docker.io
-          production.cloudflare.docker.com
-          hub.docker.com
-        )
-        for host in "${hub_hosts[@]}"; do
-          printf '0.0.0.0 %s\n:: %s\n' "$host" "$host" | sudo tee -a /etc/hosts >/dev/null
-        done
+        # Fails closed unless the canary pull fails by dialing a block sink: a
+        # registry answer, an unavailable daemon or tool, or a timeout is never
+        # accepted as proof (scripts/ci-image-sources.mjs owns the classifier).
+        module="${GITHUB_ACTION_PATH}/../../../scripts/ci-image-sources.mjs"
+        node "$module" docker-hub-hosts | sudo tee -a /etc/hosts >/dev/null
+        node "$module" hub-block-preflight
 
         canary="docker.io/library/hello-world:latest"
-        if timeout 120 docker pull --quiet "$canary" >/dev/null 2>&1; then
-          echo "::error title=Docker Hub still reachable::${canary} pulled after blocking ${hub_hosts[*]}."
-          exit 1
-        fi
-        echo "Docker Hub is unreachable for this job; ${canary} pull was refused."
+        status=0
+        output="$(timeout --kill-after=10s 90s docker pull "$canary" 2>&1)" || status=$?
+        printf '%s\n' "$output" | node "$module" hub-block-canary --status "$status"
+        echo "Docker Hub is unreachable for this job; ${canary} pull was refused at a block sink."

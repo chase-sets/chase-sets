@@ -28,6 +28,32 @@ const manifestAccept = [
 const anonymousProbeHubCanary = "docker.io/library/hello-world:latest";
 const probeForbiddenCredentials = ["GHCR_PUBLISH_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "DOCKER_AUTH_CONFIG"];
 
+// The Hub block is host-local: these names resolve to unroutable sinks in this
+// runner's /etc/hosts. It is not a firewall for a remote daemon or for a
+// container with its own resolver; those fail the dial-evidence check instead.
+export const dockerHubHosts = [
+  "docker.io",
+  "index.docker.io",
+  "registry-1.docker.io",
+  "registry.hub.docker.com",
+  "auth.docker.io",
+  "production.cloudflare.docker.com",
+  "hub.docker.com",
+];
+const dockerHubSinks = ["0.0.0.0", "::"];
+const acceptedSinkAddresses = new Set([...dockerHubSinks, "::ffff:0.0.0.0"]);
+// timeout(1) exit statuses; the node runner maps its own timeout and a missing
+// executable onto the same codes so every caller classifies them alike.
+const timedOutStatuses = new Set([124, 137]);
+const missingToolStatus = 127;
+const hubCanaryTimeoutMs = 90_000;
+const dockerDaemonUnavailable =
+  /cannot connect to the docker daemon|is the docker daemon running|error during connect/i;
+const hubAnswered =
+  /toomanyrequests|rate limit|unauthorized|authentication required|denied|manifest unknown|not found|unexpected (?:http )?status|status code|\b(?:401|403|404|429|500|502|503|504)\b|x509|tls handshake|certificate/i;
+const blockedDial =
+  /dial tcp (?:0\.0\.0\.0|\[::\]|\[::ffff:0\.0\.0\.0\]):443: connect: (?:connection refused|network is unreachable|cannot assign requested address)/;
+
 export function isSha256Digest(value) {
   return typeof value === "string" && sha256DigestPattern.test(value);
 }
@@ -234,12 +260,19 @@ export function publisherCredentials(env) {
   return { user, token };
 }
 
-function run(command, args, { input, env } = {}) {
-  const result = spawnSync(command, args, { encoding: "utf8", input, env, maxBuffer: 16 * 1024 * 1024 });
+function run(command, args, { input, env, timeoutMs } = {}) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    input,
+    env,
+    timeout: timeoutMs,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const errorStatus = { ETIMEDOUT: 124, ENOENT: missingToolStatus }[result.error?.code] ?? -1;
   return {
-    status: result.error ? -1 : result.status,
+    status: result.error ? errorStatus : (result.status ?? 124),
     stdout: result.stdout ?? "",
-    stderr: result.stderr ?? String(result.error ?? ""),
+    stderr: result.stderr || String(result.error ?? ""),
   };
 }
 
@@ -248,11 +281,12 @@ function tail(text) {
 }
 
 // skopeo copies every child manifest and blob and refuses any digest change.
-export function skopeoCopy({ from, to, credentials }) {
+// runCommand is the process boundary; tests replace only that, not the adapter.
+export function skopeoCopy({ from, to, credentials, runCommand = run }) {
   const authDir = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? tmpdir(), "ci-image-mirror-auth-"));
   const authfile = path.join(authDir, "auth.json");
   try {
-    const login = run(
+    const login = runCommand(
       "skopeo",
       ["login", "--authfile", authfile, "--username", credentials.user, "--password-stdin", "ghcr.io"],
       { input: credentials.token },
@@ -260,7 +294,7 @@ export function skopeoCopy({ from, to, credentials }) {
     if (login.status !== 0) {
       throw new Error(`skopeo login ghcr.io failed: ${tail(login.stderr)}`);
     }
-    const copy = run("skopeo", [
+    const copy = runCommand("skopeo", [
       "copy",
       "--all",
       "--preserve-digests",
@@ -351,19 +385,100 @@ export async function publishMirrors({
   return { kind: "publish", startedAt, finishedAt: now(), sources: sources.length, rows };
 }
 
-export function probeAnonymousMirrors({ sources, env = process.env, docker, now = () => new Date().toISOString() }) {
+export function dockerHubHostsLines() {
+  return dockerHubHosts.flatMap((host) => dockerHubSinks.map((sink) => `${sink} ${host}`));
+}
+
+function resolveWithGetent(host) {
+  const result = run("getent", ["ahosts", host], { timeoutMs: 10_000 });
+  const addresses = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter(Boolean);
+  return { status: result.status, addresses: [...new Set(addresses)] };
+}
+
+// Before the canary can prove anything, the daemon must answer and every Hub
+// name must resolve only to the block sinks on this runner.
+export function dockerHubBlockPreflight({ docker, resolveHost }) {
+  const version = docker(["version", "--format", "{{.Server.Version}}"], { timeoutMs: 30_000 });
+  if (version.status === missingToolStatus) {
+    throw new Error("The docker CLI is unavailable; cannot prove Docker Hub is blocked.");
+  }
+  if (version.status !== 0 || !version.stdout.trim()) {
+    throw new Error(
+      `The Docker daemon is unavailable (exit ${version.status}: ${tail(version.stderr) || "no server version"}); cannot prove Docker Hub is blocked.`,
+    );
+  }
+  for (const host of dockerHubHosts) {
+    const resolved = resolveHost(host);
+    if (resolved.status === missingToolStatus) {
+      throw new Error(`getent is unavailable; cannot verify that ${host} resolves only to the block sinks.`);
+    }
+    const unexpected = resolved.addresses.filter((address) => !acceptedSinkAddresses.has(address));
+    if (resolved.status !== 0 || resolved.addresses.length === 0 || unexpected.length > 0) {
+      throw new Error(
+        `${host} resolves to ${JSON.stringify(resolved.addresses)} (exit ${resolved.status}), not only ${dockerHubSinks.join(" and ")}; the Docker Hub host block is not in effect.`,
+      );
+    }
+  }
+  return { daemonVersion: version.stdout.trim() };
+}
+
+// Only a failed dial to a block sink proves the block. A registry answer (rate
+// limit, auth, missing manifest), a missing daemon or tool, a timeout and any
+// unrecognized failure all fail closed rather than certify Hub as unreachable.
+export function classifyDockerHubCanaryPull({ status, output }) {
+  const diagnosis = tail(output) || "no output";
+  if (status === 0) {
+    throw new Error(
+      `Docker Hub is reachable (${anonymousProbeHubCanary} pulled); the job requires Hub to be unreachable.`,
+    );
+  }
+  if (timedOutStatuses.has(status)) {
+    throw new Error(
+      `The ${anonymousProbeHubCanary} canary pull timed out (exit ${status}) without a diagnosis; a timeout does not prove the block.`,
+    );
+  }
+  if (status === missingToolStatus) {
+    throw new Error("The docker CLI is unavailable; cannot prove Docker Hub is blocked.");
+  }
+  if (dockerDaemonUnavailable.test(output)) {
+    throw new Error(`The Docker daemon is unavailable (${diagnosis}); cannot prove Docker Hub is blocked.`);
+  }
+  if (hubAnswered.test(output)) {
+    throw new Error(
+      `Docker Hub answered the ${anonymousProbeHubCanary} canary pull (${diagnosis}); a registry response is not a network block.`,
+    );
+  }
+  const evidence = blockedDial.exec(output)?.[0];
+  if (!evidence) {
+    throw new Error(
+      `The ${anonymousProbeHubCanary} canary pull failed without dialing a block sink (exit ${status}: ${diagnosis}); refusing to certify Docker Hub as unreachable.`,
+    );
+  }
+  return { canary: anonymousProbeHubCanary, evidence };
+}
+
+export function probeAnonymousMirrors({
+  sources,
+  env = process.env,
+  docker,
+  resolveHost = resolveWithGetent,
+  now = () => new Date().toISOString(),
+}) {
   const present = probeForbiddenCredentials.filter((name) => env[name]);
   if (present.length > 0) {
     throw new Error(`The anonymous probe must run without registry credentials; found ${present.join(", ")}.`);
   }
 
   const startedAt = now();
-  const hub = docker(["pull", anonymousProbeHubCanary]);
-  if (hub.status === 0) {
-    throw new Error(
-      `Docker Hub is reachable (${anonymousProbeHubCanary} pulled); the probe requires Hub to be unreachable.`,
-    );
-  }
+  dockerHubBlockPreflight({ docker, resolveHost });
+  const canaryPull = docker(["pull", anonymousProbeHubCanary], { timeoutMs: hubCanaryTimeoutMs });
+  const hubBlock = classifyDockerHubCanaryPull({
+    status: canaryPull.status,
+    output: `${canaryPull.stdout}\n${canaryPull.stderr}`,
+  });
 
   const rows = [];
   for (const entry of sources) {
@@ -393,6 +508,7 @@ export function probeAnonymousMirrors({ sources, env = process.env, docker, now 
     startedAt,
     finishedAt: now(),
     hubCanary: anonymousProbeHubCanary,
+    hubBlockEvidence: hubBlock.evidence,
     sources: sources.length,
     rows,
   };
@@ -400,6 +516,11 @@ export function probeAnonymousMirrors({ sources, env = process.env, docker, now 
 
 export const publisherWorkflowPath = ".github/workflows/ci-image-mirrors.yml";
 const publisherJobId = "publish";
+// Job-level admission: a dispatch from any ref but the default branch skips the
+// token-bearing job before its checkout or any branch code runs.
+export const publisherAdmission =
+  "github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)";
+export const trustedCheckoutRef = "${{ format('refs/heads/{0}', github.event.repository.default_branch) }}";
 
 function grantsPackagesWrite(permissions) {
   return permissions === "write-all" || permissions?.packages === "write";
@@ -441,6 +562,26 @@ export function publisherBoundaryViolations(workflows) {
   }
   if (workflowTriggers(publisher.on).join(",") !== "workflow_dispatch") {
     violations.push(`${publisherWorkflowPath}: the publisher must trigger only on workflow_dispatch.`);
+  }
+  if (publisher.jobs?.[publisherJobId]?.if !== publisherAdmission) {
+    violations.push(
+      `${publisherWorkflowPath}: job '${publisherJobId}' must be admitted at job level by if: ${publisherAdmission}`,
+    );
+  }
+  for (const [jobId, job] of Object.entries(publisher.jobs ?? {})) {
+    const steps = job?.steps ?? [];
+    const checkouts = steps.filter((step) => step?.uses?.startsWith("actions/checkout@"));
+    const trusted = (step) => step.with?.ref === trustedCheckoutRef && step.with?.["persist-credentials"] === false;
+    if (steps[0] !== checkouts[0] || checkouts.length === 0 || !checkouts.every(trusted)) {
+      violations.push(
+        `${publisherWorkflowPath}: job '${jobId}' must first check out ref ${trustedCheckoutRef} with persist-credentials: false, and check out nothing else.`,
+      );
+    }
+    if (jobId !== publisherJobId && ![job?.needs].flat().includes(publisherJobId)) {
+      violations.push(
+        `${publisherWorkflowPath}: job '${jobId}' must need '${publisherJobId}' so its admission gates it.`,
+      );
+    }
   }
   if (publisher.on?.workflow_dispatch?.inputs) {
     violations.push(`${publisherWorkflowPath}: the publisher must not accept inputs; sources and digests are fixed.`);
@@ -487,7 +628,7 @@ function writeReceipt(receipt, receiptPath) {
       : [
           "## Anonymous cold mirror probe",
           "",
-          `Docker Hub canary \`${receipt.hubCanary}\` was unreachable.`,
+          `Docker Hub canary \`${receipt.hubCanary}\` was blocked: \`${receipt.hubBlockEvidence}\`.`,
           "",
           "| Mirror | Pulled at |",
           "|---|---|",
@@ -496,12 +637,46 @@ function writeReceipt(receipt, receiptPath) {
   appendFileSync(summaryPath, `${lines.join("\n")}\n`, "utf8");
 }
 
+const usage = [
+  "Usage: node scripts/ci-image-sources.mjs <publish|probe> --receipt <path>",
+  "       node scripts/ci-image-sources.mjs docker-hub-hosts",
+  "       node scripts/ci-image-sources.mjs hub-block-preflight",
+  "       node scripts/ci-image-sources.mjs hub-block-canary --status <exit status>  (canary pull output on stdin)",
+].join("\n");
+
+// The block-docker-hub action's steps: hosts lines, preflight, and the
+// classification of its own bounded canary pull.
+function hubBlockCommand(command, rest) {
+  if (command === "docker-hub-hosts") {
+    console.log(dockerHubHostsLines().join("\n"));
+  } else if (command === "hub-block-preflight") {
+    const { daemonVersion } = dockerHubBlockPreflight({
+      docker: (args, { timeoutMs } = {}) => run("docker", args, { timeoutMs }),
+      resolveHost: resolveWithGetent,
+    });
+    console.log(
+      `Docker daemon ${daemonVersion} answered; ${dockerHubHosts.length} Docker Hub names resolve only to block sinks.`,
+    );
+  } else {
+    const status = rest[rest.indexOf("--status") + 1];
+    if (!rest.includes("--status") || !/^\d+$/.test(status ?? "")) {
+      throw new Error(usage);
+    }
+    const { evidence } = classifyDockerHubCanaryPull({ status: Number(status), output: readFileSync(0, "utf8") });
+    console.log(`Docker Hub block verified: ${evidence}`);
+  }
+}
+
 async function main(argv) {
   const [command, ...rest] = argv;
+  if (["docker-hub-hosts", "hub-block-preflight", "hub-block-canary"].includes(command)) {
+    hubBlockCommand(command, rest);
+    return;
+  }
   const receiptIndex = rest.indexOf("--receipt");
   const receiptPath = receiptIndex >= 0 ? rest[receiptIndex + 1] : undefined;
   if (!["publish", "probe"].includes(command) || !receiptPath) {
-    throw new Error("Usage: node scripts/ci-image-sources.mjs <publish|probe> --receipt <path>");
+    throw new Error(usage);
   }
 
   const sources = loadImageSources();
@@ -510,7 +685,8 @@ async function main(argv) {
     receipt = await publishMirrors({ sources });
   } else {
     const dockerConfig = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? tmpdir(), "ci-image-mirror-docker-"));
-    const docker = (args) => run("docker", args, { env: { ...process.env, DOCKER_CONFIG: dockerConfig } });
+    const docker = (args, { timeoutMs = 600_000 } = {}) =>
+      run("docker", args, { env: { ...process.env, DOCKER_CONFIG: dockerConfig }, timeoutMs });
     receipt = probeAnonymousMirrors({ sources, docker });
   }
   writeReceipt(receipt, receiptPath);
