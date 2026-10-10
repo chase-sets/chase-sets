@@ -23,7 +23,7 @@ This step is mandatory while [#9292](https://github.com/chase-sets/chase-sets/is
    node scripts/discovery-search-identity-terms-populate.mjs --environment=production --writer-sha=<deployed-40-character-sha> --writers-upgraded --alias-search=<enabled|disabled> --authorization=<#9292-host-run-authorization-reference>
    ```
 
-   Pass `--alias-search=disabled` only when the deployed `DISCOVERY_ALIAS_SEARCH` is `disabled`, `off`, `false`, `0` or `kill`; otherwise pass `enabled`. The script refuses a mismatch with the pod's setting.
+   Pass `--alias-search=disabled` only when the deployed `DISCOVERY_ALIAS_SEARCH`, after trimming whitespace and lowercasing, is `disabled`, `off`, `false`, `0` or `kill`; otherwise pass `enabled`. The script refuses a mismatch with the pod's setting.
 
 5. Post the JSON receipt on #9292. The host verifies it against the receipt contract in `bounded-contexts/discovery/README.md`.
 
