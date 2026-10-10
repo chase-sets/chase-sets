@@ -3,6 +3,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
   BulkReviewJobServices,
+  CatalogMergeCandidateBulkJobServices,
   CatalogMergeCandidateServices,
   CatalogIntegrationEngineServices,
   ControlPlaneTelemetryServices,
@@ -36,6 +37,7 @@ export type SourceObservationRouteServices = Partial<ProviderSendWindowServices>
   SourceObservationReviewServices &
   PromotionReapplyServices &
   BulkReviewJobServices &
+  CatalogMergeCandidateBulkJobServices &
   CatalogMergeCandidateServices &
   IntegrationJobServices &
   ControlPlaneTelemetryServices;

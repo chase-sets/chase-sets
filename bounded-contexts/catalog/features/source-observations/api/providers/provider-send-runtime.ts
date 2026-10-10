@@ -50,6 +50,8 @@ export function bindCatalogProviderServices(
     reapplyObservationScope: bind(services.reapplyObservationScope),
     enqueueBulkReviewJob: bind(services.enqueueBulkReviewJob),
     processNextBulkReviewJob: bind(services.processNextBulkReviewJob),
+    enqueueCatalogMergeCandidateBulkJob: bind(services.enqueueCatalogMergeCandidateBulkJob),
+    processNextCatalogMergeCandidateBulkJob: bind(services.processNextCatalogMergeCandidateBulkJob),
     previewCatalogSyncScope: bind(services.previewCatalogSyncScope),
     enqueueCatalogSyncRun: bind(services.enqueueCatalogSyncRun),
     previewIntegrationImport: bind(services.previewIntegrationImport),

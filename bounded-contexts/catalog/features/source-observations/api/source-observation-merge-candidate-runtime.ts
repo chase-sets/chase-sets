@@ -9,6 +9,7 @@ import {
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateEvent,
   type CatalogMergeCandidateReviewSnapshot,
+  type CatalogMergeCandidateState,
 } from "../domain/catalog-merge-candidate";
 import {
   listSourceObservationsForCandidateMatching,
@@ -217,6 +218,31 @@ export function createSourceObservationMergeCandidateRuntime({
     };
   }
 
+  // Scope bulk review jobs re-check one candidate's aggregate state, then apply
+  // the review command only at the version they checked: a candidate that
+  // changes in between fails the append instead of being acted on stale.
+  async function loadCatalogMergeCandidateForReview(
+    candidateId: string,
+  ): Promise<Readonly<{ state: CatalogMergeCandidateState; version: number }>> {
+    const loaded = await catalogMergeCandidateRepository.load(catalogMergeCandidateStreamId(candidateId));
+    return { state: loaded.state, version: loaded.version };
+  }
+
+  async function applyCatalogMergeCandidateReviewAtVersion(input: {
+    candidateId: string;
+    command: CatalogMergeCandidateCommand;
+    expectedVersion: number;
+    context: EventStoreContext;
+  }): Promise<CatalogMergeCandidateState> {
+    const result = await catalogMergeCandidateCommandHandler({
+      streamId: catalogMergeCandidateStreamId(input.candidateId),
+      command: input.command,
+      expectedVersion: input.expectedVersion,
+      context: input.context,
+    });
+    return result.state;
+  }
+
   const services: CatalogMergeCandidateServices = {
     generateCatalogMergeCandidates,
     promoteCatalogMergeCandidate: (input) =>
@@ -325,6 +351,8 @@ export function createSourceObservationMergeCandidateRuntime({
     services,
     persistCatalogMergeCandidatesFromObservations,
     sourceObservationRecordToCandidateRow,
+    loadCatalogMergeCandidateForReview,
+    applyCatalogMergeCandidateReviewAtVersion,
   };
 }
 

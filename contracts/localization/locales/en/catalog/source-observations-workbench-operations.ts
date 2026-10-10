@@ -135,18 +135,19 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferRemainder": "Defer remainder",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferReason": "Defer reason",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.description":
-    "Act on every candidate in this Catalog scope at once. Promote skips candidates with conflicts, stale, or already deferred.",
+    "Review candidates across this scope, not just this page. Each action queues a job: promote ready candidates, or defer candidates with conflicts or stale data. Eligibility is checked as each candidate is processed.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.empty":
-    "No candidates in this scope yet.",
+    "No candidates match the current page filters. Scope actions still apply across the scope.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts": "Jump to conflicts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll": "Promote all ready",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll.skip":
-    "Skips {count} not ready (conflicts, stale, or deferred).",
+    "{count} on this page need review. Promotion skips candidates that are not ready.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.conflict":
-    "{count} need conflict resolution",
+    "{count} on this page need conflict resolution",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.ready":
-    "{count} ready to promote",
-  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.remainder": "{count} remaining",
+    "{count} on this page ready to promote",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.summary.remainder":
+    "{count} on this page need review",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.title": "Scope review actions",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflict.count": "{count} with conflicts",
   "catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.conflictResolution.chosenValue":

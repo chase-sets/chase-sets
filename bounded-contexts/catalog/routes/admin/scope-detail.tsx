@@ -28,6 +28,8 @@ export default function ScopeDetailRoute() {
     coverageMatrix,
     coverageMatrixFailed,
     journey,
+    candidateReviewJobs,
+    candidateReviewJobsCursor,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof scopeDetailAction>();
   const navigation = useNavigation();
@@ -52,6 +54,8 @@ export default function ScopeDetailRoute() {
       coverageMatrixFailed={coverageMatrixFailed}
       journey={journey}
       commandFeedback={commandFeedback}
+      candidateReviewJobs={candidateReviewJobs}
+      candidateReviewJobsCursor={candidateReviewJobsCursor}
     />
   );
 }
