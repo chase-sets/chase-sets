@@ -26,6 +26,11 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
   });
 
   it.each([
+    [null],
+    [false],
+    [42],
+    ["scope_base_set"],
+    [[]],
     [{ kind: "promote", scopeRecordId: "scope_base_set" }],
     [{ kind: "merge-candidate-defer", scopeRecordId: "  " }],
     [{ kind: "merge-candidate-promote" }],
@@ -78,6 +83,43 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
     expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
     expect(listActiveCatalogMergeCandidateBulkJobs).not.toHaveBeenCalled();
     expect(listCompletedCatalogMergeCandidateBulkJobs).not.toHaveBeenCalled();
+  });
+
+  it("reads failed scope jobs separately with retained errors and progress", async () => {
+    const failedJob = { ...candidateJob("job_failed", { status: "failed" }), errorMessage: "Missing work units." };
+    const listFailedCatalogMergeCandidateBulkJobs = vi.fn(async () => [failedJob]);
+    const listCompletedCatalogMergeCandidateBulkJobs = vi.fn();
+    const app = buildApp({
+      listFailedCatalogMergeCandidateBulkJobs,
+      listCompletedCatalogMergeCandidateBulkJobs,
+    } as unknown as SourceObservationRouteServices);
+    const response = await app.request(
+      "/source-observations/merge-candidate-bulk-jobs/failed?scopeRecordId=%20scope_base_set%20",
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ items: [failedJob], count: 1 });
+    expect(listFailedCatalogMergeCandidateBulkJobs).toHaveBeenCalledWith({ context, scopeRecordId: "scope_base_set" });
+    expect(listCompletedCatalogMergeCandidateBulkJobs).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "?scopeRecordId=%20"])("requires a scope for failed-job readback: %s", async (query) => {
+    const listFailedCatalogMergeCandidateBulkJobs = vi.fn();
+    const app = buildApp({ listFailedCatalogMergeCandidateBulkJobs } as unknown as SourceObservationRouteServices);
+    expect((await app.request(`/source-observations/merge-candidate-bulk-jobs/failed${query}`)).status).toBe(400);
+    expect(listFailedCatalogMergeCandidateBulkJobs).not.toHaveBeenCalled();
+  });
+
+  it("checks permission before parsing a non-object enqueue body", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn();
+    const app = buildApp(
+      { enqueueCatalogMergeCandidateBulkJob } as unknown as SourceObservationRouteServices,
+      undefined,
+      viewOnlyActor,
+    );
+    expect(
+      (await app.request("/source-observations/merge-candidate-bulk-jobs", { method: "POST", body: "null" })).status,
+    ).toBe(403);
+    expect(enqueueCatalogMergeCandidateBulkJob).not.toHaveBeenCalled();
   });
 
   it("lists a scope's active candidate jobs by scope and kind", async () => {

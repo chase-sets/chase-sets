@@ -87,11 +87,7 @@ describe("CatalogScopeBulkReviewActions", () => {
     expect(deferForm?.querySelector('input[name="bulkCandidateIds"]')).toBeNull();
 
     // The page partition only reports what this page shows; the job decides.
-    expect(
-      screen.getByText(
-        "2 on this page are not ready (conflicts, stale, or deferred); the job skips every candidate that is not ready.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText("2 on this page need review. Promotion skips candidates that are not ready.")).toBeTruthy();
     // Jump-to-conflicts is available when conflicts exist.
     expect(screen.getByText("Jump to conflicts").closest("a")).toBeTruthy();
   });
@@ -107,6 +103,17 @@ describe("CatalogScopeBulkReviewActions", () => {
 
     for (const marker of ["data-catalog-merge-candidate-bulk-promote", "data-catalog-merge-candidate-bulk-defer"]) {
       expect(container.querySelector(`[${marker}="true"]`)?.querySelector("button")).toHaveProperty("disabled", false);
+    }
+  });
+
+  it("keeps both registered scope forms enabled on an empty filtered page", () => {
+    const { container } = render(<CatalogScopeBulkReviewActions readModel={readModel([])} />);
+    for (const intent of ["candidate.promote", "candidate.defer"]) {
+      const form = container.querySelector(`input[name="_intent"][value="${intent}"]`)?.closest("form");
+      expect(form).toBeTruthy();
+      expect(form?.querySelector("button")).toHaveProperty("disabled", false);
+      expect(form?.querySelector('input[name="scopeRecordId"]')).toHaveProperty("value", "scope_base_set");
+      expect(form?.querySelector('input[name="candidateId"]')).toBeNull();
     }
   });
 
@@ -129,9 +136,11 @@ describe("CatalogScopeBulkReviewActions", () => {
     expect(promoteButton).toHaveProperty("disabled", true);
   });
 
-  it("renders an empty state when the scope has no candidates", () => {
+  it("describes an empty page without claiming the scope is empty", () => {
     render(<CatalogScopeBulkReviewActions readModel={readModel([])} />);
-    expect(screen.getByText("No candidates in this scope yet.")).toBeTruthy();
+    expect(
+      screen.getByText("No candidates match the current page filters. Scope actions still apply across the scope."),
+    ).toBeTruthy();
   });
 
   it("submits scope-level bulk review on Scope Detail when composed there", () => {

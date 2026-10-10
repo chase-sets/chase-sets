@@ -493,7 +493,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 286,
+    "count": 287,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -510,7 +510,7 @@
       "bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts": 7,
       "bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts": 2,
       "bounded-contexts/catalog/features/reference-data/api/route.ts": 2,
-      "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 1,
+      "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts": 14,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 17,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts": 1,

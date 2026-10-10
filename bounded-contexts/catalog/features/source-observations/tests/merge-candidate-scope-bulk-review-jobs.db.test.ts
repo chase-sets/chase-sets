@@ -31,6 +31,7 @@ import { buildCatalogMergeCandidateProjectionHandlers } from "../read-model/cata
 import { createSourceObservationRuntime, type CatalogMergeCandidateBulkJob } from "../api/runtime";
 import { bulkJobReasonMarker } from "../api/source-observation-merge-candidate-bulk-job-runtime";
 import { catalogMergeCandidateStreamId } from "../api/source-observation-stream-identity";
+import { listCatalogMergeCandidates } from "../read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -80,6 +81,108 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("F1: an empty English page still permits promotion of eligible Japanese scope candidates", async () => {
+    const candidates = candidateWriter(pools.catalog, eventStore);
+    await pools.catalog.query(
+      `INSERT INTO catalog_source_observations (
+        observation_id, provider_key, external_key, source_url, language_code, source_record_hash,
+        observed_at, source_profile_key, source_profile_version, source_mapping_fingerprint, normalized, source_payload
+      ) VALUES ('obs_cand_japanese', 'tcgdex', 'cand_japanese', 'https://synthetic.invalid/candidate', 'ja', 'sha256:synthetic',
+        now(), 'pokemon-tcg', '2026.06.24', 'sha256:mapping', '{}'::jsonb, '{}'::jsonb)`,
+    );
+    const candidateSnapshot = snapshot("cand_japanese");
+    await candidates.create("cand_japanese", {
+      ...candidateSnapshot,
+      identity: { ...candidateSnapshot.identity, languageCode: "ja" },
+    });
+    const page = await listCatalogMergeCandidates(pools.catalog, { scopeRecordId, language: "en", limit: 25 });
+    expect(page.items).toEqual([]);
+    const japanesePage = await listCatalogMergeCandidates(pools.catalog, { scopeRecordId, language: "ja", limit: 25 });
+    expect(japanesePage.items.map((candidate) => candidate.candidate_id)).toEqual(["cand_japanese"]);
+    const job = await runtime.enqueueCatalogMergeCandidateBulkJob({
+      kind: "merge-candidate-promote",
+      scopeRecordId,
+      context,
+    });
+    await drainWorker(runtime);
+    expect(await requireJob(runtime, job.jobId)).toMatchObject({
+      status: "completed",
+      result: { requested: 1, promoted: 1 },
+    });
+    expect((await candidates.load("cand_japanese")).status).toBe("promoted");
+  });
+
+  it("F3: filters active jobs before the 50-row limit and retains a bounded matching window", async () => {
+    for (let index = 0; index < 60; index += 1) {
+      await runtime.enqueueCatalogMergeCandidateBulkJob({
+        kind: "merge-candidate-promote",
+        scopeRecordId: index % 2 === 0 ? "scope_foreign" : scopeRecordId,
+        context:
+          index % 2 === 0
+            ? context
+            : { ...context, audit: { ...context.audit, performedByUserId: "usr_foreign" as never } },
+      });
+    }
+    const matching = await runtime.enqueueCatalogMergeCandidateBulkJob({
+      kind: "merge-candidate-promote",
+      scopeRecordId,
+      context,
+    });
+    expect(
+      (await runtime.listActiveCatalogMergeCandidateBulkJobs({ scopeRecordId, context })).map((job) => job.jobId),
+    ).toEqual([matching.jobId]);
+    for (let index = 0; index < 50; index += 1) {
+      await runtime.enqueueCatalogMergeCandidateBulkJob({ kind: "merge-candidate-promote", scopeRecordId, context });
+    }
+    const page = await runtime.listActiveCatalogMergeCandidateBulkJobs({ scopeRecordId, context });
+    expect(page).toHaveLength(50);
+    expect(page[0]?.jobId).toBe(matching.jobId);
+    expect(page.every((job) => job.scopeRecordId === scopeRecordId && job.kind === "merge-candidate-promote")).toBe(
+      true,
+    );
+  });
+
+  it("F2: failed readback stays scope/operator isolated and bounded without joining completed pages", async () => {
+    const candidates = candidateWriter(pools.catalog, eventStore);
+    await candidates.create("cand_missing", snapshot("cand_missing"));
+    const matchingIds: string[] = [];
+    for (let index = 0; index < 51; index += 1) {
+      const job = await runtime.enqueueCatalogMergeCandidateBulkJob({
+        kind: "merge-candidate-promote",
+        scopeRecordId,
+        context,
+      });
+      matchingIds.push(job.jobId);
+    }
+    const foreignInputs = [
+      { scopeRecordId: "scope_foreign", context },
+      { scopeRecordId, context: { ...context, tenantId: "tnt_foreign" as never } },
+      { scopeRecordId, context: { ...context, audit: { ...context.audit, forAccountId: "acc_foreign" as never } } },
+      {
+        scopeRecordId,
+        context: { ...context, audit: { ...context.audit, performedByUserId: "usr_foreign" as never } },
+      },
+    ];
+    for (const input of foreignInputs) {
+      await runtime.enqueueCatalogMergeCandidateBulkJob({ kind: "merge-candidate-promote", ...input });
+    }
+    await pools.catalog.query(
+      `UPDATE catalog_source_observation_bulk_review_jobs SET status = 'failed', error_message = 'Synthetic lost units.', progress = jsonb_set(progress, '{phase}', '"failed"'::jsonb)`,
+    );
+    const failed = await runtime.listFailedCatalogMergeCandidateBulkJobs({ scopeRecordId, context });
+    expect(failed).toHaveLength(50);
+    expect(failed.every((job) => matchingIds.includes(job.jobId))).toBe(true);
+    expect(failed[0]).toMatchObject({
+      status: "failed",
+      errorMessage: "Synthetic lost units.",
+      progress: { completed: 0, total: 1 },
+    });
+    expect((await runtime.listCompletedCatalogMergeCandidateBulkJobs({ scopeRecordId, context })).items).toEqual([]);
+    expect(await runtime.listActiveCatalogMergeCandidateBulkJobs({ scopeRecordId, context })).toEqual([]);
+    const foreignContext = foreignInputs[3]!.context;
+    expect(await runtime.getCatalogMergeCandidateBulkJob(matchingIds[0]!, foreignContext)).toBeNull();
   });
 
   it("AC1: one submit promotes all 120 ready candidates and leaves the 5 has-conflicts candidates unchanged", async () => {

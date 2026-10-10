@@ -251,11 +251,14 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      kind?: unknown;
-      scopeRecordId?: unknown;
-      reason?: unknown;
-    };
+    const parsed: unknown = await c.req.json().catch(() => null);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid") },
+        400,
+      );
+    }
+    const body = parsed as Record<string, unknown>;
     const scopeRecordId = typeof body.scopeRecordId === "string" ? body.scopeRecordId.trim() : "";
     if (!isCatalogMergeCandidateBulkJobKind(body.kind) || !scopeRecordId) {
       return c.json(
@@ -272,6 +275,25 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     });
 
     return c.json(job, 202);
+  });
+
+  app.get("/merge-candidate-bulk-jobs/failed", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+    const scopeRecordId = c.req.query("scopeRecordId")?.trim();
+    if (!scopeRecordId) {
+      return c.json(
+        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.failed.scope.required") },
+        400,
+      );
+    }
+    const items = await services.listFailedCatalogMergeCandidateBulkJobs({
+      context: c.get("context"),
+      scopeRecordId,
+    });
+    return c.json({ items, count: items.length });
   });
 
   // Unfiltered, this lists active observation bulk jobs exactly as before. The

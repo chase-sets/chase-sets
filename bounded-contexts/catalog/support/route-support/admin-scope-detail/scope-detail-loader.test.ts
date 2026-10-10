@@ -151,7 +151,14 @@ describe("Catalog scope-detail route loader", () => {
     expect(routeData.languageEditionAliasReviewFailed).toBe(true);
   });
 
-  it("loads the scope's candidate review jobs, following the completed-jobs cursor from the URL", async () => {
+  it("reloads failed scope jobs separately while following only the completed-jobs cursor", async () => {
+    const failedJob = {
+      jobId: "job_failed",
+      status: "failed",
+      progress: { completed: 0, total: 1 },
+      errorMessage: "Missing work units.",
+    };
+    const listFailedCatalogMergeCandidateBulkJobs = vi.fn().mockResolvedValue({ items: [failedJob] });
     const listCatalogMergeCandidateBulkJobs = vi.fn(async (input: { status: string }) =>
       input.status === "completed"
         ? { items: [{ jobId: "job_completed" }], cursor: "cursor_older" }
@@ -160,6 +167,7 @@ describe("Catalog scope-detail route loader", () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({
       getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
       listCatalogMergeCandidateBulkJobs,
+      listFailedCatalogMergeCandidateBulkJobs,
     });
 
     const routeData = await runLoader(
@@ -178,8 +186,10 @@ describe("Catalog scope-detail route loader", () => {
       cursor: "cursor_page_2",
     });
     expect(routeData.candidateReviewJobsCursor).toBe("cursor_page_2");
+    expect(listFailedCatalogMergeCandidateBulkJobs).toHaveBeenCalledWith("scope_expansion_paldean_fates");
     expect(routeData.candidateReviewJobs).toEqual({
       active: [{ jobId: "job_running" }],
+      failedJobs: [failedJob],
       completed: { items: [{ jobId: "job_completed" }], cursor: "cursor_older" },
       failed: false,
     });
@@ -196,7 +206,12 @@ describe("Catalog scope-detail route loader", () => {
     );
 
     expect(routeData.scope.name).toBe("Paldean Fates");
-    expect(routeData.candidateReviewJobs).toEqual({ active: [], completed: { items: [] }, failed: true });
+    expect(routeData.candidateReviewJobs).toEqual({
+      active: [],
+      failedJobs: [],
+      completed: { items: [] },
+      failed: true,
+    });
   });
 
   it("resolves canManageAliases to false when the actor lacks catalog.manage", async () => {

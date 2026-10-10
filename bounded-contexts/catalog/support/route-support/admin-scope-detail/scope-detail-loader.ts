@@ -82,7 +82,7 @@ async function loadCandidateReviewJobs(
   cursor: string | null,
 ): Promise<CatalogScopeCandidateReviewJobs> {
   try {
-    const [active, completed] = await Promise.all([
+    const [active, completed, failedJobs] = await Promise.all([
       api.listCatalogMergeCandidateBulkJobs<Readonly<{ items: readonly CatalogMergeCandidateBulkJob[] }>>({
         scopeRecordId,
         status: "active",
@@ -92,14 +92,18 @@ async function loadCandidateReviewJobs(
         status: "completed",
         cursor,
       }),
+      api.listFailedCatalogMergeCandidateBulkJobs<Readonly<{ items: readonly CatalogMergeCandidateBulkJob[] }>>(
+        scopeRecordId,
+      ),
     ]);
     return {
       active: active.items,
+      failedJobs: failedJobs.items,
       completed: completed.cursor ? { items: completed.items, cursor: completed.cursor } : { items: completed.items },
       failed: false,
     };
   } catch {
-    return { active: [], completed: { items: [] }, failed: true };
+    return { active: [], failedJobs: [], completed: { items: [] }, failed: true };
   }
 }
 

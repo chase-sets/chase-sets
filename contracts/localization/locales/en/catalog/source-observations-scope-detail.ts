@@ -5,30 +5,34 @@ export const catalogSourceObservationsScopeDetailEnglishTranslations = {
     "Run this scope's whole journey — language editions, import, review, and promotion — in place.",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.title": "Candidate review jobs",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.description":
-    "Scope-wide promote and defer jobs: active jobs with their progress, then completed jobs newest first with their counts and promoted Catalog Items.",
-  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.empty.title": "No candidate review jobs yet",
+    "Track your promote and defer jobs for this scope. Shows up to 50 active jobs, the latest 50 failed jobs, and completed jobs newest first.",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.empty.title":
+    "No candidate review jobs to show",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.empty.description":
-    "Promote all ready or defer the remainder to queue a job for this scope.",
+    "Use Promote all ready or Defer remainder to start a job for this scope.",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.unavailable.title":
     "Candidate review jobs could not be loaded",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.unavailable.description":
-    "Reload the page to try again. Queued jobs keep running.",
+    "Reload the page to try again. This does not cancel submitted jobs.",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.column.job": "Job",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.column.status": "Status",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.column.counts": "Outcome",
-  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.column.catalogItems":
-    "Promoted Catalog Items",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.column.catalogItems": "Linked Catalog Items",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.kind.promote": "Promote all ready",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.kind.defer": "Defer remainder",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.progress":
-    "{completed} of {total} candidates",
+    "{completed} of {total} candidates processed",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts":
     "{promoted} promoted · {deferred} deferred · {skipped} skipped · {failed} failed",
-  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts.pending":
-    "Counts appear when the job finishes.",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts.pending": "No outcome counts yet.",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts.unavailable":
+    "No outcome counts recorded.",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.failure.title": "Job failed",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.failure.unknown":
+    "No error details were recorded.",
   "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.catalogItems.none": "None",
-  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.nextPage": "Older jobs",
-  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.firstPage": "Newest jobs",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.nextPage": "Older completed jobs",
+  "catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.firstPage": "Newest completed jobs",
   "catalog.features.sourceObservations.ui.scopeDetail.journey.title": "Scope journey",
   "catalog.features.sourceObservations.ui.scopeDetail.journey.description":
     "Coverage, sync, live jobs, candidate review, and promotion for this scope — from registry record to promoted draft Catalog Items.",

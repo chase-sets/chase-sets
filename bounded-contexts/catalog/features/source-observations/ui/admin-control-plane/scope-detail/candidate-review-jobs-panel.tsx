@@ -26,6 +26,7 @@ export function candidateReviewJobsPageHref(scopeHref: string, cursor: string): 
 
 export type CatalogScopeCandidateReviewJobs = Readonly<{
   active: readonly CatalogMergeCandidateBulkJob[];
+  failedJobs: readonly CatalogMergeCandidateBulkJob[];
   completed: CatalogMergeCandidateBulkJobPage;
   failed: boolean;
 }>;
@@ -50,7 +51,7 @@ export function CatalogScopeCandidateReviewJobsPanel({
   nextPageHref,
   firstPageHref,
 }: CatalogScopeCandidateReviewJobsPanelProps) {
-  const rows = [...jobs.active, ...jobs.completed.items];
+  const rows = [...jobs.active, ...jobs.failedJobs, ...jobs.completed.items];
 
   return (
     <WorkflowModule
@@ -111,6 +112,16 @@ const candidateReviewJobColumns: DataColumn<CatalogMergeCandidateBulkJob>[] = [
         <WorkbenchText size="xs" tone="secondary">
           {job.jobId}
         </WorkbenchText>
+        {job.status === "failed" ? (
+          <Banner
+            tone="danger"
+            title={t("catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.failure.title")}
+            description={
+              job.errorMessage ??
+              t("catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.failure.unknown")
+            }
+          />
+        ) : null}
       </WorkbenchStack>
     ),
   },
@@ -144,7 +155,9 @@ const candidateReviewJobColumns: DataColumn<CatalogMergeCandidateBulkJob>[] = [
         </WorkbenchText>
       ) : (
         <WorkbenchText size="sm" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts.pending")}
+          {job.status === "failed"
+            ? t("catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts.unavailable")
+            : t("catalog.features.sourceObservations.ui.scopeDetail.candidateReviewJobs.counts.pending")}
         </WorkbenchText>
       ),
   },

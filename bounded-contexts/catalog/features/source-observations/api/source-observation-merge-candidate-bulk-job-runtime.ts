@@ -368,11 +368,43 @@ export function createSourceObservationMergeCandidateBulkJobRuntime({
     scopeRecordId?: string | null;
     kind?: CatalogMergeCandidateBulkJobKind | null;
   }): Promise<readonly CatalogMergeCandidateBulkJob[]> {
-    const scopeRecordId = input.scopeRecordId?.trim() || null;
-    return (await jobStore.listActive({ jobKinds: input.kind ? [input.kind] : jobKinds }))
-      .filter((job) => isCatalogMergeCandidateBulkJobKind(job.jobKind) && jobMatchesContext(job, input.context))
-      .map(toCatalogMergeCandidateBulkJob)
-      .filter((job) => !scopeRecordId || job.scopeRecordId === scopeRecordId);
+    return listMatchingCatalogMergeCandidateBulkJobs(input, ["queued", "running"]);
+  }
+
+  async function listFailedCatalogMergeCandidateBulkJobs(
+    input: Parameters<CatalogMergeCandidateBulkJobServices["listFailedCatalogMergeCandidateBulkJobs"]>[0],
+  ): Promise<readonly CatalogMergeCandidateBulkJob[]> {
+    return listMatchingCatalogMergeCandidateBulkJobs(input, ["failed"]);
+  }
+
+  async function listMatchingCatalogMergeCandidateBulkJobs(
+    input: Parameters<CatalogMergeCandidateBulkJobServices["listActiveCatalogMergeCandidateBulkJobs"]>[0],
+    statuses: readonly CatalogMergeCandidateBulkJob["status"][],
+  ): Promise<readonly CatalogMergeCandidateBulkJob[]> {
+    const order = statuses[0] === "failed" ? "DESC" : "ASC";
+    const result = await deps.db.query<CandidateJobRow>(
+      `SELECT job_id, job_kind, status, payload, progress, result, error_message,
+              created_at, started_at, completed_at, updated_at
+       FROM catalog_source_observation_bulk_review_jobs
+       WHERE job_kind = ANY($1::text[])
+         AND status = ANY($2::text[])
+         AND ($3::text IS NULL OR payload->>'scopeRecordId' = $3::text)
+         AND event_context->>'tenantId' = $4::text
+         AND event_context->'audit'->>'forAccountId' = $5::text
+         AND event_context->'audit'->>'performedByUserId' = $6::text
+       ORDER BY created_at ${order}, job_id ${order}
+       LIMIT $7`,
+      [
+        input.kind ? [input.kind] : [...jobKinds],
+        statuses,
+        input.scopeRecordId?.trim() || null,
+        String(input.context.tenantId),
+        String(input.context.audit.forAccountId),
+        String(input.context.audit.performedByUserId),
+        catalogMergeCandidateBulkJobPageSize,
+      ],
+    );
+    return result.rows.map(candidateJobRowToCatalogMergeCandidateBulkJob);
   }
 
   // Newest-first keyset over (completed_at, job_id). The cursor carries the
@@ -422,7 +454,7 @@ export function createSourceObservationMergeCandidateBulkJobRuntime({
     );
     const rows = result.rows.slice(0, catalogMergeCandidateBulkJobPageSize);
     const last = rows.at(-1);
-    const items = rows.map(completedJobRowToCatalogMergeCandidateBulkJob);
+    const items = rows.map(candidateJobRowToCatalogMergeCandidateBulkJob);
 
     return result.rows.length > catalogMergeCandidateBulkJobPageSize && last
       ? { items, cursor: encodeCompletedJobCursor({ completedAt: last.completed_at_key, jobId: last.job_id }) }
@@ -434,6 +466,7 @@ export function createSourceObservationMergeCandidateBulkJobRuntime({
     getCatalogMergeCandidateBulkJob,
     listActiveCatalogMergeCandidateBulkJobs,
     listCompletedCatalogMergeCandidateBulkJobs,
+    listFailedCatalogMergeCandidateBulkJobs,
     processNextCatalogMergeCandidateBulkJob,
   };
 
@@ -444,7 +477,7 @@ export type SourceObservationMergeCandidateBulkJobRuntime = ReturnType<
   typeof createSourceObservationMergeCandidateBulkJobRuntime
 >;
 
-type CompletedJobRow = Readonly<{
+type CandidateJobRow = Readonly<{
   job_id: string;
   job_kind: string;
   status: CatalogMergeCandidateBulkJob["status"];
@@ -456,8 +489,9 @@ type CompletedJobRow = Readonly<{
   started_at: Date | string | null;
   completed_at: Date | string | null;
   updated_at: Date | string;
-  completed_at_key: string;
 }>;
+
+type CompletedJobRow = CandidateJobRow & Readonly<{ completed_at_key: string }>;
 
 export function toCatalogMergeCandidateBulkJob(
   job: DurableJobRecord<
@@ -507,7 +541,7 @@ export function summarizeCatalogMergeCandidateBulkOutcomes(
   };
 }
 
-function completedJobRowToCatalogMergeCandidateBulkJob(row: CompletedJobRow): CatalogMergeCandidateBulkJob {
+function candidateJobRowToCatalogMergeCandidateBulkJob(row: CandidateJobRow): CatalogMergeCandidateBulkJob {
   const payload = parseJsonField<CatalogMergeCandidateBulkJobPayload>(row.payload, "payload");
   return {
     jobId: row.job_id,

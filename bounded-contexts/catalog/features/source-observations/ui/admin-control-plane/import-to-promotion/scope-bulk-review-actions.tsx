@@ -81,64 +81,63 @@ export function CatalogScopeBulkReviewActions({
       headingLevel={2}
       density="compact"
     >
-      {rows.length === 0 ? (
-        <WorkbenchText size="sm">
-          {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.empty")}
-        </WorkbenchText>
-      ) : (
-        <WorkbenchStack gap="md">
-          <WorkbenchActionRow>
-            <WorkbenchForm
-              variant="button"
-              method="post"
-              action={action}
-              data-catalog-merge-candidate-bulk-promote="true"
-            >
-              <HiddenInput name="_intent" value="candidate.promote" />
-              <HiddenInput name="candidateSelection" value="scope" />
-              <HiddenInput name="scopeRecordId" value={scopeRecordId ?? ""} />
-              <Button type="submit" tone="primary" size="sm" disabled={!canSubmit}>
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll")}
-              </Button>
-            </WorkbenchForm>
-            {partition.conflictIds.length > 0 ? (
-              <LinkButton
-                size="sm"
-                tone="secondary"
-                leadingIcon="warning"
-                href={`#${catalogMergeCandidateReviewAnchorId}`}
-              >
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts")}
-              </LinkButton>
-            ) : (
-              <Button size="sm" tone="secondary" disabled>
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts")}
-              </Button>
-            )}
-          </WorkbenchActionRow>
-          <WorkbenchText size="xs">
-            {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll.skip", {
-              count: partition.remainderIds.length,
-            })}
+      <WorkbenchStack gap="md">
+        {rows.length === 0 ? (
+          <WorkbenchText size="sm">
+            {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.empty")}
           </WorkbenchText>
-          <WorkbenchForm variant="surface" method="post" action={action} data-catalog-merge-candidate-bulk-defer="true">
-            <HiddenInput name="_intent" value="candidate.defer" />
+        ) : null}
+        <WorkbenchActionRow>
+          <WorkbenchForm
+            variant="button"
+            method="post"
+            action={action}
+            data-catalog-merge-candidate-bulk-promote="true"
+          >
+            <HiddenInput name="_intent" value="candidate.promote" />
             <HiddenInput name="candidateSelection" value="scope" />
             <HiddenInput name="scopeRecordId" value={scopeRecordId ?? ""} />
-            <Textarea
-              name="reason"
-              label={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferReason")}
-              required
-              rows={2}
-            />
-            <WorkbenchActionRow align="end">
-              <Button type="submit" tone="secondary" size="sm" disabled={!canSubmit}>
-                {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferRemainder")}
-              </Button>
-            </WorkbenchActionRow>
+            <Button type="submit" tone="primary" size="sm" disabled={!canSubmit}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll")}
+            </Button>
           </WorkbenchForm>
-        </WorkbenchStack>
-      )}
+          {partition.conflictIds.length > 0 ? (
+            <LinkButton
+              size="sm"
+              tone="secondary"
+              leadingIcon="warning"
+              href={`#${catalogMergeCandidateReviewAnchorId}`}
+            >
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts")}
+            </LinkButton>
+          ) : (
+            <Button size="sm" tone="secondary" disabled>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.jumpToConflicts")}
+            </Button>
+          )}
+        </WorkbenchActionRow>
+        <WorkbenchText size="xs">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.promoteAll.skip", {
+            count: partition.remainderIds.length,
+          })}
+        </WorkbenchText>
+        <WorkbenchForm variant="surface" method="post" action={action} data-catalog-merge-candidate-bulk-defer="true">
+          <HiddenInput name="_intent" value="candidate.defer" />
+          <HiddenInput name="candidateSelection" value="scope" />
+          <HiddenInput name="scopeRecordId" value={scopeRecordId ?? ""} />
+          <Textarea
+            name="reason"
+            label={t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferReason")}
+            required
+            rows={2}
+          />
+          <WorkbenchActionRow align="end">
+            <Button type="submit" tone="secondary" size="sm" disabled={!canSubmit}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.bulk.deferRemainder")}
+            </Button>
+          </WorkbenchActionRow>
+        </WorkbenchForm>
+      </WorkbenchStack>
     </WorkflowModule>
   );
 }

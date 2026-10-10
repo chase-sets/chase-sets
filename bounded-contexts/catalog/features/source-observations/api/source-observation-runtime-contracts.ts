@@ -982,6 +982,11 @@ export type CatalogMergeCandidateBulkJobServices = Readonly<{
     kind?: CatalogMergeCandidateBulkJobKind | null;
     cursor?: string | null;
   }) => Promise<CatalogMergeCandidateBulkJobPage>;
+  /** The latest 50 failed jobs for this scope and operator, separate from completed pagination. */
+  listFailedCatalogMergeCandidateBulkJobs: (input: {
+    context: EventStoreContext;
+    scopeRecordId: string;
+  }) => Promise<readonly CatalogMergeCandidateBulkJob[]>;
   processNextCatalogMergeCandidateBulkJob: BulkReviewJobServices["processNextBulkReviewJob"];
 }>;
 

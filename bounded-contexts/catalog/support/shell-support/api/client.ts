@@ -1906,6 +1906,14 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async listFailedCatalogMergeCandidateBulkJobs<T>(scopeRecordId: string): Promise<T> {
+      const query = new URLSearchParams({ scopeRecordId });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidate-bulk-jobs/failed?${query.toString()}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async getSourceObservationPromotionOutcome<T>(jobId: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(jobId)}/outcome`,
