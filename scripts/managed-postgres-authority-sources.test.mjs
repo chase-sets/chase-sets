@@ -70,6 +70,28 @@ const reviewedCatalogDelta = [
     secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
     purpose: "application-runtime",
   },
+  // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "managed-postgres-boundary",
+  },
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "SPACES_ACCESS_ID",
+    purpose: "managed-postgres-boundary",
+  },
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "SPACES_SECRET_KEY",
+    purpose: "managed-postgres-boundary",
+  },
 ];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -257,7 +279,7 @@ describe("managed Postgres authority source generator", () => {
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = { ...original, grants: [...original.grants, ...reviewedCatalogDelta] };
-    expect(expected.grants).toHaveLength(1614);
+    expect(expected.grants).toHaveLength(1617);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(reviewedCatalogDelta.filter(isCatalogKeyring));
     expectParity(expected, generated);
