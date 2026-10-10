@@ -34,6 +34,38 @@ on:
           - lorcana-matrix
           - full-matrix-uat
           - m50-final-proof
+          - full-game-start
+          - full-game-settle
+      product_domain:
+        description: full-game-start only. Catalog Scope product domain to batch, e.g. one-piece.
+        required: false
+        default: ""
+        type: string
+      language_code:
+        description: full-game-start only. Optional language code; blank batches every language.
+        required: false
+        default: ""
+        type: string
+      budget:
+        description: full-game-start only. Comma-separated key=value overrides of maxScopesPerTurn, tcgdexRequestLimit, scrydexRateRequestLimit, scrydexRequestLimit, providerFailureThreshold.
+        required: false
+        default: ""
+        type: string
+      batch_id:
+        description: full-game-settle only. The Scope Sync Batch id the start journey returned.
+        required: false
+        default: ""
+        type: string
+      retry_failed:
+        description: full-game-settle only. Retry each failed unit once in this dispatch.
+        required: false
+        default: false
+        type: boolean
+      resume_cancelled:
+        description: full-game-settle only. Resume the batch when it is cancelled.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -91,7 +123,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix)
+            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -121,6 +153,12 @@ jobs:
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
       CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: ${{ inputs.product_domain }}
+      CATALOG_WHOLE_GAME_LANGUAGE_CODE: ${{ inputs.language_code }}
+      CATALOG_WHOLE_GAME_BUDGET: ${{ inputs.budget }}
+      CATALOG_WHOLE_GAME_BATCH_ID: ${{ inputs.batch_id }}
+      CATALOG_WHOLE_GAME_RETRY_FAILED: ${{ inputs.retry_failed }}
+      CATALOG_WHOLE_GAME_RESUME_CANCELLED: ${{ inputs.resume_cancelled }}
     steps:
       - name: Confirm staging provider UAT
         run: |
@@ -148,7 +186,19 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run staging provider sync UAT
+        id: uat
         timeout-minutes: 55
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+
+      # Whole-game journeys write one schema-validated, support-safe receipt; it
+      # publishes only when the producing step succeeded and the exact file exists.
+      - name: Upload whole-game rehearsal receipt
+        if: steps.uat.outcome == 'success' && startsWith(matrix.journey_scope, 'full-game-')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-whole-game-rehearsal-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-whole-game-rehearsal/receipt.json
+          if-no-files-found: error
+          retention-days: 30
