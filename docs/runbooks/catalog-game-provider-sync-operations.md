@@ -139,6 +139,20 @@ Record an interface-only packet that captures, per active provider/unit: provide
 
 When a game shares transports, UAT must include the cross-game regression scopes named in that game's section, exercised through the same Admin importer controls, proving the other games' units remain governed independently.
 
+### Whole-game rehearsal
+
+Rehearse whole-game seeding on staging through the `Catalog Staging Provider UAT` workflow (`.github/workflows/catalog-staging-provider-uat.yml`), never by hand. Every mutation goes through the Scope Sync Batches page, the scope page's **Promote all ready** toolbar and the Catalog Items bulk publish dialog; the journeys read back progress through the same Admin read routes those pages load. The journeys live in `deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts` and their decisions in `deployables/admin-web/e2e/support/whole-game-rehearsal.ts`.
+
+1. **Start.** Dispatch `journey_scope=full-game-start` with `product_domain`, an optional `language_code` (blank batches every language) and optional `budget` overrides (`scrydexRequestLimit=40,maxScopesPerTurn=2`). The journey previews the matching `set` scopes, records the plan fingerprint, scope count and per-provider units and planned requests, confirms, and records the `batch_id`. It refuses to confirm when Scrydex units participate and the Scrydex credit limit is 0, or when the preview is empty or not confirmable.
+2. **Settle.** Dispatch `journey_scope=full-game-settle` with that `batch_id`, repeatedly, until the receipt reports `settled`. Each dispatch acts on that batch only:
+   - `queued`, or `running` without an open provider circuit: records progress and exits `running`.
+   - `running` with an open circuit, `partial` or `failed`: with `retry_failed=true` retries each failed unit once and exits `running`; otherwise records the failures and continues to promotion.
+   - `cancelled`: resumes only with `resume_cancelled=true`, otherwise exits `cancelled`.
+   - `completed`, or continuing from the rows above: runs **Promote all ready** for each completed scope (adopting a promote job an earlier dispatch left running instead of submitting another), then reads every completed promote job for the batch's scopes, following the job list `cursor`, and bulk-publishes drafts filtered by blueprint, batch provider source and language. Before each confirm it reads the complete preview response and aborts if any item lacks that provider source or belongs to a blueprint outside the promoted set.
+3. **Resume a killed dispatch.** Promotion and publication progress is server-side, so rerun `full-game-settle` with the same `batch_id`; a rerun after `settled` reports 0 promoted and 0 published. The operator owns how many retry and resume dispatches to spend; the journey never retries on its own.
+
+A run fails closed, with no receipt, when it refuses, aborts publication, or finds promoted outcomes it cannot map to a Catalog Item (`promoted-catalog-item-unresolved`). A successful dispatch uploads one schema-checked receipt, `artifacts/catalog-whole-game-rehearsal/receipt.json`, carrying only the batch id, states and counts — never titles, URLs, raw payloads or credentials. Each dispatch stays inside the workflow's 60-minute limit and exits `running` before the deadline so the next dispatch continues.
+
 ## Magic
 
 Magic Catalog sync draws from MTGJSON, Scryfall, and TCGplayer. The three Magic provider keys are `mtgjson`, `scryfall`, and `tcgplayer`; the production default for `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` is `mtgjson,scryfall,tcgplayer` when unset.

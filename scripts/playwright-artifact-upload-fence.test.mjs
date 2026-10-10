@@ -200,6 +200,16 @@ runs:
     expect(result.findings).toEqual([]);
   });
 
+  it("publishes only the exact whole-game rehearsal receipt from the Catalog staging provider UAT (#9220)", () => {
+    const result = scanPlaywrightArtifactUploads();
+    const uploads = result.uploads.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml");
+
+    expect(result.findings.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml")).toEqual(
+      [],
+    );
+    expect(uploads.map(({ paths }) => paths)).toEqual([["artifacts/catalog-whole-game-rehearsal/receipt.json"]]);
+  });
+
   it("rejects a safe-summary upload that retains a raw Playwright sibling", () => {
     const result = inspectPlaywrightArtifactUploadCorpus({
       ".github/workflows/safe-summary-with-raw-sibling.yml": workflowWithUpload(
