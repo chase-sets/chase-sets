@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { type JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
@@ -23,6 +24,7 @@ import {
   type SourceObservationOnePieceSetReferenceNormalized,
   type SourceObservationPromotionProfileEvidence,
 } from "../domain/domain";
+import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import { normalizeTcgdexImageAsset } from "./providers/tcgdex-client";
 import {
   extractApprovedLorcanaImageEvidence,
@@ -503,7 +505,37 @@ export function requirePromotionAssetPorts(input: {
   }
 }
 
-export async function normalizePromotionProductAssetSet(input: {
+// A Catalog asset download, processing, or storage failure during promotion
+// (docs/runbooks/catalog-asset-storage.md Failure Policy). It keeps the original
+// message, so a failed outcome's reason is unchanged; the promotion catch reads
+// the class to record the asset-processing-failed diagnostic code.
+export class CatalogAssetStorageError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "CatalogAssetStorageError";
+  }
+}
+
+export async function normalizePromotionProductAssetSet(
+  input: Parameters<typeof storePromotionProductAssetSet>[0],
+): Promise<ProductAssetSet | null> {
+  try {
+    return await storePromotionProductAssetSet(input);
+  } catch (error) {
+    if (
+      error instanceof CatalogAssetStorageError ||
+      error instanceof ProviderSendStoppedError ||
+      isDurableJobHandoffError(error)
+    ) {
+      throw error;
+    }
+    throw new CatalogAssetStorageError(error instanceof Error ? error.message : "Catalog asset processing failed.", {
+      cause: error,
+    });
+  }
+}
+
+async function storePromotionProductAssetSet(input: {
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
   normalized: CatalogItemPromotableSourceObservationNormalized;
@@ -618,7 +650,7 @@ export function capitalize(value: string): string {
 
 function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
   if (!assetStorage) {
-    throw new Error("Catalog asset storage is required to promote source observation image assets.");
+    throw new CatalogAssetStorageError("Catalog asset storage is required to promote source observation image assets.");
   }
 
   return assetStorage;

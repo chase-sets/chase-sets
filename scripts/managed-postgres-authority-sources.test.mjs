@@ -70,6 +70,28 @@ const reviewedCatalogDelta = [
     secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
     purpose: "application-runtime",
   },
+  // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "managed-postgres-boundary",
+  },
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "SPACES_ACCESS_ID",
+    purpose: "managed-postgres-boundary",
+  },
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "SPACES_SECRET_KEY",
+    purpose: "managed-postgres-boundary",
+  },
 ];
 // #9268 delta: the staging preview DNS-01 token converge step in deploy-staging and the on-demand restore workflow.
 const previewWildcardWorkflow = ".github/workflows/platform-preview-wildcard-tls.yml";
@@ -392,7 +414,7 @@ describe("managed Postgres authority source generator", () => {
         ...ebayAccountDeletionDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1629);
+    expect(expected.grants).toHaveLength(1632);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
