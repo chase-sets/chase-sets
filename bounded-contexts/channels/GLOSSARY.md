@@ -46,6 +46,18 @@ one producer-owned reservation plus its poll window. Paused connections serve an
 empty reservation without calling the producer. Inbound admission is write-only
 and remains available after membership loss while the pairing and grant are live.
 
+## TCGplayer Staged Import Dispatch Policy
+
+`TcgplayerStagedImportDispatchPolicy/v1` serves the product's minimum request-start
+interval for all provider requests within a founder Staged Import Batch, including
+Live, Staged and summary reads. The initial floor is 60 seconds; 600 seconds is an
+engineering bound, not a provider capacity claim. A Staged Import Capture Plan
+binds the complete ordered maximum request sequence and enforced durations to its
+capture, executor, reservation, members and composed batch. Without that
+capture-derived plan, staged-import enablement is unavailable. The guarded send
+port supplies neither an executor nor provider qualification. Standalone Export
+From Live is a separate executor and receives no cadence authority here.
+
 ## Connector Liveness Authority
 
 **Connector Liveness Authority** is the never-deleted, lockable current row for a

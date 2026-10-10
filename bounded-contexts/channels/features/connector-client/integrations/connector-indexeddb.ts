@@ -1,6 +1,7 @@
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import { RetentionError } from "../domain/raw-export-record";
 import { assertHandoffTransition } from "../domain/order-pull-handoff";
+import { assertStagedImportTimingTransition } from "../domain/staged-import-dispatch";
 import {
   OperationProtocolError,
   assertTotalResult,
@@ -168,6 +169,15 @@ export function createOperationJournal(indexedDB: IDBFactory, ranges: typeof IDB
               for (const row of after) {
                 if (row.connectionId !== connectionId) throw new OperationProtocolError("incomplete-authority");
                 const prior = old.get(id(row));
+                if (prior && "executorKey" in prior && prior.stagedImport) {
+                  if (!("executorKey" in row)) throw new OperationProtocolError("stale-fence");
+                  if (
+                    prior.stagedImport.owner !== row.stagedImport?.owner &&
+                    (prior.phase !== "prepared" || row.phase !== "prepared")
+                  )
+                    throw new OperationProtocolError("stale-fence");
+                  assertStagedImportTimingTransition(prior.stagedImport, row.stagedImport);
+                }
                 if (prior && "operationKind" in prior && prior.operationKind === "tcgplayer-order-pull") {
                   if (
                     !("operationKind" in row) ||
@@ -200,7 +210,15 @@ export function createOperationJournal(indexedDB: IDBFactory, ranges: typeof IDB
                 store.put(row);
                 old.delete(id(row));
               }
-              for (const key of old.keys()) store.delete([connectionId, key]);
+              for (const [key, row] of old) {
+                if (
+                  "executorKey" in row &&
+                  row.stagedImport &&
+                  (row.phase !== "acked" || row.stagedImport.state !== "released")
+                )
+                  throw new OperationProtocolError("stale-fence");
+                store.delete([connectionId, key]);
+              }
             }
             result = replacement;
           } catch (error) {

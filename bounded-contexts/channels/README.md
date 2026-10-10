@@ -46,6 +46,15 @@ clears that pause, including after unpair/re-pair. Valid unsupported operations
 are totally abandoned before `unsupported-operation` pause. No provider executor
 is supplied here. The extension composes the coordinator with an empty product
 executor registry; unsupported work is abandoned without a provider request.
+The credential mount serves a nonce-bound staged-import dispatch policy read
+without claim, heartbeat, report or ingest effects. It requires an active policy
+document and current connector/reservation authority; the compiled default is
+never dispatch authority. Executors declaring staged-import provider requests
+receive one coordinator-owned send port. Its connection-wide journal admission,
+fresh policy reads, capture-plan fit and monotonic request-start floor gate every
+hop. Ambiguous intents never replay, and a new worker receives no timing credit.
+No capture-derived product plan or provider executor is supplied: #8196 and #7334
+still own qualification and enablement. Standalone Export From Live is unchanged.
 `createConnectorRetentionStore` owns
 the raw-export sweep: AES-GCM ciphertext in versioned IndexedDB, one key per
 export in trusted session storage, revision-predicated cleanup and read refusal

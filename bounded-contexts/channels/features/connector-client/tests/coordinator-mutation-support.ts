@@ -7,6 +7,8 @@ import * as journal from "../integrations/connector-indexeddb";
 import * as retention from "../domain/raw-export-record";
 import * as handoff from "../domain/order-pull-handoff";
 import * as execution from "../domain/order-pull-execution";
+import * as stagedImport from "../domain/staged-import-dispatch";
+import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
 
 type Mutant =
@@ -30,6 +32,7 @@ export function evaluate(source: string, dependencies: Record<string, unknown>):
       exports,
       structuredClone,
       URL,
+      URLSearchParams,
       Request,
       Response,
       AbortSignal,
@@ -96,6 +99,7 @@ export function mutatedCoordinator(
       "../domain/raw-export-record": retention,
       "../domain/operation-protocol": protocol,
       "../domain/order-pull-handoff": handoff,
+      "../domain/staged-import-dispatch": stagedImport,
     });
   }
   const result = evaluate(source, {
@@ -103,6 +107,8 @@ export function mutatedCoordinator(
     "./raw-export-record": retention,
     "./order-pull-handoff": handoff,
     "./order-pull-execution": execution,
+    "./staged-import-dispatch": stagedImport,
+    "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
     "../../outbound-sync/domain/order-pull-codec": pullCodec,
     "../integrations/connector-indexeddb": journalModule,
     "./operation-protocol": protocol,
