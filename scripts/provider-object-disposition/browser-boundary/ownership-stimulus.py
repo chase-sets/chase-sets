@@ -85,6 +85,36 @@ def observation_line(ready, boundary):
             f'boundary={tree_state(boundary)};generated={generated_drift(ready, boundary)}')
 
 
+def final_leaf(tree, members):
+    """Ready only after both final execs, below the one retained generated init."""
+    if len(members) != 1 or tree_state(tree) != 'final' or tree[0][1:3] != members[0][:2]:
+        return None
+    return tree[1]
+
+
+def member_retired(pid, start, fd, deadline):
+    """Identity-proven disappearance: /proc has no task at the PID and the
+    retained pidfd confirms the generated task itself is gone."""
+    while True:
+        try:
+            actual = parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)
+        except OSError as error:
+            if error.errno not in (errno.ENOENT, errno.ESRCH):
+                raise
+            try:
+                signal.pidfd_send_signal(fd, 0)
+            except ProcessLookupError:
+                return None
+            except OSError:
+                pass
+            return 'member-uncertain'
+        if actual['start'] != start:
+            return 'member-replaced'
+        if time.monotonic() >= deadline:
+            return 'member-live'
+        time.sleep(.01)
+
+
 def retirement_reason(step, error):
     if step == 'foreign':
         return 'foreign-file'
@@ -136,10 +166,13 @@ def main():
                    f'--reuid={uid}', f'--regid={gid}', '--clear-groups', '/bin/sh', '-c', 'sleep 30; :',
                    'SYNTHETIC_ORPHAN_OWNER_CONTROL'], admitted=False)
             process = children[0][0]
+            # Sampled from here on, so a readiness failure still reports its
+            # last generated-tree state.
+            images = image_names()
             deadline = time.monotonic() + 1
-            observed = False
+            leaf = None
             while process.poll() is None and time.monotonic() < deadline:
-                candidates = Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
+                candidates = [] if members else Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
                 for member in candidates:
                     if not member.isdecimal():
                         raise ValueError()
@@ -154,14 +187,24 @@ def main():
                             os.close(fd)
                             raise ValueError()
                         members.append((pid, before['start'], fd))
-                        observed = True
-                if observed:
-                    break
+                # The admitted UID alone can precede setpriv's exec of the shell
+                # and the shell child's exec of sleep; either exec during the
+                # census is image drift. Ready waits for both, on the same init.
+                if members:
+                    ready_tree = generated_tree(process.pid, images)
+                    leaf = final_leaf(ready_tree, members)
+                    if leaf is not None:
+                        break
                 time.sleep(.01)
-            if not observed:
+            if leaf is None:
                 raise ValueError()
-            images = image_names()
-            ready_tree = generated_tree(process.pid, images)
+            _, pid, start, _ = leaf
+            fd = os.pidfd_open(pid)
+            after = parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)
+            if after['start'] != start or after['parent'] != members[0][0]:
+                os.close(fd)
+                raise ValueError()
+            members.append((pid, start, fd))
         elif mode == 'foreign':
             if FOREIGN.exists() or FOREIGN.is_symlink():
                 raise ValueError()
@@ -211,17 +254,13 @@ def main():
                     os.close(fd)
             step = 'member'
             for pid, start, fd in members:
-                os.close(fd)
-                while time.monotonic() < deadline:
-                    try:
-                        actual = parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)
-                        if actual['start'] != start:
-                            break
-                    except FileNotFoundError:
-                        break
-                    time.sleep(.01)
-                else:
-                    reasons.append('member-live')
+                # The pidfd stays open through the poll: it is the identity proof.
+                try:
+                    reason = member_retired(pid, start, fd, deadline)
+                finally:
+                    os.close(fd)
+                if reason:
+                    reasons.append(reason)
             if not reasons:
                 step = 'foreign'
                 if created:

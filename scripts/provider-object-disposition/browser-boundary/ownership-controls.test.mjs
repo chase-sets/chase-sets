@@ -136,6 +136,38 @@ describe("13c orphan stimulus wrapper phases (AC3)", () => {
     });
   });
 
+  it("a readiness failure keeps construction as its phase and reports the last generated sample", async () => {
+    const callback = vi.fn();
+    const sample =
+      "provider-boundary-owner-stimulus:observed:ready=child-pre-exec;boundary=child-pre-exec;generated=unchanged\n";
+    const run = await runCase(
+      "orphan",
+      fakeHelper({
+        ready: "",
+        stderr: "provider-boundary-owner-stimulus-refused:construct\n",
+        stdout: sample + retired,
+        code: 1,
+      }),
+      callback,
+    );
+    expect(callback).not.toHaveBeenCalled();
+    expect(run.error.message).toBe("owner-stimulus-invalid");
+    expect(run.label).toBe("13c-alone-stimulus-construction");
+    expect(run.entry).toMatchObject({
+      constructed: false,
+      exactRetirement: false,
+      firstFailurePhase: "construction",
+      refusal: { stage: "construct", retirement: null },
+      generatedTree: { ready: "child-pre-exec", boundary: "child-pre-exec", generated: "unchanged" },
+    });
+    const unknown = await runCase(
+      "orphan",
+      fakeHelper({ ready: "", stdout: sample.replace("child-pre-exec;", "PRIVATE;") + retired, code: 1 }),
+    );
+    expect(unknown.entry.generatedTree).toBeNull();
+    expect(unknown.printed).not.toContain("PRIVATE");
+  });
+
   it.each([
     ["a missing observation line", retired],
     ["an unknown observation state", observed.replace("ready=init-pre-exec", "ready=PRIVATE") + retired],
@@ -188,7 +220,13 @@ describe("closed stimulus diagnostics", () => {
         ),
       ),
     ).toEqual({ stage: "lifetime", retirement: "member-live" });
+    for (const reason of ["member-replaced", "member-uncertain", "member-read-EACCES"])
+      expect(stimulusRefusal(Buffer.from(`provider-boundary-owner-stimulus-refused:retirement:${reason}\n`))).toEqual({
+        stage: null,
+        retirement: reason,
+      });
     for (const stderr of [
+      "provider-boundary-owner-stimulus-refused:retirement:member-gone\n",
       "provider-boundary-owner-stimulus-refused:retirement\n",
       "provider-boundary-owner-stimulus-refused:retirement:member-read-ENOTDIR\n",
       "provider-boundary-owner-stimulus-refused:PRIVATE\n",

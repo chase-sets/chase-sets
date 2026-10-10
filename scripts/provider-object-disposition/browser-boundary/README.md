@@ -107,7 +107,7 @@ each required role; startup-helper churn is a separate discovery fixture.
 The complete AC-D3 matrix is not yet discharged. A green subset is not
 AC-B1..B5 PASS; exact-head hosted logs, not this inventory, provide proof.
 
-The 13c orphan helper also samples its own generated tree (PID, start and
+The 13c orphan helper samples its own generated tree (PID, start and
 executable) at readiness and again at EOF, before signalling. It reports closed
 states for both final execs (setpriv to shell, shell child to sleep) and whether
 the tree changed between those endpoints. An unchanged tree is not foreign
@@ -115,8 +115,14 @@ attribution: endpoint samples can miss a transient drift. Retirement failures
 name a closed reason with only an allowlisted errno. Hosted reporting separates
 construction, refusal, survival, page, retirement, admission, browser drain and
 per-case cleanup, so a page-close PASS followed by retirement failure reports
-retirement. This is observation only; readiness, retirement and census
-predicates are unchanged.
+retirement. Readiness waits, within the unchanged one-second budget, for both
+final execs below the retained init (same PID and start) and then retains the
+sleep leaf through its own pidfd; the admitted UID alone can precede either
+exec. A readiness failure still reports its last sample. Retirement holds each
+member's pidfd through the unchanged 2000ms poll: only ENOENT/ESRCH on its stat
+confirmed by that pidfd is disappearance. Same-live, replacement, any other
+read error, malformed stat or an unconfirmed pidfd fails with a closed reason.
+Census predicates are unchanged, and a green repair is not a historical cause.
 
 `.github/workflows/browser-boundary-diagnostics.yml` is a manual, nongoverning
 repetition: one allowlisted selector (`13c-alone` or `13c-concurrent-live`),
