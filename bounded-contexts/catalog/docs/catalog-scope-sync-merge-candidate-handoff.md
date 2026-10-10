@@ -88,6 +88,46 @@ Before #9277, every configured field rule in `bounded-contexts/catalog/features/
 
 When a field rule matches more than one Catalog Item, the profile's `ambiguousCandidatePolicy` decides: every field-rule profile above uses `block-promotion`, so promotion refuses with the rule's ambiguity diagnostic, the promotion preview reports a blocking `ambiguous-duplicate-candidates` diagnostic, and the integration engine's duplicate-prevention preview shows the row blocked; a `review-only` profile would return the candidates for review instead. A match proves a reuse candidate, not a complete item. If reuse misbehaves, stop it with `CATALOG_INTEGRATION_PROMOTION_DISABLED` or the unit-scoped control.
 
+## Promotion Reference Access Paths
+
+Schema installed by the ledgered migration
+`20261010_catalog_promotion_reference_access_paths_v1` (composed through
+`catalogAuthoringSchemaMigrations`). It is dormant: no reader or writer uses it
+until the core target-exclusion slice wires discovery, and ordinary boot applies
+it with no operator action.
+
+- Functions `catalog_promotion_reference_text_v1(text)` and
+  `catalog_promotion_reference_pairs_v1(jsonb)` are immutable, strict and
+  parallel safe, pin Unicode 17.0 casing data inside their bodies, and run with
+  `search_path = pg_catalog, public`. They are installed only when absent and
+  never replaced in place; a same-named function with any other body refuses
+  the migration. A casing-data upgrade is a new version plus new indexes.
+- Indexes over `event_store_events`, each a non-unique partial index built
+  `CONCURRENTLY` outside a transaction:
+  - `catalog_promotion_item_reference_v1_idx` and
+    `catalog_promotion_product_reference_v1_idx`:
+    `(C(providerKey) COLLATE "C", C(externalKey) COLLATE "C", stream_id, stream_version)`
+    over `catalog.item-%` streams for the matching
+    `external-catalog-item-reference-linked/-unlinked` or
+    `external-product-reference-linked/-unlinked` events.
+  - `catalog_promotion_source_reference_pairs_v1_idx`: GIN `jsonb_path_ops` over
+    `catalog_promotion_reference_pairs_v1(payload->'normalized')` for
+    `source-observation.recorded/changed/refreshed` headers, inline or chunked.
+  - `catalog_promotion_source_link_v1_idx`:
+    `(C(providerKey) COLLATE "C", C(languageCode || ':' || btrim(externalKey)) COLLATE "C", stream_id, stream_version)`
+    over the same source headers.
+- Boot behavior: functions install before indexes; an interrupted concurrent
+  build leaves an invalid owned index that the next boot drops and rebuilds; a
+  valid index under one of these names with a different definition refuses the
+  migration (`catalog-promotion-reference-index-conflict:<name>`) rather than
+  being dropped; retained event bytes are never rewritten.
+- Readiness: `readPromotionReferenceAccessPathReadiness` reports installed,
+  `indisvalid`, `indisready`, definition-identical, function body and settings
+  identical, version marker and casing-data hash, `UTF8` encoding plus
+  versionless `"C"` collation, and runtime Unicode parity. Drift is reported as
+  not-ready; the function never throws.
+- Shared `event_store_events` indexes in `event-store-indexes.ts` are unchanged.
+
 ## Evidence Packet
 
 Record milestone evidence in the closing issue or PR, not as raw provider data in docs. The packet should include:
