@@ -14,14 +14,15 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { module as catalogModule } from "../../../index";
 import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/services";
 import { seedCatalogDatabase } from "../../../support/authoring-support/seed";
 import { seedContext as context } from "../../../support/seed-support/context";
 import type { CatalogItemId } from "../../../ids";
 import fixture from "../api/__fixtures__/tcgdex/normal.json";
-import sealedFixture from "../api/__fixtures__/tcgplayer-pokemon-sealed-product/normal.json";
-import { tcgplayerPokemonSealedProductSourceObservationMappingContract } from "../api/providers/tcgplayer/executable-mapping-contract";
+import productFixture from "../api/__fixtures__/tcgplayer-automation/normal.json";
+import { tcgplayerProviderProductSourceObservationMappingContract } from "../api/providers/tcgplayer/executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { normalizeCatalogProviderSourceObservation } from "../api/promotion/provider-source-observation-normalizer";
 import {
@@ -69,6 +70,13 @@ import {
 import { promotionCurrentItem } from "../api/promotion/source-observation-target-exclusion";
 import { decideSourceObservation, initialSourceObservationState, type SourceObservationEvent } from "../domain/domain";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import {
+  decideCatalogItem,
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemCommand,
+  type CatalogItemEvent,
+} from "../../catalog-items/domain/domain";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -467,6 +475,128 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     }
   });
 
+  it.each(["linked", "unlinked", "relinked", "inactive-pinned", "inactive-released"] as const)(
+    "distinguishes real retained %s history before allocating",
+    async (state) => {
+      const retained = await retainedPlan("lifecycle-A");
+      const owner = "cat_synthetic_lifecycle" as CatalogItemId;
+      for (const command of retained.plan.commands.filter(
+        (command) => command.type !== "LinkExternalProductReference",
+      )) {
+        await services.items.commandHandler({
+          streamId: `catalog.item-${owner}`,
+          command: command.type === "CreateCatalogItem" ? { ...command, itemId: owner } : command,
+          context,
+        });
+      }
+      if (["unlinked", "relinked", "inactive-released"].includes(state))
+        await services.items.commandHandler({
+          streamId: `catalog.item-${owner}`,
+          command: {
+            type: "UnlinkExternalCatalogItemReference",
+            providerKey: "TCGPLAYER",
+            externalKey: " PRODUCT:493958 ",
+          },
+          context,
+        });
+      if (state === "relinked")
+        await services.items.commandHandler({
+          streamId: `catalog.item-${owner}`,
+          command: {
+            type: "LinkExternalCatalogItemReference",
+            providerKey: "tcgplayer",
+            externalKey: "product:493958",
+          },
+          context,
+        });
+      if (state.startsWith("inactive"))
+        await services.items.commandHandler({
+          streamId: `catalog.item-${owner}`,
+          command: { type: "RemoveDraftCatalogItem" },
+          context,
+        });
+      await record("lifecycle-B");
+      const before = await readCompleteStream(createPostgresEventStore({ pool }), {
+        streamId: `catalog.item-${owner}`,
+      });
+      const attempt = createCatalogServices(pool).sourceObservations.promoteObservation({
+        observationId: "lifecycle-B",
+        context,
+      });
+      if (state === "inactive-pinned") {
+        await expect(attempt).rejects.toThrow("promotion-target-inactive");
+        expect(await itemCreations()).toHaveLength(1);
+      } else {
+        const result = await attempt;
+        if (state === "linked" || state === "relinked") expect(result.catalogItemId).toBe(owner);
+        else expect(result.catalogItemId).not.toBe(owner);
+      }
+      if (state.startsWith("inactive"))
+        expect(
+          await readCompleteStream(createPostgresEventStore({ pool }), { streamId: `catalog.item-${owner}` }),
+        ).toEqual(before);
+    },
+  );
+
+  it("folds the decisive owner and negative unlink beyond page 500 and fences a later relink", async () => {
+    const store = createPostgresEventStore({ pool });
+    const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
+    const key = { level: "item", providerKey: "synthetic", externalKey: "page-unlink" } as const;
+    await store.appendToStreams!(
+      Array.from({ length: 501 }, (_, index) => {
+        const itemId = `cat_page_unlink_${String(index).padStart(3, "0")}` as CatalogItemId;
+        const commands: CatalogItemCommand[] = [
+          {
+            type: "CreateCatalogItem",
+            itemId,
+            languageCode: "en",
+            title: { defaultLocale: "en", values: { en: "Synthetic page owner" } },
+          },
+          { type: "LinkExternalCatalogItemReference", providerKey: "SyNtHeTiC", externalKey: "PAGE-UNLINK" },
+          ...(index < 500
+            ? [
+                {
+                  type: "UnlinkExternalCatalogItemReference" as const,
+                  providerKey: key.providerKey,
+                  externalKey: key.externalKey,
+                },
+              ]
+            : []),
+        ];
+        let state = initialCatalogItemState;
+        const events = commands.flatMap((command) => {
+          const events = decideCatalogItem(state, command);
+          state = events.reduce(evolveCatalogItem, state);
+          return events.map(codec.encode);
+        });
+        return { streamId: `catalog.item-${itemId}`, expectedVersion: 0, context, events };
+      }),
+    );
+    expect(await locatePromotionReferenceStreams(pool, key)).toHaveLength(501);
+    await expect(acquire("cat_candidate_after_unlink", [key])).rejects.toThrow("promotion-target-bound-elsewhere");
+    const late = "catalog.item-cat_page_unlink_500";
+    await services.items.commandHandler({
+      streamId: late,
+      command: {
+        type: "UnlinkExternalCatalogItemReference",
+        providerKey: key.providerKey,
+        externalKey: key.externalKey,
+      },
+      context,
+    });
+    const session = await acquire("cat_candidate_after_unlink", [key]);
+    expect(session.evidence.items.get("cat_page_unlink_500")?.externalCatalogItemReferences).toEqual([]);
+    await services.items.commandHandler({
+      streamId: late,
+      command: { type: "LinkExternalCatalogItemReference", providerKey: key.providerKey, externalKey: key.externalKey },
+      context,
+    });
+    await expect(
+      session.append({ streamId: "catalog.item-cat_candidate_after_unlink", expectedVersion: 0, context, events: [] }),
+    ).rejects.toThrow();
+    expect(await readCompleteStream(store, { streamId: "catalog.item-cat_candidate_after_unlink" })).toEqual([]);
+  });
+
   it.each(["edit", "revoke", "selection"])(
     "reads canonical profile %s after obtaining the write barrier",
     async (mutation) => {
@@ -541,7 +671,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   it.each(["A", "B"])(
     "independent runtimes preserve one target under frozen item projections, %s first",
     async (first) => {
-      await record("A");
+      await record("A", "PRODUCT:493958");
       await record("B");
       const other = createCatalogServices(pool);
       const winner = await services.sourceObservations.promoteObservation({ observationId: first, context });
@@ -557,51 +687,57 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   it.each(["A", "B"].flatMap((first) => [false, true].map((conflictingOptions) => ({ first, conflictingOptions }))))(
     "Product reference exclusion, $first first, conflicting Options=$conflictingOptions",
     async ({ first, conflictingOptions }) => {
-      const identity = tcgplayerPokemonSealedProductSourceObservationMappingContract;
+      const identity = tcgplayerProviderProductSourceObservationMappingContract;
       const version = await services.providerIntegrationProfiles.getProfileVersion(
         identity.providerKey,
         identity.profileVersion,
         { profileKey: identity.profileKey },
       );
-      if (!version) throw new Error("Seeded sealed-product profile is missing");
+      if (!version) throw new Error("Seeded single-card Product profile is missing");
       for (const member of ["A", "B"]) {
         const externalKey = member === "A" ? "800001" : "800002";
         const mapped = normalizeCatalogProviderSourceObservation({
           contract: requireSourceObservationMappingContract(version),
           payload: {
-            ...sealedFixture,
-            observationId: `sealed-${member}`,
+            ...productFixture,
+            observationId: `product-${member}`,
             externalKey,
             productId: Number(externalKey),
             externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: `product:${externalKey}` }],
-            externalProductReferences: sealedFixture.externalProductReferences.map((reference) => ({
+            externalProductReferences: productFixture.externalProductReferences.map((reference) => ({
               ...reference,
-              selectedOptions: reference.selectedOptions.map((option) => ({
-                ...option,
-                optionKey: conflictingOptions && member !== first ? "opened" : option.optionKey,
-              })),
+              externalKey: member === "A" ? reference.externalKey.toUpperCase() : reference.externalKey.toLowerCase(),
+              selectedOptions: [
+                {
+                  dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+                  optionId:
+                    conflictingOptions && member !== first
+                      ? catalogSeedIds.dimensions.condition.optionIds.good
+                      : catalogSeedIds.dimensions.condition.optionIds.nearMint,
+                },
+              ],
             })),
           },
           observedAt: "2026-10-10T00:00:00.000Z",
         });
         expect(mapped.diagnostics).toEqual([]);
-        if (!mapped.observation) throw new Error("Sealed-product mapper produced no observation");
+        if (!mapped.observation) throw new Error("Single-card Product mapper produced no observation");
         await services.sourceObservations.commandHandler({
-          streamId: `catalog.source-observation-sealed-${member}`,
+          streamId: `catalog.source-observation-product-${member}`,
           command: { type: "RecordSourceObservation", ...mapped.observation },
           context,
         });
       }
       await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
       const winner = await services.sourceObservations.promoteObservation({
-        observationId: `sealed-${first}`,
+        observationId: `product-${first}`,
         context,
       });
       const before = await readCompleteStream(createPostgresEventStore({ pool }), {
         streamId: `catalog.item-${winner.catalogItemId}`,
       });
       const incoming = createCatalogServices(pool).sourceObservations.promoteObservation({
-        observationId: `sealed-${first === "A" ? "B" : "A"}`,
+        observationId: `product-${first === "A" ? "B" : "A"}`,
         context,
       });
       if (conflictingOptions) {
@@ -690,11 +826,14 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     expect(beforeSelection.result).toMatchObject({
       status: "matched",
       catalogItemId: x,
-      ruleKey: "pokemon-card-deterministic-fields",
+      ruleKey: "pokemon-card-partial-draft-retry",
     });
     const fieldQuery = beforeSelection.trace.find((entry) => entry.sql.includes("item.field_values @>"));
     expect(fieldQuery).toBeDefined();
-    for (const operand of fieldQuery!.values!.slice(1)) {
+    const fieldParameters = [...fieldQuery!.sql.matchAll(/item\.field_values @> \$(\d+)::jsonb/g)];
+    expect(fieldParameters.length).toBeGreaterThan(0);
+    for (const [, parameter] of fieldParameters) {
+      const operand = fieldQuery!.values![Number(parameter) - 1];
       const parsed = JSON.parse(String(operand));
       expect(Array.isArray(parsed)).toBe(true);
       const control = await pool.query<{ object_match: boolean; array_match: boolean }>(
@@ -915,6 +1054,57 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     ).toEqual([]);
   });
 
+  it.each(["terminal-fingerprint", "older-profile"] as const)(
+    "does not let a matching revision hide %s poison",
+    async (poison) => {
+      const retained = await retainedPlan("evidence-A");
+      const store = createPostgresEventStore({ pool });
+      for (const command of retained.plan.commands)
+        await services.items.commandHandler({ streamId: `catalog.item-${retained.targetId}`, command, context });
+      if (poison === "terminal-fingerprint") {
+        await services.sourceObservations.commandHandler({
+          streamId: "catalog.source-observation-evidence-A",
+          context,
+          command: {
+            type: "PromoteSourceObservation",
+            catalogItemId: retained.targetId,
+            promotedAt: "2026-10-10T00:00:00.000Z",
+            promotionProfileKey: retained.profile.profileKey,
+            promotionProfileVersion: retained.profile.profileVersion,
+            promotionPlanFingerprint: "f".repeat(64),
+          },
+        });
+      } else {
+        const streamId = "catalog.source-observation-evidence-A";
+        const history = await readCompleteStream(store, { streamId });
+        const recorded = history[0];
+        await store.appendToStream({
+          streamId,
+          expectedVersion: history.length,
+          context,
+          events: [
+            {
+              eventType: recorded.eventType,
+              payload: { ...recorded.payload, sourceMappingFingerprint: "f".repeat(64) },
+            },
+            { eventType: recorded.eventType, payload: recorded.payload },
+          ],
+        });
+      }
+      await record("evidence-B");
+      const before = await readCompleteStream(store, { streamId: `catalog.item-${retained.targetId}` });
+      await expect(
+        services.sourceObservations.promoteObservation({ observationId: "evidence-B", context }),
+      ).rejects.toThrow(
+        poison === "terminal-fingerprint"
+          ? "promotion-target-retained-fingerprint-conflict"
+          : "promotion-target-source-fingerprint-conflict",
+      );
+      expect(await readCompleteStream(store, { streamId: `catalog.item-${retained.targetId}` })).toEqual(before);
+      expect(await itemCreations()).toHaveLength(1);
+    },
+  );
+
   it("refuses a reachable source header with incomplete payload chunks", async () => {
     const mapped = normalizeCatalogProviderSourceObservation({
       contract: await persistedMappingContract(),
@@ -984,7 +1174,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
           {
             eventType: "catalog.promotion-target.bound",
             payload: {
-              version: poison === "unknown-version" ? 2 : 1,
+              version: poison === "unknown-version" ? 3 : 1,
               key,
               targetId: "cat_synthetic_poison",
               operationId: "synthetic-poison",

@@ -208,6 +208,33 @@ async function proveRetainedCreate(
       normalized: requireCatalogItemPromotionObservation(source.normalized, source.providerKey),
     });
   }
+  const terminalFingerprints = new Set<string>();
+  for (const { source, version, normalized } of validated) {
+    if (!source.promotionPlanFingerprint || terminalFingerprints.has(source.promotionPlanFingerprint)) continue;
+    terminalFingerprints.add(source.promotionPlanFingerprint);
+    const catalogMapping = await loadCatalogItemPromotionProfile(input.deps, version.profile);
+    let matched = false;
+    for (const mode of ["create", "refresh"] as const) {
+      for (const promoteAsDraft of [false, true]) {
+        const plan = await previewCatalogItemPromotionPlan({
+          deps: input.deps,
+          catalogItemId: targetId as CatalogItemId,
+          mode,
+          normalized,
+          providerKey: source.providerKey,
+          externalKey: source.externalKey,
+          providerProfile: version.profile,
+          providerProfileVersion: version,
+          catalogMapping,
+          productAssetSet: item.productAssetSets[0] ?? null,
+          currentItem: mode === "refresh" ? promotionCurrentItem(item) : null,
+          promoteAsDraft,
+        });
+        if (plan.status === "planned" && plan.plan.planFingerprint === source.promotionPlanFingerprint) matched = true;
+      }
+    }
+    if (!matched) throw new Error("promotion-target-retained-fingerprint-conflict");
+  }
   for (const { source, version, normalized } of validated.reverse()) {
     const catalogMapping = await loadCatalogItemPromotionProfile(input.deps, version.profile);
     await guardPromotionMaterial({

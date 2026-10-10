@@ -110,6 +110,14 @@ export const promotionReferenceFunctionStatements = promotionReferenceFunctions.
 
 export async function requirePromotionReferenceFunctions(db: PgQueryable): Promise<void> {
   requirePromotionReferenceRuntime();
+  const environment = await db.query<{ valid: boolean }>(
+    `SELECT current_setting('server_encoding')='UTF8' AND EXISTS (
+       SELECT 1 FROM pg_collation WHERE oid='"C"'::regcollation AND collprovider='c'
+       AND collversion IS NULL AND pg_collation_actual_version(oid) IS NULL
+     ) AS valid`,
+  );
+  if (environment.rows.length !== 1 || environment.rows[0].valid !== true)
+    throw new Error("promotion-reference-casing-environment-drift");
   for (const fn of promotionReferenceFunctions) {
     const result = await db.query<{ valid: boolean }>(
       `SELECT p.prosrc=$2 AND p.provolatile='i' AND p.proisstrict AND p.proparallel='s'

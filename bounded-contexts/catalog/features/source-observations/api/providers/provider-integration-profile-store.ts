@@ -548,11 +548,11 @@ async function lockProviderProfileVersionRows(db: PgQueryable, providerKeys: rea
 }
 
 class CatalogProviderProfileVersionWriteConflictError extends Error {
-  constructor(
-    message: string,
-    readonly cause: unknown,
-  ) {
+  readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
     super(message);
+    this.cause = cause;
     this.name = "CatalogProviderProfileVersionWriteConflictError";
   }
 }

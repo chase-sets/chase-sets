@@ -140,12 +140,28 @@ function harness(projected: readonly ProjectedReferenceRecord[] = []) {
     types: async (streamId: string) => (await eventStore.readStream({ streamId })).map((event) => event.eventType),
     provision: (referenceData: ReferenceDataServices, profile = syntheticProfile()) =>
       resolvePromotionReferenceHierarchy({ deps, referenceData, profile, normalized, context }),
-    preview: (profile = syntheticProfile()) =>
-      resolvePromotionReferenceHierarchyReadOnly({ deps, profile, normalized }),
+    preview: (
+      profile = syntheticProfile(),
+      guard?: Parameters<typeof resolvePromotionReferenceHierarchyReadOnly>[0]["guard"],
+    ) => resolvePromotionReferenceHierarchyReadOnly({ deps, profile, normalized, guard }),
   };
 }
 
 describe("promotion reference hierarchy provisioning against authoritative Reference Data histories", () => {
+  it("reports the exact complete reference version, including absence, to promotion guards", async () => {
+    const h = harness();
+    const observed: [string, number][] = [];
+    const guard = (streamId: string, version: number) => {
+      observed.push([streamId, version]);
+    };
+    await h.preview(undefined, guard);
+    expect(observed).toContainEqual([recordStream, 0]);
+    await h.createRecord();
+    await h.recordCommand({ type: "PublishReferenceRecord" });
+    observed.length = 0;
+    await h.preview(undefined, guard);
+    expect(observed).toContainEqual([recordStream, 2]);
+  });
   it.each<[string, readonly ("create" | "publish")[]]>([
     ["empty", []],
     ["draft", ["create"]],

@@ -52,17 +52,10 @@ export async function guardPromotionMaterial(input: {
     if (!key) throw new Error(`promotion-target-missing-field-key:${name}`);
     await guard(`catalog.field-${id}`, key, initialFieldState, evolveField);
   }
-  const deps: CatalogRuntimeDeps = {
-    ...input.deps,
-    eventStore: {
-      ...input.deps.eventStore,
-      async readStream(request) {
-        const events = await input.deps.eventStore.readStream(request);
-        if (events.length < (request.limit ?? 500))
-          input.session.guard(request.streamId, events.at(-1)?.streamVersion ?? (request.fromVersion ?? 1) - 1);
-        return events;
-      },
-    },
-  };
-  await resolvePromotionReferenceHierarchyReadOnly({ deps, profile: input.profile, normalized: input.normalized });
+  await resolvePromotionReferenceHierarchyReadOnly({
+    deps: input.deps,
+    profile: input.profile,
+    normalized: input.normalized,
+    guard: input.session.guard,
+  });
 }
