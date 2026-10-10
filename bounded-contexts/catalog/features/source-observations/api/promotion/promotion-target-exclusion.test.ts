@@ -25,6 +25,7 @@ import { sourceObservationLinkExternalKey } from "../../domain/domain";
 import { guardPromotionMaterial } from "./promotion-material-guards";
 import { requireCatalogItemPromotionObservation } from "../source-observation-promotion-execution";
 import { foldPromotionTargetSource } from "./promotion-target-discovery";
+import { canonicalPromotionReferenceText as canonical } from "./promotion-reference-canonicalization";
 import {
   decideCatalogItem,
   evolveCatalogItem,
@@ -202,8 +203,8 @@ describe("promotion target retained-reference exclusion", () => {
                         event.eventType.includes(
                           `external-${key.level === "item" ? "catalog-item" : "product"}-reference-`,
                         ) &&
-                        event.payload.providerKey === key.providerKey &&
-                        event.payload.externalKey === key.externalKey
+                        canonical(String(event.payload.providerKey)) === key.providerKey &&
+                        canonical(String(event.payload.externalKey)) === key.externalKey
                       );
                     if (
                       ![
@@ -221,13 +222,16 @@ describe("promotion target retained-reference exclusion", () => {
                     return (
                       references?.some(
                         (reference) =>
-                          reference.providerKey === key.providerKey && reference.externalKey === key.externalKey,
+                          canonical(reference.providerKey) === key.providerKey &&
+                          canonical(reference.externalKey) === key.externalKey,
                       ) ||
                       (key.level === "product" &&
-                        event.payload.providerKey === key.providerKey &&
-                        sourceObservationLinkExternalKey(
-                          String(event.payload.languageCode),
-                          String(event.payload.externalKey),
+                        canonical(String(event.payload.providerKey)) === key.providerKey &&
+                        canonical(
+                          sourceObservationLinkExternalKey(
+                            String(event.payload.languageCode),
+                            String(event.payload.externalKey),
+                          ),
                         ) === key.externalKey)
                     );
                   })

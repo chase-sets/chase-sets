@@ -41,10 +41,31 @@ import {
   createPostgresPromotionTargetExclusion,
   type PromotionTargetAuthority,
 } from "../api/promotion/promotion-target-exclusion";
-import { promotionTargetBindingStream, type PromotionTargetKey } from "../api/promotion/promotion-target-identity";
+import {
+  promotionTargetBindingStream,
+  retainedPromotionTargetBindingStream,
+  type PromotionTargetKey,
+} from "../api/promotion/promotion-target-identity";
 import { trackPromotionProfileAuthority } from "../api/promotion/promotion-profile-authority";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../api/providers/provider-integration-profile-store";
-import { foldPromotionTargetItem } from "../api/promotion/promotion-target-discovery";
+import {
+  discoverPromotionTargets,
+  locatedPromotionSourceTargets,
+  foldPromotionTargetItem,
+} from "../api/promotion/promotion-target-discovery";
+import {
+  resolveCatalogProviderDuplicatePrevention,
+  type CatalogProviderDuplicatePreventionDb,
+} from "../api/promotion/provider-duplicate-prevention-resolver";
+import {
+  canonicalPromotionReferenceText,
+  promotionReferenceTrimCharacters,
+} from "../api/promotion/promotion-reference-canonicalization";
+import {
+  promotionLowercaseRanges,
+  promotionCasedRanges,
+  promotionCaseIgnorableRanges,
+} from "../api/promotion/promotion-reference-casing-data";
 import { promotionCurrentItem } from "../api/promotion/source-observation-target-exclusion";
 import { decideSourceObservation, initialSourceObservationState, type SourceObservationEvent } from "../domain/domain";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
@@ -104,8 +125,8 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     return mapped.observation;
   }
 
-  async function retainedPlan(id: string) {
-    const observation = await record(id);
+  async function retainedPlan(id: string, reference?: string) {
+    const observation = await record(id, reference);
     const normalized = requireCatalogItemPromotionObservation(observation.normalized, observation.providerKey);
     const profile = await requireCatalogPromotionProfileVersion(
       services.providerIntegrationProfiles,
@@ -150,6 +171,66 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     ).rows;
   }
 
+  it("proves pinned SQL casing bytes against JavaScript, including contextual and expanding mappings", async () => {
+    const vectors = new Set([
+      "",
+      "\u0130",
+      "A\u03a3",
+      "A\u03a3A",
+      "A'\u03a3\u0301",
+      "\u1e9e",
+      "ss",
+      "\u00c9",
+      "E\u0301",
+      `${promotionReferenceTrimCharacters}MiXeD${promotionReferenceTrimCharacters}`,
+      "\u0130".repeat(2048),
+    ]);
+    for (const [first, last, stride] of promotionLowercaseRanges)
+      for (let point = first; point <= last; point += stride) vectors.add(String.fromCodePoint(point));
+    for (const [first, last] of [...promotionCasedRanges, ...promotionCaseIgnorableRanges]) {
+      for (const point of [first - 1, first, last, last + 1]) {
+        if (point < 1 || point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) continue;
+        const char = String.fromCodePoint(point);
+        vectors.add(`A${char}\u03a3`);
+        vectors.add(`A\u03a3${char}A`);
+      }
+    }
+    const all = [...vectors];
+    for (let start = 0; start < all.length; start += 500) {
+      const batch = all.slice(start, start + 500);
+      const result = await pool.query<{ value: string; bytes: string }>(
+        "SELECT value, encode(convert_to(catalog_promotion_reference_text_v1(value), 'UTF8'), 'hex') AS bytes FROM unnest($1::text[]) AS value",
+        [batch],
+      );
+      expect(result.rows).toHaveLength(batch.length);
+      for (const row of result.rows)
+        expect(row.bytes, JSON.stringify(row.value)).toBe(
+          Buffer.from(canonicalPromotionReferenceText(row.value)).toString("hex"),
+        );
+    }
+    expect((await pool.query("SELECT catalog_promotion_reference_text_v1(NULL) AS value")).rows).toEqual([
+      { value: null },
+    ]);
+    const normalized = {
+      externalCatalogItemReferences: [
+        { providerKey: " A ", externalKey: " B " },
+        { providerKey: 1, externalKey: "bad" },
+      ],
+      externalProductReferences: [{ providerKey: "A", externalKey: "B", selectedOptions: [] }],
+      malformedSurroundingEvidence: true,
+    };
+    expect(
+      (
+        await pool.query<{ pairs: unknown }>("SELECT catalog_promotion_reference_pairs_v1($1::jsonb) AS pairs", [
+          JSON.stringify(normalized),
+        ])
+      ).rows[0].pairs,
+    ).toEqual({
+      externalCatalogItemReferences: [{ providerKey: "a", externalKey: "b" }],
+      externalProductReferences: [{ providerKey: "a", externalKey: "b" }],
+    });
+  });
+
   function boundary() {
     return createPostgresPromotionTargetExclusion({ pool, eventStore: createPostgresEventStore({ pool }) });
   }
@@ -180,6 +261,51 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       targetId: "cat_candidate_product",
     });
   });
+
+  it.each(["item", "product"] as const)(
+    "reads retained raw %s bindings before any source or item effects",
+    async (level) => {
+      const store = createPostgresEventStore({ pool });
+      const raw = { level, providerKey: " SyNtHeTiC ", externalKey: " MiXeD " };
+      const canonical = { level, providerKey: "synthetic", externalKey: "mixed" };
+      const streamId = retainedPromotionTargetBindingStream(raw);
+      await store.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [
+          {
+            eventType: "catalog.promotion-target.bound",
+            payload: {
+              version: 1,
+              key: raw,
+              targetId: "cat_candidate_retained",
+              operationId: "synthetic-old-writer",
+              generation: 1,
+            },
+          },
+        ],
+      });
+      const retained = await readCompleteStream(store, { streamId });
+      expect(await locatePromotionReferenceStreams(pool, canonical)).toContain(streamId);
+      await expect(acquire("cat_candidate_fork", [canonical])).rejects.toThrow("promotion-target-bound-elsewhere");
+      const first = await acquire("cat_candidate_retained", [canonical]);
+      const second = await acquire("cat_candidate_retained", [raw]);
+      await expect(
+        first.append({ streamId: "catalog.item-cat_candidate_retained", expectedVersion: 0, context, events: [] }),
+      ).rejects.toThrow();
+      await expect(
+        second.append({ streamId: "catalog.item-cat_candidate_retained", expectedVersion: 0, context, events: [] }),
+      ).resolves.toEqual([]);
+      expect(await readCompleteStream(store, { streamId })).toEqual(retained);
+      expect(
+        (await readCompleteStream(store, { streamId: promotionTargetBindingStream(canonical) })).map(
+          (event) => event.payload.generation,
+        ),
+      ).toEqual([1, 2]);
+      expect(await itemCreations()).toHaveLength(0);
+    },
+  );
 
   it("guards negative and material evidence atomically, including a key added by closure", async () => {
     await record("closure-A");
@@ -322,7 +448,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
         externalKey: "absent",
       }),
     ).toEqual([]);
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(3);
     type PlanNode = { "Node Type": string; "Index Name"?: string; Plans?: PlanNode[] };
     const nodes = (plan: PlanNode): { node: string; index?: string }[] => [
       { node: plan["Node Type"], index: plan["Index Name"] },
@@ -493,7 +619,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   it.each([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])(
     "retained mapper-derived create boundary %s never creates a second target",
     async (boundary) => {
-      const retained = await retainedPlan("retained-A");
+      const retained = await retainedPlan("retained-A", boundary >= 13 ? "PRODUCT:493958" : undefined);
       expect(retained.plan.commands).toHaveLength(14);
       expect(retained.plan.commands[13].type).toBe("LinkExternalCatalogItemReference");
       for (const command of retained.plan.commands.slice(0, boundary))
@@ -540,6 +666,43 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       });
     }
     await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
+    const selection = async () => {
+      const trace: { sql: string; values?: readonly unknown[]; rows: unknown[] }[] = [];
+      const db: CatalogProviderDuplicatePreventionDb = {
+        async query<T>(sql: string, values?: readonly unknown[]) {
+          const result = await pool.query<T>(sql, values);
+          trace.push({ sql, values, rows: result.rows });
+          return result;
+        },
+      };
+      const result = await resolveCatalogProviderDuplicatePrevention({
+        db,
+        profile: retained.profile.profile,
+        providerKey: retained.observation.providerKey,
+        externalKey: retained.observation.externalKey,
+        normalized: retained.normalized,
+        catalog: await loadCatalogItemPromotionProfile(retained.deps, retained.profile.profile),
+      });
+      console.info("promotion-selector-precondition", JSON.stringify({ boundary, projection, result, trace }));
+      return { result, trace };
+    };
+    const beforeSelection = await selection();
+    expect(beforeSelection.result).toMatchObject({
+      status: "matched",
+      catalogItemId: x,
+      ruleKey: "pokemon-card-deterministic-fields",
+    });
+    const fieldQuery = beforeSelection.trace.find((entry) => entry.sql.includes("item.field_values @>"));
+    expect(fieldQuery).toBeDefined();
+    for (const operand of fieldQuery!.values!.slice(1)) {
+      const parsed = JSON.parse(String(operand));
+      expect(Array.isArray(parsed)).toBe(true);
+      const control = await pool.query<{ object_match: boolean; array_match: boolean }>(
+        "SELECT field_values @> $2::jsonb AS object_match, field_values @> $3::jsonb AS array_match FROM catalog_items WHERE catalog_item_id=$1",
+        [x, JSON.stringify(parsed[0]), String(operand)],
+      );
+      expect(control.rows).toEqual([{ object_match: false, array_match: true }]);
+    }
     const store = createPostgresEventStore({ pool });
     const state = foldPromotionTargetItem(x, await readCompleteStream(store, { streamId: `catalog.item-${x}` }));
     const refresh = await previewCatalogItemPromotionPlan({
@@ -566,6 +729,28 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     await record("refresh-B", "product:493958", {
       card: { ...fixture.card, localId: "002", name: "Synthetic different card" },
     });
+    const checkpoints = async () =>
+      (
+        await pool.query(
+          "SELECT projector_name, last_global_position::text FROM event_projection_checkpoints ORDER BY projector_name",
+        )
+      ).rows;
+    const frozenCheckpoints = await checkpoints();
+    const projectedX = (
+      await pool.query("SELECT catalog_item_id, field_values FROM catalog_items WHERE catalog_item_id=$1", [x])
+    ).rows;
+    expect(projectedX).toHaveLength(1);
+    if (boundary === "source-link") {
+      const key = { level: "product", providerKey: "tcgdex", externalKey: "en:refresh-a" } as const;
+      expect(await locatePromotionReferenceStreams(pool, key)).toContain(`catalog.item-${x}`);
+      const evidence = await discoverPromotionTargets({
+        eventStore: store,
+        keys: [key],
+        additionalTargetIds: [],
+        locate: (reference) => locatePromotionReferenceStreams(pool, reference),
+      });
+      expect(locatedPromotionSourceTargets(evidence, evidence.sources.get("refresh-A")!)).toContain(x);
+    }
     const incoming = createCatalogServices(pool).sourceObservations.promoteObservation({
       observationId: "refresh-B",
       context,
@@ -578,9 +763,22 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       return;
     }
     const winner = await incoming;
+    expect(await checkpoints()).toEqual(frozenCheckpoints);
+    expect(
+      (await pool.query("SELECT catalog_item_id, field_values FROM catalog_items WHERE catalog_item_id=$1", [x])).rows,
+    ).toEqual(projectedX);
+    expect((await selection()).result).toMatchObject({ status: "matched", catalogItemId: x });
     expect(winner.catalogItemId).not.toBe(x);
     const beforeX = await readCompleteStream(store, { streamId: `catalog.item-${x}` });
     if (projection === "live") await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
+    expect((await selection()).result).toMatchObject({
+      status: "matched",
+      catalogItemId: projection === "live" ? winner.catalogItemId : x,
+    });
+    console.info(
+      "promotion-checkpoint-precondition",
+      JSON.stringify({ boundary, projection, frozenCheckpoints, current: await checkpoints() }),
+    );
     const resumed = createCatalogServices(pool).sourceObservations.promoteObservation({
       observationId: "refresh-A",
       context,
@@ -644,7 +842,7 @@ describeDb("promotion target exclusion through real Catalog services", () => {
 
   it("refuses missing indexes without item effects", async () => {
     await record("missing-index");
-    await pool.query("DROP INDEX catalog_promotion_source_references_idx");
+    await pool.query("DROP INDEX catalog_promotion_source_references_canonical_v1_idx");
     await expect(requirePromotionTargetIndexes(pool)).rejects.toThrow("promotion-target-index-unavailable");
     await expect(
       services.sourceObservations.promoteObservation({ observationId: "missing-index", context }),
@@ -662,7 +860,14 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       if (status !== "observed")
         await services.sourceObservations.commandHandler({
           streamId: "catalog.source-observation-history-A",
-          command: status === "rejected" ? { type: "RejectSourceObservation", reason: "Synthetic retained history" } : { type: "DeferSourceObservation", reason: "Synthetic retained history", deferredAt: "2026-10-10T00:00:00.000Z" },
+          command:
+            status === "rejected"
+              ? { type: "RejectSourceObservation", reason: "Synthetic retained history" }
+              : {
+                  type: "DeferSourceObservation",
+                  reason: "Synthetic retained history",
+                  deferredAt: "2026-10-10T00:00:00.000Z",
+                },
           context,
         });
       await record("history-B", "product:old");

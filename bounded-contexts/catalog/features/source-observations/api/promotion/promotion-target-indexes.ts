@@ -1,12 +1,18 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PromotionReferenceKey } from "./promotion-target-identity";
+import {
+  canonicalPromotionReferenceText,
+  promotionReferenceFunctionStatements,
+  promotionReferenceTrimCharacters,
+  requirePromotionReferenceFunctions,
+} from "./promotion-reference-canonicalization";
 
 const sourcePredicate =
   "stream_id LIKE 'catalog.source-observation-%' AND event_type IN ('catalog.source-observation.recorded', 'catalog.source-observation.changed', 'catalog.source-observation.refreshed')";
 const itemPredicate = (level: "item" | "product") =>
   `stream_id LIKE 'catalog.item-%' AND event_type IN ('catalog.catalog-item.external-${level === "item" ? "catalog-item" : "product"}-reference-linked', 'catalog.catalog-item.external-${level === "item" ? "catalog-item" : "product"}-reference-unlinked')`;
 const sourceLinkExpression = "((payload->>'languageCode') || ':' || (payload->>'externalKey'))";
-const indexes = [
+const rawIndexes = [
   {
     name: "catalog_promotion_item_reference_idx",
     method: "btree",
@@ -33,13 +39,46 @@ const indexes = [
   },
 ] as const;
 
+const canonical = (expression: string) => `catalog_promotion_reference_text_v1(${expression}) COLLATE "C"`;
+const canonicalSourceLink = canonical(
+  `(payload->>'languageCode') || ':' || btrim(payload->>'externalKey', '${promotionReferenceTrimCharacters}')`,
+);
+const bindingPredicate =
+  "stream_id LIKE 'catalog.promotion-target-%' AND event_type = 'catalog.promotion-target.bound'";
+const indexes = [
+  ...(["item", "product"] as const).map((level) => ({
+    name: `catalog_promotion_${level}_reference_canonical_v1_idx`,
+    method: "btree",
+    columns: `(${canonical("payload->>'providerKey'")}, ${canonical("payload->>'externalKey'")}, stream_id, stream_version)`,
+    predicate: itemPredicate(level),
+  })),
+  {
+    name: "catalog_promotion_source_references_canonical_v1_idx",
+    method: "gin",
+    columns: "(catalog_promotion_reference_pairs_v1(payload->'normalized') jsonb_path_ops)",
+    predicate: sourcePredicate,
+  },
+  {
+    name: "catalog_promotion_source_link_canonical_v1_idx",
+    method: "btree",
+    columns: `(${canonical("payload->>'providerKey'")}, ${canonicalSourceLink}, stream_id, stream_version)`,
+    predicate: sourcePredicate,
+  },
+  {
+    name: "catalog_promotion_binding_reference_canonical_v1_idx",
+    method: "btree",
+    columns: `((payload->'key'->>'level') COLLATE "C", ${canonical("payload->'key'->>'providerKey'")}, ${canonical("payload->'key'->>'externalKey'")}, stream_id, stream_version)`,
+    predicate: bindingPredicate,
+  },
+] as const;
+
 // A failed concurrent build can leave its name behind. Only invalid owned indexes
 // are removed; valid objects with the wrong definition fail closed below.
 export const promotionTargetIndexMigrations = [
   {
     migrationId: "20261010_catalog_promotion_target_discovery",
     description: "catalog.promotion-target-discovery-indexes",
-    statements: indexes.flatMap((index) => [
+    statements: rawIndexes.flatMap((index) => [
       `DO $repair$ BEGIN IF EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = to_regclass('${index.name}') AND NOT indisvalid) THEN EXECUTE 'DROP INDEX ${index.name}'; END IF; END $repair$`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${index.name} ON event_store_events USING ${index.method} ${index.columns} WHERE ${index.predicate}`,
       `DO $verify$ BEGIN IF NOT EXISTS (
@@ -50,9 +89,28 @@ export const promotionTargetIndexMigrations = [
       ) THEN RAISE EXCEPTION 'promotion-target-index-unavailable:${index.name}'; END IF; END $verify$`,
     ]),
   },
+  {
+    migrationId: "20261010_catalog_promotion_canonical_references_v1",
+    description: "catalog.promotion-canonical-reference-indexes",
+    statements: [
+      ...promotionReferenceFunctionStatements,
+      ...indexes.flatMap((index) => [
+        `DO $repair$ BEGIN IF EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = to_regclass('${index.name}') AND NOT indisvalid) THEN EXECUTE 'DROP INDEX ${index.name}'; END IF; END $repair$`,
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${index.name} ON event_store_events USING ${index.method} ${index.columns} WHERE ${index.predicate}`,
+        `DO $verify$ BEGIN IF NOT EXISTS (
+          SELECT 1 FROM pg_index WHERE indexrelid = to_regclass('${index.name}')
+          AND indrelid = 'event_store_events'::regclass AND indisvalid AND indisready
+          AND translate(replace(substring(pg_get_indexdef(indexrelid) FROM 'USING .*'), '::text', ''), E' \\t\\n\\r()[]', '')
+            = '${normalizeIndexDefinition(`USING ${index.method} ${index.columns} WHERE ${index.predicate}`).replaceAll("'", "''")}'
+        ) THEN RAISE EXCEPTION 'promotion-target-index-unavailable:${index.name}'; END IF; END $verify$`,
+      ]),
+      ...rawIndexes.map((index) => `DROP INDEX CONCURRENTLY IF EXISTS ${index.name}`),
+    ],
+  },
 ] as const;
 
 export async function requirePromotionTargetIndexes(db: PgQueryable): Promise<void> {
+  await requirePromotionReferenceFunctions(db);
   const result = await db.query<{ name: string; valid: boolean; definition: string }>(
     `SELECT c.relname AS name, (i.indisvalid AND i.indisready) AS valid, pg_get_indexdef(i.indexrelid) AS definition
      FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
@@ -78,22 +136,27 @@ function normalizeIndexDefinition(value: string): string {
     .replaceAll("::text", "")
     .replace(/\bLIKE\b/g, "~~")
     .replace(/\s+IN\s+/g, "=ANYARRAY")
-    .replace(/[\s()[\]]/g, "");
+    .replace(/[ \t\r\n()[\]]/g, "");
 }
 
 export async function locatePromotionReferenceStreams(
   db: PgQueryable,
   key: PromotionReferenceKey,
 ): Promise<readonly string[]> {
+  key = {
+    ...key,
+    providerKey: canonicalPromotionReferenceText(key.providerKey),
+    externalKey: canonicalPromotionReferenceText(key.externalKey),
+  };
   const queries: readonly { predicate: string; match: string; values: readonly unknown[] }[] = [
     {
       predicate: itemPredicate(key.level),
-      match: "payload->>'providerKey' = $1 AND payload->>'externalKey' = $2",
+      match: `${canonical("payload->>'providerKey'")} = $1 AND ${canonical("payload->>'externalKey'")} = $2`,
       values: [key.providerKey, key.externalKey],
     },
     {
       predicate: sourcePredicate,
-      match: "payload->'normalized' @> $1::jsonb",
+      match: "catalog_promotion_reference_pairs_v1(payload->'normalized') @> $1::jsonb",
       values: [
         JSON.stringify({
           [key.level === "item" ? "externalCatalogItemReferences" : "externalProductReferences"]: [
@@ -106,11 +169,16 @@ export async function locatePromotionReferenceStreams(
       ? [
           {
             predicate: sourcePredicate,
-            match: `payload->>'providerKey' = $1 AND ${sourceLinkExpression} = $2`,
+            match: `${canonical("payload->>'providerKey'")} = $1 AND ${canonicalSourceLink} = $2`,
             values: [key.providerKey, key.externalKey],
           },
         ]
       : []),
+    {
+      predicate: bindingPredicate,
+      match: `(payload->'key'->>'level') COLLATE "C" = $1 AND ${canonical("payload->'key'->>'providerKey'")} = $2 AND ${canonical("payload->'key'->>'externalKey'")} = $3`,
+      values: [key.level, key.providerKey, key.externalKey],
+    },
   ];
   const streams = new Set<string>();
   for (const query of queries) {

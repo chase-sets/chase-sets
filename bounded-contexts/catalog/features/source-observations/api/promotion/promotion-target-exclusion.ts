@@ -150,11 +150,11 @@ export function createPromotionTargetExclusion(ports: {
             {
               eventType: "catalog.promotion-target.bound",
               payload: {
-                version: 1,
+                version: 2,
                 key,
                 targetId,
                 operationId,
-                generation: (previous?.generation ?? 0) + 1,
+                generation: (evidence.histories.get(streamId)?.length ?? 0) + 1,
                 ...(previous?.execution ? { execution: previous.execution } : {}),
               },
             },
@@ -281,14 +281,14 @@ export function createPromotionTargetExclusion(ports: {
             )
               throw new Error("promotion-target-poisoned-plan");
           }
-          const entries = [...evidence.keys].map(([identity, key]) => {
+          const entries = [...evidence.keys.values()].map((key) => {
             const bindingStream = promotionTargetBindingStream(key);
             const payload = promotionTargetBindingSchema.parse({
-              version: 1,
+              version: 2,
               key,
               targetId,
               operationId,
-              generation: (evidence.bindings.get(identity)?.generation ?? 0) + 2,
+              generation: versions.get(bindingStream)! + 1,
               execution,
             });
             return {

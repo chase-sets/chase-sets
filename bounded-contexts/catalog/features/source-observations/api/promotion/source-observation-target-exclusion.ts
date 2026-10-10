@@ -38,6 +38,7 @@ import type {
 } from "./promotion-target-exclusion";
 import type { CatalogPromotionCurrentItem } from "./promotion-display-identity";
 import { guardPromotionMaterial } from "./promotion-material-guards";
+import { canonicalPromotionReferenceText } from "./promotion-reference-canonicalization";
 
 export function promotionCurrentItem(state: CatalogItemState): CatalogPromotionCurrentItem | null {
   if (!state.id) return null;
@@ -78,6 +79,18 @@ export async function acquireSourceObservationTarget(input: {
   }
   const fallback = sourceObservationTargetId(source.id!);
   const incomingKeys = sourceObservationTargetKeys(source);
+  const productOptions = new Map<string, unknown>();
+  for (const reference of source.normalized!.externalProductReferences ?? []) {
+    const identity = promotionTargetKeyIdentity({
+      level: "product",
+      providerKey: reference.providerKey,
+      externalKey: reference.externalKey,
+    });
+    const options = reference.selectedOptions ?? [];
+    if (productOptions.has(identity) && !isDeepStrictEqual(productOptions.get(identity), options))
+      throw new Error("promotion-target-product-options-conflict");
+    productOptions.set(identity, options);
+  }
   return input.boundary.acquire({
     keys: incomingKeys,
     additionalTargetIds: [...new Set([fallback, ...(input.selectedTargetId ? [input.selectedTargetId] : [])])],
@@ -143,7 +156,10 @@ export async function acquireSourceObservationTarget(input: {
       for (const reference of source.normalized!.externalProductReferences ?? []) {
         const linked = state.externalProductReferences.find(
           (candidate) =>
-            candidate.providerKey === reference.providerKey && candidate.externalKey === reference.externalKey,
+            canonicalPromotionReferenceText(candidate.providerKey) ===
+              canonicalPromotionReferenceText(reference.providerKey) &&
+            canonicalPromotionReferenceText(candidate.externalKey) ===
+              canonicalPromotionReferenceText(reference.externalKey),
         );
         if (linked && !isDeepStrictEqual(linked.selectedOptions ?? [], reference.selectedOptions ?? []))
           throw new Error("promotion-target-product-options-conflict");
@@ -164,7 +180,8 @@ async function proveRetainedCreate(
   const item = evidence.items.get(targetId)!;
   const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
   const actual = history.map(codec.decode);
-  for (const source of [...revisions].reverse()) {
+  const validated = [];
+  for (const source of revisions) {
     const available = await input.profileVersions.listProfileVersions(source.providerKey);
     const sourceVersions = available.filter(
       (version) =>
@@ -185,7 +202,13 @@ async function proveRetainedCreate(
     const version = versions[0];
     if (!version || !source.normalized || !source.sourceMappingFingerprint)
       throw new Error("promotion-target-missing-profile-evidence");
-    const normalized = requireCatalogItemPromotionObservation(source.normalized, source.providerKey);
+    validated.push({
+      source,
+      version,
+      normalized: requireCatalogItemPromotionObservation(source.normalized, source.providerKey),
+    });
+  }
+  for (const { source, version, normalized } of validated.reverse()) {
     const catalogMapping = await loadCatalogItemPromotionProfile(input.deps, version.profile);
     await guardPromotionMaterial({
       deps: input.deps,
@@ -224,7 +247,7 @@ async function proveRetainedCreate(
         deps: input.deps,
         catalogItemId: targetId as CatalogItemId,
         mode: "refresh",
-        normalized: requireCatalogItemPromotionObservation(source.normalized, source.providerKey),
+        normalized,
         providerKey: source.providerKey,
         externalKey: source.externalKey,
         providerProfile: version.profile,

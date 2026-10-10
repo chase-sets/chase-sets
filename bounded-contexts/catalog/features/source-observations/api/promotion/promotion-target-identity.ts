@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { sourceObservationLinkExternalKey, type SourceObservationState } from "../../domain/domain";
+import { canonicalPromotionReferenceText } from "./promotion-reference-canonicalization";
 
 const keyText = z.string().min(1).max(2048);
 export const promotionTargetKeySchema = z.discriminatedUnion("level", [
@@ -10,8 +11,21 @@ export const promotionTargetKeySchema = z.discriminatedUnion("level", [
 export type PromotionTargetKey = z.infer<typeof promotionTargetKeySchema>;
 export type PromotionReferenceKey = Exclude<PromotionTargetKey, { level: "member" }>;
 
-export function promotionTargetKeyIdentity(key: PromotionTargetKey): string {
+export function canonicalPromotionTargetKey(key: PromotionTargetKey): PromotionTargetKey {
   promotionTargetKeySchema.parse(key);
+  return promotionTargetKeySchema.parse(
+    key.level === "member"
+      ? key
+      : {
+          level: key.level,
+          providerKey: canonicalPromotionReferenceText(key.providerKey),
+          externalKey: canonicalPromotionReferenceText(key.externalKey),
+        },
+  );
+}
+
+export function promotionTargetKeyIdentity(key: PromotionTargetKey): string {
+  key = canonicalPromotionTargetKey(key);
   return JSON.stringify(
     key.level === "member" ? [key.level, key.observationId] : [key.level, key.providerKey, key.externalKey],
   );
@@ -19,6 +33,14 @@ export function promotionTargetKeyIdentity(key: PromotionTargetKey): string {
 
 export function promotionTargetBindingStream(key: PromotionTargetKey): string {
   return `catalog.promotion-target-${createHash("sha256").update(promotionTargetKeyIdentity(key)).digest("hex")}`;
+}
+
+export function retainedPromotionTargetBindingStream(key: PromotionTargetKey): string {
+  promotionTargetKeySchema.parse(key);
+  const identity = JSON.stringify(
+    key.level === "member" ? [key.level, key.observationId] : [key.level, key.providerKey, key.externalKey],
+  );
+  return `catalog.promotion-target-${createHash("sha256").update(identity).digest("hex")}`;
 }
 
 export function sourceObservationTargetId(observationId: string): string {

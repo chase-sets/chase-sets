@@ -21,15 +21,18 @@ import {
   promotionTargetBindingStream,
   promotionTargetKeyIdentity,
   promotionTargetKeySchema,
+  canonicalPromotionTargetKey,
+  retainedPromotionTargetBindingStream,
   sourceObservationTargetId,
   sourceObservationTargetKeys,
   type PromotionReferenceKey,
   type PromotionTargetKey,
 } from "./promotion-target-identity";
+import { canonicalPromotionReferenceText } from "./promotion-reference-canonicalization";
 
 export const promotionTargetBindingSchema = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     key: promotionTargetKeySchema,
     targetId: z.string().min(1).max(2048),
     operationId: z.string().min(1).max(2048),
@@ -84,8 +87,12 @@ export function locatedPromotionSourceTargets(
                 "catalog.catalog-item.external-product-reference-linked",
                 "catalog.catalog-item.external-product-reference-unlinked",
               ].includes(event.eventType) &&
-              event.payload.providerKey === revision.providerKey &&
-              event.payload.externalKey === externalKey,
+              typeof event.payload.providerKey === "string" &&
+              typeof event.payload.externalKey === "string" &&
+              canonicalPromotionReferenceText(event.payload.providerKey) ===
+                canonicalPromotionReferenceText(revision.providerKey) &&
+              canonicalPromotionReferenceText(event.payload.externalKey) ===
+                canonicalPromotionReferenceText(externalKey),
           )
       )
         targets.add(id);
@@ -105,8 +112,10 @@ export async function discoverPromotionTargets(input: {
   const sources = new Map<string, PromotionTargetSource>();
   const items = new Map<string, CatalogItemState>();
   const bindings = new Map<string, PromotionTargetBinding | null>();
+  const retainedBindings: PromotionTargetBinding[] = [];
   const pendingStreams = new Set(input.additionalTargetIds.map((id) => `catalog.item-${id}`));
   const addKey = (key: PromotionTargetKey) => {
+    key = canonicalPromotionTargetKey(key);
     keys.set(promotionTargetKeyIdentity(key), key);
     if (keys.size > 10000) throw new Error("promotion-target-discovery-budget-exceeded");
   };
@@ -124,7 +133,11 @@ export async function discoverPromotionTargets(input: {
         if (event.eventType !== "catalog.promotion-target.bound") throw new Error("promotion-target-invalid-binding");
         const next = promotionTargetBindingSchema.parse(event.payload);
         if (
-          !isDeepStrictEqual(next.key, key) ||
+          promotionTargetKeyIdentity(next.key) !== identity ||
+          (next.version === 1
+            ? retainedPromotionTargetBindingStream(next.key)
+            : promotionTargetBindingStream(next.key)) !== stream ||
+          (next.version === 2 && !isDeepStrictEqual(next.key, canonicalPromotionTargetKey(next.key))) ||
           next.generation !== (binding?.generation ?? 0) + 1 ||
           (binding && next.targetId !== binding.targetId)
         ) {
@@ -142,7 +155,33 @@ export async function discoverPromotionTargets(input: {
       if (histories.size > 10000) throw new Error("promotion-target-discovery-budget-exceeded");
       const history = await readCompleteStream(input.eventStore, { streamId, maxEvents: 100000 });
       histories.set(streamId, history);
-      if (streamId.startsWith("catalog.source-observation-")) {
+      if (streamId.startsWith("catalog.promotion-target-")) {
+        if (history.length === 0) throw new Error("promotion-target-missing-binding");
+        let previous: PromotionTargetBinding | null = null;
+        for (const event of history) {
+          if (event.eventType !== "catalog.promotion-target.bound") throw new Error("promotion-target-invalid-binding");
+          const next = promotionTargetBindingSchema.parse(event.payload);
+          if (
+            (next.version === 1
+              ? retainedPromotionTargetBindingStream(next.key)
+              : promotionTargetBindingStream(next.key)) !== streamId ||
+            next.generation !== (previous?.generation ?? 0) + 1 ||
+            (previous &&
+              (next.targetId !== previous.targetId ||
+                promotionTargetKeyIdentity(next.key) !== promotionTargetKeyIdentity(previous.key)))
+          )
+            throw new Error("promotion-target-conflicting-binding");
+          previous = next;
+        }
+        const binding = previous!;
+        addKey(binding.key);
+        const identity = promotionTargetKeyIdentity(binding.key);
+        const current = bindings.get(identity);
+        if (current && current.targetId !== binding.targetId) throw new Error("promotion-target-conflicting-binding");
+        retainedBindings.push(binding);
+        bindings.set(identity, current?.execution ? current : binding);
+        pendingStreams.add(`catalog.item-${binding.targetId}`);
+      } else if (streamId.startsWith("catalog.source-observation-")) {
         if (history.length === 0) throw new Error(`promotion-target-missing-source:${streamId}`);
         const id = streamId.slice("catalog.source-observation-".length);
         const source = foldPromotionTargetSource(id, history);
@@ -174,6 +213,16 @@ export async function discoverPromotionTargets(input: {
       } else throw new Error(`promotion-target-invalid-locator:${streamId}`);
     }
     if ([...keys.keys()].every((key) => bindings.has(key))) break;
+  }
+  for (const binding of retainedBindings) {
+    const current = bindings.get(promotionTargetKeyIdentity(binding.key));
+    if (!binding.execution || isDeepStrictEqual(binding.execution, current?.execution)) continue;
+    const expected = binding.execution.batches.flat();
+    const actual = histories
+      .get(`catalog.item-${binding.targetId}`)
+      ?.slice(binding.execution.baselineVersion, binding.execution.baselineVersion + expected.length)
+      .map(({ eventType, payload }) => ({ eventType, payload }));
+    if (!isDeepStrictEqual(actual, expected)) throw new Error("promotion-target-conflicting-binding-execution");
   }
   return { keys, histories, sources, items, bindings };
 }

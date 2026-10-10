@@ -106,14 +106,22 @@ entire transaction; notifications become visible only at commit.
    has stopped, including independently hosted workers. Index presence alone
    cannot attest that an old process has drained. Do not activate with mixed
    writer versions.
-2. Apply ledgered migration `20261010_catalog_promotion_target_discovery` outside
-   a transaction. Its four non-unique concurrent indexes retain existing event
-   bytes and retry invalid owned indexes. A valid wrong definition is an error,
-   not permission to replace an unrelated object.
+2. Apply ledgered migrations through `20261010_catalog_promotion_canonical_references_v1`
+   outside a transaction. The immutable Catalog functions pin Unicode 17.0 default
+   lowercase, including contextual sigma, dotted-I expansion and ECMAScript trim.
+   Their five non-unique concurrent indexes cover item/Product references, paired
+   source references, source links and retained raw-key bindings. The binding index
+   also finds reservations made before any source/item effects. Installation keeps
+   event bytes unchanged, retries invalid owned builds, rejects conflicting valid
+   definitions, and retires raw-only indexes after reader/writer quiescence.
 3. Deploy the guarded writers and retain compatible readers. Before activation,
-   verify the deployment inventory contains no old writers and validate all four
-   index definitions, `indisvalid` and `indisready`. The runtime also checks these
-   on every acquisition and refuses when they are absent or invalid.
+   verify the deployment inventory contains no old writers or raw-only readers.
+   Validate all five index definitions, `indisvalid`, `indisready`, immutable function
+   bodies/settings and the writer runtime Unicode version. Acquisition refuses drift.
+   A casing-data upgrade needs new versioned functions/indexes and a new cutover,
+   never an in-place replacement of indexed immutable semantics. Version-1 bindings
+   remain read/validated and guarded; version-2 bindings use canonical keys. Conflicting
+   targets or unfinished incompatible execution evidence refuse without rewriting history.
 4. Restore the existing rollout controls only after those checks. Preserve
    refused histories for diagnosis; never backfill, relink or reset them to make
    promotion proceed.
