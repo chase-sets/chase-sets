@@ -150,7 +150,7 @@ const indexDefinitionSql = "substring(pg_get_indexdef(i.indexrelid) FROM 'USING 
 export const catalogPromotionReferenceAccessPathMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: `20261010_catalog_promotion_reference_access_paths_${version}`,
-    description: `catalog.promotion-reference-access-paths-${version}`,
+    description: "catalog.promotion-reference-access-paths-v1",
     statements: [
       "SET lock_timeout = '5s';",
       ...promotionReferenceFunctionStatements,
