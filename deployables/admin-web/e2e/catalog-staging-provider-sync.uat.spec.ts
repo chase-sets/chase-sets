@@ -5873,7 +5873,12 @@ type WholeGameBatchSnapshot = WholeGameBatchView & Readonly<{ planFingerprint: s
 
 type WholeGameRunIdentity = Pick<WholeGameReceipt, "sha" | "runId" | "runAttempt">;
 
-type WholeGameSettleCounts = Omit<NonNullable<WholeGameReceipt["settle"]>, "batchStatus" | "units" | "resumed">;
+type WholeGameSettleCounts = {
+  -readonly [Key in Exclude<
+    keyof NonNullable<WholeGameReceipt["settle"]>,
+    "batchStatus" | "units" | "resumed"
+  >]: number;
+};
 
 function isWholeGameJourneyScope(scope: string): scope is WholeGameJourneyScope {
   return (wholeGameJourneyScopes as readonly string[]).includes(scope);
