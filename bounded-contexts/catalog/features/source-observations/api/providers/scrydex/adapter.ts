@@ -38,6 +38,7 @@ import type {
   ProviderPayloadEnvelope,
   ProviderTransportDiagnostic,
   ProviderUsageEstimate,
+  ProviderUsageSnapshot,
 } from "../../provider-adapters/provider-adapter";
 
 export const SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey({
@@ -100,6 +101,12 @@ const scrydexSealedSelect = "id,name,type,images,language,language_code,expansio
 const scrydexUsageLagDiagnostic =
   "Scrydex usage is account-level and may lag live imports by 20-30 minutes per provider policy.";
 const scrydexUsageCheckedDiagnostic = "Scrydex account usage check completed with redacted credit evidence.";
+const scrydexUsageCredentialMissingDiagnostic = "Scrydex usage check skipped because API key or team ID is missing.";
+// Scrydex refreshes account usage every 20-30 minutes, so one read per 15-minute
+// window observes every provider update while bounding health-read cost. A balance
+// older than an hour is withheld rather than shown as current.
+export const SCRYDEX_USAGE_FRESH_WITHIN_SECONDS = 15 * 60;
+const scrydexUsageUnavailableAfterSeconds = 60 * 60;
 const scrydexPriceHistoryPerCardDiagnostic =
   "Scrydex One Piece price history is exposed as a per-card endpoint; production price-history sync remains source-authority-gated and disabled.";
 
@@ -221,11 +228,16 @@ type ScrydexUsageReadiness = Readonly<{
   totalCredits: number | null;
   remainingCredits: number | null;
   usedCredits: number | null;
-  overageCreditRate: string | null;
-  usageUpdatedAt: string | null;
+  overageCreditsConsumed: number | null;
   retryAfterSeconds?: number;
   diagnosticCode?: string;
   credentialState?: "configured" | "invalid" | "unknown";
+}>;
+
+type ScrydexUsageObservation = Readonly<{
+  attemptedAt: string;
+  readiness: ScrydexUsageReadiness;
+  lastChecked: Readonly<{ observedAt: string; readiness: ScrydexUsageReadiness }> | null;
 }>;
 
 const scrydexOnePieceProofFetchedAt = "2026-06-22T00:00:00.000Z";
@@ -289,15 +301,17 @@ const scrydexLorcanaProofSealedProduct: ScrydexOnePieceSealedProduct = {
   expansion: scrydexLorcanaProofExpansion,
 };
 
+export type ScrydexProviderAdapter = ProviderAdapter<ScrydexOnePieceProviderPayload> &
+  Required<Pick<ProviderAdapter<ScrydexOnePieceProviderPayload>, "getUsageSnapshot">>;
+
 export function createScrydexOnePieceProviderAdapter(
   options: ScrydexOnePieceProviderAdapterOptions = {},
-): ProviderAdapter<ScrydexOnePieceProviderPayload> {
+): ScrydexProviderAdapter {
   return createScrydexAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
 }
 
-function createScrydexAdapter(
-  options: ScrydexOnePieceProviderAdapterOptions,
-): ProviderAdapter<ScrydexOnePieceProviderPayload> {
+function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): ScrydexProviderAdapter {
+  const usageObservations = createScrydexUsageObservationCache(options);
   return {
     providerKey: "scrydex",
     capabilities: {
@@ -580,7 +594,7 @@ function createScrydexAdapter(
     async getCredentialReadiness() {
       const readiness = scrydexCredentialState(options);
       const checkedAt = (options.now ?? (() => new Date()))().toISOString();
-      const usageReadiness = readiness.configured ? await getScrydexUsageReadiness(options) : null;
+      const usageReadiness = readiness.configured ? (await usageObservations.read()).readiness : null;
       const state = usageReadiness?.credentialState ?? (readiness.configured ? "configured" : "missing");
       return scrydexOnePieceUnitKeys().map((unitKey) =>
         createCatalogProviderCredentialReadiness({
@@ -614,8 +628,7 @@ function createScrydexAdapter(
             totalCredits: usageReadiness?.totalCredits ?? null,
             remainingCredits: usageReadiness?.remainingCredits ?? null,
             usedCredits: usageReadiness?.usedCredits ?? null,
-            overageCreditRate: usageReadiness?.overageCreditRate ?? null,
-            usageUpdatedAt: usageReadiness?.usageUpdatedAt ?? null,
+            overageCreditsConsumed: usageReadiness?.overageCreditsConsumed ?? null,
             creditDiagnostic: usageReadiness?.creditDiagnostic ?? null,
             degradedDiagnostic: usageReadiness?.degradedDiagnostic ?? null,
           },
@@ -624,7 +637,7 @@ function createScrydexAdapter(
     },
     async getTransportDiagnostics() {
       const readiness = scrydexCredentialState(options);
-      const usageReadiness = readiness.configured ? await getScrydexUsageReadiness(options) : null;
+      const usageReadiness = readiness.configured ? (await usageObservations.read()).readiness : null;
       const credentialDiagnostics: ProviderTransportDiagnostic[] = readiness.configured
         ? [
             {
@@ -666,6 +679,9 @@ function createScrydexAdapter(
           unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         },
       ];
+    },
+    async getUsageSnapshot() {
+      return scrydexUsageSnapshot(scrydexCredentialState(options).configured ? await usageObservations.read() : null);
     },
   };
 }
@@ -1585,14 +1601,13 @@ async function getScrydexUsageReadiness(
   if (!scrydexCredentialState(options).configured) {
     return {
       usageCheckState: "unavailable",
-      creditDiagnostic: "Scrydex usage check skipped because API key or team ID is missing.",
+      creditDiagnostic: scrydexUsageCredentialMissingDiagnostic,
       degradedDiagnostic: null,
       creditState: "unknown",
       totalCredits: null,
       remainingCredits: null,
       usedCredits: null,
-      overageCreditRate: null,
-      usageUpdatedAt: null,
+      overageCreditsConsumed: null,
       credentialState: "unknown",
       diagnosticCode: "credential-missing",
     };
@@ -1600,11 +1615,11 @@ async function getScrydexUsageReadiness(
 
   try {
     const body = await fetchScrydexJson(scrydexAccountUrl("usage", options), options);
-    const usage = sanitizeScrydexUsage(body);
+    const usage = sanitizeScrydexUsage(body, (options.now ?? (() => new Date()))());
     const creditState = scrydexCreditState(usage);
     return {
       usageCheckState: "checked",
-      creditDiagnostic: scrydexCreditDiagnostic(creditState),
+      creditDiagnostic: scrydexCreditDiagnostic(creditState, usage),
       degradedDiagnostic: scrydexUsageLagDiagnostic,
       creditState,
       ...usage,
@@ -1624,8 +1639,7 @@ async function getScrydexUsageReadiness(
         totalCredits: null,
         remainingCredits: null,
         usedCredits: null,
-        overageCreditRate: null,
-        usageUpdatedAt: null,
+        overageCreditsConsumed: null,
         retryAfterSeconds: error.retryAfterSeconds,
         diagnosticCode: error.diagnosticCode,
         credentialState:
@@ -1645,12 +1659,85 @@ async function getScrydexUsageReadiness(
       totalCredits: null,
       remainingCredits: null,
       usedCredits: null,
-      overageCreditRate: null,
-      usageUpdatedAt: null,
+      overageCreditsConsumed: null,
       diagnosticCode: "provider-degraded",
       credentialState: "configured",
     };
   }
+}
+
+// Health reads share one usage observation per adapter instance. The instance owns
+// immutable credentials and endpoints, so its slot is the provider/environment key.
+// Concurrent readers join the in-flight read, and at most one usage request is sent
+// per freshness window, whether the latest attempt succeeded or failed. Import
+// planning deliberately reads usage live and never consumes this cache.
+function createScrydexUsageObservationCache(options: ScrydexOnePieceProviderAdapterOptions) {
+  const now = options.now ?? (() => new Date());
+  let latest: ScrydexUsageObservation | null = null;
+  let pending: Promise<ScrydexUsageObservation> | null = null;
+
+  async function refresh(): Promise<ScrydexUsageObservation> {
+    const attemptedAt = now().toISOString();
+    const readiness = await getScrydexUsageReadiness(options);
+    latest = {
+      attemptedAt,
+      readiness,
+      lastChecked:
+        readiness.usageCheckState === "checked"
+          ? { observedAt: now().toISOString(), readiness }
+          : (latest?.lastChecked ?? null),
+    };
+    return latest;
+  }
+
+  return {
+    read(): Promise<ScrydexUsageObservation> {
+      if (latest && secondsSince(latest.attemptedAt, now()) < SCRYDEX_USAGE_FRESH_WITHIN_SECONDS) {
+        return Promise.resolve(latest);
+      }
+      pending ??= refresh().finally(() => {
+        pending = null;
+      });
+      return pending;
+    },
+  };
+}
+
+// A future or unparseable timestamp has no provable age, so it reads as expired.
+function secondsSince(timestamp: string, now: Date): number {
+  const elapsed = (now.getTime() - Date.parse(timestamp)) / 1000;
+  return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : Number.POSITIVE_INFINITY;
+}
+
+function scrydexUsageSnapshot(observation: ScrydexUsageObservation | null): ProviderUsageSnapshot {
+  const latest = observation?.readiness ?? null;
+  const checked = observation?.lastChecked ?? null;
+  return {
+    providerKey: "scrydex",
+    creditUnit: "credits",
+    creditState:
+      latest?.usageCheckState === "checked" || latest?.creditState === "exhausted"
+        ? latest.creditState
+        : (checked?.readiness.creditState ?? "unknown"),
+    totalCredits: checked?.readiness.totalCredits ?? null,
+    remainingCredits: checked?.readiness.remainingCredits ?? null,
+    usedCredits: checked?.readiness.usedCredits ?? null,
+    observedAt: checked?.observedAt ?? null,
+    attemptedAt: observation?.attemptedAt ?? null,
+    attemptState: !latest ? "not-configured" : latest.usageCheckState === "checked" ? "checked" : "unavailable",
+    // Scrydex reports no usage update timestamp, so lag is only the documented
+    // 20-30 minute refresh window and is never measured.
+    providerUpdatedAt: null,
+    lagCategory: checked ? "documented-window" : "unobserved",
+    diagnosticCode: latest ? (latest.diagnosticCode ?? null) : "credential-missing",
+    diagnostic: !latest
+      ? scrydexUsageCredentialMissingDiagnostic
+      : latest.usageCheckState === "checked"
+        ? latest.creditDiagnostic
+        : (latest.degradedDiagnostic ?? latest.creditDiagnostic),
+    freshWithinSeconds: SCRYDEX_USAGE_FRESH_WITHIN_SECONDS,
+    unavailableAfterSeconds: scrydexUsageUnavailableAfterSeconds,
+  };
 }
 
 function scrydexUsageTransportDiagnostics(
@@ -2279,22 +2366,44 @@ function recordValue(value: unknown, key: string): JsonValue | undefined {
   return isJsonRecord(value) ? value[key] : undefined;
 }
 
-function sanitizeScrydexUsage(
-  value: JsonValue,
-): Omit<
+type ScrydexUsageBalances = Pick<
   ScrydexUsageReadiness,
-  "usageCheckState" | "creditDiagnostic" | "degradedDiagnostic" | "creditState" | "credentialState"
-> {
-  const record = jsonRecord(value);
+  "totalCredits" | "remainingCredits" | "usedCredits" | "overageCreditsConsumed"
+>;
+
+// Scrydex returns usage in a `data` envelope: credits consumed, overage credits
+// consumed, and credits remaining for one billing period, with no allowance and no
+// update timestamp. Balances count only when that period covers the check instant.
+// The allowance is consumed plus remaining only while no overage was consumed;
+// otherwise it stays unreported rather than guessed. Daily usage and the period
+// bounds are read here and never retained.
+function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBalances {
+  const data = jsonRecord(recordValue(value, "data") ?? null);
+  const periodStart = Date.parse(stringValue(data.period_start) ?? "");
+  const periodEnd = Date.parse(stringValue(data.period_end) ?? "");
+  const checkedAtMs = checkedAt.getTime();
+  if (!(periodStart <= checkedAtMs && checkedAtMs < periodEnd)) {
+    return { totalCredits: null, remainingCredits: null, usedCredits: null, overageCreditsConsumed: null };
+  }
+
+  const remainingCredits = creditCount(data.credits_remaining);
+  const usedCredits = creditCount(data.total_credits_consumed);
+  const overageCreditsConsumed = creditCount(data.overage_credits_consumed);
   return {
-    totalCredits: numberValue(record.total_credits ?? record.totalCredits),
-    remainingCredits: numberValue(record.remaining_credits ?? record.remainingCredits),
-    usedCredits: numberValue(record.used_credits ?? record.usedCredits),
-    overageCreditRate: stringValue(record.overage_credit_rate ?? record.overageCreditRate),
-    usageUpdatedAt: stringValue(
-      record.updated_at ?? record.updatedAt ?? record.usage_updated_at ?? record.usageUpdatedAt ?? record.last_updated,
-    ),
+    totalCredits:
+      usedCredits !== null && remainingCredits !== null && overageCreditsConsumed === 0
+        ? creditCount(usedCredits + remainingCredits)
+        : null,
+    remainingCredits,
+    usedCredits,
+    overageCreditsConsumed,
   };
+}
+
+// A credit count is a non-negative safe integer, the range a JSON number represents
+// exactly. Anything else, including a derived sum past that range, is unreported.
+function creditCount(value: JsonValue | undefined): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function scrydexCreditState(
@@ -2315,17 +2424,28 @@ function scrydexCreditState(
   return "available";
 }
 
-function scrydexCreditDiagnostic(creditState: ScrydexUsageReadiness["creditState"]): string {
+function scrydexCreditDiagnostic(
+  creditState: ScrydexUsageReadiness["creditState"],
+  usage: ScrydexUsageBalances,
+): string {
   if (creditState === "exhausted") {
     return "Scrydex account credits are exhausted; stop paid imports until operators review credits and overage posture.";
   }
 
-  if (creditState === "low") {
-    return "Scrydex account credits are low; operators should review call budgets before running imports.";
+  if (creditState === "unknown") {
+    return "Scrydex account usage response did not include remaining-credit evidence for the current billing period.";
   }
 
-  if (creditState === "unknown") {
-    return "Scrydex account usage response did not include remaining-credit evidence.";
+  if (usage.overageCreditsConsumed !== null && usage.overageCreditsConsumed > 0) {
+    return "Scrydex reports overage credits consumed this billing period, so the period allowance is unreported; operators should review plan and overage posture.";
+  }
+
+  if (usage.totalCredits === null) {
+    return "Scrydex account usage response did not include consumed and overage credit evidence, so the period allowance is unreported.";
+  }
+
+  if (creditState === "low") {
+    return "Scrydex account credits are low; operators should review call budgets before running imports.";
   }
 
   return scrydexUsageCheckedDiagnostic;

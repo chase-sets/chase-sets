@@ -173,6 +173,10 @@ Every scope or provider unit excluded from required coverage carries one stable 
 
 A `Provider Scope Observation` records the provider, ingestion unit, scope kind, external id, label, parent coordinates, language, provider metadata, and deterministic hash returned by an option sync. Observations are provider evidence, not canonical Scope Records. The matcher may auto-accept a unique exact canonical match, propose ambiguous mappings, or create one reviewable canonical Scope Record proposal for unmatched evidence. Accepted, rejected, and revoked mapping dispositions survive later observation refreshes.
 
+## Usage Snapshot
+
+A `Usage Snapshot` is a provider adapter's cached, redacted observation of a provider account's credit usage: credit state, total, remaining, and used credits, the observed-at time of the last successful read, the latest attempt state, and the provider lag category. It never carries credentials, account identifiers, endpoint URLs, pricing, or raw provider responses, and an unreported value stays null rather than zero. For Scrydex the total is consumed plus remaining credits for the current billing period and is unreported once overage credits are consumed. Health reads share one snapshot per adapter and freshness window; import planning reads usage live. The Admin usage budget derives `fresh`, `stale`, `unavailable`, or `never-observed` from the snapshot's observed age, withholds balances older than the provider's unavailable window, and projects `null` for providers that do not report usage.
+
 ## Alias Model
 
 A `Catalog Alias` is reviewable item-level evidence that a piece of text refers to a Catalog Item: an official equivalent in another language or market, a translation, a provider-localized name, a species name, a romanization, or a generated translation. Translation is one kind of alias, not the whole model.

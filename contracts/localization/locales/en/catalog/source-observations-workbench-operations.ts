@@ -382,6 +382,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.degradedDiagnostic": "Degraded diagnostic",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.description":
     "Selected scope and active provider profile plan.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimateReason": "Estimate reason",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimateUnavailable": "Estimate unavailable",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimatedPayloads": "Estimated payloads",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimatedRequests": "Estimated requests",
@@ -390,6 +391,7 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.noCreditDiagnostic": "No credit diagnostic",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.noDegradedDiagnostic":
     "No degraded diagnostic",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.noEstimateReason": "No estimate reason",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.pageSize": "Page size",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.planKeys": "Plan keys",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.selectedFields": "Selected fields",

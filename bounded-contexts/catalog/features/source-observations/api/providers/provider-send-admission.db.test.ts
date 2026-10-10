@@ -109,7 +109,17 @@ describeDb("Catalog provider-send durable window", () => {
       if (url.hostname !== "api.scrydex.com" || url.pathname !== "/account/v1/usage") {
         throw new Error(`Unexpected provider HTTP in readiness: ${url.origin}${url.pathname}`);
       }
-      return Response.json({ total_credits: 50_000, remaining_credits: 50_000, used_credits: 0 });
+      // Synthetic values in the real Scrydex usage envelope; the period covers the read.
+      return Response.json({
+        data: {
+          total_credits_consumed: 0,
+          overage_credits_consumed: 0,
+          credits_remaining: 50_000,
+          period_start: new Date(Date.now() - 86_400_000).toISOString(),
+          period_end: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+          daily_usage: [],
+        },
+      });
     });
     vi.stubGlobal("fetch", http);
     try {
@@ -139,7 +149,6 @@ describeDb("Catalog provider-send durable window", () => {
         async () => expect((await app.request("/integration-control-plane/readiness")).status).toBe(200),
         async () => expect((await connections()).complete).toBe(true),
       ];
-      let previousAttempts = 0;
       for (let repeat = 0; repeat < 2; repeat++) {
         for (const read of reads) {
           readiness.mockClear();
@@ -161,12 +170,13 @@ describeDb("Catalog provider-send durable window", () => {
           const persisted = await ledger.read();
           expect(persisted).toMatchObject({ state: "armed", refusal: null, inFlight: 0 });
           if (persisted.state === "unarmed") throw new Error("Expected armed window");
-          expect(persisted.attempts.length).toBeGreaterThan(previousAttempts);
+          // Every health read shares one cached usage observation per freshness window,
+          // so the first read admits the only usage request and later reads send none.
+          expect(persisted.attempts).toHaveLength(1);
           expect(
             persisted.attempts.every((attempt) => attempt.category === "usage" && attempt.provider === "scrydex"),
           ).toBe(true);
           expect(persisted.used).toBe(http.mock.calls.length);
-          previousAttempts = persisted.attempts.length;
         }
       }
     } finally {

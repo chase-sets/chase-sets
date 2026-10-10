@@ -278,22 +278,7 @@ const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[]
             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.payload"),
             value: row.payloadAcquisition,
           },
-          ...(row.usageBudget
-            ? [
-                {
-                  key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.credits"),
-                  value: formatUsageBudgetCredits(row.usageBudget),
-                },
-                {
-                  key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.budget.readiness"),
-                  value: row.usageBudget.readiness,
-                },
-                {
-                  key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.estimated.calls"),
-                  value: formatEstimatedCalls(row.usageBudget),
-                },
-              ]
-            : []),
+          ...usageBudgetItems(row.usageBudget),
         ]}
       />
     ),
@@ -523,17 +508,100 @@ function formatWorkspaceDateTime(value: string | null | undefined) {
   return formatDateTime(value);
 }
 
-function formatUsageBudgetCredits(
-  budget: NonNullable<CatalogPrimaryWorkbenchHealthTriageProvider["usageBudget"]>,
-): string {
-  if (budget.creditBalance === null) {
-    return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
+type UsageBudget = NonNullable<CatalogPrimaryWorkbenchHealthTriageProvider["usageBudget"]>;
+
+function usageBudgetItems(budget: CatalogPrimaryWorkbenchHealthTriageProvider["usageBudget"]) {
+  const credits = t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.credits");
+  if (!budget) {
+    return [
+      { key: credits, value: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.unsupported") },
+    ];
   }
 
-  return [String(budget.creditBalance), budget.creditUnit].filter(Boolean).join(" ");
+  return [
+    { key: credits, value: formatUsageBudgetCredits(budget) },
+    {
+      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.budget.readiness"),
+      value: budget.readiness,
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.freshness"),
+      value: formatUsageFreshness(budget),
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.lag"),
+      value: formatUsageLag(budget.lagCategory),
+    },
+    // A complete, fresh, ready budget stays quiet; any other budget shows its reason.
+    ...((budget.freshness !== "fresh" || budget.readiness !== "ready") && budget.diagnostic
+      ? [
+          {
+            key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.diagnostic"),
+            value: budget.diagnostic,
+          },
+        ]
+      : []),
+    {
+      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.estimated.calls"),
+      value: formatEstimatedCalls(budget),
+    },
+  ];
 }
 
-function formatEstimatedCalls(budget: NonNullable<CatalogPrimaryWorkbenchHealthTriageProvider["usageBudget"]>): string {
+function formatUsageBudgetCredits(budget: UsageBudget): string {
+  if (budget.creditBalance === null) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.not.reported");
+  }
+
+  const unit = budget.creditUnit ?? "";
+  return budget.creditAllowance === null
+    ? t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.credits.balance", {
+        balance: String(budget.creditBalance),
+        unit,
+      })
+    : t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.credits.allowance", {
+        balance: String(budget.creditBalance),
+        allowance: String(budget.creditAllowance),
+        unit,
+      });
+}
+
+function formatUsageFreshness(budget: UsageBudget): string {
+  const observedAt = budget.observedAt ? formatDateTime(budget.observedAt) : null;
+  switch (budget.freshness) {
+    case "fresh":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.fresh", {
+        observedAt: observedAt ?? "",
+      });
+    case "stale":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.stale", {
+        observedAt: observedAt ?? "",
+      });
+    case "unavailable":
+      return observedAt
+        ? t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.unavailable.observed", {
+            observedAt,
+          })
+        : t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.unavailable");
+    case "never-observed":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.never.observed");
+  }
+}
+
+function formatUsageLag(lagCategory: UsageBudget["lagCategory"]): string {
+  switch (lagCategory) {
+    case "within-provider-window":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.within");
+    case "beyond-provider-window":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.beyond");
+    case "documented-window":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.documented");
+    case "unobserved":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.unobserved");
+  }
+}
+
+function formatEstimatedCalls(budget: UsageBudget): string {
   if (budget.estimatedCalls === null) {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
   }

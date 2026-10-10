@@ -87,6 +87,64 @@ describe("Catalog sync scope planner", () => {
     });
   });
 
+  it("keeps each selected unit's estimate count or unavailable reason with its usage-check state", async () => {
+    const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
+    const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
+    const tcgdexUnitKey = unitKeyForCatalogProviderProfileVersion(tcgdex);
+    const tcgplayerUnitKey = unitKeyForCatalogProviderProfileVersion(tcgplayer);
+    const unavailablePlan = async (scope: ProviderImportScope) => ({
+      ...(await fakePlanImport(205)(scope)),
+      usageEstimate: {
+        requestStrategy: "bulk-first" as const,
+        estimateState: "estimate-unavailable" as const,
+        estimatedRequestCount: null,
+        estimateReason: "Synthetic page count is available only after the first paged response.",
+        pageSize: 100,
+        selectedFields: ["id"],
+        perRecordFallbackReason: null,
+        usageCheckState: "unavailable" as const,
+        creditDiagnostic: null,
+        degradedDiagnostic: "Synthetic provider appears degraded with HTTP 503.",
+      },
+    });
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: pokemonBaseSetScope(),
+      acceptedScopeMappings: [tcgdexBaseSetMapping(tcgdexUnitKey), tcgplayerBaseSetMapping(tcgplayerUnitKey)],
+      providerProfileVersions: [tcgdex, tcgplayer],
+      providerAdapterRegistry: new ProviderAdapterRegistry([
+        fakeAdapter("tcgdex", fakePlanImport(102)),
+        fakeAdapter("tcgplayer", unavailablePlan),
+      ]),
+    });
+
+    expect(preview.units.map((unit) => [unit.unitKey, unit.estimate])).toEqual([
+      [
+        tcgdexUnitKey,
+        expect.objectContaining({
+          estimateState: "estimated",
+          estimatedRequestCount: 1,
+          usageCheckState: "not-supported",
+          degradedDiagnostic: null,
+        }),
+      ],
+      [
+        tcgplayerUnitKey,
+        expect.objectContaining({
+          estimateState: "estimate-unavailable",
+          estimatedRequestCount: null,
+          estimateReason: "Synthetic page count is available only after the first paged response.",
+          usageCheckState: "unavailable",
+          degradedDiagnostic: "Synthetic provider appears degraded with HTTP 503.",
+        }),
+      ],
+    ]);
+    expect(preview.estimate).toMatchObject({
+      totalEstimatedRequestCount: null,
+      estimateState: "estimate-unavailable",
+      estimateReason: "Synthetic page count is available only after the first paged response.",
+    });
+  });
+
   it("limits participation to an explicitly selected optional provider unit", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");

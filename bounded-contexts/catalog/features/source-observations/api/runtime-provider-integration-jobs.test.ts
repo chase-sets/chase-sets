@@ -2813,12 +2813,16 @@ function scrydexOnePieceFetch(): typeof globalThis.fetch {
   return (async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
     if (url.includes("/account/v1/usage")) {
+      // Synthetic values in the real Scrydex usage envelope; the period covers the read.
       return jsonResponse({
-        total_credits: 1000,
-        remaining_credits: 900,
-        used_credits: 100,
-        overage_credit_rate: "0.01",
-        updated_at: "2026-06-22T00:00:00.000Z",
+        data: {
+          total_credits_consumed: 100,
+          overage_credits_consumed: 0,
+          credits_remaining: 900,
+          period_start: new Date(Date.now() - 86_400_000).toISOString(),
+          period_end: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+          daily_usage: [{ date: "2026-06-21", credits_consumed: 100 }],
+        },
       });
     }
 
