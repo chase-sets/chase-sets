@@ -1,7 +1,9 @@
-import type { OperationUnit } from "@chase-sets/channels/client";
+import type { composeConnectorBackground } from "../src/compose";
 import { afterEach, expect, it, vi } from "vitest";
 import { syntheticExecutor } from "../__tests__/harness/executors.harness";
 
+type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
 type OperationAttempt = OperationUnit["members"][number];
 
 afterEach(() => vi.unstubAllGlobals());

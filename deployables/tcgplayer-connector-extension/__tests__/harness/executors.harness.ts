@@ -1,7 +1,10 @@
-import type { ConnectorExecutor, ExecutorResult, OperationUnit } from "@chase-sets/channels/client";
+import type { composeConnectorBackground } from "../../src/compose";
 import { connectorTransport } from "../../src/adapters/connector-transport";
 import { connectorHostRegistry, platformOrigin, portalOrigin, sentinel } from "./origins";
 
+type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
+type ExecutorResult = Awaited<ReturnType<ConnectorExecutor["dispatchOnce"]>>;
 type OperationAttempt = OperationUnit["members"][number];
 
 function outboundMembers(work: OperationUnit) {
