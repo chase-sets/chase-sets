@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { IDBObjectStore } from "fake-indexeddb";
 import { createConnectorOperationCoordinator } from "../domain/operation-coordinator";
 import { floorFixture } from "./staged-import-floor-test-support";
 import { openConnectorDatabase } from "../integrations/connector-indexeddb";
@@ -214,5 +215,47 @@ describe("synthetic staged-import floor lifecycle", () => {
     ]);
     expect(first.starts).toEqual([60000]);
     expect(second.starts).toEqual([60000]);
+  });
+  it("prepared admission without intent can be fenced over, but cannot borrow the prior worker's wait", async () => {
+    const f = await floorFixture([1000]);
+    const put = IDBObjectStore.prototype.put;
+    const spy = vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, ...args) {
+      if (args[0]?.stagedImport?.state === "admitted") f.setAuthority("report-only");
+      return put.apply(this, args);
+    });
+    try {
+      await createConnectorOperationCoordinator(f.ports).coordinate(f.input);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.starts).toEqual([]);
+    const retained = await f.journal.read(f.input.connectionId);
+    expect(retained.reservations[0]).toMatchObject({
+      phase: "prepared",
+      stagedImport: { state: "admitted", lastStart: null },
+    });
+    f.advance(1000);
+    f.setAuthority("paired-idle");
+    await createConnectorOperationCoordinator(f.ports).coordinate(f.input);
+    expect(f.starts).toEqual([61000]);
+  });
+  it("lost report response recovers by reporting only, never by preparing or sending again", async () => {
+    const f = await floorFixture([1000]);
+    const request = f.ports.request;
+    let lost = false;
+    f.ports.request = async (req) => {
+      if (req.url.endsWith("/report") && !lost) {
+        lost = true;
+        throw new Error("synthetic-report-response-loss");
+      }
+      return request(req);
+    };
+    await createConnectorOperationCoordinator(f.ports).coordinate(f.input);
+    expect((await f.journal.read(f.input.connectionId)).reservations[0].phase).toBe("reported");
+    const reads = f.policyReads.length;
+    await createConnectorOperationCoordinator(f.ports).coordinate(f.input);
+    expect((await f.journal.read(f.input.connectionId)).reservations[0].phase).toBe("acked");
+    expect(f.policyReads).toHaveLength(reads);
+    expect(f.starts).toEqual([60000]);
   });
 });

@@ -1,4 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import * as nodeCrypto from "node:crypto";
+import * as definition from "@chase-sets/platform-policy/define-policy";
+import * as runtime from "@chase-sets/platform-policy/runtime";
+import * as validation from "../../outbound-sync/domain/validation";
+import * as policy from "../domain/staged-import-dispatch-policy";
+import * as contracts from "../domain/contracts";
+import * as oauth from "../../../support/request-support/connector-oauth";
+import { evaluate } from "../../connector-client/tests/coordinator-mutation-support";
+import { createStagedImportDispatchPolicyRoutes } from "../api/staged-import-dispatch-policy-routes";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   resolveStagedImportDispatchPolicy,
@@ -6,7 +16,7 @@ import {
 } from "../api/staged-import-dispatch-policy";
 
 describe("staged-import producer fresh transactional resolver controls", () => {
-  function fixture() {
+  function fixture(resolve = resolveStagedImportDispatchPolicy) {
     let value: unknown = { minimumRequestStartIntervalSeconds: 60 };
     let present = true;
     let history: string | null = "synthetic-history-event";
@@ -42,7 +52,7 @@ describe("staged-import producer fresh transactional resolver controls", () => {
     const eventStore = createPostgresEventStore({ pool: db });
     return {
       query,
-      read: () => resolveStagedImportDispatchPolicy(eventStore, db, at),
+      read: () => resolve(eventStore, db, at),
       value: (next: unknown) => {
         value = next;
       },
@@ -54,6 +64,50 @@ describe("staged-import producer fresh transactional resolver controls", () => {
       },
     };
   }
+  it.each([false, true])("content-only fingerprint bypass=%s kills the revision-change witness", async (bypass) => {
+    let resolve = resolveStagedImportDispatchPolicy;
+    if (bypass) {
+      const source = readFileSync(new URL("../api/staged-import-dispatch-policy.ts", import.meta.url), "utf8");
+      const anchor = "selected.event_id,\n            value,";
+      if (source.split(anchor).length !== 2) throw new Error("content-mutant-anchor-moved");
+      const result = evaluate(source.replace(anchor, "selected.event_id,"), {
+        "node:crypto": nodeCrypto,
+        "@chase-sets/platform-policy/define-policy": definition,
+        "@chase-sets/platform-policy/runtime": runtime,
+        "../../outbound-sync/domain/validation": validation,
+        "../domain/staged-import-dispatch-policy": policy,
+        "../domain/contracts": contracts,
+        "../../../support/request-support/connector-oauth": oauth,
+      });
+      resolve = result.resolveStagedImportDispatchPolicy as typeof resolveStagedImportDispatchPolicy;
+    }
+    const f = fixture(resolve);
+    const first = await f.read();
+    f.value({ minimumRequestStartIntervalSeconds: 61 });
+    expect((await f.read()).revision !== first.revision).toBe(!bypass);
+  });
+  it("raw exception and credential sentinels never reach response, audit or structured logs", async () => {
+    const query = vi.fn<PgTransactionalPool["query"]>().mockResolvedValue({ rows: [] });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const app = createStagedImportDispatchPolicyRoutes(
+        async () => {
+          throw new Error("SYNTHETIC_RESPONSE_SECRET");
+        },
+        { query },
+      );
+      const response = await app.request(
+        `/tcgplayer-staged-import-dispatch-policy?reservationId=synthetic&requestNonce=${"a".repeat(32)}`,
+        { headers: { authorization: "Bearer SYNTHETIC_CREDENTIAL_SECRET" } },
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "unavailable" });
+      expect(JSON.stringify(query.mock.calls)).not.toContain("SECRET");
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
   it("declares v1/default60, locks before each fresh read and fingerprints value-only and history changes", async () => {
     const f = fixture();
     expect(tcgplayerStagedImportDispatchPolicy.defaultValue).toEqual({ minimumRequestStartIntervalSeconds: 60 });

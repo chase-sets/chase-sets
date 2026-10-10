@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { evaluate } from "./coordinator-mutation-support";
+import * as records from "../domain/extension-records";
 import {
   decodeStagedImportDispatchPolicy,
   decodeStagedImportDispatchPolicyResponse,
@@ -27,6 +30,28 @@ export function syntheticFloorResponse() {
 }
 
 describe("staged-import floor closed policy", () => {
+  it.each(["floor", "closure"])("single %s bypass kills the malformed-policy witness", (guard) => {
+    const source = readFileSync(
+      new URL("../../connector-feed/domain/staged-import-dispatch-policy.ts", import.meta.url),
+      "utf8",
+    );
+    const before =
+      guard === "floor"
+        ? "Number(value) < 60"
+        : 'const row = closedRecord(input, ["minimumRequestStartIntervalSeconds"]);';
+    const after = guard === "floor" ? "false" : "const row = input as Record<string, unknown>;";
+    if (source.split(before).length !== 2) throw new Error("policy-mutant-anchor-moved");
+    const result = evaluate(source.replace(before, after), {
+      "../../connector-client/domain/extension-records": records,
+    });
+    const decode = result.decodeStagedImportDispatchPolicy as typeof decodeStagedImportDispatchPolicy;
+    const input =
+      guard === "floor"
+        ? { minimumRequestStartIntervalSeconds: 59 }
+        : { minimumRequestStartIntervalSeconds: 60, extra: true };
+    expect(() => decodeStagedImportDispatchPolicy(input)).toThrow();
+    expect(() => decode(input)).not.toThrow();
+  });
   it("accepts exactly safe integer 60..600 seconds", () => {
     for (const value of [60, 61, 600])
       expect(decodeStagedImportDispatchPolicy({ minimumRequestStartIntervalSeconds: value })).toEqual({
