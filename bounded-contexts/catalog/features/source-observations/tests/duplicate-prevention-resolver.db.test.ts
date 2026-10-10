@@ -26,14 +26,10 @@ import tcgdexFixture from "../api/__fixtures__/tcgdex/normal.json";
 import scryfallFixture from "../api/__fixtures__/scryfall-card-print/normal.json";
 import tcgplayerMtgSealedFixture from "../api/__fixtures__/tcgplayer-mtg-sealed-product/normal.json";
 import scrydexOnePieceCardFixture from "../api/__fixtures__/scrydex-one-piece-card-print/normal.json";
-import scrydexOnePieceSealedFixture from "../api/__fixtures__/scrydex-one-piece-sealed-product/normal.json";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { scryfallMtgCardPrintSourceObservationMappingContract } from "../api/scryfall-executable-mapping-contract";
 import { tcgplayerMtgSealedProductSourceObservationMappingContract } from "../api/tcgplayer-executable-mapping-contract";
-import {
-  scrydexOnePieceCardPrintSourceObservationMappingContract,
-  scrydexOnePieceSealedProductSourceObservationMappingContract,
-} from "../api/scrydex-one-piece-executable-mapping-contract";
+import { scrydexOnePieceCardPrintSourceObservationMappingContract } from "../api/scrydex-one-piece-executable-mapping-contract";
 import {
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
@@ -50,7 +46,6 @@ import {
 } from "../api/promotion/provider-duplicate-prevention-resolver";
 import {
   scrydexOnePieceCardPrintProviderProfile,
-  scrydexOnePieceSealedProductProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
@@ -76,7 +71,10 @@ type TracedQuery = Readonly<{ sql: string; values: readonly unknown[] }>;
  * Records by provider id, while the deterministic rules look the record up by
  * its name key, so those rows provision the name-keyed record a set-name
  * hierarchy (Scryfall, TCGplayer) creates. The item's field values always come
- * from the executable normalizer and promotion planner.
+ * from the executable normalizer and promotion planner. Scrydex One Piece
+ * sealed products are absent: their catalog mapping needs a
+ * `sealed-product-id` field the integration bootstrap does not seed, so
+ * promotion stops before the resolver runs.
  */
 type ReferenceLookup = "provider-hierarchy" | "name-keyed";
 
@@ -107,13 +105,6 @@ const fieldRuleCases = [
     profile: scrydexOnePieceCardPrintProviderProfile,
     contract: scrydexOnePieceCardPrintSourceObservationMappingContract,
     payload: scrydexOnePieceCardFixture,
-    reference: { typeKey: "set", nameKey: "setName", fieldKey: "set", lookup: "name-keyed" },
-  },
-  {
-    ruleKey: "one-piece-sealed-product-deterministic-fields",
-    profile: scrydexOnePieceSealedProductProviderProfile,
-    contract: scrydexOnePieceSealedProductSourceObservationMappingContract,
-    payload: scrydexOnePieceSealedFixture,
     reference: { typeKey: "set", nameKey: "setName", fieldKey: "set", lookup: "name-keyed" },
   },
 ] as const satisfies readonly Readonly<{
@@ -307,6 +298,9 @@ describeDb("duplicate-prevention field rules against projected Catalog Items (db
         observation,
         lookup: testCase.reference.lookup,
         reference: testCase.reference,
+        // External reference links are not field identity, and the TCGplayer
+        // fixture's SKU options predate adapter option resolution.
+        skipCommand: isReferenceLink,
       });
       const resolveRule = (normalized?: SourceObservationNormalized) =>
         resolve({ profile: testCase.profile, ruleKey: testCase.ruleKey, observation, normalized, catalog });
@@ -394,7 +388,6 @@ describeDb("duplicate-prevention field rules against projected Catalog Items (db
 
   describe("partial Pokemon draft retry gates", () => {
     const ruleKey = "pokemon-card-partial-draft-retry";
-    const isReferenceLink = (command: CatalogItemCommand) => command.type.startsWith("LinkExternal");
 
     async function projectPartialDraft(catalogItemId: string) {
       const observation = observe(tcgdexPokemonCardSourceObservationMappingContract, tcgdexFixture);
@@ -494,7 +487,7 @@ describeDb("duplicate-prevention field rules against projected Catalog Items (db
       observation,
       lookup: "provider-hierarchy",
       reference: { typeKey: "expansion", nameKey: "expansionName" },
-      skipCommand: (command) => command.type.startsWith("LinkExternal"),
+      skipCommand: isReferenceLink,
     });
     await itemCommand(catalogItemId, {
       type: "LinkExternalProductReference",
@@ -526,6 +519,10 @@ describeDb("duplicate-prevention field rules against projected Catalog Items (db
     expect((await lookup(" PRODUCT:999999 ")).result).toEqual({ status: "none", evidenceSummaries: [] });
   });
 });
+
+function isReferenceLink(command: CatalogItemCommand): boolean {
+  return command.type.startsWith("LinkExternal");
+}
 
 type QueryPlanNode = Readonly<{ "Relation Name"?: string; Plans?: readonly QueryPlanNode[] }>;
 

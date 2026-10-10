@@ -81,7 +81,8 @@ Before #9277, every configured field rule in `bounded-contexts/catalog/features/
 - TCGdex Pokemon: `pokemon-card-partial-draft-retry` reuses a TCGdex draft left without reference links when number, name, variant and the provider, expansion and variant tags agree. `pokemon-card-deterministic-fields` looks the expansion up by name key, while TCGdex keys expansion records by expansion id, so it matches only items whose expansion field references a name-keyed record, never a TCGdex-only promotion.
 - Scryfall and Scrydex Magic card prints: `magic-card-print-deterministic-fields` reuses the item with the same set, collector number and English name; both providers key set records by set name.
 - TCGplayer Magic sealed products: `sealed-product-deterministic-fields` reuses the item with the same set, name and pack count when no SKU reference claims the observation.
-- Scrydex One Piece card prints and sealed products: the rules look the set up by name key, while Scrydex keys set records by expansion id, so they match only items whose set field references a name-keyed set record (the TCGplayer set-record shape), never a Scrydex-only promotion.
+- Scrydex One Piece card prints: the rule looks the set up by name key, while Scrydex keys set records by expansion id, so it matches only items whose set field references a name-keyed set record (the TCGplayer set-record shape), never a Scrydex-only promotion.
+- Scrydex One Piece sealed products gain nothing yet: their catalog mapping needs a `sealed-product-id` field that the integration bootstrap does not seed, so promotion stops before the rule runs.
 - MTGJSON carries the Magic rule but has no Catalog Item promotion capability, so no promotion outcome changes.
 - Source-observation links recorded through Catalog Items with mixed case or padding, such as a region-tagged language prefix, now resolve to their owner.
 
