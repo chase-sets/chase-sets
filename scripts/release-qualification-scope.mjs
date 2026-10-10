@@ -243,6 +243,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "catalog-provider-refresh-watch.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
+    "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
@@ -300,6 +301,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
 
   // Composite actions under .github/actions by directory name.
   actions: Object.freeze({
+    "block-docker-hub": "release",
     "export-managed-postgres-authority": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",
