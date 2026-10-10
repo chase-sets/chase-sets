@@ -665,14 +665,13 @@ async function projectItem(
 
 // SYNTHETIC 16x16 WebP so asset processing succeeds and the storage write is
 // the step that fails.
-async function syntheticWebpImage(): Promise<Uint8Array> {
+async function syntheticWebpImage(): Promise<ArrayBuffer> {
   const size = 16;
   const pixels = Buffer.alloc(size * size * 3, 200);
-  return new Uint8Array(
-    await sharp(pixels, { raw: { width: size, height: size, channels: 3 } })
-      .webp()
-      .toBuffer(),
-  );
+  const webp = await sharp(pixels, { raw: { width: size, height: size, channels: 3 } })
+    .webp()
+    .toBuffer();
+  return new Uint8Array(webp).buffer;
 }
 
 function projectionEvent(streamId: string, data: Record<string, unknown>) {
