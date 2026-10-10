@@ -10,6 +10,8 @@ const errnos = ["ENOENT", "ESRCH", "EACCES", "EPERM", "EINVAL", "EIO", "other"];
 const retirementReasons = new Set([
   "wait-timeout",
   "member-live",
+  "member-replaced",
+  "member-uncertain",
   "member-parse",
   "foreign-file",
   "output",
@@ -257,7 +259,8 @@ export async function withOwnershipStimulus(
     const status = await ended;
     clearTimeout(deadline);
     const tail = stdout.subarray(stdout.indexOf(10) + 1);
-    const observation = mode === "orphan" && constructed && !overflow ? stimulusObservation(tail) : null;
+    // A readiness failure prints no construction record, only its last sample.
+    const observation = mode === "orphan" && !overflow ? stimulusObservation(constructed ? tail : stdout) : null;
     const exact =
       status.code === 0 &&
       status.signal === null &&
