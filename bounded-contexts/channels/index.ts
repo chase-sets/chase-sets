@@ -319,6 +319,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
           resolveConnectorPolicy: async () =>
             decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
         },
+        liveExport: {
+          resolveConnectorPolicy: async () =>
+            decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+        },
         readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
           let killSwitch = null;
           try {

@@ -21,6 +21,14 @@ describe("channels-services-guard-negative", () => {
   it("accepts the complete aggregate candidate", () => {
     expect(isChannelsServices(validCandidate())).toBe(true);
   });
+  it.each(["scheduleDueOrderPulls", "scheduleDueLiveExports"] as const)(
+    "rejects missing %s worker scheduler",
+    (method) => {
+      const candidate = validCandidate();
+      const outboundSync = Object.fromEntries(Object.entries(candidate.outboundSync).filter(([key]) => key !== method));
+      expect(isChannelsServices({ ...candidate, outboundSync })).toBe(false);
+    },
+  );
 
   it.each([null, undefined, false, 0, "channels", []])("rejects non-aggregate input %s", (candidate) => {
     expect(isChannelsServices(candidate)).toBe(false);
@@ -107,6 +115,7 @@ function validCandidate() {
       recoverExpiredClaimedOperations: async () => 0,
       processNextInlineOperation: async () => 0,
       scheduleDueOrderPulls: async () => 0,
+      scheduleDueLiveExports: async () => 0,
     },
     reconciliation: {
       reconcileDueConnections: async () => [],

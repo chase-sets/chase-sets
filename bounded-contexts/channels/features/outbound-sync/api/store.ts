@@ -21,6 +21,7 @@ import {
 import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs } from "../domain/validation";
 import { payloadDigest } from "./payload-digest";
 import { reserveOrderPull } from "./order-pull";
+import { reserveLiveExport } from "./live-export";
 
 type OperationRow = Readonly<{
   operation_id: string;
@@ -419,7 +420,14 @@ export function createOutboundOperationStore(
       // An incapable connector excludes connection-subject pulls before anything is reserved.
       const orderPull = capabilities.includes("tcgplayer-order-pull");
       return withPgTransaction(dependencies.db, (db) =>
-        reserveClaimedOutboundOperations(dependencies, db, reservation, now, orderPull),
+        reserveClaimedOutboundOperations(
+          dependencies,
+          db,
+          reservation,
+          now,
+          orderPull,
+          capabilities.includes("tcgplayer-live-export"),
+        ),
       );
     },
   };
@@ -448,6 +456,7 @@ async function reserveClaimedOutboundOperations(
   input: ReserveClaimedOutboundOperationsInput,
   now: () => string,
   orderPull: boolean,
+  liveExport?: boolean,
 ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null>;
 async function reserveClaimedOutboundOperations(
   dependencies: OutboundSyncRuntimeDependencies,
@@ -455,6 +464,7 @@ async function reserveClaimedOutboundOperations(
   input: ReserveClaimedOutboundOperationsInput,
   now: () => string,
   orderPull: boolean,
+  liveExport = false,
 ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null> {
   const connection = await readConnection(db, input.connectionId, true);
   if (!connection) throw new OutboundSyncError("connection-not-found");
@@ -470,6 +480,28 @@ async function reserveClaimedOutboundOperations(
   const reservationId = `cor_${randomUUID()}`;
   const reservedAt = now();
   const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
+  const live = liveExport
+    ? await reserveLiveExport(db, {
+        connectionId: input.connectionId,
+        providerIdentity: admission.providerIdentity,
+        claimant: input.claimant,
+        reservationId,
+        reservedAt,
+        leaseExpiresAt,
+        attemptId: `coa_${randomUUID()}`,
+      })
+    : null;
+  // Live exports have precedence and reserve alone; otherwise preserve the existing pull/listing shape.
+  if (live)
+    return {
+      reservationId,
+      connectionId: input.connectionId,
+      providerIdentity: admission.providerIdentity,
+      claimant: input.claimant,
+      reservedAt,
+      leaseExpiresAt,
+      operations: [live],
+    };
   const pull = orderPull
     ? await reserveOrderPull(db, dependencies, {
         connectionId: input.connectionId,
