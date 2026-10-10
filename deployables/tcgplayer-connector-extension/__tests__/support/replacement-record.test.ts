@@ -28,6 +28,7 @@ import {
   type CaptureStage,
   type ReplacementArm,
   type ReplacementBody,
+  type ReplacementRecord,
 } from "./replacement-record";
 
 const extensionId = "dmofhpcfbklknkfdfllmbkmpofkmdkkk";
@@ -302,41 +303,40 @@ test("replacement-record records observed onInstalled reasons without selecting 
 
 test("replacement-record parsing is closed, recursive, UTC and bounded", () => {
   const record = buildReplacementRecord(syntheticBody());
-  const rejects = (change: (value: Record<string, any>) => void, message: RegExp) => {
-    const value = structuredClone(record) as Record<string, any>;
+  // Object.assign plants values the closed schema must reject without widening the record's types.
+  const rejects = (change: (value: ReplacementRecord) => void, message: RegExp) => {
+    const value = structuredClone(record);
     change(value);
     expect(() => parseReplacementRecord(value)).toThrow(message);
     expect(selectReplacementMechanism(value)).toBe("NONE");
   };
-  rejects((value) => (value.arms[1].captures[1].observation.marker.extra = true), /marker: expected exactly/);
+  const watched = (value: ReplacementRecord) => {
+    const observation = value.arms[1]!.captures[1]!.observation;
+    if (!observation) throw new Error("synthetic capture must be observed");
+    return observation;
+  };
+  const installed = (extra: object) => ({ reason: "update", previousVersion: "0.0.1", observedAt: at(1), ...extra });
+  rejects((value) => Object.assign(watched(value).marker, { extra: true }), /marker: expected exactly/);
+  rejects((value) => (watched(value).onInstalled = [installed({ extra: 1 })]), /onInstalled\[0\]: expected exactly/);
   rejects(
-    (value) =>
-      (value.arms[1].captures[1].observation.onInstalled = [
-        { reason: "update", previousVersion: null, observedAt: at(1), extra: 1 },
-      ]),
-    /onInstalled\[0\]: expected exactly/,
+    (value) => Object.assign(value.arms[0]!.bundles.A.files[0]!, { mode: "0644" }),
+    /files\[0\]: expected exactly/,
   );
-  rejects((value) => (value.arms[0].bundles.A.files[0].mode = "0644"), /files\[0\]: expected exactly/);
-  rejects((value) => (value.run.extra = "SYNTHETIC"), /record\.run: expected exactly/);
-  rejects((value) => (value.arms[0].captures[0].capturedAt = "2026-10-09T12:00:01.000+00:00"), /UTC instant/);
+  rejects((value) => Object.assign(value.run, { extra: "SYNTHETIC" }), /record\.run: expected exactly/);
+  rejects((value) => (value.arms[0]!.captures[0]!.capturedAt = "2026-10-09T12:00:01.000+00:00"), /UTC instant/);
   rejects((value) => (value.run.capturedAt = "2026-10-09T12:00:01Z"), /UTC instant/);
   rejects(
-    (value) =>
-      (value.arms[1].captures[1].observation.onInstalled = Array.from({ length: 9 }, () => ({
-        reason: "update",
-        previousVersion: "0.0.1",
-        observedAt: at(1),
-      }))),
+    (value) => (watched(value).onInstalled = Array.from({ length: 9 }, () => installed({}))),
     /expected 0\.\.8 entries/,
   );
-  rejects((value) => (value.arms[1].captures[1].observation.executedIdentity = "x".repeat(1025)), /bounded text/);
-  rejects((value) => (value.arms[1].captures[1].observation.onInstalledObservedForMs = 60_001), /integer/);
-  rejects((value) => (value.arms[1].captures[1].observation.marker = { present: true, nonce: null }), /nonce must/);
-  rejects((value) => (value.arms[0].loadUnpacked = value.arms[2].loadUnpacked), /only cdp-load-unpacked/);
+  rejects((value) => (watched(value).executedIdentity = "x".repeat(1025)), /bounded text/);
+  rejects((value) => (watched(value).onInstalledObservedForMs = 60_001), /integer/);
+  rejects((value) => (watched(value).marker = { present: true, nonce: null }), /nonce must/);
+  rejects((value) => (value.arms[0]!.loadUnpacked = value.arms[2]!.loadUnpacked), /only cdp-load-unpacked/);
   rejects((value) => (value.run.sourceHead = "main"), /sourceHead/);
   rejects((value) => (value.run.id = "38015154175/1"), /runId\/runAttempt/);
   rejects((value) => (value.selectedReplacementMechanism = "cdp-load-unpacked"), /does not match the strict selector/);
-  rejects((value) => (value.selectedReplacementMechanism = "runtime.reload"), /unexpected value/);
+  rejects((value) => Object.assign(value, { selectedReplacementMechanism: "runtime.reload" }), /unexpected value/);
 });
 
 test("replacement-record is a separate schema; #8589 v2 parsing is unchanged", () => {
