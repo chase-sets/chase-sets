@@ -207,10 +207,14 @@ export type PromotionReferenceAccessPathReadiness = Readonly<{
  */
 export async function readPromotionReferenceAccessPathReadiness(
   db: PgQueryable,
-  unicode = process.versions.unicode,
+  unicode: string | undefined = process.versions.unicode,
 ): Promise<PromotionReferenceAccessPathReadiness> {
   const failures: string[] = [];
-  const runtime = { unicode, pinnedUnicode: promotionReferenceUnicodeVersion, casingDataHash: promotionReferenceCasingDataHash };
+  const runtime = {
+    unicode: unicode ?? "unknown",
+    pinnedUnicode: promotionReferenceUnicodeVersion,
+    casingDataHash: promotionReferenceCasingDataHash,
+  };
   if (unicode !== promotionReferenceUnicodeVersion) failures.push("runtime-unicode-drift");
   let environment: PromotionReferenceAccessPathReadiness["environment"] = {
     serverEncoding: null,

@@ -122,7 +122,7 @@ const rawSourceReferences = {
   ],
 } as const;
 
-function recordCommand(observationId: string, externalKey: string, sourcePayload: Record<string, unknown>) {
+function recordCommand(observationId: string, externalKey: string, sourcePayload: Record<string, string>) {
   return {
     type: "RecordSourceObservation",
     observationId,
@@ -340,7 +340,13 @@ describeDb("catalog schema upgrades", () => {
 
     // SQL C equals the item domain's stored canonical keys and the JS canonical of the raw input.
     for (const reference of history.itemEvents) {
-      const result = await pool.query<{ event_type: string; stored_provider: string; stored_key: string; provider: string; key: string }>(
+      const result = await pool.query<{
+        event_type: string;
+        stored_provider: string;
+        stored_key: string;
+        provider: string;
+        key: string;
+      }>(
         `SELECT event_type, payload->>'providerKey' AS stored_provider, payload->>'externalKey' AS stored_key,
                 ${promotionReferenceExpressions.providerKey} AS provider, ${promotionReferenceExpressions.externalKey} AS key
          FROM event_store_events WHERE stream_id = $1 AND event_type LIKE '%-reference-linked' ORDER BY stream_version`,
@@ -377,7 +383,9 @@ describeDb("catalog schema upgrades", () => {
       expect(result.rows[0].provider).toBe("tcgdex");
       expect(result.rows[0].link).toBe("en-us:swsh3-136");
       expect(result.rows[0].link).toBe(canonicalPromotionSourceLinkText(data.languageCode, data.externalKey));
-      expect(result.rows[0].link).toBe(canonical(sourceObservationLinkExternalKey(data.languageCode, data.externalKey)));
+      expect(result.rows[0].link).toBe(
+        canonical(sourceObservationLinkExternalKey(data.languageCode, data.externalKey)),
+      );
     }
     // Each family answers its exact canonical key through the shared query shapes.
     const itemStreams = await pool.query<{ stream_id: string }>(
@@ -498,7 +506,11 @@ describeDb("catalog schema upgrades", () => {
     const drifted = await readPromotionReferenceAccessPathReadiness(pool);
     expect(drifted.ready).toBe(false);
     expect(drifted.failures).toEqual([`function-drift:${promotionReferenceTextFunctionName}`]);
-    expect(drifted.functions[0]).toMatchObject({ installed: true, identical: false, marker: promotionReferenceFunctionMarker });
+    expect(drifted.functions[0]).toMatchObject({
+      installed: true,
+      identical: false,
+      marker: promotionReferenceFunctionMarker,
+    });
     await deleteAccessPathLedgerRow(pool);
     await expect(bootstrapContextDatabase(catalogModule, pool)).rejects.toThrow(
       `catalog-promotion-reference-function-conflict:${promotionReferenceTextFunctionName}`,

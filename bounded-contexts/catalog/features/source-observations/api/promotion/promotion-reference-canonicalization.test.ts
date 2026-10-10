@@ -111,7 +111,10 @@ describe("pinned promotion reference identity", () => {
     for (const type of ["LinkExternalCatalogItemReference", "LinkExternalProductReference"] as const) {
       const events = decideCatalogItem(initial, { type, providerKey: " MixedProvider ", externalKey: value });
       expect(events).toHaveLength(1);
-      expect(events[0].data).toMatchObject({ providerKey: canonical(" MixedProvider "), externalKey: canonical(value) });
+      expect(events[0].data).toMatchObject({
+        providerKey: canonical(" MixedProvider "),
+        externalKey: canonical(value),
+      });
     }
   });
 
@@ -136,7 +139,12 @@ describe("pinned promotion reference identity", () => {
     expect(chunked.length).toBeGreaterThan(1);
     expect(chunked[0].type).toBe("catalog.source-observation.recorded");
     for (const header of [inline[0], chunked[0]]) {
-      const data = header.data as { normalized: unknown; providerKey: string; externalKey: string; languageCode: string };
+      const data = header.data as {
+        normalized: unknown;
+        providerKey: string;
+        externalKey: string;
+        languageCode: string;
+      };
       expect(canonicalPromotionReferencePairs(data.normalized)).toEqual(expected);
       expect(data.normalized).toMatchObject({
         externalProductReferences: [{ externalKey: "İΣ Product" }, { externalKey: "Same-Key" }],
@@ -146,7 +154,9 @@ describe("pinned promotion reference identity", () => {
         canonical(sourceObservationLinkExternalKey(data.languageCode, data.externalKey)),
       );
     }
-    expect(canonicalPromotionReferencePairs({ externalCatalogItemReferences: [{ providerKey: 1, externalKey: "x" }, "y"] })).toEqual({
+    expect(
+      canonicalPromotionReferencePairs({ externalCatalogItemReferences: [{ providerKey: 1, externalKey: "x" }, "y"] }),
+    ).toEqual({
       externalCatalogItemReferences: [],
       externalProductReferences: [],
     });
@@ -199,8 +209,14 @@ describe("pinned promotion reference identity", () => {
       expect(query).toContain(`${promotionReferenceExpressions.providerKey} = $1`);
       expect(query).toContain(`${promotionReferenceExpressions.externalKey} = $2`);
     }
-    expect(promotionReferenceKeyBoundedQueries.sourceHeader).toContain(`${promotionReferenceExpressions.sourcePairs} @> $1::jsonb`);
-    expect(promotionReferenceKeyBoundedQueries.sourceLink).toContain(`${promotionReferenceExpressions.sourceLink} = $2`);
-    expect(promotionReferenceExpressions.sourceLink).toContain(`btrim(payload->>'externalKey', '${promotionReferenceTrimCharacters}')`);
+    expect(promotionReferenceKeyBoundedQueries.sourceHeader).toContain(
+      `${promotionReferenceExpressions.sourcePairs} @> $1::jsonb`,
+    );
+    expect(promotionReferenceKeyBoundedQueries.sourceLink).toContain(
+      `${promotionReferenceExpressions.sourceLink} = $2`,
+    );
+    expect(promotionReferenceExpressions.sourceLink).toContain(
+      `btrim(payload->>'externalKey', '${promotionReferenceTrimCharacters}')`,
+    );
   });
 });

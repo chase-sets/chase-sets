@@ -23,8 +23,7 @@ export const promotionReferenceCasingVersion = 1;
 export const promotionReferenceUnicodeVersion = "17.0";
 
 /** ECMAScript WhiteSpace and LineTerminator code points (`String.prototype.trim`). */
-export const promotionReferenceTrimCharacters =
-  "\u0009\u000a\u000b\u000c\u000d                  　﻿";
+export const promotionReferenceTrimCharacters = "\u0009\u000a\u000b\u000c\u000d                  　﻿";
 
 export const promotionReferenceTextFunctionName = `catalog_promotion_reference_text_v${promotionReferenceCasingVersion}`;
 export const promotionReferencePairsFunctionName = `catalog_promotion_reference_pairs_v${promotionReferenceCasingVersion}`;
