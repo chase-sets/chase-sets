@@ -33,7 +33,7 @@ import {
   seedMountedContextTestRuntimeIfEmpty,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sourceImage = new Uint8Array(
@@ -237,20 +237,38 @@ describe("representative catalog Observation Pack replay", () => {
       vi.stubGlobal("fetch", async () => {
         throw new Error("synthetic replay must stay offline");
       });
-      const createServices = catalogModule.createServices;
+      const pool = seedRuntime.pools.catalog;
+      const baseline = await pool.query<{ position: string }>(
+        "SELECT COALESCE(MAX(global_position), 0)::text AS position FROM event_store_events",
+      );
+      const interruptedEvent =
+        interruptedCommand === "CreateCatalogItem"
+          ? "catalog.catalog-item.created"
+          : "catalog.catalog-item.product-asset-sets-set";
+      const connect = pool.connect.bind(pool);
       let interruptedItemId: string | null = null;
-      const spy = vi.spyOn(catalogModule, "createServices").mockImplementation((...args) => {
-        const services = createServices(...args);
-        const handler = services.items.commandHandler;
-        vi.spyOn(services.items, "commandHandler").mockImplementation(async (input) => {
-          const result = await handler(input);
-          if (input.command.type === interruptedCommand && interruptedItemId === null) {
-            interruptedItemId = input.streamId.slice("catalog.item-".length);
-            throw new Error("synthetic crash after durable item creation");
-          }
-          return result;
-        });
-        return services;
+      const spy = vi.spyOn(pool, "connect").mockImplementation(async () => {
+        const client = await connect();
+        const wrapped: PgQueryable = {
+          async query<Row>(text: string, values?: readonly unknown[]) {
+            const candidate =
+              text === "COMMIT" && interruptedItemId === null
+                ? await client.query<{ stream_id: string }>(
+                    `SELECT stream_id FROM event_store_events
+                   WHERE stream_id LIKE 'catalog.item-%' AND event_type = $1 AND global_position > $2
+                   ORDER BY global_position LIMIT 1`,
+                    [interruptedEvent, baseline.rows[0].position],
+                  )
+                : null;
+            const result = await client.query<Row>(text, values);
+            if (candidate?.rows[0]) {
+              interruptedItemId = candidate.rows[0].stream_id.slice("catalog.item-".length);
+              throw new Error("synthetic crash after durable item command commit");
+            }
+            return result;
+          },
+        };
+        return { ...wrapped, release: client.release.bind(client) };
       });
       await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
       spy.mockRestore();

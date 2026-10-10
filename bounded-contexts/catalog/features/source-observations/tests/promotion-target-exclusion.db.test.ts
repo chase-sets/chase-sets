@@ -19,10 +19,10 @@ import { module as catalogModule } from "../../../index";
 import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/services";
 import { seedCatalogDatabase } from "../../../support/authoring-support/seed";
 import { seedContext as context } from "../../../support/seed-support/context";
-import type { CatalogItemId } from "../../../ids";
+import type { CatalogItemId, DimensionId, OptionId } from "../../../ids";
 import fixture from "../api/__fixtures__/tcgdex/normal.json";
-import productFixture from "../api/__fixtures__/tcgplayer-automation/normal.json";
-import { tcgplayerProviderProductSourceObservationMappingContract } from "../api/providers/tcgplayer/executable-mapping-contract";
+import productFixture from "../api/__fixtures__/tcgplayer-pokemon-sealed-product/normal.json";
+import { tcgplayerPokemonSealedProductSourceObservationMappingContract } from "../api/providers/tcgplayer/executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { normalizeCatalogProviderSourceObservation } from "../api/promotion/provider-source-observation-normalizer";
 import {
@@ -687,13 +687,33 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   it.each(["A", "B"].flatMap((first) => [false, true].map((conflictingOptions) => ({ first, conflictingOptions }))))(
     "Product reference exclusion, $first first, conflicting Options=$conflictingOptions",
     async ({ first, conflictingOptions }) => {
-      const identity = tcgplayerProviderProductSourceObservationMappingContract;
+      const identity = tcgplayerPokemonSealedProductSourceObservationMappingContract;
       const version = await services.providerIntegrationProfiles.getProfileVersion(
         identity.providerKey,
         identity.profileVersion,
         { profileKey: identity.profileKey },
       );
-      if (!version) throw new Error("Seeded single-card Product profile is missing");
+      if (!version) throw new Error("Seeded sealed-product profile is missing");
+      // Give this synthetic sealed Product a real, authored Condition dimension.
+      // The fixture's provider-facing optionKey is not a Catalog Option ID.
+      const dimensionId = catalogSeedIds.dimensions.condition.dimensionId as DimensionId;
+      const compatibleOption = catalogSeedIds.dimensions.condition.optionIds.nearMint as OptionId;
+      const conflictingOption = catalogSeedIds.dimensions.condition.optionIds.good as OptionId;
+      const blueprintStream = `catalog.blueprint-${catalogSeedIds.blueprints.pokemonSealedProduct}`;
+      await services.blueprints.commandHandler({
+        streamId: blueprintStream,
+        command: {
+          type: "SetBlueprintDimensions",
+          dimensionRules: [{ dimensionId, required: false, allowedOptionIds: [compatibleOption, conflictingOption] }],
+        },
+        context,
+      });
+      await services.blueprints.commandHandler({
+        streamId: blueprintStream,
+        command: { type: "SetBlueprintProductResolutionRules", canonicalDimensionOrder: [dimensionId] },
+        context,
+      });
+      await drainLocalProjectionHandlerSets("catalog", pool, services.blueprints.projectors);
       for (const member of ["A", "B"]) {
         const externalKey = member === "A" ? "800001" : "800002";
         const mapped = normalizeCatalogProviderSourceObservation({
@@ -709,11 +729,8 @@ describeDb("promotion target exclusion through real Catalog services", () => {
               externalKey: member === "A" ? reference.externalKey.toUpperCase() : reference.externalKey.toLowerCase(),
               selectedOptions: [
                 {
-                  dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
-                  optionId:
-                    conflictingOptions && member !== first
-                      ? catalogSeedIds.dimensions.condition.optionIds.good
-                      : catalogSeedIds.dimensions.condition.optionIds.nearMint,
+                  dimensionId,
+                  optionId: conflictingOptions && member !== first ? conflictingOption : compatibleOption,
                 },
               ],
             })),
@@ -721,7 +738,20 @@ describeDb("promotion target exclusion through real Catalog services", () => {
           observedAt: "2026-10-10T00:00:00.000Z",
         });
         expect(mapped.diagnostics).toEqual([]);
-        if (!mapped.observation) throw new Error("Single-card Product mapper produced no observation");
+        if (!mapped.observation) throw new Error("Sealed-product mapper produced no observation");
+        expect(mapped.observation.normalized).toMatchObject({
+          kind: "pokemon-sealed-product",
+          externalProductReferences: [
+            {
+              selectedOptions: [
+                {
+                  dimensionId,
+                  optionId: conflictingOptions && member !== first ? conflictingOption : compatibleOption,
+                },
+              ],
+            },
+          ],
+        });
         await services.sourceObservations.commandHandler({
           streamId: `catalog.source-observation-product-${member}`,
           command: { type: "RecordSourceObservation", ...mapped.observation },
