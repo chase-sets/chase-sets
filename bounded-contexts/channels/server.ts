@@ -38,7 +38,7 @@ export {
 export { connectorInboundRetentionClasses } from "./features/connector-feed/domain/retention";
 export type { ConnectorInbound, ConnectorInboundKind } from "./features/connector-feed/domain/transport";
 export { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
-export { tcgplayerStagedImportDispatchPolicy } from "./features/connector-feed/api/staged-import-dispatch-policy";
+export { tcgplayerStagedImportDispatchPolicy } from "./features/connector-feed/domain/staged-import-policy";
 export { deriveServedPolicyIdentity } from "./features/connector-feed/domain/served-policy-identity";
 export {
   readConnectorLivenessAuthority,

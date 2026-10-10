@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { definePolicy } from "@chase-sets/platform-policy/define-policy";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { tcgplayerStagedImportDispatchPolicy } from "../domain/staged-import-policy";
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import {
   decodeStagedImportDispatchPolicy,
@@ -14,15 +14,6 @@ import {
 import { ConnectorPairingError } from "../domain/contracts";
 import { connectorRecord, connectorString } from "../../../support/request-support/connector-oauth";
 import type { ConnectorFeedServices } from "./runtime";
-
-export const tcgplayerStagedImportDispatchPolicy = definePolicy({
-  policyKey: stagedImportDispatchPolicyKey,
-  contextName: "channels",
-  schemaSummary:
-    "TcgplayerStagedImportDispatchPolicy/v1 { minimumRequestStartIntervalSeconds: integer 60..600 seconds }; engineering bound, not provider capacity",
-  defaultValue: { minimumRequestStartIntervalSeconds: 60 },
-  decodeValue: decodeStagedImportDispatchPolicy,
-});
 
 export function createStagedImportDispatchPolicyReader(eventStore: EventStore, authority: ConnectorFeedServices) {
   return async (token: string, query: unknown, identify: Parameters<ConnectorFeedServices["withAuthority"]>[2]) => {

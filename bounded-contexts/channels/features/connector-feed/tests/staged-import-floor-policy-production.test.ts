@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import * as nodeCrypto from "node:crypto";
-import * as definition from "@chase-sets/platform-policy/define-policy";
+import * as definition from "../domain/staged-import-policy";
 import * as runtime from "@chase-sets/platform-policy/runtime";
 import * as validation from "../../outbound-sync/domain/validation";
 import * as policy from "../domain/staged-import-dispatch-policy";
@@ -10,12 +10,17 @@ import * as oauth from "../../../support/request-support/connector-oauth";
 import { evaluate } from "../../connector-client/tests/coordinator-mutation-support";
 import { createStagedImportDispatchPolicyRoutes } from "../api/staged-import-dispatch-policy-routes";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import {
-  resolveStagedImportDispatchPolicy,
-  tcgplayerStagedImportDispatchPolicy,
-} from "../api/staged-import-dispatch-policy";
+import { resolveStagedImportDispatchPolicy } from "../api/staged-import-dispatch-policy";
+import { tcgplayerStagedImportDispatchPolicy } from "../domain/staged-import-policy";
+import { tcgplayerStagedImportDispatchPolicy as publishedPolicy } from "../../../server";
 
 describe("staged-import producer fresh transactional resolver controls", () => {
+  it("publishes the domain declaration without exporting the resolver runtime through the server entrypoint", () => {
+    expect(publishedPolicy).toBe(tcgplayerStagedImportDispatchPolicy);
+    const server = readFileSync(new URL("../../../server.ts", import.meta.url), "utf8");
+    expect(server).toContain('from "./features/connector-feed/domain/staged-import-policy"');
+    expect(server).not.toContain('from "./features/connector-feed/api/staged-import-dispatch-policy"');
+  });
   function fixture(resolve = resolveStagedImportDispatchPolicy) {
     let value: unknown = { minimumRequestStartIntervalSeconds: 60 };
     let present = true;
@@ -72,7 +77,7 @@ describe("staged-import producer fresh transactional resolver controls", () => {
       if (source.split(anchor).length !== 2) throw new Error("content-mutant-anchor-moved");
       const result = evaluate(source.replace(anchor, "selected.event_id,"), {
         "node:crypto": nodeCrypto,
-        "@chase-sets/platform-policy/define-policy": definition,
+        "../domain/staged-import-policy": definition,
         "@chase-sets/platform-policy/runtime": runtime,
         "../../outbound-sync/domain/validation": validation,
         "../domain/staged-import-dispatch-policy": policy,

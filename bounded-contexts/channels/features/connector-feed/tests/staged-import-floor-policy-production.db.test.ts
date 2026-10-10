@@ -4,7 +4,7 @@ import { createPostgresEventStore, withPgTransaction } from "@chase-sets/event-c
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as channelsModule } from "../../../index";
-import { tcgplayerStagedImportDispatchPolicy } from "../api/staged-import-dispatch-policy";
+import { tcgplayerStagedImportDispatchPolicy } from "../domain/staged-import-policy";
 import { decodeStagedImportDispatchPolicyResponse } from "../domain/staged-import-dispatch-policy";
 import { connectorAuditRoutes } from "../domain/contracts";
 import { connectorFeedSchemaMigrations } from "../read-model/schema";

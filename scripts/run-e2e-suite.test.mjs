@@ -123,6 +123,7 @@ describe("run e2e suite", () => {
       "createConnectorBackground",
       "createConnectorOperationCoordinator",
       "createConnectorRetentionStore",
+      "stagedImportMembershipDigest",
       "tcgplayerOrderLimits",
       "tcgplayerSaleKey",
       "translateOrderShippingType",

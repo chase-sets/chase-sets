@@ -285,6 +285,8 @@ function validChannelsCandidate(
     connectorFeed: {
       readAuthority: vi.fn(),
       withAuthority: vi.fn(),
+      withGrantAuthority: vi.fn<ChannelsServices["connectorFeed"]["withGrantAuthority"]>(),
+      readStagedImportDispatchPolicy: vi.fn<ChannelsServices["connectorFeed"]["readStagedImportDispatchPolicy"]>(),
       claim: vi.fn(),
       report: vi.fn(),
       ingest: vi.fn(),
@@ -293,7 +295,7 @@ function validChannelsCandidate(
       readConnectorLivenessAuthorityInTransaction:
         vi.fn<ChannelsServices["connectorFeed"]["readConnectorLivenessAuthorityInTransaction"]>(),
       listConnectorLivenessCandidates: vi.fn<ChannelsServices["connectorFeed"]["listConnectorLivenessCandidates"]>(),
-    },
+    } satisfies Partial<ChannelsServices["connectorFeed"]>,
     projectors: [],
     db: {},
   } satisfies Record<keyof ChannelsServices, unknown>;
