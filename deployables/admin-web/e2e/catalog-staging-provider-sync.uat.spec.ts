@@ -5854,7 +5854,7 @@ async function waitForSourceOptionsToSettle(page: Page): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Scope Sync Batch preview probe (#9244): six unconfirmed previews through the
+// Scope Sync Batch preview probe: six unconfirmed previews through the
 // visible Admin controls, exported as one support-safe receipt. The journey
 // signs in, derives the discovery roster from deployed profiles, clicks Run now
 // once per discovery provider, reads each domain inbox and submits one preview

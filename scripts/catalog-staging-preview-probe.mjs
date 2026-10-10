@@ -7,7 +7,7 @@ import {
   validateScopeSyncBatchPreviewProbeReceipt,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/preview-probe-receipt.ts";
 
-// Pre-upload gate for the staging Scope Sync Batch preview receipt (#9244).
+// Pre-upload gate for the staging Scope Sync Batch preview receipt.
 // The workflow uploads the exact receipt file only after this validates it
 // against the admitted SHA/run/attempt and proves the job's admin credential
 // values are absent. Output names failures, never values. Runs under tsx

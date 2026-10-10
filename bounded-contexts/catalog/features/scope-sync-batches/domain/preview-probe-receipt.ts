@@ -15,7 +15,7 @@ import type {
   ScopeSyncBatchSelection,
 } from "./batch";
 
-// Support-safe receipt for the staging Scope Sync Batch preview probe (#9244).
+// Support-safe receipt for the staging Scope Sync Batch preview probe.
 // The staging UAT workflow captures six unconfirmed previews through visible
 // Admin controls; this module owns the receipt grammar so the capture, the
 // workflow's pre-upload validation and the tests share one definition. It never
@@ -53,7 +53,7 @@ export type ScopeSyncBatchPreviewProbeRowDefinition = Readonly<{
 }>;
 
 // Pokemon is previewed per language at the expansion grain; every other domain
-// at the set grain with language unset (#9244 scope fence).
+// at the set grain with language unset.
 export const scopeSyncBatchPreviewProbeRows: readonly ScopeSyncBatchPreviewProbeRowDefinition[] = [
   { rowKey: "magic", productDomain: "magic", scopeKind: "set", languageCode: null },
   { rowKey: "pokemon-en", productDomain: "pokemon", scopeKind: "expansion", languageCode: "en" },
