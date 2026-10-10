@@ -53,6 +53,7 @@ describe("connector-client-public-surface", () => {
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
       "createConnectorBackground",
+      "buildConnectorManifest",
       "createConnectorOperationCoordinator",
       "CoordinatorInput",
       "CoordinatorResult",

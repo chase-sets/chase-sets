@@ -1,27 +1,33 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import config from "../vite.config";
+import { connectorViteConfig } from "../vite.config";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (file: string) => readFileSync(resolve(root, file), "utf8");
 
 function assertThinRoot(worker: string) {
+  const entry = read("src/background.ts");
+  expect(entry).toContain("composeConnectorBackground({ executors: connectorExecutors })");
+  expect(entry.match(/background\.boot\(\)/g)).toHaveLength(1);
   expect(worker).toContain("createConnectorBackground({");
   expect(worker).not.toMatch(/\bchrome\.|\b(?:if|switch|for|while)\s*\(|\bclass\s|\.then\(/);
   expect(worker).toContain("sweep: retentionStore,");
   expect(worker).toContain("createConnectorRetentionStore({");
   expect(worker).toContain("const session = chromeSession();");
   expect(worker).toContain("const alarms = chromeAlarms();");
-  expect(worker).toContain("...chromeIndexedDB(),");
+  expect(worker).toContain("const database = chromeIndexedDB();");
+  expect(worker).toContain("coordinate: coordinator.coordinate,");
+  expect(worker).toContain(
+    "createConnectorOperationCoordinator({ ...database, executors, platformOrigin, request, clock })",
+  );
   for (const adapter of ["Storage", "Identity", "Action", "Runtime"]) expect(worker).toContain(`: chrome${adapter}(),`);
   expect(worker.match(/\bawait\b/g)).toBeNull();
-  expect(worker.match(/background\.boot\(\)/g)).toHaveLength(1);
 }
 
 describe("extension-deterministic-build-and-thin-root", () => {
   it("keeps one composition-only entry, seven adapters, and no superseded probe sources", () => {
-    const worker = read("src/background.ts");
+    const worker = read("src/compose.ts");
     assertThinRoot(worker);
     expect(readdirSync(resolve(root, "src/adapters")).sort()).toEqual([
       "chrome-action.ts",
@@ -31,6 +37,7 @@ describe("extension-deterministic-build-and-thin-root", () => {
       "chrome-runtime.ts",
       "chrome-session.ts",
       "chrome-storage.ts",
+      "connector-transport.ts",
     ]);
     for (const name of [
       "manifest",
@@ -46,7 +53,7 @@ describe("extension-deterministic-build-and-thin-root", () => {
   });
 
   it("kills omitted-adapter, pre-custody sweep and install-reset root mutants", () => {
-    const worker = read("src/background.ts");
+    const worker = read("src/compose.ts");
     assertThinRoot(worker);
     for (const mutant of [
       worker.replace("const session = chromeSession();", ""),
@@ -57,11 +64,13 @@ describe("extension-deterministic-build-and-thin-root", () => {
   });
 
   it("refuses HTML, chunks, imports and remote-code mutants in the actual build plugin", () => {
-    const plugin = (config.plugins as { name: string; generateBundle: (...args: unknown[]) => void }[])[0]!;
+    const plugin = (
+      connectorViteConfig().plugins as { name: string; generateBundle: (...args: unknown[]) => void }[]
+    )[0]!;
     const emitted: unknown[] = [];
     const run = (bundle: object) =>
       plugin.generateBundle.call({ emitFile: (asset: unknown) => emitted.push(asset) }, {}, bundle);
-    const worker = { type: "chunk", code: "const safe = true;", imports: [], dynamicImports: [] };
+    const worker = { type: "chunk", code: "const safe = true;", imports: [], dynamicImports: [], modules: {} };
     run({ "background.js": worker });
     expect(emitted).toHaveLength(1);
     for (const mutant of [

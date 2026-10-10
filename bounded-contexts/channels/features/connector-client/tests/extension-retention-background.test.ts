@@ -3,9 +3,10 @@ import { createConnectorRetentionStore } from "../domain/connector-retention-sto
 import { rawExportLifetime } from "../domain/raw-export-record";
 import { backgroundFixture } from "./connector-background-test-support";
 import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
+import { mutatedBackground } from "./connector-background-mutants";
 
-function fixture() {
-  const background = backgroundFixture("paired-idle");
+function fixture(factory?: Parameters<typeof backgroundFixture>[2]) {
+  const background = backgroundFixture("paired-idle", {}, factory);
   const raw = retentionFixture();
   const store = createConnectorRetentionStore({
     ...raw.ports,
@@ -18,47 +19,59 @@ function fixture() {
 }
 
 describe("extension-production-bootstrap-day-after real retention sweep", () => {
-  it("a synthetic blocked newer owner pauses with a retry alarm and badge without hanging background reads", async () => {
-    const f = fixture();
-    await f.store.write(f.input);
-    const holder = await openDatabase(f.raw.indexedDB);
-    holder.onversionchange = () => {};
-    const upgrade = f.raw.indexedDB.open("connector-raw-exports", 4);
-    const upgraded = new Promise<void>((resolve) => {
-      upgrade.onsuccess = () => {
-        upgrade.result.close();
-        resolve();
-      };
-    });
-    await new Promise<void>((resolve) => {
-      upgrade.onblocked = () => resolve();
-    });
-    f.setTime(Date.parse(f.input.downloadedAt) + rawExportLifetime);
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    try {
-      let finished = false;
-      const boot = f.background.boot().then(() => {
-        finished = true;
+  it.each([false, true])(
+    "a synthetic blocked newer owner retries an expired present alarm (suppression mutant: %s)",
+    async (mutant) => {
+      const f = fixture(mutant ? mutatedBackground("suppressed-retention-retry") : undefined);
+      await f.store.write(f.input);
+      const sessionBefore = f.session.rows();
+      const holder = await openDatabase(f.raw.indexedDB);
+      holder.onversionchange = () => {};
+      const upgrade = f.raw.indexedDB.open("connector-raw-exports", 4);
+      const upgraded = new Promise<void>((resolve) => {
+        upgrade.onsuccess = () => {
+          upgrade.result.close();
+          resolve();
+        };
       });
-      for (let attempt = 0; attempt < 12 && !finished; attempt++) await vi.advanceTimersByTimeAsync(1000);
-      expect(finished).toBe(true);
-      await boot;
-      expect(f.ports.action.setBadge).toHaveBeenLastCalledWith(
-        expect.objectContaining({ state: "paused", pauseReason: "cleanup-failed" }),
-      );
-      expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: f.ports.clock.now() + 30_000 });
-      expect(f.ports.transport.coordinate).not.toHaveBeenCalled();
-      const status = f.background.status();
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(await status).toMatchObject({ state: "paused", pauseReason: "cleanup-failed" });
-    } finally {
-      vi.useRealTimers();
-      holder.close();
-      await upgraded;
-    }
-    await f.alarm("connector-retention-deadline");
-    expect(await f.background.status()).toMatchObject({ state: "upgrade-required" });
-  });
+      await new Promise<void>((resolve) => {
+        upgrade.onblocked = () => resolve();
+      });
+      f.setTime(Date.parse(f.input.downloadedAt) + rawExportLifetime);
+      f.alarms.set("connector-retention-deadline", { when: f.ports.clock.now() });
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        let finished = false;
+        const boot = f.background.boot().then(() => {
+          finished = true;
+        });
+        for (let attempt = 0; attempt < 12 && !finished; attempt++) await vi.advanceTimersByTimeAsync(1000);
+        expect(finished).toBe(true);
+        await boot;
+        expect(f.ports.action.setBadge).toHaveBeenLastCalledWith(
+          expect.objectContaining({ state: "paused", pauseReason: "cleanup-failed" }),
+        );
+        expect(f.ports.action.setTitle).toHaveBeenLastCalledWith(
+          expect.objectContaining({ state: "paused", pauseReason: "cleanup-failed" }),
+        );
+        const witness = () =>
+          expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: f.ports.clock.now() + 30_000 });
+        if (mutant) expect(witness).toThrow();
+        else witness();
+        expect(f.ports.transport.coordinate).not.toHaveBeenCalled();
+        expect(f.session.rows()).toEqual(sessionBefore);
+        const status = f.background.status();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(await status).toMatchObject({ state: "paused", pauseReason: "cleanup-failed" });
+      } finally {
+        vi.useRealTimers();
+        holder.close();
+        await upgraded;
+      }
+      await f.alarm("connector-retention-deadline");
+      expect(await f.background.status()).toMatchObject({ state: "upgrade-required" });
+    },
+  );
 
   it("newer database fences boot/update/work/unpair/deadline before any state writes or effects", async () => {
     const f = fixture();

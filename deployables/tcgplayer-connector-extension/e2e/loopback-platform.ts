@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
 
 export const synthetic = {
@@ -12,7 +12,13 @@ export const synthetic = {
 };
 export const closedErrors = ["authorization_refused", "pairing_code_missing", "pairing_code_ambiguous"] as const;
 
-export async function loopbackPlatform() {
+export async function loopbackPlatform(
+  options: {
+    port?: number;
+    requirePairingCode?: boolean;
+    handle?: (request: IncomingMessage, reply: ServerResponse) => Promise<boolean>;
+  } = {},
+) {
   let response: "success" | "hold" | (typeof closedErrors)[number] = "success";
   let authorizeCount = 0;
   let tokenCount = 0;
@@ -23,9 +29,36 @@ export async function loopbackPlatform() {
   let challenge = "";
   let verifier = "";
   let release: (() => void) | undefined;
+  let pairingExpiresAt = 0;
+  let authorizationExpiresAt = 0;
+  let tokenConsumed = false;
   const server = createServer(async (request, reply) => {
+    reply.setHeader("Connection", "close");
+    if (await options.handle?.(request, reply)) return;
     const url = new URL(request.url!, "http://127.0.0.1");
     reply.setHeader("Cache-Control", "no-store");
+    if (url.pathname === "/api/channels/connections/connection_synthetic/connector-pairing/code") {
+      let raw = "";
+      for await (const chunk of request) raw += chunk;
+      if (
+        request.method !== "POST" ||
+        raw !== "{}" ||
+        !request.headers.cookie?.split("; ").includes(`${synthetic.cookieName}=${synthetic.cookieValue}`)
+      ) {
+        reply.writeHead(400).end();
+        return;
+      }
+      pairingExpiresAt = Date.now() + 600000;
+      reply.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          pairingId: "synthetic-pairing",
+          revision: 1,
+          code: "SYNTHETIC_PAIRING_CODE",
+          expiresAt: new Date(pairingExpiresAt).toISOString(),
+        }),
+      );
+      return;
+    }
     if (url.pathname === "/channel-connector/oauth/authorize") {
       authorizeCount++;
       const query = url.searchParams;
@@ -42,13 +75,18 @@ export async function loopbackPlatform() {
         /^[A-Za-z0-9_-]{43}$/.test(query.get("state") ?? "");
       cookieArrived =
         request.headers.cookie?.split("; ").includes(`${synthetic.cookieName}=${synthetic.cookieValue}`) ?? false;
-      if (!queryClosed || !cookieArrived) {
+      if (!queryClosed || !cookieArrived || (options.requirePairingCode && pairingExpiresAt <= Date.now())) {
         reply.writeHead(400);
         reply.end();
         return;
       }
       state = query.get("state")!;
       challenge = query.get("code_challenge")!;
+      if (options.requirePairingCode) {
+        pairingExpiresAt = 0;
+        authorizationExpiresAt = Date.now() + 600000;
+        tokenConsumed = false;
+      }
       if (response === "hold")
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -79,7 +117,9 @@ export async function loopbackPlatform() {
         body.redirect_uri === TCGPLAYER_CONNECTOR_REDIRECT_URI &&
         body.code === synthetic.code &&
         typeof verifier === "string" &&
-        createHash("sha256").update(verifier).digest("base64url") === challenge;
+        createHash("sha256").update(verifier).digest("base64url") === challenge &&
+        (!options.requirePairingCode || (!tokenConsumed && authorizationExpiresAt > Date.now()));
+      if (tokenClosed) tokenConsumed = true;
       reply.writeHead(tokenClosed ? 200 : 400, { "Content-Type": "application/json" });
       reply.end(
         JSON.stringify(
@@ -104,7 +144,13 @@ export async function loopbackPlatform() {
     reply.writeHead(404);
     reply.end();
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(options.port ?? 0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("loopback-listen-refused");
   return {
@@ -136,4 +182,14 @@ export async function loopbackPlatform() {
         server.close((error) => (error ? reject(error) : resolve()));
       }),
   };
+}
+
+export async function createSyntheticPairingCode(origin: string) {
+  const response = await fetch(`${origin}/api/channels/connections/connection_synthetic/connector-pairing/code`, {
+    method: "POST",
+    redirect: "error",
+    headers: { Cookie: `${synthetic.cookieName}=${synthetic.cookieValue}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!response.ok) throw new Error("synthetic-pairing-code-refused");
 }

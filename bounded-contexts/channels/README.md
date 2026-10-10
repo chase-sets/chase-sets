@@ -14,7 +14,10 @@ extension messages, PKCE pairing and independent work, revocation-retry and
 retention alarms. Chrome adapters implement `ConnectorBackgroundPorts`; records
 and revision fencing remain internal to the slice. Startup and retained install
 reconcile owned records without resetting paired or paused profiles. Missing
-alarm reconciliation is not implemented here; no alarm persistence is assumed.
+alarms are re-created on worker start only when required by retained state;
+valid existing schedules are preserved during no-op reconciliation. Cleanup
+failures still schedule the existing retention retry, even when an expired alarm
+is present. No alarm persistence is assumed.
 The coordinator is inert unless supplied. `createConnectorOperationCoordinator`
 owns the operation journal and executor registry. It uses the same
 `connector-raw-exports` database, additively upgraded to v3 with
@@ -41,7 +44,8 @@ permits reports only and leaves both journal stores intact. Malformed claims
 pause as `protocol-violation` before either journal is written; only an update
 clears that pause, including after unpair/re-pair. Valid unsupported operations
 are totally abandoned before `unsupported-operation` pause. No provider executor
-or deployable composition is supplied here; those remain separate slices.
+is supplied here. The extension composes the coordinator with an empty product
+executor registry; unsupported work is abandoned without a provider request.
 `createConnectorRetentionStore` owns
 the raw-export sweep: AES-GCM ciphertext in versioned IndexedDB, one key per
 export in trusted session storage, revision-predicated cleanup and read refusal

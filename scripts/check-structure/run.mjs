@@ -39,6 +39,7 @@ import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
+import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
@@ -1925,6 +1926,8 @@ export async function runStructureCheck(options = {}) {
   violations.push(...jsonImportAttributesResult.violations);
   const channelConnectionContractProvenance = await validateChannelConnectionContractProvenance({ repoRoot });
   violations.push(...channelConnectionContractProvenance.violations);
+  const connectorFakeGraph = await validateConnectorFakeGraph({ repoRoot });
+  violations.push(...connectorFakeGraph.violations);
   const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
   const contextMetricsByRoot = new Map(
     [...contextManifests.values()].map((context) => [

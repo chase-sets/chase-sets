@@ -16,6 +16,7 @@ export type ConnectorBackgroundPorts = Readonly<{
   storage: TrustedStorageArea;
   session: TrustedStorageArea;
   alarms: Readonly<{
+    get(name: string): Promise<Readonly<{ scheduledTime: number; periodInMinutes?: number }> | undefined>;
     create(name: string, schedule: Readonly<{ when?: number; periodInMinutes?: number }>): Promise<void>;
     clear(name: string): Promise<void>;
     onAlarm(listener: (alarm: Readonly<{ name: string }>) => Promise<void>): void;

@@ -21,6 +21,7 @@ export type {
   TcgplayerSaleLine,
 } from "./features/tcgplayer-orders/domain/contracts";
 export { createConnectorBackground } from "./features/connector-client/domain/connector-background";
+export { buildConnectorManifest } from "./features/connector-client/domain/connector-manifest";
 export { createConnectorOperationCoordinator } from "./features/connector-client/domain/operation-coordinator";
 export type { CoordinatorInput, CoordinatorResult } from "./features/connector-client/domain/operation-coordinator";
 export type {

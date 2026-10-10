@@ -29,7 +29,11 @@ export type {
   ConnectorInboundRead,
   ConnectorInboundPage,
 } from "./features/connector-feed/read-model/inbound";
-export { connectorInboundKinds } from "./features/connector-feed/domain/transport";
+export {
+  connectorInboundKinds,
+  assertConnectorClaim,
+  assertConnectorReport,
+} from "./features/connector-feed/domain/transport";
 export { connectorInboundRetentionClasses } from "./features/connector-feed/domain/retention";
 export type { ConnectorInbound, ConnectorInboundKind } from "./features/connector-feed/domain/transport";
 export { connectorTransportPolicy } from "./features/connector-feed/domain/policy";

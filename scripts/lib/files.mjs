@@ -9,6 +9,7 @@ export const defaultSkippedDirectories = new Set([
   "build",
   "coverage",
   "dist",
+  "dist-harness",
   "node_modules",
 ]);
 
