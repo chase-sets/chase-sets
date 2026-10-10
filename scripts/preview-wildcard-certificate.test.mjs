@@ -37,7 +37,10 @@ const expiredStuck = certificate({
   issuing: "True",
 });
 
-function request(name, { ready = "False", reason = "Pending", createdMinutesAgo = 60 * 24 * 30, owner = "preview-wildcard" } = {}) {
+function request(
+  name,
+  { ready = "False", reason = "Pending", createdMinutesAgo = 60 * 24 * 30, owner = "preview-wildcard" } = {},
+) {
   return {
     metadata: {
       name,
@@ -86,14 +89,13 @@ describe("preview wildcard certificate assessment", () => {
   it("fails closed when Ready or notAfter is missing", () => {
     const assessment = assessCertificate({ status: {} }, { now });
     expect(assessment.healthy).toBe(false);
-    expect(assessment.problems).toEqual([
-      "Ready=Unknown (no reason: no message)",
-      "status.notAfter is missing",
-    ]);
+    expect(assessment.problems).toEqual(["Ready=Unknown (no reason: no message)", "status.notAfter is missing"]);
   });
 
   it("honours a custom floor", () => {
-    expect(assessCertificate(certificate({ notAfter: daysFromNow(5) }), { now, minRemainingDays: 0 }).healthy).toBe(true);
+    expect(assessCertificate(certificate({ notAfter: daysFromNow(5) }), { now, minRemainingDays: 0 }).healthy).toBe(
+      true,
+    );
   });
 });
 
@@ -115,7 +117,9 @@ describe("stale certificate request selection", () => {
 
 describe("manual renew status patch (cmctl renew equivalent)", () => {
   it("sets Issuing=True ManuallyTriggered while preserving other conditions", () => {
-    const patch = buildManualRenewStatusPatch(certificate({ ready: "False", reason: "Expired", issuing: "False" }), { now });
+    const patch = buildManualRenewStatusPatch(certificate({ ready: "False", reason: "Expired", issuing: "False" }), {
+      now,
+    });
     expect(patch.status.conditions).toEqual([
       { type: "Ready", status: "False", reason: "Expired", message: "Certificate Expired" },
       expect.objectContaining({
@@ -263,7 +267,13 @@ describe("checkPreviewWildcardCertificate", () => {
     });
     const { clock, sleep } = clockFrom(now);
 
-    const assessment = await checkPreviewWildcardCertificate({ runKubectl, clock, sleep, waitSeconds: 600, log: () => {} });
+    const assessment = await checkPreviewWildcardCertificate({
+      runKubectl,
+      clock,
+      sleep,
+      waitSeconds: 600,
+      log: () => {},
+    });
 
     expect(assessment.healthy).toBe(true);
     expect(reads).toBe(3);
@@ -308,7 +318,9 @@ describe("checkPreviewWildcardCertificate", () => {
 describe("preview wildcard certificate CLI", () => {
   it("parses converge and check options and rejects unknown flags", () => {
     expect(parseArgs(["converge"])).toEqual({ command: "converge", minRemainingDays: 14 });
-    expect(parseArgs(["check", "--min-remaining-days", "0", "--warn-remaining-days", "14", "--wait-seconds", "600"])).toEqual({
+    expect(
+      parseArgs(["check", "--min-remaining-days", "0", "--warn-remaining-days", "14", "--wait-seconds", "600"]),
+    ).toEqual({
       command: "check",
       minRemainingDays: 0,
       warnRemainingDays: 14,

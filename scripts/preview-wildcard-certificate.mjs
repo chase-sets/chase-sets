@@ -42,7 +42,9 @@ export function assessCertificate(certificate, options = {}) {
   const problems = [];
 
   if (ready?.status !== "True") {
-    problems.push(`Ready=${ready?.status ?? "Unknown"} (${ready?.reason ?? "no reason"}: ${ready?.message ?? "no message"})`);
+    problems.push(
+      `Ready=${ready?.status ?? "Unknown"} (${ready?.reason ?? "no reason"}: ${ready?.message ?? "no message"})`,
+    );
   }
   if (remainingDays === undefined) {
     problems.push("status.notAfter is missing");
@@ -167,7 +169,13 @@ export async function convergePreviewWildcardCertificate(options = {}) {
   }
 
   log(`Preview wildcard certificate is unhealthy (${assessment.problems.join("; ")}); nudging a fresh issuance.`);
-  const { stdout } = await runKubectl(["get", "certificaterequests.cert-manager.io", ...namespaceArgs, "--output", "json"]);
+  const { stdout } = await runKubectl([
+    "get",
+    "certificaterequests.cert-manager.io",
+    ...namespaceArgs,
+    "--output",
+    "json",
+  ]);
   const deletedRequests = staleCertificateRequestNames(JSON.parse(stdout).items, { now });
   for (const name of deletedRequests) {
     // Deleting the request cascades to its Order and Challenges through

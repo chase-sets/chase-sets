@@ -2921,7 +2921,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeLessThan(
       indexOf("Deploy staging Kubernetes release"),
     );
-    expect(indexOf("Verify staging preview wildcard certificate")).toBeGreaterThan(indexOf("Abort staging Argo Rollouts"));
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeGreaterThan(
+      indexOf("Abort staging Argo Rollouts"),
+    );
     expect(indexOf("Verify staging preview wildcard certificate")).toBeLessThan(indexOf("Mark staging applied"));
 
     // Production never hosts previews and keeps its own add-on install path.
