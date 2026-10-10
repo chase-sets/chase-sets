@@ -5,6 +5,7 @@ import { connectorPolicyDefaults, decodeConnectorPolicy } from "../../connector-
 import { assertConnectorClaim, assertConnectorReport } from "../../connector-feed/domain/transport";
 import { assertLiveExportPayload, deriveLiveExportId, deriveLiveExportOperationId } from "../api/live-export-payload";
 import { payloadDigest } from "../api/payload-digest";
+import { isClaimedOrderPullOutcome } from "../domain/order-pull-codec";
 import {
   assertClaimedLiveExportOutcome,
   assertLiveExportPayloadStructure,
@@ -55,6 +56,9 @@ describe("live-export-codec", () => {
       expect(() => validate(JSON.parse(JSON.stringify(payload)), connectorPolicyDefaults.leaseMs)).not.toThrow();
     }
     expect(() => assertClaimedLiveExportOutcome(JSON.parse(JSON.stringify(outcome)))).not.toThrow();
+    expect(isClaimedOrderPullOutcome(outcome)).toBe(false);
+    expect(isClaimedOrderPullOutcome({ operationKind: "tcgplayer-order-pull" })).toBe(true);
+    expect(isClaimedOrderPullOutcome({ operationKind: "unknown" })).toBe(false);
     expect(() => assertConnectorReport({ reservationId: "reservation_synthetic", outcomes: [outcome] })).not.toThrow();
     expect(() => assertConnectorClaim({ capabilities: ["tcgplayer-live-export"] })).not.toThrow();
   });

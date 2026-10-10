@@ -34,14 +34,14 @@ describeDb("live-export-producer", () => {
   });
   const tick = () => h.services.outboundSync.scheduleDueLiveExports({ registry: channelProviderRegistry });
   const at = (offset: number) => vi.setSystemTime(new Date(start + offset));
-  async function claim(body: unknown = capable) {
-    const response = await h.request("claim", body);
+  async function claim(body: unknown = capable, token?: string) {
+    const response = await h.request("claim", body, { token });
     expect(response.status).toBe(200);
     const result: Awaited<ReturnType<ConnectorTransportServices["claim"]>> = await response.json();
     return result.reservation;
   }
-  async function claimed() {
-    const reservation = await claim();
+  async function claimed(token?: string) {
+    const reservation = await claim(capable, token);
     expect(reservation?.operations).toHaveLength(1);
     const member = reservation!.operations[0]!;
     if (member.operationKind !== "tcgplayer-live-export") throw new Error("missing-live-export");
@@ -91,7 +91,7 @@ describeDb("live-export-producer", () => {
     at(interval * 4);
     expect(await tick()).toBe(0);
     expect(await state()).toEqual(initial);
-    const { member } = await claimed();
+    const { member } = await claimed((await h.pair()).token);
     expect(member.scheduleGeneration).toBe(1);
     expect(member.payload.limits).toEqual({
       maxBytes: connectorPolicyDefaults.maxIngestBytes,
@@ -117,7 +117,7 @@ describeDb("live-export-producer", () => {
       expect(await tick()).toBe(0);
       at(interval + 1234);
       expect((await Promise.all([tick(), tick()])).sort()).toEqual([0, 1]);
-      const next = await claimed();
+      const next = await claimed((await h.pair()).token);
       expect(next.member.exportId).toBe(deriveLiveExportId(target.connectionId, 2));
       expect(next.member.exportId).not.toBe(member.exportId);
       const schedule = await h.db.query<{ next_due_at: Date; last_scheduled_at: Date }>(
@@ -215,7 +215,7 @@ describeDb("live-export-producer", () => {
     ).toBe(200);
     at(interval);
     expect(await tick()).toBe(1);
-    expect((await claimed()).member.exportId).not.toBe(first.member.exportId);
+    expect((await claimed((await h.pair()).token)).member.exportId).not.toBe(first.member.exportId);
   });
 
   it("live-export-claim-capability: the same exclusion invariant passes candidate and rejects capability-ignored mutant", async () => {
