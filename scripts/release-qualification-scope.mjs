@@ -239,6 +239,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "browser-boundary-diagnostics.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
