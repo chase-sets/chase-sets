@@ -493,7 +493,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 287,
+    "count": 288,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -547,7 +547,7 @@
       "bounded-contexts/inventory/features/inventory-items/api/route.ts": 2,
       "bounded-contexts/inventory/features/recovered-items/api/route.ts": 3,
       "bounded-contexts/inventory/features/restock-decisions/api/route.ts": 2,
-      "bounded-contexts/inventory/features/storage-locations/api/route.ts": 1,
+      "bounded-contexts/inventory/features/storage-locations/api/route.ts": 2,
       "bounded-contexts/inventory/support/catalog-item-support/route.ts": 3,
       "bounded-contexts/marketplace/features/listings/api/route.ts": 12,
       "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,

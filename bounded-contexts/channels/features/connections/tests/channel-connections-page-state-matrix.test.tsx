@@ -10,31 +10,15 @@ import AccountChannelsConnectionRoute, {
   loader as detailLoader,
 } from "../../../routes/marketplace/account-channels-connection";
 import { allowedChannelConnectionActions } from "../ui/connection-pages";
-import {
-  channelConnectionStatuses,
-  type ChannelConnectionPage,
-  type ChannelConnectionStatus,
-} from "../domain/contracts";
+import { channelConnectionStatuses, type ChannelConnectionPage } from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
+import { channelConnectionStateFixture as fixtureFor } from "./browser-state-fixture.test-data";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
-
-const fixedCreatedAt = "2026-09-01T00:00:00.000Z";
-
-function fixtureFor(status: ChannelConnectionStatus) {
-  return {
-    connectionId: `connection-${status}`,
-    accountId: routeAccountId,
-    providerKey: "fixture-provider",
-    environment: "sandbox" as const,
-    status,
-    createdAt: fixedCreatedAt,
-  };
-}
 
 describe("channel-connections-page-state-matrix", () => {
   it("renders a valid API-shaped list through the real client", async () => {
@@ -53,7 +37,7 @@ describe("channel-connections-page-state-matrix", () => {
       url: new URL(request.url),
       pattern: "/account/channels",
     });
-    expect(data).toEqual({ kind: "ready", page, statusFilter: "default" });
+    expect(data).toEqual({ kind: "ready", page, statusFilter: "default", providers: [] });
     const router = createMemoryRouter(
       [{ path: "/account/channels", loader: () => data, Component: AccountChannelsRoute }],
       { initialEntries: ["/account/channels"] },
@@ -64,6 +48,7 @@ describe("channel-connections-page-state-matrix", () => {
       </ChaseRoot>,
     );
     expect(await screen.findByRole("link", { name: "View connection" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect a channel" })).toBeNull();
     expect(screen.queryByText("Connections could not be loaded")).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections");
@@ -201,11 +186,13 @@ describe("channel-connections-page-state-matrix", () => {
   it.each(channelConnectionStatuses)("renders the exact allowed action set for status %s", async (status) => {
     const fixture = fixtureFor(status);
     mountConnectionRouteHarness(createFakeConnectionServices([fixture]).services);
+    const request = new Request(`http://localhost:6403/account/channels/${fixture.connectionId}`);
+    const data = await detailLoader({ request, params: { connectionId: fixture.connectionId } });
     const router = createMemoryRouter(
       [
         {
           path: "/account/channels/:connectionId",
-          loader: detailLoader,
+          loader: () => data,
           action: detailAction,
           Component: AccountChannelsConnectionRoute,
         },
