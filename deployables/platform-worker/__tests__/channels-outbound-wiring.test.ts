@@ -93,10 +93,12 @@ describe("Channels outbound worker wiring", () => {
       async (_input: Readonly<{ registry: unknown; claimOwnerId: string }>) => 3,
     );
     const scheduleDueOrderPulls = vi.fn(async (_input: Readonly<{ registry: unknown }>) => 1);
+    const scheduleDueLiveExports = vi.fn<ChannelsServices["outboundSync"]["scheduleDueLiveExports"]>(async () => 4);
     const candidate = validChannelsCandidate({
       recoverExpiredClaimedOperations,
       processNextInlineOperation,
       scheduleDueOrderPulls,
+      scheduleDueLiveExports,
     });
     const runners = createChannelsOutboundRunners(
       { channels: candidate },
@@ -108,93 +110,97 @@ describe("Channels outbound worker wiring", () => {
       "job:channels.outbound-operations.lane-2",
     ]);
     await expect(Promise.all(runners.map((runner) => runner.runOnce()))).resolves.toEqual([
-      { processed: 6, lastGlobalPosition: "0" },
-      { processed: 6, lastGlobalPosition: "0" },
+      { processed: 10, lastGlobalPosition: "0" },
+      { processed: 10, lastGlobalPosition: "0" },
     ]);
     expect(recoverExpiredClaimedOperations).toHaveBeenCalledTimes(2);
     // The background tick, never the claim endpoint, calls the bounded order-pull due runner.
     expect(scheduleDueOrderPulls).toHaveBeenCalledTimes(2);
+    expect(scheduleDueLiveExports).toHaveBeenCalledTimes(2);
     expect(processNextInlineOperation.mock.calls.map(([input]) => input.claimOwnerId)).toEqual([
       "worker-1:job:channels.outbound-operations.lane-1",
       "worker-1:job:channels.outbound-operations.lane-2",
     ]);
   });
 
-  it("reports a scheduler failure through the real worker failure path without stalling listing work", async () => {
-    const failure = new OutboundSyncError(
-      "order-pull-schedule-unavailable",
-      "The order-pull authority could not be resolved.",
-    );
-    const processNextInlineOperation = vi.fn(async () => 1);
-    const scheduleDueOrderPulls = vi.fn(async (): Promise<number> => {
-      throw failure;
-    });
-    const [runner] = createChannelsOutboundRunners(
-      {
-        channels: validChannelsCandidate({
-          recoverExpiredClaimedOperations: async () => 0,
-          processNextInlineOperation,
-          scheduleDueOrderPulls,
+  it.each(["scheduleDueOrderPulls", "scheduleDueLiveExports"] as const)(
+    "reports %s failure through the real worker failure path without stalling listing work",
+    async (scheduler) => {
+      const failure = new OutboundSyncError(
+        "order-pull-schedule-unavailable",
+        "The order-pull authority could not be resolved.",
+      );
+      const processNextInlineOperation = vi.fn(async () => 1);
+      const scheduleDueOrderPulls = vi.fn(async (): Promise<number> => {
+        throw failure;
+      });
+      const [runner] = createChannelsOutboundRunners(
+        {
+          channels: validChannelsCandidate({
+            recoverExpiredClaimedOperations: async () => 0,
+            processNextInlineOperation,
+            [scheduler]: scheduleDueOrderPulls,
+          }),
+        },
+        { workerId: "worker-1", channelsOutboundOperationLaneCount: 1 },
+      );
+      const statuses: Parameters<PlatformControlPlane["recordRunnerStatus"]>[0][] = [];
+      const granted: Partial<PlatformControlPlane> = {
+        acquireLease: async (input) => ({
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: "1",
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
         }),
-      },
-      { workerId: "worker-1", channelsOutboundOperationLaneCount: 1 },
-    );
-    const statuses: Parameters<PlatformControlPlane["recordRunnerStatus"]>[0][] = [];
-    const granted: Partial<PlatformControlPlane> = {
-      acquireLease: async (input) => ({
-        leaseName: input.leaseName,
-        ownerId: input.ownerId,
-        fencingToken: "1",
-        expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
-      }),
-      renewLease: async () => true,
-      releaseLease: async () => undefined,
-      recordRunnerStatus: async (input) => {
-        statuses.push(input);
-      },
-    };
-    // Any other control-plane call is outside this runner's path and fails the test loudly.
-    const controlPlane = new Proxy(granted, {
-      get: (target, key) =>
-        Reflect.get(target, key) ??
-        (async () => {
-          throw new Error(`Unexpected synthetic control-plane call ${String(key)}.`);
+        renewLease: async () => true,
+        releaseLease: async () => undefined,
+        recordRunnerStatus: async (input) => {
+          statuses.push(input);
+        },
+      };
+      // Any other control-plane call is outside this runner's path and fails the test loudly.
+      const controlPlane = new Proxy(granted, {
+        get: (target, key) =>
+          Reflect.get(target, key) ??
+          (async () => {
+            throw new Error(`Unexpected synthetic control-plane call ${String(key)}.`);
+          }),
+      }) as PlatformControlPlane;
+      const runnerFailed = vi.fn();
+      const onError = vi.fn();
+      const loop = createWorkerRunnerLoop({
+        workerId: "worker-1",
+        controlPlane,
+        runners: [runner!],
+        maxConcurrentRunners: 1,
+        leaseTtlMs: 60_000,
+        leaseRenewIntervalMs: 60_000,
+        pollIntervalMs: 5,
+        failureBackoffBaseMs: 0,
+        observer: { runnerFailed },
+        onError,
+      });
+      loop.start();
+      try {
+        await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+      } finally {
+        await loop.stop();
+      }
+      expect(onError).toHaveBeenCalledWith(failure, expect.objectContaining({ name: runner!.name }));
+      expect(runnerFailed).toHaveBeenCalledWith(expect.objectContaining({ runnerName: runner!.name, error: failure }));
+      expect(statuses).toContainEqual(
+        expect.objectContaining({
+          runnerName: runner!.name,
+          state: "error",
+          lastError: "The order-pull authority could not be resolved.",
         }),
-    }) as PlatformControlPlane;
-    const runnerFailed = vi.fn();
-    const onError = vi.fn();
-    const loop = createWorkerRunnerLoop({
-      workerId: "worker-1",
-      controlPlane,
-      runners: [runner!],
-      maxConcurrentRunners: 1,
-      leaseTtlMs: 60_000,
-      leaseRenewIntervalMs: 60_000,
-      pollIntervalMs: 5,
-      failureBackoffBaseMs: 0,
-      observer: { runnerFailed },
-      onError,
-    });
-    loop.start();
-    try {
-      await vi.waitFor(() => expect(onError).toHaveBeenCalled());
-    } finally {
-      await loop.stop();
-    }
-    expect(onError).toHaveBeenCalledWith(failure, expect.objectContaining({ name: runner!.name }));
-    expect(runnerFailed).toHaveBeenCalledWith(expect.objectContaining({ runnerName: runner!.name, error: failure }));
-    expect(statuses).toContainEqual(
-      expect.objectContaining({
-        runnerName: runner!.name,
-        state: "error",
-        lastError: "The order-pull authority could not be resolved.",
-      }),
-    );
-    // The same pass still processed listing work before the failure was reported.
-    expect(processNextInlineOperation.mock.calls.length).toBeGreaterThanOrEqual(
-      scheduleDueOrderPulls.mock.calls.length,
-    );
-  });
+      );
+      // The same pass still processed listing work before the failure was reported.
+      expect(processNextInlineOperation.mock.calls.length).toBeGreaterThanOrEqual(
+        scheduleDueOrderPulls.mock.calls.length,
+      );
+    },
+  );
 
   it("mounts the real Marketplace-owned inbound clamp capability for Channels", () => {
     const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
@@ -247,15 +253,15 @@ describe("Channels outbound worker wiring", () => {
 });
 
 function validChannelsCandidate(
-  outboundSync: Readonly<{
-    recoverExpiredClaimedOperations: () => Promise<number>;
-    processNextInlineOperation: (input: Readonly<{ registry: unknown; claimOwnerId: string }>) => Promise<number>;
-    scheduleDueOrderPulls: (input: Readonly<{ registry: unknown }>) => Promise<number>;
-  }> = {
-    recoverExpiredClaimedOperations: async () => 0,
-    processNextInlineOperation: async () => 0,
-    scheduleDueOrderPulls: async () => 0,
-  },
+  outboundSync: Partial<
+    Pick<
+      ChannelsServices["outboundSync"],
+      | "recoverExpiredClaimedOperations"
+      | "processNextInlineOperation"
+      | "scheduleDueOrderPulls"
+      | "scheduleDueLiveExports"
+    >
+  > = {},
 ) {
   return {
     connections: { getConnection: async () => null },
@@ -269,7 +275,13 @@ function validChannelsCandidate(
     } satisfies ChannelsServices["connectionHealth"],
     connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },
     listingComposition: {},
-    outboundSync,
+    outboundSync: {
+      recoverExpiredClaimedOperations: async () => 0,
+      processNextInlineOperation: async () => 0,
+      scheduleDueOrderPulls: async () => 0,
+      scheduleDueLiveExports: async () => 0,
+      ...outboundSync,
+    },
     reconciliation: {
       reconcileDueConnections: async () => [],
       deliverHealthObservations: vi.fn(),

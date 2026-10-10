@@ -11,6 +11,8 @@ import * as orderPullContract from "../domain/order-pull";
 import * as validation from "../domain/validation";
 import * as subjectOutcomeValidation from "../domain/subject-outcome-validation";
 import * as orderPull from "../api/order-pull";
+import * as liveExport from "../api/live-export";
+import * as liveExportContract from "../domain/live-export-codec";
 import * as store from "../api/store";
 
 export type SettlementMutant = "omission-guard" | "receipt-identity" | "transaction-split";
@@ -45,6 +47,8 @@ export function mutatedOutboundRuntime(
     "../domain/validation": validation,
     "../domain/subject-outcome-validation": subjectOutcomeValidation,
     "./order-pull": orderPull,
+    "./live-export": liveExport,
+    "../domain/live-export-codec": liveExportContract,
     "./store": store,
   };
   const exports: Partial<typeof import("../api/runtime")> = {};
