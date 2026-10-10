@@ -85,7 +85,7 @@ for (const round of [1, 2, "old-bundle-no-swap"] as const)
         );
         evidence.after = retained;
         expect(retained?.version).toBe(1);
-        expect(() => expect(retained?.version).toBe(2)).toThrow();
+        expect(() => expect(retained?.version).toBe(3)).toThrow();
         return;
       }
       const upgraded = await launchCoordinator(current, profile);
@@ -93,7 +93,7 @@ for (const round of [1, 2, "old-bundle-no-swap"] as const)
       expect(upgraded.directory).toBe(initial.directory);
       const after = await snapshot(upgraded.worker);
       evidence.after = after;
-      expect(after.version).toBe(2);
+      expect(after.version).toBe(3);
       expect(after.stores).toEqual(["operation-attempts", "raw-exports", "reservations"]);
       await upgraded.context.close();
       active.delete(upgraded.context);
@@ -101,7 +101,7 @@ for (const round of [1, 2, "old-bundle-no-swap"] as const)
       active.add(repeated.context);
       const again = await snapshot(repeated.worker);
       evidence.again = again;
-      expect(again.version).toBe(2);
+      expect(again.version).toBe(3);
       expect(again.stores).toEqual(after.stores);
       expect(again.members).toEqual(after.members);
       expect(again.reservations).toEqual(after.reservations);
@@ -115,30 +115,35 @@ for (const round of [1, 2, "old-bundle-no-swap"] as const)
     }
   });
 
-test("connector-coordinator-upgrade-chromium v3 owner is preserved with zero writes @tcgplayer-connector-extension-authority", async () => {
+test("connector-coordinator-upgrade-chromium v4 owner is preserved with zero writes @tcgplayer-connector-extension-authority", async () => {
   const first = await launchCoordinator(current);
   active.add(first.context);
-  await first.worker.evaluate(
+  const upgrade = await first.worker.evaluate(
     async () =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open("connector-raw-exports", 3);
-        request.onupgradeneeded = () =>
-          request.result.createObjectStore("future-owner").put("SYNTHETIC_V3_OWNER", "marker");
+      new Promise<{ oldVersion: number; newVersion: number | null } | null>((resolve, reject) => {
+        let upgrade: { oldVersion: number; newVersion: number | null } | null = null;
+        const request = indexedDB.open("connector-raw-exports", 4);
+        request.onupgradeneeded = (event) => {
+          upgrade = { oldVersion: event.oldVersion, newVersion: event.newVersion };
+          request.result.createObjectStore("future-owner").put("SYNTHETIC_V4_OWNER", "marker");
+        };
         request.onsuccess = () => {
           request.result.close();
-          resolve();
+          resolve(upgrade);
         };
         request.onerror = () => reject(request.error);
       }),
   );
+  retain("connector-coordinator-upgrade-v4-fixture", { upgrade });
+  expect(upgrade).toEqual({ oldVersion: 3, newVersion: 4 });
   await first.context.close();
   active.delete(first.context);
   const second = await launchCoordinator(current, first.profile);
   active.add(second.context);
   const after = await snapshot(second.worker);
-  expect(after.version).toBe(3);
+  expect(after.version).toBe(4);
   expect(after.stores).toContain("future-owner");
   expect(after.observation.writes).toEqual({ storage: 0, alarms: 0 });
   expect(await second.worker.evaluate(() => chrome.action.getTitle({}))).toBe("upgrade-required");
-  retain("connector-coordinator-upgrade-v3", after);
+  retain("connector-coordinator-upgrade-v4", after);
 });
