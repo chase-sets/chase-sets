@@ -1,6 +1,8 @@
 """Small native ownership negatives; the 4097 proof belongs to hosted controls."""
+import contextlib
 import errno
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -10,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -110,12 +113,70 @@ class OrphanObservation(unittest.TestCase):
         self.assertEqual(stimulus.generated_drift(final, final), 'unchanged')
         self.assertNotIn('foreign', stimulus.observation_line(final, final))
 
-    def test_main_never_shadows_the_observation_helpers(self):
-        # A local of the same name turned the hosted observation print into a
-        # retirement:output refusal; main must call the module helpers.
-        helpers = {'errno_name', 'image_names', 'generated_tree', 'observation_line', 'retirement_reason'}
-        self.assertEqual(helpers & set(stimulus.main.__code__.co_varnames), set())
-        self.assertTrue(helpers <= set(stimulus.main.__code__.co_names))
+    def test_main_reports_the_orphan_observation_and_retires(self):
+        # Synthetic main path: no process, pidfd, /proc or privilege operation
+        # runs. A hosted observation print that raised became retirement:output.
+        retired = False
+        waits = []
+
+        class Process:
+            pid = 1000
+
+            def poll(self):
+                return None
+
+            def wait(self, timeout):
+                waits.append(retired)
+                return 0
+
+        def kill(fd, sig):
+            nonlocal retired
+            retired = True
+
+        def read(path):
+            if retired:
+                raise FileNotFoundError()
+            pid = int(path.parent.name)
+            fields = ['S', str({1001: 1000, 1002: 1001}[pid])] + ['0'] * 50
+            fields[19] = str(pid + 500)
+            return f'{pid} (SYNTHETIC) ' + ' '.join(fields) + '\n'
+
+        def read_text(path, *args, **kwargs):
+            return {'/proc/1000/task/1000/children': '1001',
+                    '/proc/1001/status': 'Uid:\t1001\t1001\t1001\t1001\n'}[path.as_posix()]
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for patch in (
+                    mock.patch.object(stimulus.os, 'getuid', return_value=0, create=True),
+                    mock.patch.object(stimulus, 'principal', return_value=(1001, 1001)),
+                    mock.patch.object(stimulus.sys, 'argv', ['SYNTHETIC_HELPER', 'orphan']),
+                    mock.patch.object(stimulus.subprocess, 'Popen', return_value=Process()),
+                    mock.patch.object(stimulus.os, 'open', return_value=10),
+                    mock.patch.object(stimulus.os, 'O_CLOEXEC', 0, create=True),
+                    mock.patch.object(stimulus.os, 'close'),
+                    mock.patch.object(stimulus.os, 'pidfd_open', return_value=11, create=True),
+                    mock.patch.object(stimulus.os, 'readlink',
+                                      side_effect=lambda path: 'pid:[1]' if path == '/proc/self/ns/pid' else 'pid:[2]'),
+                    mock.patch.object(Path, 'read_text', read_text),
+                    mock.patch.object(stimulus, 'bounded_read', side_effect=read),
+                    mock.patch.object(stimulus, 'image_names', return_value={(9, 3): 'sh', (9, 4): 'sleep'}),
+                    mock.patch.object(stimulus, 'proc_children',
+                                      side_effect=lambda pid: {1000: ['1001'], 1001: ['1002']}.get(pid, [])),
+                    mock.patch.object(stimulus, 'exe_image', side_effect=lambda member: (9, 3) if member == '1001' else (9, 4)),
+                    mock.patch.object(stimulus.signal, 'pidfd_send_signal', side_effect=kill, create=True),
+                    mock.patch.object(stimulus.signal, 'SIGKILL', 9, create=True),
+                    mock.patch.object(stimulus.select, 'select', return_value=([True], [], [])),
+                    mock.patch.object(stimulus.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b''))),
+                    contextlib.redirect_stdout(out),
+                    contextlib.redirect_stderr(err)):
+                stack.enter_context(patch)
+            status = stimulus.main()
+        self.assertEqual(waits, [True])
+        self.assertEqual((status, out.getvalue(), err.getvalue()), (0, (
+            '{"constructed": true, "children": 1, "mode": "orphan"}\n'
+            'provider-boundary-owner-stimulus:observed:ready=final;boundary=final;generated=unchanged\n'
+            'provider-boundary-owner-stimulus:retired\n'), ''))
 
     def test_retirement_reasons_are_closed_and_keep_errno_only(self):
         cases = [
