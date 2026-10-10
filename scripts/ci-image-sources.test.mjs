@@ -1080,7 +1080,7 @@ describe("publisher boundary", () => {
     expect(() => assertTrustedPublisherContext(caseVariant)).toThrow(/untrusted ref 'refs\/heads\/MAIN'/);
   });
 
-  const withoutAdmission =(text) => text.replace(`    if: ${publisherAdmission}\n`, "");
+  const withoutAdmission = (text) => text.replace(`    if: ${publisherAdmission}\n`, "");
   const withoutPublishCheckoutRef = (text) => text.replace(`          ref: ${trustedCheckoutRef}\n`, "");
   const feature = "refs/heads/codex/synthetic-untrusted";
 
