@@ -34,6 +34,9 @@ function createPaymentRuntime(
       ...deps.eventStore,
       readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
       appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
+      appendToStreamsInTransaction: async () => {
+        throw new Error("Synthetic payment runtime does not use transaction-local multi-stream appends.");
+      },
     }),
   });
 }
