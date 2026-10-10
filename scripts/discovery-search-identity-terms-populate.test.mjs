@@ -15,6 +15,47 @@ const args = [
   "--authorization=synthetic-test",
 ];
 
+test.each(["require", "verify-full"])(
+  "population pools use the shared TLS seam for sslmode=%s without connecting",
+  (mode) => {
+    const resolver = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url).href;
+    const entrypoint = new URL("./discovery-search-identity-terms-populate.mjs", import.meta.url).href;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `import { register } from "node:module";
+       import assert from "node:assert/strict";
+       import pg from "pg";
+       register(${JSON.stringify(resolver)});
+       const { createIdentityTermsPopulationPools } = await import(${JSON.stringify(entrypoint)});
+       const connectionString = "postgresql://synthetic:synthetic@managed.invalid/discovery?sslmode=${mode}";
+       const { pool, controlPool } = await createIdentityTermsPopulationPools({
+         DATABASE_URL_DISCOVERY: connectionString,
+         PLATFORM_CONTROL_DATABASE_URL: connectionString.replace("/discovery?", "/control?"),
+       });
+       try {
+         for (const [actual, max, database] of [[pool, 1, "/discovery"], [controlPool, 2, "/control"]]) {
+           const url = new URL(actual.options.connectionString);
+           assert.equal(url.pathname, database);
+           assert.equal(url.searchParams.get("sslmode"), "${mode}");
+           assert.equal(url.searchParams.get("uselibpqcompat"), "true");
+           assert.deepEqual(actual.options.ssl, { rejectUnauthorized: ${mode === "verify-full"} });
+           assert.equal(new pg.Client(actual.options).ssl.rejectUnauthorized, ${mode === "verify-full"});
+           assert.equal(actual.options.max, max);
+           assert.equal(actual.totalCount, 0);
+         }
+       } finally {
+         await Promise.all([pool.end(), controlPool.end()]);
+       }`,
+      ],
+      { encoding: "utf8", env: { ...process.env, PGSSLROOTCERT: "" } },
+    );
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+  },
+);
+
 test("population dependencies load in native Node without opening database connections", () => {
   const resolver = new URL("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url).href;
   const control = new URL("../infrastructure/platform-runtime/control-plane.ts", import.meta.url).href;
@@ -22,6 +63,7 @@ test("population dependencies load in native Node without opening database conne
     "../bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts",
     import.meta.url,
   ).href;
+  const pool = new URL("../infrastructure/event-core-postgres/pool.ts", import.meta.url).href;
   const result = spawnSync(
     process.execPath,
     [
@@ -30,10 +72,10 @@ test("population dependencies load in native Node without opening database conne
       `import { register } from "node:module";
        import assert from "node:assert/strict";
        register(${JSON.stringify(resolver)});
-       const [{ Pool }, control, adapter] = await Promise.all([
-         import("pg"), import(${JSON.stringify(control)}), import(${JSON.stringify(adapter)})
+       const [{ createPgPool }, control, adapter] = await Promise.all([
+         import(${JSON.stringify(pool)}), import(${JSON.stringify(control)}), import(${JSON.stringify(adapter)})
        ]);
-       assert.equal(typeof Pool, "function");
+       assert.equal(typeof createPgPool, "function");
        assert.equal(typeof control.createPostgresPlatformControlPlane, "function");
        assert.equal(typeof adapter.populateDiscoverySearchIdentityTerms, "function");`,
     ],
