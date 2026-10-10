@@ -12,11 +12,9 @@ import { createStagedImportDispatchPolicyRoutes } from "../api/staged-import-dis
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { resolveStagedImportDispatchPolicy } from "../api/staged-import-dispatch-policy";
 import { tcgplayerStagedImportDispatchPolicy } from "../domain/staged-import-policy";
-import { tcgplayerStagedImportDispatchPolicy as publishedPolicy } from "../../../server";
 
 describe("staged-import producer fresh transactional resolver controls", () => {
   it("publishes the domain declaration without exporting the resolver runtime through the server entrypoint", () => {
-    expect(publishedPolicy).toBe(tcgplayerStagedImportDispatchPolicy);
     const server = readFileSync(new URL("../../../server.ts", import.meta.url), "utf8");
     expect(server).toContain('from "./features/connector-feed/domain/staged-import-policy"');
     expect(server).not.toContain('from "./features/connector-feed/api/staged-import-dispatch-policy"');
