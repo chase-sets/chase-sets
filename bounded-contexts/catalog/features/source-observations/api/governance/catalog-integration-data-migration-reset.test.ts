@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { evaluateCatalogIntegrationLegacyCleanupReadiness } from "../../../../../../scripts/check-structure/catalog-integration-legacy-cleanup";
 import {
   CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
@@ -15,7 +16,7 @@ import {
 } from "./catalog-integration-data-migration-reset";
 
 const seedCatalogProviderIntegrationProfileVersions = vi.hoisted(() =>
-  vi.fn(async () => [
+  vi.fn(async (_db: PgQueryable) => [
     {
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
@@ -213,6 +214,73 @@ describe("catalog integration data migration reset", () => {
       "LOCK TABLE catalog_source_observation_integration_durable_jobs, catalog_source_observation_bulk_review_jobs IN SHARE ROW EXCLUSIVE MODE",
     );
   });
+
+  it.each([true, false])(
+    "locks the profile relation as the first reset statement, before job locks, deletes and reseeding (rebuildSeedProfiles %s)",
+    async (rebuildSeedProfiles) => {
+      const db = new InMemoryCatalogIntegrationDataDb({
+        providerProfileVersions: 2,
+        sourceObservations: 3,
+        sourceObservationEventStreams: 3,
+        sourceObservationEvents: 6,
+        integrationDurableJobs: 1,
+        bulkReviewJobs: 1,
+      });
+      seedCatalogProviderIntegrationProfileVersions.mockImplementationOnce(async (queryable) => {
+        await queryable.query("-- reseed marker");
+        return [{ providerKey: "tcgdex", profileKey: "pokemon-tcg", profileVersion: "2026.06.03" }];
+      });
+
+      const report = await resetCatalogIntegrationPreLaunchData(db, { rebuildSeedProfiles });
+
+      const profileLockIndex = db.statements.indexOf(
+        "LOCK TABLE catalog_provider_integration_profile_versions IN ROW EXCLUSIVE MODE",
+      );
+      const jobLockIndex = db.statements.indexOf(
+        "LOCK TABLE catalog_source_observation_integration_durable_jobs, catalog_source_observation_bulk_review_jobs IN SHARE ROW EXCLUSIVE MODE",
+      );
+      const firstCountIndex = db.statements.findIndex((sql) => sql.includes("SELECT COUNT(*) AS count"));
+      const firstSurfaceDeleteIndex = db.statements.findIndex((sql) => sql.startsWith("WITH deleted AS ("));
+      const streamDeleteIndex = db.statements.findIndex((sql) => sql.includes("DELETE FROM event_store_streams"));
+      const reseedIndex = db.statements.indexOf("-- reseed marker");
+      const commitIndex = db.statements.indexOf("COMMIT");
+
+      expect(db.statements[0]).toBe("BEGIN");
+      expect(profileLockIndex).toBe(1);
+      expect(jobLockIndex).toBe(2);
+      expect(db.statements.filter((sql) => sql.startsWith("LOCK TABLE"))).toHaveLength(2);
+      expect(jobLockIndex).toBeLessThan(firstCountIndex);
+      expect(firstCountIndex).toBeLessThan(firstSurfaceDeleteIndex);
+      expect(firstSurfaceDeleteIndex).toBeLessThan(streamDeleteIndex);
+      expect(commitIndex).toBe(db.statements.length - 1);
+      expect(db.statements).not.toContain("ROLLBACK");
+      if (rebuildSeedProfiles) {
+        expect(reseedIndex).toBeGreaterThan(streamDeleteIndex);
+        expect(reseedIndex).toBeLessThan(commitIndex);
+        expect(seedCatalogProviderIntegrationProfileVersions).toHaveBeenCalledOnce();
+        expect(report.steps.at(-1)).toEqual({
+          tableName: "catalog_provider_integration_profile_versions",
+          action: "delete-and-rebuild-seed",
+          rowsAffected: 1,
+        });
+      } else {
+        expect(reseedIndex).toBe(-1);
+        expect(seedCatalogProviderIntegrationProfileVersions).not.toHaveBeenCalled();
+        expect(report.steps.at(-1)).toEqual({
+          tableName: CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
+          action: "delete",
+          rowsAffected: 3,
+        });
+      }
+      expect(report.after).toMatchObject({
+        sourceObservations: 0,
+        sourceObservationEventStreams: 0,
+        sourceObservationEvents: 0,
+        integrationDurableJobs: 0,
+        bulkReviewJobs: 0,
+      });
+    },
+  );
 
   it("resets rate-limit rows to floors while preserving live leases and cooldowns", async () => {
     const db = new InMemoryCatalogIntegrationDataDb({
