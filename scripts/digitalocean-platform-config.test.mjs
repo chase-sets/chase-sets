@@ -593,6 +593,10 @@ const platformStagingHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-helm-recovery.yml"),
   "utf8",
 );
+const platformPreviewWildcardTlsWorkflow = readFileSync(
+  resolve(".github/workflows/platform-preview-wildcard-tls.yml"),
+  "utf8",
+);
 const platformStagingBootstrapHookDrillWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-bootstrap-hook-drill.yml"),
   "utf8",
@@ -2886,6 +2890,70 @@ describe("DigitalOcean platform configuration", () => {
       'export const previewWildcardTlsSecretName = "preview-wildcard-tls"',
     );
     expect(renderPlatformHelmValuesScript).not.toContain("secretName: `${previewIdentifier}-platform-tls`");
+  });
+
+  it("#9268: staging deploys converge the preview DNS-01 token and fail closed on an unhealthy preview wildcard", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+
+    // The token is passed only as an env secret; the script pipes it to
+    // kubectl stdin through applyDoksDnsTokenSecret, never through argv.
+    const convergeStep = workflowStep(stagingJob, "Converge staging preview DNS-01 token and renewal");
+    expect(convergeStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(convergeStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(convergeStep).toContain("run: node ./scripts/preview-wildcard-certificate.mjs converge");
+    expect(convergeStep).not.toMatch(/converge.*DIGITALOCEAN_ACCESS_TOKEN/);
+    expect(convergeStep).not.toContain("continue-on-error");
+
+    const guardStep = workflowStep(stagingJob, "Verify staging preview wildcard certificate");
+    expect(guardStep).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 600",
+    );
+    expect(guardStep).not.toContain("continue-on-error");
+    expect(guardStep).not.toContain("secrets.");
+
+    // Converge runs as soon as the staging kube context exists; the guard
+    // runs after the rollout promote/abort pair (so a preview TLS fault never
+    // aborts the app rollout) but before staging is marked applied.
+    const indexOf = (name) => stagingJob.indexOf(`- name: ${name}`);
+    expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeGreaterThan(
+      indexOf("Configure staging Kubernetes context"),
+    );
+    expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeLessThan(
+      indexOf("Deploy staging Kubernetes release"),
+    );
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeGreaterThan(indexOf("Abort staging Argo Rollouts"));
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeLessThan(indexOf("Mark staging applied"));
+
+    // Production never hosts previews and keeps its own add-on install path.
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    expect(productionJob).not.toContain("preview-wildcard-certificate.mjs");
+
+    // Preview deploys read the source Certificate once: fail on not-Ready or
+    // expired, warn inside the 14-day floor, never poll.
+    const previewVerifyStep = workflowStep(
+      workflowJob(platformPrWorkflow, "preview-deploy-smoke"),
+      "Verify preview TLS secret",
+    );
+    expect(previewVerifyStep).toContain(
+      "node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 0 --warn-remaining-days 14",
+    );
+    expect(previewVerifyStep).not.toContain("--wait-seconds");
+    expect(previewVerifyStep).not.toContain("converge");
+
+    // On-demand restore: confirmed dispatch only, serialized with staging
+    // deploys, same converge + guard, token via env only.
+    expect(platformPreviewWildcardTlsWorkflow).toMatch(/^on:\n  workflow_dispatch:\n/m);
+    expect(platformPreviewWildcardTlsWorkflow).not.toMatch(/^\s+(schedule|push|pull_request):/m);
+    expect(platformPreviewWildcardTlsWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformPreviewWildcardTlsWorkflow).toContain("if: inputs.confirm != 'restore preview wildcard tls'");
+    expect(platformPreviewWildcardTlsWorkflow).toContain("environment: staging");
+    const restoreJob = workflowJob(platformPreviewWildcardTlsWorkflow, "restore-preview-wildcard-tls");
+    expect(workflowStep(restoreJob, "Converge staging preview DNS-01 token and renewal")).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs converge",
+    );
+    expect(workflowStep(restoreJob, "Verify preview wildcard certificate")).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 900",
+    );
   });
 
   it("gates route-matrix evidence generation on the segment-level projection lag SLO regression gate", () => {

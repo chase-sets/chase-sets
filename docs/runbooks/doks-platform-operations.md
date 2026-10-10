@@ -367,6 +367,17 @@ kubectl --namespace chase-sets-platform get ingress
 
 The environment DNS target must equal the ingress-nginx LoadBalancer IPv4 address. A target mismatch fails Terraform checks. Production live-host certificates use DNS-01; staging live hosts use HTTP-01. Preview namespaces copy the shared wildcard Secret rather than issuing per-preview certificates.
 
+### Preview Wildcard Renewal (#9268)
+
+The shared `cert-manager/preview-wildcard` certificate renews through DNS-01, whose solver reads `cert-manager/digitalocean-dns-token`. Every staging deploy runs `node scripts/preview-wildcard-certificate.mjs converge`, which re-applies that Secret from the current `DIGITALOCEAN_ACCESS_TOKEN` over kubectl stdin. When the certificate is not Ready or expires within 14 days, the same command deletes stale non-Ready CertificateRequests, which cascades to their Orders and Challenges, and sets `Issuing=True` the same way `cmctl renew` does. Near the end of the deploy, `check --min-remaining-days 14 --wait-seconds 600` fails the staging deploy closed if renewal has not finished. Preview deploys run a single read-only `check` that fails when the certificate is not Ready or has expired, and warns once it is inside the 14-day floor.
+
+To restore preview TLS without cutting a release, for example right after rotating the token:
+
+```bash
+gh workflow run platform-preview-wildcard-tls.yml --ref main -f confirm="restore preview wildcard tls"
+kubectl --namespace cert-manager get certificate,certificaterequest,order,challenge
+```
+
 ## Argo Rollouts
 
 Argo exposure is environment-gated. Before enabling it, verify ingress, AnalysisTemplate dependencies, stable/canary Services, metric credentials, and rollback evidence. Rendering rejects rollout activation without DOKS ingress.

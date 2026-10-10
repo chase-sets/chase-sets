@@ -1560,6 +1560,17 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
           echo "Configured staging Kubernetes context: ${current_context}"
 
+      # #9268: the staging preview wildcard certificate's DNS-01 solver reads
+      # cert-manager/digitalocean-dns-token. Re-apply it from the current
+      # repository token on every staging deploy so a token rotation cannot
+      # silently stall renewal, and nudge a fresh issuance only when the
+      # certificate is unhealthy. The token reaches kubectl over stdin only.
+      - name: Converge staging preview DNS-01 token and renewal
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: node ./scripts/preview-wildcard-certificate.mjs converge
+
       - name: Install Argo Rollouts kubectl plugin for staging
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -2440,6 +2451,15 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled true || true
+
+      # #9268 guard: fail closed when the shared preview wildcard certificate
+      # is not Ready or expires within 14 days, after giving any renewal the
+      # converge step nudged a bounded window to finish. Placed after the
+      # rollout promote/abort pair so a preview TLS fault never aborts the
+      # staging app rollout, but still before staging is marked applied.
+      - name: Verify staging preview wildcard certificate
+        if: env.SHOULD_DEPLOY != 'false'
+        run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 600
 
       - name: Classify staging deployment failure
         env:

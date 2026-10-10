@@ -87,6 +87,7 @@ const sharedResetConcurrencyWorkflowFiles = [
   ".github/workflows/platform-staging-representative-commerce-state.yml",
 ];
 const deployConcurrencyWorkflowFiles = [
+  ".github/workflows/platform-preview-wildcard-tls.yml",
   ".github/workflows/platform-production.yml",
   ".github/workflows/platform-staging-admin-qa-actor-fixtures.yml",
   ".github/workflows/platform-staging-advisory-evidence.yml",
