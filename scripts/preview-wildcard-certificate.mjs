@@ -11,7 +11,9 @@
 //             CertificateRequests are deleted (cascading their Order and
 //             Challenges, which can never complete once the ACME order has
 //             expired) and the Issuing condition is set exactly as
-//             `cmctl renew` does. It never waits.
+//             `cmctl renew` does, against a fresh read bound to its
+//             resourceVersion so a concurrent cert-manager update is never
+//             overwritten. It never waits.
 //   check     read-only guard: fails closed when the certificate is not Ready
 //             or expires within --min-remaining-days, optionally polling up to
 //             --wait-seconds for an in-flight renewal to finish first.
@@ -82,7 +84,9 @@ export function staleCertificateRequestNames(requests, options = {}) {
 // Pure `cmctl renew` equivalent: cmctl sets Issuing=True with reason
 // ManuallyTriggered on the Certificate status. Returns undefined when
 // issuance is already in progress, so the caller never resets an Issuing
-// transition time cert-manager is tracking.
+// transition time cert-manager is tracking. The merge patch replaces the
+// whole conditions array, so it carries the read's resourceVersion: the API
+// server rejects it with a conflict if cert-manager changed the object since.
 export function buildManualRenewStatusPatch(certificate, options = {}) {
   if (condition(certificate, "Issuing")?.status === "True") {
     return undefined;
@@ -99,7 +103,7 @@ export function buildManualRenewStatusPatch(certificate, options = {}) {
     observedGeneration: certificate?.metadata?.generation,
   });
 
-  return { status: { conditions } };
+  return { metadata: { resourceVersion: certificate?.metadata?.resourceVersion }, status: { conditions } };
 }
 
 export function formatCertificateGuardError(assessment) {
@@ -158,13 +162,11 @@ export async function convergePreviewWildcardCertificate(options = {}) {
 
   // The token is piped over kubectl stdin by applyDoksDnsTokenSecret; it is
   // never an argument here and never logged.
-  const applied = await applyTokenSecret({ token: options.token, environment: "staging" });
-  log(`Applied staging DNS-01 token secret ${applied.namespace}/${applied.name}.`);
+  await applyTokenSecret({ token: options.token, environment: "staging" });
 
   const certificate = await readCertificate(runKubectl);
   const assessment = assessCertificate(certificate, { now, minRemainingDays: options.minRemainingDays });
   if (assessment.healthy) {
-    log(`Preview wildcard certificate is Ready until ${assessment.notAfter}; no renewal nudge needed.`);
     return { assessment, deletedRequests: [], triggered: false };
   }
 
@@ -182,11 +184,25 @@ export async function convergePreviewWildcardCertificate(options = {}) {
     // owner references; cert-manager then creates a fresh request while
     // Issuing=True.
     await runKubectl(["delete", `certificaterequest.cert-manager.io/${name}`, ...namespaceArgs, "--wait=false"]);
-    log(`Deleted stale CertificateRequest ${name}.`);
   }
 
-  const patch = buildManualRenewStatusPatch(certificate, { now });
-  if (patch) {
+  // cert-manager keeps reconciling while requests are listed and deleted:
+  // decide from a fresh read so an issuance that started (or a renewal that
+  // finished) meanwhile is left alone.
+  const current = await readCertificate(runKubectl);
+  if (assessCertificate(current, { now, minRemainingDays: options.minRemainingDays }).healthy) {
+    return { assessment, deletedRequests, triggered: false };
+  }
+  const patch = buildManualRenewStatusPatch(current, { now });
+  if (!patch) {
+    return { assessment, deletedRequests, triggered: false };
+  }
+  if (!patch.metadata.resourceVersion) {
+    throw new Error(
+      "Preview wildcard certificate read has no metadata.resourceVersion; refusing an unconditional status write.",
+    );
+  }
+  try {
     await runKubectl([
       "patch",
       `certificate.cert-manager.io/${previewWildcardCertificateName}`,
@@ -196,10 +212,22 @@ export async function convergePreviewWildcardCertificate(options = {}) {
       "--patch",
       JSON.stringify(patch),
     ]);
-    log("Set Issuing=True (ManuallyTriggered), the cmctl renew equivalent.");
+  } catch (error) {
+    // No retry: a conflict means cert-manager updated the certificate after
+    // the fresh read. Fail closed; the next converge (staging deploy or
+    // restore workflow) decides again from the then-current object.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/\(Conflict\)|the object has been modified/.test(message)) {
+      throw error;
+    }
+    throw new Error(
+      `Preview wildcard certificate changed while nudging renewal (resourceVersion ${patch.metadata.resourceVersion} conflict); ` +
+        `left it to cert-manager without overwriting. Re-run the restore workflow if it stays unhealthy. ${message}`,
+      { cause: error },
+    );
   }
 
-  return { assessment, deletedRequests, triggered: Boolean(patch) };
+  return { assessment, deletedRequests, triggered: true };
 }
 
 export async function checkPreviewWildcardCertificate(options = {}) {
@@ -216,9 +244,6 @@ export async function checkPreviewWildcardCertificate(options = {}) {
     const certificate = await readCertificate(runKubectl);
     const assessment = assessCertificate(certificate, { now: clock(), minRemainingDays: options.minRemainingDays });
     if (assessment.healthy) {
-      log(
-        `Preview wildcard certificate is Ready until ${assessment.notAfter} (${assessment.remainingDays.toFixed(1)} day(s) left).`,
-      );
       if (options.warnRemainingDays !== undefined && assessment.remainingDays < options.warnRemainingDays) {
         warn(
           `Preview wildcard certificate expires in ${assessment.remainingDays.toFixed(1)} day(s), below the ${options.warnRemainingDays}-day renewal floor; staging deploys will fail closed until it renews.`,

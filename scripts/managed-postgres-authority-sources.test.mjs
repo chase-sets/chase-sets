@@ -85,13 +85,6 @@ const reviewedPreviewWildcardDelta = [
   {
     file: previewWildcardWorkflow,
     jobId: previewWildcardJob,
-    stepAnchor: "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
-    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
-    purpose: "digitalocean-ops",
-  },
-  {
-    file: previewWildcardWorkflow,
-    jobId: previewWildcardJob,
     stepAnchor: "name:Configure staging Kubernetes context#5",
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
@@ -325,7 +318,7 @@ describe("managed Postgres authority source generator", () => {
         ...reviewedPreviewWildcardDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1620);
+    expect(expected.grants).toHaveLength(1619);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),

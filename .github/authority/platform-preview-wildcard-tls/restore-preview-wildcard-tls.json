@@ -3,13 +3,6 @@
     {
       "file": ".github/workflows/platform-preview-wildcard-tls.yml",
       "jobId": "restore-preview-wildcard-tls",
-      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
-      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
-      "purpose": "digitalocean-ops"
-    },
-    {
-      "file": ".github/workflows/platform-preview-wildcard-tls.yml",
-      "jobId": "restore-preview-wildcard-tls",
       "stepAnchor": "name:Configure staging Kubernetes context#5",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"

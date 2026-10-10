@@ -52,11 +52,14 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
+      # Install only: the action's auth path runs `doctl auth init -t <token>`,
+      # putting the token on a process command line. doctl reads
+      # DIGITALOCEAN_ACCESS_TOKEN from the environment of the steps that use it.
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         env:
           NODE_OPTIONS: --no-deprecation
         with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          no_auth: "true"
 
       - name: Configure staging Kubernetes context
         working-directory: infrastructure/digitalocean/doks
