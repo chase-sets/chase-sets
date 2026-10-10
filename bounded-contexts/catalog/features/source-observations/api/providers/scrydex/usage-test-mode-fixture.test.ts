@@ -120,8 +120,37 @@ describe("Scrydex usage test-mode fixture", () => {
     ["a non-ISO observed-at", { ...syntheticFixture(), observedAt: "2026-10-09 12:00" }],
     ["a string balance", { ...syntheticFixture(), remainingCredits: "41234" }],
     ["an import authorization", { ...syntheticFixture(), importAuthorization: "authorized" }],
+    ["a synthetic negative balance", { ...syntheticFixture(), remainingCredits: -1 }],
+    ["a synthetic fractional allowance", { ...syntheticFixture(), totalCredits: 50_000.5 }],
+    ["a synthetic negative used count", { ...syntheticFixture(), usedCredits: -8_766 }],
+    ["a synthetic unrepresentable allowance", { ...syntheticFixture(), totalCredits: 2 ** 53 }],
   ])("rejects a fixture with %s", (_label, value) => {
     expect(() => parseScrydexUsageTestModeFixture(value)).toThrow(/Scrydex usage fixture/);
+  });
+
+  it("converts a synthetic overflowing allowance to a parseable unreported allowance", async () => {
+    const replayed = await replayScrydexUsageTestModeFixture({
+      observedAt: observedAt.toISOString(),
+      httpStatus: 200,
+      body: {
+        data: {
+          total_credits_consumed: Number.MAX_SAFE_INTEGER,
+          overage_credits_consumed: 0,
+          credits_remaining: Number.MAX_SAFE_INTEGER,
+          period_start: "2026-09-22T19:39:46.000Z",
+          period_end: "2026-10-22T19:39:46.000Z",
+        },
+      },
+    });
+
+    expect(replayed).toMatchObject({ totalCredits: null, remainingCredits: Number.MAX_SAFE_INTEGER });
+    expect(parseScrydexUsageTestModeFixture(JSON.parse(JSON.stringify(replayed)))).toEqual(replayed);
+    expect(evaluateScrydexUsageLaunchGate(replayed, observedAt).reasons).toEqual(["allowance-unreported"]);
+  });
+
+  it("parses a valid zero-balance exhausted capture", () => {
+    const exhausted = syntheticFixture({ remainingCredits: 0, usedCredits: 50_000, creditState: "exhausted" });
+    expect(parseScrydexUsageTestModeFixture(JSON.parse(JSON.stringify(exhausted)))).toEqual(exhausted);
   });
 
   it("requires operator confirmation for a fresh reported allowance and never authorizes an import", () => {
@@ -150,6 +179,18 @@ describe("Scrydex usage test-mode fixture", () => {
     [
       "exhausted credits",
       syntheticFixture({ remainingCredits: 0, creditState: "exhausted" }),
+      minutes(0),
+      ["credits-exhausted"],
+    ],
+    [
+      "a synthetic zero balance with a contradictory available state",
+      syntheticFixture({ remainingCredits: 0, creditState: "available" }),
+      minutes(0),
+      ["credits-exhausted"],
+    ],
+    [
+      "a synthetic negative balance built without the parser",
+      syntheticFixture({ remainingCredits: -1, creditState: "available" }),
       minutes(0),
       ["credits-exhausted"],
     ],

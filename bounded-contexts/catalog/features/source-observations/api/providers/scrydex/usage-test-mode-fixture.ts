@@ -120,7 +120,10 @@ export function evaluateScrydexUsageLaunchGate(
   }
   if (fixture.totalCredits === null) reasons.push("allowance-unreported");
   if (fixture.remainingCredits === null) reasons.push("balance-unreported");
-  if (fixture.creditState === "exhausted") reasons.push("credits-exhausted");
+  // The numeric balance decides exhaustion, so a contradictory credit state cannot admit it.
+  if (fixture.creditState === "exhausted" || (fixture.remainingCredits !== null && fixture.remainingCredits <= 0)) {
+    reasons.push("credits-exhausted");
+  }
 
   return {
     decision: reasons.length === 0 ? "operator-confirmation-required" : "refused",
@@ -154,8 +157,8 @@ function nullableTimestamp(record: Record<string, unknown>, key: string): string
 function nullableCount(record: Record<string, unknown>, key: string): number | null {
   const value = record[key];
   if (value === null) return null;
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`Scrydex usage fixture ${key} must be null or a finite number.`);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Scrydex usage fixture ${key} must be null or a non-negative safe integer.`);
   }
   return value;
 }
