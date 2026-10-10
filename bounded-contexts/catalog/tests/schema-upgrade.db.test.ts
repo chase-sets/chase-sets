@@ -314,7 +314,7 @@ describeDb("catalog schema upgrades", () => {
     expect(pairs.rows[0].pairs).toEqual({
       externalCatalogItemReferences: [{ providerKey: "tcgdex", externalKey: "swsh3-136" }],
       externalProductReferences: [
-        { providerKey: "scrydex", externalKey: "i̇ςtanbul" },
+        { providerKey: "scrydex", externalKey: "i̇σtanbul" },
         { providerKey: "tcgplayer", externalKey: "same-key" },
       ],
     });
@@ -390,11 +390,11 @@ describeDb("catalog schema upgrades", () => {
     ]);
     const productStreams = await pool.query<{ stream_id: string }>(
       promotionReferenceKeyBoundedQueries.itemReference("product"),
-      ["scrydex", "i̇ςtanbul"],
+      ["scrydex", "i̇σtanbul"],
     );
     expect(productStreams.rows.map((row) => row.stream_id)).toEqual(["catalog.item-cat_promotion_ref_c"]);
     const headerStreams = await pool.query<{ stream_id: string }>(promotionReferenceKeyBoundedQueries.sourceHeader, [
-      JSON.stringify({ externalProductReferences: [{ providerKey: "scrydex", externalKey: "i̇ςtanbul" }] }),
+      JSON.stringify({ externalProductReferences: [{ providerKey: "scrydex", externalKey: "i̇σtanbul" }] }),
     ]);
     expect(headerStreams.rows.map((row) => row.stream_id).sort()).toEqual([
       "catalog.source-observation-tcgdex_en_chunked",
