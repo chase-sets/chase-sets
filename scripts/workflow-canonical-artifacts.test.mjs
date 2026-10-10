@@ -151,7 +151,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 64, scannedSurfaces: 27, totalSurfaces: 27 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 65, scannedSurfaces: 27, totalSurfaces: 27 });
     expect(current.findings).toHaveLength(21);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
