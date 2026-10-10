@@ -149,6 +149,28 @@ describe("synthetic staged-import floor lifecycle", () => {
     await createConnectorOperationCoordinator(f.ports).coordinate(f.input);
     expect(f.starts).toEqual([60000, 120000, 181000]);
   });
+  it("alternating coordinators A -> B -> A cannot borrow older timing credit across a newer worker start", async () => {
+    const f = await floorFixture([1000]);
+    const a = createConnectorOperationCoordinator(f.ports);
+    const b = createConnectorOperationCoordinator(f.ports);
+    for (const [index, coordinator] of [a, b, a].entries()) {
+      if (index > 0)
+        f.claims.push({
+          ...f.claim,
+          reservationId: `reservation-${index + 1}`,
+          operations: f.claim.operations.map((row) => ({
+            ...row,
+            operationId: `operation-${index + 1}`,
+            attemptId: `attempt-${index + 1}`,
+          })),
+        });
+      expect(await coordinator.coordinate(f.input)).toEqual({ outcome: "ok", pollWindowSeconds: 60 });
+    }
+    expect(f.starts).toHaveLength(3);
+    for (const [index, start] of f.starts.slice(1).entries())
+      expect(start - f.starts[index]).toBeGreaterThanOrEqual(60000);
+    expect(f.starts).toEqual([60000, 121000, 182000]);
+  });
   it("acked is inert, unknown timing cannot be erased or deleted through journal CAS", async () => {
     const f = await floorFixture([1000]);
     await createConnectorOperationCoordinator(f.ports).coordinate(f.input);

@@ -286,11 +286,15 @@ export async function prepareStagedImportDispatch(
       clock() >= row.lastCompletion &&
       clock() - row.lastStart <= row.dispatchDeadlineMs,
   );
-  let eligible = qualified.length
-    ? Math.max(
-        ...qualified.map((row) => Math.max(row.lastStart! + Math.max(intervalMs, row.intervalMs), row.lastCompletion!)),
-      )
-    : clock() + intervalMs;
+  const uncredited = previous.some((row) => row.lastStart !== null && !qualified.includes(row));
+  let eligible =
+    qualified.length && !uncredited
+      ? Math.max(
+          ...qualified.map((row) =>
+            Math.max(row.lastStart! + Math.max(intervalMs, row.intervalMs), row.lastCompletion!),
+          ),
+        )
+      : clock() + intervalMs;
   fit(Math.max(0, eligible - clock()));
   timing = {
     schemaVersion: 1,
@@ -306,7 +310,7 @@ export async function prepareStagedImportDispatch(
   };
   if (!(await ports.fence())) throw new StagedImportDispatchError("staged-import-authority-refused");
   await ports.save(timing);
-  if (!qualified.length) eligible = clock() + intervalMs;
+  if (!qualified.length || uncredited) eligible = clock() + intervalMs;
 
   return {
     async send(requestId: string, request: Request, signal: AbortSignal): Promise<Response> {
