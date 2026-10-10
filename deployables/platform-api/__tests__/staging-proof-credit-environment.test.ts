@@ -16,6 +16,9 @@ describe("staging-proof-credit-environment config to composed route", () => {
       appendToStreamInTransaction: async () => {
         throw new Error("Synthetic console test does not use transaction-local appends.");
       },
+      appendToStreamsInTransaction: async () => {
+        throw new Error("Synthetic console test does not use transaction-local multi-stream appends.");
+      },
       readStreamInTransaction: async () => {
         throw new Error("Synthetic console test does not use transaction-local reads.");
       },

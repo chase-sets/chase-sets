@@ -210,6 +210,254 @@ describeDb("postgres event store real database integration", () => {
     listener.release();
   });
 
+  it("keeps caller-owned multi-stream appends and wake notifications inside the caller's commit boundary", async () => {
+    const notificationChannel = "event_store_multi_stream_transaction_test";
+    const notifications: string[] = [];
+    const listener = (await schema.pool.connect()) as PgPoolClient &
+      Readonly<{ on(event: "notification", handler: (message: { payload?: string }) => void): void }>;
+    listener.on("notification", (message) => notifications.push(message.payload ?? ""));
+    await listener.query(`LISTEN ${notificationChannel}`);
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+      wakeNotifications: { enabled: true, channel: notificationChannel },
+    });
+    const context = eventContext("tenant_a");
+    const inputs = [
+      {
+        streamId: "catalog.item-multi_one",
+        expectedVersion: "no_stream" as const,
+        context,
+        events: [eventToStore("catalog.item.created", { itemId: "multi_one" })],
+      },
+      { streamId: "catalog.profile-multi_guard", expectedVersion: "no_stream" as const, context, events: [] },
+      {
+        streamId: "catalog.item-multi_two",
+        expectedVersion: "no_stream" as const,
+        context,
+        events: [eventToStore("catalog.item.created", { itemId: "multi_two" })],
+      },
+    ];
+    const streamIds = inputs.map((input) => input.streamId);
+
+    const rolledBack = await schema.pool.connect();
+    try {
+      await rolledBack.query("BEGIN");
+      await expect(store.appendToStreamsInTransaction(rolledBack, inputs)).resolves.toMatchObject([
+        { streamId: "catalog.item-multi_one", storedEvents: [{ streamVersion: 1 }] },
+        { streamId: "catalog.profile-multi_guard", storedEvents: [] },
+        { streamId: "catalog.item-multi_two", storedEvents: [{ streamVersion: 1 }] },
+      ]);
+      await expect(rolledBack.query("SELECT 1")).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+      await expect(countEventRows(schema.pool, streamIds)).resolves.toBe(0);
+      await expect(countStreamRows(schema.pool, streamIds)).resolves.toBe(0);
+      expect(notifications).toEqual([]);
+      await rolledBack.query("ROLLBACK");
+    } finally {
+      rolledBack.release();
+    }
+    await expect(countEventRows(schema.pool, streamIds)).resolves.toBe(0);
+    await expect(countStreamRows(schema.pool, streamIds)).resolves.toBe(0);
+    expect(notifications).toEqual([]);
+
+    const committed = await schema.pool.connect();
+    try {
+      await committed.query("BEGIN");
+      await store.appendToStreamsInTransaction(committed, inputs);
+      expect(notifications).toEqual([]);
+      await committed.query("COMMIT");
+    } finally {
+      committed.release();
+    }
+    await waitFor(() => notifications.length === 2);
+    await expect(countEventRows(schema.pool, streamIds)).resolves.toBe(2);
+    await expect(countStreamRows(schema.pool, streamIds)).resolves.toBe(3);
+    expect(notifications).toHaveLength(2);
+    listener.release();
+  });
+
+  it("rolls back caller-owned multi-stream writes when a guard fails after an earlier stream's insert", async () => {
+    const notificationChannel = "event_store_multi_stream_guard_test";
+    const notifications: string[] = [];
+    const listener = (await schema.pool.connect()) as PgPoolClient &
+      Readonly<{ on(event: "notification", handler: (message: { payload?: string }) => void): void }>;
+    listener.on("notification", (message) => notifications.push(message.payload ?? ""));
+    await listener.query(`LISTEN ${notificationChannel}`);
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+      wakeNotifications: { enabled: true, channel: notificationChannel },
+    });
+    const context = eventContext("tenant_a");
+    const guardedStreamId = "catalog.profile-guard_moved";
+    const newStreamId = "catalog.item-guard_new";
+
+    // The caller reads the guarded stream at version 1 ...
+    await store.appendToStream({
+      streamId: guardedStreamId,
+      expectedVersion: "no_stream",
+      context,
+      events: [eventToStore("catalog.profile.activated", { profileVersion: "2026.06.03" })],
+    });
+    const observedVersion = (await store.readStream({ streamId: guardedStreamId, limit: 10 })).length;
+    expect(observedVersion).toBe(1);
+    // ... an interleaved writer moves it before the caller's transaction appends ...
+    await store.appendToStream({
+      streamId: guardedStreamId,
+      expectedVersion: 1,
+      context,
+      events: [eventToStore("catalog.profile.activated", { profileVersion: "2026.06.04" })],
+    });
+    await waitFor(() => notifications.length === 2);
+    notifications.length = 0;
+
+    // ... so the guard fails after the new stream's rows were already inserted.
+    const client = await schema.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await expect(
+        store.appendToStreamsInTransaction(client, [
+          {
+            streamId: newStreamId,
+            expectedVersion: "no_stream",
+            context,
+            events: [eventToStore("catalog.item.created", { itemId: "guard_new" })],
+          },
+          { streamId: guardedStreamId, expectedVersion: observedVersion, context, events: [] },
+        ]),
+      ).rejects.toMatchObject({
+        code: "concurrency_conflict",
+        details: { streamId: guardedStreamId, expectedVersion: 1, currentVersion: 2 },
+      });
+      // The guard failed in the store, not in Postgres: the transaction is still
+      // open and the earlier stream's rows are visible inside it until the
+      // owner rolls back.
+      await expect(
+        client.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events WHERE stream_id = $1", [
+          newStreamId,
+        ]),
+      ).resolves.toMatchObject({ rows: [{ count: "1" }] });
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+
+    await expect(countEventRows(schema.pool, [newStreamId])).resolves.toBe(0);
+    await expect(countStreamRows(schema.pool, [newStreamId])).resolves.toBe(0);
+    await expect(store.readStream({ streamId: guardedStreamId, limit: 10 })).resolves.toHaveLength(2);
+    expect(notifications).toEqual([]);
+    listener.release();
+  });
+
+  it("rolls back a never-created stream row when its zero-event guard fails in a caller-owned transaction", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+    const context = eventContext("tenant_a");
+    const neverCreatedStreamId = "catalog.profile-never_created";
+    const newStreamId = "catalog.item-never_created_sibling";
+
+    await expect(
+      withPgTransaction(schema.pool, async (client) =>
+        store.appendToStreamsInTransaction(client, [
+          {
+            streamId: newStreamId,
+            expectedVersion: "no_stream",
+            context,
+            events: [eventToStore("catalog.item.created", { itemId: "never_created_sibling" })],
+          },
+          { streamId: neverCreatedStreamId, expectedVersion: 2, context, events: [] },
+        ]),
+      ),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: { streamId: neverCreatedStreamId, expectedVersion: 2, currentVersion: 0 },
+    });
+
+    await expect(countStreamRows(schema.pool, [neverCreatedStreamId, newStreamId])).resolves.toBe(0);
+    await expect(countEventRows(schema.pool, [neverCreatedStreamId, newStreamId])).resolves.toBe(0);
+  });
+
+  it("refuses a duplicate stream id in one caller-owned batch without touching the transaction", async () => {
+    const store = createPostgresEventStore({
+      pool: schema.pool,
+      now: () => "2026-06-28T12:00:00.000Z" as never,
+      createEventId,
+    });
+    const context = eventContext("tenant_a");
+    const streamId = "catalog.item-duplicate";
+
+    const client = await schema.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await expect(
+        store.appendToStreamsInTransaction(client, [
+          {
+            streamId,
+            expectedVersion: "no_stream",
+            context,
+            events: [eventToStore("catalog.item.created", { itemId: "duplicate" })],
+          },
+          { streamId, expectedVersion: "any", context, events: [] },
+        ]),
+      ).rejects.toThrow("appendToStreamsInTransaction does not support the same stream id more than once per batch.");
+      // No statement reached Postgres, so the caller's transaction is still usable.
+      await expect(client.query("SELECT 1")).resolves.toMatchObject({ rows: [{ "?column?": 1 }] });
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+
+    await expect(countStreamRows(schema.pool, [streamId])).resolves.toBe(0);
+  });
+
+  it("commits the same results as appendToStreams for identical inputs", async () => {
+    const context = eventContext("tenant_a");
+    const inputs = () => [
+      {
+        streamId: "catalog.item-parity_one",
+        expectedVersion: "no_stream" as const,
+        context,
+        events: [
+          eventToStore("catalog.item.created", { itemId: "parity_one" }),
+          eventToStore("catalog.item.renamed", { itemId: "parity_one" }),
+        ],
+      },
+      { streamId: "catalog.profile-parity_guard", expectedVersion: "no_stream" as const, context, events: [] },
+      {
+        streamId: "catalog.item-parity_two",
+        expectedVersion: "no_stream" as const,
+        context,
+        events: [eventToStore("catalog.item.created", { itemId: "parity_two" })],
+      },
+    ];
+    const createStore = () =>
+      createPostgresEventStore({
+        pool: schema.pool,
+        now: () => "2026-06-28T12:00:00.000Z" as never,
+        createEventId,
+      });
+
+    const ownedResults = await createStore().appendToStreams!(inputs());
+    const ownedEvents = await createStore().readAll({ limit: 10 });
+
+    await schema.reset();
+    nextEventId = 1;
+
+    const suppliedResults = await withPgTransaction(schema.pool, async (client) =>
+      createStore().appendToStreamsInTransaction(client, inputs()),
+    );
+    const suppliedEvents = await createStore().readAll({ limit: 10 });
+
+    expect(suppliedResults).toEqual(ownedResults);
+    expect(suppliedEvents).toEqual(ownedEvents);
+    expect(suppliedEvents).toHaveLength(3);
+  });
+
   it("rolls back earlier stream appends when a later stream append conflicts", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,
@@ -1432,6 +1680,22 @@ function fulfilledResults<T>(results: readonly PromiseSettledResult<T>[]): T[] {
   return results
     .filter((result): result is PromiseFulfilledResult<T> => result.status === "fulfilled")
     .map((result) => result.value);
+}
+
+async function countEventRows(pool: PgTransactionalPool, streamIds: readonly string[]): Promise<number> {
+  const result = await pool.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM event_store_events WHERE stream_id = ANY($1::text[])",
+    [streamIds],
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function countStreamRows(pool: PgTransactionalPool, streamIds: readonly string[]): Promise<number> {
+  const result = await pool.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM event_store_streams WHERE stream_id = ANY($1::text[])",
+    [streamIds],
+  );
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
