@@ -17,8 +17,16 @@ import {
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
-import { discoverPromotionTargets, type PromotionTargetDiscovery } from "./promotion-target-discovery";
-import { promotionTargetBindingStream, type PromotionTargetKey } from "./promotion-target-identity";
+import {
+  discoverPromotionTargets,
+  locatedPromotionSourceTargets,
+  type PromotionTargetDiscovery,
+} from "./promotion-target-discovery";
+import {
+  promotionTargetBindingStream,
+  promotionTargetKeyIdentity,
+  type PromotionTargetKey,
+} from "./promotion-target-identity";
 import { locatePromotionReferenceStreams, requirePromotionTargetIndexes } from "./promotion-target-indexes";
 import type { CatalogProviderPromotionCommandPlan } from "./provider-promotion-command-planner";
 import { promotionTargetBindingSchema } from "./promotion-target-discovery";
@@ -55,7 +63,7 @@ export function createPostgresPromotionTargetExclusion(input: {
     append: (inputs, validateAuthority) =>
       withPgTransaction(
         input.pool,
-        async (client) => {
+        async (client: PgQueryable) => {
           await client.query("LOCK TABLE catalog_provider_integration_profile_versions IN SHARE MODE");
           await validateAuthority(client);
           return input.eventStore.appendToStreamsInTransaction(client, inputs);
@@ -97,6 +105,37 @@ export function createPromotionTargetExclusion(ports: {
       }
       const targetId = await input.selectTarget(evidence, guard);
       if (!evidence.items.has(targetId)) throw new Error("promotion-target-undiscovered-target");
+      const selected = evidence.items.get(targetId)!;
+      if (selected.id && selected.status !== "draft" && selected.status !== "active")
+        throw new Error("promotion-target-inactive");
+      // Every consumer must honor located applications, even when it supplies
+      // its own duplicate policy and legacy histories predate all bindings.
+      for (const [id, item] of evidence.items) {
+        const ownsIdentity = [
+          ...item.externalCatalogItemReferences.map((reference) => ({
+            level: "item" as const,
+            providerKey: reference.providerKey,
+            externalKey: reference.externalKey,
+          })),
+          ...item.externalProductReferences.map((reference) => ({
+            level: "product" as const,
+            providerKey: reference.providerKey,
+            externalKey: reference.externalKey,
+          })),
+        ].some((key) => evidence.keys.has(promotionTargetKeyIdentity(key)));
+        if (ownsIdentity && id !== targetId) throw new Error("promotion-target-bound-elsewhere");
+      }
+      for (const source of evidence.sources.values()) {
+        for (const revision of source.revisions) {
+          const recorded = revision.promotedCatalogItemId;
+          if (recorded && !evidence.items.get(recorded)?.id)
+            throw new Error("promotion-target-missing-recorded-target");
+        }
+        for (const located of locatedPromotionSourceTargets(evidence, source)) {
+          if (evidence.items.get(located)?.id && located !== targetId)
+            throw new Error("promotion-target-bound-elsewhere");
+        }
+      }
       const operationId = randomUUID();
       const bindingInputs: AppendToStreamInput[] = [];
       for (const [identity, key] of evidence.keys) {

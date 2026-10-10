@@ -26,6 +26,7 @@ import {
   previewCatalogItemPromotionPlan,
   requireCatalogPromotionProfileVersion,
   requireCatalogItemPromotionObservation,
+  requireSourceObservationMappingContract,
 } from "../api/source-observation-promotion-execution";
 import { resolvePromotionReferenceHierarchy } from "../api/source-observation-promotion-reference-hierarchy";
 import { sourceObservationTargetId } from "../api/promotion/promotion-target-identity";
@@ -66,9 +67,20 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   });
   afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
 
+  async function persistedMappingContract() {
+    const identity = tcgdexPokemonCardSourceObservationMappingContract;
+    const version = await services.providerIntegrationProfiles.getProfileVersion(
+      identity.providerKey,
+      identity.profileVersion,
+      { profileKey: identity.profileKey },
+    );
+    if (!version) throw new Error("Seeded executable mapping profile is missing");
+    return requireSourceObservationMappingContract(version);
+  }
+
   async function record(id: string, reference = "product:493958", overrides: Partial<typeof fixture> = {}) {
     const mapped = normalizeCatalogProviderSourceObservation({
-      contract: tcgdexPokemonCardSourceObservationMappingContract,
+      contract: await persistedMappingContract(),
       payload: {
         ...fixture,
         ...overrides,
@@ -252,11 +264,12 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       await services.items.commandHandler({ streamId: `catalog.item-${retained.targetId}`, command, context });
     const codec = createPassthroughDomainEventCodec<SourceObservationEvent>();
     const store = createPostgresEventStore({ pool });
+    const contract = await persistedMappingContract();
     await store.appendToStreams!(
       Array.from({ length: 500 }, (_, index) => {
         const id = `page-${String(index).padStart(3, "0")}`;
         const mapped = normalizeCatalogProviderSourceObservation({
-          contract: tcgdexPokemonCardSourceObservationMappingContract,
+          contract,
           payload: { ...fixture, observationId: id, externalKey: id },
           observedAt: "2026-10-10T00:00:00.000Z",
         });
@@ -303,44 +316,63 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       const authority = trackPromotionProfileAuthority(services.providerIntegrationProfiles, selected, (reader) =>
         requireCatalogPromotionProfileVersion(reader, observation.providerKey, normalized),
       );
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query("LOCK TABLE catalog_provider_integration_profile_versions IN ROW EXCLUSIVE MODE");
-        const canonical = createCatalogProviderIntegrationProfileVersionStore(client);
-        if (mutation === "edit")
-          await canonical.upsertProfileVersion({
-            ...selected,
-            profile: {
-              ...selected.profile,
-              catalogFieldMapping: {
-                ...selected.profile.catalogFieldMapping,
-                blueprintKey: "synthetic-changed-blueprint",
-              },
+      const canonical = createCatalogProviderIntegrationProfileVersionStore(pool);
+      if (mutation === "edit")
+        await canonical.upsertProfileVersion({
+          ...selected,
+          profile: {
+            ...selected.profile,
+            catalogFieldMapping: {
+              ...selected.profile.catalogFieldMapping,
+              blueprintKey: "synthetic-changed-blueprint",
             },
-          });
-        else if (mutation === "selection")
-          await canonical.upsertProfileVersion({ ...selected, profileVersion: "synthetic-new-active-version" });
-        else await canonical.upsertProfileVersion({ ...selected, active: false, lifecycle: "deprecated" });
-        const pending = acquire(
-          `cat_candidate_${mutation}`,
-          [{ level: "item", providerKey: "synthetic", externalKey: mutation }],
-          authority.validate,
-        );
-        const refused = expect(pending).rejects.toThrow();
-        await client.query("COMMIT");
-        await refused;
-        expect(
-          await readCompleteStream(createPostgresEventStore({ pool }), {
-            streamId: `catalog.item-cat_candidate_${mutation}`,
-          }),
-        ).toEqual([]);
-      } finally {
-        await client.query("ROLLBACK");
-        client.release();
-      }
+          },
+        });
+      else if (mutation === "selection")
+        await canonical.upsertProfileVersion({ ...selected, profileVersion: "synthetic-new-active-version" });
+      else await canonical.upsertProfileVersion({ ...selected, active: false, lifecycle: "deprecated" });
+      const pending = acquire(
+        `cat_candidate_${mutation}`,
+        [{ level: "item", providerKey: "synthetic", externalKey: mutation }],
+        authority.validate,
+      );
+      await expect(pending).rejects.toThrow();
+      expect(
+        await readCompleteStream(createPostgresEventStore({ pool }), {
+          streamId: `catalog.item-cat_candidate_${mutation}`,
+        }),
+      ).toEqual([]);
     },
   );
+
+  it("holds the profile write barrier through guarded append and releases it at commit", async () => {
+    await acquire(
+      "cat_candidate_profile_barrier",
+      [{ level: "item", providerKey: "synthetic", externalKey: "profile-barrier" }],
+      async () => {
+        const writer = await pool.connect();
+        try {
+          await writer.query("BEGIN");
+          await expect(
+            writer.query("LOCK TABLE catalog_provider_integration_profile_versions IN ROW EXCLUSIVE MODE NOWAIT"),
+          ).rejects.toMatchObject({ code: "55P03" });
+        } finally {
+          await writer.query("ROLLBACK");
+          writer.release();
+        }
+      },
+    );
+    const writer = await pool.connect();
+    try {
+      await writer.query("BEGIN");
+      await expect(
+        writer.query("LOCK TABLE catalog_provider_integration_profile_versions IN ROW EXCLUSIVE MODE NOWAIT"),
+      ).resolves.toBeDefined();
+    } finally {
+      await writer.query("ROLLBACK");
+      writer.release();
+    }
+  });
 
   it.each(["A", "B"])(
     "independent runtimes preserve one target under frozen item projections, %s first",
@@ -391,68 +423,81 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     },
   );
 
-  it.each([0, 1, 2, 3, 4, 5].flatMap((boundary) => ["live", "frozen"].map((projection) => ({ boundary, projection }))))(
-    "unlocated refresh $boundary on X resumes against the $projection duplicate policy",
-    async ({ boundary, projection }) => {
-      const retained = await retainedPlan("refresh-A");
-      const x = "cat_synthetic_field_match" as CatalogItemId;
-      // Executable create plan without either late reference command: X is a
-      // field match, not evidence of an A application or an R owner.
-      for (const command of retained.plan.commands.slice(0, -2)) {
-        await services.items.commandHandler({
-          streamId: `catalog.item-${x}`,
-          command: command.type === "CreateCatalogItem" ? { ...command, itemId: x } : command,
-          context,
-        });
-      }
-      await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
-      const store = createPostgresEventStore({ pool });
-      const state = foldPromotionTargetItem(x, await readCompleteStream(store, { streamId: `catalog.item-${x}` }));
-      const refresh = await previewCatalogItemPromotionPlan({
-        deps: retained.deps,
-        catalogItemId: x,
-        mode: "refresh",
-        normalized: retained.normalized,
-        providerKey: retained.observation.providerKey,
-        externalKey: retained.observation.externalKey,
-        providerProfile: retained.profile.profile,
-        providerProfileVersion: retained.profile,
-        catalogMapping: await loadCatalogItemPromotionProfile(retained.deps, retained.profile.profile),
-        currentItem: promotionCurrentItem(state),
-        promoteAsDraft: false,
-      });
-      if (refresh.status !== "planned") throw new Error(JSON.stringify(refresh.diagnostics));
-      expect(refresh.plan.commands.slice(0, 5).some((command) => command.type.startsWith("LinkExternal"))).toBe(false);
-      for (const command of refresh.plan.commands.slice(0, boundary))
-        await services.items.commandHandler({ streamId: `catalog.item-${x}`, command, context });
-      await record("refresh-B", "product:493958", {
-        card: { ...fixture.card, localId: "002", name: "Synthetic different card" },
-      });
-      const winner = await createCatalogServices(pool).sourceObservations.promoteObservation({
-        observationId: "refresh-B",
+  it.each(
+    ([0, 1, 2, 3, 4, 5, "source-link"] as const).flatMap((boundary) =>
+      ["live", "frozen"].map((projection) => ({ boundary, projection })),
+    ),
+  )("legacy refresh $boundary on X respects the $projection duplicate policy", async ({ boundary, projection }) => {
+    const retained = await retainedPlan("refresh-A");
+    const x = "cat_synthetic_field_match" as CatalogItemId;
+    // Executable create plan without either late reference command: X is a
+    // field match, not evidence of an A application or an R owner.
+    for (const command of retained.plan.commands.slice(0, -2)) {
+      await services.items.commandHandler({
+        streamId: `catalog.item-${x}`,
+        command: command.type === "CreateCatalogItem" ? { ...command, itemId: x } : command,
         context,
       });
-      expect(winner.catalogItemId).not.toBe(x);
-      const beforeX = await readCompleteStream(store, { streamId: `catalog.item-${x}` });
-      if (projection === "live") await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
-      const resumed = createCatalogServices(pool).sourceObservations.promoteObservation({
-        observationId: "refresh-A",
-        context,
-      });
-      if (projection === "live") await expect(resumed).resolves.toMatchObject({ catalogItemId: winner.catalogItemId });
-      else await expect(resumed).rejects.toThrow("promotion-target-bound-elsewhere");
-      expect(await readCompleteStream(store, { streamId: `catalog.item-${x}` })).toEqual(beforeX);
-      const owners = await locatePromotionReferenceStreams(pool, {
-        level: "item",
-        providerKey: "tcgplayer",
-        externalKey: "product:493958",
-      });
-      expect(owners.filter((stream) => stream.startsWith("catalog.item-"))).toEqual([
-        `catalog.item-${winner.catalogItemId}`,
-      ]);
-      expect(await itemCreations()).toHaveLength(2);
-    },
-  );
+    }
+    await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
+    const store = createPostgresEventStore({ pool });
+    const state = foldPromotionTargetItem(x, await readCompleteStream(store, { streamId: `catalog.item-${x}` }));
+    const refresh = await previewCatalogItemPromotionPlan({
+      deps: retained.deps,
+      catalogItemId: x,
+      mode: "refresh",
+      normalized: retained.normalized,
+      providerKey: retained.observation.providerKey,
+      externalKey: retained.observation.externalKey,
+      providerProfile: retained.profile.profile,
+      providerProfileVersion: retained.profile,
+      catalogMapping: await loadCatalogItemPromotionProfile(retained.deps, retained.profile.profile),
+      currentItem: promotionCurrentItem(state),
+      promoteAsDraft: false,
+    });
+    if (refresh.status !== "planned") throw new Error(JSON.stringify(refresh.diagnostics));
+    expect(refresh.plan.commands.slice(0, 5).some((command) => command.type.startsWith("LinkExternal"))).toBe(false);
+    const commandCount =
+      boundary === "source-link"
+        ? refresh.plan.commands.findIndex((command) => command.type === "LinkExternalProductReference") + 1
+        : boundary;
+    for (const command of refresh.plan.commands.slice(0, commandCount))
+      await services.items.commandHandler({ streamId: `catalog.item-${x}`, command, context });
+    await record("refresh-B", "product:493958", {
+      card: { ...fixture.card, localId: "002", name: "Synthetic different card" },
+    });
+    const incoming = createCatalogServices(pool).sourceObservations.promoteObservation({
+      observationId: "refresh-B",
+      context,
+    });
+    if (boundary === "source-link") {
+      const before = await readCompleteStream(store, { streamId: `catalog.item-${x}` });
+      await expect(incoming).rejects.toThrow("promotion-target-retained-history-conflict");
+      expect(await readCompleteStream(store, { streamId: `catalog.item-${x}` })).toEqual(before);
+      expect(await itemCreations()).toHaveLength(1);
+      return;
+    }
+    const winner = await incoming;
+    expect(winner.catalogItemId).not.toBe(x);
+    const beforeX = await readCompleteStream(store, { streamId: `catalog.item-${x}` });
+    if (projection === "live") await drainLocalProjectionHandlerSets("catalog", pool, services.items.projectors);
+    const resumed = createCatalogServices(pool).sourceObservations.promoteObservation({
+      observationId: "refresh-A",
+      context,
+    });
+    if (projection === "live") await expect(resumed).resolves.toMatchObject({ catalogItemId: winner.catalogItemId });
+    else await expect(resumed).rejects.toThrow("promotion-target-bound-elsewhere");
+    expect(await readCompleteStream(store, { streamId: `catalog.item-${x}` })).toEqual(beforeX);
+    const owners = await locatePromotionReferenceStreams(pool, {
+      level: "item",
+      providerKey: "tcgplayer",
+      externalKey: "product:493958",
+    });
+    expect(owners.filter((stream) => stream.startsWith("catalog.item-"))).toEqual([
+      `catalog.item-${winner.catalogItemId}`,
+    ]);
+    expect(await itemCreations()).toHaveLength(2);
+  });
 
   it("allocates once for a legacy-only shared-port member set", async () => {
     await record("legacy-A");
@@ -483,6 +528,17 @@ describeDb("promotion target exclusion through real Catalog services", () => {
         },
       ],
     });
+    expect(await itemCreations()).toHaveLength(1);
+  });
+
+  it.each([13, 14])("shared-port consumers cannot bypass retained application boundary %s", async (boundary) => {
+    const retained = await retainedPlan("shared-port-retained-A");
+    for (const command of retained.plan.commands.slice(0, boundary))
+      await services.items.commandHandler({ streamId: `catalog.item-${retained.targetId}`, command, context });
+    await record("shared-port-incoming-B");
+    await expect(
+      acquire("cat_candidate_attempted_fork", [{ level: "member", observationId: "shared-port-incoming-B" }]),
+    ).rejects.toThrow("promotion-target-bound-elsewhere");
     expect(await itemCreations()).toHaveLength(1);
   });
 

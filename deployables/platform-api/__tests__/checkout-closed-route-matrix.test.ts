@@ -54,6 +54,9 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
         ...memory,
         readStreamInTransaction: (_client, input) => memory.readStream(input),
         appendToStreamInTransaction: (_client, input) => memory.appendToStream(input),
+        appendToStreamsInTransaction: async () => {
+          throw new Error("Synthetic checkout composition does not use transaction-local multi-stream appends.");
+        },
       };
     },
   };

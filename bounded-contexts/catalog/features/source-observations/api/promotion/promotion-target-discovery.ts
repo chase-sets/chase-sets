@@ -7,6 +7,7 @@ import type { StoredEvent } from "@chase-sets/event-core/storage";
 import {
   evolveSourceObservation,
   initialSourceObservationState,
+  sourceObservationLinkExternalKey,
   type SourceObservationEvent,
   type SourceObservationState,
 } from "../../domain/domain";
@@ -63,6 +64,35 @@ export type PromotionTargetDiscovery = Readonly<{
   items: ReadonlyMap<string, CatalogItemState>;
   bindings: ReadonlyMap<string, PromotionTargetBinding | null>;
 }>;
+
+export function locatedPromotionSourceTargets(
+  evidence: PromotionTargetDiscovery,
+  source: PromotionTargetSource,
+): ReadonlySet<string> {
+  const targets = new Set<string>();
+  for (const revision of source.revisions) {
+    targets.add(sourceObservationTargetId(revision.id!));
+    if (revision.promotedCatalogItemId) targets.add(revision.promotedCatalogItemId);
+    const externalKey = sourceObservationLinkExternalKey(revision.languageCode, revision.externalKey);
+    for (const [id] of evidence.items) {
+      if (
+        evidence.histories
+          .get(`catalog.item-${id}`)
+          ?.some(
+            (event) =>
+              [
+                "catalog.catalog-item.external-product-reference-linked",
+                "catalog.catalog-item.external-product-reference-unlinked",
+              ].includes(event.eventType) &&
+              event.payload.providerKey === revision.providerKey &&
+              event.payload.externalKey === externalKey,
+          )
+      )
+        targets.add(id);
+    }
+  }
+  return targets;
+}
 
 export async function discoverPromotionTargets(input: {
   eventStore: EventStore;

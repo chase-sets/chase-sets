@@ -21,7 +21,11 @@ import {
   requireSourceObservationMappingContract,
 } from "../source-observation-promotion-execution";
 import { catalogProviderSourceMappingFingerprint } from "./provider-source-observation-normalizer";
-import { foldPromotionTargetSource, type PromotionTargetDiscovery } from "./promotion-target-discovery";
+import {
+  foldPromotionTargetSource,
+  locatedPromotionSourceTargets,
+  type PromotionTargetDiscovery,
+} from "./promotion-target-discovery";
 import {
   promotionTargetKeyIdentity,
   sourceObservationTargetId,
@@ -101,12 +105,7 @@ export async function acquireSourceObservationTarget(input: {
         if (ownsKey) candidates.add(id);
       }
       for (const retained of evidence.sources.values()) {
-        const located = new Set(
-          retained.revisions.flatMap((revision) => [
-            sourceObservationTargetId(revision.id!),
-            ...(revision.promotedCatalogItemId ? [revision.promotedCatalogItemId] : []),
-          ]),
-        );
+        const located = locatedPromotionSourceTargets(evidence, retained);
         for (const id of located) {
           const item = evidence.items.get(id);
           if (!item?.id) {
@@ -220,7 +219,7 @@ async function proveRetainedCreate(
     }
     if (actual.length >= expected.length && isDeepStrictEqual(actual.slice(0, expected.length), expected))
       return "complete";
-    if (source.promotedCatalogItemId === targetId) {
+    if (!source.promotedCatalogItemId || source.promotedCatalogItemId === targetId) {
       const refresh = await previewCatalogItemPromotionPlan({
         deps: input.deps,
         catalogItemId: targetId as CatalogItemId,
@@ -240,7 +239,10 @@ async function proveRetainedCreate(
           (state, command) => decideCatalogItem(state, command).reduce(evolveCatalogItem, state),
           item,
         );
-        if (isDeepStrictEqual(after, item) && source.promotionPlanFingerprint === refresh.plan.planFingerprint)
+        if (
+          isDeepStrictEqual(after, item) &&
+          (!source.promotionPlanFingerprint || source.promotionPlanFingerprint === refresh.plan.planFingerprint)
+        )
           return "complete";
       }
     }

@@ -23,8 +23,59 @@ import { createPromotionTargetExclusion } from "./promotion-target-exclusion";
 import { sourceObservationLinkExternalKey } from "../../domain/domain";
 import { guardPromotionMaterial } from "./promotion-material-guards";
 import { requireCatalogItemPromotionObservation } from "../source-observation-promotion-execution";
+import {
+  decideCatalogItem,
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemEvent,
+  type CatalogItemCommand,
+} from "../../../catalog-items/domain/domain";
 
 describe("promotion target retained-reference exclusion", () => {
+  it("enforces retained ownership even when a shared-port consumer selects another target", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
+    const commands: CatalogItemCommand[] = [
+      {
+        type: "CreateCatalogItem",
+        itemId: "cat_synthetic_owner" as CatalogItemId,
+        languageCode: "en",
+        title: { defaultLocale: "en", values: { en: "Synthetic owner" } },
+      },
+      { type: "LinkExternalCatalogItemReference", providerKey: "synthetic", externalKey: "shared" },
+    ];
+    let state = initialCatalogItemState;
+    for (const command of commands) {
+      const events = decideCatalogItem(state, command);
+      const history = await eventStore.readStream({ streamId: "catalog.item-cat_synthetic_owner" });
+      await eventStore.appendToStream({
+        streamId: "catalog.item-cat_synthetic_owner",
+        expectedVersion: history.length,
+        context,
+        events: events.map(codec.encode),
+      });
+      state = events.reduce(evolveCatalogItem, state);
+    }
+    const boundary = createPromotionTargetExclusion({
+      eventStore,
+      ready: async () => undefined,
+      locate: async () => ["catalog.item-cat_synthetic_owner"],
+      append: (inputs) => eventStore.appendToStreams!(inputs),
+    });
+    await expect(
+      boundary.acquire({
+        keys: [{ level: "item", providerKey: "synthetic", externalKey: "shared" }],
+        additionalTargetIds: ["cat_synthetic_fork"],
+        context,
+        validateAuthority: async () => undefined,
+        selectTarget: async () => "cat_synthetic_fork",
+      }),
+    ).rejects.toThrow("promotion-target-bound-elsewhere");
+    expect(await eventStore.readStream({ streamId: "catalog.item-cat_synthetic_fork" })).toEqual([]);
+    expect((await eventStore.readAll()).some((event) => event.streamId.startsWith("catalog.promotion-target-"))).toBe(
+      false,
+    );
+  });
   it.each(["complete", "before-reference-link"] as const)(
     "does not allocate beside retained A (%s) for incoming B sharing R under projection lag",
     async (crashPoint) => {
