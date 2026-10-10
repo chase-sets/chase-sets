@@ -294,6 +294,7 @@ describe("Terraform state database URL export", () => {
 
   it("keeps every shared-exporter workflow consumer behind the canonical byte-equivalent trust action", async () => {
     const expectedConsumers = [
+      "catalog-completion-report.yml",
       "catalog-integration-staging-reset.yml",
       "catalog-provider-refresh-watch.yml",
       "checkout-order-readiness-trace.yml",
