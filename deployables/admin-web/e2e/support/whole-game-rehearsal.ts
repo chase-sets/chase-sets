@@ -1,4 +1,4 @@
-// Whole-game rehearsal decisions for the Catalog staging provider UAT (#9220).
+// Whole-game rehearsal decisions for the Catalog staging provider UAT.
 // The UAT spec drives the admin UI; this module owns every decision the
 // journeys make from what the UI and its admin API reads return, so the
 // decisions stay pure and are pinned by scripts/catalog-whole-game-rehearsal.test.mjs.
