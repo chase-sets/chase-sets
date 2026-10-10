@@ -8,6 +8,7 @@ import {
 import {
   profileReview,
   sourceObservationScope,
+  sourceObservationListItem,
 } from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
 import {
   queryCatalogProviderIntegrationOptionsWithCache,
@@ -16,6 +17,7 @@ import {
 import { importPreviewMatchesRouteContext } from "../../../features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import type { SourceObservationIntegrationImportPreview } from "../../../features/source-observations/ui/contracts";
+import { scopeContextToObservationFilterScope } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 
 const { mockCreateCatalogRequestApiClient } = vi.hoisted(() => ({ mockCreateCatalogRequestApiClient: vi.fn() }));
 vi.mock("../../request-support/api-client", () => ({
@@ -54,6 +56,109 @@ const baseContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("admin integrations loader support", () => {
+  it.each(["expansionName=Jungle", "expansionId=base2"])(
+    "queries the selected Jungle scope on first load: %s",
+    async (selection) => {
+      const scope = sourceObservationScope({
+        expansion_id: "base2",
+        expansion_name: "Jungle",
+        observed_observations: 0,
+        changed_observations: 0,
+        promoted_observations: 1,
+        rejected_observations: 0,
+        total_observations: 1,
+      });
+      const observation = sourceObservationListItem({
+        observation_id: "synthetic-jungle-pikachu",
+        status: "promoted",
+        normalized: {
+          ...sourceObservationListItem().normalized,
+          name: "Pikachu",
+          setId: "base2",
+          expansionName: "Jungle",
+        },
+      });
+      const list = vi.fn().mockResolvedValue({ items: [observation], total: 1, count: 1 });
+      const options = vi.fn().mockRejectedValue(new Error("synthetic unavailable cached options"));
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [scope], total: 1, count: 1 }),
+        listSourceObservationProviderProfiles: vi
+          .fn()
+          .mockResolvedValue({ items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 }),
+        getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+        listSourceObservations: list,
+        listCatalogMergeCandidates: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+        listSourceObservationIntegrationOptions: options,
+      });
+      const loaded = await loadDailySurfaceForRequest(
+        new Request(
+          `https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&${selection}`,
+        ),
+      );
+      const query = new URLSearchParams(list.mock.calls[0]![0]);
+      const expected = scopeContextToObservationFilterScope(loaded.readModel.sourceScopeWorkset.selectedScope.scope);
+      expect(Object.fromEntries(query)).toEqual({ ...expected, provider: "tcgdex", limit: "25", offset: "0" });
+      expect(loaded.readModel.sourceObservationReview.rows[0]?.displayName).toBe("Pikachu");
+      expect(loaded.readModel.sourceObservationReview.counts.promoted).toBe(1);
+      const href = loaded.readModel.sourceScopeWorkset.units.find(
+        (unit) => unit.providerKey === "tcgdex",
+      )!.currentWorkbenchHref;
+      list.mockClear();
+      const linked = await loadDailySurfaceForRequest(new Request(new URL(href, "https://admin.example")));
+      const linkedQuery = new URLSearchParams(list.mock.calls[0]![0]);
+      expect(Object.fromEntries(linkedQuery)).toEqual({
+        ...scopeContextToObservationFilterScope(linked.readModel.sourceScopeWorkset.selectedScope.scope),
+        provider: "tcgdex",
+        limit: "25",
+        offset: "0",
+      });
+      expect(linked.readModel.sourceObservationReview.rows[0]?.displayName).toBe("Pikachu");
+      expect(linked.readModel.sourceObservationReview.counts.promoted).toBe(1);
+      await linked.deferredSourceOptions;
+      await loaded.deferredSourceOptions;
+      expect(options.mock.calls.every(([query]) => new URLSearchParams(query).get("cacheOnly") === "true")).toBe(true);
+    },
+  );
+  it.each(["other-scope", "other-provider", "no-provider"])("does not broaden the review for %s", async (selection) => {
+    const list = vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 });
+    const options = vi.fn().mockRejectedValue(new Error("Synthetic unavailable cached options"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: async () => ({
+        items: [sourceObservationScope({ expansion_id: "base2", expansion_name: "Jungle", promoted_observations: 1 })],
+        total: 1,
+        count: 1,
+      }),
+      listSourceObservationProviderProfiles: async () => ({
+        items: [profileReview({ active: true, lifecycle: "active" })],
+        total: 1,
+        count: 1,
+      }),
+      getCatalogIntegrationControlPlaneOverview: async () => null,
+      listSourceObservations: list,
+      listCatalogMergeCandidates: async () => ({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: async () => ({ status: "recorded" }),
+      listSourceObservationIntegrationOptions: options,
+    });
+    const query =
+      selection === "no-provider"
+        ? "languageCode=en&expansionId=base2"
+        : selection === "other-provider"
+          ? "providerKey=tcgplayer&languageCode=en&expansionName=Jungle"
+          : "providerKey=tcgdex&languageCode=en&expansionId=base3";
+    const loaded = await loadDailySurfaceForRequest(new Request(`https://admin.example/catalog/integrations?${query}`));
+    expect(loaded.readModel.sourceObservationReview.rows).toEqual([]);
+    if (selection === "no-provider") expect(list).not.toHaveBeenCalled();
+    else {
+      expect(list).toHaveBeenCalledTimes(1);
+      const params = new URLSearchParams(list.mock.calls[0]![0]);
+      expect(params.get("provider")).toBe(selection === "other-provider" ? "tcgplayer" : "tcgdex");
+      if (selection === "other-scope") expect(params.get("expansionId")).toBe("base3");
+      expect(loaded.readModel.sourceObservationReview.counts.promoted).toBe(0);
+    }
+    await loaded.deferredSourceOptions;
+    expect(options.mock.calls.every(([params]) => new URLSearchParams(params).get("cacheOnly") === "true")).toBe(true);
+  });
   it.each(["missing", "stale"])("keeps selection-driven %s cache degraded without provider calls", async (state) => {
     const providerQuery = vi.fn(async () => []);
     const queries: URLSearchParams[] = [];

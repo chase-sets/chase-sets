@@ -52,7 +52,7 @@ export async function loadSourceObservationEvidence({
     if (error instanceof CatalogApiError && error.status === 404) {
       return { observationId, detail: null };
     }
-    throw error;
+    return { observationId, detail: null };
   }
 }
 

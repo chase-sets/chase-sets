@@ -55,7 +55,11 @@ import { conflictResolutionFor } from "./primary-workbench-conflict-resolution";
 import { governanceControlsFor } from "./primary-workbench-governance-controls";
 import { auditEvidenceFor } from "./primary-workbench-audit-evidence";
 import { buildCatalogPrimaryWorkbenchSourceOptions } from "./primary-workbench-source-options";
-import { sourceScopeWorksetFor } from "./primary-workbench-source-scope-workset";
+import {
+  providerScopeMatchesSelectedScope,
+  selectedSourceScope,
+  sourceScopeWorksetFor,
+} from "./primary-workbench-source-scope-workset";
 import { catalogSyncFor } from "./primary-workbench-catalog-sync";
 import { mergeCandidateReviewFor } from "./primary-workbench-merge-candidate-review";
 import { redactedCatalogJobFailureReason } from "../api/admin-control-plane-overview";
@@ -208,6 +212,25 @@ function buildCatalogPrimaryWorkbenchCore(
       discardParsedImportScope: discardParsedImportScopeFilters,
     }),
   };
+  const readinessBlockers = readinessBlockersFor(input, providerKey, activeProfile);
+  const canManage = input.canManageCatalog;
+  const generatedAt = input.controlPlaneOverview?.generatedAt ?? new Date().toISOString();
+  const sourceOptions = buildCatalogPrimaryWorkbenchSourceOptions({
+    activeProfile,
+    canManage,
+    generatedAt,
+    profiles: input.profileReviews.items,
+    readinessBlockers,
+    routeContext,
+    scopes: input.scopes.items,
+    sourceOptionPages: input.sourceOptionPages ?? null,
+  });
+  const selectedScope = selectedSourceScope({
+    profiles: input.profileReviews.items,
+    routeContext,
+    scopes: input.scopes.items,
+    sourceOptions,
+  });
   const providerScopeRows = providerKey
     ? input.scopes.items.filter((scope) => scope.provider_key === providerKey)
     : input.scopes.items;
@@ -216,6 +239,7 @@ function buildCatalogPrimaryWorkbenchCore(
     importScope,
     providerScopeRows,
     routeScope,
+    selectedScope: selectedScope.scope,
   });
   const observed = sum(scopeRows, (scope) => scope.observed_observations);
   const changed = sum(scopeRows, (scope) => scope.changed_observations);
@@ -223,15 +247,12 @@ function buildCatalogPrimaryWorkbenchCore(
   const rejected = sum(scopeRows, (scope) => scope.rejected_observations);
   const eligible = Math.max(observed + changed, 0);
   const providerTransport = providerTransportFor(input.controlPlaneOverview, providerKey);
-  const readinessBlockers = readinessBlockersFor(input, providerKey, activeProfile);
   const rolloutEnabled =
     input.controlPlaneOverview?.readiness.rolloutControls.controls.every((control) => control.status !== "blocked") ??
     true;
   const importJobRows = importJobsFor(input.controlPlaneOverview, routeContext, input.scopes.items);
   const activeJobCount = importJobRows.filter((job) => job.state === "queued" || job.state === "running").length;
   const failedJobCount = importJobRows.filter((job) => job.state === "failed").length;
-  const canManage = input.canManageCatalog;
-  const generatedAt = input.controlPlaneOverview?.generatedAt ?? new Date().toISOString();
   const reviewUnavailable = input.readModelFailures?.includes("source-observation-review") ?? false;
   const mergeCandidateReviewUnavailable = input.readModelFailures?.includes("merge-candidate-review") ?? false;
   const controlPlaneFreshness = input.readModelFailures?.includes("control-plane-overview")
@@ -278,16 +299,6 @@ function buildCatalogPrimaryWorkbenchCore(
     unsafeEvidenceBlocked: false,
     missingSecurityFieldsBlocker: "security-privacy-blocked",
   } satisfies CatalogPrimaryWorkbenchReadModel["securityPrivacy"];
-  const sourceOptions = buildCatalogPrimaryWorkbenchSourceOptions({
-    activeProfile,
-    canManage,
-    generatedAt,
-    profiles: input.profileReviews.items,
-    readinessBlockers,
-    routeContext,
-    scopes: input.scopes.items,
-    sourceOptionPages: input.sourceOptionPages ?? null,
-  });
   const sourceScopeWorkset = sourceScopeWorksetFor({
     canManage,
     controlPlaneOverview: input.controlPlaneOverview,
@@ -882,7 +893,13 @@ function selectedProviderScopeRows(input: {
   importScope: string | null;
   providerScopeRows: readonly SourceObservationIntegrationScope[];
   routeScope: CatalogPrimaryWorkbenchRouteContext["scope"];
+  selectedScope: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["selectedScope"]["scope"];
 }): readonly SourceObservationIntegrationScope[] {
+  if (input.explicitStructuredScope) {
+    return input.selectedScope.productId
+      ? []
+      : input.providerScopeRows.filter((scope) => providerScopeMatchesSelectedScope(input.selectedScope, scope));
+  }
   if (!input.importScope) {
     return input.providerScopeRows;
   }

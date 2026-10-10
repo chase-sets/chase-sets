@@ -1033,13 +1033,19 @@ function buildSourceObservationFilter(
 
   if (scope.expansionId) {
     values.push(scope.expansionId);
+    const coordinate = `$${values.length}`;
     conditions.push(
-      `((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length} OR (normalized->>'setName') = $${values.length})`,
+      scope.provider === "tcgdex"
+        ? `(${["setId", "expansionId", "setName", "expansionName"].map((key) => `LOWER(normalized->>'${key}') = LOWER(${coordinate})`).join(" OR ")})`
+        : `((normalized->>'setId') = ${coordinate} OR (normalized->>'expansionId') = ${coordinate} OR (normalized->>'setName') = ${coordinate})`,
     );
   }
 
   if (options.statuses && options.statuses.length > 0) {
     values.push(options.statuses);
+    conditions.push(`status = ANY($${values.length}::text[])`);
+  } else if (options.includeListFilters && scope.status === "eligible") {
+    values.push(["observed", "changed"]);
     conditions.push(`status = ANY($${values.length}::text[])`);
   } else if (options.includeListFilters && scope.status) {
     values.push(scope.status);
@@ -1152,7 +1158,7 @@ function buildCatalogMergeCandidateFilter(params: CatalogMergeCandidateFilterSco
 }
 
 function reviewableStatusesForScope(scope: SourceObservationFilterScope): readonly string[] {
-  if (!scope.status) {
+  if (!scope.status || scope.status === "eligible") {
     return ["observed", "changed"];
   }
 

@@ -252,7 +252,11 @@ export async function loadDailySurfaceForRequest(request: Request) {
   const normalizedRouteContext = normalized.routeContext;
   const reviewRouteContext = routeContext.providerKey ? normalizedRouteContext : routeContext;
   const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
-  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(reviewRouteContext, reviewPagination);
+  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
+    reviewRouteContext,
+    reviewPagination,
+    normalized.selectedScope,
+  );
   const reviewObservationPromise = reviewQuery
     ? catalogApiResult(() => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
     : Promise.resolve({ value: null, failed: false } as const);
@@ -343,6 +347,7 @@ function normalizedDailyRouteContext(
 ): Readonly<{
   routeContext: CatalogPrimaryWorkbenchRouteContext;
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
+  selectedScope: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["selectedScope"]["scope"];
 }> {
   const readModel = buildSurfaceReadModelFailSoft({
     surface: "daily",
@@ -360,6 +365,7 @@ function normalizedDailyRouteContext(
   });
   return {
     routeContext: readModel.routeContext,
+    selectedScope: readModel.sourceScopeWorkset.selectedScope.scope,
     readModelFailures:
       readModel.readiness.freshness === "unavailable"
         ? [...new Set([...baseline.readModelFailures, "control-plane-overview" as const])]

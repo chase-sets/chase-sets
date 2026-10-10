@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher, useSubmit } from "react-router";
 import {
   Badge,
   BadgeCluster,
@@ -12,6 +12,7 @@ import {
   FilterArea,
   KeyValueList,
   LinkButton,
+  SegmentedControl,
   SideSheet,
   Skeleton,
   TextInput,
@@ -65,6 +66,48 @@ export function CatalogIntegrationSourceObservationReviewModule({
   // alias read model.
   aliasVisibility?: ReactNode;
 }>) {
+  const submit = useSubmit();
+  const surfaceHref = useCatalogIntegrationSurfaceHref(readModel.routeContext, "import-to-promotion");
+  const review = readModel.sourceObservationReview;
+  const status = review.filters.find((filter) => filter.key === "status")?.value ?? "all";
+  const counts = review.counts;
+  const total = counts.observed + counts.changed + counts.promoted + counts.rejected;
+  const statusOptions = [
+    {
+      value: "all",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.all"),
+      count: total,
+    },
+    {
+      value: "observed",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.observed"),
+      count: counts.observed,
+    },
+    {
+      value: "eligible",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.eligible"),
+      count: counts.eligible,
+    },
+    {
+      value: "promoted",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.promoted"),
+      count: counts.promoted,
+    },
+    {
+      value: "rejected",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.rejected"),
+      count: counts.rejected,
+    },
+  ];
+  const narrowed = status !== "all" && total > 0 && review.freshness !== "unavailable";
+  function selectStatus(value: string) {
+    const url = new URL(surfaceHref, "https://catalog.invalid");
+    url.searchParams.delete("status");
+    url.searchParams.delete("reviewOffset");
+    if (value === "all") url.searchParams.delete("filter.status");
+    else url.searchParams.set("filter.status", value);
+    void submit(url.searchParams, { method: "get", action: url.pathname, preventScrollReset: true });
+  }
   const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
     () => [
       {
@@ -200,17 +243,15 @@ export function CatalogIntegrationSourceObservationReviewModule({
         ))}
       </FilterArea>
 
-      <BadgeCluster
-        items={readModel.sourceObservationReview.savedFilters.map((savedFilter) => ({
-          key: savedFilter.key,
+      <SegmentedControl
+        label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.status")}
+        value={status}
+        onValueChange={selectStatus}
+        items={statusOptions.map((option) => ({
+          value: option.value,
           label:
-            savedFilter.label +
-            (savedFilter.count === null
-              ? ""
-              : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count", {
-                  value: savedFilter.count,
-                })),
-          tone: "neutral",
+            option.label +
+            t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count", { value: option.count }),
         }))}
       />
 
@@ -225,8 +266,22 @@ export function CatalogIntegrationSourceObservationReviewModule({
         onSelectionChange={onSelectedObservationKeysChange}
         isRowSelectable={isReviewableObservationRow}
         density="compact"
-        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")}
-        emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")}
+        emptyTitle={
+          narrowed
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.filtered", {
+                status,
+                scope:
+                  readModel.sourceScopeWorkset.selectedScope.scope.expansionName ??
+                  readModel.sourceScopeWorkset.selectedScope.label,
+                total,
+              })
+            : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")
+        }
+        emptyDescription={
+          narrowed
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.filteredDescription")
+            : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")
+        }
       />
 
       <SourceObservationReviewPager readModel={readModel} />

@@ -2,8 +2,52 @@ import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
 import { buildApp, context, profileVersion, viewOnlyActor } from "./route-test-harness";
+import {
+  listSourceObservations,
+  previewSourceObservationPromotionScope,
+  listSourceObservationIdsForPromotion,
+} from "../../read-model/queries";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 describe("source observation routes: review and control-plane reads", () => {
+  it("passes Eligible through the authorized list route to the bounded query and preserves promotion-scope parity", async () => {
+    const rows = ["observed", "changed", "promoted", "rejected"].map((status) => ({
+      observation_id: `synthetic-${status}`,
+      status,
+    }));
+    const db: PgQueryable = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+        expect(sql).toContain("provider_key = $1");
+        expect(values?.[0]).toBe("tcgdex");
+        expect(sql).toContain("status = ANY($2::text[])");
+        expect(values?.[1]).toEqual(["observed", "changed"]);
+        const matches = rows.filter((row) => (values?.[1] as readonly string[]).includes(row.status));
+        const result = sql.includes("COUNT(*)")
+          ? [{ count: String(matches.length) }]
+          : sql.includes("LIMIT")
+            ? matches.slice(Number(values?.[3]), Number(values?.[3]) + Number(values?.[2]))
+            : matches;
+        return { rows: result, rowCount: result.length };
+      }),
+    };
+    const services = { listSourceObservations: (params) => listSourceObservations(db, params) } satisfies Pick<
+      SourceObservationRouteServices,
+      "listSourceObservations"
+    >;
+    const app = buildApp(services as SourceObservationRouteServices, undefined, viewOnlyActor);
+    const response = await app.request("/source-observations?provider=tcgdex&status=eligible&limit=1&offset=1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ items: [rows[1]], total: 2, count: 1 });
+    const scope = { provider: "tcgdex", status: "eligible" };
+    expect(await previewSourceObservationPromotionScope(db, scope)).toMatchObject({
+      matched: 2,
+      eligible: 2,
+      terminal: 0,
+    });
+    expect(await listSourceObservationIdsForPromotion(db, scope)).toEqual(["synthetic-observed", "synthetic-changed"]);
+    const denied = buildApp(services as SourceObservationRouteServices, undefined, null);
+    expect((await denied.request("/source-observations?status=eligible")).status).toBe(401);
+  });
   it("requires catalog.view for control-plane reads", async () => {
     const listSourceObservations = vi.fn(async () => ({ items: [], total: 0 }));
     const app = buildApp({ listSourceObservations } as unknown as SourceObservationRouteServices, undefined, null);

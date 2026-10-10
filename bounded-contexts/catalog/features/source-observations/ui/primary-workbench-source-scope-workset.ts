@@ -103,7 +103,7 @@ function sourceScopeWorksetStatus(
   return "ready";
 }
 
-function selectedSourceScope(
+export function selectedSourceScope(
   input: Pick<SourceScopeWorksetInput, "profiles" | "routeContext" | "scopes" | "sourceOptions">,
 ) {
   const routeContext = input.routeContext;
@@ -134,7 +134,10 @@ function enrichedSetNameSelectedScope(
     return scope;
   }
   const profile = activeProfileForProvider(profiles, providerKey);
-  if (!sourceOptionKindsForProfile(profile).some((kind) => kind.scope === "set-name")) {
+  const optionScope = sourceOptionKindsForProfile(profile).find(
+    (kind) => kind.scope === "set-name" || kind.scope === "expansion",
+  )?.scope;
+  if (!optionScope) {
     return scope;
   }
   const selectedValue = scope.expansionId ?? scope.expansionName;
@@ -142,7 +145,7 @@ function enrichedSetNameSelectedScope(
     return scope;
   }
   const page = sourceOptions.pages.find(
-    (candidatePage) => candidatePage.request.providerKey === providerKey && candidatePage.scope === "set-name",
+    (candidatePage) => candidatePage.request.providerKey === providerKey && candidatePage.scope === optionScope,
   );
   const option = page?.items.find((item) =>
     scope.expansionId
@@ -936,7 +939,7 @@ function productFormFromProfile(profile: CatalogProviderProfileVersionReview | n
   return unitSegment ?? profile?.supportedScopes[0]?.split("/")[1] ?? null;
 }
 
-function providerScopeMatchesSelectedScope(
+export function providerScopeMatchesSelectedScope(
   selectedScope: CatalogPrimaryWorkbenchScopeContext,
   scope: SourceObservationIntegrationScope,
 ): boolean {
