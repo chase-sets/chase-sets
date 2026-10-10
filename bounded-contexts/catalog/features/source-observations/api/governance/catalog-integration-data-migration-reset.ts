@@ -783,6 +783,7 @@ export async function resetCatalogIntegrationPreLaunchData(
   } as const satisfies Required<CatalogIntegrationDataResetOptions>;
 
   return withResetTransaction(db, async (queryable) => {
+    await queryable.query("LOCK TABLE catalog_provider_integration_profile_versions IN ROW EXCLUSIVE MODE");
     await queryable.query(`LOCK TABLE ${CATALOG_INTEGRATION_JOB_TABLES.join(", ")} IN SHARE ROW EXCLUSIVE MODE`);
     const before = await collectCatalogIntegrationDataVerificationReport(queryable);
     if (!normalizedOptions.allowActiveJobReset) {

@@ -19,6 +19,31 @@ import { withPgTransaction, type PgTransactionalPool } from "./types";
 const NOW = "2026-06-10T12:00:00.000Z" as const;
 
 describe("postgres event store", () => {
+  it("appends all streams and empty guards on the supplied client without owning its transaction", async () => {
+    const owner = createAppendPool();
+    const supplied = createAppendPool();
+    const store = createPostgresEventStore({
+      pool: owner.pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+    });
+    const first = independentInput({ streamId: "catalog.item-new" });
+    const guard = independentInput({ streamId: "catalog.guard-empty", events: [] });
+    const result = await store.appendToStreamsInTransaction(supplied.pool, [first, guard]);
+    expect(owner.calls).toEqual([]);
+    expect(result.map((entry) => entry.storedEvents.length)).toEqual([1, 0]);
+    expect(supplied.calls.filter((call) => call.sql.includes("SELECT current_version"))).toHaveLength(2);
+    expect(supplied.calls.some((call) => /^(BEGIN|COMMIT|ROLLBACK)/.test(call.sql))).toBe(false);
+  });
+
+  it("does not discard a caller-owned zero-event expected-version guard", async () => {
+    const supplied = createAppendPool({ currentVersion: 2 });
+    const store = createPostgresEventStore({ pool: createAppendPool().pool });
+    await expect(
+      store.appendToStreamsInTransaction(supplied.pool, [independentInput({ expectedVersion: 0, events: [] })]),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(supplied.calls.some((call) => /^(BEGIN|COMMIT|ROLLBACK)/.test(call.sql))).toBe(false);
+  });
   it("reads through the supplied transaction client without acquiring from the pool", async () => {
     const { pool, calls } = createReadPool();
     const client = createReadPool();

@@ -74,6 +74,64 @@ The existing Catalog integration rollout controls are the release and incident b
 
 Use the narrowest provider or unit scope that stops the unsafe behavior. Rollback evidence must include the active env value, affected provider/unit, Admin readiness rollout snapshot, denied-control metric key, job counts, and release/deploy identifier.
 
+## Promotion Target Exclusion
+
+Source Observation item promotion and reapply acquire Catalog's
+`PromotionTargetExclusion` port before any item command. Candidate application
+must use the same port; this change does not implement candidate application.
+The consumer supplies all member identities, additional policy-selected targets,
+and canonical profile eligibility validation. Selection inspects the complete
+authoritative discovery result, not a projection's absence. Product Options are
+compatibility evidence, not a separate lock identity.
+
+Acquisition folds historical source revisions, item link/unlink history and
+versioned bindings to a fixed point. Every discovered material stream, including
+empty targets, is guarded. A session belongs to one generation and target;
+reacquisition fences old handles. `preparePlan` records exact command batches
+before effects, and replay resumes only at a complete matching command boundary.
+A binding is not a completion marker. A consumer must never use an unguarded
+item handler or reinterpret refusal as permission to allocate another target.
+
+Each guarded append obtains the canonical profile table's SHARE lock in a short
+READ COMMITTED transaction, revalidates selection and retained profile evidence
+on that client, then calls `appendToStreamsInTransaction` on the same client.
+Profile edits conflict with this lock; disjoint promotions may hold it together.
+Reset obtains ROW EXCLUSIVE before job or stream locks. Errors roll back the
+entire transaction; notifications become visible only at commit.
+
+### Migration And Cutover
+
+1. Disable promotion, reapply and worker processing using the existing rollout
+   controls above. Drain in-flight work and verify that every old writer process
+   has stopped, including independently hosted workers. Index presence alone
+   cannot attest that an old process has drained. Do not activate with mixed
+   writer versions.
+2. Apply ledgered migrations through `20261010_catalog_promotion_canonical_references_v1`
+   outside a transaction. The immutable Catalog functions pin Unicode 17.0 default
+   lowercase, including contextual sigma, dotted-I expansion and ECMAScript trim.
+   Their five non-unique concurrent indexes cover item/Product references, paired
+   source references, source links and retained raw-key bindings. The binding index
+   also finds reservations made before any source/item effects. Installation keeps
+   event bytes unchanged, retries invalid owned builds, rejects conflicting valid
+   definitions, and retires raw-only indexes after reader/writer quiescence.
+3. Deploy the guarded writers and retain compatible readers. Before activation,
+   verify the deployment inventory contains no old writers or raw-only readers.
+   Validate all five index definitions, `indisvalid`, `indisready`, immutable function
+   bodies/settings and the writer runtime Unicode version. Acquisition refuses drift.
+   A casing-data upgrade needs new versioned functions/indexes and a new cutover,
+   never an in-place replacement of indexed immutable semantics. Version-1 bindings
+   remain read/validated and guarded; version-2 bindings use canonical keys. Conflicting
+   targets or unfinished incompatible execution evidence refuse without rewriting history.
+4. Restore the existing rollout controls only after those checks. Preserve
+   refused histories for diagnosis; never backfill, relink or reset them to make
+   promotion proceed.
+
+For rollback, stop and drain writers again. Keep the additive indexes, bindings
+and readers, then roll forward with a repaired writer. An old binary must not
+resume writes alongside bindings it does not honor. There is no automatic
+old-writer detection or bypass in the Catalog port; the release inventory and
+drain are mandatory operator cutover evidence.
+
 ## Evidence Packet
 
 Record milestone evidence in the closing issue or PR, not as raw provider data in docs. The packet should include:

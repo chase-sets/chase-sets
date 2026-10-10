@@ -137,6 +137,7 @@ export async function resolvePromotionReferenceHierarchyReadOnly(input: {
   deps: CatalogRuntimeDeps;
   profile: CatalogProviderIntegrationProfile;
   normalized: ReferenceHierarchySourceObservationNormalized;
+  guard?: (streamId: string, version: number) => void;
 }): Promise<{
   targetReferenceRecordId: ReferenceRecordId;
   referenceRecordIdsByTypeKey: Readonly<Record<string, string>>;
@@ -153,9 +154,15 @@ export async function resolvePromotionReferenceHierarchyReadOnly(input: {
     payload: promotionReferenceHierarchyPayload(input.normalized),
     provisioner: {
       ensureReferenceType: async () => undefined,
-      ensureReferenceRecord: async (def) =>
-        (await readProvisionableReferenceRecord(input.deps, def, await findExistingReferenceRecord(input.deps, def)))
-          .referenceRecordId,
+      ensureReferenceRecord: async (def) => {
+        const record = await readProvisionableReferenceRecord(
+          input.deps,
+          def,
+          await findExistingReferenceRecord(input.deps, def),
+        );
+        input.guard?.(record.streamId, record.version);
+        return record.referenceRecordId;
+      },
     },
   });
 

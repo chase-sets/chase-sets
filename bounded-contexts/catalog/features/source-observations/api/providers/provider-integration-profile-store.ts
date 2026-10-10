@@ -318,8 +318,7 @@ async function getProfileVersion(
     `SELECT *
      FROM catalog_provider_integration_profile_versions
      WHERE provider_key = $1 AND profile_version = $2
-     ORDER BY profile_key ASC
-     LIMIT 1`,
+     ORDER BY profile_key ASC`,
     [providerKey.trim().toLowerCase(), profileVersion.trim()],
   );
 
@@ -549,11 +548,11 @@ async function lockProviderProfileVersionRows(db: PgQueryable, providerKeys: rea
 }
 
 class CatalogProviderProfileVersionWriteConflictError extends Error {
-  constructor(
-    message: string,
-    readonly cause: unknown,
-  ) {
+  readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
     super(message);
+    this.cause = cause;
     this.name = "CatalogProviderProfileVersionWriteConflictError";
   }
 }

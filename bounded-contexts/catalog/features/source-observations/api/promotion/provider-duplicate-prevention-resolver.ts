@@ -19,6 +19,7 @@ import type {
   CatalogProviderIntegrationProfile,
 } from "../provider-integration-profiles";
 import type { CatalogProviderPromotionResolvedCatalogMapping } from "./provider-promotion-command-planner";
+import { canonicalPromotionReferenceText } from "./promotion-reference-canonicalization";
 
 export type CatalogProviderDuplicatePreventionDb = Readonly<{
   query: <T>(sql: string, values?: readonly unknown[]) => Promise<{ rowCount?: number | null; rows: T[] }>;
@@ -408,7 +409,7 @@ async function findCatalogItemIdForExternalProductReference(
        AND reference.external_key = $2
        AND item.status NOT IN ('archived', 'removed')
      LIMIT 1`,
-    [reference.providerKey, reference.externalKey],
+    [canonicalPromotionReferenceText(reference.providerKey), canonicalPromotionReferenceText(reference.externalKey)],
   );
 
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
@@ -603,13 +604,15 @@ function fieldValuesForRule(
       return [];
     }
     return [
-      {
-        fieldId,
-        value:
-          fieldMatch.valueTransform === "localized-text" && typeof value === "string"
-            ? localizedJsonText(value)
-            : value,
-      },
+      [
+        {
+          fieldId,
+          value:
+            fieldMatch.valueTransform === "localized-text" && typeof value === "string"
+              ? localizedJsonText(value)
+              : value,
+        },
+      ],
     ];
   });
 }
@@ -648,7 +651,7 @@ function uniqueExternalCatalogItemReferences(
     }))
     .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
     .filter((reference) => {
-      const key = `${reference.providerKey}:${reference.externalKey}`;
+      const key = JSON.stringify([reference.providerKey, reference.externalKey]);
       if (seen.has(key)) {
         return false;
       }
@@ -668,7 +671,7 @@ function uniqueExternalProductReferences(
     }))
     .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
     .filter((reference) => {
-      const key = `${reference.providerKey}:${reference.externalKey}`;
+      const key = JSON.stringify([reference.providerKey, reference.externalKey]);
       if (seen.has(key)) {
         return false;
       }

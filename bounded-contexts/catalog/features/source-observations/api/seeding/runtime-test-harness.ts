@@ -4,6 +4,9 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
+import { initialCatalogItemState } from "../../../catalog-items/domain/domain";
+import type { CatalogItemId } from "../../../../ids";
+import type { PromotionTargetExclusion } from "../promotion/promotion-target-exclusion";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
 import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
 import type { ReferenceRecordCommand } from "../../../reference-data/domain/domain";
@@ -1663,7 +1666,12 @@ export function createChangedObservationRefreshHarness(
     source_payload: { id: "me02.5-136" },
     status: input.status ?? "changed",
     status_reason: null,
-    promoted_catalog_item_id: input.promotedCatalogItemId === undefined ? "cat_existing" : input.promotedCatalogItemId,
+    promoted_catalog_item_id:
+      input.promotedCatalogItemId === undefined
+        ? input.status === "observed"
+          ? null
+          : "cat_existing"
+        : input.promotedCatalogItemId,
     promoted_reference_record_id:
       input.promotedReferenceRecordId === undefined ? null : input.promotedReferenceRecordId,
     promoted_at: "2026-05-19T00:00:00.000Z",
@@ -1871,9 +1879,66 @@ export function createChangedObservationRefreshHarness(
   });
   const deps = {
     db: displayIdentityDb,
+    // These orchestration tests mock item commands. The real exclusion boundary
+    // has separate mapper-derived integration tests; this port does not certify it.
+    promotionTargetExclusion: {
+      acquire: async (request) => {
+        const targetId = request.additionalTargetIds.at(-1)!;
+        const known = knownCatalogItemIds.includes(targetId);
+        const current = input.displayIdentity?.currentItems?.find((item) => item.catalog_item_id === targetId);
+        const state = {
+          ...initialCatalogItemState,
+          id: known ? (targetId as CatalogItemId) : null,
+          languageCode: normalized.languageCode,
+          status: current?.status === "active" ? ("active" as const) : ("draft" as const),
+        };
+        return {
+          targetId,
+          evidence: {
+            items: new Map([[targetId, state]]),
+            histories: new Map(),
+            sources: new Map(),
+            keys: new Map(),
+            bindings: new Map(),
+          },
+          commandHandler: items.commandHandler,
+          preparePlan: async () => 0,
+          guard: () => undefined,
+          append: async () => {
+            throw new Error("Synthetic orchestration port only accepts commands");
+          },
+        };
+      },
+    } satisfies PromotionTargetExclusion,
     eventStore: {
-      readStream: async ({ streamId: requestedStream }: { streamId: string }) =>
-        requestedStream === streamId ? sourceEvents : (referenceHistories.get(requestedStream) ?? []),
+      readStream: async ({ streamId: requestedStream }: { streamId: string }) => {
+        if (requestedStream === streamId) return sourceEvents;
+        for (const [kind, prefix, idField, published] of [
+          ["blueprint", "bpr_", "blueprintId", "published"],
+          ["category", "cat_", "categoryId", "published"],
+          ["field", "fld_", "fieldId", "activated"],
+        ]) {
+          const streamPrefix = `catalog.${kind}-${prefix}`;
+          if (requestedStream.startsWith(streamPrefix)) {
+            const key = requestedStream.slice(streamPrefix.length);
+            const text = { defaultLocale: "en", values: { en: key } };
+            return [
+              storedEvent(1, requestedStream, `catalog.${kind}.created`, {
+                [idField]: `${prefix}${key}`,
+                key,
+                name: text,
+                description: text,
+                valueType: "string",
+                behavior: {},
+                parentCategoryId: null,
+                displayOrder: 0,
+              }),
+              storedEvent(2, requestedStream, `catalog.${kind}.${published}`, {}),
+            ];
+          }
+        }
+        return referenceHistories.get(requestedStream) ?? [];
+      },
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {

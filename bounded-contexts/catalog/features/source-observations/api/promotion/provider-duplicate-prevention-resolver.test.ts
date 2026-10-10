@@ -69,7 +69,7 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
       catalogItemId: "cat_source_link",
       ruleKey: "source-observation-link",
     });
-    expect(db.values).toContainEqual(["tcgdex", "en-US:provider:CaseSensitive"]);
+    expect(db.values).toContainEqual(["tcgdex", "en-us:provider:casesensitive"]);
   });
 
   it("blocks automatic promotion when reusable external references are ambiguous", async () => {
@@ -102,8 +102,9 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
   });
 
   it("matches deterministic Pokemon card evidence when external references are absent", async () => {
+    const db = duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_deterministic"] });
     const result = await resolveCatalogProviderDuplicatePrevention({
-      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_deterministic"] }),
+      db,
       profile: tcgdexPokemonTcgProviderProfile,
       providerKey: "tcgdex",
       externalKey: "swsh1-001",
@@ -119,6 +120,11 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
         matchKind: "deterministic-pokemon-card-field-match",
       },
     });
+    const fieldQuery = db.queries.findIndex((query) => query.includes("item.field_values @>"));
+    expect(fieldQuery).toBeGreaterThanOrEqual(0);
+    const operands = db.values[fieldQuery].slice(1).map((value) => JSON.parse(String(value)));
+    expect(operands.length).toBeGreaterThan(1);
+    expect(operands.every((operand) => Array.isArray(operand) && operand.length === 1)).toBe(true);
   });
 
   it("does not apply single-card deterministic identity to sealed provider products", async () => {
