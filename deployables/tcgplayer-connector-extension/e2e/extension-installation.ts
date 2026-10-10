@@ -1,18 +1,18 @@
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type BrowserContext, type Worker } from "@playwright/test";
 import type { Plugin } from "vite";
 import { fixtureWorker, launchFixture } from "../__tests__/support/browser-observation";
+import { attestExtensionFiles, stageExtension } from "../__tests__/support/extension-staging";
 
 export type BundleIdentity = { sourceSha256: string; transform: string };
 declare global {
   var __connectorExecutedBundle: BundleIdentity | undefined;
-  var __connectorHistoricalReasons: string[] | undefined;
 }
 
-export const bundleIdentity = (source: string | Buffer, transform: string): BundleIdentity => ({
+const bundleIdentity = (source: string | Buffer, transform: string): BundleIdentity => ({
   sourceSha256: createHash("sha256").update(source).digest("hex"),
   transform,
 });
@@ -33,27 +33,22 @@ export function executionIdentityPlugin(transform: string): Plugin {
 }
 
 const openProfiles = new Set<string>();
-export async function launchInstallation(
-  source: string,
-  profile = mkdtempSync(join(tmpdir(), "connector-7940-")),
-  debug = true,
-) {
+export async function launchInstallation(source: string, retainedProfile?: string) {
+  const profile = retainedProfile ?? mkdtempSync(join(tmpdir(), "connector-7940-"));
   if (openProfiles.has(profile)) throw new Error("extension-installation-context-still-open");
   const directory = join(profile, "extension-under-test");
-  mkdirSync(directory, { recursive: true });
-  for (const name of ["background.js", "manifest.json", "execution-identity.json", "seed.js"])
-    if (existsSync(join(source, name))) cpSync(join(source, name), join(directory, name));
+  const staging = retainedProfile ? attestExtensionFiles(source, directory) : stageExtension(source, directory);
   const manifest = JSON.parse(readFileSync(join(source, "manifest.json"), "utf8"));
   const identity: BundleIdentity = JSON.parse(readFileSync(join(source, "execution-identity.json"), "utf8"));
   openProfiles.add(profile);
   try {
     const context = await launchFixture(directory, profile, [
       `--disable-extensions-except=${directory}`,
-      ...(debug ? ["--enable-unsafe-extension-debugging"] : []),
+      "--enable-unsafe-extension-debugging",
       "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ]);
     context.on("close", () => openProfiles.delete(profile));
-    return { context, profile, directory, manifest, identity };
+    return { context, profile, directory, manifest, identity, staging, staged: !retainedProfile };
   } catch (error) {
     openProfiles.delete(profile);
     throw error;
@@ -65,8 +60,7 @@ export async function executedIdentity(worker: Worker) {
     workerUrl: globalThis.location.href,
     manifest: chrome.runtime.getManifest(),
     bundle: globalThis.__connectorExecutedBundle ?? null,
-    installReasons:
-      globalThis.__connectorHistoricalReasons ?? globalThis.__connectorHarness?.observation.snapshot().reasons ?? [],
+    installReasons: globalThis.__connectorHarness?.observation.snapshot().reasons ?? [],
   }));
 }
 
@@ -89,10 +83,7 @@ export async function installationDiagnostics(context: BrowserContext) {
             workerUrl: globalThis.location.href,
             manifest: chrome.runtime.getManifest(),
             bundle: globalThis.__connectorExecutedBundle ?? null,
-            installReasons:
-              globalThis.__connectorHistoricalReasons ??
-              globalThis.__connectorHarness?.observation.snapshot().reasons ??
-              [],
+            installReasons: globalThis.__connectorHarness?.observation.snapshot().reasons ?? [],
           };
           const databases = await indexedDB.databases();
           if (!databases.some((db) => db.name === "connector-raw-exports")) return { identity, journal: null };

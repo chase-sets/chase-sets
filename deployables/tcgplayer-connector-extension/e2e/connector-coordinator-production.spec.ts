@@ -23,6 +23,19 @@ let server: Awaited<ReturnType<typeof startLoopback>>;
 const bundles = new Map<string, string>();
 const active = new Set<BrowserContext>();
 let retainedSession = false;
+function replayBoundary(before: Awaited<ReturnType<typeof snapshot>>, portalCalls: number) {
+  return {
+    portalCalls,
+    members: before.members.map(({ state, ackedAt }) => ({ state, acked: ackedAt != null })),
+    reservations: before.reservations.map(({ phase, ackedAt, leaseExpiresAt }) => ({
+      phase,
+      acked: ackedAt != null,
+      leaseUnexpired: Date.parse(String(leaseExpiresAt)) > Date.now(),
+    })),
+    phases: before.observation.transactions,
+  };
+}
+let normalBoundary: ReturnType<typeof replayBoundary> | undefined;
 test.beforeAll(async () => {
   server = await startLoopback();
   for (const unit of ["operation", "reservation"] as const) bundles.set(unit, await buildHarness(unit));
@@ -30,7 +43,12 @@ test.beforeAll(async () => {
   bundles.set("replay-mutant-suppressed", await buildHarness("operation", true, true));
   const bytes = (name: string, file: string) => readFileSync(join(bundles.get(name)!, file), "utf8");
   expect(bytes("replay-mutant", "execution-identity.json")).not.toBe(bytes("operation", "execution-identity.json"));
-  expect(bytes("replay-mutant-suppressed", "background.js")).toBe(bytes("operation", "background.js"));
+  const identities = ["operation", "replay-mutant", "replay-mutant-suppressed"].map((arm) =>
+    JSON.parse(bytes(arm, "execution-identity.json")),
+  );
+  expect(new Set(identities.map(({ transform }) => transform)).size).toBe(3);
+  // Suppression preserves compiled behavior; only its executed identity label differs.
+  expect(identities[2].sourceSha256).toBe(identities[0].sourceSha256);
   for (const arm of ["replay-mutant", "replay-mutant-suppressed"])
     expect(bytes(arm, "manifest.json")).toBe(bytes("operation", "manifest.json"));
 });
@@ -71,8 +89,9 @@ for (const arm of ["operation", "replay-mutant", "replay-mutant-suppressed"] as 
   test(`connector-coordinator-replay-guard-removed ${arm} commit-before-receipt @tcgplayer-connector-extension-authority`, async () => {
     const evidence: Record<string, unknown> = { arm };
     try {
-      const first = await launchCoordinator(bundles.get("operation")!);
+      const first = await launchCoordinator(bundles.get(arm)!);
       active.add(first.context);
+      evidence.firstLaunch = { identity: await snapshot(first.worker), staging: first.staging, staged: first.staged };
       await pair(first.context, first.worker);
       server.hold("portal");
       server.claims.push(syntheticClaim());
@@ -85,13 +104,26 @@ for (const arm of ["operation", "replay-mutant", "replay-mutant-suppressed"] as 
       expect(before.members[0]?.state).toBe("dispatched");
       expect(before.reservations[0]?.phase).toBe("dispatched");
       expect(Date.parse(String(before.reservations[0]?.leaseExpiresAt))).toBeGreaterThan(Date.now());
+      const boundary = replayBoundary(before, server.portalCalls.length);
+      evidence.firstLaunchBoundary = boundary;
+      expect(boundary.portalCalls).toBe(1);
+      expect(boundary.members).toEqual([{ state: "dispatched", acked: false }]);
+      expect(boundary.reservations).toEqual([{ phase: "dispatched", acked: false, leaseUnexpired: true }]);
+      if (arm === "operation") normalBoundary = boundary;
+      expect(normalBoundary).toBeDefined();
+      expect(boundary).toEqual(normalBoundary);
+      evidence.normalBoundary = normalBoundary;
       await first.context.close();
       active.delete(first.context);
       server.release("portal");
       const second = await launchCoordinator(bundles.get(arm)!, first.profile);
       active.add(second.context);
       expect(second.directory).toBe(first.directory);
+      expect(first.staged).toBe(true);
+      expect(second.staged).toBe(false);
+      expect(second.staging).toEqual(first.staging);
       evidence.reentry = await snapshot(second.worker);
+      evidence.secondLaunchStaging = second.staging;
       if (arm === "replay-mutant") {
         await expect.poll(() => server.portalCalls.length).toBe(2);
         expect(() => expect(server.portalCalls.length).toBe(1)).toThrow();

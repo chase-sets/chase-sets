@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { build, type Plugin } from "vite";
 import { createHash } from "node:crypto";
@@ -14,6 +14,7 @@ import {
 } from "./extension-installation";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { createSyntheticPairingCode, synthetic } from "./loopback-platform";
+import { stageExtension } from "../__tests__/support/extension-staging";
 
 declare global {
   var __connectorHarness: typeof import("../__tests__/harness/entry.harness").harness;
@@ -47,7 +48,9 @@ export async function buildHarness(unit: "operation" | "reservation", replayMuta
     mode: "harness",
     logLevel: "warn",
     plugins: [
-      executionIdentityPlugin(replayMutant && !suppressTransform ? "replay-guard-removed" : `normal-${unit}`),
+      executionIdentityPlugin(
+        replayMutant ? (suppressTransform ? "replay-transform-suppressed" : "replay-guard-removed") : `normal-${unit}`,
+      ),
       ...(replayMutant
         ? [
             {
@@ -83,9 +86,7 @@ export async function buildHarness(unit: "operation" | "reservation", replayMuta
     proofRoot,
     `dist-harness-${unit}${replayMutant ? "-replay-mutant" : ""}${suppressTransform ? "-suppressed" : ""}`,
   );
-  mkdirSync(destination, { recursive: true });
-  for (const file of ["background.js", "manifest.json", "execution-identity.json"])
-    cpSync(resolve(packageRoot, "dist-harness", file), join(destination, file));
+  retain("harness-staging", stageExtension(resolve(packageRoot, "dist-harness"), destination));
   const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8"));
   expect(manifest.host_permissions).toEqual([`${platformOrigin}/*`, "http://127.0.0.1:46175/*"]);
   return destination;
@@ -95,6 +96,13 @@ export async function launchCoordinator(extension: string, profile?: string) {
   const installation = await launchInstallation(extension, profile);
   try {
     const worker = await attestInstallation(installation);
+    retain("coordinator-installation", {
+      profile: installation.profile,
+      staged: installation.staged,
+      staging: installation.staging,
+      expected: installation.identity,
+      executed: await executedIdentity(worker),
+    });
     await worker.evaluate(async () => {
       await globalThis.__connectorHarness.product.boot;
     });
@@ -104,6 +112,7 @@ export async function launchCoordinator(extension: string, profile?: string) {
       profile: installation.profile,
       directory: installation.directory,
       expected: installation.identity,
+      staging: installation.staging,
       error: String(error),
       workers: await installationDiagnostics(installation.context),
     });
