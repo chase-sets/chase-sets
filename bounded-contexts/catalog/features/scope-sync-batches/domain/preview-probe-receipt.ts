@@ -315,6 +315,18 @@ export function readScopeSyncBatchPreviewProbeProviderDetail(
   ) {
     return unresolved("provider-detail-profile-mismatch");
   }
+  // The selected profile carries no unit key, and the route matches a
+  // single-unit provider's profile to any of its unit keys. Only the same read
+  // model's provider scope, pointing this unit at this version, proves the
+  // profile is the unit's own.
+  const scopedProvider = arrayOf(isRecord(readModel.providerScope) ? readModel.providerScope.providers : null).find(
+    (provider) => isRecord(provider) && provider.providerKey === coordinates.providerKey,
+  );
+  const scopedUnit = arrayOf(isRecord(scopedProvider) ? scopedProvider.units : null).find(
+    (unit) => isRecord(unit) && unit.unitKey === coordinates.unitKey,
+  );
+  const pointer = isRecord(scopedUnit) && isRecord(scopedUnit.activeProfile) ? scopedUnit.activeProfile : null;
+  if (pointer?.profileVersion !== selected.profileVersion) return unresolved("provider-detail-profile-not-on-unit");
   if (!Array.isArray(selected.capabilities) || !selected.capabilities.every((value) => typeof value === "string")) {
     return unresolved("provider-detail-capabilities-unreadable");
   }
