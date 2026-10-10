@@ -42,7 +42,7 @@ test.each(["require", "verify-full"])(
            assert.equal(url.searchParams.get("sslmode"), "${mode}");
            assert.equal(url.searchParams.get("uselibpqcompat"), "true");
            assert.deepEqual(actual.options.ssl, { rejectUnauthorized: ${mode === "verify-full"} });
-           assert.equal(new pg.Client(actual.options).ssl.rejectUnauthorized, ${mode === "verify-full"});
+           assert.deepEqual(new pg.Client(actual.options).ssl, ${mode === "verify-full" ? "{}" : "{ rejectUnauthorized: false }"});
            assert.equal(actual.options.max, max);
            assert.equal(actual.totalCount, 0);
          }
