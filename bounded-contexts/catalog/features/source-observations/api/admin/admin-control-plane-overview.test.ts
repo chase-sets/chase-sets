@@ -248,6 +248,33 @@ describe("Catalog provider usage budget read model", () => {
       readiness: "unknown",
       creditBalance: null,
       creditAllowance: null,
+      diagnostic:
+        "Scrydex account usage response did not include remaining-credit evidence for the current billing period.",
+    });
+
+    // A reported positive balance without allowance evidence is kept, but it is not ready.
+    const missingConsumed = scrydexUsageProvider({
+      body: { data: { ...syntheticUsageData, total_credits_consumed: undefined } },
+    });
+    expect(await scrydexBudget(missingConsumed.registry)).toMatchObject({
+      freshness: "fresh",
+      readiness: "unknown",
+      creditBalance: 41_234,
+      creditAllowance: null,
+      diagnostic:
+        "Scrydex account usage response did not include consumed and overage credit evidence, so the period allowance is unreported.",
+    });
+
+    const overage = scrydexUsageProvider({
+      body: { data: { ...syntheticUsageData, overage_credits_consumed: 12 } },
+    });
+    expect(await scrydexBudget(overage.registry)).toMatchObject({
+      freshness: "fresh",
+      readiness: "unknown",
+      creditBalance: 41_234,
+      creditAllowance: null,
+      diagnostic:
+        "Scrydex reports overage credits consumed this billing period, so the period allowance is unreported; operators should review plan and overage posture.",
     });
 
     const unconfigured = scrydexUsageProvider({ credentials: {} });

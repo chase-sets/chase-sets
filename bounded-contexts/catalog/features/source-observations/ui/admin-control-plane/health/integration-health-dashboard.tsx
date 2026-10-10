@@ -532,7 +532,8 @@ function usageBudgetItems(budget: CatalogPrimaryWorkbenchHealthTriageProvider["u
       key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.lag"),
       value: formatUsageLag(budget.lagCategory),
     },
-    ...(budget.freshness !== "fresh" && budget.diagnostic
+    // A complete, fresh, ready budget stays quiet; any other budget shows its reason.
+    ...((budget.freshness !== "fresh" || budget.readiness !== "ready") && budget.diagnostic
       ? [
           {
             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.diagnostic"),

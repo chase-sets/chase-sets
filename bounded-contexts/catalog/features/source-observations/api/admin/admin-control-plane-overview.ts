@@ -326,7 +326,7 @@ function projectUsageBudget(
     creditBalance: displayable ? snapshot.remainingCredits : null,
     creditAllowance: displayable ? snapshot.totalCredits : null,
     creditUnit: snapshot.creditUnit,
-    readiness: usageBudgetReadiness(snapshot.creditState, freshness),
+    readiness: usageBudgetReadiness(snapshot, freshness),
     freshness,
     observedAt: snapshot.observedAt,
     lagCategory: snapshot.lagCategory,
@@ -355,8 +355,10 @@ function usageFreshness(
   return ageSeconds <= snapshot.unavailableAfterSeconds ? "stale" : "unavailable";
 }
 
+// A positive balance without a reported allowance is incomplete evidence, so it is
+// unknown rather than ready; the balance itself is still projected.
 function usageBudgetReadiness(
-  creditState: ProviderUsageSnapshot["creditState"],
+  { creditState, totalCredits }: ProviderUsageSnapshot,
   freshness: CatalogIntegrationProviderUsageFreshness,
 ): CatalogIntegrationProviderUsageBudget["readiness"] {
   if (creditState === "exhausted") {
@@ -365,7 +367,7 @@ function usageBudgetReadiness(
   if (freshness === "stale") {
     return "degraded";
   }
-  if (freshness !== "fresh" || creditState === "unknown") {
+  if (freshness !== "fresh" || creditState === "unknown" || totalCredits === null) {
     return "unknown";
   }
   return creditState === "low" ? "degraded" : "ready";

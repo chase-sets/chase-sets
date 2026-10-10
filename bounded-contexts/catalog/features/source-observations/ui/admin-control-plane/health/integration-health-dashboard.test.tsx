@@ -128,4 +128,48 @@ describe("Integration health usage budget", () => {
     expect(unsupported.getByText("Not reported by this provider")).toBeTruthy();
     expect(unsupported.queryByText("Budget readiness")).toBeNull();
   });
+
+  it("shows the usage reason for fresh incomplete budgets without inventing an allowance", () => {
+    renderHealth([
+      [
+        "synthetic-missing-consumed",
+        budget({
+          readiness: "unknown",
+          creditAllowance: null,
+          diagnostic: "Synthetic allowance unreported: consumed evidence missing.",
+        }),
+      ],
+      [
+        "synthetic-overage",
+        budget({
+          readiness: "unknown",
+          creditAllowance: null,
+          diagnostic: "Synthetic allowance unreported: overage consumed.",
+        }),
+      ],
+      [
+        "synthetic-missing-balance",
+        budget({
+          readiness: "unknown",
+          creditBalance: null,
+          creditAllowance: null,
+          diagnostic: "Synthetic remaining balance unreported for the current period.",
+        }),
+      ],
+    ]);
+
+    const missingConsumed = within(providerRow("synthetic-missing-consumed"));
+    expect(missingConsumed.getByText("41234 credits")).toBeTruthy();
+    expect(missingConsumed.getByText("unknown")).toBeTruthy();
+    expect(missingConsumed.getByText("Usage diagnostic")).toBeTruthy();
+    expect(missingConsumed.getByText("Synthetic allowance unreported: consumed evidence missing.")).toBeTruthy();
+
+    const overage = within(providerRow("synthetic-overage"));
+    expect(overage.getByText("Synthetic allowance unreported: overage consumed.")).toBeTruthy();
+
+    const missingBalance = within(providerRow("synthetic-missing-balance"));
+    expect(missingBalance.getByText("Not reported")).toBeTruthy();
+    expect(missingBalance.getByText("Synthetic remaining balance unreported for the current period.")).toBeTruthy();
+    expect(missingBalance.queryByText(/^0 /)).toBeNull();
+  });
 });
