@@ -1,6 +1,37 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { catalogProviderSourceMappingFingerprint, sourceObservationLinkExternalKey } from "@chase-sets/catalog/server";
+import {
+  buildCatalogPrimaryWorkbenchReadModelForSurface,
+  buildScopeSyncBatchPreviewProbeReceipt,
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+  catalogProviderSourceMappingFingerprint,
+  classifyScopeSyncBatchPreviewProbeRefresh,
+  classifyScopeSyncBatchPreviewProbeRequest,
+  deriveScopeSyncBatchPreviewProbeRoster,
+  readScopeSyncBatchPreviewProbeDeployedRoster,
+  scopeSyncBatchPreviewProbeArtifactPath,
+  scopeSyncBatchPreviewProbeCredentialGate,
+  scopeSyncBatchPreviewProbeFormIntent,
+  scopeSyncBatchPreviewProbeJourneyScope,
+  scopeSyncBatchPreviewProbeOriginGate,
+  scopeSyncBatchPreviewProbeRows,
+  scopeSyncBatchPreviewProbeSupportSafeText,
+  sourceObservationLinkExternalKey,
+  summarizeScopeSyncBatchPreviewProbeInbox,
+  summarizeScopeSyncBatchPreviewProbePreview,
+  validateScopeSyncBatchPreviewProbeReceipt,
+  type ScopeSyncBatchPreview,
+  type ScopeSyncBatchPreviewProbeIdentity,
+  type ScopeSyncBatchPreviewProbeInboxObservation,
+  type ScopeSyncBatchPreviewProbeReceipt,
+  type ScopeSyncBatchPreviewProbeRefreshResult,
+  type ScopeSyncBatchPreviewProbeRoster,
+  type ScopeSyncBatchPreviewProbeRowCapture,
+  type ScopeSyncBatchPreviewProbeRowDefinition,
+  type ScopeSyncBatchPreviewProbeScheduleState,
+} from "@chase-sets/catalog/server";
 import type {
   BulkSourceObservationPromotionResult,
   BulkSourceObservationReapplyResult,
@@ -1293,6 +1324,7 @@ function distinctExpansionKeysForJourneys(journeys: readonly ProviderSyncJourney
 }
 
 function providerJourneysForScope(scope: string): readonly ProviderSyncJourney[] {
+  if (previewProbeScopeSkipsMutatingJourney(scope)) return [];
   return scope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
     : scope === "tcgplayer-pokemon-targeted"
@@ -2941,6 +2973,10 @@ test.describe("catalog staging provider sync UAT", () => {
     const startedAt = Date.now();
     test.setTimeout(uatTestTimeoutMs);
     test.skip(!runStagingProviderUat, "Set CATALOG_STAGING_PROVIDER_UAT=true to run the staging provider sync UAT.");
+    test.skip(
+      previewProbeScopeSkipsMutatingJourney(providerUatJourneyScope),
+      "The Scope Sync Batch preview probe runs only in its isolated, non-mutating journey.",
+    );
     test.skip(
       !supportedProviderUatJourneyScopes.includes(
         providerUatJourneyScope as (typeof supportedProviderUatJourneyScopes)[number],
@@ -5816,4 +5852,1132 @@ async function waitForSourceOptionsToSettle(page: Page): Promise<void> {
     .getByText("Loading source options", { exact: true })
     .waitFor({ state: "hidden", timeout: sourceOptionTimeoutMs })
     .catch(() => undefined);
+}
+
+// ---------------------------------------------------------------------------
+// Scope Sync Batch preview probe: six unconfirmed previews through the
+// visible Admin controls, exported as one support-safe receipt. The journey
+// signs in, derives the discovery roster from deployed profiles, clicks Run now
+// once per discovery provider, reads each domain inbox and submits one preview
+// per row. A request fence refuses every state-changing request other than
+// preview and run-now, so an enabled Confirm can never enqueue a batch.
+// ---------------------------------------------------------------------------
+
+const previewProbeTraceControl = process.env.CATALOG_PREVIEW_PROBE_TRACE_CONTROL?.trim() ?? "";
+const previewProbeScopeSelected = providerUatJourneyScope === scopeSyncBatchPreviewProbeJourneyScope;
+
+// A trace, video or failure screenshot would capture the admin credential the
+// sign-in form receives (playwright-trace-secret-exposure). These options are
+// worker-scoped, so they apply file-wide, but only when the probe scope is
+// selected, which skips every other journey in this file.
+if (previewProbeScopeSelected) test.use({ trace: "off", video: "off", screenshot: "off" });
+
+const previewProbeClockSkewToleranceMs = 60_000;
+const previewProbeDeadlineReserveMs = 120_000;
+const previewProbeBudgetFieldNames = [
+  "maxScopesPerTurn",
+  "defaultProviderConcurrency",
+  "scrydexConcurrency",
+  "tcgdexRequestLimit",
+  "scrydexRateRequestLimit",
+  "scrydexRequestLimit",
+  "providerFailureThreshold",
+] as const;
+
+type PreviewProbeFenceViolation = Readonly<{ method: string; path: string; reason: string }>;
+
+type PreviewProbeOptions = Readonly<{
+  origin: string;
+  credentials: Readonly<{ email: string; password: string }>;
+  identity: Readonly<{ sha: string; runId: string; runAttempt: string; retry: number }>;
+  artifactPath: string;
+  deadline: number;
+  signIn: (page: Page) => Promise<void>;
+  refreshNavigationTimeoutMs?: number;
+  refreshSettleTimeoutMs?: number;
+  refreshPollMs?: number;
+}>;
+
+type PreviewProbeRouterSnapshot = Readonly<{ loaderData: unknown; actionData: unknown }>;
+
+async function runScopeSyncBatchPreviewProbe(
+  page: Page,
+  options: PreviewProbeOptions,
+): Promise<ScopeSyncBatchPreviewProbeReceipt> {
+  const startedAt = new Date().toISOString();
+  const origin = options.origin.replace(/\/+$/, "");
+  const identity: ScopeSyncBatchPreviewProbeIdentity = {
+    ...options.identity,
+    journeyScope: scopeSyncBatchPreviewProbeJourneyScope,
+    origin: previewProbeOriginLabel(origin),
+  };
+  const violations: PreviewProbeFenceViolation[] = [];
+  const providersClicked: string[] = [];
+  const captures: ScopeSyncBatchPreviewProbeRowCapture[] = [];
+  let roster: ScopeSyncBatchPreviewProbeRoster | null = null;
+  const build = (refusal: string | null) =>
+    buildScopeSyncBatchPreviewProbeReceipt({
+      identity,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      roster,
+      captures,
+      providersClicked,
+      fenceViolations: violations,
+      refusal,
+    });
+
+  if (identity.retry > 0) {
+    // A retry must never repeat paid discovery refresh or overwrite the first
+    // attempt's receipt; it records an incomplete receipt only when none exists.
+    if (!existsSync(options.artifactPath)) writePreviewProbeReceipt(options.artifactPath, build("retry-refused"));
+    throw new Error(
+      `Scope Sync Batch preview probe refuses retry ${identity.retry}; the first attempt owns the capture.`,
+    );
+  }
+
+  const credentialGate = scopeSyncBatchPreviewProbeCredentialGate(options.credentials);
+  const originGate = scopeSyncBatchPreviewProbeOriginGate(origin);
+  const gateRefusal = !credentialGate.ok ? credentialGate.reason : !originGate.ok ? originGate.reason : null;
+  if (gateRefusal) {
+    writePreviewProbeReceipt(options.artifactPath, build(gateRefusal));
+    throw new Error(`Scope Sync Batch preview probe refused before sign-in: ${gateRefusal}.`);
+  }
+
+  let failure: unknown = null;
+  let refusal: string | null = null;
+  try {
+    await options.signIn(page);
+    await installScopeSyncBatchPreviewProbeFence(page, violations);
+    roster = await readPreviewProbeRoster(page, origin);
+    const refreshes = new Map<string, ScopeSyncBatchPreviewProbeRefreshResult>();
+    for (const providerKey of roster.discoveryProviders) {
+      if (Date.now() >= options.deadline) {
+        refusal = "deadline-exhausted";
+        break;
+      }
+      refreshes.set(
+        providerKey,
+        await refreshPreviewProbeProvider(page, origin, providerKey, providersClicked, options),
+      );
+    }
+    const inboxes = new Map<string, ReturnType<typeof summarizeScopeSyncBatchPreviewProbeInbox>>();
+    for (const definition of scopeSyncBatchPreviewProbeRows) {
+      if (refusal || Date.now() >= options.deadline) {
+        refusal ??= "deadline-exhausted";
+        break;
+      }
+      const inbox =
+        inboxes.get(definition.productDomain) ?? (await readPreviewProbeInbox(page, origin, definition.productDomain));
+      inboxes.set(definition.productDomain, inbox);
+      const preview = await capturePreviewProbePreview(page, origin, definition);
+      const rowProviders = [
+        ...new Set(
+          roster.units
+            .filter(
+              (unit) => unit.productDomain === definition.productDomain && unit.disposition === "discovery-target",
+            )
+            .map((unit) => unit.providerKey),
+        ),
+      ].sort();
+      captures.push({
+        rowKey: definition.rowKey,
+        refresh: rowProviders.flatMap((providerKey) => refreshes.get(providerKey) ?? []),
+        inbox,
+        preview,
+      });
+    }
+  } catch (error) {
+    failure = error;
+    refusal = `capture-failed:${redactPreviewProbeText(error instanceof Error ? error.message : String(error), options)}`;
+  }
+  const receipt = build(refusal);
+  writePreviewProbeReceipt(options.artifactPath, receipt);
+  if (failure) {
+    throw new Error(
+      `Scope Sync Batch preview probe capture failed: ${redactPreviewProbeText(
+        failure instanceof Error ? failure.message : String(failure),
+        options,
+      )}`,
+    );
+  }
+  return receipt;
+}
+
+async function installScopeSyncBatchPreviewProbeFence(
+  page: Page,
+  violations: PreviewProbeFenceViolation[],
+): Promise<void> {
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const decision = classifyScopeSyncBatchPreviewProbeRequest({
+      method: request.method(),
+      url: request.url(),
+      formIntent: scopeSyncBatchPreviewProbeFormIntent(request.postData(), request.headers()["content-type"] ?? null),
+    });
+    if (decision.allowed) {
+      await route.fallback();
+      return;
+    }
+    violations.push({ method: request.method(), path: previewProbePath(request.url()), reason: decision.reason });
+    await route.abort("blockedbyclient");
+  });
+}
+
+async function readPreviewProbeRouterSnapshot(page: Page): Promise<PreviewProbeRouterSnapshot | null> {
+  await page
+    .waitForFunction(
+      () =>
+        Boolean(
+          (window as unknown as { __reactRouterDataRouter?: { state?: { initialized?: boolean } } })
+            .__reactRouterDataRouter?.state?.initialized,
+        ),
+      null,
+      { timeout: pageReadyTimeoutMs },
+    )
+    .catch(() => null);
+  return page.evaluate(() => {
+    const state = (
+      window as unknown as { __reactRouterDataRouter?: { state?: { loaderData?: unknown; actionData?: unknown } } }
+    ).__reactRouterDataRouter?.state;
+    if (!state) return null;
+    try {
+      return JSON.parse(JSON.stringify({ loaderData: state.loaderData ?? null, actionData: state.actionData ?? null }));
+    } catch {
+      return null;
+    }
+  });
+}
+
+function previewProbeNodes(
+  root: unknown,
+  predicate: (node: Record<string, unknown>) => boolean,
+  depth = 0,
+  found: Record<string, unknown>[] = [],
+): Record<string, unknown>[] {
+  if (depth > 12 || !root || typeof root !== "object") return found;
+  if (!Array.isArray(root) && predicate(root as Record<string, unknown>)) found.push(root as Record<string, unknown>);
+  for (const child of Object.values(root)) previewProbeNodes(child, predicate, depth + 1, found);
+  return found;
+}
+
+function isPreviewProbeRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+// The daily Integrations inventory names each unit and its profile pointer; the
+// visible provider-detail route at those coordinates supplies capabilities and
+// option-query scopes.
+async function readPreviewProbeRoster(page: Page, origin: string): Promise<ScopeSyncBatchPreviewProbeRoster> {
+  await page.goto(`${origin}/catalog/integrations`, { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
+  const daily = await readPreviewProbeRouterSnapshot(page);
+  const deployed = await readScopeSyncBatchPreviewProbeDeployedRoster(
+    daily?.loaderData ?? null,
+    async ({ providerKey, unitKey, profileVersion }) => {
+      const url = new URL(`${origin}/catalog/providers/${encodeURIComponent(providerKey)}`);
+      url.searchParams.set("unitKey", unitKey);
+      if (profileVersion) url.searchParams.set("profileVersion", profileVersion);
+      await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
+      return (await readPreviewProbeRouterSnapshot(page))?.loaderData ?? null;
+    },
+  );
+  if (deployed) return deployed;
+  // The deployed Admin exposed no provider inventory: fall back to the
+  // registry at the admitted SHA and keep the capture incomplete.
+  return deriveScopeSyncBatchPreviewProbeRoster(
+    catalogProviderIntegrationProfileVersions.map((version) => ({
+      providerKey: version.providerKey,
+      profileKey: version.profileKey,
+      profileVersion: version.profileVersion,
+      ingestionUnitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+      lifecycle: version.lifecycle,
+      active: version.active,
+      profile: version.profile,
+    })),
+    "registry-at-admitted-sha",
+  );
+}
+
+async function readPreviewProbeSchedule(
+  page: Page,
+  origin: string,
+  providerKey: string,
+): Promise<ScopeSyncBatchPreviewProbeScheduleState | null> {
+  await page.goto(`${origin}/catalog/providers/${encodeURIComponent(providerKey)}`, {
+    waitUntil: "domcontentloaded",
+    timeout: pageReadyTimeoutMs,
+  });
+  const snapshot = await readPreviewProbeRouterSnapshot(page);
+  const schedules = previewProbeNodes(snapshot?.loaderData, (node) => Array.isArray(node.providerRefreshSchedules))
+    .flatMap((node) => node.providerRefreshSchedules as unknown[])
+    .filter(isPreviewProbeRecord);
+  const schedule = schedules.find((item) => item.providerKey === providerKey);
+  if (!schedule) return null;
+  return {
+    lastRunCompletedAt: typeof schedule.lastRunCompletedAt === "string" ? schedule.lastRunCompletedAt : null,
+    lastRunStatus: ["succeeded", "failed", "skipped-no-targets"].includes(String(schedule.lastRunStatus))
+      ? (schedule.lastRunStatus as ScopeSyncBatchPreviewProbeScheduleState["lastRunStatus"])
+      : null,
+    lastRunError: typeof schedule.lastRunError === "string" ? schedule.lastRunError : null,
+  };
+}
+
+async function refreshPreviewProbeProvider(
+  page: Page,
+  origin: string,
+  providerKey: string,
+  providersClicked: string[],
+  options: PreviewProbeOptions,
+): Promise<ScopeSyncBatchPreviewProbeRefreshResult> {
+  const before = await readPreviewProbeSchedule(page, origin, providerKey);
+  const runNow = page
+    .locator(`[data-catalog-provider-refresh-schedule-row="${providerKey}"]`)
+    .getByRole("button", { name: "Run now", exact: true });
+  if (!before || !(await runNow.isVisible({ timeout: controlActionTimeoutMs }).catch(() => false))) {
+    return {
+      ...classifyScopeSyncBatchPreviewProbeRefresh(
+        { providerKey, clickedAt: null, before, after: before },
+        previewProbeClockSkewToleranceMs,
+      ),
+      reason: before ? "run-now-control-unavailable" : "schedule-row-unreadable",
+    };
+  }
+  const clickedAt = new Date().toISOString();
+  providersClicked.push(providerKey);
+  // Run-now executes synchronously inside the POST; its redirect proves
+  // nothing because the action swallows refresh errors.
+  const settled = page.waitForEvent("load", { timeout: options.refreshNavigationTimeoutMs ?? 600_000 });
+  await runNow.click();
+  await settled.catch(() => null);
+  const settleDeadline = Math.min(options.deadline, Date.now() + (options.refreshSettleTimeoutMs ?? 600_000));
+  for (;;) {
+    const after = await readPreviewProbeSchedule(page, origin, providerKey);
+    const result = classifyScopeSyncBatchPreviewProbeRefresh(
+      { providerKey, clickedAt, before, after },
+      previewProbeClockSkewToleranceMs,
+    );
+    if (result.status !== "unknown" || Date.now() >= settleDeadline) return result;
+    await page.waitForTimeout(options.refreshPollMs ?? 15_000);
+  }
+}
+
+async function readPreviewProbeInbox(page: Page, origin: string, productDomain: string) {
+  await page.goto(`${origin}/catalog/scope-coverage?productDomain=${encodeURIComponent(productDomain)}`, {
+    waitUntil: "domcontentloaded",
+    timeout: pageReadyTimeoutMs,
+  });
+  const snapshot = await readPreviewProbeRouterSnapshot(page);
+  const inbox = previewProbeNodes(
+    snapshot?.loaderData,
+    (node) =>
+      typeof node.schemaVersion === "string" &&
+      Array.isArray(node.groups) &&
+      isPreviewProbeRecord(node.counts) &&
+      typeof node.counts.totalCandidates === "number",
+  )[0];
+  return summarizeScopeSyncBatchPreviewProbeInbox(
+    inbox ? (inbox as unknown as ScopeSyncBatchPreviewProbeInboxObservation) : null,
+  );
+}
+
+async function capturePreviewProbePreview(
+  page: Page,
+  origin: string,
+  definition: ScopeSyncBatchPreviewProbeRowDefinition,
+) {
+  await page.goto(`${origin}/catalog/scopes/sync-batches`, {
+    waitUntil: "domcontentloaded",
+    timeout: pageReadyTimeoutMs,
+  });
+  await readPreviewProbeRouterSnapshot(page);
+  const previewButton = page.getByRole("button", { name: "Preview batch", exact: true });
+  const form = page.locator("form").filter({ has: previewButton });
+  await choosePreviewProbeSelect(page, form, "Selection", "selectionMode", "matching-scope", "Matching scope");
+  await choosePreviewProbeSelect(page, form, "Product domain", "productDomain", definition.productDomain);
+  await choosePreviewProbeSelect(page, form, "Scope kind", "scopeKind", definition.scopeKind);
+  const language = form.locator('input[name="languageCode"]');
+  await language.fill(definition.languageCode ?? "");
+  const formBudget: Record<string, string> = {};
+  for (const name of previewProbeBudgetFieldNames) {
+    formBudget[name] = await form.locator(`input[name="${name}"]`).inputValue();
+  }
+  const submitted = {
+    productDomain: await form.locator('input[type="hidden"][name="productDomain"]').inputValue(),
+    scopeKind: await form.locator('input[type="hidden"][name="scopeKind"]').inputValue(),
+    languageCode: (await language.inputValue()).trim() || null,
+  };
+  const loaded = page.waitForEvent("load", { timeout: pageReadyTimeoutMs });
+  await previewButton.click();
+  await loaded;
+  const snapshot = await readPreviewProbeRouterSnapshot(page);
+  const action = previewProbeNodes(
+    snapshot?.actionData,
+    (node) => Object.hasOwn(node, "preview") && Object.hasOwn(node, "error"),
+  )[0];
+  const response = isPreviewProbeRecord(action?.preview) ? (action.preview as unknown as ScopeSyncBatchPreview) : null;
+  const rendered =
+    response?.planFingerprint &&
+    (await page
+      .getByText(response.planFingerprint, { exact: true })
+      .first()
+      .isVisible()
+      .catch(() => false));
+  return summarizeScopeSyncBatchPreviewProbePreview({
+    submitted,
+    formBudget,
+    response,
+    error: typeof action?.error === "string" ? action.error : null,
+    renderedPlanFingerprint: rendered ? (response?.planFingerprint ?? null) : null,
+  });
+}
+
+async function choosePreviewProbeSelect(
+  page: Page,
+  form: Locator,
+  label: string,
+  name: string,
+  value: string,
+  optionLabel = value,
+): Promise<void> {
+  const hidden = form.locator(`input[type="hidden"][name="${name}"]`);
+  if ((await hidden.inputValue()) === value) return;
+  await form.getByRole("combobox", { name: label, exact: true }).click();
+  await page.getByRole("option", { name: optionLabel, exact: true }).click();
+  await expect(hidden).toHaveValue(value, { timeout: controlActionTimeoutMs });
+}
+
+function writePreviewProbeReceipt(path: string, receipt: ScopeSyncBatchPreviewProbeReceipt): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  renameSync(temporary, path);
+}
+
+function previewProbeOriginLabel(origin: string): string {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return "unparseable-origin";
+  }
+}
+
+function previewProbePath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "unparseable-url";
+  }
+}
+
+function redactPreviewProbeText(value: string, options: PreviewProbeOptions): string {
+  let text = value;
+  for (const secret of [options.credentials.email, options.credentials.password]) {
+    if (secret.trim()) text = text.split(secret.trim()).join("[credential]");
+  }
+  return scopeSyncBatchPreviewProbeSupportSafeText(text, 300);
+}
+
+// --- Synthetic Admin used by the local, server-less probe cases -----------
+
+type SyntheticPreviewProbeRunNow = "succeeded" | "failed" | "swallowed-error";
+
+type SyntheticPreviewProbeReadModelInput = Parameters<typeof buildCatalogPrimaryWorkbenchReadModelForSurface>[1];
+type SyntheticPreviewProbeReview = SyntheticPreviewProbeReadModelInput["profileReviews"]["items"][number];
+
+type SyntheticPreviewProbeAdmin = {
+  // Profile reviews as the Catalog API returns them; every page renders them
+  // through the canonical read-model builders the deployed loaders call.
+  profiles: SyntheticPreviewProbeReview[] | null;
+  // Units whose provider-detail page renders without their profile.
+  omitDetailUnits: Set<string>;
+  schedules: Map<string, ScopeSyncBatchPreviewProbeScheduleState>;
+  runNow: Map<string, SyntheticPreviewProbeRunNow>;
+  inbox: Map<string, ScopeSyncBatchPreviewProbeInboxObservation | null>;
+  received: { method: string; path: string; intent: string | null }[];
+};
+
+const syntheticPreviewProbeOrigin = "https://admin.staging.chasesets.com";
+const syntheticPreviewProbeIdentity = {
+  sha: "0".repeat(39) + "1",
+  runId: "424242",
+  runAttempt: "1",
+  retry: 0,
+} as const;
+
+function syntheticPreviewProbeProfile(
+  providerKey: string,
+  unitKey: string,
+  scopes: readonly string[],
+  overrides: Partial<SyntheticPreviewProbeReview> = {},
+): SyntheticPreviewProbeReview {
+  const capabilities = scopes.length > 0 ? ["provider-option-query"] : [];
+  const productDomain = unitKey.split(":")[1] ?? "catalog";
+  return {
+    providerKey,
+    profileKey: `${providerKey}-synthetic`,
+    // One version across a provider's units, so only the unitKey coordinate
+    // tells TCGplayer's five units apart on the provider-detail route.
+    profileVersion: "2026.10.09",
+    ingestionUnitKey: unitKey,
+    displayName: `${providerKey} ${productDomain} synthetic`,
+    lifecycle: "active",
+    active: true,
+    status: "active",
+    connectorKind: "synthetic",
+    profile: {
+      providerKey,
+      capabilities,
+      optionQueries: scopes.map((scope) => ({
+        queryKind: `${scope}-options`,
+        displayName: `${scope} options`,
+        scope,
+        parentScope: null,
+        operation: "list-options",
+        output: { valuePath: "id", labelPath: "name" },
+      })),
+    } as unknown as SyntheticPreviewProbeReview["profile"],
+    sourceContract: {
+      owner: "chase-sets/catalog",
+      repository: "chase-sets/chase-sets",
+      commit: null,
+      documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "synthetic-v1",
+    } as unknown as SyntheticPreviewProbeReview["sourceContract"],
+    fixtures: {
+      fixtureRoot: "synthetic",
+      coveredFlows: [],
+      liveProviderCallsAllowed: false,
+    } as unknown as SyntheticPreviewProbeReview["fixtures"],
+    retirementPlan: null,
+    executableMappingContract: {} as SyntheticPreviewProbeReview["executableMappingContract"],
+    referenceCount: 0,
+    capabilities,
+    supportedScopes: [`${productDomain}/card`],
+    languageOptions: ["en"],
+    sourceOptionKinds: [],
+    mappingOutputKind: "provider-product",
+    hasExecutableMappingContract: false,
+    migrationEvidence: null,
+    authoringAudit: null,
+    validation: { status: "valid", diagnostics: [] },
+    ...overrides,
+  };
+}
+
+function syntheticPreviewProbeReadModel(
+  surface: "daily" | "health",
+  requestUrl: URL,
+  reviews: readonly SyntheticPreviewProbeReview[],
+) {
+  return buildCatalogPrimaryWorkbenchReadModelForSurface(surface, {
+    requestUrl,
+    scopes: { items: [], total: 0, count: 0 },
+    profileReviews: { items: [...reviews], total: reviews.length, count: reviews.length },
+    controlPlaneOverview: null,
+    canManageCatalog: true,
+  } as SyntheticPreviewProbeReadModelInput);
+}
+
+function createSyntheticPreviewProbeAdmin(): SyntheticPreviewProbeAdmin {
+  const earlier = {
+    lastRunCompletedAt: "2026-01-01T00:00:00.000Z",
+    lastRunStatus: "succeeded" as const,
+    lastRunError: null,
+  };
+  return {
+    // TCGplayer is shared by all five domains, so one Run now covers them all;
+    // MTGJSON has no option query (unsupported) and the Lorcast test profile is
+    // not production-capable.
+    profiles: [
+      ...["pokemon", "mtg", "yugioh", "one-piece", "lorcana"].map((domain) =>
+        syntheticPreviewProbeProfile("tcgplayer", `tcgplayer:${domain}:single-card:source-observation-import`, [
+          "set-name",
+        ]),
+      ),
+      syntheticPreviewProbeProfile("tcgdex", "tcgdex:pokemon:single-card:source-observation-import", ["expansion"]),
+      syntheticPreviewProbeProfile("scrydex", "scrydex:one-piece:single-card:source-observation-import", ["set-name"]),
+      syntheticPreviewProbeProfile("mtgjson", "mtgjson:mtg:single-card:source-observation-import", []),
+      syntheticPreviewProbeProfile("lorcast", "lorcast:lorcana:single-card:source-observation-import", ["set-name"], {
+        lifecycle: "test",
+      }),
+    ],
+    omitDetailUnits: new Set(),
+    schedules: new Map(["tcgplayer", "tcgdex", "scrydex"].map((providerKey) => [providerKey, { ...earlier }])),
+    runNow: new Map(),
+    inbox: new Map(
+      ["pokemon", "magic", "yugioh", "one-piece", "lorcana"].map((domain) => [
+        domain,
+        {
+          generatedAt: "2026-10-09T00:00:00.000Z",
+          counts:
+            domain === "yugioh"
+              ? { totalGroups: 410, totalCandidates: 1000, highConfidenceCandidates: 12 }
+              : { totalGroups: 3, totalCandidates: 4, highConfidenceCandidates: 1 },
+        },
+      ]),
+    ),
+    received: [],
+  };
+}
+
+function syntheticPreviewProbePreview(form: URLSearchParams): ScopeSyncBatchPreview {
+  const productDomain = form.get("productDomain") ?? "";
+  const scopeKind = (form.get("scopeKind") ?? "set") as "set" | "expansion";
+  const languageCode = form.get("languageCode")?.trim() || null;
+  const scopes = productDomain === "yugioh" ? 5000 : productDomain === "lorcana" ? 0 : 12;
+  const scrydex = productDomain === "one-piece";
+  const blockers: ScopeSyncBatchPreview["blockers"] =
+    scopes === 0
+      ? [
+          {
+            code: "empty-selection",
+            scopeRecordId: null,
+            providerKey: null,
+            message: "No eligible active Catalog Scope Records matched this selection.",
+          },
+        ]
+      : scrydex
+        ? [
+            {
+              code: "credited-provider-budget-exceeded",
+              scopeRecordId: null,
+              providerKey: "scrydex",
+              message: "scrydex estimated requests (24) exceed the configured batch limit (0).",
+            },
+          ]
+        : [];
+  const providers =
+    productDomain === "pokemon" ? ["tcgdex", "tcgplayer"] : scrydex ? ["scrydex", "tcgplayer"] : ["tcgplayer"];
+  const ready = blockers.length === 0;
+  return {
+    previewVersion: "scope-sync-batch-preview-v1",
+    selection: { mode: "matching-scope", query: { productDomain, scopeKind, languageCode } },
+    budget: {
+      maxScopesPerTurn: Number(form.get("maxScopesPerTurn")),
+      defaultProviderConcurrency: Number(form.get("defaultProviderConcurrency")),
+      providerConcurrency: { scrydex: Number(form.get("scrydexConcurrency")) },
+      providerRequestLimits: {
+        tcgdex: Number(form.get("tcgdexRequestLimit")),
+        scrydex: Number(form.get("scrydexRateRequestLimit")),
+      },
+      creditedProviderRequestLimits: { scrydex: Number(form.get("scrydexRequestLimit")) },
+      providerFailureThreshold: Number(form.get("providerFailureThreshold")),
+    },
+    planFingerprint: `synthetic-fingerprint-${productDomain}-${languageCode ?? "unset"}`,
+    status: scopes === 0 ? "empty" : ready ? "ready" : "blocked",
+    confirmAllowed: ready,
+    counts: {
+      scopes,
+      readyScopes: ready ? scopes : 0,
+      blockedScopes: ready ? 0 : scopes,
+      providerUnits: scopes * providers.length,
+    },
+    providerUnitTotals: Object.fromEntries(providers.map((provider) => [provider, scopes])),
+    providerRequestEstimates: Object.fromEntries(providers.map((provider) => [provider, scopes * 2])),
+    samples: [],
+    blockers,
+    resolvedAt: "2026-10-09T01:00:00.000Z",
+  };
+}
+
+function syntheticPreviewProbeDocument(body: string, routerState: Record<string, unknown>): string {
+  return `<!doctype html><html data-admin-web-hydrated="true"><body>${body}<script>window.__reactRouterDataRouter={state:${JSON.stringify(
+    { initialized: true, loaderData: {}, actionData: null, ...routerState },
+  )}};</script></body></html>`;
+}
+
+function syntheticPreviewProbeSelect(label: string, name: string, value: string, options: readonly string[][]): string {
+  return `<label for="select-${name}">${label}</label><input type="hidden" name="${name}" value="${value}">
+<button type="button" role="combobox" id="select-${name}" onclick="document.getElementById('list-${name}').hidden=false">${value}</button>
+<div role="listbox" id="list-${name}" hidden>${options
+    .map(
+      ([optionValue, optionLabel]) =>
+        `<div role="option" onclick="document.querySelector('input[name=${name}]').value='${optionValue}';this.parentElement.hidden=true">${optionLabel ?? optionValue}</div>`,
+    )
+    .join("")}</div>`;
+}
+
+function syntheticPreviewProbeBatchPage(preview: ScopeSyncBatchPreview | null): string {
+  const budget = [
+    ["maxScopesPerTurn", "1"],
+    ["defaultProviderConcurrency", "1"],
+    ["scrydexConcurrency", "1"],
+    ["tcgdexRequestLimit", "1000"],
+    ["scrydexRateRequestLimit", "1000"],
+    ["scrydexRequestLimit", "0"],
+    ["providerFailureThreshold", "3"],
+  ];
+  return `<h1>Scope Sync Batches</h1><form method="post" action="/catalog/scopes/sync-batches">
+${syntheticPreviewProbeSelect("Selection", "selectionMode", "matching-scope", [
+  ["matching-scope", "Matching scope"],
+  ["ids", "Explicit Scope Record IDs"],
+])}
+${syntheticPreviewProbeSelect(
+  "Product domain",
+  "productDomain",
+  "pokemon",
+  ["pokemon", "magic", "yugioh", "one-piece", "lorcana"].map((value) => [value]),
+)}
+${syntheticPreviewProbeSelect(
+  "Scope kind",
+  "scopeKind",
+  "set",
+  ["product-line", "series", "expansion", "set"].map((value) => [value]),
+)}
+<label>Language <input name="languageCode" value="en"></label>
+${budget.map(([name, value]) => `<label>${name} <input type="number" name="${name}" value="${value}"></label>`).join("")}
+<button type="submit" name="intent" value="preview">Preview batch</button></form>
+${
+  preview
+    ? `<section><p>${preview.planFingerprint}</p>${
+        preview.confirmAllowed
+          ? `<form method="post" action="/catalog/scopes/sync-batches"><input type="hidden" name="intent" value="confirm"><input type="hidden" name="planFingerprint" value="${preview.planFingerprint}"><button type="submit">Confirm and enqueue</button></form>`
+          : ""
+      }</section>`
+    : ""
+}
+<section><form method="post" action="/catalog/scopes/sync-batches"><input type="hidden" name="intent" value="retry-unit"><input type="hidden" name="batchId" value="batch-synthetic"><button type="submit">Retry unit</button></form>
+<form method="post" action="/catalog/scopes/sync-batches"><input type="hidden" name="intent" value="resume"><input type="hidden" name="batchId" value="batch-synthetic"><button type="submit">Resume batch</button></form></section>`;
+}
+
+async function installSyntheticPreviewProbeAdmin(page: Page, admin: SyntheticPreviewProbeAdmin): Promise<void> {
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const body = request.postData();
+    const intent = scopeSyncBatchPreviewProbeFormIntent(body, request.headers()["content-type"] ?? null);
+    admin.received.push({ method: request.method(), path: url.pathname, intent });
+    const html = (content: string) => route.fulfill({ status: 200, contentType: "text/html", body: content });
+    const providerMatch = url.pathname.match(/^\/catalog\/providers\/([^/]+)$/);
+
+    // POSTs render their destination directly instead of a redirect.
+    const signedIn = url.pathname === "/access/sign-in" && request.method() === "POST";
+    if (url.pathname === "/access/sign-in" && !signedIn) {
+      return html(
+        `<!doctype html><html><body><div id="email-step"><label>Email <input type="email" name="email"></label><button type="button" onclick="document.getElementById('email-step').hidden=true;document.getElementById('password-step').hidden=false">Continue</button></div><form id="password-step" hidden method="post" action="/access/sign-in"><label>Password <input type="password" name="password"></label><button type="submit">Sign in</button></form></body></html>`,
+      );
+    }
+    if (signedIn || url.pathname === "/catalog/integrations") {
+      return html(
+        syntheticPreviewProbeDocument(
+          `<h1>Pull provider data, review Source Observations, promote Catalog facts</h1>`,
+          {
+            loaderData: {
+              "catalog/catalog/integrations": admin.profiles
+                ? {
+                    readModel: syntheticPreviewProbeReadModel(
+                      "daily",
+                      new URL("/catalog/integrations", url),
+                      admin.profiles,
+                    ),
+                  }
+                : {},
+            },
+          },
+        ),
+      );
+    }
+    if (providerMatch && request.method() === "POST") {
+      const providerKey = decodeURIComponent(providerMatch[1] ?? "");
+      if (intent === "run-provider-refresh") {
+        const behavior = admin.runNow.get(providerKey) ?? "succeeded";
+        if (behavior !== "swallowed-error") {
+          admin.schedules.set(providerKey, {
+            lastRunCompletedAt: new Date().toISOString(),
+            lastRunStatus: behavior,
+            lastRunError:
+              behavior === "failed" ? "Provider timed out at https://provider.example.invalid/v1/sets" : null,
+          });
+        }
+      }
+    }
+    if (providerMatch) {
+      const providerKey = decodeURIComponent(providerMatch[1] ?? "");
+      const schedule = admin.schedules.get(providerKey);
+      // The provider-detail loader seeds providerKey from the path before
+      // composing the health surface.
+      const detailUrl = new URL(url);
+      detailUrl.searchParams.set("providerKey", providerKey);
+      const omitted = admin.omitDetailUnits.has(url.searchParams.get("unitKey") ?? "");
+      const readModel = admin.profiles
+        ? syntheticPreviewProbeReadModel(
+            "health",
+            detailUrl,
+            admin.profiles.filter(
+              (profile) => !omitted || profile.ingestionUnitKey !== url.searchParams.get("unitKey"),
+            ),
+          )
+        : null;
+      return html(
+        syntheticPreviewProbeDocument(
+          schedule
+            ? `<div data-catalog-provider-refresh-schedule-row="${providerKey}"><form method="post" action="${url.pathname}"><input type="hidden" name="_intent" value="pause-provider-refresh"><button type="submit">Pause</button></form><form method="post" action="${url.pathname}"><input type="hidden" name="_intent" value="run-provider-refresh"><button type="submit">Run now</button></form></div>`
+            : "",
+          {
+            loaderData: {
+              "catalog/catalog/providers/$providerKey": {
+                ...(readModel ? { readModel } : {}),
+                providerRefreshSchedules: schedule ? [{ providerKey, ...schedule }] : [],
+              },
+            },
+          },
+        ),
+      );
+    }
+    if (url.pathname === "/catalog/scope-coverage") {
+      const productDomain = url.searchParams.get("productDomain") ?? "";
+      const inbox = admin.inbox.get(productDomain) ?? null;
+      return html(
+        syntheticPreviewProbeDocument("<h1>Unmapped scope inbox</h1>", {
+          loaderData: {
+            "scope-coverage": {
+              data: inbox ? { schemaVersion: "scope-coverage-v1", groups: [], ...inbox } : null,
+              productDomain,
+            },
+          },
+        }),
+      );
+    }
+    if (url.pathname === "/catalog/scopes/sync-batches" && request.method() === "POST") {
+      if (intent !== "preview") return html(syntheticPreviewProbeDocument(syntheticPreviewProbeBatchPage(null), {}));
+      const preview = syntheticPreviewProbePreview(new URLSearchParams(body ?? ""));
+      return html(
+        syntheticPreviewProbeDocument(syntheticPreviewProbeBatchPage(preview), {
+          actionData: { "scope-sync-batches": { preview, heldSetResolution: null, error: null } },
+        }),
+      );
+    }
+    if (url.pathname === "/catalog/scopes/sync-batches") {
+      return html(syntheticPreviewProbeDocument(syntheticPreviewProbeBatchPage(null), {}));
+    }
+    return route.fulfill({ status: 404, contentType: "text/plain", body: "synthetic route not found" });
+  });
+}
+
+function syntheticPreviewProbeOptions(
+  testInfo: { outputPath: (...segments: string[]) => string },
+  overrides: Partial<PreviewProbeOptions> = {},
+): PreviewProbeOptions {
+  return {
+    origin: syntheticPreviewProbeOrigin,
+    credentials: { email: "synthetic-admin@example.invalid", password: "synthetic-admin-password" },
+    identity: syntheticPreviewProbeIdentity,
+    artifactPath: testInfo.outputPath("catalog-scale-probe", "preview.json"),
+    deadline: Date.now() + 120_000,
+    signIn: signInThroughVisibleForm,
+    refreshNavigationTimeoutMs: 10_000,
+    refreshSettleTimeoutMs: 1_500,
+    refreshPollMs: 250,
+    ...overrides,
+  };
+}
+
+function readPreviewProbeReceiptFile(path: string): ScopeSyncBatchPreviewProbeReceipt {
+  return JSON.parse(readFileSync(path, "utf8")) as ScopeSyncBatchPreviewProbeReceipt;
+}
+
+test.describe("catalog staging Scope Sync Batch preview probe", () => {
+  // Retries would repeat paid discovery refresh and rewrite the receipt, and
+  // the configured on-first-retry trace would record the sign-in credential.
+  test.describe.configure({ retries: 0 });
+
+  test("captures six unconfirmed previews through visible Admin controls @catalog-staging-preview-probe", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      !runStagingProviderUat || providerUatJourneyScope !== scopeSyncBatchPreviewProbeJourneyScope,
+      "Set CATALOG_STAGING_PROVIDER_UAT=true and CATALOG_STAGING_PROVIDER_UAT_SCOPE=scope-sync-batch-preview-probe.",
+    );
+    test.setTimeout(uatTestTimeoutMs);
+    const receipt = await runScopeSyncBatchPreviewProbe(page, {
+      origin: process.env.ADMIN_WEB_URL ?? "",
+      credentials: { email: catalogAdminEmail, password: catalogAdminPassword },
+      identity: {
+        sha: process.env.GITHUB_SHA ?? "",
+        runId: process.env.GITHUB_RUN_ID ?? "",
+        runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "",
+        retry: testInfo.retry,
+      },
+      artifactPath: scopeSyncBatchPreviewProbeArtifactPath,
+      deadline: Date.now() + uatTestTimeoutMs - previewProbeDeadlineReserveMs,
+      signIn: signInThroughVisibleForm,
+    });
+    expect(receipt.fence.violations).toEqual([]);
+    expect(receipt.captureStatus, receipt.incompleteReasons.join("; ")).toBe("complete");
+  });
+
+  test("selector resolves only the isolated preview journey", () => {
+    expect(providerJourneysForScope(scopeSyncBatchPreviewProbeJourneyScope)).toEqual([]);
+    expect(supportedProviderUatJourneyScopes).not.toContain(scopeSyncBatchPreviewProbeJourneyScope);
+    expect(previewProbeScopeSkipsMutatingJourney(scopeSyncBatchPreviewProbeJourneyScope)).toBe(true);
+    expect(previewProbeScopeSkipsMutatingJourney("one-piece-launch")).toBe(false);
+  });
+
+  test("synthetic six-domain capture refreshes each discovery provider once and never sends an execution intent", async ({
+    page,
+  }, testInfo) => {
+    const admin = createSyntheticPreviewProbeAdmin();
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    const options = syntheticPreviewProbeOptions(testInfo);
+    const receipt = await runScopeSyncBatchPreviewProbe(page, options);
+
+    const posts = admin.received.filter((request) => request.method === "POST" && request.path !== "/access/sign-in");
+    expect(posts.filter((request) => request.intent === "run-provider-refresh").map((request) => request.path)).toEqual(
+      ["/catalog/providers/scrydex", "/catalog/providers/tcgdex", "/catalog/providers/tcgplayer"],
+    );
+    expect(posts.filter((request) => request.intent === "preview")).toHaveLength(6);
+    expect(posts.every((request) => ["run-provider-refresh", "preview"].includes(request.intent ?? ""))).toBe(true);
+    expect(receipt.fence.violations).toEqual([]);
+    expect(validateScopeSyncBatchPreviewProbeReceipt(receipt, syntheticPreviewProbeIdentity)).toEqual({
+      ok: true,
+      errors: [],
+    });
+    expect(receipt.captureStatus, receipt.incompleteReasons.join("; ")).toBe("complete");
+    expect(readPreviewProbeReceiptFile(options.artifactPath)).toEqual(receipt);
+
+    const row = (key: string) => receipt.rows.find((candidate) => candidate.rowKey === key)!;
+    expect(row("pokemon-en").preview.submitted).toEqual({
+      productDomain: "pokemon",
+      scopeKind: "expansion",
+      languageCode: "en",
+    });
+    expect(row("pokemon-ja").preview.submitted).toEqual({
+      productDomain: "pokemon",
+      scopeKind: "expansion",
+      languageCode: "ja",
+    });
+    expect(row("magic").preview.submitted).toEqual({ productDomain: "magic", scopeKind: "set", languageCode: null });
+    expect(row("pokemon-ja").roster.languageCoverage).toEqual({
+      requested: "ja",
+      discoveryLanguages: ["en"],
+      gap: true,
+    });
+    expect(row("pokemon-ja").gaps).toContain("discovery-language-gap:ja");
+    expect(row("pokemon-en").scopeRecordSet.sharedWith).toBe("pokemon-ja");
+    expect(row("magic").preview.confirmAllowed).toBe(true);
+    expect(row("magic").roster.units.find((unit) => unit.providerKey === "mtgjson")?.disposition).toBe("unsupported");
+    expect(row("lorcana").roster.units.map((unit) => unit.providerKey)).toEqual(["tcgplayer"]);
+    expect(row("lorcana").preview.eligibleScopeRecords).toMatchObject({ count: 0, completeness: "complete" });
+    expect(row("lorcana").preview.eligibleScopeRecords.zeroReason).toContain(
+      "No eligible active Catalog Scope Records",
+    );
+    expect(row("yugioh").preview.eligibleScopeRecords.completeness).toBe("capped");
+    expect(row("yugioh").inbox.completeness).toBe("capped");
+    expect(row("one-piece").preview.scrydex).toMatchObject({
+      participating: true,
+      requestEstimate: 24,
+      creditLimit: 0,
+    });
+    expect(row("one-piece").preview.scrydex.refusal).toContain("exceed the configured batch limit (0)");
+    expect(row("one-piece").preview.effectiveBudget?.creditedProviderRequestLimits).toEqual({ scrydex: 0 });
+    expect(row("one-piece").preview.formBudget).toMatchObject({ scrydexRequestLimit: "0", tcgdexRequestLimit: "1000" });
+    expect(receipt.spendDisclosure).toMatchObject({ scrydexRefreshClicked: true, scrydexLiveCallCount: "unknown" });
+    expect(receipt.rows.every((candidate) => candidate.preview.wallClock.estimate === "unknown")).toBe(true);
+    // Deployed coverage for every production-capable unit, read from the
+    // canonical daily inventory and each unit's provider-detail page.
+    expect(receipt.rows.every((candidate) => candidate.roster.source === "deployed-admin-profiles")).toBe(true);
+    expect(receipt.rows.flatMap((candidate) => candidate.roster.unresolvedUnits)).toEqual([]);
+    expect(
+      [...new Set(receipt.rows.flatMap((candidate) => candidate.roster.units.map((unit) => unit.unitKey)))].sort(),
+    ).toEqual([
+      "mtgjson:mtg:single-card:source-observation-import",
+      "scrydex:one-piece:single-card:source-observation-import",
+      "tcgdex:pokemon:single-card:source-observation-import",
+      "tcgplayer:lorcana:single-card:source-observation-import",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "tcgplayer:one-piece:single-card:source-observation-import",
+      "tcgplayer:pokemon:single-card:source-observation-import",
+      "tcgplayer:yugioh:single-card:source-observation-import",
+    ]);
+    const detailReads = admin.received.filter(
+      (request) => request.method === "GET" && request.path.startsWith("/catalog/providers/"),
+    );
+    expect(detailReads.length).toBeGreaterThan(0);
+  });
+
+  test("an omitted provider-detail profile leaves its deployed unit unresolved and the capture incomplete", async ({
+    page,
+  }, testInfo) => {
+    const omittedUnit = "tcgdex:pokemon:single-card:source-observation-import";
+    const admin = createSyntheticPreviewProbeAdmin();
+    admin.omitDetailUnits.add(omittedUnit);
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    const receipt = await runScopeSyncBatchPreviewProbe(page, syntheticPreviewProbeOptions(testInfo));
+
+    const posts = admin.received.filter((request) => request.method === "POST" && request.path !== "/access/sign-in");
+    expect(posts.filter((request) => request.intent === "run-provider-refresh").map((request) => request.path)).toEqual(
+      ["/catalog/providers/scrydex", "/catalog/providers/tcgplayer"],
+    );
+    for (const rowKey of ["pokemon-en", "pokemon-ja"]) {
+      const row = receipt.rows.find((candidate) => candidate.rowKey === rowKey)!;
+      expect(row.roster.source).toBe("deployed-admin-profiles");
+      expect(row.roster.unresolvedUnits).toEqual([
+        {
+          providerKey: "tcgdex",
+          unitKey: omittedUnit,
+          productDomain: "pokemon",
+          reason: "provider-detail-profile-stale-selection",
+        },
+      ]);
+      expect(row.gaps).toContain(`roster-unresolved:${omittedUnit}`);
+    }
+    expect(receipt.captureStatus).toBe("incomplete");
+    expect(receipt.incompleteReasons).toEqual([
+      `pokemon-en:roster-unresolved:${omittedUnit}`,
+      `pokemon-ja:roster-unresolved:${omittedUnit}`,
+    ]);
+    expect(validateScopeSyncBatchPreviewProbeReceipt(receipt, syntheticPreviewProbeIdentity)).toEqual({
+      ok: true,
+      errors: [],
+    });
+  });
+
+  test("request fence refuses confirm, retry-unit, pause and resume; the fence-bypass control reaches the spy", async ({
+    page,
+  }) => {
+    const intentsReaching = async (fenced: boolean) => {
+      const admin = createSyntheticPreviewProbeAdmin();
+      await installSyntheticPreviewProbeAdmin(page, admin);
+      const violations: PreviewProbeFenceViolation[] = [];
+      if (fenced) await installScopeSyncBatchPreviewProbeFence(page, violations);
+      const click = async (path: string, name: string, method: "goto" | "preview" = "goto") => {
+        await page.goto(`${syntheticPreviewProbeOrigin}${path}`);
+        if (method === "preview") {
+          await page.getByRole("combobox", { name: "Product domain", exact: true }).click();
+          await page.getByRole("option", { name: "magic", exact: true }).click();
+          const loaded = page.waitForEvent("load");
+          await page.getByRole("button", { name: "Preview batch" }).click();
+          await loaded;
+        }
+        await page.getByRole("button", { name, exact: true }).click();
+        await page.waitForLoadState("domcontentloaded").catch(() => null);
+        await page.waitForTimeout(200);
+      };
+      await click("/catalog/scopes/sync-batches", "Confirm and enqueue", "preview");
+      await click("/catalog/scopes/sync-batches", "Retry unit");
+      await click("/catalog/scopes/sync-batches", "Resume batch");
+      await click("/catalog/providers/tcgplayer", "Pause");
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+      return {
+        intents: admin.received.filter((request) => request.method === "POST").map((request) => request.intent),
+        violations: violations.map((violation) => violation.reason),
+      };
+    };
+
+    const fenced = await intentsReaching(true);
+    expect(fenced.intents).toEqual(["preview"]);
+    expect(fenced.violations).toEqual([
+      "forbidden-intent:confirm",
+      "forbidden-intent:retry-unit",
+      "forbidden-intent:resume",
+      "forbidden-intent:pause-provider-refresh",
+    ]);
+    const bypass = await intentsReaching(false);
+    expect(bypass.intents).toEqual(["preview", "confirm", "retry-unit", "resume", "pause-provider-refresh"]);
+  });
+
+  test("a swallowed or failed run-now never records a refreshed provider", async ({ page }, testInfo) => {
+    const admin = createSyntheticPreviewProbeAdmin();
+    admin.runNow.set("tcgdex", "swallowed-error");
+    admin.runNow.set("scrydex", "failed");
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    const receipt = await runScopeSyncBatchPreviewProbe(page, syntheticPreviewProbeOptions(testInfo));
+    const pokemon = receipt.rows.find((row) => row.rowKey === "pokemon-en")!;
+    const onePiece = receipt.rows.find((row) => row.rowKey === "one-piece")!;
+    expect(pokemon.refresh.find((result) => result.providerKey === "tcgdex")).toMatchObject({
+      status: "unknown",
+      reason: "last-run-not-after-click",
+      lastRunStatus: "succeeded",
+    });
+    expect(onePiece.refresh.find((result) => result.providerKey === "scrydex")).toMatchObject({ status: "failed" });
+    expect(onePiece.refresh.find((result) => result.providerKey === "scrydex")?.reason).not.toContain("https://");
+    expect(receipt.captureStatus).toBe("incomplete");
+    expect(receipt.incompleteReasons).toContain("pokemon-en:refresh-unknown:tcgdex");
+    expect(validateScopeSyncBatchPreviewProbeReceipt(receipt, syntheticPreviewProbeIdentity).ok).toBe(true);
+  });
+
+  test("a retry never refreshes, previews or overwrites the first attempt's receipt", async ({ page }, testInfo) => {
+    const admin = createSyntheticPreviewProbeAdmin();
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    const kept = syntheticPreviewProbeOptions(testInfo, { identity: { ...syntheticPreviewProbeIdentity, retry: 1 } });
+    mkdirSync(dirname(kept.artifactPath), { recursive: true });
+    writeFileSync(kept.artifactPath, "first-attempt-receipt", "utf8");
+    await expect(runScopeSyncBatchPreviewProbe(page, kept)).rejects.toThrow(/refuses retry 1/);
+    expect(readFileSync(kept.artifactPath, "utf8")).toBe("first-attempt-receipt");
+
+    const fresh = { ...kept, artifactPath: testInfo.outputPath("retry-without-first", "preview.json") };
+    await expect(runScopeSyncBatchPreviewProbe(page, fresh)).rejects.toThrow(/refuses retry 1/);
+    const receipt = readPreviewProbeReceiptFile(fresh.artifactPath);
+    expect(receipt.identity.retry).toBe(1);
+    expect(receipt.captureStatus).toBe("incomplete");
+    expect(receipt.incompleteReasons).toEqual(expect.arrayContaining(["retry-refused", "retry-attempt-no-capture"]));
+    expect(admin.received).toEqual([]);
+  });
+
+  test("missing admin credentials and a non-staging origin fail by name before sign-in", async ({ page }, testInfo) => {
+    const admin = createSyntheticPreviewProbeAdmin();
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    const withheld = syntheticPreviewProbeOptions(testInfo, {
+      credentials: { email: "withheld-marker@example.invalid", password: "" },
+    });
+    await expect(runScopeSyncBatchPreviewProbe(page, withheld)).rejects.toThrow(
+      "Scope Sync Batch preview probe refused before sign-in: admin-credential-missing:CATALOG_ADMIN_E2E_PASSWORD.",
+    );
+    const receiptText = readFileSync(withheld.artifactPath, "utf8");
+    expect(receiptText).not.toContain("withheld-marker");
+    expect(JSON.parse(receiptText).incompleteReasons).toContain("admin-credential-missing:CATALOG_ADMIN_E2E_PASSWORD");
+
+    const offStaging = syntheticPreviewProbeOptions(testInfo, {
+      origin: "https://admin.chasesets.com",
+      artifactPath: testInfo.outputPath("off-staging", "preview.json"),
+    });
+    await expect(runScopeSyncBatchPreviewProbe(page, offStaging)).rejects.toThrow(/origin-not-staging-admin/);
+    expect(admin.received).toEqual([]);
+  });
+
+  test("trace control: the probe's failing run retains no trace and its uploaded receipt carries no credential", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      previewProbeTraceControl !== "1" || !previewProbeScopeSelected,
+      "Set CATALOG_PREVIEW_PROBE_TRACE_CONTROL=1 and the probe scope for the retained-trace negative control.",
+    );
+    const admin = createSyntheticPreviewProbeAdmin();
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    await runScopeSyncBatchPreviewProbe(
+      page,
+      syntheticPreviewProbeOptions(testInfo, {
+        credentials: { email: catalogAdminEmail, password: catalogAdminPassword },
+        artifactPath: "artifacts/catalog-scale-probe-trace-control/probe/preview.json",
+      }),
+    );
+    throw new Error("trace control: intentional failure so failure and retry evidence would be retained");
+  });
+});
+
+test.describe("catalog staging Scope Sync Batch preview probe trace bypass control", () => {
+  // Same synthetic sign-in under the default retained-retry trace policy: the
+  // positive control proving the trace scan can see the credential markers.
+  test.describe.configure({ retries: 1 });
+
+  test("trace bypass control: default retry tracing retains the credential", async ({ page }, testInfo) => {
+    test.skip(
+      previewProbeTraceControl !== "1" || previewProbeScopeSelected,
+      "Set CATALOG_PREVIEW_PROBE_TRACE_CONTROL=1 without the probe scope for the trace bypass control.",
+    );
+    const admin = createSyntheticPreviewProbeAdmin();
+    await installSyntheticPreviewProbeAdmin(page, admin);
+    await runScopeSyncBatchPreviewProbe(
+      page,
+      syntheticPreviewProbeOptions(testInfo, {
+        credentials: { email: catalogAdminEmail, password: catalogAdminPassword },
+        artifactPath: `artifacts/catalog-scale-probe-trace-control/bypass-${testInfo.retry}/preview.json`,
+      }),
+    );
+    throw new Error("trace bypass control: intentional failure so the retry trace is retained");
+  });
+});
+
+function previewProbeScopeSkipsMutatingJourney(scope: string): boolean {
+  return scope === scopeSyncBatchPreviewProbeJourneyScope;
 }
