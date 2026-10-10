@@ -285,7 +285,9 @@ function validChannelsCandidate(
     connectorFeed: {
       readAuthority: vi.fn(),
       withAuthority: vi.fn(),
-      withGrantAuthority: vi.fn<ChannelsServices["connectorFeed"]["withGrantAuthority"]>(),
+      withGrantAuthority: async () => {
+        throw new Error("Unexpected connector grant authority call in a worker wiring test");
+      },
       readStagedImportDispatchPolicy: vi.fn<ChannelsServices["connectorFeed"]["readStagedImportDispatchPolicy"]>(),
       claim: vi.fn(),
       report: vi.fn(),
