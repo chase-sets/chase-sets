@@ -684,7 +684,7 @@ function missingPreviewFields(preview: Readonly<Record<string, unknown>>): strin
   const counts = isRecord(preview.counts) ? preview.counts : {};
   const checks: readonly (readonly [string, boolean])[] = [
     ["status", ["ready", "blocked", "empty"].includes(String(preview.status))],
-    ["selection", isRecord(preview.selection) && ["matching-scope", "ids"].includes(String(preview.selection.mode))],
+    ["selection", isSelection(preview.selection)],
     ["budget", isBudget(preview.budget)],
     ["planFingerprint", typeof preview.planFingerprint === "string" && preview.planFingerprint.length > 0],
     ["resolvedAt", isTimestamp(preview.resolvedAt)],
@@ -708,6 +708,28 @@ function missingPreviewFields(preview: Readonly<Record<string, unknown>>): strin
     ],
   ];
   return checks.filter(([, valid]) => !valid).map(([field]) => field);
+}
+
+const scopeKindValues: readonly string[] = ["product-line", "series", "expansion", "set"];
+
+// Mirrors the ScopeSyncBatchSelection union: a mode without its required
+// payload is truncation. Optional query coordinates are checked only when present,
+// and empty id lists or queries stay valid selections.
+function isSelection(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.mode === "ids") {
+    return Array.isArray(value.scopeRecordIds) && value.scopeRecordIds.every((id) => typeof id === "string");
+  }
+  if (value.mode !== "matching-scope" || !isRecord(value.query)) return false;
+  const { productDomain, scopeKind, languageCode } = value.query;
+  return (
+    [productDomain, languageCode].every(
+      (field) => field === undefined || field === null || typeof field === "string",
+    ) &&
+    (scopeKind === undefined ||
+      scopeKind === null ||
+      (typeof scopeKind === "string" && scopeKindValues.includes(scopeKind)))
+  );
 }
 
 function isBudget(value: unknown): boolean {
@@ -1066,7 +1088,7 @@ function validateRow(definition: ScopeSyncBatchPreviewProbeRowDefinition, row: R
       ...(isCountMap(preview.providerUnitTotals) ? [] : ["providerUnitTotals"]),
       ...(isCountMap(preview.providerRequestEstimates, true) ? [] : ["providerRequestEstimates"]),
       ...(isBudget(preview.effectiveBudget) ? [] : ["effectiveBudget"]),
-      ...(isRecord(preview.selection) ? [] : ["selection"]),
+      ...(isSelection(preview.selection) ? [] : ["selection"]),
       ...(typeof preview.confirmAllowed === "boolean" ? [] : ["confirmAllowed"]),
       ...(typeof scrydex.participating === "boolean" ? [] : ["scrydex.participating"]),
       ...(isCountMap(preview.blockerCounts) ? [] : ["blockerCounts"]),

@@ -239,6 +239,18 @@ const previewMetricFields = [
   "blockerCounts",
 ];
 
+function expectUnknownButUploadable(result, reason) {
+  expect(result).toMatchObject({ status: "unknown", reason });
+  expect(result.eligibleScopeRecords).toEqual({ count: null, completeness: "unknown", zeroReason: null });
+  expect(result.scrydex).toEqual({ participating: null, requestEstimate: null, creditLimit: null, refusal: null });
+  const truncated = withPreview("magic", result);
+  expect(truncated.captureStatus).toBe("incomplete");
+  expect(truncated.incompleteReasons).toEqual(["magic:preview-unknown"]);
+  const serialized = clone(truncated).rows[0].preview;
+  for (const field of previewMetricFields) expect(serialized, field).toHaveProperty(field, null);
+  expect(validateScopeSyncBatchPreviewProbeReceipt(truncated, expectedIdentity)).toEqual({ ok: true, errors: [] });
+}
+
 function registryProfiles() {
   return catalogProviderIntegrationProfileVersions.map((version) => ({
     providerKey: version.providerKey,
@@ -709,18 +721,6 @@ describe("Scope Sync Batch preview probe receipt (#9244)", () => {
       "providerRequestEstimates",
       "blockers",
     ];
-    const expectUnknownButUploadable = (result, reason) => {
-      expect(result).toMatchObject({ status: "unknown", reason });
-      expect(result.eligibleScopeRecords).toEqual({ count: null, completeness: "unknown", zeroReason: null });
-      expect(result.scrydex).toEqual({ participating: null, requestEstimate: null, creditLimit: null, refusal: null });
-      const truncated = withPreview("magic", result);
-      expect(truncated.captureStatus).toBe("incomplete");
-      expect(truncated.incompleteReasons).toEqual(["magic:preview-unknown"]);
-      const serialized = clone(truncated).rows[0].preview;
-      for (const field of previewMetricFields) expect(serialized, field).toHaveProperty(field, null);
-      expect(validateScopeSyncBatchPreviewProbeReceipt(truncated, expectedIdentity)).toEqual({ ok: true, errors: [] });
-    };
-
     for (const field of required) {
       const response = preview();
       deletePath(response, field);
@@ -776,6 +776,92 @@ describe("Scope Sync Batch preview probe receipt (#9244)", () => {
     expect(
       validateScopeSyncBatchPreviewProbeReceipt(withPreview("magic", previewResult({}, null)), expectedIdentity),
     ).toEqual({ ok: true, errors: [] });
+  });
+
+  it("requires each selection mode's payload without inventing absent query coordinates", () => {
+    const malformed = [
+      ["matching-scope without query", { mode: "matching-scope" }],
+      ["matching-scope null query", { mode: "matching-scope", query: null }],
+      ["matching-scope array query", { mode: "matching-scope", query: [] }],
+      ["matching-scope unknown scopeKind", { mode: "matching-scope", query: { scopeKind: "galaxy" } }],
+      ["matching-scope numeric productDomain", { mode: "matching-scope", query: { productDomain: 7 } }],
+      ["matching-scope object languageCode", { mode: "matching-scope", query: { languageCode: {} } }],
+      ["ids without scopeRecordIds", { mode: "ids" }],
+      ["ids null scopeRecordIds", { mode: "ids", scopeRecordIds: null }],
+      ["ids string scopeRecordIds", { mode: "ids", scopeRecordIds: "scope-1" }],
+      ["ids non-string member", { mode: "ids", scopeRecordIds: ["scope-1", 2] }],
+      ["ids null member", { mode: "ids", scopeRecordIds: [null] }],
+      ["unknown mode", { mode: "all", query: {} }],
+    ];
+    for (const [label, selection] of malformed) {
+      const result = summarizeResponse(preview({ selection }));
+      expect(result.selection, label).toBeNull();
+      expectUnknownButUploadable(result, "preview-response-missing:selection");
+    }
+
+    const emptyBlocker = {
+      code: "empty-selection",
+      scopeRecordId: null,
+      providerKey: null,
+      message: "No eligible active Catalog Scope Records matched this selection.",
+    };
+    const emptyPreview = {
+      status: "empty",
+      confirmAllowed: false,
+      counts: { scopes: 0, readyScopes: 0, blockedScopes: 0, providerUnits: 0 },
+      providerUnitTotals: {},
+      providerRequestEstimates: {},
+      blockers: [emptyBlocker],
+    };
+    const valid = [
+      [
+        "matching-scope with every coordinate",
+        { mode: "matching-scope", query: { productDomain: "pokemon", scopeKind: "expansion", languageCode: "en" } },
+        {},
+      ],
+      [
+        "matching-scope with null coordinates",
+        { mode: "matching-scope", query: { productDomain: null, scopeKind: null, languageCode: null } },
+        {},
+      ],
+      ["matching-scope with an empty query", { mode: "matching-scope", query: {} }, emptyPreview],
+      ["ids with members", { mode: "ids", scopeRecordIds: ["scope-1", "scope-2"] }, {}],
+      ["ids with no members", { mode: "ids", scopeRecordIds: [] }, emptyPreview],
+    ];
+    for (const [label, selection, overrides] of valid) {
+      const result = previewResult({ ...overrides, selection });
+      expect(result.status, label).toBe(overrides.status ?? "ready");
+      // The recorded selection is the response's own; no default coordinate is filled in.
+      expect(result.selection, label).toEqual(selection);
+      const captured = withPreview("magic", result);
+      expect(captured.captureStatus, label).toBe("complete");
+      expect(clone(captured).rows[0].preview.selection, label).toEqual(selection);
+      expect(validateScopeSyncBatchPreviewProbeReceipt(captured, expectedIdentity), label).toEqual({
+        ok: true,
+        errors: [],
+      });
+    }
+
+    const complete = receipt();
+    const stale = withPreview("magic", previewResult({}, null));
+    expect(stale.rows[0].preview.status).toBe("stale");
+    for (const forgedFrom of [complete, stale]) {
+      for (const [label, selection] of malformed) {
+        const forged = clone(forgedFrom);
+        forged.rows[0].preview.selection = selection;
+        expect(validateScopeSyncBatchPreviewProbeReceipt(forged, expectedIdentity).errors, label).toEqual([
+          "row magic captured preview lacks selection",
+        ]);
+      }
+      for (const [label, selection] of valid) {
+        const recorded = clone(forgedFrom);
+        recorded.rows[0].preview.selection = selection;
+        expect(validateScopeSyncBatchPreviewProbeReceipt(recorded, expectedIdentity), label).toEqual({
+          ok: true,
+          errors: [],
+        });
+      }
+    }
   });
 
   it("keeps a registry-fallback roster incomplete", () => {
