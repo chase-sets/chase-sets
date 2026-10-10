@@ -63,7 +63,8 @@ export const SUBCOMMANDS = {
   },
   "catalog:production-completion-report": {
     script: "run-catalog-production-completion-report.mjs",
-    description: "Reconcile a frozen production Catalog completion manifest and gate launch on completeness blockers.",
+    description:
+      "Reconcile a frozen Catalog completion manifest or deployed Catalog database facts and gate launch on completeness blockers.",
   },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",

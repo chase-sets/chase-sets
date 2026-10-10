@@ -150,6 +150,27 @@ Triage:
 
 Do not manually patch Catalog Items outside the engine-generated promotion/reapply plan unless the release lead records a break-glass exception.
 
+A failed promotion outcome carries an optional `diagnosticCode` beside its free-text `reason`. `asset-processing-failed` means the Catalog asset download, processing, or storage write failed ([Catalog Asset Storage](./catalog-asset-storage.md) Failure Policy); retry the promotion once storage is healthy. A failed outcome without a code has no classified cause.
+
+## Catalog Completion Report
+
+The `Catalog Completion Report` workflow (`.github/workflows/catalog-completion-report.yml`) generates the Production Catalog Completion Report for one Scope Sync Batch from a deployed environment. Dispatch it with `environment` (`staging` or `production`) and `batch_id`. To prove completion, also pass `manifest_run_id` and `manifest_artifact`, naming an artifact that holds the frozen `catalog-completion-manifest.json`.
+
+The workflow exports only the `catalog` context URL and its managed Postgres CA, fails with `catalog-database-url-missing` or `managed-postgres-ca-missing` when either is absent, and runs:
+
+```bash
+pnpm run ops catalog:production-completion-report -- --facts database --batch-id <batch_id> [--manifest <path>]
+```
+
+The command reads every fact in one `REPEATABLE READ READ ONLY` transaction, so it cannot write. It never calls a provider. Reading the record in the uploaded `catalog-completion-report-<environment>-<run>` artifact:
+
+- `result: evidence-incomplete` (exit 2): a fact could not be established and is named in `unknownFacts`, such as a credited provider's absent usage-check state, a failed promotion outcome without a diagnostic code, or a sync counter the job never measured (`observed-unit-counter:<scope>/<provider>/<unit>/<counter>`; that unit is withheld from the manifest). Unknown facts are never reported as zero.
+- A frozen manifest must name the batch's live id and plan fingerprint, or the command fails with `manifest-batch-mismatch` (exit 1). The reported batch status is always the live one.
+- `completionProof: false`: no frozen manifest was supplied, so the universe came from the batch plan. Such a report describes observed state but never proves production completion.
+- `reportedFacts` carries `externalReferenceDuplicates`, `legacyProfileMarkerCount`, `nonTerminalIntegrationJobCount`, and `publicationCountsByStatus`.
+
+Blocker codes and exit codes match file mode (`--manifest` alone): 0 complete, 2 blocked, 1 could not run.
+
 ## Projection Or Read-Model Lag
 
 Symptoms:

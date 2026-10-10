@@ -106,12 +106,18 @@ export const staticCatalogProviderIntegrationProfileVersions: CatalogProviderInt
     getActiveCatalogProviderIntegrationProfileVersion(providerKey, selector),
 };
 
+// Stable machine-readable cause of a failed promotion outcome, beside the
+// free-text reason. Absent when the failure has no classified cause.
+export const sourceObservationPromotionDiagnosticCodes = ["asset-processing-failed"] as const;
+export type SourceObservationPromotionDiagnosticCode = (typeof sourceObservationPromotionDiagnosticCodes)[number];
+
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
   status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
   referenceRecordId?: ReferenceRecordId | null;
   reason: string | null;
+  diagnosticCode?: SourceObservationPromotionDiagnosticCode;
 }>;
 
 export type BulkSourceObservationPromotionResult = Readonly<{
@@ -253,6 +259,7 @@ export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   /** The Catalog Item the promoted candidate targets; null when it creates a new item or was not promoted. */
   catalogItemId: string | null;
   reason: string | null;
+  diagnosticCode?: SourceObservationPromotionDiagnosticCode;
 }>;
 
 export type CatalogMergeCandidateBulkJobResult = Readonly<{
