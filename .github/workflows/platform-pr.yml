@@ -1579,6 +1579,10 @@ jobs:
       # issuance, so there is no ACME order to wait on here. This is a fast
       # presence check, not a poll: the deploy step already failed loudly with
       # a bootstrap pointer if the shared secret did not exist to copy (#4857).
+      # It also reads the source Certificate once (#9268): an expired or
+      # not-Ready wildcard fails here with the restore command instead of as an
+      # opaque "fetch failed" ingress timeout, and a certificate inside the
+      # 14-day renewal floor warns (staging deploys fail closed on it).
       - name: Verify preview TLS secret
         run: |
           set -euo pipefail
@@ -1589,6 +1593,7 @@ jobs:
             exit 1
           fi
           echo "Preview TLS secret ${secret_name} is present in ${namespace}."
+          node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 0 --warn-remaining-days 14
 
       - name: Wait for preview ingress URLs
         id: preview_domains
