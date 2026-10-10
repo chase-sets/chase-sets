@@ -6777,20 +6777,18 @@ test.describe("catalog staging Scope Sync Batch preview probe", () => {
     // canonical daily inventory and each unit's provider-detail page.
     expect(receipt.rows.every((candidate) => candidate.roster.source === "deployed-admin-profiles")).toBe(true);
     expect(receipt.rows.flatMap((candidate) => candidate.roster.unresolvedUnits)).toEqual([]);
-    expect([
-      ...new Set(receipt.rows.flatMap((candidate) => candidate.roster.units.map((unit) => unit.unitKey))),
-    ]).toEqual(
-      [
-        "mtgjson:mtg:single-card:source-observation-import",
-        "scrydex:one-piece:single-card:source-observation-import",
-        "tcgdex:pokemon:single-card:source-observation-import",
-        "tcgplayer:lorcana:single-card:source-observation-import",
-        "tcgplayer:mtg:single-card:source-observation-import",
-        "tcgplayer:one-piece:single-card:source-observation-import",
-        "tcgplayer:pokemon:single-card:source-observation-import",
-        "tcgplayer:yugioh:single-card:source-observation-import",
-      ].sort(),
-    );
+    expect(
+      [...new Set(receipt.rows.flatMap((candidate) => candidate.roster.units.map((unit) => unit.unitKey)))].sort(),
+    ).toEqual([
+      "mtgjson:mtg:single-card:source-observation-import",
+      "scrydex:one-piece:single-card:source-observation-import",
+      "tcgdex:pokemon:single-card:source-observation-import",
+      "tcgplayer:lorcana:single-card:source-observation-import",
+      "tcgplayer:mtg:single-card:source-observation-import",
+      "tcgplayer:one-piece:single-card:source-observation-import",
+      "tcgplayer:pokemon:single-card:source-observation-import",
+      "tcgplayer:yugioh:single-card:source-observation-import",
+    ]);
     const detailReads = admin.received.filter(
       (request) => request.method === "GET" && request.path.startsWith("/catalog/providers/"),
     );
