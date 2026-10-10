@@ -3,7 +3,13 @@ import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
-import { createCatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  CatalogIntegrationRolloutControlError,
+  createCatalogIntegrationRolloutControlPolicy,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
+import { catalogProviderProfileVersionIngestionUnitKey } from "./provider-integration-profiles";
+import type { TcgplayerAutomationCatalogClient } from "./providers/tcgplayer-automation-catalog-client";
 import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
 import { createSourceObservationRuntime } from "./runtime";
 import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
@@ -21,6 +27,7 @@ import {
   integrationJobRow,
   tcgdexProfileSnapshot,
   tcgdexProfileVersion,
+  withoutRolloutUnitKey,
 } from "./seeding/runtime-test-harness";
 
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
@@ -2877,3 +2884,372 @@ function restoreEnvValue(key: string, value: string | undefined): void {
   }
   process.env[key] = value;
 }
+
+const POKEMON_SINGLE_CARD_PROFILE_KEY = "pokemon-single-card-product-sku";
+const MAGIC_SINGLE_CARD_PROFILE_KEY = "mtg-single-card-product-sku";
+const ONE_PIECE_SINGLE_CARD_PROFILE_KEY = "one-piece-single-card-product-sku";
+const POKEMON_SET_SCOPE = { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" };
+const MAGIC_SET_SCOPE = { provider: "tcgplayer", productLineId: "1", setName: "Time Spiral" };
+const ONE_PIECE_SET_SCOPE = { provider: "tcgplayer", productLineId: "68", setName: "Romance Dawn" };
+
+/** Same-provider TCGplayer profiles, resolved from the executable registry rather than typed by hand. */
+function sharedTcgplayerProfileVersions() {
+  return createActiveTcgplayerProfileVersions({
+    profileKey: POKEMON_SINGLE_CARD_PROFILE_KEY,
+    additionalActiveProfileKeys: [MAGIC_SINGLE_CARD_PROFILE_KEY, ONE_PIECE_SINGLE_CARD_PROFILE_KEY],
+  });
+}
+
+async function resolvedTcgplayerUnitKey(profileKey: string): Promise<string> {
+  const version = await sharedTcgplayerProfileVersions().getActiveProfileVersion("tcgplayer", { profileKey });
+  if (!version) {
+    throw new Error(`Expected an active TCGplayer profile for ${profileKey}.`);
+  }
+  return catalogProviderProfileVersionIngestionUnitKey(version);
+}
+
+/** Records every TCGplayer transport call so a denial can prove it happened before provider work. */
+function spiedTcgplayerClient(client: TcgplayerAutomationCatalogClient) {
+  const transportCalls: string[] = [];
+  const spied = Object.fromEntries(
+    Object.entries(client).map(([name, method]) => [
+      name,
+      (...args: unknown[]) => {
+        transportCalls.push(name);
+        return (method as (...methodArgs: unknown[]) => unknown)(...args);
+      },
+    ]),
+  ) as TcgplayerAutomationCatalogClient;
+  return { client: spied, transportCalls };
+}
+
+async function runQueuedTcgplayerImport(input: {
+  policy: CatalogIntegrationRolloutControlPolicy;
+  productDomain: "pokemon" | "mtg" | "one-piece";
+  scope: Record<string, unknown>;
+  profileSnapshot?: Record<string, unknown> | null;
+  profileVersions?: ReturnType<typeof createActiveTcgplayerProfileVersions>;
+}) {
+  const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: input.productDomain });
+  const transport = spiedTcgplayerClient(tcgplayerHarness.client);
+  const harness = createIntegrationJobClaimHandoffHarness({
+    scope: input.scope,
+    profileSnapshot: input.profileSnapshot ?? null,
+    renewSucceeds: true,
+    tcgplayerAutomationCatalogClient: transport.client,
+  });
+  const services = createSourceObservationRuntime(
+    harness.deps,
+    {} as CatalogItemServices,
+    harness.referenceData,
+    input.profileVersions ?? sharedTcgplayerProfileVersions(),
+    input.policy,
+  );
+
+  await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(1);
+  return { harness, transportCalls: transport.transportCalls };
+}
+
+function tcgplayerPreviewRuntime(productDomain: "pokemon" | "mtg", policy: CatalogIntegrationRolloutControlPolicy) {
+  const tcgplayerHarness = createTcgplayerImportHarness({ productDomain });
+  const transport = spiedTcgplayerClient(tcgplayerHarness.client);
+  const services = createSourceObservationRuntime(
+    { ...tcgplayerHarness.deps, tcgplayerAutomationCatalogClient: transport.client } as CatalogRuntimeDeps,
+    {} as CatalogItemServices,
+    {} as ReferenceDataServices,
+    sharedTcgplayerProfileVersions(),
+    policy,
+  );
+  return { services, transportCalls: transport.transportCalls };
+}
+
+function expectUnitRolloutDenial(error: unknown, controlId: string, unitKey: string) {
+  expect(error).toBeInstanceOf(CatalogIntegrationRolloutControlError);
+  expect((error as CatalogIntegrationRolloutControlError).decision.controls).toEqual([
+    expect.objectContaining({ controlId, status: "blocked", unitKeys: expect.arrayContaining([unitKey]) }),
+  ]);
+}
+
+describe("source observation runtime: resolved-unit import rollout enforcement", () => {
+  it("denies import preview and start for a stopped resolved unit while a sibling unit on the same provider proceeds", async () => {
+    const stoppedUnitKey = await resolvedTcgplayerUnitKey(POKEMON_SINGLE_CARD_PROFILE_KEY);
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] });
+
+    // The request names no unit: the denial comes from the profile the runtime resolves.
+    const pokemonPreview = tcgplayerPreviewRuntime("pokemon", policy);
+    const previewError = await pokemonPreview.services
+      .previewIntegrationImport({
+        scope: { ...POKEMON_SET_SCOPE, profileKey: POKEMON_SINGLE_CARD_PROFILE_KEY },
+        context,
+      })
+      .catch((error: unknown) => error);
+    expectUnitRolloutDenial(previewError, "imports-disabled", stoppedUnitKey);
+    expect(pokemonPreview.transportCalls).toEqual([]);
+
+    const magicPreview = tcgplayerPreviewRuntime("mtg", policy);
+    await expect(
+      magicPreview.services.previewIntegrationImport({
+        scope: { ...MAGIC_SET_SCOPE, profileKey: MAGIC_SINGLE_CARD_PROFILE_KEY },
+        context,
+      }),
+    ).resolves.toMatchObject({
+      profileSnapshot: {
+        providerKey: "tcgplayer",
+        ingestionUnitKey: await resolvedTcgplayerUnitKey(MAGIC_SINGLE_CARD_PROFILE_KEY),
+      },
+    });
+
+    const startHarness = createIntegrationJobDedupeHarness();
+    const startServices = createSourceObservationRuntime(
+      startHarness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      sharedTcgplayerProfileVersions(),
+      policy,
+    );
+    const startError = await startServices
+      .enqueueIntegrationJob({
+        action: "import",
+        scope: { ...POKEMON_SET_SCOPE, profileKey: POKEMON_SINGLE_CARD_PROFILE_KEY },
+        context,
+      })
+      .catch((error: unknown) => error);
+    expectUnitRolloutDenial(startError, "imports-disabled", stoppedUnitKey);
+    expect(startHarness.insertedJobs).toEqual([]);
+
+    await expect(
+      startServices.enqueueIntegrationJob({
+        action: "import",
+        scope: { ...MAGIC_SET_SCOPE, profileKey: MAGIC_SINGLE_CARD_PROFILE_KEY },
+        context,
+      }),
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(startHarness.insertedJobs).toHaveLength(1);
+
+    // Negative control: the provider-only call shape admits the same stopped unit.
+    const unscopedHarness = createIntegrationJobDedupeHarness();
+    await expect(
+      createSourceObservationRuntime(
+        unscopedHarness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        sharedTcgplayerProfileVersions(),
+        withoutRolloutUnitKey(policy),
+      ).enqueueIntegrationJob({
+        action: "import",
+        scope: { ...POKEMON_SET_SCOPE, profileKey: POKEMON_SINGLE_CARD_PROFILE_KEY },
+        context,
+      }),
+    ).resolves.toMatchObject({ status: "queued" });
+  });
+
+  it("denies queued import execution when a unit stop is introduced after enqueue", async () => {
+    const stoppedUnitKey = await resolvedTcgplayerUnitKey(POKEMON_SINGLE_CARD_PROFILE_KEY);
+    const enqueueHarness = createIntegrationJobDedupeHarness();
+    await createSourceObservationRuntime(
+      enqueueHarness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions(),
+      createCatalogIntegrationRolloutControlPolicy(),
+    ).enqueueIntegrationJob({ action: "import", scope: POKEMON_SET_SCOPE, context });
+    const enqueuedPayload = enqueueHarness.insertedJobs[0]?.payload as {
+      scope: Record<string, unknown>;
+      profileSnapshot: Record<string, unknown>;
+    };
+    expect(enqueuedPayload.profileSnapshot).toMatchObject({ ingestionUnitKey: stoppedUnitKey });
+
+    const stoppedPolicy = createCatalogIntegrationRolloutControlPolicy({ disabledImportUnits: [stoppedUnitKey] });
+    const denied = await runQueuedTcgplayerImport({
+      policy: stoppedPolicy,
+      productDomain: "pokemon",
+      scope: enqueuedPayload.scope,
+      profileSnapshot: enqueuedPayload.profileSnapshot,
+      profileVersions: createActiveTcgplayerProfileVersions(),
+    });
+    expect(denied.harness.job.status).toBe("failed");
+    expect(denied.harness.job.error_message).toBe(
+      "Catalog integration imports are disabled for the configured ingestion-unit scope.",
+    );
+    expect(denied.transportCalls).toEqual([]);
+    expect(denied.harness.appendedSourceEvents).toEqual([]);
+
+    // Negative control: removing the execution unit key lets the stopped unit import.
+    const unscoped = await runQueuedTcgplayerImport({
+      policy: withoutRolloutUnitKey(stoppedPolicy),
+      productDomain: "pokemon",
+      scope: enqueuedPayload.scope,
+      profileSnapshot: enqueuedPayload.profileSnapshot,
+      profileVersions: createActiveTcgplayerProfileVersions(),
+    });
+    expect(unscoped.harness.job.status).toBe("completed");
+    expect(unscoped.transportCalls.length).toBeGreaterThan(0);
+    expect(unscoped.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+
+    const sibling = await runQueuedTcgplayerImport({
+      policy: stoppedPolicy,
+      productDomain: "mtg",
+      scope: { ...MAGIC_SET_SCOPE, profileKey: MAGIC_SINGLE_CARD_PROFILE_KEY },
+    });
+    expect(sibling.harness.job.status).toBe("completed");
+    expect(sibling.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+  });
+
+  it("enforces the existing One Piece signoff per resolved unit without gating another game on the shared provider", async () => {
+    const onePieceUnitKey = await resolvedTcgplayerUnitKey(ONE_PIECE_SINGLE_CARD_PROFILE_KEY);
+    const onePieceScope = { ...ONE_PIECE_SET_SCOPE, profileKey: ONE_PIECE_SINGLE_CARD_PROFILE_KEY };
+    const unsignedPolicy = createCatalogIntegrationRolloutControlPolicy({ onePieceProductionSignoffReference: null });
+
+    const unsigned = await runQueuedTcgplayerImport({
+      policy: unsignedPolicy,
+      productDomain: "one-piece",
+      scope: onePieceScope,
+    });
+    expect(unsigned.harness.job.status).toBe("failed");
+    expect(unsigned.harness.job.error_message).toContain(
+      "One Piece production sync requires recorded provider-data signoff",
+    );
+    expect(unsigned.transportCalls).toEqual([]);
+    expect(unsigned.harness.appendedSourceEvents).toEqual([]);
+
+    const unsignedStartError = await createSourceObservationRuntime(
+      createIntegrationJobDedupeHarness().deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      sharedTcgplayerProfileVersions(),
+      unsignedPolicy,
+    )
+      .enqueueIntegrationJob({ action: "import", scope: onePieceScope, context })
+      .catch((error: unknown) => error);
+    expectUnitRolloutDenial(unsignedStartError, "one-piece-production-signoff-required", onePieceUnitKey);
+
+    const otherGame = await runQueuedTcgplayerImport({
+      policy: unsignedPolicy,
+      productDomain: "pokemon",
+      scope: { ...POKEMON_SET_SCOPE, profileKey: POKEMON_SINGLE_CARD_PROFILE_KEY },
+    });
+    expect(otherGame.harness.job.status).toBe("completed");
+
+    const signed = await runQueuedTcgplayerImport({
+      policy: createCatalogIntegrationRolloutControlPolicy({
+        onePieceProductionSignoffReference: "#2285 UI-only staging UAT evidence",
+      }),
+      productDomain: "one-piece",
+      scope: onePieceScope,
+    });
+    expect(signed.harness.job.status).toBe("completed");
+    expect(signed.harness.appendedSourceEvents.length).toBeGreaterThan(0);
+
+    // Negative control: without the execution unit key the unsigned gate never matches.
+    const unscoped = await runQueuedTcgplayerImport({
+      policy: withoutRolloutUnitKey(unsignedPolicy),
+      productDomain: "one-piece",
+      scope: onePieceScope,
+    });
+    expect(unscoped.harness.job.status).toBe("completed");
+  });
+
+  it("keeps global, provider and unit emergency denials effective at queued import execution", async () => {
+    const pokemonUnitKey = await resolvedTcgplayerUnitKey(POKEMON_SINGLE_CARD_PROFILE_KEY);
+    const pokemonScope = { ...POKEMON_SET_SCOPE, profileKey: POKEMON_SINGLE_CARD_PROFILE_KEY };
+    const denials = [
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ controlPlaneMode: "dry-run-only" }),
+        message: "Catalog Integration Control Plane dry-run-only mode is active.",
+      },
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStop: ["tcgplayer"] }),
+        message: "Provider API emergency stop is active for the configured provider scope.",
+      },
+      {
+        policy: createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStopUnits: [pokemonUnitKey] }),
+        message: "Provider API emergency stop is active for the configured ingestion-unit scope.",
+      },
+    ];
+
+    for (const denial of denials) {
+      const result = await runQueuedTcgplayerImport({
+        policy: denial.policy,
+        productDomain: "pokemon",
+        scope: pokemonScope,
+      });
+      expect(result.harness.job.status).toBe("failed");
+      expect(result.harness.job.error_message).toBe(denial.message);
+      expect(result.transportCalls).toEqual([]);
+    }
+  });
+
+  it("denies starting a current-active reapply for the resolved stopped unit and defers original-source reapply to per-unit execution", async () => {
+    const tcgdexUnitKey = catalogProviderProfileVersionIngestionUnitKey(currentTcgdexProfileVersion());
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledReapplyUnits: [tcgdexUnitKey] });
+    const reapplyScope = { provider: "tcgdex", language: "en", setId: "base1" };
+    const runtimeWith = (rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy) => {
+      const harness = createIntegrationJobDedupeHarness({ reapplyObservationIds: ["obs_promoted_1"] });
+      const services = createSourceObservationRuntime(
+        harness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+        rolloutControlPolicy,
+      );
+      return { harness, services };
+    };
+
+    const denied = runtimeWith(policy);
+    const error = await denied.services
+      .enqueueIntegrationJob({ action: "reapply", scope: reapplyScope, context })
+      .catch((caught: unknown) => caught);
+    expectUnitRolloutDenial(error, "reapply-disabled", tcgdexUnitKey);
+    expect(denied.harness.insertedJobs).toEqual([]);
+
+    const unscoped = runtimeWith(withoutRolloutUnitKey(policy));
+    await expect(
+      unscoped.services.enqueueIntegrationJob({ action: "reapply", scope: reapplyScope, context }),
+    ).resolves.toMatchObject({ operatorStatus: "queued" });
+
+    // Original-source reapply carries no job-wide profile; each work unit enforces its recorded unit.
+    const originalSource = runtimeWith(policy);
+    await expect(
+      originalSource.services.enqueueIntegrationJob({
+        action: "reapply",
+        scope: reapplyScope,
+        reapplyProfileMode: "original-source-profile",
+        context,
+      }),
+    ).resolves.toMatchObject({ operatorStatus: "queued", profileSnapshot: null });
+  });
+
+  it("denies starting a filter-scoped bulk reapply for the resolved stopped unit", async () => {
+    const tcgdexUnitKey = catalogProviderProfileVersionIngestionUnitKey(currentTcgdexProfileVersion());
+    const policy = createCatalogIntegrationRolloutControlPolicy({ disabledReapplyUnits: [tcgdexUnitKey] });
+    const insertedSql: string[] = [];
+    const runtimeWith = (rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy) =>
+      createSourceObservationRuntime(
+        {
+          db: {
+            query: async <T>(sql: string) => {
+              if (sql.includes("INSERT INTO")) {
+                insertedSql.push(sql);
+              }
+              return { rowCount: 0, rows: [] as T[] };
+            },
+          },
+        } as unknown as CatalogRuntimeDeps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+        createMutableProfileVersionReader([currentTcgdexProfileVersion()]),
+        rolloutControlPolicy,
+      );
+
+    const error = await runtimeWith(policy)
+      .enqueueBulkReviewJob({ action: "reapply", scope: { provider: "tcgdex" }, context })
+      .catch((caught: unknown) => caught);
+    expectUnitRolloutDenial(error, "reapply-disabled", tcgdexUnitKey);
+    expect(insertedSql).toEqual([]);
+
+    const unscopedError = await runtimeWith(withoutRolloutUnitKey(policy))
+      .enqueueBulkReviewJob({ action: "reapply", scope: { provider: "tcgdex" }, context })
+      .catch((caught: unknown) => caught);
+    expect(unscopedError).not.toBeInstanceOf(CatalogIntegrationRolloutControlError);
+  });
+});

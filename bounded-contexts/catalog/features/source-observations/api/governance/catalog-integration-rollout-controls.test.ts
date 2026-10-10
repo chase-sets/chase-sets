@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertCatalogIntegrationProfileUnitAllowed,
   CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicy,
   createCatalogIntegrationRolloutControlPolicyFromEnv,
 } from "./catalog-integration-rollout-controls";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+  catalogProviderProfileVersionProductDomain,
+} from "../provider-integration-profiles";
 
 describe("Catalog integration rollout controls", () => {
   it("defaults control-plane operations to open", () => {
@@ -463,4 +469,89 @@ describe("Catalog integration rollout controls", () => {
       });
     }
   });
+
+  it("admits resolved profile units through the existing One Piece signoff with registry-derived membership", () => {
+    const unsignedPolicy = createCatalogIntegrationRolloutControlPolicy({ onePieceProductionSignoffReference: null });
+    const signedPolicy = createCatalogIntegrationRolloutControlPolicy({
+      onePieceProductionSignoffReference: "#2285 UI-only staging UAT evidence",
+    });
+    const gate = unsignedPolicy
+      .snapshot()
+      .controls.find((control) => control.controlId === "one-piece-production-signoff-required");
+    const onePieceVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) => catalogProviderProfileVersionProductDomain(version) === "one-piece",
+    );
+    const gatedVersions = onePieceVersions.filter((version) =>
+      gate?.unitKeys.includes(catalogProviderProfileVersionIngestionUnitKey(version)),
+    );
+    const sharedProviderOtherGameVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) =>
+        gate?.providerKeys.includes(version.providerKey) &&
+        catalogProviderProfileVersionProductDomain(version) !== "one-piece",
+    );
+
+    // Membership is unchanged: every gated unit resolves from a registry profile, and only the
+    // reference-data units stay outside the gate.
+    expect(gatedVersions.map(catalogProviderProfileVersionIngestionUnitKey).sort()).toEqual(
+      [...(gate?.unitKeys ?? [])].sort(),
+    );
+    expect(
+      onePieceVersions
+        .filter((version) => !gatedVersions.includes(version))
+        .every((version) => (version.profile.capabilities as readonly string[]).includes("reference-data-promotion")),
+    ).toBe(true);
+    expect(sharedProviderOtherGameVersions.length).toBeGreaterThan(0);
+
+    for (const capability of ["import", "promotion", "reapply"] as const) {
+      for (const version of gatedVersions) {
+        expect(() => assertCatalogIntegrationProfileUnitAllowed(unsignedPolicy, capability, version)).toThrow(
+          ONE_PIECE_SIGNOFF_REQUIRED_PATTERN,
+        );
+        expect(() => assertCatalogIntegrationProfileUnitAllowed(signedPolicy, capability, version)).not.toThrow();
+        // The provider-only call shape cannot match the unit-scoped gate; it is supplemental only.
+        expect(unsignedPolicy.decide({ capability, providerKey: version.providerKey })).toMatchObject({
+          allowed: true,
+        });
+      }
+      for (const version of onePieceVersions.filter((candidate) => !gatedVersions.includes(candidate))) {
+        expect(() => assertCatalogIntegrationProfileUnitAllowed(unsignedPolicy, capability, version)).not.toThrow();
+      }
+      for (const version of sharedProviderOtherGameVersions) {
+        expect(() => assertCatalogIntegrationProfileUnitAllowed(unsignedPolicy, capability, version)).not.toThrow();
+      }
+    }
+  });
+
+  it("keeps global and provider denials effective for resolved profile units", () => {
+    const [version] = catalogProviderIntegrationProfileVersions.filter(
+      (candidate) => candidate.providerKey === "scrydex",
+    );
+    if (!version) {
+      throw new Error("Expected a registry Scrydex profile version.");
+    }
+
+    expect(() =>
+      assertCatalogIntegrationProfileUnitAllowed(
+        createCatalogIntegrationRolloutControlPolicy({ controlPlaneMode: "dry-run-only" }),
+        "promotion",
+        version,
+      ),
+    ).toThrow("Catalog Integration Control Plane dry-run-only mode is active.");
+    expect(() =>
+      assertCatalogIntegrationProfileUnitAllowed(
+        createCatalogIntegrationRolloutControlPolicy({ disabledReapply: ["scrydex"] }),
+        "reapply",
+        version,
+      ),
+    ).toThrow("Catalog integration reapply is disabled for the configured provider scope.");
+    expect(() =>
+      assertCatalogIntegrationProfileUnitAllowed(
+        createCatalogIntegrationRolloutControlPolicy({ providerApiEmergencyStop: "all" }),
+        "import",
+        version,
+      ),
+    ).toThrow("Provider API emergency stop is active for the configured provider scope.");
+  });
 });
+
+const ONE_PIECE_SIGNOFF_REQUIRED_PATTERN = /^One Piece production sync requires recorded provider-data signoff/;

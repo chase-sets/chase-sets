@@ -1,6 +1,10 @@
 import type { CatalogProviderProfileLifecycle } from "../providers/provider-integration-mapping-contract";
 import { CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV } from "./catalog-integration-data-governance";
-import { listCatalogProviderIntegrationProfiles } from "../provider-integration-profiles";
+import {
+  catalogProviderProfileVersionIngestionUnitKey,
+  listCatalogProviderIntegrationProfiles,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "../provider-integration-profiles";
 
 export type CatalogIntegrationRolloutControlId =
   | "control-plane-read-only"
@@ -151,6 +155,24 @@ export function createCatalogIntegrationRolloutControlPolicy(
   };
 
   return policy;
+}
+
+/**
+ * Admits a capability for the resolved execution profile version's ingestion
+ * unit. Provider-only checks cannot match unit-scoped stops or signoff gates,
+ * so every execution boundary calls this after profile resolution and before
+ * provider work or Catalog/Reference Record writes.
+ */
+export function assertCatalogIntegrationProfileUnitAllowed(
+  policy: Pick<CatalogIntegrationRolloutControlPolicy, "assertAllowed">,
+  capability: CatalogIntegrationRolloutCapability,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): void {
+  policy.assertAllowed({
+    capability,
+    providerKey: version.providerKey,
+    unitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+  });
 }
 
 export function createCatalogIntegrationRolloutControlPolicyFromEnv(

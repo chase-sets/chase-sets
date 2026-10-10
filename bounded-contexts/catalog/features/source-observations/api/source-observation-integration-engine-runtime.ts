@@ -18,7 +18,10 @@ import {
 } from "./provider-integration-profiles";
 import { normalizeCatalogProviderSourceObservation } from "./promotion/provider-source-observation-normalizer";
 import { createCatalogIntegrationDryRunProofRegistry } from "./governance/catalog-integration-dry-run-proofs";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import {
   buildCatalogLifecycleImpactReadModel,
   buildCatalogReplayReapplyImpactReadModel,
@@ -317,6 +320,7 @@ export function createSourceObservationIntegrationEngineRuntime({
         observation.provider_key,
         normalized,
       );
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "promotion", providerProfileVersion);
       const providerProfile = providerProfileVersion.profile;
       requirePromotionAssetPorts({ deps, normalized, productAssetSource });
       const catalogItemId = observation.promoted_catalog_item_id as CatalogItemId;
