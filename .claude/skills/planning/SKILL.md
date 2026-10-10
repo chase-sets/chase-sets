@@ -57,10 +57,10 @@ product priority or scope change, or an operator action no lane can perform
 Other unresolved product, legal and provider-authority choices inside accepted
 scope go to the orchestrator as host. The host decides same-attempt, in-scope
 repairs itself and records its reasoning. An independent decision lane is
-required only for a change to accepted scope or acceptance criteria, an attempt
-ceiling, ownership or authority, or a cross-lineage question; its verdict is
-final. A decision lane may not return `TODD_RULING_NEEDED`; if it believes Todd
-must decide, the host resolves that finding with a second independent lane.
+required only for a change to accepted scope or acceptance criteria, ownership
+or authority, or a cross-lineage question; its verdict is final. A decision
+lane may not return `TODD_RULING_NEEDED`; if it believes Todd must decide, the
+host resolves that finding with a second independent lane.
 Do not use candidate placement to hide stopped implementation or active lanes.
 Planning recovery queries `status:needs-replan` across all milestones, including
 candidates; candidate status only excludes ordinary implementation dispatch.
