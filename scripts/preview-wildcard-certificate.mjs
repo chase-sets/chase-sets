@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Keeps the staging cluster's shared preview wildcard certificate
 // (cert-manager/preview-wildcard, *.preview.chasesets.com) renewable and
-// guards its validity (#9268). Every PR preview copies its secret, so an
+// guards its validity. Every PR preview copies its secret, so an
 // expired certificate fails every preview's TLS handshake.
 //
 //   converge  re-applies the staging DNS-01 token Secret from
@@ -94,7 +94,7 @@ export function buildManualRenewStatusPatch(certificate, options = {}) {
     type: "Issuing",
     status: "True",
     reason: "ManuallyTriggered",
-    message: "Certificate re-issuance manually triggered (#9268 preview wildcard converge)",
+    message: "Certificate re-issuance manually triggered by the preview wildcard converge",
     lastTransitionTime: now.toISOString().replace(/\.\d{3}Z$/, "Z"),
     observedGeneration: certificate?.metadata?.generation,
   });
@@ -108,7 +108,7 @@ export function formatCertificateGuardError(assessment) {
     `${assessment.problems.join("; ")}. Every PR preview copies its secret, so preview TLS fails until it renews. ` +
     `Restore it by re-applying the staging DNS-01 token and nudging renewal: ` +
     `gh workflow run ${previewWildcardRestoreWorkflow.split("/").pop()} --ref main -f confirm="restore preview wildcard tls" ` +
-    `(see #9268 and docs/runbooks/doks-platform-operations.md).`
+    `(see docs/runbooks/doks-platform-operations.md).`
   );
 }
 
@@ -221,7 +221,7 @@ export async function checkPreviewWildcardCertificate(options = {}) {
       );
       if (options.warnRemainingDays !== undefined && assessment.remainingDays < options.warnRemainingDays) {
         warn(
-          `Preview wildcard certificate expires in ${assessment.remainingDays.toFixed(1)} day(s), below the ${options.warnRemainingDays}-day renewal floor; staging deploys will fail closed until it renews (#9268).`,
+          `Preview wildcard certificate expires in ${assessment.remainingDays.toFixed(1)} day(s), below the ${options.warnRemainingDays}-day renewal floor; staging deploys will fail closed until it renews.`,
         );
       }
       return assessment;
