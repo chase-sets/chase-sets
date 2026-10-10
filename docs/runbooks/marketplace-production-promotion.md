@@ -10,12 +10,35 @@ The private proof-mode collection phase is retired. Historical proof artifacts b
 
 To enter this posture, set `PRODUCTION_MARKETPLACE_SERVED=true` in the production GitHub Environment, keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, leave `PRODUCTION_RUNTIME_PROFILE` unset, and run the normal Platform Deploy workflow. The workflow derives `proof`, applies the reviewed Terraform plan bytes, waits for the marketplace certificate, and captures `served-marketplace-smoke/v1` evidence proving the root returns 200 with `noindex,nofollow`, anonymous registration is rejected with `403 registration_admission_required`, and a malformed invitation URL remains routed rather than returning 404.
 
+### Identity-Term Population Receipt
+
+This step is mandatory while [#9292](https://github.com/chase-sets/chase-sets/issues/9292) is open, starting with the first Platform Deploy after migration `20261008_discovery_search_identity_terms` whose production runtime profile is `proof` or `public`. Discovery is hosted only in those profiles (`bounded-contexts/discovery/context.json`), and `.github/workflows/platform-production.yml` derives `landing` while both launch switches are off. That deploy's bootstrap applies the migration, but served rows that predate it have no identity terms until this step runs. Admit no account and leave `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` until every step below has completed in order:
+
+1. Platform Deploy and its deploy smoke are green. Hold all account admission.
+2. The host posts one run authorization on #9292. One authorization covers exactly one run.
+3. The operator re-proves the deployment read-only, using the #9101 staging method ([comment 6098869502](https://github.com/chase-sets/chase-sets/issues/9101#issuecomment-6098869502)). Every platform pod (each platform-api pod and the platform worker) must be Ready on the deployed writer image digest, with no later deploy. Record the pods' `DISCOVERY_ALIAS_SEARCH` setting. The in-pod sha256 of `scripts/discovery-search-identity-terms-populate.mjs`, `bounded-contexts/discovery/support/runtime-support/search-identity-terms-population.ts` and `infrastructure/event-core-postgres/pool.ts` must match the deployed SHA.
+4. Run this exact command once, in one Ready production platform-api pod, with that pod's deployed app-role `DATABASE_URL_DISCOVERY`, `PLATFORM_CONTROL_DATABASE_URL` and `DISCOVERY_ALIAS_SEARCH`:
+
+   ```sh
+   node scripts/discovery-search-identity-terms-populate.mjs --environment=production --writer-sha=<deployed-40-character-sha> --writers-upgraded --alias-search=<enabled|disabled> --authorization=<#9292-host-run-authorization-reference>
+   ```
+
+   Pass `--alias-search=disabled` only when the deployed `DISCOVERY_ALIAS_SEARCH` is `disabled`, `off`, `false`, `0` or `kill`; otherwise pass `enabled`. The script refuses a mismatch with the pod's setting.
+
+5. Post the JSON receipt on #9292. The host verifies it against the receipt contract in `bounded-contexts/discovery/README.md`.
+
+Only after the receipt is verified on #9292 may anyone admit an account by either path below or set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`. None of these is a receipt: a green deploy, the presence of `pg_trgm`, the term table or its index, hosted DB tests, or a run while production is `landing`. A `landing` run is refused by design (`relation "discovery_search_item_identity_terms" does not exist`, [comment 6098956435](https://github.com/chase-sets/chase-sets/issues/9101#issuecomment-6098956435)) and never counts.
+
+If any of these happen, admit nobody: the script refuses, the app role is denied `pg_trgm`, population or verification fails, or the host does not accept the receipt. Return production to landing by the leave path below and redeploy. If the app role is denied `pg_trgm`, the authorized DigitalOcean database operator enables the extension, as for #9101. Never grant the app more privileges. Never migrate manually or run the command under `landing`. A retry starts again at step 1 in the served posture and needs a fresh host authorization.
+
+### Admit Accounts Or Leave The Posture
+
 Admit a person through one of the existing Identity paths only:
 
 - Create the account through the production admin workflow and issue the recipient an Identity invitation. The recipient follows the invitation link to register or sign in and accept membership.
 - Admit the recipient's waitlist signup through a controlled waitlist wave. The existing registration admission gate recognizes that admission.
 
-Do not create a new invite code, relax registration admission, enable indexing, or set public-launch approvals for this posture. To leave it without launching publicly, set `PRODUCTION_MARKETPLACE_SERVED=false` and redeploy; the marketplace host, certificate name, live A record, and uptime check are removed while production remains in the landing posture. To proceed to public launch, first set `PRODUCTION_MARKETPLACE_SERVED=false`, then complete the gates below and enable `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`; the environment snapshot rejects both switches being true together.
+Do not create a new invite code, relax registration admission, enable indexing, or set public-launch approvals for this posture. To leave it without launching publicly, set `PRODUCTION_MARKETPLACE_SERVED=false` and redeploy; the marketplace host, certificate name, live A record, and uptime check are removed while production remains in the landing posture. To proceed to public launch, first have the [identity-term population receipt](#identity-term-population-receipt) verified on #9292, then set `PRODUCTION_MARKETPLACE_SERVED=false`, complete the gates below and enable `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`; the environment snapshot rejects both switches being true together.
 
 ## Required Gates
 
@@ -36,6 +59,8 @@ Do not create a new invite code, relax registration admission, enable indexing, 
 ## Promotion Switch
 
 The production deploy uses `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` from the production GitHub Environment for public launch posture. Keep it unset or `false` for the current launch posture.
+
+Before setting `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, the [identity-term population receipt](#identity-term-population-receipt) must be verified on #9292. If production has no accepted receipt, prepare in the served posture first. Set `PRODUCTION_MARKETPLACE_SERVED=true`, keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, deploy `proof`, hold all account admission, and complete the receipt step. Then follow the mutually exclusive switch sequence in Served Marketplace (Not Public). Never go directly from `landing` to `public`, because public enablement would come before the receipt. If the receipt step fails, follow its failure path and leave the public switch off.
 
 When set to `true`, Terraform deploys the production marketplace surface, full platform API, platform worker, and commerce bounded-context databases. The same switch also requires approved marketplace promotion evidence, approved Marketplace Checkout Fee evidence, approved Checkout Launch evidence, approved Stripe money operations evidence, approved Support readiness, approved Fulfillment postage evidence, approved transactional email evidence, approved launch supply measurement evidence, live payment/shipping/email configuration, and approved Tax readiness evidence before Terraform can plan. Terraform rejects public promotion when any production evidence reference is missing or placeholder-like.
 
