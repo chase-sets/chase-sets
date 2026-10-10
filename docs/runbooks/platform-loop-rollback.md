@@ -39,8 +39,9 @@ this milestone's timeline, or Todd says so.
    milestone from the container register.
 4. Any open platform PR on that milestone becomes an ordinary PR under the
    host loop: exact-head independent review, then normal landing preflight, or
-   close and redispatch. Platform attempts are history and do not count
-   against the host loop's attempt ceiling.
+   close and redispatch. Platform attempts that received a hosted CI or
+   exact-head review verdict are lineage history and carry into the host
+   loop's attempt count; counts never reset and never stop work.
 5. The host loop resumes normal dispatch on the milestone.
 
 ## Resuming the platform later
