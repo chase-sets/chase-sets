@@ -393,8 +393,13 @@ function compareVersions(left: string, right: string) {
 
 const sameDigests = (left: FileDigest[], right: FileDigest[]) => JSON.stringify(left) === JSON.stringify(right);
 
-function armFailures(body: ReplacementBody, row: ArmRecord): string[] {
+// `invalid` means the arm's evidence cannot be trusted (pins, fixtures, staging, run/arm/profile binding,
+// completeness, ordering); `measured` means complete, valid evidence showed the mechanism did not replace code.
+type ArmFailures = { invalid: string[]; measured: string[] };
+
+function armFailures(body: ReplacementBody, row: ArmRecord): ArmFailures {
   const failures: string[] = [];
+  const measured: string[] = [];
   const pinned = armFixtureVersions[row.name];
   const { A, B } = row.bundles;
   if (A.manifestVersion !== pinned.A || A.syntheticVersion !== pinned.syntheticA)
@@ -432,11 +437,11 @@ function armFailures(body: ReplacementBody, row: ArmRecord): string[] {
     if (!expected) continue;
     const executed = row.bundles[expected];
     if (entry.observation.executedIdentity !== executed.identity)
-      failures.push(`${entry.stage} executed ${entry.observation.executedIdentity}, not ${executed.identity}`);
+      measured.push(`${entry.stage} executed ${entry.observation.executedIdentity}, not ${executed.identity}`);
     if (entry.observation.runtimeManifestVersion !== executed.manifestVersion)
-      failures.push(`${entry.stage} runtime version ${entry.observation.runtimeManifestVersion}`);
+      measured.push(`${entry.stage} runtime version ${entry.observation.runtimeManifestVersion}`);
     if (!entry.observation.marker.present || entry.observation.marker.nonce !== row.markerNonce)
-      failures.push(`${entry.stage} IndexedDB marker did not survive`);
+      measured.push(`${entry.stage} IndexedDB marker did not survive`);
   }
   for (let index = 1; index < timeline.length; index++)
     if (timeline[index - 1]! > timeline[index]!) failures.push("captures and stagings are out of order");
@@ -444,13 +449,14 @@ function armFailures(body: ReplacementBody, row: ArmRecord): string[] {
     row.name === "cdp-load-unpacked" &&
     (row.loadUnpacked?.error || row.loadUnpacked?.extensionId !== body.extension.id)
   )
-    failures.push(`Extensions.loadUnpacked did not re-register ${body.extension.id}`);
-  return failures;
+    measured.push(`Extensions.loadUnpacked did not re-register ${body.extension.id}`);
+  return { invalid: failures, measured };
 }
 
-// Fail closed: anything that does not parse, any pin mismatch, splice, incomplete capture, a recorded
-// selection the selector disagrees with, or an arm (a) that did not reproduce the stale identity selects
-// NONE. Arm (b) wins when both candidates qualify.
+// Fail closed: anything that does not parse, a recorded selection the selector disagrees with, any failure
+// on arm (a) (including not reproducing the stale identity) or invalid evidence on required arm (b) selects
+// NONE. Only a complete, valid arm (b) that measurably did not replace code falls through to arm (c), whose
+// own failures just disqualify it. Arm (b) wins when both candidates qualify.
 export function assessReplacement(value: unknown): ReplacementAssessment {
   const failures: ReplacementAssessment["failures"] = {
     record: [],
@@ -473,7 +479,12 @@ export function assessReplacement(value: unknown): ReplacementAssessment {
     failures.record.push("arms share a profile");
   if (new Set(body.arms.map((entry) => entry.markerNonce)).size !== body.arms.length)
     failures.record.push("arms share a marker");
-  for (const entry of body.arms) failures[entry.name].push(...armFailures(body, entry));
+  for (const entry of body.arms) {
+    const { invalid, measured } = armFailures(body, entry);
+    failures[entry.name].push(...invalid, ...measured);
+    if (entry.name === "version-ordered-install" && invalid.length > 0)
+      failures.record.push("required arm version-ordered-install has invalid evidence");
+  }
   if (body.arms.length < replacementArms.length) failures["cdp-load-unpacked"].push("arm not run");
   const control = failures.record.length === 0 && failures["same-version-byte-swap"].length === 0;
   const selected: ReplacementMechanism = !control

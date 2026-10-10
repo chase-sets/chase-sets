@@ -32,6 +32,9 @@ import {
 } from "./replacement-record";
 
 const extensionId = "dmofhpcfbklknkfdfllmbkmpofkmdkkk";
+// Synthetic controls never borrow a real hosted run identity; every run id carries the SYNTHETIC label.
+const syntheticRunId = "SYNTHETIC-9257";
+const otherSyntheticRun = "SYNTHETIC-OTHER-RUN/1";
 const workerUrl = `chrome-extension://${extensionId}/worker.js`;
 const at = (seconds: number) => new Date(Date.UTC(2026, 9, 9, 12, 0, 0) + seconds * 1_000).toISOString();
 const copy = <T>(value: T): T => structuredClone(value);
@@ -69,7 +72,7 @@ function syntheticArm(name: ReplacementArm): ArmRecord {
       arm: name,
       stage,
       launch: stageLaunch[stage],
-      run: "38022590812/1",
+      run: `${syntheticRunId}/1`,
       profile,
       chromiumVersion: "148.0.7778.96",
       capturedAt: at(base + offsets[stage]),
@@ -110,10 +113,10 @@ function syntheticBody(arms: readonly ReplacementArm[] = replacementArms): Repla
     schema: "extension-code-replacement-qualification",
     schemaVersion: 1,
     run: {
-      id: "38022590812/1",
+      id: `${syntheticRunId}/1`,
       sourceHead: "a".repeat(40),
       checkoutHead: "b".repeat(40),
-      runId: "38022590812",
+      runId: syntheticRunId,
       runAttempt: "1",
       job: "e2e",
       capturedAt: at(1_000),
@@ -140,6 +143,8 @@ const observed = (body: ReplacementBody, name: ReplacementArm, stage: CaptureSta
 
 test("replacement-record selects version-ordered-install beside a reproduced arm (a) and round-trips", () => {
   const body = syntheticBody();
+  const runs = [body.run.id, body.run.runId, ...body.arms.flatMap((entry) => entry.captures.map((row) => row.run))];
+  for (const run of [...runs, otherSyntheticRun]) expect(run).toMatch(/^SYNTHETIC-/);
   const assessment = assessReplacement(body);
   expect(assessment.failures).toEqual({
     record: [],
@@ -209,8 +214,9 @@ test("replacement-record selects NONE for missing, short, incomplete and unrun i
   expect(assessReplacement(incomplete).failures["version-ordered-install"]).toEqual([
     "repeat-relaunch capture is incomplete: evaluation-failed",
   ]);
-  // Arm (c) still qualifies, so an incomplete arm (b) falls through rather than selecting (b).
-  expect(selectReplacementMechanism(incomplete)).toBe("cdp-load-unpacked");
+  // Arm (b) is required: its incomplete evidence selects NONE even though arm (c) qualifies.
+  expect(assessReplacement(incomplete).failures["cdp-load-unpacked"]).toEqual([]);
+  expect(selectReplacementMechanism(incomplete)).toBe("NONE");
   const bothIncomplete = mutate((body) => {
     for (const name of ["version-ordered-install", "cdp-load-unpacked"] as const)
       Object.assign(stageOf(body, name, "repeat-relaunch"), {
@@ -245,9 +251,47 @@ test("replacement-record selects NONE for pin-mismatched inputs", () => {
   }
 });
 
+test("replacement-record selects NONE for invalid required arm (b) evidence even when arm (c) qualifies", () => {
+  const changes = [
+    (body: ReplacementBody) => (stageOf(body, "version-ordered-install", "relaunch").run = otherSyntheticRun),
+    (body: ReplacementBody) =>
+      (stageOf(body, "version-ordered-install", "relaunch").profile = arm(body, "cdp-load-unpacked").profile),
+    (body: ReplacementBody) => (stageOf(body, "version-ordered-install", "relaunch").arm = "cdp-load-unpacked"),
+    (body: ReplacementBody) => (stageOf(body, "version-ordered-install", "relaunch").chromiumVersion = "149.0.0.0"),
+    (body: ReplacementBody) =>
+      Object.assign(stageOf(body, "version-ordered-install", "repeat-relaunch"), {
+        observation: null,
+        failure: { code: "worker-not-observed", message: "SYNTHETIC missing observation" },
+      }),
+    (body: ReplacementBody) => (arm(body, "version-ordered-install").stagings[1].stagedAt = at(500)),
+    (body: ReplacementBody) => arm(body, "version-ordered-install").stagings[1].staged.pop(),
+    (body: ReplacementBody) => (arm(body, "version-ordered-install").bundles.A.manifestVersion = "0.1.0"),
+    (body: ReplacementBody) =>
+      (observed(body, "version-ordered-install", "relaunch").workerUrl =
+        `chrome-extension://${"a".repeat(32)}/worker.js`),
+  ];
+  for (const change of changes) {
+    // Each control also shows arm (b) executing A, which alone would fall through to arm (c).
+    const body = mutate((body) => {
+      observed(body, "version-ordered-install", "relaunch").executedIdentity =
+        "SYNTHETIC-9257:version-ordered-install:A";
+      change(body);
+    });
+    const assessment = assessReplacement(body);
+    expect(assessment.parseError).toBeNull();
+    expect(assessment.failures["cdp-load-unpacked"]).toEqual([]);
+    expect(assessment.failures.record).toEqual(["required arm version-ordered-install has invalid evidence"]);
+    expect(assessment.selected).toBe("NONE");
+  }
+  // A complete, valid arm (b) whose marker did not survive is a measured failure and still falls through.
+  const markerLost = mutate((body) => (observed(body, "version-ordered-install", "relaunch").marker.nonce = "lost"));
+  expect(assessReplacement(markerLost).failures.record).toEqual([]);
+  expect(selectReplacementMechanism(markerLost)).toBe("cdp-load-unpacked");
+});
+
 test("replacement-record selects NONE for inputs spliced across runs, arms, profiles or time", () => {
   const changes = [
-    (body: ReplacementBody) => (stageOf(body, "same-version-byte-swap", "relaunch").run = "38015154175/1"),
+    (body: ReplacementBody) => (stageOf(body, "same-version-byte-swap", "relaunch").run = otherSyntheticRun),
     (body: ReplacementBody) =>
       (stageOf(body, "same-version-byte-swap", "relaunch").profile = arm(body, "version-ordered-install").profile),
     (body: ReplacementBody) => (stageOf(body, "same-version-byte-swap", "relaunch").arm = "version-ordered-install"),
@@ -334,7 +378,7 @@ test("replacement-record parsing is closed, recursive, UTC and bounded", () => {
   rejects((value) => (watched(value).marker = { present: true, nonce: null }), /nonce must/);
   rejects((value) => (value.arms[0]!.loadUnpacked = value.arms[2]!.loadUnpacked), /only cdp-load-unpacked/);
   rejects((value) => (value.run.sourceHead = "main"), /sourceHead/);
-  rejects((value) => (value.run.id = "38015154175/1"), /runId\/runAttempt/);
+  rejects((value) => (value.run.id = otherSyntheticRun), /runId\/runAttempt/);
   rejects((value) => (value.selectedReplacementMechanism = "cdp-load-unpacked"), /does not match the strict selector/);
   rejects((value) => Object.assign(value, { selectedReplacementMechanism: "runtime.reload" }), /unexpected value/);
 });
