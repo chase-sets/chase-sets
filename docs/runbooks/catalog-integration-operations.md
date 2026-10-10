@@ -164,7 +164,8 @@ pnpm run ops catalog:production-completion-report -- --facts database --batch-id
 
 The command reads every fact in one `REPEATABLE READ READ ONLY` transaction, so it cannot write. It never calls a provider. Reading the record in the uploaded `catalog-completion-report-<environment>-<run>` artifact:
 
-- `result: evidence-incomplete` (exit 2): a fact could not be established and is named in `unknownFacts`, such as a credited provider's absent usage-check state or a failed promotion outcome without a diagnostic code. Unknown facts are never reported as zero.
+- `result: evidence-incomplete` (exit 2): a fact could not be established and is named in `unknownFacts`, such as a credited provider's absent usage-check state, a failed promotion outcome without a diagnostic code, or a sync counter the job never measured (`observed-unit-counter:<scope>/<provider>/<unit>/<counter>`; that unit is withheld from the manifest). Unknown facts are never reported as zero.
+- A frozen manifest must name the batch's live id and plan fingerprint, or the command fails with `manifest-batch-mismatch` (exit 1). The reported batch status is always the live one.
 - `completionProof: false`: no frozen manifest was supplied, so the universe came from the batch plan. Such a report describes observed state but never proves production completion.
 - `reportedFacts` carries `externalReferenceDuplicates`, `legacyProfileMarkerCount`, `nonTerminalIntegrationJobCount`, and `publicationCountsByStatus`.
 
