@@ -123,6 +123,8 @@ function validCandidate() {
     connectorFeed: {
       readAuthority: vi.fn(),
       withAuthority: vi.fn(),
+      withGrantAuthority: vi.fn(),
+      readStagedImportDispatchPolicy: vi.fn(),
       claim: vi.fn(),
       report: vi.fn(),
       ingest: vi.fn(),

@@ -13,6 +13,7 @@ import type { ManualSyncServices } from "../../features/manual-sync/api/runtime"
 import type { ConnectionAttentionServices } from "../../features/connection-attention/domain/contracts";
 import type { ConnectorFeedServices } from "../../features/connector-feed/api/runtime";
 import type { ConnectorTransportServices } from "../../features/connector-feed/api/transport";
+import type { createStagedImportDispatchPolicyReader } from "../../features/connector-feed/api/staged-import-dispatch-policy";
 import type { ConnectorLivenessServices } from "../../features/connector-feed/read-model/liveness";
 import type { ChannelCredentialServices } from "../../features/credentials/api/runtime";
 import type { TcgplayerOrderServices } from "../../features/tcgplayer-orders/api/runtime";
@@ -31,7 +32,10 @@ export type ChannelsServices = Readonly<{
   tcgplayerOrders: TcgplayerOrderServices;
   fulfillmentObservations: FulfillmentObservationServices;
   manualSync: ManualSyncServices;
-  connectorFeed: ConnectorFeedServices & ConnectorTransportServices & ConnectorLivenessServices;
+  connectorFeed: ConnectorFeedServices &
+    ConnectorTransportServices &
+    ConnectorLivenessServices &
+    Readonly<{ readStagedImportDispatchPolicy: ReturnType<typeof createStagedImportDispatchPolicyReader> }>;
   projectors: readonly ProjectionHandlerSet[];
   db: PgTransactionalPool;
 }>;
@@ -111,6 +115,8 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(connectorFeed, "listConnectorLivenessCandidates") === "function" &&
     typeof Reflect.get(connectorFeed, "readAuthority") === "function" &&
     typeof Reflect.get(connectorFeed, "withAuthority") === "function" &&
+    typeof Reflect.get(connectorFeed, "withGrantAuthority") === "function" &&
+    typeof Reflect.get(connectorFeed, "readStagedImportDispatchPolicy") === "function" &&
     typeof Reflect.get(connectorFeed, "claim") === "function" &&
     typeof Reflect.get(connectorFeed, "report") === "function" &&
     typeof Reflect.get(connectorFeed, "ingest") === "function" &&

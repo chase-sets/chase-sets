@@ -28,6 +28,12 @@ import {
   type OrderPullHandoff,
 } from "./order-pull-handoff";
 import type { OrderPullExecution } from "./order-pull-execution";
+import {
+  parseStagedImportTiming,
+  type StagedImportTiming,
+  type StagedImportPreparation,
+  type StagedImportSend,
+} from "./staged-import-dispatch";
 import { OperationProtocolError, identifier, record, refuse } from "./operation-codec";
 export { OperationProtocolError, identifier, record, refuse } from "./operation-codec";
 
@@ -80,6 +86,8 @@ export type OperationReservation = Readonly<{
   revision: number;
   reservationId: string;
   executorKey: string;
+  pairingId?: string;
+  stagedImport?: StagedImportTiming;
   reservedAt: string;
   leaseExpiresAt: string;
   memberOperationIds: readonly string[];
@@ -98,8 +106,19 @@ export type ConnectorExecutor = Readonly<{
   ])[];
   unit: "operation" | "reservation";
   dispatchDeadlineMs: number;
-  prepare(unit: OperationUnit): Promise<Readonly<{ ready: true }> | Readonly<{ ready: false; result: ExecutorResult }>>;
-  dispatchOnce(unit: OperationUnit, signal: AbortSignal, pull?: OrderPullExecution): Promise<ExecutorResult>;
+  providerRequests?: "tcgplayer-staged-import";
+  prepare(
+    unit: OperationUnit,
+  ): Promise<
+    | Readonly<{ ready: true; stagedImport?: StagedImportPreparation }>
+    | Readonly<{ ready: false; result: ExecutorResult }>
+  >;
+  dispatchOnce(
+    unit: OperationUnit,
+    signal: AbortSignal,
+    pull?: OrderPullExecution,
+    stagedImport?: StagedImportSend,
+  ): Promise<ExecutorResult>;
   reconcileAmbiguous?(unit: OperationUnit, pull?: OrderPullExecution): Promise<ExecutorResult | null>;
 }>;
 
@@ -222,11 +241,13 @@ export function parseOperationReservation(value: unknown): OperationReservation 
       "memberOperationIds",
       "phase",
     ],
-    ["reportEnvelope", "reportedAt", "ackedAt", "lastRefusal"],
+    ["reportEnvelope", "reportedAt", "ackedAt", "lastRefusal", "pairingId", "stagedImport"],
   );
   if (row.schemaVersion !== 1) throw new OperationProtocolError("upgrade-required");
   if (!safeRevision(row.revision)) refuse();
   for (const key of ["connectionId", "reservationId", "executorKey"]) identifier(row[key]);
+  if (Object.hasOwn(row, "pairingId")) identifier(row.pairingId);
+  if (Object.hasOwn(row, "stagedImport")) parseStagedImportTiming(row.stagedImport);
   instant(row.reservedAt);
   instant(row.leaseExpiresAt);
   state(row.phase);

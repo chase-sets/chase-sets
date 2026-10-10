@@ -63,25 +63,41 @@ describe("connector-feed-bootstrap-and-manifest", () => {
     expect(claim).toHaveBeenCalledTimes(1);
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]?.[1]?.[3]).toBe("claim");
+    expect(
+      credential.router.routes.some(
+        (route) => route.method === "GET" && route.path === "/tcgplayer-staged-import-dispatch-policy",
+      ),
+    ).toBe(true);
+    const floor = await app.request(
+      "/channel-connector/oauth/tcgplayer-staged-import-dispatch-policy?reservationId=synthetic&requestNonce=" +
+        "a".repeat(32),
+    );
+    expect(floor.status).toBe(403);
+    expect(await floor.json()).toEqual({ code: "authorization-refused" });
+    expect(query.mock.calls.at(-1)?.[1]?.[3]).toBe("tcgplayer-staged-import-dispatch-policy");
     const denied = await app.request("/api/channels/connections");
     expect(denied.status).toBe(401);
   });
-  it.each(["claim", "report", "ingest", "readAdmittedConnectorInboundEvents"])(
-    "does not accept an aggregate missing %s",
-    (method) => {
-      const unavailable = async (): Promise<never> => {
-        throw new Error("unexpected-db-call");
-      };
-      const services = channelsModule.createServices(
-        { query: unavailable, connect: unavailable },
-        { channelSaleRecorder: unavailable },
-      );
-      expect(
-        isChannelsServices({
-          ...services,
-          connectorFeed: Object.fromEntries(Object.entries(services.connectorFeed).filter(([key]) => key !== method)),
-        }),
-      ).toBe(false);
-    },
-  );
+  it.each([
+    "claim",
+    "report",
+    "ingest",
+    "readAdmittedConnectorInboundEvents",
+    "readStagedImportDispatchPolicy",
+    "withGrantAuthority",
+  ])("does not accept an aggregate missing %s", (method) => {
+    const unavailable = async (): Promise<never> => {
+      throw new Error("unexpected-db-call");
+    };
+    const services = channelsModule.createServices(
+      { query: unavailable, connect: unavailable },
+      { channelSaleRecorder: unavailable },
+    );
+    expect(
+      isChannelsServices({
+        ...services,
+        connectorFeed: Object.fromEntries(Object.entries(services.connectorFeed).filter(([key]) => key !== method)),
+      }),
+    ).toBe(false);
+  });
 });

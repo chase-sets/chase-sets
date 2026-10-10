@@ -3,6 +3,8 @@ import { RetentionError } from "./raw-export-record";
 import type { ClaimedOperationReservation, ClaimedSubjectOperation } from "../../outbound-sync/domain/contracts";
 import { browserCheckpointDigest } from "./order-pull-handoff";
 import { createOrderPullExecution } from "./order-pull-execution";
+import { prepareStagedImportDispatch } from "./staged-import-dispatch";
+import { StagedImportDispatchError } from "../../connector-feed/domain/staged-import-dispatch-policy";
 import { orderPullFitsLease, orderPullProviderReady } from "../../outbound-sync/domain/order-pull-codec";
 import type { ConnectorReport } from "../../connector-feed/domain/transport";
 import { createOperationJournal, type OperationJournal } from "../integrations/connector-indexeddb";
@@ -40,6 +42,7 @@ export type CoordinatorResult = Readonly<{
     | "protocol-violation"
     | "unsupported-operation";
   pollWindowSeconds?: number;
+  refusal?: StagedImportDispatchError["code"];
 }>;
 type Ports = Readonly<{
   indexedDB: IDBFactory;
@@ -47,11 +50,13 @@ type Ports = Readonly<{
   executors: readonly ConnectorExecutor[];
   platformOrigin: string;
   request(request: Request): Promise<Response>;
-  clock: Readonly<{ now(): number }>;
+  clock: Readonly<{ now(): number; monotonic?(): number }>;
+  wait?(ms: number, signal: AbortSignal): Promise<void>;
 }>;
 
 export function createConnectorOperationCoordinator(ports: Ports) {
   const journal = createOperationJournal(ports.indexedDB, ports.keyRange);
+  const epoch = crypto.randomUUID();
   const executors = new Map<string, ConnectorExecutor>();
   const pairs = new Set<string>();
   for (const executor of ports.executors) {
@@ -63,7 +68,9 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       !Number.isSafeInteger(executor.dispatchDeadlineMs) ||
       executor.dispatchDeadlineMs < 1000 ||
       executor.dispatchDeadlineMs > 600000 ||
-      !executor.accepts.length
+      !executor.accepts.length ||
+      (executor.providerRequests !== undefined &&
+        (executor.providerRequests !== "tcgplayer-staged-import" || executor.unit !== "reservation"))
     )
       refuse();
     for (const pair of executor.accepts) {
@@ -185,7 +192,23 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     claim: ClaimedOperationReservation<ClaimedSubjectOperation>,
     state: OperationJournal,
   ) {
+    if (
+      state.reservations.some(
+        (row) =>
+          row.stagedImport &&
+          (row.stagedImport.state !== "released" || ["dispatched", "outcome-unknown"].includes(row.phase)),
+      )
+    )
+      throw new StagedImportDispatchError("staged-import-outcome-unknown");
     const existingReservation = state.reservations.find((row) => row.reservationId === claim.reservationId);
+    if (
+      state.reservations.some(
+        (row) =>
+          executors.get(row.executorKey)?.providerRequests === "tcgplayer-staged-import" &&
+          ["dispatched", "outcome-unknown"].includes(row.phase),
+      )
+    )
+      throw new StagedImportDispatchError("staged-import-outcome-unknown");
     if (existingReservation) throw new OperationProtocolError("incomplete-authority");
     const executor = select(claim);
     const incomingIds = new Set(claim.operations.map((operation) => operation.operationId));
@@ -276,6 +299,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       revision: 0,
       reservationId: claim.reservationId,
       executorKey: executor?.key ?? "unsupported",
+      pairingId: claim.claimant.claimantId,
       reservedAt: claim.reservedAt,
       leaseExpiresAt: claim.leaseExpiresAt,
       memberOperationIds: members.map((member) => member.operationId).sort(),
@@ -355,6 +379,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
   ): Promise<CoordinatorResult> {
     if (reservation.phase === "acked") return { outcome: "ok" };
     if (reservation.phase === "reported") return report(input, state, reservation);
+    if (reservation.stagedImport && (reservation.phase === "dispatched" || reservation.phase === "outcome-unknown"))
+      return { outcome: "unknown", refusal: "staged-import-outcome-unknown" };
     let exact = unit(state, reservation);
     const execution = (operationId: string, signal: AbortSignal) => {
       const current = () => {
@@ -379,6 +405,11 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       });
     };
     const executor = executors.get(reservation.executorKey);
+    if (
+      executor?.providerRequests === "tcgplayer-staged-import" &&
+      exact.members.some((member) => member.state === "dispatched" || member.state === "outcome-unknown")
+    )
+      return { outcome: "unknown", refusal: "staged-import-outcome-unknown" };
     if (executor?.unit !== "reservation" && ports.clock.now() >= Date.parse(reservation.leaseExpiresAt))
       return { outcome: "unknown" };
     if (exact.members.some((member) => member.state === "dispatched")) {
@@ -528,6 +559,46 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       executor.unit === "reservation"
         ? [exact.members]
         : exact.members.filter((member) => member.state === "prepared").map((member) => [member]);
+    const stagedImport =
+      executor.providerRequests === "tcgplayer-staged-import"
+        ? await prepareStagedImportDispatch({
+            unit: { reservation, members: preparedMembers },
+            preparation: prepared.stagedImport,
+            dispatchDeadlineMs: executor.dispatchDeadlineMs,
+            epoch,
+            platformOrigin: origin.origin,
+            accessToken: input.accessToken,
+            request: ports.request,
+            monotonic: () => ports.clock.monotonic?.() ?? performance.now(),
+            wait:
+              ports.wait ??
+              ((ms, signal) =>
+                new Promise<void>((resolve, reject) => {
+                  if (signal.aborted) {
+                    reject(new StagedImportDispatchError("staged-import-authority-refused"));
+                    return;
+                  }
+                  const timer = setTimeout(resolve, ms);
+                  signal.addEventListener(
+                    "abort",
+                    () => {
+                      clearTimeout(timer);
+                      reject(new StagedImportDispatchError("staged-import-authority-refused"));
+                    },
+                    { once: true },
+                  );
+                })),
+            current: () => state,
+            fence: async () =>
+              input.reason !== "unpair" &&
+              (await authority(input)) === "paired-idle" &&
+              canonicalJson(await journal.read(input.connectionId)) === canonicalJson(state),
+            save: async (timing) => {
+              state = await write(input, state, revise(reservation, { stagedImport: timing }), []);
+              reservation = state.reservations.find((row) => row.reservationId === reservation.reservationId)!;
+            },
+          })
+        : undefined;
     for (const members of groups) {
       if (
         (await authority(input)) !== "paired-idle" ||
@@ -554,6 +625,9 @@ export function createConnectorOperationCoordinator(ports: Ports) {
               { reservation, members: dispatched },
               signal,
               execution(dispatched[0]!.operationId, signal),
+              stagedImport
+                ? { send: (requestId, request) => stagedImport.send(requestId, request, signal) }
+                : undefined,
             ),
             new Promise<never>((_resolve, reject) =>
               signal.addEventListener("abort", () => reject(new OperationProtocolError("incomplete-authority")), {
@@ -568,6 +642,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         assertTotalResult(result, dispatched);
         if (executor.unit === "reservation" && !result.runSettlement) refuse();
         if (signal.aborted) throw new OperationProtocolError("incomplete-authority");
+        await stagedImport?.finish();
       } catch {
         dispatched = unit(state, reservation).members.filter((member) =>
           members.some((original) => original.operationId === member.operationId),
@@ -674,6 +749,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       };
     } catch (error) {
       if (error instanceof RetentionError && error.code === "upgrade-required") return { outcome: "upgrade-required" };
+      if (error instanceof StagedImportDispatchError) return { outcome: "unknown", refusal: error.code };
       return {
         outcome:
           error instanceof OperationProtocolError

@@ -19,7 +19,7 @@ export function composeConnectorBackground({ executors }: Readonly<{ executors: 
   const session = chromeSession();
   const alarms = chromeAlarms();
   const database = chromeIndexedDB();
-  const clock = { now: () => Date.now() };
+  const clock = { now: () => Date.now(), monotonic: () => performance.now() };
   const platformOrigin = import.meta.env.VITE_PLATFORM_API_URL;
   const request = connectorTransport({
     platformOrigin,

@@ -182,6 +182,8 @@ import {
   connectorInboundSchemaSql,
 } from "./features/connector-feed/read-model/inbound-schema";
 import { createConnectorTransport } from "./features/connector-feed/api/transport";
+import { createStagedImportDispatchPolicyReader } from "./features/connector-feed/api/staged-import-dispatch-policy";
+import { createStagedImportDispatchPolicyRoutes } from "./features/connector-feed/api/staged-import-dispatch-policy-routes";
 import { createConnectorLivenessReader } from "./features/connector-feed/read-model/liveness";
 import {
   connectorLivenessSchemaSql,
@@ -397,6 +399,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       manualSync,
       connectorFeed: {
         ...connectorFeed,
+        readStagedImportDispatchPolicy: createStagedImportDispatchPolicyReader(eventStore, connectorFeed),
         ...createConnectorLivenessReader(pool),
         ...createConnectorTransport({
           db: pool,
@@ -424,10 +427,12 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     {
       mountPath: "/channel-connector/oauth",
       contextMountOrdinal: 2,
-      router: createConnectorCredentialRoutes(services.connectorFeed, services.db).route(
-        "/",
-        createConnectorTransportRoutes(services.connectorFeed, services.db),
-      ),
+      router: createConnectorCredentialRoutes(services.connectorFeed, services.db)
+        .route(
+          "/",
+          createStagedImportDispatchPolicyRoutes(services.connectorFeed.readStagedImportDispatchPolicy, services.db),
+        )
+        .route("/", createConnectorTransportRoutes(services.connectorFeed, services.db)),
     },
   ],
   projectionHandlerSets: (services) => services.projectors,

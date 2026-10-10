@@ -23,6 +23,12 @@ export type {
 export { createConnectorBackground } from "./features/connector-client/domain/connector-background";
 export { buildConnectorManifest } from "./features/connector-client/domain/connector-manifest";
 export { createConnectorOperationCoordinator } from "./features/connector-client/domain/operation-coordinator";
+export { stagedImportMembershipDigest } from "./features/connector-client/domain/staged-import-dispatch";
+export type {
+  StagedImportSend,
+  StagedImportPreparation,
+} from "./features/connector-client/domain/staged-import-dispatch";
+export type { StagedImportCapturePlan } from "./features/connector-client/domain/staged-import-fit";
 export type { CoordinatorInput, CoordinatorResult } from "./features/connector-client/domain/operation-coordinator";
 export type {
   ConnectorExecutor,
