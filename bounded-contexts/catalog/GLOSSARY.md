@@ -267,6 +267,24 @@ Natural keys are normalized once at Source Observation ingest before they are pe
 | `providerKey` | Trimmed lowercase | Provider identity is case-insensitive. |
 | `externalKey` | Trimmed and otherwise preserved exactly as provider-issued | External identifiers are provider-owned and may be case/format significant. |
 
+### Promotion Reference Canonical Form
+
+Promotion discovery compares references by a canonical form `C(s)` that is
+ECMAScript `s.trim().toLowerCase()`: Unicode default lowercase with the
+language-independent special cases (dotted I expansion, final sigma), no case
+folding, no normalization and no locale. It never rewrites stored keys; Catalog
+Item references already store `C(value)` and Source Observation references keep
+their case, so `C` is applied at the access path.
+
+| Public term | Meaning |
+| --- | --- |
+| `catalog_promotion_reference_text_v1(text)` | Immutable Catalog SQL function computing `C` byte-for-byte with the supported Node runtime from pinned Unicode 17.0 casing data. A casing-data change is a new version with new function and index names. |
+| `catalog_promotion_reference_pairs_v1(jsonb)` | Immutable Catalog SQL function mapping a Source Observation `normalized` header to `{ externalCatalogItemReferences, externalProductReferences }` arrays of canonical `{ providerKey, externalKey }` pairs. It keeps level and pairing and never flattens or lowercases serialized JSON. |
+
+The dormant access paths these functions back are described in
+`bounded-contexts/catalog/docs/catalog-scope-sync-merge-candidate-handoff.md`
+under Promotion Reference Access Paths.
+
 The promotion command planner and duplicate-prevention resolver use the same `languageCode:externalKey` composition after this normalization. Natural-key normalization does not rewrite historical event or reference keys.
 
 Notes:
