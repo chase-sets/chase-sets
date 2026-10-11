@@ -426,7 +426,7 @@ Catalog Merge Candidate approval is not application:
 - `appliedCatalogItemId` is the Catalog Item a completed application wrote. A scope job result's `catalogItemId` stays the historical matched target, never application evidence.
 - `promotionApplicationVersion` is the persisted scope promotion job discriminator: `1` for jobs whose `promoted` outcomes are completed applications; absent for retained jobs whose `promoted` outcomes recorded approval only.
 
-Owning contracts: `features/source-observations/domain/catalog-merge-candidate.ts` and `features/source-observations/api/source-observation-runtime-contracts.ts`; lifecycle, rollout and rollback in `docs/catalog-scope-sync-merge-candidate-handoff.md`.
+Owning contracts: `bounded-contexts/catalog/features/source-observations/domain/catalog-merge-candidate.ts` and `bounded-contexts/catalog/features/source-observations/api/source-observation-runtime-contracts.ts`; lifecycle, rollout and rollback in `bounded-contexts/catalog/docs/catalog-scope-sync-merge-candidate-handoff.md`.
 
 ## One-Line Summary
 
