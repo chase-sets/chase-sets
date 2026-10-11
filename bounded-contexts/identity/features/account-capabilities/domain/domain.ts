@@ -171,7 +171,10 @@ export const evolveAccountCapabilityAssignment: AggregateEvolver<
   }
 };
 
-function assertExactRetry(state: Extract<AccountCapabilityAssignmentState, { assignmentId: string }>, expected: number) {
+function assertExactRetry(
+  state: Extract<AccountCapabilityAssignmentState, { assignmentId: string }>,
+  expected: number,
+) {
   assert(
     expected === state.version - 1,
     `Account Capability assignment is already ${state.status} at version ${state.version}; expected version ${expected} is stale.`,

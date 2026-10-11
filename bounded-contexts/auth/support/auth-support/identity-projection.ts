@@ -1088,7 +1088,15 @@ async function projectAccountCapabilityAssignment(
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at
        WHERE auth_identity_account_capabilities.version < EXCLUDED.version`,
-    [fact.tenantId, fact.accountId, fact.capabilityKey, fact.assignmentId, fact.version, status, event.timing.recordedAt],
+    [
+      fact.tenantId,
+      fact.accountId,
+      fact.capabilityKey,
+      fact.assignmentId,
+      fact.version,
+      status,
+      event.timing.recordedAt,
+    ],
   );
 }
 

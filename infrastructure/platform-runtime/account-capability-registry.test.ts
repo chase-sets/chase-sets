@@ -293,9 +293,13 @@ describe("Account Capability registry", () => {
     expect(host.services).toEqual({});
     expect(host.accountCapabilityRegistry.filter(({ key }) => key === expected.key)).toEqual([expected]);
     // The declaration is inert catalog metadata: no grant, assignment or allow-list field rides on it.
-    expect(Object.keys(host.accountCapabilityRegistry.find(({ key }) => key === expected.key) ?? {}).sort()).toEqual(
-      ["defaultValue", "description", "key", "kind", "owningContext"],
-    );
+    expect(Object.keys(host.accountCapabilityRegistry.find(({ key }) => key === expected.key) ?? {}).sort()).toEqual([
+      "defaultValue",
+      "description",
+      "key",
+      "kind",
+      "owningContext",
+    ]);
   });
 
   it("returns a required immutable empty catalog when no declarations exist", () => {

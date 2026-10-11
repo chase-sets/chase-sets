@@ -64,13 +64,13 @@ describe("Account Capability assignment runtime", () => {
     expect(await runtime.revokeAccountCapability(request(1), context)).toMatchObject({ appended: false, version: 2 });
     const regranted = await runtime.grantAccountCapability(request(2), context);
 
-    expect([granted, revoked, regranted].map(({ appended, version, state }) => [appended, version, state.status])).toEqual(
-      [
-        [true, 1, "granted"],
-        [true, 2, "revoked"],
-        [true, 3, "granted"],
-      ],
-    );
+    expect(
+      [granted, revoked, regranted].map(({ appended, version, state }) => [appended, version, state.status]),
+    ).toEqual([
+      [true, 1, "granted"],
+      [true, 2, "revoked"],
+      [true, 3, "granted"],
+    ]);
     expect(regranted.state).toMatchObject({
       tenantId: TENANT,
       accountId: ACCOUNT,

@@ -255,9 +255,19 @@ describe("admin-qa actor fixtures", () => {
   it("authors no Capability Grant and no role or preset holds the any-case key or its administration", async () => {
     const capabilityLike = /support\.evidence|any-case|capabilit/i;
     expect(ROLE_KEYS.filter((roleKey) => capabilityLike.test(roleKey))).toEqual([]);
-    expect(Object.values(ROLE_PERMISSIONS).flat().filter((permission) => capabilityLike.test(permission))).toEqual([]);
-    expect(Object.values(PERMISSION_PRESETS).flat().filter((permission) => capabilityLike.test(permission))).toEqual([]);
-    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain("support.evidence.any-case");
+    expect(
+      Object.values(ROLE_PERMISSIONS)
+        .flat()
+        .filter((permission) => capabilityLike.test(permission)),
+    ).toEqual([]);
+    expect(
+      Object.values(PERMISSION_PRESETS)
+        .flat()
+        .filter((permission) => capabilityLike.test(permission)),
+    ).toEqual([]);
+    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain(
+      "support.evidence.any-case",
+    );
 
     // A live observer: a restored fixture grant would reach these spies.
     const { services, records } = createServices();
@@ -279,7 +289,9 @@ describe("admin-qa actor fixtures", () => {
     const callers = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages", "scripts"].flatMap(
       (root) =>
         listProductionSources(path.join(repositoryRoot, root))
-          .filter((file) => /(grant|revoke)AccountCapability|"(Grant|Revoke)AccountCapability"/.test(readFileSync(file, "utf8")))
+          .filter((file) =>
+            /(grant|revoke)AccountCapability|"(Grant|Revoke)AccountCapability"/.test(readFileSync(file, "utf8")),
+          )
           .map((file) => path.relative(repositoryRoot, file).split(path.sep).join("/")),
     );
 
@@ -295,9 +307,7 @@ function listProductionSources(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      return ["node_modules", "dist", "build", ".turbo"].includes(entry.name)
-        ? []
-        : listProductionSources(entryPath);
+      return ["node_modules", "dist", "build", ".turbo"].includes(entry.name) ? [] : listProductionSources(entryPath);
     }
     return /\.(ts|tsx|mts|mjs|js)$/.test(entry.name) && !/\.test\.|test-support|\.d\.ts$/.test(entry.name)
       ? [entryPath]

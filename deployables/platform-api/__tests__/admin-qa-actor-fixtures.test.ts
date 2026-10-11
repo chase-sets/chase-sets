@@ -93,7 +93,9 @@ describe("admin-qa actor fixtures Capability Grant boundary", () => {
     );
 
     expect(assignmentCallers).toEqual([]);
-    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain("support.evidence.any-case");
+    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain(
+      "support.evidence.any-case",
+    );
     expect(supportSafeEvidence().fixtures.flatMap(({ capabilities }) => capabilities)).not.toContain(
       "support.evidence.any-case",
     );

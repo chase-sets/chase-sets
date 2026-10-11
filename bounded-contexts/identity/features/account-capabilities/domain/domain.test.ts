@@ -27,7 +27,12 @@ function grant(expectedVersion: number, overrides: Partial<AccountCapabilityAssi
 }
 
 function revoke(expectedVersion: number, overrides: Partial<AccountCapabilityAssignmentCommand> = {}) {
-  return { type: "RevokeAccountCapability", ...target, expectedVersion, ...overrides } as AccountCapabilityAssignmentCommand;
+  return {
+    type: "RevokeAccountCapability",
+    ...target,
+    expectedVersion,
+    ...overrides,
+  } as AccountCapabilityAssignmentCommand;
 }
 
 function apply(state: AccountCapabilityAssignmentState, command: AccountCapabilityAssignmentCommand) {
@@ -74,7 +79,11 @@ describe("Account Capability assignment decider", () => {
 
   it.each([
     // Bypass mutant: accepting any grant while already granted would make this an idempotent no-op.
-    ["grant against a stale version while granted", () => apply(initialAccountCapabilityAssignmentState, grant(0)).state, grant(5)],
+    [
+      "grant against a stale version while granted",
+      () => apply(initialAccountCapabilityAssignmentState, grant(0)).state,
+      grant(5),
+    ],
     // Bypass mutant: ignoring expectedVersion would append a second grant for the absent stream.
     ["grant expecting a version the stream never had", () => initialAccountCapabilityAssignmentState, grant(1)],
     [
@@ -189,6 +198,8 @@ describe("Account Capability assignment history", () => {
   it("refuses to decide against a stream whose stored target differs from the command", () => {
     const foreign = replay([event("identity.account-capability.granted", 1, { tenantId: "tnt_other" })]);
 
-    expect(() => decideAccountCapabilityAssignment(foreign, grant(0))).toThrow(/another tenant, Account, or capability/);
+    expect(() => decideAccountCapabilityAssignment(foreign, grant(0))).toThrow(
+      /another tenant, Account, or capability/,
+    );
   });
 });

@@ -278,7 +278,12 @@ describeDb("Auth projection of Identity Capability Grants", () => {
     await identity.accountCapabilities.revokeAccountCapability(request(expectedVersion), identityContext());
   }
   async function signIn(userId: string, accountId: string) {
-    const result = await startInteractiveAuth(auth, { userId, accountId, authenticationMethod: "password", context: authContext });
+    const result = await startInteractiveAuth(auth, {
+      userId,
+      accountId,
+      authenticationMethod: "password",
+      context: authContext,
+    });
     if (result.type !== "session-started") throw new Error("Synthetic fixture must start a Session.");
     await drain();
     return { sessionId: result.sessionId, token: result.sessionToken };
