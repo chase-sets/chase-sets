@@ -106,11 +106,11 @@ function validCandidate() {
     ebayAccountDeletion: { config: null },
     ebayAccountDeletionReceipts: {
       recordEbayAccountDeletionReceipt:
-        vi.fn<ChannelsServices["ebayAccountDeletion"]["recordEbayAccountDeletionReceipt"]>(),
-      lookup: vi.fn<ChannelsServices["ebayAccountDeletion"]["lookup"]>(),
-      countSubjectData: vi.fn<ChannelsServices["ebayAccountDeletion"]["countSubjectData"]>(),
-      assertKeyringContinuity: vi.fn<ChannelsServices["ebayAccountDeletion"]["assertKeyringContinuity"]>(),
-    } satisfies ChannelsServices["ebayAccountDeletion"],
+        vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["recordEbayAccountDeletionReceipt"]>(),
+      lookup: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["lookup"]>(),
+      countSubjectData: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["countSubjectData"]>(),
+      assertKeyringContinuity: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["assertKeyringContinuity"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionReceipts"],
     ebayReceiptExpiry: {
       cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
       batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
