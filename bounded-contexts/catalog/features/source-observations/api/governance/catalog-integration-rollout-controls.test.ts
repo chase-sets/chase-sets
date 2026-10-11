@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   assertCatalogIntegrationProfileUnitAllowed,
@@ -552,6 +555,138 @@ describe("Catalog integration rollout controls", () => {
       ),
     ).toThrow("Provider API emergency stop is active for the configured provider scope.");
   });
+
+  it("ships production unit stops that name exactly the registry's Lorcana units", () => {
+    const shipped = shippedProductionEnvOverrides();
+    const lorcanaUnitKeys = registryLorcanaUnitKeys();
+
+    // Partition of the whole registry: a unit is stopped exactly when it is a Lorcana unit, so a
+    // Lorcana unit added to the registry fails here until the shipped stop list is regenerated.
+    expect(lorcanaUnitKeys.length).toBeGreaterThan(0);
+    for (const name of ["CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED", "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"]) {
+      const stopped = shipped[name]?.split(",") ?? [];
+      expect(stopped).toEqual(lorcanaUnitKeys);
+      for (const version of catalogProviderIntegrationProfileVersions) {
+        expect(stopped.includes(catalogProviderProfileVersionIngestionUnitKey(version))).toBe(
+          catalogProviderProfileVersionProductDomain(version) === "lorcana",
+        );
+      }
+    }
+  });
+
+  it("opens the shipped production posture for the founder's four product lines and keeps Lorcana stopped", () => {
+    const shipped = shippedProductionEnvOverrides();
+    const lorcanaUnitKeys = registryLorcanaUnitKeys();
+    const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...shipped,
+      DEPLOYMENT_ENVIRONMENT: "production",
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC Magic signoff reference",
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC One Piece signoff reference",
+    });
+
+    expect(policy.snapshot().controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ controlId: "control-plane-read-only", status: "open" }),
+        expect.objectContaining({ controlId: "activation-disabled", status: "open" }),
+      ]),
+    );
+    expect(
+      policy.decide({ capability: "activation", providerKey: "scryfall", profileLifecycle: "draft" }),
+    ).toMatchObject({ allowed: true });
+
+    // Every registry unit goes through the runtime's resolved-unit admission, not the provider-only call shape.
+    const blockedProviderKeys = ["tcgdex", "ygoprodeck", "ygojson"];
+    const admittedProviderKeys = new Set<string>();
+    for (const version of catalogProviderIntegrationProfileVersions) {
+      const admit = (capability: "import" | "promotion" | "reapply") => () =>
+        assertCatalogIntegrationProfileUnitAllowed(policy, capability, version);
+      if (blockedProviderKeys.includes(version.providerKey)) {
+        expect(admit("import")).toThrow(IMPORTS_PROVIDER_SCOPE_DENIAL);
+        expect(admit("promotion")).toThrow(PROMOTION_PROVIDER_SCOPE_DENIAL);
+        expect(admit("reapply")).toThrow(REAPPLY_PROVIDER_SCOPE_DENIAL);
+      } else if (lorcanaUnitKeys.includes(catalogProviderProfileVersionIngestionUnitKey(version))) {
+        expect(admit("import")).toThrow(IMPORTS_UNIT_SCOPE_DENIAL);
+        expect(admit("promotion")).toThrow(PROMOTION_UNIT_SCOPE_DENIAL);
+      } else {
+        expect(admit("import")).not.toThrow();
+        expect(admit("promotion")).not.toThrow();
+        expect(admit("reapply")).not.toThrow();
+        admittedProviderKeys.add(version.providerKey);
+      }
+    }
+    expect([...admittedProviderKeys].sort()).toEqual(["mtgjson", "scrydex", "scryfall", "tcgplayer"]);
+  });
+
+  it("keeps the shipped production posture behind the enforced signoff references and a usable emergency stop", () => {
+    const shipped = shippedProductionEnvOverrides();
+    const signedEnv = {
+      ...shipped,
+      DEPLOYMENT_ENVIRONMENT: "production",
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC Magic signoff reference",
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC One Piece signoff reference",
+    };
+    const scrydexOnePieceCard = catalogProviderIntegrationProfileVersions.find(
+      (version) =>
+        catalogProviderProfileVersionIngestionUnitKey(version) ===
+        "scrydex:one-piece:single-card:source-observation-import",
+    );
+    if (!scrydexOnePieceCard) {
+      throw new Error("Expected the registry Scrydex One Piece single-card profile version.");
+    }
+
+    const withoutMagic = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...signedEnv,
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "",
+    });
+    for (const providerKey of ["mtgjson", "scryfall", "tcgplayer"]) {
+      expect(withoutMagic.decide({ capability: "import", providerKey })).toMatchObject({
+        allowed: false,
+        controls: [expect.objectContaining({ controlId: "magic-production-signoff-required" })],
+      });
+    }
+    const withoutOnePiece = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...signedEnv,
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "",
+    });
+    expect(() => assertCatalogIntegrationProfileUnitAllowed(withoutOnePiece, "import", scrydexOnePieceCard)).toThrow(
+      ONE_PIECE_SIGNOFF_REQUIRED_PATTERN,
+    );
+
+    expect(shipped).not.toHaveProperty("CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP");
+    const emergencyStopped = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...signedEnv,
+      CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP: "scrydex",
+    });
+    expect(() => assertCatalogIntegrationProfileUnitAllowed(emergencyStopped, "import", scrydexOnePieceCard)).toThrow(
+      "Provider API emergency stop is active for the configured provider scope.",
+    );
+  });
 });
 
 const ONE_PIECE_SIGNOFF_REQUIRED_PATTERN = /^One Piece production sync requires recorded provider-data signoff/;
+const IMPORTS_PROVIDER_SCOPE_DENIAL = "Catalog integration imports are disabled for the configured provider scope.";
+const PROMOTION_PROVIDER_SCOPE_DENIAL = "Catalog integration promotion is disabled for the configured provider scope.";
+const REAPPLY_PROVIDER_SCOPE_DENIAL = "Catalog integration reapply is disabled for the configured provider scope.";
+const IMPORTS_UNIT_SCOPE_DENIAL = "Catalog integration imports are disabled for the configured ingestion-unit scope.";
+const PROMOTION_UNIT_SCOPE_DENIAL =
+  "Catalog integration promotion is disabled for the configured ingestion-unit scope.";
+
+const repositoryRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../../../..");
+
+/** The production overrides the release renders into values.production.yaml, read from the shipped file. */
+function shippedProductionEnvOverrides(): Readonly<Record<string, string>> {
+  const runtimeValues = JSON.parse(
+    readFileSync(path.join(repositoryRoot, "infrastructure/helm/platform/runtime-values.json"), "utf8"),
+  ) as { productionEnvOverrides: Record<string, string> };
+  return runtimeValues.productionEnvOverrides;
+}
+
+function registryLorcanaUnitKeys(): readonly string[] {
+  return [
+    ...new Set(
+      catalogProviderIntegrationProfileVersions
+        .filter((version) => catalogProviderProfileVersionProductDomain(version) === "lorcana")
+        .map(catalogProviderProfileVersionIngestionUnitKey),
+    ),
+  ].sort();
+}
