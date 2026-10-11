@@ -161,6 +161,19 @@ describe("Economics runtime", () => {
       hurdleStatus: "derived",
     });
     expect(deps.resolvePolicy).not.toHaveBeenCalled();
+    expect(toEconomicsForPricingGoal(result)).toEqual({
+      availability: "resolved",
+      reason: null,
+      currency: "usd",
+      effectiveAt: request.effectiveAt,
+      dailyReturnHurdle: result.economics.facts.dailyReturnHurdle,
+      platformFeeRelativeBps: 500,
+      platformFeeFixedPerUnitAmount: money("0.00"),
+      platformFeeCapPerUnitAmount: money("25.00"),
+      sellerHandlingRelativeBps: 0,
+      sellerHandlingFixedPerUnitAmount: money("0.30"),
+      sellerHandlingCapPerUnitAmount: null,
+    });
 
     const second = await createEconomicsRuntime(deps).resolve({
       ...request,

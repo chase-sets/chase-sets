@@ -26,6 +26,14 @@ The **Condition Ladder** is a card-wide monotone condition-value scale. It selec
 
 **Pooled Supply** counts distinct capture-local sellers at or below the curve price only after each condition's ask is rescaled by the Condition Ladder. Its status distinguishes observed-empty, truncated, unavailable, and disabled; an ordinal is never a seller identity across captures.
 
+## Pricing Goal
+
+A **Pricing Goal** is a versioned registry entry that solves one seller objective on a Demand Curve; `fixed-percentile`, `target-horizon`, and `profit-per-day` register first. It declares named numeric parameters with defaults and inclusive bounds, the curve features it requires, and whether it requires Economics. It reads Economics as facts and never derives a fee or hurdle; its explanation carries values, never copy.
+
+## Goal Decision
+
+A **Goal Decision** is a Pricing Goal's answer on one curve: selected and unconstrained amounts in the curve currency, the equivalent percentile and sell-time forecast read at the selected price, whether Net Proceeds there clear overhead, and the echoed parameters. A goal that cannot solve returns a typed unavailable reason and no price.
+
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
@@ -66,7 +74,11 @@ A **Fact Source** is the closed provenance vocabulary for an Economics Fact: Com
 
 ## Daily Return Hurdle
 
-The **Daily Return Hurdle** is Pricing's finite per-day return target derived from positive covered cost, positive net proceeds, Observed Hold, and Observed Turnaround. When any precondition is unavailable, a numeric policy default remains explicit in provenance.
+The **Daily Return Hurdle** is Pricing's finite per-day return target derived from positive covered cost, positive Net Proceeds, Observed Hold, and Observed Turnaround. When any precondition is unavailable, a numeric policy default remains explicit in provenance.
+
+## Net Proceeds
+
+**Net Proceeds** is a price less its unit overhead from the Economics fee terms: each term's relative part, capped, plus its fixed part. It is signed, so a loss stays visible: goal solving takes the least loss when no price clears overhead, and the Daily Return Hurdle requires it to be positive. The Economics order quote's `netProceedsAmount` is floored at zero and is not this signed value.
 
 ## Price Signal
 
