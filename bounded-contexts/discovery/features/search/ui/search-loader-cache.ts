@@ -89,10 +89,8 @@ export function cacheSearchLoaderData(
       serialized = serialize(entries);
     }
     if (serialized.length > MAX_CACHE_CHARACTERS) {
-      // A single entry that will not fit is not worth evicting the store for, but this
-      // URL's previous payload must not outlive its replacement; keep every other entry.
-      storage.setItem(SEARCH_LOADER_CACHE_STORAGE_KEY, serialize(existing));
-      return;
+      // An entry too large to cache is skipped, but this URL's previous payload must not outlive it.
+      serialized = serialize(existing);
     }
     storage.setItem(SEARCH_LOADER_CACHE_STORAGE_KEY, serialized);
   } catch {
