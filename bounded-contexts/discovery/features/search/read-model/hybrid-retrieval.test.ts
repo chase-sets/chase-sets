@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { classifyDiscoverySearchCursor, retrieveDiscoveryItems } from "./hybrid-retrieval";
-import type { DiscoverySearchItemRow, DiscoverySearchParams, ListResult } from "./queries";
+import type { DiscoverySearchItemRow, ListResult } from "./queries";
 
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
 
@@ -312,7 +312,7 @@ describe("Discovery hybrid retrieval", () => {
 
   it("restarts a rejected cursor on a low-result lexical query and runs rescue with fresh metadata", async () => {
     const provider = fakeProvider();
-    const searchLexical = vi.fn(async (_db, params: DiscoverySearchParams) => ({
+    const searchLexical = vi.fn(async (_db, params) => ({
       ...result([row("lexical", "Blue dragon")]),
       total: params.includeTotal ? 1 : null,
       category_counts: params.cursor === undefined ? [{ slug: "cards", count: 1 }] : [],
@@ -346,7 +346,7 @@ describe("Discovery hybrid retrieval", () => {
   });
 
   it("classifies a hybrid cursor first and restarts it when hybrid retrieval is disabled", async () => {
-    const searchLexical = vi.fn(async (_db, params: DiscoverySearchParams) => ({
+    const searchLexical = vi.fn(async (_db, params) => ({
       ...result([row("first", "Pikachu")]),
       total: params.includeTotal ? 1 : null,
     }));
@@ -373,7 +373,7 @@ describe("Discovery hybrid retrieval", () => {
   });
 
   it("restarts a rejected cursor as a fresh hybrid first page when hybrid retrieval is enabled", async () => {
-    const searchLexical = vi.fn(async (_db, params: DiscoverySearchParams) => ({
+    const searchLexical = vi.fn(async (_db, params) => ({
       ...result([row("exact", "Pikachu")]),
       total: params.includeTotal ? 1 : null,
     }));
