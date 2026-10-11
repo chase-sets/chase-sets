@@ -258,6 +258,17 @@ function validChannelsCandidate(
   },
 ) {
   return {
+    ebayAccountDeletion: {
+      recordEbayAccountDeletionReceipt:
+        vi.fn<ChannelsServices["ebayAccountDeletion"]["recordEbayAccountDeletionReceipt"]>(),
+      lookup: vi.fn<ChannelsServices["ebayAccountDeletion"]["lookup"]>(),
+      countSubjectData: vi.fn<ChannelsServices["ebayAccountDeletion"]["countSubjectData"]>(),
+      assertKeyringContinuity: vi.fn<ChannelsServices["ebayAccountDeletion"]["assertKeyringContinuity"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletion"],
+    ebayReceiptExpiry: {
+      cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
+      batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
+    } satisfies ChannelsServices["ebayReceiptExpiry"],
     connections: { getConnection: async () => null },
     ebayAccountDeletion: { config: null },
     storageLocationAuthority: { resolve: async () => null },

@@ -29,6 +29,7 @@ describe("ebay-account-deletion-receipt-idempotency", () => {
     );
     for (const delta of [
       { userId: "different-subject" },
+      { topic: "OTHER_TOPIC" },
       { eventDate: "2026-10-12T00:00:00Z" },
       { eventDate: "2026-10-11T00:00:00.000001Z" },
     ])
