@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { applyDevTargetEnvOverrides, buildPlatformChildEnvironment } from "./dev-system-config.mjs";
+import {
+  applyDevTargetEnvOverrides,
+  browserE2eProductionTarget,
+  buildPlatformChildEnvironment,
+  createBrowserE2eProductionIngressDefinitions,
+} from "./dev-system-config.mjs";
 import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
 import { buildPackageManagerInvocation, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 
@@ -13,6 +18,22 @@ const realChildren = [];
 const workerArgs = ["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"];
 const secretMarker = "synthetic-8882-secret-do-not-log";
 const worker = { name: "platform-worker", workspace: "@chase-sets/app-platform-worker", env: {} };
+const productionServices = [
+  { name: "platform-api", workspace: "@chase-sets/app-platform-api", env: { PORT: "6182" }, port: 6182 },
+  { name: "platform-worker", workspace: "@chase-sets/app-platform-worker", env: { PORT: "6183" }, port: 6183 },
+  {
+    name: "admin-web",
+    workspace: "@chase-sets/app-admin-web",
+    env: { PORT: "6174", PLATFORM_API_URL: "http://localhost:6182" },
+    port: 6174,
+  },
+  {
+    name: "marketplace",
+    workspace: "@chase-sets/app-marketplace-web",
+    env: { PORT: "6173", PLATFORM_API_URL: "http://localhost:6182" },
+    port: 6173,
+  },
+];
 
 afterEach(() => {
   for (const child of realChildren.splice(0)) terminateProcessTree(child, "SIGKILL");
@@ -72,6 +93,10 @@ function closedWithin(child, milliseconds) {
       resolve(code);
     });
   });
+}
+
+function selectProductionServices(platform, ci) {
+  return applyDevTargetEnvOverrides(browserE2eProductionTarget, productionServices, { ci, platform, environment: {} });
 }
 
 function isAlive(pid) {
@@ -146,6 +171,65 @@ describe("dev system launcher", () => {
     createDevSystemLauncher({ children: [], resolveInvocation, spawn }).launch(definition, { inheritEnv: false });
     expect(resolveInvocation).not.toHaveBeenCalled();
     expect(spawn).toHaveBeenCalledExactlyOnceWith("pnpm", workerArgs, { inheritEnv: false });
+  });
+
+  it("resolves every Windows production service through the canonical package manager", () => {
+    const directory = fixtureDirectory();
+    const cli = path.join(directory, "pnpm.cjs");
+    for (const ci of [true, false]) {
+      const selected = selectProductionServices("win32", ci);
+      expect(selected.map(({ name }) => name)).toEqual(productionServices.map(({ name }) => name));
+      selected.forEach((definition, index) => {
+        const startArgs = ["--filter", productionServices[index].workspace, "run", "start"];
+        const resolveInvocation = vi.fn((args) =>
+          buildPackageManagerInvocation(args, {
+            platform: "win32",
+            env: { PNPM_HOME: directory },
+            exists: (candidate) => candidate === cli,
+          }),
+        );
+        const spawn = vi.fn(() => fakeChild());
+        const options = { cwd: directory, env: {}, inheritEnv: false, prefix: definition.name };
+        createDevSystemLauncher({ children: [], resolveInvocation, spawn }).launch(definition, options);
+        expect(resolveInvocation).toHaveBeenCalledExactlyOnceWith(startArgs);
+        expect(resolveInvocation.mock.results[0].value).toEqual({
+          command: process.execPath,
+          args: [cli, ...startArgs],
+        });
+        expect(spawn).toHaveBeenCalledExactlyOnceWith(process.execPath, [cli, ...startArgs], options);
+        expect(spawn.mock.calls[0][0]).not.toMatch(/\.(?:cmd|bat|ps1)$/i);
+        expect(options).not.toHaveProperty("shell");
+      });
+    }
+  });
+
+  it("preserves the exact non-Windows production invocation", () => {
+    const ingressOptions = { apiUrl: "http://localhost:6182", ingressScriptPath: "synthetic-ingress.mjs" };
+    const withoutInvocation = (definitions) => definitions.map(({ command, args, script, ...rest }) => rest);
+    for (const ci of [true, false]) {
+      const windows = selectProductionServices("win32", ci);
+      const windowsIngress = createBrowserE2eProductionIngressDefinitions(windows, ingressOptions);
+      expect(windowsIngress.map(({ name, command }) => [name, command])).toEqual([
+        ["admin-web-ingress", "node"],
+        ["marketplace-ingress", "node"],
+      ]);
+      for (const platform of ["linux", "darwin", "freebsd"]) {
+        const selected = selectProductionServices(platform, ci);
+        selected.forEach((definition, index) => {
+          const resolveInvocation = vi.fn(() => ({ command: "synthetic-resolved", args: [] }));
+          const spawn = vi.fn(() => fakeChild());
+          createDevSystemLauncher({ children: [], resolveInvocation, spawn }).launch(definition, { inheritEnv: false });
+          expect(resolveInvocation).not.toHaveBeenCalled();
+          expect(spawn).toHaveBeenCalledExactlyOnceWith(
+            "pnpm",
+            ["--filter", productionServices[index].workspace, "run", "start"],
+            { inheritEnv: false },
+          );
+        });
+        expect(withoutInvocation(selected)).toEqual(withoutInvocation(windows));
+        expect(createBrowserE2eProductionIngressDefinitions(selected, ingressOptions)).toEqual(windowsIngress);
+      }
+    }
   });
 
   it.each(["win32", "linux"])("preserves watch, other targets, explicit commands and environment on %s", (platform) => {
