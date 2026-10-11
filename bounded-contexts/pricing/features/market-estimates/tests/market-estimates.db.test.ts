@@ -90,9 +90,34 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     };
   }
 
-  it("denominates parity curves and refreshes only freshUntil at T+47h while an unvisited curve becomes stale", async () => {
+  it("denominates the unchanged USD parity fixture with the default 48-hour horizon", async () => {
     const pool = pools.pricing;
     const { builtAt, identities } = await seedDemandCurveParityFixture(pool);
+    const { eventStore } = createRuntime(pool);
+    const closer = createDemandCurveCloser({
+      pool,
+      eventStore,
+      policies: createPolicyRuntime({ eventStore, db: pool }),
+    });
+    expect(await closer.runDemandCurveCloser({ now: builtAt })).toMatchObject({ built: 2 });
+    for (const identity of identities) {
+      expect(await getDemandCurve(pool, { ...identity, asOf: builtAt })).toMatchObject({
+        currencyCode: "USD",
+        freshUntil: new Date(Date.parse(builtAt) + 48 * 3_600_000).toISOString(),
+        builtAt,
+      });
+      expect(await listDemandCurvePoints(pool, { ...identity, version: 1 })).toHaveLength(19);
+    }
+  });
+
+  it("refreshes only freshUntil at T+47h while an unvisited curve becomes stale", async () => {
+    const pool = pools.pricing;
+    const { builtAt, identities } = await seedDemandCurveParityFixture(pool);
+    // This synthetic subset stays inside the unchanged 90-day window at both verification instants.
+    await pool.query(
+      `DELETE FROM pricing_external_sale_observations WHERE sold_at < $1::timestamptz - interval '88 days'`,
+      [builtAt],
+    );
     const { eventStore } = createRuntime(pool);
     const closer = createDemandCurveCloser({
       pool,
