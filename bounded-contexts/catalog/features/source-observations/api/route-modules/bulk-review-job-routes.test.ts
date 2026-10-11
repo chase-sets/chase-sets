@@ -1,10 +1,82 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
 import type { CatalogMergeCandidateBulkJob, CatalogMergeCandidateBulkJobPage } from "../runtime";
-import { CatalogMergeCandidateBulkJobCursorError } from "../source-observation-merge-candidate-bulk-job-runtime";
+import {
+  CatalogMergeCandidateBulkJobCursorError,
+  CatalogMergeCandidateBulkJobMalformedError,
+} from "../source-observation-merge-candidate-bulk-job-runtime";
 import { buildApp, context, viewOnlyActor } from "./route-test-harness";
 
 describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => {
+  it("serializes version-1 application facts and classified diagnostics exactly as recorded", async () => {
+    const legacy = candidateJob("job_legacy", { status: "completed" });
+    const job: CatalogMergeCandidateBulkJob = {
+      ...legacy,
+      jobId: "job_applied",
+      promotionApplicationVersion: 1,
+      result: {
+        requested: 2,
+        promoted: 1,
+        deferred: 0,
+        skippedNotEligible: 0,
+        failed: 1,
+        outcomes: [
+          {
+            candidateId: "cand_applied",
+            status: "promoted",
+            catalogItemId: null,
+            reason: null,
+            appliedCatalogItemId: "cat_source_retained",
+            appliedMode: "refresh",
+            approvalVersion: 3,
+            planFingerprint: `sha256:${"c".repeat(64)}`,
+          },
+          {
+            candidateId: "cand_asset",
+            status: "failed",
+            catalogItemId: null,
+            reason: "asset-processing-failed: storage unavailable",
+            appliedCatalogItemId: null,
+            appliedMode: null,
+            approvalVersion: null,
+            planFingerprint: null,
+            diagnosticCode: "asset-processing-failed",
+          },
+        ],
+      },
+    };
+    const app = buildApp({
+      getBulkReviewJob: vi.fn(async () => null),
+      getCatalogMergeCandidateBulkJob: vi.fn(async (jobId: string) =>
+        jobId === job.jobId ? job : jobId === legacy.jobId ? legacy : null,
+      ),
+    } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request("/source-observations/bulk-jobs/job_applied");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(job);
+    const legacyResponse = await app.request("/source-observations/bulk-jobs/job_legacy");
+    expect(await legacyResponse.json()).toEqual(legacy);
+    expect(legacy.result?.outcomes[0]).not.toHaveProperty("appliedCatalogItemId");
+  });
+
+  it("fails closed instead of serving a malformed version-1 job", async () => {
+    const malformed = new CatalogMergeCandidateBulkJobMalformedError("job_malformed", "invalid application result");
+    const app = buildApp({
+      getBulkReviewJob: vi.fn(async () => null),
+      getCatalogMergeCandidateBulkJob: vi.fn(async () => {
+        throw malformed;
+      }),
+      listCompletedCatalogMergeCandidateBulkJobs: vi.fn(async () => {
+        throw malformed;
+      }),
+    } as unknown as SourceObservationRouteServices);
+
+    expect((await app.request("/source-observations/bulk-jobs/job_malformed")).status).toBe(500);
+    const query = new URLSearchParams({ scopeRecordId: "scope_base_set", kind: "merge-candidate-promote", status: "completed" });
+    expect((await app.request(`/source-observations/bulk-jobs/active?${query}`)).status).toBe(500);
+  });
+
   it("enqueues one scope job and returns its reference", async () => {
     const enqueueCatalogMergeCandidateBulkJob = vi.fn(async () => candidateJob("job_scope_promote"));
     const app = buildApp({ enqueueCatalogMergeCandidateBulkJob } as unknown as SourceObservationRouteServices);
@@ -262,6 +334,7 @@ function candidateJob(
   return {
     jobId,
     kind: "merge-candidate-promote",
+    promotionApplicationVersion: null,
     scopeRecordId: "scope_base_set",
     reason: "Promote all ready candidates in the scope.",
     status: input.status ?? "queued",

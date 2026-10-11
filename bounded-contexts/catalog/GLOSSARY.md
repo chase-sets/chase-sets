@@ -417,6 +417,17 @@ Catalog sync decision vocabulary:
 - `update` means an approved candidate refreshes existing Catalog Item/Product facts through Catalog commands.
 - `delete` means a candidate is rejected, ignored, or withdrawn from the merged candidate set. It is not canonical Catalog Item/Product removal.
 
+Catalog Merge Candidate approval is not application:
+
+- `promoted` (candidate status and the `catalog.merge-candidate.promoted` event) means the candidate was approved for Catalog promotion. It never claims a Catalog Item was written.
+- `promotion-planned` (`catalog.merge-candidate.promotion-planned`) is the candidate-owned, immutable application plan bound to one approval before any Catalog Item command: initiating job and work unit, target Catalog Item, actual mode, target baseline, resolved profile versions, mapping, reference and asset inputs, exact ordered commands and the validated plan fingerprint. A resumed application replays it; it is never regenerated or retargeted.
+- `promotion-applied` (`catalog.merge-candidate.promotion-applied`) records that the bound plan's commands are proven complete on the target stream. It is appended once per approval.
+- `appliedMode` is the action a completed application actually took: `create`, `refresh` (including a create intent redirected to a retained Catalog Item) or `link-existing`. It is not the reviewed `promotionIntent`.
+- `appliedCatalogItemId` is the Catalog Item a completed application wrote. A scope job result's `catalogItemId` stays the historical matched target, never application evidence.
+- `promotionApplicationVersion` is the persisted scope promotion job discriminator: `1` for jobs whose `promoted` outcomes are completed applications; absent for retained jobs whose `promoted` outcomes recorded approval only.
+
+Owning contracts: `features/source-observations/domain/catalog-merge-candidate.ts` and `features/source-observations/api/source-observation-runtime-contracts.ts`; lifecycle, rollout and rollback in `docs/catalog-scope-sync-merge-candidate-handoff.md`.
+
 ## One-Line Summary
 
 A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, Resolved Display Identity, Product Measure Profiles, Product Contents, and Catalog Sync Scopes support authoring, enriching, organizing, naming, measuring, relating, and syncing that truth.

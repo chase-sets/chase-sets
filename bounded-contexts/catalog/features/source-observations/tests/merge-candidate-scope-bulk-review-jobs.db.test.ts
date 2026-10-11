@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -7,6 +8,9 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
+import { createPostgresDurableJobWorkUnitStore } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import {
   createPostgresEventStore,
@@ -15,7 +19,31 @@ import {
 } from "@chase-sets/event-core-postgres";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { module as catalogModule } from "../../../index";
+import type { CatalogItemId } from "../../../ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/services";
+import { seedCatalogDatabase } from "../../../support/authoring-support/seed";
+import { evolveCatalogItem, initialCatalogItemState, type CatalogItemEvent } from "../../catalog-items/domain/domain";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import fixture from "../api/__fixtures__/tcgdex/normal.json";
+import { unitKeyForCatalogProviderProfileVersion } from "../api/governance/catalog-integration-impact-analysis";
+import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../api/governance/catalog-integration-rollout-controls";
+import { catalogMergeCandidateTargetId } from "../api/promotion/catalog-merge-candidate-application";
+import { buildCatalogMergeCandidatesFromObservations } from "../api/promotion/catalog-merge-candidate-matcher";
+import {
+  createPostgresPromotionTargetExclusion,
+  type PromotionTargetExclusion,
+} from "../api/promotion/promotion-target-exclusion";
+import { sourceObservationTargetId } from "../api/promotion/promotion-target-identity";
+import { normalizeCatalogProviderSourceObservation } from "../api/promotion/provider-source-observation-normalizer";
+import { createCatalogProviderIntegrationProfileVersionStore } from "../api/providers/provider-integration-profile-store";
+import {
+  loadCatalogItemPromotionProfile,
+  requireCatalogItemPromotionObservation,
+  requireCatalogPromotionProfileVersion,
+  requireSourceObservationMappingContract,
+} from "../api/source-observation-promotion-execution";
+import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import {
@@ -29,9 +57,14 @@ import {
 } from "../domain/catalog-merge-candidate";
 import { buildCatalogMergeCandidateProjectionHandlers } from "../read-model/catalog-merge-candidate-projection";
 import { createSourceObservationRuntime, type CatalogMergeCandidateBulkJob } from "../api/runtime";
-import { bulkJobReasonMarker } from "../api/source-observation-merge-candidate-bulk-job-runtime";
+import {
+  bulkJobReasonMarker,
+  catalogMergeCandidatePromotionApplicationJobKind,
+  CatalogMergeCandidateBulkJobMalformedError,
+  reconcileCatalogMergeCandidateApplications,
+} from "../api/source-observation-merge-candidate-bulk-job-runtime";
 import { catalogMergeCandidateStreamId } from "../api/source-observation-stream-identity";
-import { listCatalogMergeCandidates } from "../read-model/queries";
+import { getSourceObservationDetail, listCatalogMergeCandidates } from "../read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -83,7 +116,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     await closeMultiContextTestPools(pools);
   });
 
-  it("F1: an empty English page still permits promotion of eligible Japanese scope candidates", async () => {
+  it("F1: an empty English page still enumerates eligible Japanese scope candidates for promotion", async () => {
     const candidates = candidateWriter(pools.catalog, eventStore);
     await pools.catalog.query(
       `INSERT INTO catalog_source_observations (
@@ -107,11 +140,12 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
       context,
     });
     await drainWorker(runtime);
-    expect(await requireJob(runtime, job.jobId)).toMatchObject({
-      status: "completed",
-      result: { requested: 1, promoted: 1 },
-    });
-    expect((await candidates.load("cand_japanese")).status).toBe("promoted");
+    // Enumerated despite the empty English page; with no retained member stream
+    // the application preflight blocks visibly and leaves the candidate ready.
+    const completed = await requireJob(runtime, job.jobId);
+    expect(completed).toMatchObject({ status: "completed", result: { requested: 1, promoted: 0, failed: 1 } });
+    expect(completed.result?.outcomes[0]?.reason).toMatch(/^promotion-plan-blocked:member-revision-missing/);
+    expect((await candidates.load("cand_japanese")).status).toBe("ready");
   });
 
   it("F3: filters active jobs before the 50-row limit and retains a bounded matching window", async () => {
@@ -185,7 +219,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     expect(await runtime.getCatalogMergeCandidateBulkJob(matchingIds[0]!, foreignContext)).toBeNull();
   });
 
-  it("AC1: one submit promotes all 120 ready candidates and leaves the 5 has-conflicts candidates unchanged", async () => {
+  it("AC1: one submit enumerates 125 candidates; ready ones without retained evidence fail visibly and none is approved", async () => {
     const candidates = candidateWriter(pools.catalog, eventStore);
     const readyIds = range(120).map((index) => `cand_ready_${pad(index)}`);
     const conflictIds = range(5).map((index) => `cand_conflict_${pad(index)}`);
@@ -210,15 +244,18 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     const completed = await requireJob(runtime, job.jobId);
     expect(completed.status).toBe("completed");
     expect(completed.progress).toMatchObject({ phase: "completed", completed: 125, total: 125 });
+    expect(completed).toMatchObject({ promotionApplicationVersion: 1 });
     expect(completed.result).toMatchObject({
       requested: 125,
-      promoted: 120,
+      promoted: 0,
       deferred: 0,
       skippedNotEligible: 5,
-      failed: 0,
+      failed: 120,
     });
+    // Approval-only success is gone: a blocked preflight appends no approval.
     for (const candidateId of readyIds) {
-      expect((await candidates.load(candidateId)).status).toBe("promoted");
+      expect((await candidates.load(candidateId)).status).toBe("ready");
+      await expect(promotionEventCount(eventStore, candidateId)).resolves.toBe(0);
     }
     for (const candidateId of conflictIds) {
       expect((await candidates.load(candidateId)).status).toBe("has-conflicts");
@@ -231,7 +268,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     ).toEqual(conflictIds);
   });
 
-  it("AC2: reports progress, then resumes after a killed worker without promoting any candidate twice", async () => {
+  it("AC2: reports progress, then resumes after a killed worker with one terminal per unit and no second approval", async () => {
     const candidates = candidateWriter(pools.catalog, eventStore);
     const readyIds = range(12).map((index) => `cand_ready_${pad(index)}`);
     for (const candidateId of readyIds) {
@@ -250,7 +287,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     const midJob = await requireJob(runtime, job.jobId);
     expect(midJob.status).toBe("running");
     expect(midJob.progress).toMatchObject({ phase: "processing", completed: 4, total: 12 });
-    expect(midJob.result).toMatchObject({ promoted: 4 });
+    expect(midJob.result).toMatchObject({ promoted: 0, failed: 4 });
 
     // Worker killed after appending one promotion but before recording its
     // terminal, and killed on another unit before it acted: both units are left
@@ -268,18 +305,20 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
 
     const resumed = await requireJob(runtime, job.jobId);
     expect(resumed.status).toBe("completed");
-    expect(resumed.result).toMatchObject({ requested: 12, promoted: 12, skippedNotEligible: 0, failed: 0 });
+    expect(resumed.result).toMatchObject({ requested: 12, promoted: 0, skippedNotEligible: 0, failed: 12 });
+    // The approved unit is catch-up work; it still needs retained evidence to apply.
     expect(resumed.result?.outcomes.find((outcome) => outcome.candidateId === appendedId)).toMatchObject({
-      status: "promoted",
+      status: "failed",
+      appliedCatalogItemId: null,
     });
-    // Exactly one terminal per unit and one promotion event per candidate.
+    // Exactly one terminal per unit and never a second approval.
     expect(new Set(resumed.result?.outcomes.map((outcome) => outcome.candidateId)).size).toBe(12);
     for (const candidateId of readyIds) {
-      await expect(promotionEventCount(eventStore, candidateId)).resolves.toBe(1);
+      await expect(promotionEventCount(eventStore, candidateId)).resolves.toBe(candidateId === appendedId ? 1 : 0);
     }
   });
 
-  it("AC3: a second submit on the same scope promotes nothing", async () => {
+  it("AC3: blocked scope submits promote and approve nothing, however often they repeat", async () => {
     const candidates = candidateWriter(pools.catalog, eventStore);
     for (const candidateId of ["cand_ready_000", "cand_ready_001"]) {
       await candidates.create(candidateId, snapshot(candidateId));
@@ -293,7 +332,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     });
     await drainWorker(runtime);
     await candidates.reproject(["cand_ready_000", "cand_ready_001", "cand_conflict_000"]);
-    expect((await requireJob(runtime, first.jobId)).result).toMatchObject({ promoted: 2 });
+    expect((await requireJob(runtime, first.jobId)).result).toMatchObject({ promoted: 0, failed: 2 });
 
     const second = await runtime.enqueueCatalogMergeCandidateBulkJob({
       kind: "merge-candidate-promote",
@@ -304,9 +343,9 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
 
     const rerun = await requireJob(runtime, second.jobId);
     expect(rerun.status).toBe("completed");
-    expect(rerun.result).toMatchObject({ requested: 1, promoted: 0, skippedNotEligible: 1, failed: 0 });
+    expect(rerun.result).toMatchObject({ requested: 3, promoted: 0, skippedNotEligible: 1, failed: 2 });
     for (const candidateId of ["cand_ready_000", "cand_ready_001"]) {
-      await expect(promotionEventCount(eventStore, candidateId)).resolves.toBe(1);
+      await expect(promotionEventCount(eventStore, candidateId)).resolves.toBe(0);
     }
   });
 
@@ -331,7 +370,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     await drainWorker(runtime);
 
     const completed = await requireJob(runtime, job.jobId);
-    expect(completed.result).toMatchObject({ promoted: 1, skippedNotEligible: 1 });
+    expect(completed.result).toMatchObject({ promoted: 0, failed: 1, skippedNotEligible: 1 });
     expect(completed.result?.outcomes.find((outcome) => outcome.candidateId === "cand_ready_001")).toMatchObject({
       status: "skipped-not-eligible",
       reason: "Catalog Merge Candidate is has-conflicts.",
@@ -339,7 +378,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     expect((await candidates.load("cand_ready_001")).status).toBe("has-conflicts");
   });
 
-  it("AC4: completed promotion jobs and their promoted Catalog Items page newest first, each exactly once", async () => {
+  it("AC4: completed promotion jobs and their outcomes page newest first, each exactly once", async () => {
     const candidates = candidateWriter(pools.catalog, eventStore);
     await candidates.create("cand_decisive", snapshot("cand_decisive", { catalogItemId: "item_decisive" }));
     await candidates.create("cand_conflict_000", snapshot("cand_conflict_000", { blocking: true }));
@@ -355,6 +394,13 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
       jobIds.push(job.jobId);
       await drainWorker(runtime);
       if (index === 0) {
+        // Only the oldest job enumerates the decisive candidate.
+        await candidates.command("cand_decisive", {
+          type: "IgnoreCatalogMergeCandidate",
+          reason: "Retired after the first submit.",
+          actor: { userId: "usr_catalog_operator", accountId: "acc_identity_system" },
+          ignoredAt: new Date().toISOString(),
+        });
         await candidates.reproject(["cand_decisive"]);
       }
     }
@@ -375,11 +421,11 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     expect(firstWalk.pages.map((page) => page.length)).toEqual([50, 1]);
     expect(firstWalk.jobIds).toHaveLength(51);
     expect(new Set(firstWalk.jobIds)).toEqual(new Set(jobIds));
-    // Newest first: the oldest job — the only one that promoted the decisive
-    // item — is reachable only on the last page.
+    // Newest first: the oldest job — the only one with the decisive outcome —
+    // is reachable only on the last page.
     expect(firstWalk.pages[1]).toEqual([jobIds[0]]);
-    expect(firstWalk.promotedCatalogItemIds).toEqual(["item_decisive"]);
-    expect(firstWalk.promotedCatalogItemIdsOnFirstPage).toEqual([]);
+    expect(firstWalk.decisiveOutcomes).toEqual(["cand_decisive"]);
+    expect(firstWalk.decisiveOutcomesOnFirstPage).toEqual([]);
 
     // Identical completion times still page every job exactly once.
     await pools.catalog.query(
@@ -392,7 +438,7 @@ describeDb("Catalog Merge Candidate scope bulk review jobs (db)", () => {
     expect(tiedWalk.pages.map((page) => page.length)).toEqual([50, 1]);
     expect(tiedWalk.jobIds).toHaveLength(51);
     expect(new Set(tiedWalk.jobIds)).toEqual(new Set(jobIds));
-    expect(tiedWalk.promotedCatalogItemIds).toEqual(["item_decisive"]);
+    expect(tiedWalk.decisiveOutcomes).toEqual(["cand_decisive"]);
   });
 
   it("AC5: defer-remainder defers only has-conflicts and stale candidates through the same job path", async () => {
@@ -562,8 +608,8 @@ async function requireJob(runtime: Runtime, jobId: string): Promise<CatalogMerge
 
 async function walkCompletedJobs(runtime: Runtime) {
   const pages: string[][] = [];
-  const promotedCatalogItemIds: string[] = [];
-  let promotedCatalogItemIdsOnFirstPage: string[] = [];
+  const decisiveOutcomes: string[] = [];
+  let decisiveOutcomesOnFirstPage: string[] = [];
   let cursor: string | undefined;
   do {
     const page = await runtime.listCompletedCatalogMergeCandidateBulkJobs({
@@ -572,20 +618,20 @@ async function walkCompletedJobs(runtime: Runtime) {
       kind: "merge-candidate-promote",
       cursor,
     });
-    const itemIds = page.items.flatMap((job) =>
+    const decisive = page.items.flatMap((job) =>
       (job.result?.outcomes ?? []).flatMap((outcome) =>
-        outcome.status === "promoted" && outcome.catalogItemId ? [outcome.catalogItemId] : [],
+        outcome.candidateId === "cand_decisive" ? [outcome.candidateId] : [],
       ),
     );
     if (pages.length === 0) {
-      promotedCatalogItemIdsOnFirstPage = itemIds;
+      decisiveOutcomesOnFirstPage = decisive;
     }
     pages.push(page.items.map((job) => job.jobId));
-    promotedCatalogItemIds.push(...itemIds);
+    decisiveOutcomes.push(...decisive);
     cursor = page.cursor;
   } while (cursor && pages.length < 10);
 
-  return { pages, jobIds: pages.flat(), promotedCatalogItemIds, promotedCatalogItemIdsOnFirstPage };
+  return { pages, jobIds: pages.flat(), decisiveOutcomes, decisiveOutcomesOnFirstPage };
 }
 
 async function queuedUnitIds(db: PgTransactionalPool, jobId: string, count: number): Promise<readonly string[]> {
@@ -635,4 +681,637 @@ function range(count: number): number[] {
 
 function pad(index: number): string {
   return String(index).padStart(3, "0");
+}
+
+const applicationScopeId = "scope_application";
+type CrashPoint = "a" | "b" | "c" | "d" | "e";
+const crashPoints: readonly CrashPoint[] = ["a", "b", "c", "d", "e"];
+const lostLease = () => new Error("Lost lease (synthetic crash)");
+const bulkReviewJobTables = {
+  jobsTable: "catalog_source_observation_bulk_review_jobs",
+  eventsTable: "catalog_source_observation_bulk_review_job_events",
+  workUnitsTable: "catalog_source_observation_bulk_review_work_units",
+  notifyChannel: "catalog_source_observation_durable_job_events",
+};
+
+describeDb("Catalog Merge Candidate application through real Catalog services (db)", () => {
+  let pool: PgTransactionalPool;
+  let services: CatalogServices;
+  let store: ReturnType<typeof createPostgresEventStore>;
+
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], "catalog_merge_candidate_application");
+    await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+    pool = createMultiContextTestPools(urls).catalog;
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ catalog: pool });
+    await bootstrapContextDatabase(catalogModule, pool);
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
+    services = createCatalogServices(pool);
+    store = createPostgresEventStore({ pool });
+    await seedScopeRecord(pool, applicationScopeId);
+  });
+  afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
+
+  async function mappingContract() {
+    const identity = tcgdexPokemonCardSourceObservationMappingContract;
+    const version = await services.providerIntegrationProfiles.getProfileVersion(
+      identity.providerKey,
+      identity.profileVersion,
+      { profileKey: identity.profileKey },
+    );
+    if (!version) throw new Error("Seeded executable mapping profile is missing");
+    return { version, contract: requireSourceObservationMappingContract(version) };
+  }
+
+  // Observations come from the executable mapper over the checked-in fixture,
+  // varied only by card number so each one is its own candidate identity.
+  async function record(id: string, localId: string, overrides: Record<string, unknown> = {}) {
+    const mapped = normalizeCatalogProviderSourceObservation({
+      contract: (await mappingContract()).contract,
+      payload: {
+        ...fixture,
+        ...overrides,
+        card: { ...fixture.card, localId },
+        observationId: id,
+        externalKey: id,
+        sourceUrl: `https://synthetic.invalid/source/${id}`,
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: `product:synthetic-${id}` }],
+      },
+      observedAt: "2026-10-11T00:00:00.000Z",
+    });
+    expect(mapped.diagnostics).toEqual([]);
+    if (!mapped.observation) throw new Error("Executable mapper did not produce an observation");
+    await services.sourceObservations.commandHandler({
+      streamId: `catalog.source-observation-${id}`,
+      command: { type: "RecordSourceObservation", ...mapped.observation },
+      context,
+    });
+    await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+    return mapped.observation;
+  }
+
+  // Candidates come from the real matcher over the recorded observation rows.
+  async function candidateFrom(
+    observationIds: readonly string[],
+    change: (snapshot: CatalogMergeCandidateReviewSnapshot) => CatalogMergeCandidateReviewSnapshot = (s) => s,
+  ): Promise<string> {
+    const rows = [];
+    for (const id of observationIds) rows.push((await getSourceObservationDetail(pool, id))!);
+    const { version } = await mappingContract();
+    const unitKey = unitKeyForCatalogProviderProfileVersion(version);
+    const normalized = rows[0]!.normalized as unknown as Readonly<Record<string, unknown>>;
+    const now = new Date().toISOString();
+    const batch = buildCatalogMergeCandidatesFromObservations(rows, {
+      addedAt: now,
+      acceptedScopeMappings: [
+        {
+          mapping_id: "map_application",
+          scope_record_id: applicationScopeId,
+          provider_key: "tcgdex",
+          unit_key: unitKey,
+          product_line_id: null,
+          series_id: null,
+          set_id: null,
+          set_name: String(normalized.expansionName ?? normalized.setName),
+          language_coordinates: null,
+          confidence: "exact",
+          review_status: "accepted",
+          provenance: {},
+          evidence: {},
+          last_actor: null,
+          last_reason: null,
+          policy_version: "synthetic",
+          proposed_at: now,
+          reviewed_at: now,
+          updated_at: now,
+        } as unknown as ProviderScopeMappingRow,
+      ],
+      providerUnitKeyByObservationId: Object.fromEntries(rows.map((row) => [row.observation_id, unitKey])),
+    });
+    expect(batch.exclusions).toEqual([]);
+    expect(batch.candidates).toHaveLength(1);
+    const candidate = batch.candidates[0]!;
+    await candidateWriter(pool, store).create(candidate.candidateId, change(candidate.snapshot));
+    return candidate.candidateId;
+  }
+
+  async function submit() {
+    return services.sourceObservations.enqueueCatalogMergeCandidateBulkJob({
+      kind: "merge-candidate-promote",
+      scopeRecordId: applicationScopeId,
+      context,
+    });
+  }
+
+  // The same composition as production, with a worker that dies right after
+  // (or, for d, right before) one durable effect: its claim is released, so the
+  // next worker resumes the unit from durable state.
+  function runtimeWith(
+    input: Readonly<{
+      crash?: CrashPoint;
+      rollout?: Parameters<typeof createCatalogIntegrationRolloutControlPolicyFromEnv>[0];
+    }>,
+  ): Runtime {
+    const has = (append: { events: readonly { eventType: string }[] }, eventType: string) =>
+      append.events.some((event) => event.eventType === eventType);
+    const eventStore = {
+      ...store,
+      async appendToStream(append: Parameters<typeof store.appendToStream>[0]) {
+        if (input.crash === "d" && has(append, "catalog.merge-candidate.promotion-applied")) throw lostLease();
+        const appended = await store.appendToStream(append);
+        if (
+          (input.crash === "a" && has(append, "catalog.merge-candidate.promoted")) ||
+          (input.crash === "b" && has(append, "catalog.merge-candidate.promotion-planned")) ||
+          (input.crash === "e" && has(append, "catalog.merge-candidate.promotion-applied"))
+        )
+          throw lostLease();
+        return appended;
+      },
+    } as typeof store;
+    const exclusion = createPostgresPromotionTargetExclusion({ pool, eventStore: store });
+    const promotionTargetExclusion: PromotionTargetExclusion = {
+      async acquire(request) {
+        const session = await exclusion.acquire(request);
+        let committed = 0;
+        return {
+          ...session,
+          async commandHandler(command) {
+            const result = await session.commandHandler(command);
+            committed += 1;
+            if (input.crash === "c" && committed === 1) throw lostLease();
+            return result;
+          },
+        };
+      },
+    };
+    const deps = {
+      db: pool,
+      eventStore,
+      checkpointStore: createPostgresProjectionStore({ db: pool }),
+      promotionTargetExclusion,
+    } as CatalogRuntimeDeps;
+    return createSourceObservationRuntime(
+      deps,
+      services.items,
+      services.referenceData,
+      services.providerIntegrationProfiles,
+      createCatalogIntegrationRolloutControlPolicyFromEnv(input.rollout ?? {}),
+    );
+  }
+
+  async function readItem(catalogItemId: string) {
+    const history = await readCompleteStream(store, { streamId: `catalog.item-${catalogItemId}` });
+    const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
+    return { history, state: history.map(codec.decode).reduce(evolveCatalogItem, initialCatalogItemState) };
+  }
+
+  async function itemCreations(): Promise<number> {
+    const result = await pool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM event_store_events WHERE event_type = 'catalog.catalog-item.created'",
+    );
+    return Number(result.rows[0]!.count);
+  }
+
+  async function candidateEvents(candidateId: string) {
+    const events = await readCompleteStream(store, { streamId: catalogMergeCandidateStreamId(candidateId) });
+    const count = (eventType: string) => events.filter((event) => event.eventType === eventType).length;
+    return {
+      length: events.length,
+      approved: count("catalog.merge-candidate.promoted"),
+      planned: count("catalog.merge-candidate.promotion-planned"),
+      applied: count("catalog.merge-candidate.promotion-applied"),
+      payloadOf: (eventType: string) => events.find((event) => event.eventType === eventType)?.payload,
+    };
+  }
+
+  async function promotionProfile(observationId: string) {
+    const detail = (await getSourceObservationDetail(pool, observationId))!;
+    return requireCatalogPromotionProfileVersion(
+      services.providerIntegrationProfiles,
+      detail.provider_key,
+      requireCatalogItemPromotionObservation(detail.normalized, detail.provider_key),
+    );
+  }
+
+  type Mode = "create" | "refresh" | "link-existing";
+  // create: a fresh identity. refresh: the candidate was reviewed as a create,
+  // then its member was promoted by Source Observation promotion before the job
+  // ran (create intent becomes refresh). link-existing: a reviewed link to the
+  // member's existing item.
+  async function arrange(mode: Mode, id: string, localId: string) {
+    await record(id, localId);
+    if (mode === "create") {
+      const candidateId = await candidateFrom([id]);
+      return { candidateId, expectedTarget: catalogMergeCandidateTargetId(candidateId), creationsBefore: 0 };
+    }
+    const reviewedAsCreate = mode === "refresh" ? await candidateFrom([id]) : null;
+    const promoted = await services.sourceObservations.promoteObservation({ observationId: id, context });
+    await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+    const expectedTarget = sourceObservationTargetId(id);
+    expect(promoted.catalogItemId).toBe(expectedTarget);
+    const candidateId =
+      reviewedAsCreate ??
+      (await candidateFrom([id], (snapshot) => ({ ...snapshot, promotionIntent: "link-existing-catalog-item" })));
+    return { candidateId, expectedTarget, creationsBefore: 1 };
+  }
+
+  describe.each(["create", "refresh", "link-existing"] as const)("AC1/AC2 %s application", (mode) => {
+    it.each(crashPoints)(
+      "survives interruption at %s with one completion and the same applied id and mode",
+      async (point) => {
+        const observationId = `obs_${mode}_${point}`;
+        const { candidateId, expectedTarget, creationsBefore } = await arrange(
+          mode,
+          observationId,
+          `9${crashPoints.indexOf(point)}`,
+        );
+        const targetBefore = mode === "create" ? null : (await readItem(expectedTarget)).state;
+        const job = await submit();
+
+        await expect(processOne(runtimeWith({ crash: point }))).resolves.toBe(0);
+        const interrupted = await candidateEvents(candidateId);
+        const itemLengthAtCrash = (await readItem(expectedTarget)).history.length;
+        expect(interrupted.applied).toBe(point === "e" ? 1 : 0);
+
+        await drainWorker(services.sourceObservations);
+        const completed = await requireJob(services.sourceObservations, job.jobId);
+        expect(completed).toMatchObject({ status: "completed", promotionApplicationVersion: 1 });
+        expect(completed.result).toMatchObject({ requested: 1, promoted: 1, failed: 0 });
+        expect(completed.result?.outcomes[0]).toMatchObject({
+          candidateId,
+          status: "promoted",
+          appliedCatalogItemId: expectedTarget,
+          appliedMode: mode,
+        });
+        const after = await candidateEvents(candidateId);
+        expect(after).toMatchObject({ approved: 1, planned: 1, applied: 1 });
+        if (point === "e") {
+          // The completion was already durable: recovery appends nothing anywhere.
+          expect(after.length).toBe(interrupted.length);
+          expect((await readItem(expectedTarget)).history.length).toBe(itemLengthAtCrash);
+        }
+
+        const { state } = await readItem(expectedTarget);
+        const mapping = await loadCatalogItemPromotionProfile(
+          { db: pool, eventStore: store, checkpointStore: createPostgresProjectionStore({ db: pool }) } as CatalogRuntimeDeps,
+          (await promotionProfile(observationId)).profile,
+        );
+        expect(await itemCreations()).toBe(mode === "create" ? 1 : creationsBefore);
+        expect(state.status).toBe(mode === "create" ? "draft" : targetBefore!.status);
+        expect(state.blueprintId).toBe(mapping.blueprintId);
+        expect(state.externalCatalogItemReferences).toEqual(
+          expect.arrayContaining([expect.objectContaining({ externalKey: `product:synthetic-${observationId}` })]),
+        );
+
+        const later = await submit();
+        await drainWorker(services.sourceObservations);
+        expect((await requireJob(services.sourceObservations, later.jobId)).result).toMatchObject({
+          requested: 1,
+          promoted: 0,
+          skippedNotEligible: 1,
+        });
+        expect(await itemCreations()).toBe(mode === "create" ? 1 : creationsBefore);
+        expect((await candidateEvents(candidateId)).applied).toBe(1);
+      },
+    );
+  });
+
+  it("AC2: a competing job finishes another job's bound plan once; the initiator recovers the same result", async () => {
+    const { candidateId, expectedTarget } = await arrange("create", "obs_competing", "81");
+    const first = await submit();
+    await expect(processOne(runtimeWith({ crash: "c" }))).resolves.toBe(0);
+    // The first job's worker is only slow: its unit stays claimed.
+    await pool.query(
+      `UPDATE catalog_source_observation_bulk_review_work_units
+       SET state = 'running', claim_owner_id = 'slow-worker', claim_token = 'slow-claim',
+           claimed_until = now() + interval '1 hour'
+       WHERE job_id = $1`,
+      [first.jobId],
+    );
+    const second = await submit();
+    await drainWorker(services.sourceObservations);
+    const competing = await requireJob(services.sourceObservations, second.jobId);
+    expect(competing.result?.outcomes[0]).toMatchObject({
+      status: "promoted",
+      appliedCatalogItemId: expectedTarget,
+      appliedMode: "create",
+    });
+    expect((await candidateEvents(candidateId)).payloadOf("catalog.merge-candidate.promotion-applied")).toMatchObject({
+      jobId: first.jobId,
+      unitId: candidateId,
+    });
+
+    await abandonUnitClaims(pool, first.jobId, [candidateId]);
+    const lengthBefore = (await candidateEvents(candidateId)).length;
+    await drainWorker(services.sourceObservations);
+    const initiator = await requireJob(services.sourceObservations, first.jobId);
+    expect(initiator.result?.outcomes[0]).toEqual(competing.result?.outcomes[0]);
+    expect((await candidateEvents(candidateId)).length).toBe(lengthBefore);
+    expect(await itemCreations()).toBe(1);
+    expect(reconcileCatalogMergeCandidateApplications([initiator, competing]).applied.size).toBe(1);
+  });
+
+  it("AC3: a profile activation between interruption and resume completes the pinned plan, even with a lagging read model", async () => {
+    const { candidateId, expectedTarget } = await arrange("create", "obs_pinned", "82");
+    const pinned = await promotionProfile("obs_pinned");
+    const job = await submit();
+    await expect(processOne(runtimeWith({ crash: "c" }))).resolves.toBe(0);
+    const planned = (await candidateEvents(candidateId)).payloadOf("catalog.merge-candidate.promotion-planned") as {
+      plan: { profiles: unknown; planFingerprint: string };
+    };
+
+    const profiles = createCatalogProviderIntegrationProfileVersionStore(pool);
+    const next = "synthetic-activated-b";
+    await profiles.upsertProfileVersion({
+      ...pinned,
+      profileVersion: next,
+      lifecycle: "draft",
+      active: false,
+      executableMappingContract: {
+        ...requireSourceObservationMappingContract(pinned),
+        profileVersion: next,
+        lifecycle: "draft",
+      },
+    });
+    await profiles.activateProfileVersion(pinned.providerKey, next, { profileKey: pinned.profileKey });
+    // Projections never authorize replay writes: drop the target's read model row.
+    await pool.query("DELETE FROM catalog_items WHERE catalog_item_id = $1", [expectedTarget]);
+
+    await drainWorker(services.sourceObservations);
+    expect((await requireJob(services.sourceObservations, job.jobId)).result?.outcomes[0]).toMatchObject({
+      status: "promoted",
+      appliedCatalogItemId: expectedTarget,
+      appliedMode: "create",
+      planFingerprint: planned.plan.planFingerprint,
+    });
+    expect(planned.plan.profiles).toEqual([
+      { providerKey: pinned.providerKey, profileKey: pinned.profileKey, profileVersion: pinned.profileVersion },
+    ]);
+    expect(await candidateEvents(candidateId)).toMatchObject({ planned: 1, applied: 1 });
+    expect(await itemCreations()).toBe(1);
+  });
+
+  it("AC3: unrelated history after the bound baseline, or revoked pinned authority, refuses without completing", async () => {
+    const { candidateId, expectedTarget } = await arrange("refresh", "obs_unrelated", "83");
+    const job = await submit();
+    await expect(processOne(runtimeWith({ crash: "b" }))).resolves.toBe(0);
+    await services.items.commandHandler({
+      streamId: `catalog.item-${expectedTarget}`,
+      command: {
+        type: "ReviseCatalogItemMetadata",
+        languageCode: "en",
+        title: { defaultLocale: "en", values: { en: "Operator edit" } },
+        subtitle: { defaultLocale: "en", values: { en: "" } },
+        description: { defaultLocale: "en", values: { en: "" } },
+      },
+      context,
+    });
+    const before = (await readItem(expectedTarget)).history.length;
+    await drainWorker(services.sourceObservations);
+    const refused = (await requireJob(services.sourceObservations, job.jobId)).result?.outcomes[0];
+    expect(refused).toMatchObject({ status: "failed", appliedCatalogItemId: null });
+    expect(refused?.reason).toMatch(/^promotion-application-target-history-conflict/);
+    expect((await readItem(expectedTarget)).history.length).toBe(before);
+    expect(await candidateEvents(candidateId)).toMatchObject({ planned: 1, applied: 0 });
+
+    const revoked = await arrange("create", "obs_revoked", "84");
+    const pinned = await promotionProfile("obs_revoked");
+    const revokedJob = await submit();
+    await expect(processOne(runtimeWith({ crash: "b" }))).resolves.toBe(0);
+    await createCatalogProviderIntegrationProfileVersionStore(pool).deprecateProfileVersion(
+      pinned.providerKey,
+      pinned.profileVersion,
+      { profileKey: pinned.profileKey },
+    );
+    await drainWorker(services.sourceObservations);
+    const outcome = (await requireJob(services.sourceObservations, revokedJob.jobId)).result?.outcomes.find(
+      (entry) => entry.candidateId === revoked.candidateId,
+    );
+    expect(outcome?.reason).toMatch(/^promotion-application-profile-revoked/);
+    expect((await readItem(revoked.expectedTarget)).history).toEqual([]);
+    expect(await candidateEvents(revoked.candidateId)).toMatchObject({ planned: 1, applied: 0 });
+  });
+
+  it("AC4: retained member targets are reused under lag; partial targets, degraded display and revoked units refuse without item writes", async () => {
+    // A complete retained cat_source_ item with a lagging read model is refreshed; no cat_candidate_ is minted.
+    const retained = await arrange("refresh", "obs_retained", "85");
+    await pool.query("DELETE FROM catalog_items WHERE catalog_item_id = $1", [retained.expectedTarget]);
+    // A partial Source Observation prefix: the deterministic item exists, but its member never recorded completion.
+    await record("obs_partial", "86");
+    const partialCandidate = await candidateFrom(["obs_partial"]);
+    const partialTarget = sourceObservationTargetId("obs_partial");
+    await services.items.commandHandler({
+      streamId: `catalog.item-${partialTarget}`,
+      command: {
+        type: "CreateCatalogItem",
+        itemId: partialTarget as CatalogItemId,
+        languageCode: "en",
+        title: { defaultLocale: "en", values: { en: "Partial" } },
+        subtitle: { defaultLocale: "en", values: { en: "" } },
+        description: { defaultLocale: "en", values: { en: "" } },
+      },
+      context,
+    });
+    // A reviewed snapshot without the collector number leaves an unresolvable display identity.
+    await record("obs_degraded", "87");
+    const degradedCandidate = await candidateFrom(["obs_degraded"], (snapshot) => ({
+      ...snapshot,
+      proposedCatalogItemFacts: { ...snapshot.proposedCatalogItemFacts, collectorNumber: null },
+    }));
+    const creationsBefore = await itemCreations();
+
+    const job = await submit();
+    await drainWorker(services.sourceObservations);
+    const outcomes = new Map(
+      (await requireJob(services.sourceObservations, job.jobId)).result!.outcomes.map((outcome) => [
+        outcome.candidateId,
+        outcome,
+      ]),
+    );
+    expect(outcomes.get(retained.candidateId)).toMatchObject({
+      status: "promoted",
+      appliedCatalogItemId: retained.expectedTarget,
+      appliedMode: "refresh",
+    });
+    expect(outcomes.get(partialCandidate)?.reason).toMatch(/^promotion-application-partial-target/);
+    expect(outcomes.get(degradedCandidate)?.reason).toMatch(/^promotion-plan-blocked:display-identity-unresolvable/);
+    expect(await itemCreations()).toBe(creationsBefore);
+    expect((await readItem(catalogMergeCandidateTargetId(retained.candidateId))).history).toEqual([]);
+    expect((await readItem(catalogMergeCandidateTargetId(partialCandidate))).history).toEqual([]);
+    expect((await readItem(partialTarget)).history).toHaveLength(1);
+    for (const candidateId of [partialCandidate, degradedCandidate]) {
+      expect(await candidateEvents(candidateId)).toMatchObject({ approved: 0, planned: 0, applied: 0 });
+    }
+
+    await record("obs_denied", "88");
+    const deniedCandidate = await candidateFrom(["obs_denied"]);
+    const denied = await submit();
+    await drainWorker(runtimeWith({ rollout: { CATALOG_INTEGRATION_PROMOTION_DISABLED: "tcgdex" } }));
+    const deniedOutcome = (await requireJob(services.sourceObservations, denied.jobId)).result!.outcomes.find(
+      (outcome) => outcome.candidateId === deniedCandidate,
+    );
+    expect(deniedOutcome).toMatchObject({ status: "failed", appliedCatalogItemId: null });
+    expect(await candidateEvents(deniedCandidate)).toMatchObject({ approved: 0, planned: 0 });
+    expect(await itemCreations()).toBe(creationsBefore);
+  });
+
+  it("AC5: legacy bytes stay unchanged, legacy approvals catch up once, malformed version-1 jobs fail closed, asset failures are classified", async () => {
+    const legacyJobs = createPostgresDurableJobStore<
+      { scopeRecordId: string; reason: string },
+      ReturnType<typeof queuedProgress>,
+      unknown,
+      unknown
+    >(pool, bulkReviewJobTables);
+    const { candidateId, expectedTarget } = await arrange("create", "obs_legacy", "89");
+    // Approved by single-candidate promotion (approval only) and reported by a retained #9219 job.
+    await services.sourceObservations.promoteCatalogMergeCandidate({ candidateId, reason: "Approved earlier.", context });
+    await legacyJobs.enqueue({
+      jobId: "job_legacy_retained",
+      jobKind: "merge-candidate-promote",
+      payload: { scopeRecordId: applicationScopeId, reason: "Legacy." },
+      progress: queuedProgress(),
+      eventContext: context,
+    });
+    await pool.query(
+      `UPDATE catalog_source_observation_bulk_review_jobs
+       SET status = 'completed', completed_at = now() - interval '1 day', result = $2::jsonb
+       WHERE job_id = $1`,
+      [
+        "job_legacy_retained",
+        JSON.stringify({
+          requested: 1,
+          promoted: 1,
+          deferred: 0,
+          skippedNotEligible: 0,
+          failed: 0,
+          outcomes: [{ candidateId, status: "promoted", catalogItemId: null, reason: null }],
+        }),
+      ],
+    );
+    const legacyBytes = async () =>
+      (
+        await pool.query<{ payload: string; result: string }>(
+          "SELECT payload::text AS payload, result::text AS result FROM catalog_source_observation_bulk_review_jobs WHERE job_id = $1",
+          ["job_legacy_retained"],
+        )
+      ).rows[0];
+    const bytesBefore = await legacyBytes();
+    const legacy = await requireJob(services.sourceObservations, "job_legacy_retained");
+    expect(legacy).toMatchObject({ kind: "merge-candidate-promote", promotionApplicationVersion: null });
+    expect(reconcileCatalogMergeCandidateApplications([legacy]).approvalOnly).toEqual(new Set([candidateId]));
+
+    const catchUp = await submit();
+    await drainWorker(services.sourceObservations);
+    const caughtUp = await requireJob(services.sourceObservations, catchUp.jobId);
+    expect(caughtUp.result?.outcomes[0]).toMatchObject({
+      candidateId,
+      status: "promoted",
+      appliedCatalogItemId: expectedTarget,
+      appliedMode: "create",
+    });
+    // Catch-up of an approval recorded outside any job is attributed to the applying unit.
+    expect(
+      (await candidateEvents(candidateId)).payloadOf("catalog.merge-candidate.promotion-planned"),
+    ).toMatchObject({ plan: { jobId: catchUp.jobId, unitId: candidateId } });
+    expect(await candidateEvents(candidateId)).toMatchObject({ approved: 1, planned: 1, applied: 1 });
+    expect(await legacyBytes()).toEqual(bytesBefore);
+    const mixed = reconcileCatalogMergeCandidateApplications([legacy, caughtUp]);
+    expect([...mixed.applied.keys()]).toEqual([candidateId]);
+    expect(mixed.approvalOnly.size).toBe(0);
+    const again = await submit();
+    await drainWorker(services.sourceObservations);
+    expect((await requireJob(services.sourceObservations, again.jobId)).result).toMatchObject({ promoted: 0 });
+    expect(await itemCreations()).toBe(1);
+
+    await pool.query(
+      `UPDATE catalog_source_observation_bulk_review_jobs
+       SET result = jsonb_set(result, '{outcomes,0}', (result->'outcomes'->0) - 'appliedCatalogItemId')
+       WHERE job_id = $1`,
+      [catchUp.jobId],
+    );
+    await expect(services.sourceObservations.getCatalogMergeCandidateBulkJob(catchUp.jobId, context)).rejects.toThrow(
+      CatalogMergeCandidateBulkJobMalformedError,
+    );
+    await expect(
+      services.sourceObservations.listCompletedCatalogMergeCandidateBulkJobs({ context, scopeRecordId: applicationScopeId }),
+    ).rejects.toThrow(CatalogMergeCandidateBulkJobMalformedError);
+    await pool.query("DELETE FROM catalog_source_observation_bulk_review_jobs WHERE job_id = $1", [catchUp.jobId]);
+
+    await record("obs_asset", "90", { imageBaseUrl: "https://synthetic.invalid/images/obs_asset" });
+    const assetCandidate = await candidateFrom(["obs_asset"]);
+    const creations = await itemCreations();
+    const assetJob = await submit();
+    await drainWorker(services.sourceObservations);
+    const assetOutcome = (await requireJob(services.sourceObservations, assetJob.jobId)).result!.outcomes.find(
+      (outcome) => outcome.candidateId === assetCandidate,
+    );
+    expect(assetOutcome).toMatchObject({ status: "failed", diagnosticCode: "asset-processing-failed" });
+    expect(await itemCreations()).toBe(creations);
+    expect((await candidateWriter(pool, store).load(assetCandidate)).status).toBe("ready");
+  });
+
+  it("AC6: a pre-application worker cannot claim a version-1 job, and a queued legacy job never reports approval as success", async () => {
+    const { candidateId } = await arrange("create", "obs_version_skew", "91");
+    const legacyJobs = createPostgresDurableJobStore<
+      { scopeRecordId: string; reason: string },
+      ReturnType<typeof queuedProgress>,
+      unknown,
+      unknown
+    >(pool, bulkReviewJobTables);
+    const legacyWorkUnits = createPostgresDurableJobWorkUnitStore<
+      { scopeRecordId: string; reason: string },
+      ReturnType<typeof queuedProgress>,
+      unknown,
+      { candidateId: string },
+      unknown
+    >(pool, bulkReviewJobTables, { workflowName: "catalog.source-observation-bulk-review" });
+    const job = await submit();
+    const stored = await pool.query<{ job_kind: string; payload: unknown }>(
+      "SELECT job_kind, payload FROM catalog_source_observation_bulk_review_jobs WHERE job_id = $1",
+      [job.jobId],
+    );
+    expect(stored.rows[0]).toMatchObject({
+      job_kind: catalogMergeCandidatePromotionApplicationJobKind,
+      payload: { promotionApplicationVersion: 1 },
+    });
+    // The #9219 worker claims only the stored kinds it knows.
+    const oldClaim = await legacyWorkUnits.claimNext({
+      claimOwnerId: "pre-application-worker",
+      claimTtlMs: 60_000,
+      workflowMaxActiveClaims: 1,
+      jobMaxActiveClaims: 1,
+      jobKinds: ["merge-candidate-promote", "merge-candidate-defer"],
+      laneName: null,
+    });
+    expect(oldClaim.claim).toBeNull();
+    await drainWorker(services.sourceObservations);
+    expect((await requireJob(services.sourceObservations, job.jobId)).result).toMatchObject({ promoted: 1 });
+
+    // A legacy job left queued across the cutover fails visibly instead.
+    await record("obs_straggler", "92");
+    const straggler = await candidateFrom(["obs_straggler"]);
+    await legacyJobs.enqueue({
+      jobId: "job_legacy_queued",
+      jobKind: "merge-candidate-promote",
+      payload: { scopeRecordId: applicationScopeId, reason: "Legacy." },
+      progress: queuedProgress(),
+      eventContext: context,
+    });
+    await legacyWorkUnits.enqueue({
+      jobId: "job_legacy_queued",
+      units: [{ unitId: straggler, unitKind: "merge-candidate-promote", payload: { candidateId: straggler } }],
+    });
+    await drainWorker(services.sourceObservations);
+    const legacy = await requireJob(services.sourceObservations, "job_legacy_queued");
+    expect(legacy).toMatchObject({ promotionApplicationVersion: null, result: { promoted: 0, failed: 1 } });
+    expect(legacy.result?.outcomes[0]?.reason).toMatch(/^promotion-application-legacy-job/);
+    expect(await candidateEvents(straggler)).toMatchObject({ approved: 0, planned: 0 });
+    expect(await candidateEvents(candidateId)).toMatchObject({ applied: 1 });
+  });
+});
+
+function queuedProgress() {
+  return { phase: "queued" as const, completed: 0, total: 1, currentName: null, status: null };
 }

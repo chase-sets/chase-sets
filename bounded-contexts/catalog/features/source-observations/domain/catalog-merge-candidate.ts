@@ -139,6 +139,49 @@ export type CatalogMergeCandidateReviewSnapshot = JsonObject &
     promotionIntent: CatalogMergeCandidatePromotionIntent;
   }>;
 
+/** The action a completed application actually took, which may differ from the reviewed promotion intent. */
+export type CatalogMergeCandidateAppliedMode = "create" | "refresh" | "link-existing";
+
+export const catalogMergeCandidateAppliedModes: readonly CatalogMergeCandidateAppliedMode[] = [
+  "create",
+  "refresh",
+  "link-existing",
+];
+
+/**
+ * The immutable application plan bound to one approval before any Catalog Item
+ * command runs. It carries every value a resumed worker needs to replay the
+ * same commands against the same target; nothing in it points at mutable state.
+ */
+export type CatalogMergeCandidatePromotionPlan = JsonObject &
+  Readonly<{
+    approvalVersion: number;
+    jobId: string;
+    unitId: string;
+    catalogItemId: string;
+    mode: CatalogMergeCandidateAppliedMode;
+    /** The target stream version and status the commands were planned against. */
+    targetBaseline: JsonObject & Readonly<{ streamVersion: number; status: string | null }>;
+    identityFingerprint: string;
+    membership: readonly CatalogMergeCandidateObservationMember[];
+    profiles: readonly (JsonObject & Readonly<{ providerKey: string; profileKey: string; profileVersion: string }>)[];
+    catalogMapping: JsonObject;
+    referenceRecordIds: JsonObject;
+    assetPlan: JsonObject | null;
+    commands: readonly JsonObject[];
+    planFingerprint: string;
+  }>;
+
+export type CatalogMergeCandidatePromotionApplication = JsonObject &
+  Readonly<{
+    approvalVersion: number;
+    catalogItemId: string;
+    appliedMode: CatalogMergeCandidateAppliedMode;
+    planFingerprint: string;
+    jobId: string;
+    unitId: string;
+  }>;
+
 export type CatalogMergeCandidateState = Readonly<{
   id: string | null;
   status: CatalogMergeCandidateStatus;
@@ -147,6 +190,9 @@ export type CatalogMergeCandidateState = Readonly<{
   createdAt: string | null;
   updatedAt: string | null;
   staleAt: string | null;
+  /** Approval (`status=promoted`) is not application; these record the application lifecycle. */
+  promotionPlan: CatalogMergeCandidatePromotionPlan | null;
+  promotionApplication: CatalogMergeCandidatePromotionApplication | null;
 }>;
 
 export const initialCatalogMergeCandidateState: CatalogMergeCandidateState = {
@@ -157,6 +203,8 @@ export const initialCatalogMergeCandidateState: CatalogMergeCandidateState = {
   createdAt: null,
   updatedAt: null,
   staleAt: null,
+  promotionPlan: null,
+  promotionApplication: null,
 };
 
 export type CreateCatalogMergeCandidateCommand = Readonly<{
@@ -236,6 +284,18 @@ export type DeferCatalogMergeCandidateCommand = Readonly<{
   conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
 }>;
 
+export type PlanCatalogMergeCandidatePromotionCommand = Readonly<{
+  type: "PlanCatalogMergeCandidatePromotion";
+  plan: CatalogMergeCandidatePromotionPlan;
+  plannedAt: string;
+}>;
+
+export type RecordCatalogMergeCandidatePromotionAppliedCommand = Readonly<{
+  type: "RecordCatalogMergeCandidatePromotionApplied";
+  application: CatalogMergeCandidatePromotionApplication;
+  appliedAt: string;
+}>;
+
 export type CatalogMergeCandidateCommand =
   | CreateCatalogMergeCandidateCommand
   | RefreshCatalogMergeCandidateCommand
@@ -246,7 +306,9 @@ export type CatalogMergeCandidateCommand =
   | SplitCatalogMergeCandidateCommand
   | UpdateCatalogMergeCandidateCommand
   | IgnoreCatalogMergeCandidateCommand
-  | DeferCatalogMergeCandidateCommand;
+  | DeferCatalogMergeCandidateCommand
+  | PlanCatalogMergeCandidatePromotionCommand
+  | RecordCatalogMergeCandidatePromotionAppliedCommand;
 
 type CatalogMergeCandidateCreatedEventData = JsonObject &
   Readonly<{
@@ -328,6 +390,20 @@ type CatalogMergeCandidateDeferredEventData = JsonObject &
     deferredAt: string;
   }>;
 
+type CatalogMergeCandidatePromotionPlannedEventData = JsonObject &
+  Readonly<{
+    candidateId: string;
+    plan: CatalogMergeCandidatePromotionPlan;
+    plannedAt: string;
+  }>;
+
+type CatalogMergeCandidatePromotionAppliedEventData = JsonObject &
+  CatalogMergeCandidatePromotionApplication &
+  Readonly<{
+    candidateId: string;
+    appliedAt: string;
+  }>;
+
 export type CatalogMergeCandidateCreatedEvent = DomainEvent<
   "catalog.merge-candidate.created",
   CatalogMergeCandidateCreatedEventData
@@ -378,6 +454,16 @@ export type CatalogMergeCandidateDeferredEvent = DomainEvent<
   CatalogMergeCandidateDeferredEventData
 >;
 
+export type CatalogMergeCandidatePromotionPlannedEvent = DomainEvent<
+  "catalog.merge-candidate.promotion-planned",
+  CatalogMergeCandidatePromotionPlannedEventData
+>;
+
+export type CatalogMergeCandidatePromotionAppliedEvent = DomainEvent<
+  "catalog.merge-candidate.promotion-applied",
+  CatalogMergeCandidatePromotionAppliedEventData
+>;
+
 export type CatalogMergeCandidateEvent =
   | CatalogMergeCandidateCreatedEvent
   | CatalogMergeCandidateRefreshedEvent
@@ -388,7 +474,9 @@ export type CatalogMergeCandidateEvent =
   | CatalogMergeCandidateSplitEvent
   | CatalogMergeCandidateUpdatedEvent
   | CatalogMergeCandidateIgnoredEvent
-  | CatalogMergeCandidateDeferredEvent;
+  | CatalogMergeCandidateDeferredEvent
+  | CatalogMergeCandidatePromotionPlannedEvent
+  | CatalogMergeCandidatePromotionAppliedEvent;
 
 export const decideCatalogMergeCandidate: AggregateDecider<
   CatalogMergeCandidateState,
@@ -624,6 +712,54 @@ export const decideCatalogMergeCandidate: AggregateDecider<
         },
       ];
     }
+    case "PlanCatalogMergeCandidatePromotion": {
+      requireApprovedForApplication(state);
+      assert(state.promotionPlan === null, "Catalog Merge Candidate approval already has an application plan.");
+      const plan = normalizePromotionPlan(command.plan);
+      assert(
+        plan.identityFingerprint === state.snapshot.identityFingerprint,
+        "Catalog Merge Candidate application plan must bind the approved snapshot.",
+      );
+
+      return [
+        {
+          type: "catalog.merge-candidate.promotion-planned",
+          data: { candidateId: state.id, plan, plannedAt: requireText(command.plannedAt, "Planned at") },
+        },
+      ];
+    }
+    case "RecordCatalogMergeCandidatePromotionApplied": {
+      requireApprovedForApplication(state);
+      assert(state.promotionPlan !== null, "Catalog Merge Candidate application requires a bound plan.");
+      assert(state.promotionApplication === null, "Catalog Merge Candidate application is already recorded.");
+      const plan = state.promotionPlan;
+      const application = command.application;
+      assert(
+        application.approvalVersion === plan.approvalVersion &&
+          application.catalogItemId === plan.catalogItemId &&
+          application.appliedMode === plan.mode &&
+          application.planFingerprint === plan.planFingerprint &&
+          application.jobId === plan.jobId &&
+          application.unitId === plan.unitId,
+        "Catalog Merge Candidate application must complete its bound plan.",
+      );
+
+      return [
+        {
+          type: "catalog.merge-candidate.promotion-applied",
+          data: {
+            candidateId: state.id,
+            approvalVersion: plan.approvalVersion,
+            catalogItemId: plan.catalogItemId,
+            appliedMode: plan.mode,
+            planFingerprint: plan.planFingerprint,
+            jobId: plan.jobId,
+            unitId: plan.unitId,
+            appliedAt: requireText(command.appliedAt, "Applied at"),
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -730,10 +866,62 @@ export const evolveCatalogMergeCandidate: AggregateEvolver<CatalogMergeCandidate
         updatedAt: event.data.deferredAt,
         staleAt: null,
       };
+    case "catalog.merge-candidate.promotion-planned":
+      return { ...state, promotionPlan: event.data.plan, updatedAt: event.data.plannedAt };
+    case "catalog.merge-candidate.promotion-applied":
+      return {
+        ...state,
+        promotionApplication: {
+          approvalVersion: event.data.approvalVersion,
+          catalogItemId: event.data.catalogItemId,
+          appliedMode: event.data.appliedMode,
+          planFingerprint: event.data.planFingerprint,
+          jobId: event.data.jobId,
+          unitId: event.data.unitId,
+        },
+        updatedAt: event.data.appliedAt,
+      };
     default:
       return assertNever(event);
   }
 };
+
+function requireApprovedForApplication(state: CatalogMergeCandidateState): asserts state is CatalogMergeCandidateState & {
+  id: string;
+  snapshot: CatalogMergeCandidateReviewSnapshot;
+} {
+  assert(state.id !== null && state.snapshot !== null, "Catalog Merge Candidate must be created first.");
+  assert(state.status === "promoted", "Only approved Catalog Merge Candidates can be applied.");
+}
+
+function normalizePromotionPlan(plan: CatalogMergeCandidatePromotionPlan): CatalogMergeCandidatePromotionPlan {
+  assert(
+    Number.isSafeInteger(plan.approvalVersion) && plan.approvalVersion > 0,
+    "Application plan approval version is invalid.",
+  );
+  assert(catalogMergeCandidateAppliedModes.includes(plan.mode), "Application plan mode is invalid.");
+  const baseline = plan.targetBaseline;
+  assert(
+    Number.isSafeInteger(baseline.streamVersion) && baseline.streamVersion >= 0,
+    "Application plan target baseline is invalid.",
+  );
+  assert(
+    plan.mode === "create"
+      ? baseline.streamVersion === 0 && baseline.status === null
+      : baseline.streamVersion > 0 && baseline.status !== null,
+    "Application plan target baseline does not match its mode.",
+  );
+  assert(plan.commands.length > 0, "Application plan requires at least one Catalog Item command.");
+  assert(plan.membership.length > 0, "Application plan requires approved Source Observation provenance.");
+  assert(plan.profiles.length > 0, "Application plan requires resolved promotion profile versions.");
+  return {
+    ...plan,
+    jobId: requireText(plan.jobId, "Application job ID"),
+    unitId: requireText(plan.unitId, "Application work unit ID"),
+    catalogItemId: requireText(plan.catalogItemId, "Application Catalog Item ID"),
+    planFingerprint: requireText(plan.planFingerprint, "Application plan fingerprint"),
+  };
+}
 
 function requireRefreshable(state: CatalogMergeCandidateState): asserts state is CatalogMergeCandidateState & {
   id: string;

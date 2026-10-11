@@ -423,6 +423,9 @@ export function createSourceObservationRuntime(
     jobStore: mergeCandidateBulkJobStore,
     workUnitStore: mergeCandidateBulkWorkUnitStore,
     mergeCandidates,
+    referenceData,
+    profileVersions,
+    rolloutControlPolicy,
   });
   const bulkReviewJobs = createSourceObservationBulkReviewJobRuntime({
     deps,

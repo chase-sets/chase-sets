@@ -127,6 +127,7 @@ function job(
   return {
     jobId,
     kind: "merge-candidate-promote",
+    promotionApplicationVersion: null,
     scopeRecordId: "scope_base_set",
     reason: "Promote all ready candidates in the scope.",
     status: input.status,

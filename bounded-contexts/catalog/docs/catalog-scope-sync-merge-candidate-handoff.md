@@ -130,7 +130,7 @@ these paths; ordinary boot installs them before promotion writers activate.
 ## Promotion Target Exclusion Port
 
 Catalog's `createPostgresPromotionTargetExclusion` composes the shared port for
-Source Observation promote/reapply and future candidate application. Callers
+Source Observation promote/reapply and scope candidate application. Callers
 supply explicit member/reference keys, candidate target ids, target selection,
 and their policy-appropriate canonical profile validation. Candidate application
 still owns its eligibility, degraded-display and authority preflight; acquiring
@@ -183,6 +183,76 @@ the failed checks. It never falls back to projected absence or a global scan.
 If cutover fails, leave promotion disabled. Rollback stops writers first and
 retains the additive schema, bindings and readers, or rolls forward. Restoring
 the unguarded allocator against retained guarded writes is not a safe rollback.
+
+## Candidate Application Checkpoints
+
+Single-candidate promote stays approval-only. Scope promotion jobs
+(`merge-candidate-promote`, `promotionApplicationVersion: 1`) apply approved
+candidates through two candidate-owned checkpoints around the existing candidate
+planner and the shared executor:
+
+1. Preflight from the approved snapshot, never the latest observations: fold
+   each member's Source Observation stream and use the exact reviewed revision;
+   resolve each promotable member's active promotion profile, enforce the
+   global/provider/unit promotion rollout controls, require every member to agree
+   on blueprint, category, fields and hierarchy Reference Record, and nominate
+   reuse targets from the duplicate resolver. Reference provisioning and image
+   storage are idempotent preparation and may precede a block; a block appends no
+   approval and writes no Catalog Item (`promotion-plan-blocked:<code>`). A ready
+   candidate stays ready; an approved one stays approved-but-unapplied and the
+   unit fails.
+2. Acquire the target through the exclusion port. A retained member target counts
+   only with its member's recorded completion, a reference owner or bound target
+   is reused (a create intent becomes `refresh`), and a partial, ambiguous or
+   unknown target refuses rather than counting as no match. Only when no owner
+   exists is `cat_candidate_<sha256(candidateId)>` allocated.
+3. Approve at the checked version (ready candidates), then append
+   `catalog.merge-candidate.promotion-planned` at the checked version before any
+   item command. It binds the approval version, initiating job/unit, target,
+   actual mode, target baseline version/state, pinned profile versions, mapping,
+   Reference Record and asset inputs, exact commands and fingerprint. One plan
+   binds per approval.
+4. Execute through the session, which folds the complete target stream and runs
+   only the commands its exact suffix has not committed, in every mode. Draft
+   targets count as existing; read models never authorize replay writes.
+5. Prove the complete event sequence from the target stream, then append
+   `catalog.merge-candidate.promotion-applied` once, attributed to the plan's
+   initiator.
+
+Recovery: a unit that finds its own application returns the same promoted
+result without writes; any later job skips applied candidates (0 promoted, 0
+created). A retained plan resumes exactly: the pinned profile stays eligible when
+a newer version was merely activated, but revocation, missing reference evidence,
+a changed baseline or unrelated target history refuses
+(`promotion-application-*`) and keeps the checkpoint for explicit recovery. A
+later job may finish another unit's unfinished plan under the same fences.
+
+Results: version-1 unit results carry `appliedCatalogItemId`, `appliedMode`,
+`approvalVersion` and `planFingerprint`, non-null exactly when `promoted`.
+`catalogItemId` stays the historical match. An inner image-preparation failure
+records `diagnosticCode: "asset-processing-failed"`; other failures carry none
+and stay unclassified. Readers reconcile the complete completed-job history by
+candidate (`reconcileCatalogMergeCandidateApplications`): repeated reports count
+once, conflicting applications and malformed version-1 results fail closed, and
+a legacy approval-only outcome never supplies an id or a count.
+
+### Application Rollout And Rollback
+
+1. Disable promotion (`CATALOG_INTEGRATION_PROMOTION_DISABLED` or the unit-scoped
+   control) and drain every scope promotion worker.
+2. Deploy readers, projectors and workers that fold the two new candidate events
+   before any version-1 job runs. Version-1 jobs persist under the stored kind
+   `merge-candidate-promote-application-v1`, which a pre-application worker never
+   claims.
+3. Re-enable promotion. Retained unversioned jobs stay readable history; catch-up
+   of approved-but-unapplied candidates runs only as an explicit new scope
+   promotion job. A legacy promotion job still queued at cutover fails its units
+   with `promotion-application-legacy-job` instead of reporting approval.
+
+Rollback after any `promotion-planned` or `promotion-applied` event exists: stop
+promotion and roll forward or keep a compatible reader. A reader that cannot
+fold the new events is unsafe; do not retry with old readers or treat their
+failures, skipped units or reruns as compatibility evidence.
 
 ## Evidence Packet
 
