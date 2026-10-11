@@ -1887,14 +1887,14 @@ export function createChangedObservationRefreshHarness(
         const current =
           input.displayIdentity?.currentItems?.find((item) => item.catalog_item_id === targetId) ??
           syntheticCurrentCatalogItem({ catalog_item_id: targetId });
-        const state = {
+        const state: CatalogItemState = {
           ...initialCatalogItemState,
           id: knownCatalogItemIds.includes(targetId) ? (targetId as CatalogItemId) : null,
           languageCode: current.language_code,
           status: current.status === "active" ? ("active" as const) : ("draft" as const),
-          title: { defaultLocale: current.language_code, values: { [current.language_code]: current.title } },
+          title: { defaultLocale: "en", values: { en: current.title, [current.language_code]: current.title } },
           subtitle: current.subtitle
-            ? { defaultLocale: current.language_code, values: { [current.language_code]: current.subtitle } }
+            ? { defaultLocale: "en", values: { en: current.subtitle, [current.language_code]: current.subtitle } }
             : null,
           blueprintId: current.blueprint_id as BlueprintId | null,
           fieldValues: asArray<CatalogItemState["fieldValues"][number]>(current.field_values),
