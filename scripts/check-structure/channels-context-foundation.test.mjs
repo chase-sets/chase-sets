@@ -243,6 +243,17 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
       {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
+      {
         portName: "storageLocationAuthority",
         providedBy: "platform-api, platform-worker",
         purpose:
@@ -278,6 +289,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
+      "ebay-account-deletion",
       "connector-feed",
       "connections",
       "credentials",
@@ -412,6 +424,7 @@ describe("channels-context-foundation", () => {
         "channel-sync-run",
       ]),
       slices: [
+        "ebay-account-deletion",
         "connector-feed",
         "connections",
         "credentials",
@@ -433,6 +446,17 @@ describe("channels-context-foundation", () => {
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "ebayAccountDeletionConfiguration",
+          providedBy: "platform-api",
+          purpose:
+            "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+        },
+        {
+          portName: "webhookTelemetry",
+          providedBy: "platform-api",
+          purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+        },
         {
           portName: "storageLocationAuthority",
           providedBy: "platform-api, platform-worker",

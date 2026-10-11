@@ -1398,6 +1398,20 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
@@ -1771,6 +1785,20 @@
       "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "EASYPOST_API_KEY",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
@@ -2667,6 +2695,20 @@
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "EASYPOST_WEBHOOK_SECRET",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
@@ -5115,6 +5157,20 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "terraform-infra"
     },
@@ -6867,6 +6923,20 @@
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#32",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#32",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#32",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-production.yml",

@@ -37,6 +37,7 @@ describe("connector-feed-bootstrap-and-manifest", () => {
     expect(mounts.map(({ mountPath, contextMountOrdinal }) => ({ mountPath, contextMountOrdinal }))).toEqual([
       { mountPath: "/api/channels", contextMountOrdinal: 1 },
       { mountPath: "/channel-connector/oauth", contextMountOrdinal: 2 },
+      { mountPath: "/api/channels-webhooks", contextMountOrdinal: 3 },
     ]);
     const credential = mounts.find((mount) => mount.mountPath === "/channel-connector/oauth");
     if (!(credential?.router instanceof Hono)) throw new Error("missing-connector-router");

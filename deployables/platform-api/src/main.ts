@@ -314,6 +314,7 @@ const runtime = createPlatformApiHost({
   hostPorts: {
     deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
+    ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,

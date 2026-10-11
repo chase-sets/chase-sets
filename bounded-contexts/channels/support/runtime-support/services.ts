@@ -1,4 +1,5 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EbayAccountDeletionOptions } from "../../features/ebay-account-deletion/api/route";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type {
   ChannelConnectionServices,
@@ -21,6 +22,7 @@ import type { TcgplayerLiveExportSnapshotServices } from "../../features/live-ex
 import type { FulfillmentObservationServices } from "../../features/order-fulfillment-observations/api/runtime";
 
 export type ChannelsServices = Readonly<{
+  ebayAccountDeletion: EbayAccountDeletionOptions;
   credentials: ChannelCredentialServices;
   connections: ChannelConnectionServices;
   storageLocationAuthority: ChannelStorageLocationAuthorityResolver;
@@ -43,6 +45,7 @@ export type ChannelsServices = Readonly<{
 }>;
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
+  "ebayAccountDeletion",
   "credentials",
   "connections",
   "storageLocationAuthority",
@@ -80,6 +83,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const db = Reflect.get(value, "db");
 
   return (
+    isObject(Reflect.get(value, "ebayAccountDeletion")) &&
     isObject(credentials) &&
     typeof Reflect.get(credentials, "resolve") === "function" &&
     typeof Reflect.get(credentials, "create") === "function" &&
