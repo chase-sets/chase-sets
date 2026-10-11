@@ -167,7 +167,7 @@ async function readSnapshotRows(
     parsed_row_count: number;
     ingested_at: string | Date;
     captured_at: string | Date;
-    captured_at_source: "operator-declared" | "ingest";
+    captured_at_source: ChannelInventorySnapshot["capturedAtSource"];
   }>(
     `SELECT snapshot_id,snapshot_generation,connection_id,surface,parsed_row_count,ingested_at,captured_at,captured_at_source
      FROM channel_inventory_snapshots

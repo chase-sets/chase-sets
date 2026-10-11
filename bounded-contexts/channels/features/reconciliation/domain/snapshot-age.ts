@@ -3,6 +3,12 @@ import type { ChannelInventorySnapshot } from "../../tcgplayer-csv/domain/contra
 export const SNAPSHOT_AGE_FINDING_ID = "snapshot-age";
 export const SNAPSHOT_AGE_MEMBER_ID = `finding:${SNAPSHOT_AGE_FINDING_ID}`;
 
+// Only operator-typed and connector-measured capture instants are age evidence; ingestion time never is (#9286).
+const attributedCaptureSources: ReadonlySet<SnapshotAgeMetadata["capturedAtSource"]> = new Set([
+  "operator-declared",
+  "connector-captured",
+]);
+
 export type SnapshotAgeMetadata = Pick<
   ChannelInventorySnapshot,
   "snapshotId" | "snapshotGeneration" | "ingestedAt" | "capturedAt" | "capturedAtSource"
@@ -30,7 +36,7 @@ export function evaluateSnapshotAge(
   if (!latest) return { kind: "unknown", reason: "snapshot-missing" };
   const run = instant(runAt);
   for (const snapshot of newestFirst.slice(0, 2)) {
-    if (snapshot.capturedAtSource !== "operator-declared")
+    if (!attributedCaptureSources.has(snapshot.capturedAtSource))
       return { kind: "unknown", reason: "snapshot-capture-unattributed" };
     const capture = instant(snapshot.capturedAt);
     const ingestion = instant(snapshot.ingestedAt);

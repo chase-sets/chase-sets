@@ -280,6 +280,10 @@ function validChannelsCandidate(
     },
     tcgplayerCsv: {},
     tcgplayerOrders: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
+    liveExportSnapshots: {
+      consumeConnection: vi.fn<ChannelsServices["liveExportSnapshots"]["consumeConnection"]>(),
+      consumeDueConnections: vi.fn<ChannelsServices["liveExportSnapshots"]["consumeDueConnections"]>(),
+    } satisfies ChannelsServices["liveExportSnapshots"],
     fulfillmentObservations: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
     manualSync: {},
     connectorFeed: {

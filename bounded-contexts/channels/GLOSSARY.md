@@ -294,7 +294,7 @@ A **Channel Inventory Snapshot** is channel-reported quantity state captured for
 
 ## Snapshot Staleness
 
-**Snapshot Staleness** is the age of an operator-declared Live capture relative to
+**Snapshot Staleness** is the age of an attributed (operator-declared or connector-captured) Live capture relative to
 the reconciliation run clock. Age strictly beyond the configured window is stale;
 missing, unattributed, invalid, future, or non-increasing capture evidence is unknown.
 Both require Channel Action attention. Fresh age never proves snapshot completeness.

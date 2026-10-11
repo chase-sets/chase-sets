@@ -21,6 +21,17 @@ describe("channels-services-guard-negative", () => {
   it("accepts the complete aggregate candidate", () => {
     expect(isChannelsServices(validCandidate())).toBe(true);
   });
+  it.each(["consumeConnection", "consumeDueConnections"] as const)("rejects an omitted live-export %s", (method) => {
+    const candidate = validCandidate();
+    expect(
+      isChannelsServices({
+        ...candidate,
+        liveExportSnapshots: Object.fromEntries(
+          Object.entries(candidate.liveExportSnapshots).filter(([key]) => key !== method),
+        ),
+      }),
+    ).toBe(false);
+  });
 
   it.each([null, undefined, false, 0, "channels", []])("rejects non-aggregate input %s", (candidate) => {
     expect(isChannelsServices(candidate)).toBe(false);
@@ -118,6 +129,10 @@ function validCandidate() {
     },
     tcgplayerCsv: {},
     tcgplayerOrders: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
+    liveExportSnapshots: {
+      consumeConnection: vi.fn<ChannelsServices["liveExportSnapshots"]["consumeConnection"]>(),
+      consumeDueConnections: vi.fn<ChannelsServices["liveExportSnapshots"]["consumeDueConnections"]>(),
+    } satisfies ChannelsServices["liveExportSnapshots"],
     fulfillmentObservations: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
     manualSync: {},
     connectorFeed: {
