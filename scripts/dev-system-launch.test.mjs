@@ -216,7 +216,7 @@ describe("dev system launcher", () => {
       for (const platform of ["linux", "darwin", "freebsd"]) {
         const selected = selectProductionServices(platform, ci);
         selected.forEach((definition, index) => {
-          const resolveInvocation = vi.fn();
+          const resolveInvocation = vi.fn(() => ({ command: "synthetic-resolved", args: [] }));
           const spawn = vi.fn(() => fakeChild());
           createDevSystemLauncher({ children: [], resolveInvocation, spawn }).launch(definition, { inheritEnv: false });
           expect(resolveInvocation).not.toHaveBeenCalled();
