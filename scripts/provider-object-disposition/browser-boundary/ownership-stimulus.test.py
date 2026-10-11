@@ -67,14 +67,15 @@ def proc_stat(pid):
 def descendant_retired(pid, start, read):
     """Coordinator-death retirement of one recorded descendant: the stat read
     finds no task (ENOENT at lookup, ESRCH when the task is released between
-    open and read) or a different start. Every other error propagates."""
+    open and read) or a canonically parsed different start. Every other read
+    error and every malformed stat propagates."""
     try:
         text = read(pid)
     except (FileNotFoundError, ProcessLookupError) as error:
         if error.errno not in (errno.ENOENT, errno.ESRCH):
             raise
         return True
-    return text[text.rindex(') ') + 2:].split()[19] != start
+    return ownership.parse_stat(text, int(pid))['start'] != start
 
 
 def run_orphan(trees=None, after=gone, probe=None, lifetime=([True], [], []), stdin=b'', patches=()):
@@ -409,7 +410,8 @@ def raising(error):
 class DescendantRetirement(unittest.TestCase):
     """Coordinator-death poll: only ENOENT, ESRCH or a changed start retire."""
 
-    PID, START = 1001, '1501'
+    PID, START = 1001, 1501
+    NATIVE = 'test_stat_opened_live_and_read_after_the_own_child_is_reaped_raises_esrch_and_retires'
 
     def test_esrch_and_enoent_from_the_stat_read_retire(self):
         for error in (ProcessLookupError(errno.ESRCH, 'SYNTHETIC_PRIVATE'),
@@ -443,22 +445,26 @@ class DescendantRetirement(unittest.TestCase):
                 self.assertEqual(read.raised, [error])
 
     def test_malformed_stat_text_propagates(self):
-        for text, failure in (('SYNTHETIC_PRIVATE\n', ValueError), (f'{self.PID} (SYNTHETIC) S 1000\n', IndexError)):
-            with self.subTest(failure=failure.__name__):
+        # The last case is a valid synthetic stat except for a nonnumeric field 22.
+        for case, text in (('no-delimiter', 'SYNTHETIC_PRIVATE\n'),
+                           ('short', f'{self.PID} (SYNTHETIC) S 1000\n'),
+                           ('nonnumeric-start', stat_text(self.PID, 'SYNTHETIC_INVALID_START', 1000))):
+            with self.subTest(case=case):
                 read = RecordingRead(lambda _pid, text=text: text)
-                with self.assertRaises(failure):
+                with mock.patch.object(ownership, 'parse_stat', wraps=ownership.parse_stat) as parse, \
+                        self.assertRaises(ownership.CensusError):
                     descendant_retired(self.PID, self.START, read)
+                parse.assert_called_once_with(text, self.PID)
                 self.assertEqual((read.calls, read.raised), ([self.PID], []))
 
     def test_stat_opened_live_and_read_after_the_own_child_is_reaped_raises_esrch_and_retires(self):
         # Forces the hosted window: open while live, SIGKILL and reap only this
         # disposable child, then read through the same handle.
         pid = os.posix_spawn('/usr/bin/sleep', ['sleep', '60'], {})
-        fd = os.pidfd_open(pid)
-        reaped = False
+        fd, reaped = None, False
         try:
-            text = proc_stat(pid)
-            start = text[text.rindex(') ') + 2:].split()[19]
+            fd = os.pidfd_open(pid)
+            start = ownership.parse_stat(proc_stat(pid), pid)['start']
             with open(f'/proc/{pid}/stat') as handle:
                 signal.pidfd_send_signal(fd, signal.SIGKILL)
                 _, status = os.waitpid(pid, 0)
@@ -471,10 +477,35 @@ class DescendantRetirement(unittest.TestCase):
             self.assertIsInstance(read.raised[0], ProcessLookupError)
             self.assertEqual(read.raised[0].errno, errno.ESRCH)
         finally:
+            # Until waitpid the unreaped child keeps its PID, so a PID kill
+            # without a pidfd still reaches only this child.
             if not reaped:
-                signal.pidfd_send_signal(fd, signal.SIGKILL)
+                if fd is None:
+                    os.kill(pid, signal.SIGKILL)
+                else:
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
                 os.waitpid(pid, 0)
-            os.close(fd)
+            if fd is not None:
+                os.close(fd)
+
+    def test_pidfd_acquisition_failure_kills_and_reaps_only_the_own_child(self):
+        # SYNTHETIC: no process is created or signalled; only pidfd acquisition fails.
+        pid, events = 987654321, []
+        error = OSError(errno.EMFILE, 'SYNTHETIC_PIDFD_ACQUISITION')
+        with mock.patch.object(os, 'posix_spawn', return_value=pid) as spawn, \
+                mock.patch.object(os, 'pidfd_open', side_effect=error) as acquire, \
+                mock.patch.object(os, 'kill', side_effect=lambda *a: events.append(('kill', a))), \
+                mock.patch.object(os, 'waitpid', side_effect=lambda *a: events.append(('waitpid', a)) or (pid, 9)), \
+                mock.patch.object(os, 'close') as close, \
+                mock.patch.object(signal, 'pidfd_send_signal') as pidfd_signal, \
+                self.assertRaises(OSError) as raised:
+            getattr(type(self)(self.NATIVE), self.NATIVE)()
+        self.assertIs(raised.exception, error)
+        spawn.assert_called_once_with('/usr/bin/sleep', ['sleep', '60'], {})
+        acquire.assert_called_once_with(pid)
+        self.assertEqual(events, [('kill', (pid, signal.SIGKILL)), ('waitpid', (pid, 0))])
+        pidfd_signal.assert_not_called()
+        close.assert_not_called()
 
 
 class CensusOwnershipFixtures(unittest.TestCase):
@@ -540,7 +571,7 @@ class CensusOwnershipFixtures(unittest.TestCase):
             def record_children(pid):
                 for child in Path(f'/proc/{pid}/task/{pid}/children').read_text().split():
                     text = Path(f'/proc/{child}/stat').read_text()
-                    owned[child] = text[text.rindex(') ') + 2:].split()[19]
+                    owned[child] = ownership.parse_stat(text, int(child))['start']
                     record_children(child)
 
             record_children(process.pid)
