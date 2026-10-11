@@ -62,6 +62,50 @@ absent cleanup-complete mark means externally disposed/unknown, not cleaned.
 The census-to-deletion admission race remains unknown under the bound protocol;
 this implementation does not add a lock descriptor or claim atomic removal.
 
+### Removal Witness
+
+The diagnostic-only I/W exception in #8951 comment 6105251974 adds one
+`provider-boundary-removal-witness:` line before an ambiguous installer refusal.
+It does not change CP-T/CP-A, native 78, installer/wrapper 1, ownership predicates,
+iteration order, deadlines, or deletion authority. Success adds no diagnostic.
+The first propagated ambiguity uses the classifier's same-read records, never
+a later census: `identity-drift`, `parent-order`, `foreign-image`, or
+`member-cycle`. Stable unrelated input is `none`; unrelated start/image drift
+still refuses and is not proof of foreign ownership.
+
+Version 1 is a closed ASCII line, including exactly one trailing LF, at most
+1024 bytes. Its fixed field order is `v1;predicate=...;records=...;start-drift=...;
+image-drift=...;repeated-pid=...;chain-length=...` (no whitespace or line break
+inside the record). There are two pipe-separated records for identity drift
+(previous/current) or parent order (child/parent), one otherwise. Each record
+is `pid,parent,start,device,inode,namespace,uid,image`. Namespace is
+`initial|noninitial`, UID is `admitted|other`, image is
+`launcher|target|other|none`; `target` means the existing installation-device
+and path predicate, without exposing that path. A `none` image has `-,-` instead
+of device/inode. Canonical decimal PID/parent values are bounded by 2147483647
+(PID positive); start/device/inode by 18446744073709551615. JavaScript compares
+these as BigInt, never rounded Number values. Drift flags are 0/1 and must match
+the comparisons. Only a cycle has nonzero repeated PID and chain length
+(1..4096 visited members before the repeat); no full chain is emitted.
+
+The helper redacts at selection. The installer validates the complete bounded
+helper stdout/stderr capture, including framing, before forwarding a witness.
+All exact I/W consumers use `removalRefusal`, which validates the witness and
+the entire original envelope together. Missing, duplicate, extra, truncated,
+overflow, noncanonical or inconsistent detail cannot pass an ambiguous-output
+assertion or authorize deletion. Invalid helper detail becomes census refusal;
+resources remain retained. Raw paths, argv, environment and exceptions are not
+forwarded. Native and non-ambiguous output contracts remain unchanged.
+
+Diagnostic evidence must retain the FIRST normal final-head hosted removal
+after complete unchanged serial controls, renderer cleanup/reinstall and final
+admission, with exact head/run/owning job/step, image/kernel, installed/source
+digests, statuses and complete validated output. Success is NONREPRODUCTION,
+root UNKNOWN; a valid witness is not automatic causal attribution. Missing or
+invalid detail is diagnostic failure. Neither a control aggregate, later proc
+scan nor manual repetition substitutes. This diagnostic does not complete
+#8952, waive a required red gate, or grant a causal/lifecycle repair.
+
 ## Proof Status
 
 Native results come only from the candidate's hosted Static Checks job. Local

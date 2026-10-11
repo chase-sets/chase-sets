@@ -1,10 +1,109 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { expect, it } from "vitest";
 import { SOURCE_FILES } from "../test-window-browser.mjs";
+import { removalRefusal } from "./protocol.mjs";
 
 const read = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 const launcher = read("launcher.c");
 const installer = read("install-ci.sh");
+
+it("SYNTHETIC shipped I/W capture validates whole output and retains all resources on every refusal", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "SYNTHETIC-removal-witness-"));
+  const shell = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "/bin/bash";
+  // Rebind fixed paths only in an owned fixture copy; production has no overrides.
+  const shellPath = (value) =>
+    process.platform === "win32"
+      ? value.replaceAll("\\", "/").replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`)
+      : value;
+  const input = path.join(root, "input");
+  const source = path.join(input, "scripts/provider-object-disposition/browser-boundary");
+  const target = path.join(root, "target");
+  const profile = path.join(root, "profile");
+  const effects = path.join(root, "effects");
+  const quote = (value) => `'${shellPath(value).replaceAll("'", "'\\''")}'`;
+  const witness =
+    "provider-boundary-removal-witness:v1;predicate=foreign-image;records=20,1,100,1,3,initial,admitted,target;start-drift=0;image-drift=0;repeated-pid=0;chain-length=0\n";
+  const ambiguous = "remove-ambiguous-owner\n" + witness;
+  const python = process.platform === "win32" ? "python" : "python3";
+  const bindings = [
+    ["/usr/local/lib/chase-sets-provider-window-input", shellPath(input)],
+    ["/usr/local/lib/chase-sets-provider-window", shellPath(target)],
+    ["/etc/apparmor.d/chase-sets-provider-window", shellPath(profile)],
+  ];
+  const bind = (text) => bindings.reduce((result, [from, to]) => result.replaceAll(from, to), text);
+  const cases = [
+    [ambiguous, "", 1, "remove-ambiguous-owner"],
+    ["", ambiguous, 1, "remove-ambiguous-owner"],
+    ["remove-live-owner\n", "", 1, "remove-live-owner"],
+    ["remove-orphan-owner\n", "", 1, "remove-orphan-owner"],
+    ["remove-ownership-census\n", "", 1, "remove-ownership-census"],
+    ["remove-ambiguous-owner\n", "", 1, "remove-ownership-census"],
+    [ambiguous + witness, "", 1, "remove-ownership-census"],
+    [ambiguous.slice(0, -1), "", 1, "remove-ownership-census"],
+    [ambiguous, "SYNTHETIC_PRIVATE", 1, "remove-ownership-census"],
+    [ambiguous + "\0", "", 1, "remove-ownership-census"],
+    [ambiguous.replace("chain-length=0", "chain-length=1"), "", 1, "remove-ownership-census"],
+    ["x".repeat(2048), "", 1, "remove-ownership-census"],
+    [ambiguous, "", 0, "remove-ownership-census"],
+    [ambiguous, "", 78, "remove-ownership-census"],
+    [ambiguous, "", 137, "remove-ownership-census"],
+    ["none\n", "", 1, "remove-ownership-census"],
+    ["none\nPRIVATE", "", 0, "remove-ownership-census"],
+    ["none\n\n", "", 0, "remove-ownership-census"],
+  ];
+  try {
+    mkdirSync(source, { recursive: true });
+    mkdirSync(target);
+    writeFileSync(profile, "SYNTHETIC_PROFILE");
+    // Match Linux stream framing in the Windows-only local shell fixture too.
+    writeFileSync(
+      path.join(source, "ownership.py"),
+      "import sys; sys.stdout.reconfigure(newline='\\n')\n" + read("ownership.py"),
+    );
+    let script = bind(installer).replaceAll("/usr/bin/python3", python);
+    script = script.replace(
+      "set -Eeuo pipefail",
+      `set -Eeuo pipefail
+id() { printf '0\\n'; }
+timeout() { cat ${quote(path.join(root, "stdout"))}; cat ${quote(path.join(root, "stderr"))} >&2; return "$(cat ${quote(path.join(root, "status"))})"; }
+rm() { printf 'SYNTHETIC_DELETE\\n' >> ${quote(effects)}; return 91; }
+`,
+    );
+    writeFileSync(path.join(source, "install-ci.sh"), script);
+    const cleanup = bind(read("ci-cleanup.sh")).replace(
+      "set -Eeuo pipefail",
+      `set -Eeuo pipefail
+sudo() {
+  if test "$1" = env; then shift 4; /bin/bash "$@"; else printf 'SYNTHETIC_DELETE\\n' >> ${quote(effects)}; return 92; fi
+}
+`,
+    );
+    const cleanupPath = path.join(root, "cleanup.sh");
+    writeFileSync(cleanupPath, cleanup);
+    for (const [stdout, stderr, status, stage] of cases) {
+      writeFileSync(path.join(root, "stdout"), stdout);
+      writeFileSync(path.join(root, "stderr"), stderr);
+      writeFileSync(path.join(root, "status"), String(status));
+      const actual = spawnSync(shell, [shellPath(cleanupPath)], { encoding: "buffer" });
+      expect(actual.error).toBeUndefined();
+      expect(
+        removalRefusal(
+          { code: actual.status, signal: actual.signal, stdout: actual.stdout, stderr: actual.stderr },
+          stage,
+        ),
+        JSON.stringify({ status, stage, out: actual.stdout.toString(), err: actual.stderr.toString() }),
+      ).toBe(true);
+      expect(existsSync(target) && existsSync(profile) && existsSync(input)).toBe(true);
+      expect(existsSync(effects)).toBe(false);
+    }
+  } finally {
+    // root is the exact create-only fixture returned by mkdtemp, never a source path.
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 it("source identity inventory is shared by setup and admission", () => {
   const sources = /^sources=\(([^)]+)\)$/m.exec(installer)[1].split(" ");
