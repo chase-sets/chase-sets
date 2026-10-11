@@ -128,7 +128,6 @@ export function createBulkAppendLane<State, Command, Event extends DomainEvent>(
 
       const isLastChunk = chunkIndex === chunks.length - 1;
       if (!isLastChunk) {
-        await sleep(config.yieldIntervalMs);
       }
     }
 

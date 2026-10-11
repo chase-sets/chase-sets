@@ -587,7 +587,7 @@ export async function claimInlineSubscriptionApplication(
       event.streamVersion,
       event.globalPosition,
       event.type,
-      `${Math.max(1, Math.floor(lockTimeoutMs))}ms`,
+      "0",
     ],
   );
 
