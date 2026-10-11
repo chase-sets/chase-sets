@@ -653,7 +653,7 @@
       "risk": "internal",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/route.ts:POST /staff/ebay-account-deletion/lookup",
+        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/staff-route.ts:POST /staff/ebay-account-deletion/lookup",
         "route-action:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-route-adapter.tsx",
         "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1"
       ],

@@ -21,11 +21,11 @@ describe("ebay-account-deletion staff host composition", () => {
     const channels = runtime.services.channels;
     if (!isChannelsServices(channels)) throw new Error("Channels not mounted in actual API host");
     const lookup = vi
-      .spyOn(channels.ebayAccountDeletion, "lookup")
+      .spyOn(channels.ebayAccountDeletionReceipts, "lookup")
       .mockResolvedValue([
         { notificationId: "synthetic-notice", eventDate: "2026-10-11T00:00:00Z", expiresAt: "2026-11-10T00:00:00Z" },
       ]);
-    vi.spyOn(channels.ebayAccountDeletion, "countSubjectData").mockResolvedValue({
+    vi.spyOn(channels.ebayAccountDeletionReceipts, "countSubjectData").mockResolvedValue({
       connections: 0,
       credentialEnvelopes: 0,
     });
