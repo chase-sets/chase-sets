@@ -7,6 +7,7 @@ export type DemandCurvePolicyValue = Readonly<{
   historyDays: number;
   salesLimit: number;
   hopelessHorizonDays: number;
+  freshForHours: number;
   minimumObservationsPerCondition: number;
   percentiles: readonly number[];
   siblingRatioReachLimit: number;
@@ -19,17 +20,26 @@ export const DEMAND_CURVE_LAUNCH_POLICY_VALUE: DemandCurvePolicyValue = {
   historyDays: 90,
   salesLimit: 100,
   hopelessHorizonDays: 365,
+  freshForHours: 48,
   minimumObservationsPerCondition: 2,
   percentiles: Array.from({ length: 19 }, (_, index) => (index + 1) * 5),
   siblingRatioReachLimit: 25,
   zipfExponentBounds: { minimum: 0, maximum: 2 },
 };
 
-function object(value: unknown, name: string, keys: readonly string[]): Record<string, unknown> {
+function object(
+  value: unknown,
+  name: string,
+  keys: readonly string[],
+  optional: readonly string[] = [],
+): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${name} must be an object.`);
   const result = value as Record<string, unknown>;
-  if (Object.keys(result).some((key) => !keys.includes(key)) || keys.some((key) => !(key in result))) {
+  if (
+    Object.keys(result).some((key) => !keys.includes(key)) ||
+    keys.some((key) => !(key in result) && !optional.includes(key))
+  ) {
     throw new Error(`${name} has missing or unknown fields.`);
   }
   return result;
@@ -49,7 +59,7 @@ function number(value: unknown, name: string, minimum: number, maximum: number, 
 }
 
 export function decodeDemandCurvePolicyValue(raw: JsonValue): DemandCurvePolicyValue {
-  const value = object(raw, "Demand-curve policy", Object.keys(DEMAND_CURVE_LAUNCH_POLICY_VALUE));
+  const value = object(raw, "Demand-curve policy", Object.keys(DEMAND_CURVE_LAUNCH_POLICY_VALUE), ["freshForHours"]);
   const conditions = value.conditionOrder;
   if (
     !Array.isArray(conditions) ||
@@ -79,6 +89,13 @@ export function decodeDemandCurvePolicyValue(raw: JsonValue): DemandCurvePolicyV
     historyDays: number(value.historyDays, "History days", 1, 365, true),
     salesLimit: number(value.salesLimit, "Sales limit", 1, 1000, true),
     hopelessHorizonDays: number(value.hopelessHorizonDays, "Hopeless horizon", 1, 3650, true),
+    freshForHours: number(
+      "freshForHours" in value ? value.freshForHours : DEMAND_CURVE_LAUNCH_POLICY_VALUE.freshForHours,
+      "Freshness hours",
+      1,
+      336,
+      true,
+    ),
     minimumObservationsPerCondition: number(
       value.minimumObservationsPerCondition,
       "Minimum condition observations",
@@ -96,7 +113,7 @@ export const demandCurvePolicy = definePolicy({
   policyKey: "pricing.demand-curve",
   contextName: "pricing",
   schemaSummary:
-    "Closed demand-curve policy: ordered provider conditions, decay/history/sales cap, horizon, percentiles, sibling reach, and Zipf bounds.",
+    "Closed demand-curve policy: ordered provider conditions, decay/history/sales cap, horizon, percentiles, sibling reach, Zipf bounds, and freshForHours: integer 1-336 (optional, default 48).",
   defaultValue: DEMAND_CURVE_LAUNCH_POLICY_VALUE,
   decodeValue: decodeDemandCurvePolicyValue,
 });

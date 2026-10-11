@@ -22,6 +22,10 @@ import { evaluateBuyerOfferTarget } from "../../offer-targets/domain/evaluate";
 import { loadBuyerOfferMarketPrices } from "../../offer-targets/read-model/queries";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
+import { createDemandCurveCloser } from "../api/demand-curve-closer";
+import { getDemandCurve, listDemandCurvePoints } from "../read-model/demand-curve-queries";
+import { demandCurveStreamId } from "../read-model/demand-curve-writes";
+import { seedDemandCurveParityFixture } from "./demand-curve-db-fixture";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -85,6 +89,42 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
       runtime: createMarketEstimatesRuntime({ eventStore, db: pool, policies }),
     };
   }
+
+  it("denominates parity curves and refreshes only freshUntil at T+47h while an unvisited curve becomes stale", async () => {
+    const pool = pools.pricing;
+    const { builtAt, identities } = await seedDemandCurveParityFixture(pool);
+    const { eventStore } = createRuntime(pool);
+    const closer = createDemandCurveCloser({
+      pool,
+      eventStore,
+      policies: createPolicyRuntime({ eventStore, db: pool }),
+    });
+    const atHour = (hours: number) => new Date(Date.parse(builtAt) + hours * 3_600_000).toISOString();
+    expect(await closer.runDemandCurveCloser({ now: builtAt })).toMatchObject({ built: 2, unchanged: 0 });
+    const identity = identities[0]!;
+    const unvisited = identities[1]!;
+    const original = await getDemandCurve(pool, { ...identity, asOf: builtAt });
+    expect(original).toMatchObject({ version: 1, currencyCode: "USD", builtAt, freshUntil: atHour(48) });
+    const points = await listDemandCurvePoints(pool, { ...identity, version: 1 });
+    expect(points).toHaveLength(19);
+    const rowsBefore = (await pool.query(`SELECT * FROM pricing_demand_curve_versions ORDER BY product_id`)).rows;
+    const events = await eventStore.readStream({ streamId: demandCurveStreamId(identity) });
+    expect(events).toHaveLength(1);
+
+    expect(await closer.runDemandCurveCloser({ now: atHour(47), limit: 1 })).toMatchObject({ built: 0, unchanged: 1 });
+    const refreshed = await getDemandCurve(pool, { ...identity, asOf: atHour(48) });
+    expect(refreshed).toEqual({ ...original, freshUntil: atHour(95) });
+    expect(Date.parse(refreshed!.freshUntil!)).toBeGreaterThan(Date.parse(atHour(48)));
+    const rowsAfter = (await pool.query(`SELECT * FROM pricing_demand_curve_versions ORDER BY product_id`)).rows;
+    expect(rowsAfter).toEqual([{ ...rowsBefore[0], fresh_until: new Date(atHour(95)) }, rowsBefore[1]]);
+    expect(await listDemandCurvePoints(pool, { ...identity, version: 1 })).toEqual(points);
+    expect(await eventStore.readStream({ streamId: demandCurveStreamId(identity) })).toEqual(events);
+    const stale = await getDemandCurve(pool, { ...unvisited, asOf: atHour(49) });
+    expect(stale!.freshUntil).toBe(atHour(48));
+    expect(Date.parse(stale!.freshUntil!)).toBeLessThan(Date.parse(atHour(49)));
+    const expired = await getDemandCurve(pool, { ...identity, asOf: atHour(95) });
+    expect(Date.parse(expired!.freshUntil!)).toBeLessThanOrEqual(Date.parse(atHour(95)));
+  });
 
   const syntheticFixture = {
     catalogItemId: "cat_synthetic_offer_controls",

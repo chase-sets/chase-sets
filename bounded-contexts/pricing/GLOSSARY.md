@@ -4,7 +4,7 @@ This glossary defines the canonical terminology for the Pricing bounded context.
 
 ## Demand Curve
 
-A **Demand Curve** is an immutable, Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one variant, language, and condition. The same card-wide Condition Ladder rescales all conditions; a missing or superseded curve is not a positive estimate.
+A **Demand Curve** is a Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one currency, variant, language, and condition. Its points, version, fingerprint, and build instant are immutable. Its freshness horizon advances only when the closer verifies the same inputs for that served version. The same card-wide Condition Ladder rescales all conditions; a missing, superseded, stale, or undenominated curve is not a positive estimate. Historical versions retain null currency and freshness until replaced, never backfilled.
 
 ## Buyer Arrival Interval
 
