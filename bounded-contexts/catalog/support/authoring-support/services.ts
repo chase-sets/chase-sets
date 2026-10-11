@@ -1,4 +1,5 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createPostgresPromotionTargetExclusion } from "../../features/source-observations/api/promotion/promotion-target-exclusion";
 import { createCatalogProviderSendRuntime } from "../../features/source-observations/api/providers/provider-send-runtime";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
@@ -79,6 +80,7 @@ export function createCatalogServices(
   const deps = {
     providerSendRuntime: createCatalogProviderSendRuntime(pool),
     eventStore,
+    promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
     checkpointStore,
     db,
     notificationWaiterPool: options.notificationWaiterPool,

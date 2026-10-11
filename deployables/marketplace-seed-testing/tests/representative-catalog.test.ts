@@ -237,20 +237,39 @@ describe("representative catalog Observation Pack replay", () => {
       vi.stubGlobal("fetch", async () => {
         throw new Error("synthetic replay must stay offline");
       });
-      const createServices = catalogModule.createServices;
       let interruptedItemId: string | null = null;
-      const spy = vi.spyOn(catalogModule, "createServices").mockImplementation((...args) => {
-        const services = createServices(...args);
-        const handler = services.items.commandHandler;
-        vi.spyOn(services.items, "commandHandler").mockImplementation(async (input) => {
-          const result = await handler(input);
-          if (input.command.type === interruptedCommand && interruptedItemId === null) {
-            interruptedItemId = input.streamId.slice("catalog.item-".length);
-            throw new Error("synthetic crash after durable item creation");
-          }
-          return result;
+      const pool = seedRuntime.pools.catalog;
+      const connect = pool.connect.bind(pool);
+      const interruptedEvent =
+        interruptedCommand === "CreateCatalogItem"
+          ? "catalog.catalog-item.created"
+          : "catalog.catalog-item.product-asset-sets-set";
+      const spy = vi.spyOn(pool, "connect").mockImplementation(async () => {
+        const client = await connect();
+        // Preserve the entire pg client, including event/listener methods. The
+        // fault is after real COMMIT, never after an uncommitted item insert.
+        return new Proxy(client, {
+          get(target, key) {
+            if (key === "query")
+              return async (sql: string, values?: readonly unknown[]) => {
+                const committedItem =
+                  sql === "COMMIT" && interruptedItemId === null
+                    ? await target.query<{ stream_id: string }>(
+                        "SELECT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.item-cat_source_%' AND event_type=$1 ORDER BY global_position LIMIT 1",
+                        [interruptedEvent],
+                      )
+                    : null;
+                const result = await target.query(sql, values);
+                if (committedItem?.rows[0]) {
+                  interruptedItemId = committedItem.rows[0].stream_id.slice("catalog.item-".length);
+                  throw new Error("synthetic crash after durable item creation");
+                }
+                return result;
+              };
+            const value = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
         });
-        return services;
       });
       await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
       spy.mockRestore();

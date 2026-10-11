@@ -92,9 +92,8 @@ When a field rule matches more than one Catalog Item, the profile's `ambiguousCa
 
 Schema installed by the ledgered migration
 `20261010_catalog_promotion_reference_access_paths_v1` (composed through
-`catalogAuthoringSchemaMigrations`). It is dormant: no reader or writer uses it
-until the core target-exclusion slice wires discovery, and ordinary boot applies
-it with no operator action.
+`catalogAuthoringSchemaMigrations`). Source Observation target exclusion consumes
+these paths; ordinary boot installs them before promotion writers activate.
 
 - Functions `catalog_promotion_reference_text_v1(text)` and
   `catalog_promotion_reference_pairs_v1(jsonb)` are immutable, strict and
@@ -127,6 +126,63 @@ it with no operator action.
   versionless `"C"` collation, and runtime Unicode parity. Drift is reported as
   not-ready; the function never throws.
 - Shared `event_store_events` indexes in `event-store-indexes.ts` are unchanged.
+
+## Promotion Target Exclusion Port
+
+Catalog's `createPostgresPromotionTargetExclusion` composes the shared port for
+Source Observation promote/reapply and future candidate application. Callers
+supply explicit member/reference keys, candidate target ids, target selection,
+and their policy-appropriate canonical profile validation. Candidate application
+still owns its eligibility, degraded-display and authority preflight; acquiring
+a binding never certifies application completion.
+
+Discovery follows complete retained source and item histories to a fixed point,
+using canonical level/provider/key pairs and keyset pages of at most 500. It
+includes historical revisions, deterministic member targets, markers, bindings,
+and link/unlink evidence. It does not derive member ids from reference text.
+Unknown histories, exceeded budgets and ambiguous owners visibly refuse rather
+than authoring another item. Reachable old-format bindings are retained and
+guarded, not rewritten; there is no global historical-binding scan.
+
+Each binding or item-command append owns one READ COMMITTED transaction. It
+takes the canonical profile relation's SHARE lock, validates profile identity,
+selection and retained inputs on that same client, and calls
+`appendToStreamsInTransaction` with sorted expected-version guards. Errors roll
+back the entire append, including notifications. Disjoint promotions may hold
+SHARE concurrently. Acquisition retries version conflicts at most twice, then
+returns `promotion-target-rediscovery-exhausted`; stale session writes refuse.
+
+The material authority set is closed:
+
+1. Every discovered Source Observation stream.
+2. Every candidate/target Catalog Item stream, including empty deterministic targets.
+3. Binding streams for the complete key closure.
+4. Reference-authority streams read by reference hierarchy resolution for the plan.
+5. Negative unlink/inactive evidence, retained in the guarded item histories.
+6. Canonical SQL profile authority under the SHARE lock, not an invented event stream.
+
+No display-template, alias or owner selection-generation stream belongs to this
+set. Existing pre-append display validation remains a content gate. Optional
+blueprint/category/field guards are not used. Resume must prove a same-target
+exact command prefix and current authority; keys bound elsewhere refuse without
+retargeting. A complete compatible draft or active target can be reused while
+projections lag, without reauthoring its existing prefix.
+
+### Writer Cutover And Rollback
+
+The host disables promotion and drains **all** old promotion and candidate
+workers before deploying/enabling the guarded writers. This is an operator
+cutover, not a distributed worker census implemented by the port. Do not run
+mixed guarded and unguarded writers. Explicit incompatible protocol requests
+return `promotion-target-writer-protocol-incompatible`; a store without C's
+method returns `promotion-target-transaction-append-unavailable`.
+
+Every acquisition checks B's full access-path readiness; absent, invalid or
+drifted infrastructure returns `promotion-target-access-paths-unavailable` with
+the failed checks. It never falls back to projected absence or a global scan.
+If cutover fails, leave promotion disabled. Rollback stops writers first and
+retains the additive schema, bindings and readers, or rolls forward. Restoring
+the unguarded allocator against retained guarded writes is not a safe rollback.
 
 ## Evidence Packet
 
