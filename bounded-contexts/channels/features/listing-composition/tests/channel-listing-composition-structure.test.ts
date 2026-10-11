@@ -162,6 +162,17 @@ describe("channel-listing-composition-scope-fence", () => {
     ]);
     expect(contextManifest.hostPorts).toEqual([
       {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
+      {
         portName: "storageLocationAuthority",
         providedBy: "platform-api, platform-worker",
         purpose:

@@ -1,0 +1,32 @@
+{
+  "sdk": "eBay/event-notification-nodejs-sdk",
+  "sha": "feaf3378ca263a81432cf5b8c8a6fd8cb3d3e2f3",
+  "symbol": "lib/validator.js::generateChallengeResponse",
+  "sourceSha256": "61f79c2566930469dcf6abd8c586692d484ae1a22f1a6c15b8b687e9176d961f",
+  "cases": [
+    {
+      "challengeCode": "synthetic-challenge",
+      "verificationToken": "synthetic_verification_token_0123456789",
+      "endpoint": "https://Example.com:443/api/channels-webhooks/ebay/account-deletion",
+      "challengeResponse": "2f0e4dfc1e2fe419ee360cce032d9103077c870455ceb04b1ef0e1d756be53d2"
+    },
+    {
+      "challengeCode": "é雪+ /",
+      "verificationToken": "synthetic_verification_token_0123456789",
+      "endpoint": "https://Example.com:443/api/channels-webhooks/ebay/account-deletion",
+      "challengeResponse": "36ec0404b40bdb00b40e845e57be6eaff3589faf006f8549697837eff8bd5506"
+    },
+    {
+      "challengeCode": "synthetic-challenge",
+      "verificationToken": "synthetic_verification_token_0123456789x",
+      "endpoint": "https://Example.com:443/api/channels-webhooks/ebay/account-deletion",
+      "challengeResponse": "30c7916a8d784050fa1370f3b4068a2faa1a621d7158b9c0fcf4edc0fbf152fb"
+    },
+    {
+      "challengeCode": "synthetic-challenge",
+      "verificationToken": "synthetic_verification_token_0123456789",
+      "endpoint": "https://other.example.com/api/channels-webhooks/ebay/account-deletion",
+      "challengeResponse": "598813640b9897d756201c13188deec555e1ff342a8485a80cf959869a47853a"
+    }
+  ]
+}

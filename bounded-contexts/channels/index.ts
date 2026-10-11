@@ -217,10 +217,16 @@ import {
   fulfillmentObservationRetentionExemptions,
 } from "./features/order-fulfillment-observations/read-model/schema";
 
+import { createEbayAccountDeletionRoutes } from "./features/ebay-account-deletion/api/route";
+import type { EbayAccountDeletionConfiguration } from "./features/ebay-account-deletion/domain/configuration";
+import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
+
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
   Readonly<{
     channelCredentialKeyring?: ChannelCredentialKeyring | null;
+    ebayAccountDeletionConfiguration?: EbayAccountDeletionConfiguration | null;
+    webhookTelemetry?: ProviderWebhookTelemetry;
     channelCredentialCapabilities?: readonly ChannelCredentialCapabilityBinding[];
     marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
     channelSaleRecorder: RecordExternalChannelSale;
@@ -382,6 +388,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     });
     return {
       connections,
+      ebayAccountDeletion: {
+        config: ports.ebayAccountDeletionConfiguration ?? null,
+        telemetry: ports.webhookTelemetry,
+      },
       storageLocationAuthority,
       credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
       connectionHealth,
@@ -445,6 +455,11 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
           createStagedImportDispatchPolicyRoutes(services.connectorFeed.readStagedImportDispatchPolicy, services.db),
         )
         .route("/", createConnectorTransportRoutes(services.connectorFeed, services.db)),
+    },
+    {
+      mountPath: "/api/channels-webhooks",
+      contextMountOrdinal: 3,
+      router: createEbayAccountDeletionRoutes(services.ebayAccountDeletion),
     },
   ],
   projectionHandlerSets: (services) => services.projectors,

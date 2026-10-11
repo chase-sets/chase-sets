@@ -1048,9 +1048,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 125,
+      "platform-api": 127,
       "platform-bootstrap": 57,
-      "platform-worker": 125,
+      "platform-worker": 127,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

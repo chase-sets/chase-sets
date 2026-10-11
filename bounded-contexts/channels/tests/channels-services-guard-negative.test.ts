@@ -103,6 +103,7 @@ describe("channels-services-guard-negative", () => {
 
 function validCandidate() {
   return {
+    ebayAccountDeletion: { config: null },
     credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
     storageLocationAuthority: { resolve: async () => null },
