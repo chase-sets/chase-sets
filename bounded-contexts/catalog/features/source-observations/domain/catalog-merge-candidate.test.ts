@@ -446,7 +446,11 @@ describe("Catalog Merge Candidate application checkpoints", () => {
     expect(planned).toEqual([
       {
         type: "catalog.merge-candidate.promotion-planned",
-        data: { candidateId: "cand_pokemon_en_base1_043_standard", plan: promotionPlan(), plannedAt: "2026-06-24T11:00:00.000Z" },
+        data: {
+          candidateId: "cand_pokemon_en_base1_043_standard",
+          plan: promotionPlan(),
+          plannedAt: "2026-06-24T11:00:00.000Z",
+        },
       },
     ]);
     const withPlan = evolveCatalogMergeCandidate(approved, planned[0]!);
@@ -459,7 +463,11 @@ describe("Catalog Merge Candidate application checkpoints", () => {
     });
     expect(applied[0]).toEqual({
       type: "catalog.merge-candidate.promotion-applied",
-      data: { candidateId: "cand_pokemon_en_base1_043_standard", ...application(), appliedAt: "2026-06-24T11:05:00.000Z" },
+      data: {
+        candidateId: "cand_pokemon_en_base1_043_standard",
+        ...application(),
+        appliedAt: "2026-06-24T11:05:00.000Z",
+      },
     });
     const completed = evolveCatalogMergeCandidate(withPlan, applied[0]!);
     expect(completed).toMatchObject({ status: "promoted", promotionApplication: application() });

@@ -63,9 +63,17 @@ import {
   type CatalogMergeCandidatePromotionFieldMapping,
 } from "./catalog-merge-candidate-promotion-planner";
 import { guardPromotionMaterial } from "./promotion-material-guards";
-import { foldPromotionTargetSource, locatedPromotionSourceTargets, type PromotionTargetDiscovery } from "./promotion-target-discovery";
+import {
+  foldPromotionTargetSource,
+  locatedPromotionSourceTargets,
+  type PromotionTargetDiscovery,
+} from "./promotion-target-discovery";
 import type { PromotionTargetAuthority, PromotionTargetSession } from "./promotion-target-exclusion";
-import { promotionTargetKeyIdentity, sourceObservationTargetId, type PromotionTargetKey } from "./promotion-target-identity";
+import {
+  promotionTargetKeyIdentity,
+  sourceObservationTargetId,
+  type PromotionTargetKey,
+} from "./promotion-target-identity";
 import type { CatalogProviderPromotionResolvedCatalogMapping } from "./provider-promotion-command-planner";
 import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
 import { promotionCurrentItem } from "./source-observation-target-exclusion";
@@ -207,7 +215,10 @@ export async function loadCandidateApplication(eventStore: EventStore, candidate
   }
   const plan = state.promotionPlan;
   const application = state.promotionApplication;
-  if (plan && (plan.approvalVersion !== approvalVersion || plan.identityFingerprint !== state.snapshot?.identityFingerprint))
+  if (
+    plan &&
+    (plan.approvalVersion !== approvalVersion || plan.identityFingerprint !== state.snapshot?.identityFingerprint)
+  )
     throw refused("conflicting-history", "the application plan does not bind the recorded approval");
   if (
     application &&
@@ -244,16 +255,25 @@ async function prepareApplicationPlan(
       throw blocked("promotion-profile-unavailable", errorText(error));
     }
     assertCatalogIntegrationProfileUnitAllowed(ports.rolloutControlPolicy, "promotion", version);
-    resolved.push({ revision, normalized, version, mapping: await loadCatalogItemPromotionProfile(deps, version.profile) });
+    resolved.push({
+      revision,
+      normalized,
+      version,
+      mapping: await loadCatalogItemPromotionProfile(deps, version.profile),
+    });
   }
   const primary = resolved[0];
   if (!primary) throw blocked("no-promotable-member", "no approved member has a Catalog Item promotion mapping");
   if (
     resolved.some(
-      (member) => member.normalized.kind !== primary.normalized.kind || !isDeepStrictEqual(member.mapping, primary.mapping),
+      (member) =>
+        member.normalized.kind !== primary.normalized.kind || !isDeepStrictEqual(member.mapping, primary.mapping),
     )
   )
-    throw blocked("profile-disagreement", "approved members resolve different Catalog blueprints, categories or fields");
+    throw blocked(
+      "profile-disagreement",
+      "approved members resolve different Catalog blueprints, categories or fields",
+    );
 
   // Idempotent Reference Record provisioning may precede a later block; it never writes a Catalog Item.
   const references = [];
@@ -313,7 +333,11 @@ async function prepareApplicationPlan(
   const target = session.evidence.items.get(targetId)!;
   const baselineVersion = session.evidence.histories.get(`catalog.item-${targetId}`)?.at(-1)?.streamVersion ?? 0;
   const mode =
-    target.id === null ? "create" : snapshot.promotionIntent === "link-existing-catalog-item" ? "link-existing" : "refresh";
+    target.id === null
+      ? "create"
+      : snapshot.promotionIntent === "link-existing-catalog-item"
+        ? "link-existing"
+        : "refresh";
   if (mode === "create" && snapshot.promotionIntent !== "create-catalog-item")
     throw blocked("missing-catalog-item-target", "the reviewed intent requires an existing Catalog Item");
 
@@ -326,7 +350,11 @@ async function prepareApplicationPlan(
       snapshot: {
         ...snapshot,
         promotionIntent:
-          mode === "create" ? "create-catalog-item" : mode === "refresh" ? "update-catalog-item" : "link-existing-catalog-item",
+          mode === "create"
+            ? "create-catalog-item"
+            : mode === "refresh"
+              ? "update-catalog-item"
+              : "link-existing-catalog-item",
         matches: { ...snapshot.matches, catalogItemId: mode === "create" ? null : targetId },
       },
     },
@@ -381,7 +409,10 @@ async function resumeBoundPlan(
 ): Promise<CatalogMergeCandidateBulkUnitResult> {
   const pinned = [];
   for (const profile of plan.profiles) {
-    const version = requirePinnedProfileEligible(await ports.profileVersions.listProfileVersions(profile.providerKey), profile);
+    const version = requirePinnedProfileEligible(
+      await ports.profileVersions.listProfileVersions(profile.providerKey),
+      profile,
+    );
     assertCatalogIntegrationProfileUnitAllowed(ports.rolloutControlPolicy, "promotion", version);
     pinned.push(version);
   }
@@ -436,7 +467,11 @@ async function executeBoundPlan(
   try {
     await ports.applyCandidateCommandAtVersion({
       candidateId: unit.candidateId,
-      command: { type: "RecordCatalogMergeCandidatePromotionApplied", application, appliedAt: new Date().toISOString() },
+      command: {
+        type: "RecordCatalogMergeCandidatePromotionApplied",
+        application,
+        appliedAt: new Date().toISOString(),
+      },
       expectedVersion: candidateVersion,
       context: unit.context,
     });
@@ -459,7 +494,8 @@ async function requireBoundTargetHistory(
 ): Promise<void> {
   const history = await readCompleteStream(eventStore, { streamId: `catalog.item-${plan.catalogItemId}` });
   const baseline = plan.targetBaseline.streamVersion;
-  if (history.length < baseline) throw refused("target-history-conflict", "the target is shorter than its bound baseline");
+  if (history.length < baseline)
+    throw refused("target-history-conflict", "the target is shorter than its bound baseline");
   const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
   let state = history.slice(0, baseline).map(codec.decode).reduce(evolveCatalogItem, initialCatalogItemState);
   if ((state.id === null ? null : state.status) !== plan.targetBaseline.status)
@@ -470,7 +506,9 @@ async function requireBoundTargetHistory(
     state = events.reduce(evolveCatalogItem, state);
     expected.push(...events.map((event) => ({ eventType: event.type, payload: jsonCopy(event.data) })));
   }
-  const suffix = history.slice(baseline).map((event) => ({ eventType: event.eventType, payload: jsonCopy(event.payload) }));
+  const suffix = history
+    .slice(baseline)
+    .map((event) => ({ eventType: event.eventType, payload: jsonCopy(event.payload) }));
   const matches =
     expectation === "complete"
       ? isDeepStrictEqual(suffix, expected)
@@ -501,7 +539,9 @@ async function acquireCandidateTarget(
   const allocated = catalogMergeCandidateTargetId(input.candidateId);
   return boundary.acquire({
     keys: candidateTargetKeys(input.snapshot),
-    additionalTargetIds: [...new Set([allocated, ...(input.boundTargetId ? [input.boundTargetId] : []), ...input.reuseCandidates])],
+    additionalTargetIds: [
+      ...new Set([allocated, ...(input.boundTargetId ? [input.boundTargetId] : []), ...input.reuseCandidates]),
+    ],
     context: input.context,
     validateAuthority: input.validateAuthority,
     selectTarget: async (evidence) => {
@@ -611,22 +651,26 @@ async function resolveApprovedMemberRevisions(
     } catch (error) {
       throw refused("member-history-conflict", `${member.observationId}: ${errorText(error)}`);
     }
-    const revision = [...folded.revisions].reverse().find(
-      (candidate) =>
-        candidate.providerKey === member.providerKey &&
-        candidate.externalKey === member.externalKey &&
-        candidate.sourceRecordHash === member.sourceRecordHash &&
-        candidate.sourceProfileKey === member.sourceProfileKey &&
-        candidate.sourceProfileVersion === member.sourceProfileVersion &&
-        candidate.sourceMappingFingerprint === member.sourceMappingFingerprint,
-    );
+    const revision = [...folded.revisions]
+      .reverse()
+      .find(
+        (candidate) =>
+          candidate.providerKey === member.providerKey &&
+          candidate.externalKey === member.externalKey &&
+          candidate.sourceRecordHash === member.sourceRecordHash &&
+          candidate.sourceProfileKey === member.sourceProfileKey &&
+          candidate.sourceProfileVersion === member.sourceProfileVersion &&
+          candidate.sourceMappingFingerprint === member.sourceMappingFingerprint,
+      );
     if (!revision?.normalized) throw blocked("member-revision-missing", member.observationId);
     revisions.push(revision);
   }
   return revisions;
 }
 
-function promotableNormalized(revision: SourceObservationState): CatalogItemPromotableSourceObservationNormalized | null {
+function promotableNormalized(
+  revision: SourceObservationState,
+): CatalogItemPromotableSourceObservationNormalized | null {
   try {
     return requireCatalogItemPromotionObservation(revision.normalized!, revision.providerKey);
   } catch {
@@ -640,11 +684,23 @@ function candidateCatalogMapping(
 ): CatalogMergeCandidatePromotionCatalogMapping {
   const { fieldIds } = primary.mapping;
   const referenceField = promotionReferenceFieldKey(primary.normalized.kind);
-  const referenceFieldId = referenceField === "expansion" ? fieldIds.expansion : referenceField === "set" ? fieldIds.set : null;
+  const referenceFieldId =
+    referenceField === "expansion" ? fieldIds.expansion : referenceField === "set" ? fieldIds.set : null;
   if (referenceField && !referenceFieldId) throw blocked("missing-reference-record-target", referenceField);
   const fields: CatalogMergeCandidatePromotionFieldMapping[] = [
-    { fieldPath: "catalogItem.name", fieldId: fieldIds.cardName, valueKind: "localized-text", factKey: "name", required: true },
-    { fieldPath: "catalogItem.collectorNumber", fieldId: fieldIds.cardNumber, valueKind: "raw", factKey: "collectorNumber" },
+    {
+      fieldPath: "catalogItem.name",
+      fieldId: fieldIds.cardName,
+      valueKind: "localized-text",
+      factKey: "name",
+      required: true,
+    },
+    {
+      fieldPath: "catalogItem.collectorNumber",
+      fieldId: fieldIds.cardNumber,
+      valueKind: "raw",
+      factKey: "collectorNumber",
+    },
     { fieldPath: "catalogItem.rarity", fieldId: fieldIds.rarity, valueKind: "raw", factKey: "rarity" },
     { fieldPath: "catalogItem.releaseYear", fieldId: fieldIds.releaseYear, valueKind: "raw", factKey: "releaseYear" },
   ];
@@ -690,13 +746,20 @@ async function prepareCandidateAssets(
     });
     return productAssetSet ? { productAssetSets: [productAssetSet] } : null;
   } catch (error) {
-    throw new CatalogMergeCandidateApplicationError("asset-processing-failed", errorText(error), "asset-processing-failed");
+    throw new CatalogMergeCandidateApplicationError(
+      "asset-processing-failed",
+      errorText(error),
+      "asset-processing-failed",
+    );
   }
 }
 
 function imageEvidence(normalized: CatalogItemPromotableSourceObservationNormalized): JsonObject | null {
   if (normalized.kind === "pokemon-card" && normalized.imageBaseUrl) return { imageBaseUrl: normalized.imageBaseUrl };
-  if ((normalized.kind === "lorcana-card-print" || normalized.kind === "lorcana-sealed-product") && normalized.imageUrls.length)
+  if (
+    (normalized.kind === "lorcana-card-print" || normalized.kind === "lorcana-sealed-product") &&
+    normalized.imageUrls.length
+  )
     return { imageUrls: [...normalized.imageUrls] };
   return null;
 }
@@ -744,14 +807,20 @@ export function requirePinnedProfileEligible(
 function pinnedProfileAuthority(pinned: readonly PinnedProfile[]): PromotionTargetAuthority {
   return async (client: PgQueryable) => {
     const store = createCatalogProviderIntegrationProfileVersionStore(client);
-    for (const profile of pinned) requirePinnedProfileEligible(await store.listProfileVersions(profile.providerKey), profile);
+    for (const profile of pinned)
+      requirePinnedProfileEligible(await store.listProfileVersions(profile.providerKey), profile);
   };
 }
 
 function uniqueProfiles(
   versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): readonly CatalogProviderIntegrationProfileVersionRecord[] {
-  const unique = new Map(versions.map((version) => [JSON.stringify([version.providerKey, version.profileKey, version.profileVersion]), version]));
+  const unique = new Map(
+    versions.map((version) => [
+      JSON.stringify([version.providerKey, version.profileKey, version.profileVersion]),
+      version,
+    ]),
+  );
   return [...unique.values()];
 }
 

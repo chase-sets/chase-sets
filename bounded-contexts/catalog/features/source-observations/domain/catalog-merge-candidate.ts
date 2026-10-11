@@ -886,7 +886,9 @@ export const evolveCatalogMergeCandidate: AggregateEvolver<CatalogMergeCandidate
   }
 };
 
-function requireApprovedForApplication(state: CatalogMergeCandidateState): asserts state is CatalogMergeCandidateState & {
+function requireApprovedForApplication(
+  state: CatalogMergeCandidateState,
+): asserts state is CatalogMergeCandidateState & {
   id: string;
   snapshot: CatalogMergeCandidateReviewSnapshot;
 } {

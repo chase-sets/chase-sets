@@ -69,7 +69,8 @@ const storedJobKinds: readonly string[] = [
 ];
 
 function storedJobKindsFor(kind: CatalogMergeCandidateBulkJobKind | null | undefined): readonly string[] {
-  if (kind === "merge-candidate-promote") return [legacyPromotionJobKind, catalogMergeCandidatePromotionApplicationJobKind];
+  if (kind === "merge-candidate-promote")
+    return [legacyPromotionJobKind, catalogMergeCandidatePromotionApplicationJobKind];
   return kind ? [kind] : storedJobKinds;
 }
 
@@ -684,7 +685,10 @@ function requireCatalogMergeCandidateBulkJobResult(
   if (result === null || version === null) return result;
   for (const outcome of result.outcomes) {
     if (!isWellFormedApplicationOutcome(outcome))
-      throw new CatalogMergeCandidateBulkJobMalformedError(jobId, `invalid application result for ${outcome.candidateId}`);
+      throw new CatalogMergeCandidateBulkJobMalformedError(
+        jobId,
+        `invalid application result for ${outcome.candidateId}`,
+      );
   }
   const summary = summarizeCatalogMergeCandidateBulkOutcomes(result.requested, result.outcomes);
   if (
@@ -764,7 +768,10 @@ export function reconcileCatalogMergeCandidateApplications(
         continue;
       }
       if (!isWellFormedApplicationOutcome(outcome))
-        throw new CatalogMergeCandidateBulkJobMalformedError(job.jobId, `invalid application result for ${outcome.candidateId}`);
+        throw new CatalogMergeCandidateBulkJobMalformedError(
+          job.jobId,
+          `invalid application result for ${outcome.candidateId}`,
+        );
       const facts = {
         catalogItemId: outcome.appliedCatalogItemId!,
         appliedMode: outcome.appliedMode!,

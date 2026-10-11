@@ -149,7 +149,13 @@ describe("candidate promotion application versioning", () => {
       jobKind,
       status: "completed",
       payload: { scopeRecordId: "scope_synthetic", reason: "Synthetic.", ...payload },
-      progress: { phase: "completed", completed: outcomes.length, total: outcomes.length, currentName: null, status: null },
+      progress: {
+        phase: "completed",
+        completed: outcomes.length,
+        total: outcomes.length,
+        currentName: null,
+        status: null,
+      },
       result: summarizeCatalogMergeCandidateBulkOutcomes(outcomes.length, outcomes),
       errorMessage: null,
       eventContext: null,
@@ -187,11 +193,9 @@ describe("candidate promotion application versioning", () => {
       promotionApplicationVersion: null,
       result: legacy.result,
     });
-    const applied = record(
-      catalogMergeCandidatePromotionApplicationJobKind,
-      { promotionApplicationVersion: 1 },
-      [promoted("cand_new", "cat_candidate_new")],
-    );
+    const applied = record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
+      promoted("cand_new", "cat_candidate_new"),
+    ]);
     expect(toCatalogMergeCandidateBulkJob(applied)).toMatchObject({
       kind: "merge-candidate-promote",
       promotionApplicationVersion: 1,
@@ -239,7 +243,15 @@ describe("candidate promotion application versioning", () => {
       ]),
       record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
         promoted("cand_a", "cat_source_a", "refresh"),
-        { ...promoted("cand_b", "x"), status: "skipped-not-eligible", reason: "Already applied.", appliedCatalogItemId: null, appliedMode: null, approvalVersion: null, planFingerprint: null },
+        {
+          ...promoted("cand_b", "x"),
+          status: "skipped-not-eligible",
+          reason: "Already applied.",
+          appliedCatalogItemId: null,
+          appliedMode: null,
+          approvalVersion: null,
+          planFingerprint: null,
+        },
       ]),
     ].map(toCatalogMergeCandidateBulkJob);
     const reconciled = reconcileCatalogMergeCandidateApplications(jobs);

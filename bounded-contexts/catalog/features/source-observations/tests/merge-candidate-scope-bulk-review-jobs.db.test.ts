@@ -700,7 +700,11 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
   let store: ReturnType<typeof createPostgresEventStore>;
 
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], "catalog_merge_candidate_application");
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl!,
+      ["catalog"],
+      "catalog_merge_candidate_application",
+    );
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pool = createMultiContextTestPools(urls).catalog;
   });
@@ -955,7 +959,11 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
 
         const { state } = await readItem(expectedTarget);
         const mapping = await loadCatalogItemPromotionProfile(
-          { db: pool, eventStore: store, checkpointStore: createPostgresProjectionStore({ db: pool }) } as CatalogRuntimeDeps,
+          {
+            db: pool,
+            eventStore: store,
+            checkpointStore: createPostgresProjectionStore({ db: pool }),
+          } as CatalogRuntimeDeps,
           (await promotionProfile(observationId)).profile,
         );
         expect(await itemCreations()).toBe(mode === "create" ? 1 : creationsBefore);
@@ -1166,7 +1174,11 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     >(pool, bulkReviewJobTables);
     const { candidateId, expectedTarget } = await arrange("create", "obs_legacy", "89");
     // Approved by single-candidate promotion (approval only) and reported by a retained #9219 job.
-    await services.sourceObservations.promoteCatalogMergeCandidate({ candidateId, reason: "Approved earlier.", context });
+    await services.sourceObservations.promoteCatalogMergeCandidate({
+      candidateId,
+      reason: "Approved earlier.",
+      context,
+    });
     await legacyJobs.enqueue({
       jobId: "job_legacy_retained",
       jobKind: "merge-candidate-promote",
@@ -1212,9 +1224,9 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       appliedMode: "create",
     });
     // Catch-up of an approval recorded outside any job is attributed to the applying unit.
-    expect(
-      (await candidateEvents(candidateId)).payloadOf("catalog.merge-candidate.promotion-planned"),
-    ).toMatchObject({ plan: { jobId: catchUp.jobId, unitId: candidateId } });
+    expect((await candidateEvents(candidateId)).payloadOf("catalog.merge-candidate.promotion-planned")).toMatchObject({
+      plan: { jobId: catchUp.jobId, unitId: candidateId },
+    });
     expect(await candidateEvents(candidateId)).toMatchObject({ approved: 1, planned: 1, applied: 1 });
     expect(await legacyBytes()).toEqual(bytesBefore);
     const mixed = reconcileCatalogMergeCandidateApplications([legacy, caughtUp]);
@@ -1235,7 +1247,10 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       CatalogMergeCandidateBulkJobMalformedError,
     );
     await expect(
-      services.sourceObservations.listCompletedCatalogMergeCandidateBulkJobs({ context, scopeRecordId: applicationScopeId }),
+      services.sourceObservations.listCompletedCatalogMergeCandidateBulkJobs({
+        context,
+        scopeRecordId: applicationScopeId,
+      }),
     ).rejects.toThrow(CatalogMergeCandidateBulkJobMalformedError);
     await pool.query("DELETE FROM catalog_source_observation_bulk_review_jobs WHERE job_id = $1", [catchUp.jobId]);
 

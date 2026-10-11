@@ -73,7 +73,11 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
     } as unknown as SourceObservationRouteServices);
 
     expect((await app.request("/source-observations/bulk-jobs/job_malformed")).status).toBe(500);
-    const query = new URLSearchParams({ scopeRecordId: "scope_base_set", kind: "merge-candidate-promote", status: "completed" });
+    const query = new URLSearchParams({
+      scopeRecordId: "scope_base_set",
+      kind: "merge-candidate-promote",
+      status: "completed",
+    });
     expect((await app.request(`/source-observations/bulk-jobs/active?${query}`)).status).toBe(500);
   });
 
