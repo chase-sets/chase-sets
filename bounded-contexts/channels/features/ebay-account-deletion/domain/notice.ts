@@ -18,7 +18,11 @@ function canonicalInstant(value: string) {
   return `${utc.slice(0, 19)}.${fraction.padEnd(3, "0")}Z`;
 }
 
-export function parseEbayAccountDeletionNotice(value: unknown): EbayAccountDeletionNotice {
+type EbayAccountDeletionCandidate = Omit<EbayAccountDeletionNotice, "topic"> & Readonly<{ topic: string }>;
+
+// New-topic admission follows the retained identity check, so a changed topic
+// on an existing notification is a conflict rather than a new notice.
+export function parseEbayAccountDeletionNotice(value: unknown): EbayAccountDeletionCandidate {
   try {
     const names = ["notificationId", "topic", "eventDate", "publishDate", "publishAttemptCount", "userId"];
     if (
@@ -29,11 +33,11 @@ export function parseEbayAccountDeletionNotice(value: unknown): EbayAccountDelet
       names.some((name) => !Object.hasOwn(value, name))
     )
       throw new Error();
-    const notice = value as EbayAccountDeletionNotice;
+    const notice = value as EbayAccountDeletionCandidate;
     assertEbaySubject(notice.notificationId);
     assertEbaySubject(notice.userId);
+    assertEbaySubject(notice.topic);
     if (
-      notice.topic !== "MARKETPLACE_ACCOUNT_DELETION" ||
       !Number.isSafeInteger(notice.publishAttemptCount) ||
       notice.publishAttemptCount < 1 ||
       notice.eventDate.length > 40 ||

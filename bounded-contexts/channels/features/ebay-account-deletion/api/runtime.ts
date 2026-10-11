@@ -3,6 +3,7 @@ import type { SecretEnvelopeBytes } from "@chase-sets/platform-runtime/secret-en
 import type { ChannelCredentialKeyring } from "../../credentials/domain/contracts";
 import { parseEbayAccountDeletionNotice } from "../domain/notice";
 import { ebayReceiptRetention } from "../domain/policy";
+import type { EbayReceiptMatch, EbaySubjectDataCount } from "../domain/responses";
 import {
   assertEbaySubjectKeyringContinuity,
   createEbaySubjectCipher,
@@ -10,8 +11,6 @@ import {
   parseEbaySubjectFingerprint,
 } from "../domain/subject";
 
-export type EbayReceiptMatch = Readonly<{ notificationId: string; eventDate: string; expiresAt: string }>;
-export type EbaySubjectDataCount = Readonly<{ connections: number; credentialEnvelopes: number }>;
 type Existing = SecretEnvelopeBytes & { fingerprint: string; keyId: string; topic: string; eventDate: string };
 
 export async function receiptQuery<Row>(db: PgQueryable, sql: string, values: readonly unknown[] = []) {
@@ -63,6 +62,7 @@ export function createEbayAccountDeletionRuntime(db: PgQueryable, keyring: Chann
       try {
         const existing = await read(executor, notice.notificationId);
         if (existing) return compare(existing);
+        if (notice.topic !== "MARKETPLACE_ACCOUNT_DELETION") throw new EbayReceiptError("invalid-notice");
         const sealed = cipher.seal(notice.notificationId, notice.userId);
         const inserted = await receiptQuery(
           executor,

@@ -12,7 +12,7 @@ import {
   Text,
   TextInput,
 } from "@chase-sets/design-system";
-import type { EbayReceiptMatch, EbaySubjectDataCount } from "../api/runtime";
+import type { EbayReceiptMatch, EbaySubjectDataCount } from "../domain/responses";
 
 export function EbayAccountDeletionLookupPage({
   matches,

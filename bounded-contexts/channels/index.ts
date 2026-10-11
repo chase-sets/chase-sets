@@ -99,6 +99,7 @@ import { buildChannelsApi } from "./api";
 import { createEbayAccountDeletionRuntime } from "./features/ebay-account-deletion/api/runtime";
 import { createEbayReceiptStaffRoutes } from "./features/ebay-account-deletion/api/staff-route";
 import { createEbayReceiptExpiryStore } from "./features/ebay-account-deletion/read-model/expiry";
+import { ebayReceiptCustomRetention } from "./features/ebay-account-deletion/read-model/retention-policy";
 import { ebayReceiptSchemaSql, ebayReceiptSchemaMigrations } from "./features/ebay-account-deletion/read-model/schema";
 import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
 import { createConnectionPolicyAuthority } from "./features/connections/api/policy-authority";
@@ -263,6 +264,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
   ],
   retentionSweeps: [...connectorInboundRetentionSweeps, ...fulfillmentObservationRetentionSweeps],
   retentionExemptions: [
+    ...ebayReceiptCustomRetention,
     ...manualSyncRetentionExemptions,
     ...connectorInboundRetentionExemptions,
     ...fulfillmentObservationRetentionExemptions,
