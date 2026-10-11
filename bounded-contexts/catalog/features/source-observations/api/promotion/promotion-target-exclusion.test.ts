@@ -98,7 +98,9 @@ describe("promotion target retained-reference exclusion", () => {
         { type: link, providerKey: r.providerKey, externalKey: r.externalKey },
         { type: link, providerKey: r2.providerKey, externalKey: r2.externalKey },
         { type: unlink, providerKey: r.providerKey, externalKey: r.externalKey },
-        ...(releasedBoth ? [{ type: unlink, providerKey: r2.providerKey, externalKey: r2.externalKey }] : []),
+        ...(releasedBoth
+          ? [{ type: unlink, providerKey: r2.providerKey, externalKey: r2.externalKey } satisfies CatalogItemCommand]
+          : []),
       ]);
       const before = await eventStore.readStream({ streamId: "catalog.item-cat_synthetic_x" });
       const boundary = createPromotionTargetExclusion({
