@@ -34,6 +34,7 @@ import {
 } from "../governance/catalog-integration-rollout-controls";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
+import { catalogProviderProfileVersionsCompete } from "../providers/registry";
 import {
   executeCatalogItemPromotionCommands,
   loadCatalogItemPromotionProfile,
@@ -476,6 +477,9 @@ async function executeBoundPlan(
       context: unit.context,
     });
   } catch (error) {
+    // Only a lost version race can mean a concurrent unit recorded this same
+    // completion; any other failure (including a lost lease) stays a failure.
+    if (!isConcurrencyConflict(error)) throw error;
     const reloaded = await loadCandidateApplication(ports.deps.eventStore, unit.candidateId);
     if (!isDeepStrictEqual(reloaded.state.promotionApplication, application)) throw error;
   }
@@ -768,7 +772,7 @@ type PinnedProfile = Readonly<{ providerKey: string; profileKey: string; profile
 
 /**
  * A pinned profile stays eligible while it is active, or deprecated only
- * because a competing version was activated. Any other deprecation, retirement,
+ * because a competing version (same profile key or ingestion unit) was activated. Any other deprecation, retirement,
  * removed promotion capability or missing record is revocation and refuses.
  */
 export function requirePinnedProfileEligible(
@@ -793,11 +797,11 @@ export function requirePinnedProfileEligible(
     versions.some(
       (other) =>
         other !== version &&
-        other.providerKey === version.providerKey &&
         other.active &&
         other.lifecycle === "active" &&
         promotes(other) &&
-        other.profile.normalizedObservationMapping.kind === version.profile.normalizedObservationMapping.kind,
+        other.profile.normalizedObservationMapping.kind === version.profile.normalizedObservationMapping.kind &&
+        catalogProviderProfileVersionsCompete(other, version),
     );
   if (!superseded) throw refused("profile-revoked", `${pinned.providerKey}@${pinned.profileVersion}`);
   return version;
@@ -876,6 +880,10 @@ function toJsonObject(value: unknown): JsonObject {
 
 function jsonCopy(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value)) as unknown;
+}
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "concurrency_conflict";
 }
 
 function errorText(error: unknown): string {

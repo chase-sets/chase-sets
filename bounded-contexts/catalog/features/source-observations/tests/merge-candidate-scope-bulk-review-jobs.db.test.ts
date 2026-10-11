@@ -738,6 +738,8 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         ...fixture,
         ...overrides,
         card: { ...fixture.card, localId },
+        mergeIdentity: { ...fixture.mergeIdentity, cardNumber: localId },
+        catalogHashMaterial: { ...fixture.catalogHashMaterial, id: `${fixture.mergeIdentity.setId}-${localId}` },
         observationId: id,
         externalKey: id,
         sourceUrl: `https://synthetic.invalid/source/${id}`,
@@ -999,7 +1001,14 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       [first.jobId],
     );
     const second = await submit();
-    await drainWorker(services.sourceObservations);
+    for (let iteration = 0; iteration < 10; iteration += 1) {
+      const processed = await services.sourceObservations.processNextBulkReviewJob({
+        claimOwnerId: "competing-worker",
+        claimTtlMs: 120_000,
+        workflowMaxActiveClaims: 2,
+      });
+      if (processed === 0) break;
+    }
     const competing = await requireJob(services.sourceObservations, second.jobId);
     expect(competing.result?.outcomes[0]).toMatchObject({
       status: "promoted",
@@ -1061,7 +1070,7 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     expect(await itemCreations()).toBe(1);
   });
 
-  it("AC3: unrelated history after the bound baseline, or revoked pinned authority, refuses without completing", async () => {
+  it("AC3: unrelated history after the bound baseline refuses without overwriting or completing", async () => {
     const { candidateId, expectedTarget } = await arrange("refresh", "obs_unrelated", "83");
     const job = await submit();
     await expect(processOne(runtimeWith({ crash: "b" }))).resolves.toBe(0);
@@ -1083,7 +1092,9 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     expect(refused?.reason).toMatch(/^promotion-application-target-history-conflict/);
     expect((await readItem(expectedTarget)).history.length).toBe(before);
     expect(await candidateEvents(candidateId)).toMatchObject({ planned: 1, applied: 0 });
+  });
 
+  it("AC3: revoking the pinned profile between interruption and resume refuses and keeps the checkpoint", async () => {
     const revoked = await arrange("create", "obs_revoked", "84");
     const pinned = await promotionProfile("obs_revoked");
     const revokedJob = await submit();
@@ -1237,6 +1248,12 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     expect((await requireJob(services.sourceObservations, again.jobId)).result).toMatchObject({ promoted: 0 });
     expect(await itemCreations()).toBe(1);
 
+    const recordedResult = (
+      await pool.query<{ result: string }>(
+        "SELECT result::text AS result FROM catalog_source_observation_bulk_review_jobs WHERE job_id = $1",
+        [catchUp.jobId],
+      )
+    ).rows[0]!.result;
     await pool.query(
       `UPDATE catalog_source_observation_bulk_review_jobs
        SET result = jsonb_set(result, '{outcomes,0}', (result->'outcomes'->0) - 'appliedCatalogItemId')
@@ -1252,7 +1269,10 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         scopeRecordId: applicationScopeId,
       }),
     ).rejects.toThrow(CatalogMergeCandidateBulkJobMalformedError);
-    await pool.query("DELETE FROM catalog_source_observation_bulk_review_jobs WHERE job_id = $1", [catchUp.jobId]);
+    await pool.query("UPDATE catalog_source_observation_bulk_review_jobs SET result = $2::jsonb WHERE job_id = $1", [
+      catchUp.jobId,
+      recordedResult,
+    ]);
 
     await record("obs_asset", "90", { imageBaseUrl: "https://synthetic.invalid/images/obs_asset" });
     const assetCandidate = await candidateFrom(["obs_asset"]);
@@ -1318,7 +1338,8 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
       jobId: "job_legacy_queued",
       units: [{ unitId: straggler, unitKind: "merge-candidate-promote", payload: { candidateId: straggler } }],
     });
-    await drainWorker(services.sourceObservations);
+    // A pre-cutover job holds no provider-send binding, so drain it without the send gate.
+    await drainWorker(runtimeWith({}));
     const legacy = await requireJob(services.sourceObservations, "job_legacy_queued");
     expect(legacy).toMatchObject({ promotionApplicationVersion: null, result: { promoted: 0, failed: 1 } });
     expect(legacy.result?.outcomes[0]?.reason).toMatch(/^promotion-application-legacy-job/);
