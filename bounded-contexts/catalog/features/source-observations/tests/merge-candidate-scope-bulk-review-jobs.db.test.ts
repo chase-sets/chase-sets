@@ -1365,6 +1365,31 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         scopeRecordId: applicationScopeId,
       }),
     ).rejects.toThrow(CatalogMergeCandidateBulkJobMalformedError);
+    // An unknown or missing outcome status is malformed even when the stored counts agree with it.
+    const recorded = JSON.parse(recordedResult) as NonNullable<CatalogMergeCandidateBulkJob["result"]>;
+    for (const status of ["unrecognized-synthetic-status", undefined]) {
+      const outcome = {
+        ...recorded.outcomes[0]!,
+        status,
+        appliedCatalogItemId: null,
+        appliedMode: null,
+        approvalVersion: null,
+        planFingerprint: null,
+      };
+      await pool.query("UPDATE catalog_source_observation_bulk_review_jobs SET result = $2::jsonb WHERE job_id = $1", [
+        catchUp.jobId,
+        JSON.stringify({ ...recorded, promoted: 0, outcomes: [outcome] }),
+      ]);
+      await expect(services.sourceObservations.getCatalogMergeCandidateBulkJob(catchUp.jobId, context)).rejects.toThrow(
+        CatalogMergeCandidateBulkJobMalformedError,
+      );
+      await expect(
+        services.sourceObservations.listCompletedCatalogMergeCandidateBulkJobs({
+          context,
+          scopeRecordId: applicationScopeId,
+        }),
+      ).rejects.toThrow(CatalogMergeCandidateBulkJobMalformedError);
+    }
     await pool.query("UPDATE catalog_source_observation_bulk_review_jobs SET result = $2::jsonb WHERE job_id = $1", [
       catchUp.jobId,
       recordedResult,
