@@ -59,10 +59,14 @@ describe("ebay-account-deletion-challenge", () => {
       expect(record).toHaveBeenLastCalledWith({
         endpoint: "channels-ebay-account-deletion",
         statusCode: status,
-        outcome: status === 200 ? "processed" : "failed",
-        failureClass: status === 200 ? null : status === 503 ? "handler-failure" : "schema-mismatch",
-        retryable: status === 503,
+        outcome: status === 200 ? "processed" : "ignored",
+        failureClass: status === 400 || status === 405 ? "schema-mismatch" : null,
+        retryable: false,
       });
+      if (status !== 200) {
+        expect(record.mock.lastCall?.[0].outcome).not.toBe("failed");
+        expect(record.mock.lastCall?.[0].failureClass).not.toBe("handler-failure");
+      }
       if (status === 503)
         expect(await response.json()).toEqual({ error: { code: "ebay_account_deletion_not_configured" } });
     }

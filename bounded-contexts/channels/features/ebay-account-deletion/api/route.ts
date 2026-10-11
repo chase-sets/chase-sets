@@ -13,10 +13,10 @@ export function createEbayAccountDeletionRoutes({ config, telemetry }: EbayAccou
   const record = (statusCode: number) =>
     telemetry?.record({
       endpoint: "channels-ebay-account-deletion",
-      outcome: statusCode === 200 ? "processed" : "failed",
-      failureClass: statusCode === 200 ? null : statusCode === 503 ? "handler-failure" : "schema-mismatch",
+      outcome: statusCode === 200 ? "processed" : "ignored",
+      failureClass: statusCode === 400 || statusCode === 405 ? "schema-mismatch" : null,
       statusCode,
-      retryable: statusCode === 503,
+      retryable: false,
     });
   // Hono dispatches HEAD through GET routes; the original request method remains authoritative.
   app.use("/ebay/account-deletion", async (c, next) => {
