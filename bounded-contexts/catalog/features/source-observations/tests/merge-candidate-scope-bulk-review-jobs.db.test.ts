@@ -18,6 +18,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import { module as catalogModule } from "../../../index";
 import type { CatalogItemId } from "../../../ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -1111,6 +1112,101 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     expect(outcome?.reason).toMatch(/^promotion-application-profile-revoked/);
     expect((await readItem(revoked.expectedTarget)).history).toEqual([]);
     expect(await candidateEvents(revoked.candidateId)).toMatchObject({ planned: 1, applied: 0 });
+  });
+
+  // Retained checkpoints count only as the decider admits them. Each poison is
+  // appended raw to the real candidate stream for the running job's own unit, so
+  // a reader that trusted it would report that unit applied without any Catalog Item write.
+  const poisons = ["poisoned-plan", "repeated-completion", "wrong-candidate", "reordered"] as const;
+  it.each(poisons)("AC3: retained %s checkpoint history refuses visibly with no writes", async (poison) => {
+    const observationId = `obs_${poison.replaceAll("-", "_")}`;
+    const { candidateId, expectedTarget } = await arrange("create", observationId, `7${poisons.indexOf(poison)}`);
+    await services.sourceObservations.promoteCatalogMergeCandidate({ candidateId, reason: "Approved.", context });
+    const job = await submit();
+    const streamId = catalogMergeCandidateStreamId(candidateId);
+    const approvedHistory = await readCompleteStream(store, { streamId });
+    const approvalVersion = approvedHistory.find(
+      (event) => event.eventType === "catalog.merge-candidate.promoted",
+    )!.streamVersion;
+    const { snapshot } = await candidateWriter(pool, store).load(candidateId);
+    const plan: JsonObject = {
+      approvalVersion,
+      jobId: job.jobId,
+      unitId: candidateId,
+      catalogItemId: expectedTarget,
+      mode: "create",
+      targetBaseline: { streamVersion: 0, status: null },
+      identityFingerprint: snapshot!.identityFingerprint,
+      membership: snapshot!.membership,
+      profiles: [{ providerKey: "tcgdex", profileKey: "pokemon-tcg", profileVersion: "synthetic" }],
+      catalogMapping: {},
+      referenceRecordIds: {},
+      assetPlan: null,
+      commands: [{ type: "CreateCatalogItem", itemId: expectedTarget }],
+      planFingerprint: `sha256:${"a".repeat(64)}`,
+    };
+    const at = new Date().toISOString();
+    const planned = (retained: JsonObject, owner = candidateId) => ({
+      eventType: "catalog.merge-candidate.promotion-planned",
+      payload: { candidateId: owner, plan: retained, plannedAt: at },
+    });
+    const applied = (retained: JsonObject, owner = candidateId) => ({
+      eventType: "catalog.merge-candidate.promotion-applied",
+      payload: {
+        candidateId: owner,
+        approvalVersion,
+        catalogItemId: expectedTarget,
+        appliedMode: "create",
+        planFingerprint: retained.planFingerprint!,
+        jobId: job.jobId,
+        unitId: candidateId,
+        appliedAt: at,
+      },
+    });
+    const poisoned = { ...plan, commands: [], planFingerprint: "synthetic-invalid-fingerprint" };
+    const events = {
+      "poisoned-plan": [planned(poisoned), applied(poisoned)],
+      "repeated-completion": [planned(plan), applied(plan), applied(plan)],
+      "wrong-candidate": [planned(plan, "cand_synthetic_other"), applied(plan, "cand_synthetic_other")],
+      reordered: [applied(plan), planned(plan)],
+    }[poison];
+    await store.appendToStream({ streamId, expectedVersion: approvedHistory.length, events, context });
+
+    await drainWorker(services.sourceObservations);
+    const outcome = (await requireJob(services.sourceObservations, job.jobId)).result?.outcomes[0];
+    expect(outcome).toMatchObject({ candidateId, status: "failed", appliedCatalogItemId: null });
+    expect(outcome?.reason).toMatch(/^promotion-application-conflicting-history/);
+    expect((await candidateEvents(candidateId)).length).toBe(approvedHistory.length + events.length);
+    expect((await readItem(expectedTarget)).history).toEqual([]);
+    expect(await itemCreations()).toBe(0);
+  });
+
+  it("AC3: a completion repeated after a real application refuses later units without new writes", async () => {
+    const { candidateId, expectedTarget } = await arrange("create", "obs_repeated", "79");
+    const first = await submit();
+    await drainWorker(services.sourceObservations);
+    const initiated = (await requireJob(services.sourceObservations, first.jobId)).result?.outcomes[0];
+    expect(initiated).toMatchObject({ status: "promoted", appliedCatalogItemId: expectedTarget });
+    const streamId = catalogMergeCandidateStreamId(candidateId);
+    const history = await readCompleteStream(store, { streamId });
+    const completion = history.find((event) => event.eventType === "catalog.merge-candidate.promotion-applied")!;
+    await store.appendToStream({
+      streamId,
+      expectedVersion: history.length,
+      events: [{ eventType: completion.eventType, payload: completion.payload }],
+      context,
+    });
+    const itemLength = (await readItem(expectedTarget)).history.length;
+
+    const later = await submit();
+    await drainWorker(services.sourceObservations);
+    const outcome = (await requireJob(services.sourceObservations, later.jobId)).result?.outcomes[0];
+    expect(outcome).toMatchObject({ candidateId, status: "failed", appliedCatalogItemId: null });
+    expect(outcome?.reason).toMatch(/^promotion-application-conflicting-history/);
+    expect((await candidateEvents(candidateId)).length).toBe(history.length + 1);
+    expect((await readItem(expectedTarget)).history.length).toBe(itemLength);
+    expect(await itemCreations()).toBe(1);
+    expect((await requireJob(services.sourceObservations, first.jobId)).result?.outcomes[0]).toEqual(initiated);
   });
 
   it("AC4: retained member targets are reused under lag; partial targets, degraded display and revoked units refuse without item writes", async () => {

@@ -676,7 +676,10 @@ function readCatalogMergeCandidateBulkJobDiscriminator(
   return { kind: storedKind, promotionApplicationVersion: null };
 }
 
-/** Version-1 results must carry completion facts exactly when promoted; legacy results are returned as stored. */
+/**
+ * Version-1 outcomes are only promoted, failed or skipped-not-eligible, carrying
+ * completion facts exactly when promoted; legacy results are returned as stored.
+ */
 function requireCatalogMergeCandidateBulkJobResult(
   jobId: string,
   version: CatalogMergeCandidateBulkJob["promotionApplicationVersion"],
@@ -703,25 +706,30 @@ function requireCatalogMergeCandidateBulkJobResult(
 
 function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitResult): boolean {
   if (outcome.diagnosticCode !== undefined && outcome.diagnosticCode !== "asset-processing-failed") return false;
-  if (outcome.status === "promoted") {
-    return (
-      typeof outcome.appliedCatalogItemId === "string" &&
-      outcome.appliedCatalogItemId.length > 0 &&
-      catalogMergeCandidateAppliedModes.includes(outcome.appliedMode as CatalogMergeCandidateAppliedMode) &&
-      Number.isSafeInteger(outcome.approvalVersion) &&
-      (outcome.approvalVersion ?? 0) > 0 &&
-      typeof outcome.planFingerprint === "string" &&
-      outcome.planFingerprint.length > 0 &&
-      outcome.diagnosticCode === undefined
-    );
+  switch (outcome.status) {
+    case "promoted":
+      return (
+        typeof outcome.appliedCatalogItemId === "string" &&
+        outcome.appliedCatalogItemId.length > 0 &&
+        catalogMergeCandidateAppliedModes.includes(outcome.appliedMode as CatalogMergeCandidateAppliedMode) &&
+        Number.isSafeInteger(outcome.approvalVersion) &&
+        (outcome.approvalVersion ?? 0) > 0 &&
+        typeof outcome.planFingerprint === "string" &&
+        outcome.planFingerprint.length > 0 &&
+        outcome.diagnosticCode === undefined
+      );
+    case "failed":
+    case "skipped-not-eligible":
+      return (
+        outcome.appliedCatalogItemId === null &&
+        outcome.appliedMode === null &&
+        outcome.approvalVersion === null &&
+        outcome.planFingerprint === null
+      );
+    default:
+      // A promotion unit never defers; any other or missing status is not an outcome.
+      return false;
   }
-  return (
-    outcome.status !== "deferred" &&
-    outcome.appliedCatalogItemId === null &&
-    outcome.appliedMode === null &&
-    outcome.approvalVersion === null &&
-    outcome.planFingerprint === null
-  );
 }
 
 export type CatalogMergeCandidateApplicationReconciliation = Readonly<{

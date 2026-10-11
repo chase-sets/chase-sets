@@ -512,6 +512,15 @@ describe("Catalog Merge Candidate application checkpoints", () => {
         }),
       ).toThrow();
     }
+    for (const planFingerprint of ["synthetic-invalid-fingerprint", `sha256:${"A".repeat(64)}`, "sha256:short"]) {
+      expect(() =>
+        decideCatalogMergeCandidate(approved, {
+          type: "PlanCatalogMergeCandidatePromotion",
+          plan: { ...promotionPlan(), planFingerprint },
+          plannedAt: "2026-06-24T11:00:00.000Z",
+        }),
+      ).toThrow("Application plan fingerprint is invalid.");
+    }
 
     const withPlan = evolveCatalogMergeCandidate(
       approved,

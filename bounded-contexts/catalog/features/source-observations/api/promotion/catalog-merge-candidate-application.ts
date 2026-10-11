@@ -19,12 +19,15 @@ import {
 } from "../../../catalog-items/domain/domain";
 import type { SourceObservationState } from "../../domain/domain";
 import {
+  decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateEvent,
   type CatalogMergeCandidatePromotionApplication,
+  type CatalogMergeCandidatePromotionAppliedEvent,
   type CatalogMergeCandidatePromotionPlan,
+  type CatalogMergeCandidatePromotionPlannedEvent,
   type CatalogMergeCandidateReviewSnapshot,
   type CatalogMergeCandidateState,
 } from "../../domain/catalog-merge-candidate";
@@ -202,40 +205,79 @@ export async function applyCatalogMergeCandidatePromotion(
   return executeBoundPlan(ports, unit, state.snapshot, prepared.plan, prepared.session, version + 1);
 }
 
-/** Fold the complete candidate stream, refusing histories whose checkpoints do not bind its one approval. */
+/**
+ * Fold the complete candidate stream, trusting application checkpoints only as
+ * the candidate decider admits them: one plan binding the one approval, at most
+ * one completion of that plan, and nothing else once a plan is bound. Duplicate,
+ * reordered, wrong-candidate or malformed checkpoints refuse before any caller
+ * acts on them.
+ */
 export async function loadCandidateApplication(eventStore: EventStore, candidateId: string): Promise<LoadedCandidate> {
   const history = await readCompleteStream(eventStore, { streamId: catalogMergeCandidateStreamId(candidateId) });
   const codec = createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>();
   let state = initialCatalogMergeCandidateState;
   let approvalVersion: number | null = null;
   for (const stored of history) {
-    state = evolveCatalogMergeCandidate(state, codec.decode(stored));
+    const event = codec.decode(stored);
+    if (isApplicationCheckpoint(event)) requireAdmittedCheckpoint(state, candidateId, event);
+    else if (state.promotionPlan) throw refused("conflicting-history", `${event.type} follows the bound plan`);
+    state = evolveCatalogMergeCandidate(state, event);
     if (stored.eventType === "catalog.merge-candidate.promoted") {
       if (approvalVersion !== null) throw refused("conflicting-history", "more than one approval is recorded");
       approvalVersion = stored.streamVersion;
     }
   }
-  const plan = state.promotionPlan;
-  const application = state.promotionApplication;
-  if (
-    plan &&
-    (plan.approvalVersion !== approvalVersion || plan.identityFingerprint !== state.snapshot?.identityFingerprint)
-  )
+  if (state.promotionPlan && state.promotionPlan.approvalVersion !== approvalVersion)
     throw refused("conflicting-history", "the application plan does not bind the recorded approval");
-  if (
-    application &&
-    (!plan ||
-      !isDeepStrictEqual(application, {
-        approvalVersion: plan.approvalVersion,
-        catalogItemId: plan.catalogItemId,
-        appliedMode: plan.mode,
-        planFingerprint: plan.planFingerprint,
-        jobId: plan.jobId,
-        unitId: plan.unitId,
-      }))
-  )
-    throw refused("conflicting-history", "the recorded application does not complete its plan");
   return { state, version: history.at(-1)?.streamVersion ?? 0, approvalVersion };
+}
+
+type ApplicationCheckpoint = CatalogMergeCandidatePromotionPlannedEvent | CatalogMergeCandidatePromotionAppliedEvent;
+
+function isApplicationCheckpoint(event: CatalogMergeCandidateEvent): event is ApplicationCheckpoint {
+  return (
+    event.type === "catalog.merge-candidate.promotion-planned" ||
+    event.type === "catalog.merge-candidate.promotion-applied"
+  );
+}
+
+/**
+ * A retained checkpoint counts only if the decider, given the state before it,
+ * emits exactly that event, so replay reuses the same plan-shape, ordering,
+ * single-binding and candidate checks as the command that wrote it.
+ */
+function requireAdmittedCheckpoint(
+  state: CatalogMergeCandidateState,
+  candidateId: string,
+  checkpoint: ApplicationCheckpoint,
+): void {
+  let admitted: readonly CatalogMergeCandidateEvent[];
+  try {
+    admitted = decideCatalogMergeCandidate(state, checkpointCommand(checkpoint));
+  } catch (error) {
+    throw refused("conflicting-history", `${checkpoint.type} is not admitted: ${errorText(error)}`);
+  }
+  if (
+    state.id !== candidateId ||
+    admitted.length !== 1 ||
+    !isDeepStrictEqual(jsonCopy(admitted[0]), jsonCopy(checkpoint))
+  )
+    throw refused("conflicting-history", `${checkpoint.type} is not the checkpoint its candidate admits`);
+}
+
+function checkpointCommand(checkpoint: ApplicationCheckpoint): CatalogMergeCandidateCommand {
+  if (checkpoint.type === "catalog.merge-candidate.promotion-planned")
+    return {
+      type: "PlanCatalogMergeCandidatePromotion",
+      plan: checkpoint.data.plan,
+      plannedAt: checkpoint.data.plannedAt,
+    };
+  const { approvalVersion, catalogItemId, appliedMode, planFingerprint, jobId, unitId, appliedAt } = checkpoint.data;
+  return {
+    type: "RecordCatalogMergeCandidatePromotionApplied",
+    application: { approvalVersion, catalogItemId, appliedMode, planFingerprint, jobId, unitId },
+    appliedAt,
+  };
 }
 
 async function prepareApplicationPlan(

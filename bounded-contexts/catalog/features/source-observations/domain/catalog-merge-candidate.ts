@@ -896,6 +896,7 @@ function requireApprovedForApplication(
   assert(state.status === "promoted", "Only approved Catalog Merge Candidates can be applied.");
 }
 
+/** The one plan-shape check: run on every new plan, and re-run on every retained plan when application replays it. */
 function normalizePromotionPlan(plan: CatalogMergeCandidatePromotionPlan): CatalogMergeCandidatePromotionPlan {
   assert(
     Number.isSafeInteger(plan.approvalVersion) && plan.approvalVersion > 0,
@@ -916,12 +917,14 @@ function normalizePromotionPlan(plan: CatalogMergeCandidatePromotionPlan): Catal
   assert(plan.commands.length > 0, "Application plan requires at least one Catalog Item command.");
   assert(plan.membership.length > 0, "Application plan requires approved Source Observation provenance.");
   assert(plan.profiles.length > 0, "Application plan requires resolved promotion profile versions.");
+  const planFingerprint = requireText(plan.planFingerprint, "Application plan fingerprint");
+  assert(/^sha256:[a-f0-9]{64}$/.test(planFingerprint), "Application plan fingerprint is invalid.");
   return {
     ...plan,
     jobId: requireText(plan.jobId, "Application job ID"),
     unitId: requireText(plan.unitId, "Application work unit ID"),
     catalogItemId: requireText(plan.catalogItemId, "Application Catalog Item ID"),
-    planFingerprint: requireText(plan.planFingerprint, "Application plan fingerprint"),
+    planFingerprint,
   };
 }
 

@@ -226,9 +226,16 @@ a newer version was merely activated, but revocation, missing reference evidence
 a changed baseline or unrelated target history refuses
 (`promotion-application-*`) and keeps the checkpoint for explicit recovery. A
 later job may finish another unit's unfinished plan under the same fences.
+Retained checkpoints count only as the candidate decider admits them, re-decided
+at their stream position before any recovery: one well-formed plan for this
+candidate after its one approval, at most one matching completion, and nothing
+else after the plan. Duplicate, reordered, wrong-candidate or malformed
+checkpoints refuse (`promotion-application-conflicting-history`) without writes.
 
-Results: version-1 unit results carry `appliedCatalogItemId`, `appliedMode`,
-`approvalVersion` and `planFingerprint`, non-null exactly when `promoted`.
+Results: version-1 unit results are `promoted`, `failed` or
+`skipped-not-eligible`; any other or missing status fails closed. They carry
+`appliedCatalogItemId`, `appliedMode`, `approvalVersion` and `planFingerprint`,
+non-null exactly when `promoted`.
 `catalogItemId` stays the historical match. An inner image-preparation failure
 records `diagnosticCode: "asset-processing-failed"`; other failures carry none
 and stay unclassified. Readers reconcile the complete completed-job history by
