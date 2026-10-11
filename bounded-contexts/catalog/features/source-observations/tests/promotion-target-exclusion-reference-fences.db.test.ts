@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import {
   createPostgresEventStore,
   type PgQueryable,
   type PgPoolClient,
@@ -40,9 +45,16 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   let pool: PgTransactionalPool;
   let services: CatalogServices;
   const { persistedMappingContract, record, retainedPlan, itemCreations, boundary, acquire } =
-    usePromotionTargetExclusionFixture(databaseBaseUrl, (fresh) => {
-      ({ pool, services } = fresh);
-    });
+    usePromotionTargetExclusionFixture(
+      async () => {
+        const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], "promotion_target_exclusion");
+        await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+        return createMultiContextTestPools(urls).catalog;
+      },
+      (fresh) => {
+        ({ pool, services } = fresh);
+      },
+    );
 
   it("refreshes changed A at its original target and resolves overlapping B without another creation", async () => {
     await record("changed-A");

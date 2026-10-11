@@ -2,9 +2,6 @@ import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
-  createMultiContextTestDatabaseUrls,
-  createMultiContextTestPools,
-  ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
@@ -35,21 +32,19 @@ import {
 } from "../api/promotion/promotion-target-exclusion";
 
 /**
- * Per-file database lifecycle and helpers for the promotion target exclusion DB suite.
+ * Database lifecycle and helpers for the promotion target exclusion DB suite.
  * The suite is split across sibling files so Vitest runs them in parallel; each file
- * calls this inside its suite to get its own database and the unchanged per-test
- * reset, bootstrap and catalog-integration-bootstrap seed.
+ * provisions its own per-context database and calls this inside its suite to get the
+ * unchanged per-test reset, bootstrap and catalog-integration-bootstrap seed.
  */
 export function usePromotionTargetExclusionFixture(
-  databaseBaseUrl: string | undefined,
+  provisionPool: () => Promise<PgTransactionalPool>,
   bind: (fresh: { pool: PgTransactionalPool; services: CatalogServices }) => void,
 ) {
   let pool: PgTransactionalPool;
   let services: CatalogServices;
   beforeAll(async () => {
-    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], "promotion_target_exclusion");
-    await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
-    pool = createMultiContextTestPools(urls).catalog;
+    pool = await provisionPool();
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ catalog: pool });

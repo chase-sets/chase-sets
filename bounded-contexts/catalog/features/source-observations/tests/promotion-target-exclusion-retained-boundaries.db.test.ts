@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createCatalogServices, type CatalogServices } from "../../../support/authoring-support/services";
@@ -20,7 +25,11 @@ describeDb("promotion target exclusion through real Catalog services", () => {
   let pool: PgTransactionalPool;
   let services: CatalogServices;
   const { record, retainedPlan, itemCreations, acquire } = usePromotionTargetExclusionFixture(
-    databaseBaseUrl,
+    async () => {
+      const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], "promotion_target_exclusion");
+      await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+      return createMultiContextTestPools(urls).catalog;
+    },
     (fresh) => {
       ({ pool, services } = fresh);
     },
