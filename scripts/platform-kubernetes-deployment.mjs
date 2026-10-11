@@ -858,13 +858,60 @@ const serializedProductionWriterWorkflows = new Map([
       path: ".github/workflows/platform-production.yml",
       group:
         "${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
+      groupInputs: ["decommission_plan_only"],
+      isolatedJobs: ["decommission-live-plan"],
     },
   ],
   [
     "Platform Production Stale Helm Recovery",
-    { path: ".github/workflows/platform-production-stale-helm-recovery.yml", group: "platform-registry-mutation" },
+    {
+      path: ".github/workflows/platform-production-stale-helm-recovery.yml",
+      group: "platform-registry-mutation",
+      groupInputs: [],
+      isolatedJobs: [],
+    },
   ],
 ]);
+
+const isMapping = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const isNonEmptyMapping = (value) => isMapping(value) && Object.keys(value).length > 0;
+const ownMember = (container, key) =>
+  isMapping(container) && Object.hasOwn(container, key) ? container[key] : undefined;
+// Optional members are tagged so legitimate absence is compared, never omitted.
+const taggedPresence = (container, key) =>
+  Object.hasOwn(container, key) ? { present: true, value: container[key] } : { present: false };
+
+// Canonical JSON of what decides whether a run waits behind the contract group and
+// what may run when it does not: name, concurrency, the inputs the group reads,
+// inherited workflow env/defaults, every job's if/needs, and isolated jobs verbatim.
+// Steps, env, outputs and other inputs of non-isolated jobs may drift. Missing
+// required structure is null, which never matches.
+function workflowSerializationProjection(workflow, contract) {
+  if (!isMapping(workflow) || typeof workflow.name !== "string" || !workflow.name) return null;
+  const { concurrency, jobs } = workflow;
+  if (!isMapping(concurrency) || concurrency.group !== contract.group || concurrency["cancel-in-progress"] !== false)
+    return null;
+  if (!isNonEmptyMapping(jobs) || !Object.values(jobs).every(isMapping)) return null;
+  const inputs = ownMember(ownMember(workflow.on, "workflow_dispatch"), "inputs");
+  const groupInputs = contract.groupInputs.map((name) => [name, ownMember(inputs, name)]);
+  const isolatedJobs = contract.isolatedJobs.map((id) => [id, ownMember(jobs, id)]);
+  if (![...groupInputs, ...isolatedJobs].every(([, member]) => isNonEmptyMapping(member))) return null;
+  return canonicalJson({
+    name: workflow.name,
+    concurrency,
+    groupInputs: Object.fromEntries(groupInputs),
+    env: taggedPresence(workflow, "env"),
+    defaults: taggedPresence(workflow, "defaults"),
+    jobs: Object.fromEntries(
+      Object.entries(jobs).map(([id, job]) => [
+        id,
+        contract.isolatedJobs.includes(id)
+          ? { isolated: job }
+          : { if: taggedPresence(job, "if"), needs: taggedPresence(job, "needs") },
+      ]),
+    ),
+  });
+}
 
 async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
   const current = runs.find((run) => String(run.id) === String(currentRunId));
@@ -891,15 +938,11 @@ async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
 
   const source = readFileSync(new URL(`../${contract.path}`, import.meta.url), "utf8").replaceAll("\r\n", "\n");
   const workflow = parseYaml(source);
-  if (
-    workflow?.name !== current.name ||
-    workflow.concurrency?.group !== contract.group ||
-    workflow.concurrency?.["cancel-in-progress"] !== false
-  )
-    return [];
+  const projection = workflowSerializationProjection(workflow, contract);
+  if (projection === null || workflow.name !== current.name) return [];
 
   const sources = new Map();
-  async function matchesWorkflowSource(run) {
+  async function readWorkflowSource(run) {
     if (!sources.has(run.headSha)) {
       const body = await readApi(`contents/${contract.path}?ref=${run.headSha}`, "workflow source");
       if (body?.type !== "file" || body.encoding !== "base64" || typeof body.content !== "string") {
@@ -907,16 +950,17 @@ async function readConcurrencyQueuedWriters(runs, currentRunId, readApi) {
       }
       sources.set(run.headSha, Buffer.from(body.content, "base64").toString("utf8").replaceAll("\r\n", "\n"));
     }
-    return sources.get(run.headSha) === source;
+    return sources.get(run.headSha);
   }
-  // Both immutable workflow definitions must match the checked contract. The
-  // deploy workflow's alternate group is read-only decommission planning; all
-  // writers hold platform-registry-mutation for the whole workflow. No clock or
-  // run_started_at inference can prove this. Definition drift stays conflicting.
-  if (!(await matchesWorkflowSource(current))) return [];
+  // The current run holds the whole-workflow group only while its immutable
+  // definition is the checked contract byte for byte. A successor whose
+  // definition projects equally waits behind that non-cancelling group, and the
+  // alternate decommission group admits only its isolated read-only job. No
+  // clock or run_started_at inference can prove this. Projection drift conflicts.
+  if ((await readWorkflowSource(current)) !== source) return [];
   const queued = [];
   for (const run of candidates) {
-    if (!(await matchesWorkflowSource(run))) continue;
+    if (workflowSerializationProjection(parseYaml(await readWorkflowSource(run)), contract) !== projection) continue;
     const body = await readApi(
       `actions/runs/${run.id}/attempts/${run.runAttempt}/jobs?per_page=100&page=1`,
       "job census",
