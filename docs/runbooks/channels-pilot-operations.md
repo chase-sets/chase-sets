@@ -275,10 +275,9 @@ an explicit host decision, not a retention waiver.
 The existing `CHANNELS_CREDENTIAL_KEYRING_JSON` must retain the immutable named
 root `ebay-subject-root-v1`, independent of `activeKeyId`. Keep its material and
 identity unchanged across seal rotations. Keep historical seal keys while
-referenced. Before installing a replacement keyring, use Channels'
-`assertKeyringContinuity` against receipt references and the exported
-`assertEbaySubjectKeyringContinuity` against subject-binding references owned by
-#9299/#9304. Never remove referenced root or seal keys. A missing key makes
-custody unavailable; it does not authorize overwriting a receipt or treating a
-retry as a different subject. Root metadata lives in the fingerprint, not an
-additional table column or keyring.
+referenced. Before installing a replacement keyring, use Channels' receipt and
+subject-binding continuity checks against receipt references and subject-binding
+references owned by #9299/#9304. Never remove referenced root or seal keys. A
+missing key makes custody unavailable; it does not authorize overwriting a
+receipt or treating a retry as a different subject. Root metadata lives in the
+fingerprint, not an additional table column or keyring.

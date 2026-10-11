@@ -438,19 +438,6 @@
   "workerRuntimeProfiles": ["proof", "public"],
   "deployableContributions": [
     {
-      "deployable": "admin-web",
-      "routes": [
-        {
-          "routeId": "ebay-account-deletion-lookup",
-          "routePath": "ebay-account-deletion",
-          "fileExport": "./routes/admin/ebay-account-deletion",
-          "routeType": "route",
-          "sourceContext": "channels",
-          "section": "support"
-        }
-      ]
-    },
-    {
       "deployable": "marketplace-web",
       "routes": [
         {
@@ -545,21 +532,22 @@
           }
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ebay-account-deletion-lookup",
+          "routePath": "ebay-account-deletion",
+          "fileExport": "./routes/admin/ebay-account-deletion",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "section": "support"
+        }
+      ]
     }
   ],
   "shellContributions": [
-    {
-      "deployable": "admin-web",
-      "slot": "primary-nav",
-      "key": "ebay-account-deletion-lookup",
-      "label": "eBay Deletion Lookup",
-      "icon": "search",
-      "href": "/ebay-account-deletion",
-      "section": "support",
-      "order": 7,
-      "visibility": "signed-in",
-      "requiredPermissions": ["support.manage"]
-    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -571,6 +559,18 @@
       "order": 150,
       "visibility": "signed-in",
       "requiredPermissions": ["channels.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "ebay-account-deletion-lookup",
+      "label": "eBay Deletion Lookup",
+      "icon": "search",
+      "href": "/ebay-account-deletion",
+      "section": "support",
+      "order": 7,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
     }
   ],
   "readAfterWriteRouteInventory": [
