@@ -42,6 +42,27 @@ function mebibytes(memory) {
   return memory.endsWith("Gi") ? Number(memory.slice(0, -2)) * 1024 : Number(memory.slice(0, -2));
 }
 
+const catalogRuntimeConsumers = ["platform-api", "platform-worker", "platform-bootstrap"];
+const catalogSignoffReferenceNames = [
+  "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+];
+
+// The production Lorcana unit stops are derived from the active provider profile registry, never typed by hand.
+async function registryLorcanaUnitKeys() {
+  const registry =
+    await import("../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts");
+  return [
+    ...new Set(
+      registry.catalogProviderIntegrationProfileVersions
+        .filter((version) => registry.catalogProviderProfileVersionProductDomain(version) === "lorcana")
+        .map(registry.catalogProviderProfileVersionIngestionUnitKey),
+    ),
+  ].sort();
+}
+
 describe("render platform Helm values", () => {
   it("declares the non-secret default-off Catalog send-window key once on both consumers only", () => {
     const key = "CATALOG_PROVIDER_SEND_WINDOW_ENABLED";
@@ -285,16 +306,19 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("derives the production cutover posture from the authoritative Terraform parity map", () => {
+  it("derives the production cutover posture from the authoritative Terraform parity map", async () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
+    const lorcanaUnitKeys = (await registryLorcanaUnitKeys()).join(",");
 
     expect(production.global.envOverrides).toEqual({
       CHASE_SETS_CHECKOUT_CLOSED: "true",
-      CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only",
-      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only",
-      CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer",
-      CATALOG_INTEGRATION_PROMOTION_DISABLED: "mtgjson,scryfall,tcgplayer",
-      CATALOG_INTEGRATION_REAPPLY_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
+      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED: lorcanaUnitKeys,
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED: lorcanaUnitKeys,
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "tcgdex,ygoprodeck,ygojson",
       CHASE_SETS_PUBLIC_INDEXING: "true",
       PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true",
       PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence",
@@ -307,6 +331,42 @@ describe("render platform Helm values", () => {
       clusterName: "chase-sets-production-doks",
       exporter: { endpoint: "https://otel.chasesets.com" },
     });
+  });
+
+  it("delivers the production Catalog integration posture and signoff references to every Catalog runtime consumer", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const staging = buildPlatformHelmStagingValues({ repoRoot });
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    const catalogOverrides = Object.entries(production.global.envOverrides).filter(([name]) =>
+      name.startsWith("CATALOG_INTEGRATION_"),
+    );
+    const [productionValuesFile] = readChartFiles(["values.production.yaml"]);
+
+    // global.envOverrides and deploy --runtime-env values reach only names a component declares.
+    for (const consumer of catalogRuntimeConsumers) {
+      const env = new Map(values.components[consumer].env.map((entry) => [entry.name, entry]));
+      for (const [name] of catalogOverrides) {
+        expect(env.get(name), `${consumer} ${name}`).toMatchObject({ name, value: expect.any(String) });
+      }
+      // Empty base values keep preview and staging posture unchanged.
+      for (const name of [
+        "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+        "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
+        "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP",
+        ...catalogSignoffReferenceNames,
+      ]) {
+        expect(env.get(name), `${consumer} ${name}`).toEqual({ name, value: "" });
+      }
+    }
+    // Signoff references come only from production environment variables at deploy time, and the
+    // emergency stop stays empty until an operator sets it.
+    for (const name of [...catalogSignoffReferenceNames, "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"]) {
+      expect(production.global.envOverrides).not.toHaveProperty(name);
+    }
+    for (const [name, value] of catalogOverrides) {
+      expect(productionValuesFile).toContain(`    ${name}: "${value}"\n`);
+    }
+    expect(JSON.stringify(staging)).not.toContain("CATALOG_INTEGRATION_");
   });
 
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
@@ -1048,9 +1108,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 127,
-      "platform-bootstrap": 57,
-      "platform-worker": 127,
+      "platform-api": 133,
+      "platform-bootstrap": 63,
+      "platform-worker": 133,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

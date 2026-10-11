@@ -2823,6 +2823,10 @@ jobs:
       PRODUCTION_WALLET_FUNDING_APPROVED: ${{ vars.PRODUCTION_WALLET_FUNDING_APPROVED || 'false' }}
       PRODUCTION_WALLET_FUNDING_REFERENCE: ${{ vars.PRODUCTION_WALLET_FUNDING_REFERENCE || '' }}
       PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST: ${{ vars.PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST || '' }}
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
@@ -3123,6 +3127,47 @@ jobs:
               exit 1
             fi
           fi
+
+          # Catalog integration writes are admitted by every production control plane mode except
+          # dry-run-only and read-only (unset defaults to dry-run-only). An admitting plane needs the
+          # provider credentials and the code-enforced signoff references; names are printed, never values.
+          catalog_control_plane_mode="$(node -p 'String(require("./infrastructure/helm/platform/runtime-values.json").productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE ?? "").trim().toLowerCase()')"
+          case "$catalog_control_plane_mode" in
+            "" | dry-run-only | read-only) ;;
+            *)
+              trimmed_env() {
+                local value="${!1:-}"
+                value="${value#"${value%%[![:space:]]*}"}"
+                printf '%s' "${value%"${value##*[![:space:]]}"}"
+              }
+              catalog_missing=()
+              # <production GitHub secret>:<deploy-production env var carrying it>
+              for credential in \
+                SCRYDEX_API_KEY:TF_VAR_scrydex_api_key \
+                SCRYDEX_TEAM_ID:TF_VAR_scrydex_team_id \
+                TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE:TF_VAR_tcgplayer_automation_tcg_auth_cookie
+              do
+                if [ -z "$(trimmed_env "${credential#*:}")" ]; then
+                  catalog_missing+=("${credential%%:*}")
+                fi
+              done
+              # The runtime treats a blank, false, none, or open signoff reference as unset.
+              for reference in \
+                CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE \
+                CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE
+              do
+                reference_value="$(trimmed_env "$reference")"
+                case "${reference_value,,}" in
+                  "" | false | none | open) catalog_missing+=("$reference") ;;
+                esac
+              done
+
+              if [ "${#catalog_missing[@]}" -gt 0 ]; then
+                printf 'Missing required production Catalog integration configuration: %s\n' "${catalog_missing[*]}" >&2
+                exit 1
+              fi
+              ;;
+          esac
 
       - uses: ./.github/actions/setup-pnpm-workspace
         env:
@@ -3870,6 +3915,10 @@ jobs:
           add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_APPROVED" "${PRODUCTION_WALLET_FUNDING_APPROVED:-false}"
           add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_REFERENCE" "${PRODUCTION_WALLET_FUNDING_REFERENCE:-}"
           add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST" "${PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE:-}"
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
