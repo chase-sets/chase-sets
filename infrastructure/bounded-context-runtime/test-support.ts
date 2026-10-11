@@ -332,7 +332,7 @@ function resolvePgPoolDatabaseTarget(pool: PgTransactionalPool): unknown {
   }
 }
 
-// #9344 scratch arm B (never landed): opt-in once-per-file bootstrap with a per-test data reset.
+// Scratch DDL-reset Probe arm B (never landed): opt-in once-per-file bootstrap with a per-test data reset.
 // The first reset runs the default DDL reset and bootstrap, then records one baseline per database
 // target. Later resets are dependency-ordered row DELETE, re-insert of bootstrap-written rows and
 // nontransactional setval of owned sequence/identity positions: no relation rewrite or index build.
@@ -370,7 +370,7 @@ export function createMultiContextTestDataReset(
         const catalogs = await Promise.all(current.map((baseline) => readTestCatalogFingerprint(baseline.pool)));
         if (catalogs.every((catalog, index) => catalog === current[index]!.catalog)) {
           recordTestDataReset("data");
-          await forEachWithConcurrency(current, testSchemaResetConcurrency, (baseline) =>
+          await forEachWithConcurrency(current, testSchemaResetConcurrency, (baseline: TestDataBaseline) =>
             baseline.pool.query(baseline.resetSql),
           );
           return;
@@ -386,7 +386,7 @@ export function createMultiContextTestDataReset(
   };
 }
 
-// Same database-target dedup as resetMultiContextTestSchemas (#8124 40P01 guard).
+// Same database-target dedup as resetMultiContextTestSchemas (the 40P01 lock-order guard).
 function testDataResetTargetPools(pools: Readonly<Record<string, unknown>>): readonly PgTransactionalPool[] {
   const poolsByDatabaseTarget = new Map<unknown, PgTransactionalPool>();
 
