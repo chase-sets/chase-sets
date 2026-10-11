@@ -127,7 +127,12 @@ describe("private object store: putPrivate (AC-C1)", () => {
     }
     for (const contentType of ["", "image/png\r\nx-amz-acl: public-read"]) {
       await expect(
-        store.putPrivate({ key: "support-evidence/a.png", body: new Uint8Array([1]), contentType, deadlineMs: DEADLINE_MS }),
+        store.putPrivate({
+          key: "support-evidence/a.png",
+          body: new Uint8Array([1]),
+          contentType,
+          deadlineMs: DEADLINE_MS,
+        }),
       ).rejects.toThrow("Private object content types must be non-empty header-safe strings.");
     }
     expect(sent).toHaveLength(0);
@@ -231,9 +236,9 @@ describe("private object store: putPrivate (AC-C1)", () => {
     expect(requests[0]).toMatchObject({ method: "PUT", path: `/${BUCKET}/support-evidence/case_1/att_1/abc.png` });
     expect(requests[0]?.headers["cache-control"]).toBe("private, no-store");
     expect(requests[0]?.headers["content-type"]).toBe("image/png");
-    expect(Object.keys(requests[0]?.headers ?? {}).filter((name) => name.toLowerCase().startsWith("x-amz-acl"))).toEqual(
-      [],
-    );
+    expect(
+      Object.keys(requests[0]?.headers ?? {}).filter((name) => name.toLowerCase().startsWith("x-amz-acl")),
+    ).toEqual([]);
   });
 
   it("maps a real SDK 403 response to failed and an aborted in-flight request to ambiguous", async () => {
@@ -242,7 +247,12 @@ describe("private object store: putPrivate (AC-C1)", () => {
       client: syntheticS3Client(async () => xmlResponse(403, errorXml("AccessDenied"))),
     });
     await expect(
-      denied.putPrivate({ key: "support-evidence/a.png", body: new Uint8Array([1]), contentType: "image/png", deadlineMs: DEADLINE_MS }),
+      denied.putPrivate({
+        key: "support-evidence/a.png",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
     ).resolves.toEqual({ status: "failed", key: "support-evidence/a.png", code: "access-denied" });
 
     const stalled = createS3PrivateObjectStore({
@@ -323,7 +333,9 @@ describe("private object store: readPrivate (AC-C2)", () => {
       bucket: BUCKET,
       client: recordingClient(async () => getOutput(new Uint8Array(64).fill(1), "application/octet-stream")).client,
     });
-    await expect(exact.readPrivate("support-evidence/a.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS })).resolves.toMatchObject({
+    await expect(
+      exact.readPrivate("support-evidence/a.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS }),
+    ).resolves.toMatchObject({
       status: "found",
       byteSize: 64,
     });
@@ -332,14 +344,20 @@ describe("private object store: readPrivate (AC-C2)", () => {
       bucket: BUCKET,
       client: recordingClient(async () => getOutput(new Uint8Array(65).fill(1), "application/octet-stream")).client,
     });
-    await expect(over.readPrivate("support-evidence/a.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+    await expect(
+      over.readPrivate("support-evidence/a.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({
       status: "too-large",
     });
 
     const endless = meteredEndlessBody();
     const metered = createS3PrivateObjectStore({
       bucket: BUCKET,
-      client: recordingClient(async () => ({ $metadata: { httpStatusCode: 200 }, Body: endless.body, ContentType: "image/png" })).client,
+      client: recordingClient(async () => ({
+        $metadata: { httpStatusCode: 200 },
+        Body: endless.body,
+        ContentType: "image/png",
+      })).client,
     });
     await expect(
       metered.readPrivate("support-evidence/a.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS }),
@@ -418,18 +436,28 @@ describe("private object store: readPrivate (AC-C2)", () => {
         "Private object byte bounds must be non-negative safe integers.",
       );
     }
-    await expect(
-      store.readPrivate("support-evidence/a.png", { maxBytes: 1, deadlineMs: Number.NaN }),
-    ).rejects.toThrow("Private object deadlines must be finite positive milliseconds within the timer range.");
+    await expect(store.readPrivate("support-evidence/a.png", { maxBytes: 1, deadlineMs: Number.NaN })).rejects.toThrow(
+      "Private object deadlines must be finite positive milliseconds within the timer range.",
+    );
     expect(sent).toHaveLength(0);
   });
 
   it("maps real SDK responses: present type, missing type as null, 404 NoSuchKey as absent, stalled body as unavailable", async () => {
     const responses = new Map<string, () => Promise<SyntheticResponse>>([
-      ["typed", async () => ({ statusCode: 200, headers: { "content-type": "image/png" }, body: Readable.from([Buffer.from([5, 6])]) })],
+      [
+        "typed",
+        async () => ({
+          statusCode: 200,
+          headers: { "content-type": "image/png" },
+          body: Readable.from([Buffer.from([5, 6])]),
+        }),
+      ],
       ["untyped", async () => ({ statusCode: 200, headers: {}, body: Readable.from([Buffer.from([5, 6])]) })],
       ["missing", async () => xmlResponse(404, errorXml("NoSuchKey"))],
-      ["stalled", async () => ({ statusCode: 200, headers: { "content-type": "image/png" }, body: new Readable({ read() {} }) })],
+      [
+        "stalled",
+        async () => ({ statusCode: 200, headers: { "content-type": "image/png" }, body: new Readable({ read() {} }) }),
+      ],
     ]);
     const store = createS3PrivateObjectStore({
       bucket: BUCKET,
@@ -443,7 +471,9 @@ describe("private object store: readPrivate (AC-C2)", () => {
       }),
     });
 
-    await expect(store.readPrivate("support-evidence/typed", { maxBytes: 2, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+    await expect(
+      store.readPrivate("support-evidence/typed", { maxBytes: 2, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({
       status: "found",
       body: new Uint8Array([5, 6]),
       byteSize: 2,
@@ -470,18 +500,22 @@ describe("private object store: readPrivate (AC-C2)", () => {
       deadlineMs: DEADLINE_MS,
     });
 
-    await expect(store.readPrivate("support-evidence/a.webp", { maxBytes: 16, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+    await expect(
+      store.readPrivate("support-evidence/a.webp", { maxBytes: 16, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({
       status: "found",
       body: new Uint8Array(16).fill(3),
       byteSize: 16,
       providerContentType: null,
     });
-    await expect(store.readPrivate("support-evidence/a.webp", { maxBytes: 15, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+    await expect(
+      store.readPrivate("support-evidence/a.webp", { maxBytes: 15, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({
       status: "too-large",
     });
-    await expect(store.readPrivate("support-evidence/missing.webp", { maxBytes: 16, deadlineMs: DEADLINE_MS })).resolves.toEqual(
-      { status: "absent" },
-    );
+    await expect(
+      store.readPrivate("support-evidence/missing.webp", { maxBytes: 16, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({ status: "absent" });
     await expect(store.readPrivate("support-evidence", { maxBytes: 16, deadlineMs: DEADLINE_MS })).resolves.toEqual({
       status: "absent",
     });
@@ -520,7 +554,12 @@ describe("private object store: listPrivate (AC-C3)", () => {
     ],
     [
       "a repeated token (kills token-loop)",
-      { IsTruncated: true, NextContinuationToken: "token-same", KeyCount: 1, Contents: [{ Key: `${prefix}a.bin`, Size: 1 }] },
+      {
+        IsTruncated: true,
+        NextContinuationToken: "token-same",
+        KeyCount: 1,
+        Contents: [{ Key: `${prefix}a.bin`, Size: 1 }],
+      },
       "token-same",
       { status: "list-incomplete", reason: "repeated-token" },
     ],
@@ -538,7 +577,12 @@ describe("private object store: listPrivate (AC-C3)", () => {
     ],
     [
       "a token on an untruncated page",
-      { IsTruncated: false, NextContinuationToken: "token-next", KeyCount: 1, Contents: [{ Key: `${prefix}a.bin`, Size: 1 }] },
+      {
+        IsTruncated: false,
+        NextContinuationToken: "token-next",
+        KeyCount: 1,
+        Contents: [{ Key: `${prefix}a.bin`, Size: 1 }],
+      },
       undefined,
       { status: "list-incomplete", reason: "invalid-page" },
     ],
@@ -568,7 +612,11 @@ describe("private object store: listPrivate (AC-C3)", () => {
       { status: "list-incomplete", reason: "invalid-page" },
     ],
   ] as const)("reports %s as list-incomplete, never partial success", async (_label, page, token, expected) => {
-    const output: ListObjectsV2CommandOutput = { $metadata: { httpStatusCode: 200 }, ...page, Contents: [...page.Contents] };
+    const output: ListObjectsV2CommandOutput = {
+      $metadata: { httpStatusCode: 200 },
+      ...page,
+      Contents: [...page.Contents],
+    };
     const store = createS3PrivateObjectStore({ bucket: BUCKET, client: recordingClient(async () => output).client });
 
     await expect(store.listPrivate({ prefix, continuationToken: token, maxKeys: 1 })).resolves.toEqual(expected);
@@ -649,7 +697,12 @@ describe("private object store: listPrivate (AC-C3)", () => {
     await expect(walkAll(store, prefix, 1000)).resolves.toEqual({ keys, pages: 1 });
 
     // The decisive key sits just beyond the 1000-key page cap, written through the private put path.
-    await store.putPrivate({ key: `${prefix}zz-put.bin`, body: new Uint8Array([1]), contentType: "image/png", deadlineMs: DEADLINE_MS });
+    await store.putPrivate({
+      key: `${prefix}zz-put.bin`,
+      body: new Uint8Array([1]),
+      contentType: "image/png",
+      deadlineMs: DEADLINE_MS,
+    });
     const expectedKeys = [...keys, `${prefix}zz-put.bin`];
     const first = await walkAll(store, prefix, 1000);
     const second = await walkAll(store, prefix, 1000);
@@ -657,8 +710,14 @@ describe("private object store: listPrivate (AC-C3)", () => {
     expect(second).toEqual(first);
 
     const page = await store.listPrivate({ prefix: `${prefix}zz`, maxKeys: 1 });
-    expect(page).toEqual({ status: "page", entries: [{ key: `${prefix}zz-put.bin`, byteSize: 1 }], nextContinuationToken: null });
-    await expect(store.listPrivate({ prefix, continuationToken: "not-a-filesystem-token", maxKeys: 1 })).resolves.toEqual({
+    expect(page).toEqual({
+      status: "page",
+      entries: [{ key: `${prefix}zz-put.bin`, byteSize: 1 }],
+      nextContinuationToken: null,
+    });
+    await expect(
+      store.listPrivate({ prefix, continuationToken: "not-a-filesystem-token", maxKeys: 1 }),
+    ).resolves.toEqual({
       status: "list-incomplete",
       reason: "invalid-page",
     });
@@ -709,7 +768,10 @@ describe("private object store: deleteKeys (AC-C4)", () => {
   });
 
   it("fails a key the provider did not account for (kills unreported-as-deleted)", async () => {
-    const output: DeleteObjectsCommandOutput = { $metadata: { httpStatusCode: 200 }, Deleted: [{ Key: "support-evidence/a.bin" }] };
+    const output: DeleteObjectsCommandOutput = {
+      $metadata: { httpStatusCode: 200 },
+      Deleted: [{ Key: "support-evidence/a.bin" }],
+    };
     const store = createS3PrivateObjectStore({ bucket: BUCKET, client: recordingClient(async () => output).client });
 
     await expect(store.deleteKeys(["support-evidence/a.bin", "support-evidence/b.bin"])).resolves.toEqual([
@@ -783,7 +845,9 @@ describe("private object store: deleteKeys (AC-C4)", () => {
       { key: "support-evidence/missing.bin", status: "absent" },
       { key: "support-evidence/dir", status: "absent" },
     ]);
-    await expect(store.readPrivate("support-evidence/a.bin", { maxBytes: 8, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+    await expect(
+      store.readPrivate("support-evidence/a.bin", { maxBytes: 8, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({
       status: "absent",
     });
     await expect(store.deleteKeys(keyRange(1001))).rejects.toThrow("Private object deletes accept at most 1000 keys.");
@@ -813,14 +877,21 @@ describe("private object store: verifyPrivate (AC-C6)", () => {
       client: recordingClient(async () => getOutput(body, contentType)).client,
     });
 
-    await expect(store.verifyPrivate("support-evidence/a.png", expected)).resolves.toEqual({ status: "conflict", difference });
+    await expect(store.verifyPrivate("support-evidence/a.png", expected)).resolves.toEqual({
+      status: "conflict",
+      difference,
+    });
   });
 
   it("reads at most byteSize + 1 bytes of an oversized object", async () => {
     const endless = meteredEndlessBody();
     const store = createS3PrivateObjectStore({
       bucket: BUCKET,
-      client: recordingClient(async () => ({ $metadata: { httpStatusCode: 200 }, Body: endless.body, ContentType: "image/png" })).client,
+      client: recordingClient(async () => ({
+        $metadata: { httpStatusCode: 200 },
+        Body: endless.body,
+        ContentType: "image/png",
+      })).client,
     });
 
     await expect(store.verifyPrivate("support-evidence/a.png", expected)).resolves.toEqual({
@@ -903,7 +974,11 @@ describe("private object store: verifyPrivate (AC-C6)", () => {
   it("maps a real SDK GET without a Content-Type header to unavailable", async () => {
     const store = createS3PrivateObjectStore({
       bucket: BUCKET,
-      client: syntheticS3Client(async () => ({ statusCode: 200, headers: {}, body: Readable.from([Buffer.from(bytes)]) })),
+      client: syntheticS3Client(async () => ({
+        statusCode: 200,
+        headers: {},
+        body: Readable.from([Buffer.from(bytes)]),
+      })),
     });
 
     await expect(store.verifyPrivate("support-evidence/a.png", expected)).resolves.toEqual({
@@ -915,7 +990,12 @@ describe("private object store: verifyPrivate (AC-C6)", () => {
   it("compares bytes only on the filesystem store", async () => {
     const rootDir = await tempRoot();
     const store = createFilesystemPrivateObjectStore({ rootDir });
-    await store.putPrivate({ key: "support-evidence/a.png", body: bytes, contentType: "image/png", deadlineMs: DEADLINE_MS });
+    await store.putPrivate({
+      key: "support-evidence/a.png",
+      body: bytes,
+      contentType: "image/png",
+      deadlineMs: DEADLINE_MS,
+    });
 
     await expect(store.verifyPrivate("support-evidence/a.png", expected)).resolves.toEqual({ status: "match" });
     await expect(

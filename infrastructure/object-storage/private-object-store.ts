@@ -40,7 +40,11 @@ export type PrivatePutInput = Readonly<{
 export type PrivatePutResult =
   | Readonly<{ status: "completed"; key: string }>
   | Readonly<{ status: "failed"; key: string; code: PrivateObjectFailureCode }>
-  | Readonly<{ status: "ambiguous"; key: string; reason: "deadline-exceeded" | "transport-failed" | "invalid-response" }>;
+  | Readonly<{
+      status: "ambiguous";
+      key: string;
+      reason: "deadline-exceeded" | "transport-failed" | "invalid-response";
+    }>;
 
 export type PrivateReadOptions = Readonly<{ maxBytes: number; deadlineMs: number }>;
 
@@ -303,7 +307,9 @@ export function createFilesystemPrivateObjectStore(options: FilesystemPrivateObj
             await unlink(filePath);
             return { key, status: "deleted" };
           } catch (error) {
-            return isMissingPathError(error) ? { key, status: "absent" } : { key, status: "failed", code: "filesystem-error" };
+            return isMissingPathError(error)
+              ? { key, status: "absent" }
+              : { key, status: "failed", code: "filesystem-error" };
           }
         }),
       );
@@ -332,13 +338,18 @@ function createPrivateObjectStore(backend: StoreBackend): PrivateObjectStore {
       requireByteBound(expected.byteSize);
       requireContentType(expected.contentType);
       requireDeadline(expected.deadlineMs);
-      const read = await withDeadline(expected.deadlineMs, (deadline) => backend.read(key, expected.byteSize, deadline));
+      const read = await withDeadline(expected.deadlineMs, (deadline) =>
+        backend.read(key, expected.byteSize, deadline),
+      );
       return compareRead(read, expected, backend.suppliesContentType);
     },
     async listPrivate(input) {
       requireListPrefix(input.prefix);
       requireMaxKeys(input.maxKeys);
-      if (input.continuationToken !== undefined && (typeof input.continuationToken !== "string" || input.continuationToken === "")) {
+      if (
+        input.continuationToken !== undefined &&
+        (typeof input.continuationToken !== "string" || input.continuationToken === "")
+      ) {
         throw new Error("Private object continuation tokens must be non-empty strings.");
       }
       const page = await backend.list(input);
@@ -382,7 +393,10 @@ function compareRead(
 }
 
 function settleListPage(input: PrivateListInput, page: RawListPage): PrivateListResult {
-  const incomplete = (reason: PrivateListIncompleteReason): PrivateListResult => ({ status: "list-incomplete", reason });
+  const incomplete = (reason: PrivateListIncompleteReason): PrivateListResult => ({
+    status: "list-incomplete",
+    reason,
+  });
   if (page.isTruncated === undefined || (!page.isTruncated && page.nextContinuationToken !== undefined)) {
     return incomplete("invalid-page");
   }
@@ -410,7 +424,11 @@ function settleListPage(input: PrivateListInput, page: RawListPage): PrivateList
     seen.add(key);
     entries.push({ key, byteSize });
   }
-  return { status: "page", entries, nextContinuationToken: page.isTruncated ? (page.nextContinuationToken ?? null) : null };
+  return {
+    status: "page",
+    entries,
+    nextContinuationToken: page.isTruncated ? (page.nextContinuationToken ?? null) : null,
+  };
 }
 
 type Raced<T> =
@@ -469,7 +487,11 @@ type BoundedRead =
   | Readonly<{ status: "too-large" }>
   | Readonly<{ status: "unavailable"; code: PrivateObjectFailureCode }>;
 
-async function readBoundedChunks(body: AsyncIterable<unknown>, maxBytes: number, deadline: Deadline): Promise<BoundedRead> {
+async function readBoundedChunks(
+  body: AsyncIterable<unknown>,
+  maxBytes: number,
+  deadline: Deadline,
+): Promise<BoundedRead> {
   const iterator = body[Symbol.asyncIterator]();
   const chunks: Uint8Array[] = [];
   let byteSize = 0;
@@ -531,7 +553,12 @@ async function readFileBounded(filePath: string, maxBytes: number, deadline: Dea
   }
 }
 
-async function writeFileAtomically(rootDir: string, targetPath: string, body: Uint8Array, deadline: Deadline): Promise<void> {
+async function writeFileAtomically(
+  rootDir: string,
+  targetPath: string,
+  body: Uint8Array,
+  deadline: Deadline,
+): Promise<void> {
   const tempDir = path.join(rootDir, FILESYSTEM_TEMP_DIR);
   const tempPath = path.join(tempDir, randomUUID());
   await mkdir(tempDir, { recursive: true });
@@ -660,7 +687,9 @@ function requestFailureCode(error: unknown): PrivateObjectFailureCode {
   return status < 300 ? "invalid-response" : providerFailureCode(status, error);
 }
 
-function unavailable(code: PrivateObjectFailureCode): Readonly<{ status: "unavailable"; code: PrivateObjectFailureCode }> {
+function unavailable(
+  code: PrivateObjectFailureCode,
+): Readonly<{ status: "unavailable"; code: PrivateObjectFailureCode }> {
   return { status: "unavailable", code };
 }
 
@@ -692,7 +721,12 @@ function requireListPrefix(prefix: string): void {
 }
 
 function requireContentType(contentType: string): void {
-  if (typeof contentType !== "string" || contentType.length === 0 || contentType.length > 255 || /[\u0000-\u001f\u007f]/.test(contentType)) {
+  if (
+    typeof contentType !== "string" ||
+    contentType.length === 0 ||
+    contentType.length > 255 ||
+    /[\u0000-\u001f\u007f]/.test(contentType)
+  ) {
     throw new Error("Private object content types must be non-empty header-safe strings.");
   }
 }
