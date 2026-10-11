@@ -233,7 +233,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
-          line: 69,
+          line: 71,
         }),
       ]),
     );

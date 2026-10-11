@@ -5,6 +5,7 @@ import { DEMAND_CURVE_LAUNCH_POLICY_VALUE } from "../domain/demand-curve-policy"
 import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE } from "../domain/estimate-policy";
 import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../../price-signals/domain/provider-observation-policy";
+import type { writeDemandCurve } from "../read-model/demand-curve-writes";
 
 const writes = vi.hoisted(() => ({
   supersede: vi.fn(async (..._args: unknown[]) => true),
@@ -13,12 +14,8 @@ const writes = vi.hoisted(() => ({
     async (
       _pool: unknown,
       _store: unknown,
-      _input: {
-        fingerprint: string;
-        exposureStartReason: string;
-        points: readonly { priceAmount: string; historyCapped: boolean }[];
-      },
-    ) => "built" as const,
+      _input: Parameters<typeof writeDemandCurve>[2],
+    ): Promise<Awaited<ReturnType<typeof writeDemandCurve>>> => "built",
   ),
 }));
 vi.mock("../read-model/demand-curve-writes", () => ({
@@ -162,9 +159,23 @@ describe("demand-curve closer regressions", () => {
     expect(selected.every((sale) => sale.price < 100)).toBe(true);
   });
 
+  it("reports a lost version fence as a conflict, never as a verified unchanged curve", async () => {
+    writes.write.mockResolvedValueOnce("conflict");
+    const { pool } = fakePool({ condition: "Near Mint", provider: providerSales() });
+    await expect(
+      createDemandCurveCloser({
+        pool: pool as never,
+        eventStore: {} as never,
+        policies: policies(),
+      }).runDemandCurveCloser({ now }),
+    ).rejects.toThrow("Demand-curve version changed concurrently");
+    expect(writes.saveCursor).not.toHaveBeenCalled();
+  });
+
   it("builds a capped curve from distinct platform pairs with a recency-ordered outer limit", async () => {
     const platform = Array.from({ length: salesLimit + 1 }, (_, index) => ({
       unit_price_amount: index === salesLimit ? "1000.00" : "10.00",
+      currency_code: "USD",
       sold_at: new Date(Date.parse(now) - (index + 1) * 3_600_000),
       verified: false,
       buyer_account_id: `buyer_synthetic_${index}`,
@@ -184,5 +195,9 @@ describe("demand-curve closer regressions", () => {
     expect(sql.find((statement) => statement.includes("FROM pricing_market_trades"))).toMatch(
       /\) AS \w+\s+ORDER BY sold_at DESC,\s*order_id DESC,\s*line_id DESC LIMIT \$5/,
     );
+    expect(sql.find((statement) => statement.includes("FROM pricing_market_trades"))).toContain(
+      "trade.currency_code IS NOT NULL",
+    );
+    expect(sql.find((statement) => statement.includes("FROM pricing_market_trades"))).not.toContain("= 'USD'");
   });
 });

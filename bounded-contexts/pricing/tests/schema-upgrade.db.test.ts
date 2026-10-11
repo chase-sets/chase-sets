@@ -7,7 +7,17 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createDemandCurveCloser } from "../features/market-estimates/api/demand-curve-closer";
+import { getDemandCurve, listDemandCurvePoints } from "../features/market-estimates/read-model/demand-curve-queries";
+import {
+  curveFingerprint,
+  demandCurveModelVersion,
+  demandCurveStreamId,
+} from "../features/market-estimates/read-model/demand-curve-writes";
+import { pricingDemandCurveSchemaMigrations } from "../features/market-estimates/read-model/demand-curve-schema";
+import { seedDemandCurveParityFixture } from "../features/market-estimates/tests/demand-curve-db-fixture";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
 import {
   MARKET_STAT_HYGIENE_COMPILED_REVISION_ID,
@@ -64,6 +74,95 @@ describeDb("pricing schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("keeps pre-denomination versions null across two boots and rebuilds them on the next closer pass", async () => {
+    const pool = pools.pricing;
+    const migration = pricingDemandCurveSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261011_pricing_demand_curve_currency_freshness",
+    )!;
+    // Execute the deployed boot shape, not the new columns with manufactured null values.
+    const oldModule = {
+      ...pricingModule,
+      schemaSql: migration.statements.reduce((sql, statement) => sql.replace(statement, ""), pricingModule.schemaSql),
+      schemaMigrations: pricingModule.schemaMigrations?.filter((entry) => entry.migrationId !== migration.migrationId),
+    };
+    await bootstrapContextDatabase(oldModule, pool);
+    const { builtAt, identities } = await seedDemandCurveParityFixture(pool);
+    const identity = identities[0]!;
+    const legacyFingerprint = curveFingerprint({ modelVersion: "pooled-supply-v1" });
+    const eventStore = createPostgresEventStore({ pool });
+    await pool.query(
+      `INSERT INTO pricing_demand_curve_versions
+       (catalog_item_id,product_id,version,provider_condition,provider_variant,provider_language,fingerprint,
+        model_version,policy_revision_id,ladder_method,exposure_start_reason,sales_coverage,supply_status,built_at)
+       VALUES ($1,$2,1,'Near Mint','Normal','English',$3,'pooled-supply-v1','synthetic-legacy','neutral-condition-fallback',
+               'history-window','complete','unavailable',$4)`,
+      [identity.catalogItemId, identity.productId, legacyFingerprint, builtAt],
+    );
+    await eventStore.appendToStream({
+      streamId: demandCurveStreamId(identity),
+      expectedVersion: "no_stream",
+      context: {
+        tenantId: "tnt_synthetic_curve_upgrade" as never,
+        audit: { performedByUserId: "usr_synthetic_upgrade" as never, forAccountId: "acc_synthetic_upgrade" as never },
+      },
+      events: [
+        {
+          eventType: "pricing.liquidity-estimated",
+          payload: {
+            schemaVersion: 1,
+            catalogItemId: identity.catalogItemId,
+            productId: identity.productId,
+            curveVersion: 1,
+            fingerprint: legacyFingerprint,
+            builtAt,
+            fastestMedianSellDays: null,
+            marketMedianSellDays: null,
+            competingSellerCount: null,
+            supplyStatus: "unavailable",
+          },
+        },
+      ],
+    });
+    await bootstrapContextDatabase(pricingModule, pool);
+    await bootstrapContextDatabase(pricingModule, pool);
+    expect(
+      (
+        await pool.query(`SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id=$1`, [
+          migration.migrationId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    const old = await getDemandCurve(pool, { ...identity, asOf: builtAt });
+    expect(old).toMatchObject({ version: 1, currencyCode: null, freshUntil: null, fingerprint: legacyFingerprint });
+    const closer = createDemandCurveCloser({
+      pool,
+      eventStore,
+      policies: createPolicyRuntime({ eventStore, db: pool }),
+    });
+    expect(await closer.runDemandCurveCloser({ now: builtAt })).toMatchObject({ built: 2 });
+    const rebuilt = await getDemandCurve(pool, { ...identity, asOf: builtAt });
+    expect(demandCurveModelVersion).not.toBe("pooled-supply-v1");
+    expect(curveFingerprint({ modelVersion: demandCurveModelVersion })).not.toBe(legacyFingerprint);
+    expect(rebuilt).toMatchObject({
+      version: 2,
+      currencyCode: "USD",
+      modelVersion: demandCurveModelVersion,
+      freshUntil: new Date(Date.parse(builtAt) + 48 * 3_600_000).toISOString(),
+    });
+    expect(rebuilt!.fingerprint).not.toBe(legacyFingerprint);
+    expect(await listDemandCurvePoints(pool, { ...identity, version: 2 })).toHaveLength(19);
+    expect(
+      (
+        await pool.query(
+          `SELECT currency_code,fresh_until FROM pricing_demand_curve_versions
+      WHERE catalog_item_id=$1 AND product_id=$2 AND version=1`,
+          [identity.catalogItemId, identity.productId],
+        )
+      ).rows,
+    ).toEqual([{ currency_code: null, fresh_until: null }]);
+    expect(await eventStore.readStream({ streamId: demandCurveStreamId(identity) })).toHaveLength(2);
+  });
 
   it("guards an old-boot currency migration, preserves USD rows, and re-derives mixed days in bounded passes", async () => {
     const pool = pools.pricing;

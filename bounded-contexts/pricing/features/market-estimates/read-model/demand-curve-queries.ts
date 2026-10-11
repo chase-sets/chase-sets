@@ -18,6 +18,8 @@ export type DemandCurveRecord = DemandCurveIdentity &
     supplyStatus: CurvePoint["supplyStatus"];
     ownSellerExclusionApplied: boolean | null;
     builtAt: string;
+    currencyCode: string | null;
+    freshUntil: string | null;
   }>;
 export type DemandCurvePoint = CurvePoint & Readonly<{ salesCoverage: string }>;
 
@@ -41,11 +43,13 @@ export async function getDemandCurve(
     supply_status: CurvePoint["supplyStatus"];
     own_seller_exclusion_applied: boolean | null;
     built_at: Date;
+    currency_code: string | null;
+    fresh_until: Date | null;
   }>(
     `SELECT curve.version, curve.provider_condition, curve.provider_variant, curve.provider_language,
               curve.fingerprint, curve.model_version, curve.policy_revision_id, curve.ladder_method,
               curve.anchor_condition, curve.exposure_start_reason, curve.sales_coverage,
-              curve.supply_status, curve.own_seller_exclusion_applied, curve.built_at
+              curve.supply_status, curve.own_seller_exclusion_applied, curve.built_at, curve.currency_code, curve.fresh_until
        FROM pricing_demand_curve_versions AS curve
        WHERE curve.catalog_item_id = $1 AND curve.product_id = $2
          AND curve.built_at <= $3 AND (curve.superseded_at IS NULL OR curve.superseded_at > $3)
@@ -71,6 +75,8 @@ export async function getDemandCurve(
         supplyStatus: row.supply_status,
         ownSellerExclusionApplied: row.own_seller_exclusion_applied,
         builtAt: new Date(row.built_at).toISOString(),
+        currencyCode: row.currency_code,
+        freshUntil: row.fresh_until === null ? null : new Date(row.fresh_until).toISOString(),
       }
     : null;
 }

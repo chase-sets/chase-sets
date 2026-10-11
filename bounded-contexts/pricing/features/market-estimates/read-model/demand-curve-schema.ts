@@ -1,6 +1,6 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
-export const pricingDemandCurveSchemaSql = `
+const originalSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_demand_curve_versions (
   catalog_item_id text NOT NULL,
   product_id text NOT NULL,
@@ -55,7 +55,13 @@ CREATE TABLE IF NOT EXISTS pricing_demand_curve_closer_cursors (
 );
 `;
 
-const statements = pricingDemandCurveSchemaSql
+const denominationStatements = [
+  "ALTER TABLE pricing_demand_curve_versions ADD COLUMN IF NOT EXISTS currency_code text NULL;",
+  "ALTER TABLE pricing_demand_curve_versions ADD COLUMN IF NOT EXISTS fresh_until timestamptz NULL;",
+];
+export const pricingDemandCurveSchemaSql = `${originalSchemaSql}\n${denominationStatements.join("\n")}`;
+
+const statements = originalSchemaSql
   .split(";\n")
   .map((statement) => statement.trim())
   .filter(Boolean);
@@ -64,5 +70,10 @@ export const pricingDemandCurveSchemaMigrations: readonly BcSchemaMigration[] = 
     migrationId: "20260929_pricing_demand_curve_versions",
     description: "Persist immutable curve versions, ordered points, and a generation-fenced closer cursor.",
     statements: statements.map((statement) => `${statement};`),
+  },
+  {
+    migrationId: "20261011_pricing_demand_curve_currency_freshness",
+    description: "Denominate new curve versions and retain last-verification freshness without backfilling history.",
+    statements: denominationStatements,
   },
 ];
