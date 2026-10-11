@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  catalogMergeCandidatePromotionApplicationJobKind,
+  CatalogMergeCandidateBulkJobMalformedError,
   createSourceObservationMergeCandidateBulkJobRuntime,
+  reconcileCatalogMergeCandidateApplications,
+  summarizeCatalogMergeCandidateBulkOutcomes,
+  toCatalogMergeCandidateBulkJob,
   type SourceObservationMergeCandidateBulkJobRuntimeDeps,
 } from "./source-observation-merge-candidate-bulk-job-runtime";
-import type { CatalogMergeCandidateBulkJobStore } from "./source-observation-runtime-contracts";
+import type { CatalogMergeCandidateAppliedMode } from "../domain/catalog-merge-candidate";
+import type {
+  CatalogMergeCandidateBulkJobStore,
+  CatalogMergeCandidateBulkUnitResult,
+} from "./source-observation-runtime-contracts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -110,7 +119,9 @@ describe("candidate bulk job filtered readback", () => {
       }
       expect(sql).toContain("LIMIT $7");
       expect(params).toEqual([
-        status === "active" ? ["merge-candidate-promote"] : ["merge-candidate-promote", "merge-candidate-defer"],
+        status === "active"
+          ? ["merge-candidate-promote", "merge-candidate-promote-application-v1"]
+          : ["merge-candidate-promote-application-v1", "merge-candidate-promote", "merge-candidate-defer"],
         status === "active" ? ["queued", "running"] : ["failed"],
         "scope_synthetic",
         "tnt_synthetic",
@@ -120,4 +131,209 @@ describe("candidate bulk job filtered readback", () => {
       ]);
     },
   );
+});
+
+describe("candidate promotion application versioning", () => {
+  const createdAt = "2026-10-11T00:00:00.000Z";
+  function record(
+    jobKind: string,
+    payload: Record<string, unknown>,
+    outcomes: readonly CatalogMergeCandidateBulkUnitResult[],
+  ): Parameters<typeof toCatalogMergeCandidateBulkJob>[0] {
+    return {
+      jobId: `job_${jobKind}`,
+      claimOwnerId: null,
+      claimedUntil: null,
+      attemptCount: 1,
+      nextEligibleAt: createdAt,
+      jobKind,
+      status: "completed",
+      payload: { scopeRecordId: "scope_synthetic", reason: "Synthetic.", ...payload },
+      progress: {
+        phase: "completed",
+        completed: outcomes.length,
+        total: outcomes.length,
+        currentName: null,
+        status: null,
+      },
+      result: summarizeCatalogMergeCandidateBulkOutcomes(outcomes.length, outcomes),
+      errorMessage: null,
+      eventContext: null,
+      createdAt,
+      updatedAt: createdAt,
+      startedAt: createdAt,
+      completedAt: createdAt,
+    } as Parameters<typeof toCatalogMergeCandidateBulkJob>[0];
+  }
+  const promoted = (
+    candidateId: string,
+    appliedCatalogItemId: string,
+    appliedMode: CatalogMergeCandidateAppliedMode = "create",
+  ) => ({
+    candidateId,
+    status: "promoted" as const,
+    catalogItemId: null,
+    reason: null,
+    appliedCatalogItemId,
+    appliedMode,
+    approvalVersion: 2,
+    planFingerprint: `sha256:${"b".repeat(64)}`,
+  });
+  const legacyPromoted = (candidateId: string) => ({
+    candidateId,
+    status: "promoted" as const,
+    catalogItemId: null,
+    reason: null,
+  });
+  const unapplied = (candidateId: string, status: string | undefined) =>
+    ({
+      candidateId,
+      status,
+      catalogItemId: null,
+      reason: "Synthetic.",
+      appliedCatalogItemId: null,
+      appliedMode: null,
+      approvalVersion: null,
+      planFingerprint: null,
+    }) as unknown as CatalogMergeCandidateBulkUnitResult;
+
+  it("serializes the version discriminator and keeps retained legacy bytes unchanged", () => {
+    const legacy = record("merge-candidate-promote", {}, [legacyPromoted("cand_legacy")]);
+    expect(toCatalogMergeCandidateBulkJob(legacy)).toMatchObject({
+      kind: "merge-candidate-promote",
+      promotionApplicationVersion: null,
+      result: legacy.result,
+    });
+    const applied = record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
+      promoted("cand_new", "cat_candidate_new"),
+    ]);
+    expect(toCatalogMergeCandidateBulkJob(applied)).toMatchObject({
+      kind: "merge-candidate-promote",
+      promotionApplicationVersion: 1,
+      result: { promoted: 1, outcomes: [promoted("cand_new", "cat_candidate_new")] },
+    });
+    expect(toCatalogMergeCandidateBulkJob(record("merge-candidate-defer", {}, []))).toMatchObject({
+      kind: "merge-candidate-defer",
+      promotionApplicationVersion: null,
+    });
+  });
+
+  it.each([
+    ["a promoted result without applied facts", [legacyPromoted("cand_malformed")]],
+    ["a promoted result with an unknown mode", [{ ...promoted("cand_bad_mode", "cat_x"), appliedMode: "publish" }]],
+    [
+      "a failed result carrying an applied id",
+      [{ ...promoted("cand_failed", "cat_x"), status: "failed" as const, appliedMode: null }],
+    ],
+    ["an unknown outcome status", [unapplied("cand_unknown", "unrecognized-synthetic-status")]],
+    ["a missing outcome status", [unapplied("cand_missing", undefined)]],
+    ["a deferred outcome", [unapplied("cand_deferred", "deferred")]],
+  ])("fails closed on version-1 jobs with %s", (_name, outcomes) => {
+    expect(() =>
+      toCatalogMergeCandidateBulkJob(
+        record(
+          catalogMergeCandidatePromotionApplicationJobKind,
+          { promotionApplicationVersion: 1 },
+          outcomes as CatalogMergeCandidateBulkUnitResult[],
+        ),
+      ),
+    ).toThrow(CatalogMergeCandidateBulkJobMalformedError);
+  });
+
+  it("keeps valid version-1 failed and skipped outcomes readable with null application facts", () => {
+    const outcomes = [unapplied("cand_failed", "failed"), unapplied("cand_skipped", "skipped-not-eligible")];
+    expect(
+      toCatalogMergeCandidateBulkJob(
+        record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, outcomes),
+      ).result,
+    ).toEqual({ requested: 2, promoted: 0, deferred: 0, skippedNotEligible: 1, failed: 1, outcomes });
+  });
+
+  it("refuses a stored version-1 job with an unknown outcome status on get and completed-list readback", async () => {
+    const stored = record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
+      unapplied("cand_unknown", "unrecognized-synthetic-status"),
+    ]);
+    const row = {
+      job_id: stored.jobId,
+      job_kind: stored.jobKind,
+      status: stored.status,
+      payload: JSON.stringify(stored.payload),
+      progress: JSON.stringify(stored.progress),
+      result: JSON.stringify(stored.result),
+      error_message: null,
+      created_at: createdAt,
+      started_at: createdAt,
+      completed_at: createdAt,
+      updated_at: createdAt,
+      completed_at_key: "2026-10-11T00:00:00.000000Z",
+    };
+    const runtime = createSourceObservationMergeCandidateBulkJobRuntime({
+      deps: { db: { query: vi.fn().mockResolvedValue({ rows: [row] }) } },
+      jobStore: { get: async () => stored },
+    } as unknown as SourceObservationMergeCandidateBulkJobRuntimeDeps).services;
+    const context = {
+      tenantId: "tnt_synthetic",
+      audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+    } as never;
+
+    await expect(runtime.getCatalogMergeCandidateBulkJob(stored.jobId)).rejects.toThrow(
+      CatalogMergeCandidateBulkJobMalformedError,
+    );
+    await expect(runtime.listCompletedCatalogMergeCandidateBulkJobs({ context })).rejects.toThrow(
+      CatalogMergeCandidateBulkJobMalformedError,
+    );
+  });
+
+  it("fails closed when the stored kind and version discriminator disagree", () => {
+    expect(() =>
+      toCatalogMergeCandidateBulkJob(record(catalogMergeCandidatePromotionApplicationJobKind, {}, [])),
+    ).toThrow(CatalogMergeCandidateBulkJobMalformedError);
+    expect(() =>
+      toCatalogMergeCandidateBulkJob(record("merge-candidate-promote", { promotionApplicationVersion: 1 }, [])),
+    ).toThrow(CatalogMergeCandidateBulkJobMalformedError);
+  });
+
+  it("reconciles mixed history by candidate: retries once, approvals never settle, conflicts refuse", () => {
+    const jobs = [
+      record("merge-candidate-promote", {}, [legacyPromoted("cand_a"), legacyPromoted("cand_legacy_only")]),
+      record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
+        promoted("cand_a", "cat_source_a", "refresh"),
+      ]),
+      record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
+        promoted("cand_a", "cat_source_a", "refresh"),
+        {
+          ...promoted("cand_b", "x"),
+          status: "skipped-not-eligible",
+          reason: "Already applied.",
+          appliedCatalogItemId: null,
+          appliedMode: null,
+          approvalVersion: null,
+          planFingerprint: null,
+        },
+      ]),
+    ].map(toCatalogMergeCandidateBulkJob);
+    const reconciled = reconcileCatalogMergeCandidateApplications(jobs);
+    expect([...reconciled.applied]).toEqual([
+      [
+        "cand_a",
+        {
+          catalogItemId: "cat_source_a",
+          appliedMode: "refresh",
+          approvalVersion: 2,
+          planFingerprint: `sha256:${"b".repeat(64)}`,
+        },
+      ],
+    ]);
+    expect([...reconciled.approvalOnly]).toEqual(["cand_legacy_only"]);
+
+    const conflicting = [
+      ...jobs,
+      toCatalogMergeCandidateBulkJob(
+        record(catalogMergeCandidatePromotionApplicationJobKind, { promotionApplicationVersion: 1 }, [
+          promoted("cand_a", "cat_candidate_a", "create"),
+        ]),
+      ),
+    ];
+    expect(() => reconcileCatalogMergeCandidateApplications(conflicting)).toThrow("conflicting applications");
+  });
 });

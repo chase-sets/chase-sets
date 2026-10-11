@@ -21,6 +21,7 @@ import type { ProductAssetSet } from "../../../../support/runtime-support/produc
 import {
   promoteAsDraftBypassesDegradedIdentity,
   validatePromotionDisplayIdentity,
+  type CatalogPromotionCurrentItem,
   type CatalogPromotionDisplayIdentityEvidence,
   type CatalogPromotionDisplayIdentityOutcome,
 } from "./promotion-display-identity";
@@ -191,7 +192,8 @@ export type CatalogMergeCandidatePromotionPlanInput = Readonly<{
  * unless `promoteAsDraft` is explicitly true AND the commands are draft-only.
  */
 export async function planCatalogMergeCandidatePromotionCommands(
-  input: CatalogMergeCandidatePromotionPlanInput & Readonly<{ db: PgQueryable; promoteAsDraft?: boolean }>,
+  input: CatalogMergeCandidatePromotionPlanInput &
+    Readonly<{ db: PgQueryable; promoteAsDraft?: boolean; currentItem?: CatalogPromotionCurrentItem | null }>,
 ): Promise<CatalogMergeCandidatePromotionCommandPlanResult> {
   const constructed = constructCatalogMergeCandidatePromotionCommands(input);
   if (constructed.status === "blocked") {
@@ -203,6 +205,7 @@ export async function planCatalogMergeCandidatePromotionCommands(
     mode: constructed.mode,
     catalogItemId: constructed.catalogItemId,
     commands: constructed.commands,
+    currentItem: input.currentItem,
   });
   if (validation.status === "missing-current-item") {
     return {

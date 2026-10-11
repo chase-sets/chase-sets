@@ -7,6 +7,7 @@ import {
   decideCatalogItem,
   evolveCatalogItem,
   initialCatalogItemState,
+  type CatalogItemCommand,
   type CatalogItemEvent,
 } from "../../../catalog-items/domain/domain";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -33,16 +34,22 @@ import {
   promotionMaterialCategory,
   promotionProfileAuthorityLock,
 } from "./promotion-material-guards";
-import type { CatalogProviderPromotionCommandPlan } from "./provider-promotion-command-planner";
 import { promotionTargetBindingSchema } from "./promotion-target-discovery";
 
 export type PromotionTargetAuthority = (client: PgQueryable) => Promise<void>;
+/** The executable part of a promotion plan; Source Observation and candidate plans both bind through it. */
+export type PromotionTargetPlan = Readonly<{
+  catalogItemId: string;
+  mode: "create" | "refresh" | "link-existing";
+  commands: readonly CatalogItemCommand[];
+  planFingerprint: string;
+}>;
 export type PromotionTargetSession = Readonly<{
   targetId: string;
   evidence: PromotionTargetDiscovery;
   append: (input: AppendToStreamInput) => Promise<readonly StoredEvent[]>;
   commandHandler: CatalogItemServices["commandHandler"];
-  preparePlan: (plan: CatalogProviderPromotionCommandPlan) => Promise<number>;
+  preparePlan: (plan: PromotionTargetPlan) => Promise<number>;
   guard: (streamId: string, version: number) => void;
 }>;
 export type PromotionTargetExclusion = Readonly<{
