@@ -4,8 +4,8 @@ import { definePricingGoal } from "./registry";
 
 /**
  * The app's `target-horizon` policy: the price whose median sell time meets the
- * horizon. The default is epic #7703 pillar 8 ("Sell steadily within 30
- * days"); the bound stops at the compiled hopeless horizon, while the app
+ * horizon. The default is the plain-language goal "Sell steadily within 30
+ * days"; the bound stops at the compiled hopeless horizon, while the app
  * accepts any positive horizon. Horizons beyond the curve clamp to its end.
  */
 export const targetHorizonGoal = definePricingGoal({

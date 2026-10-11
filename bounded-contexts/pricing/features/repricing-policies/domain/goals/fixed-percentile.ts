@@ -3,9 +3,10 @@ import { pointAtPercentile } from "./curve-math";
 import { definePricingGoal } from "./registry";
 
 /**
- * The app's `percentile` policy. The default is Decision #9317. The bounds are
- * the comp-percentile authoring bounds, wider than the app's 5-95 grid; a
- * percentile beyond the curve's end points prices at that end point.
+ * The app's `percentile` policy. The default is the app's compiled default
+ * percentile. The bounds are the comp-percentile authoring bounds, wider than
+ * the app's 5-95 grid; a percentile beyond the curve's end points prices at
+ * that end point.
  */
 export const fixedPercentileGoal = definePricingGoal({
   id: "fixed-percentile",
