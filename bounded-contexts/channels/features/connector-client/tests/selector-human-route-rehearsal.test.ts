@@ -13,7 +13,7 @@ import {
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createContext, Script } from "node:vm";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const relative = "bounded-contexts/channels/features/connector-client/tests/selector-human-route-rehearsal.mjs";
@@ -180,6 +180,193 @@ function componentProfile() {
 }
 
 describe("selector-human-rehearsal-isolation", () => {
+  it("absent-then-persisted component provenance detaches then reaches unchanged prepared HANDOFF", async () => {
+    vi.useFakeTimers();
+    try {
+      for (const absent of ["missing", "entry", "malformed"]) {
+        const profile = componentProfile();
+        if (absent === "missing") rmSync(profile.preferences);
+        else
+          writeFileSync(
+            profile.preferences,
+            absent === "entry" ? encode({ extensions: { settings: {} } }) : "not-json",
+          );
+        const calls: { method: string; params: Record<string, unknown>; session?: string }[] = [];
+        const reports: string[] = [];
+        const isolation = new driver.WorkerIsolation(
+          async (method: string, params: Record<string, unknown>, session?: string) => {
+            calls.push({ method, params, session });
+            return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+          },
+          profile.metadata,
+          (phase: string) => reports.push(phase),
+          { componentProvenancePoll: { intervalMs: 10, deadlineMs: 1000 } },
+        );
+        const attached = isolation.attached({
+          sessionId: "component",
+          targetInfo: componentTarget,
+          waitingForDebugger: true,
+        });
+        expect(isolation.held).toBe(false);
+        expect(calls).toEqual([]);
+        await vi.advanceTimersByTimeAsync(50);
+        profile.write();
+        await vi.advanceTimersByTimeAsync(10);
+        await attached;
+        expect(calls).toEqual([
+          { method: "Runtime.runIfWaitingForDebugger", params: {}, session: "component" },
+          { method: "Target.detachFromTarget", params: { sessionId: "component" }, session: undefined },
+        ]);
+        expect(reports).toEqual(["COMPONENT_DETACHED"]);
+        expect(isolation.session).toBeNull();
+        expect(isolation.ready).toBe(false);
+        await isolation.attached({
+          sessionId: "prepared",
+          targetInfo: {
+            type: "service_worker",
+            url: `chrome-extension://${metadata.preparation.extensionId}/worker.js`,
+          },
+          waitingForDebugger: true,
+        });
+        expect(isolation.held).toBe(false);
+        expect(isolation.ready).toBe(true);
+        expect(isolation.session).toBe("prepared");
+        expect(reports).toEqual(["COMPONENT_DETACHED", "HANDOFF"]);
+        const preparedCalls = calls.slice(2);
+        expect(preparedCalls.map((call) => call.method)).toEqual([
+          "Network.enable",
+          "Network.setBlockedURLs",
+          "Runtime.enable",
+          "Runtime.runIfWaitingForDebugger",
+          "Runtime.evaluate",
+          "Runtime.evaluate",
+        ]);
+        expect(preparedCalls.every((call) => call.session === "prepared")).toBe(true);
+        expect(preparedCalls[1].params).toEqual({ urls: ["http://*", "https://*", "ws://*", "wss://*"] });
+        expect(String(preparedCalls[4].params.expression)).toContain("__selectorRehearsalBound");
+        expect(String(preparedCalls[5].params.expression)).toContain("https://synthetic-provider.invalid/never-live");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("prepared attach proceeds independently during component provenance wait", async () => {
+    vi.useFakeTimers();
+    try {
+      const profile = componentProfile();
+      rmSync(profile.preferences);
+      const calls: { method: string; session?: string }[] = [];
+      const reports: string[] = [];
+      const isolation = new driver.WorkerIsolation(
+        async (method: string, _params: Record<string, unknown>, session?: string) => {
+          calls.push({ method, session });
+          return method === "Runtime.evaluate" ? { result: { value: true } } : {};
+        },
+        profile.metadata,
+        (phase: string) => reports.push(phase),
+        { componentProvenancePoll: { intervalMs: 10, deadlineMs: 1000 } },
+      );
+      const attached = isolation.attached({
+        sessionId: "component",
+        targetInfo: componentTarget,
+        waitingForDebugger: true,
+      });
+      await isolation.attached({
+        sessionId: "prepared",
+        targetInfo: { type: "service_worker", url: `chrome-extension://${metadata.preparation.extensionId}/worker.js` },
+        waitingForDebugger: true,
+      });
+      expect(isolation.ready).toBe(true);
+      expect(isolation.session).toBe("prepared");
+      expect(calls).toHaveLength(6);
+      expect(calls.every((call) => call.session === "prepared")).toBe(true);
+      expect(reports).toEqual(["HANDOFF"]);
+      profile.write();
+      await vi.advanceTimersByTimeAsync(10);
+      await attached;
+      expect(isolation.held).toBe(false);
+      expect(isolation.ready).toBe(true);
+      expect(isolation.session).toBe("prepared");
+      expect(reports).toEqual(["HANDOFF", "COMPONENT_DETACHED"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("HOLD during component provenance wait never resumes even after persistence", async () => {
+    vi.useFakeTimers();
+    try {
+      const profile = componentProfile();
+      rmSync(profile.preferences);
+      const calls: string[] = [];
+      const reports: string[] = [];
+      const isolation = new driver.WorkerIsolation(
+        async (method: string) => {
+          calls.push(method);
+          return {};
+        },
+        profile.metadata,
+        (phase: string, code: string) => reports.push(`${phase}:${code}`),
+        { componentProvenancePoll: { intervalMs: 10, deadlineMs: 1000 } },
+      );
+      const attached = isolation.attached({
+        sessionId: "component",
+        targetInfo: componentTarget,
+        waitingForDebugger: true,
+      });
+      expect(isolation.held).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+      isolation.hold("synthetic_hold_during_wait");
+      profile.write();
+      await vi.advanceTimersByTimeAsync(10);
+      await attached;
+      expect(isolation.held).toBe(true);
+      expect(isolation.ready).toBe(false);
+      expect(isolation.session).toBeNull();
+      expect(calls).toEqual([]);
+      expect(reports).toEqual(["HOLD:synthetic_hold_during_wait"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("absent-through-deadline component provenance HOLDs without resuming", async () => {
+    vi.useFakeTimers();
+    try {
+      const profile = componentProfile();
+      rmSync(profile.preferences);
+      const calls: string[] = [];
+      const reports: string[] = [];
+      const isolation = new driver.WorkerIsolation(
+        async (method: string) => {
+          calls.push(method);
+          return {};
+        },
+        profile.metadata,
+        (phase: string, code: string) => reports.push(`${phase}:${code}`),
+        { componentProvenancePoll: { intervalMs: 10, deadlineMs: 25 } },
+      );
+      const attached = isolation.attached({
+        sessionId: "component",
+        targetInfo: componentTarget,
+        waitingForDebugger: true,
+      });
+      await vi.advanceTimersByTimeAsync(24);
+      expect(isolation.held).toBe(false);
+      expect(calls).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      await attached;
+      expect(isolation.held).toBe(true);
+      expect(isolation.ready).toBe(false);
+      expect(isolation.session).toBeNull();
+      expect(calls).toEqual([]);
+      expect(reports).toEqual(["HOLD:component_provenance_unavailable"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("component-worker-present startup resumes and detaches without binding, then reaches exact-worker HANDOFF", async () => {
     for (const waitingForDebugger of [true, false]) {
       const profile = componentProfile();
@@ -277,6 +464,7 @@ describe("selector-human-rehearsal-isolation", () => {
       { target: { ...componentTarget, url: `chrome-extension://${componentId}/worker.js` } },
       { target: { ...componentTarget, type: "page" } },
       { missing: true },
+      { missingEntry: true },
       { malformed: true },
       { preparedId: componentId },
     ];
@@ -284,25 +472,40 @@ describe("selector-human-rehearsal-isolation", () => {
       const profile = componentProfile();
       if ("registration" in failure) profile.write({ ...profile.registration, ...failure.registration });
       if ("missing" in failure) rmSync(profile.preferences);
+      if ("missingEntry" in failure) writeFileSync(profile.preferences, encode({ extensions: { settings: {} } }));
       if ("malformed" in failure) writeFileSync(profile.preferences, "not-json");
       if ("preparedId" in failure) profile.metadata.preparation.extensionId = failure.preparedId;
       const calls: string[] = [];
+      const reports: string[] = [];
+      const unavailable = "missing" in failure || "missingEntry" in failure || "malformed" in failure;
       const isolation = new driver.WorkerIsolation(
         async (method: string) => {
           calls.push(method);
           return {};
         },
         profile.metadata,
-        () => {},
+        (phase: string, code: string) => reports.push(`${phase}:${code}`),
+        { componentProvenancePoll: { intervalMs: 1, deadlineMs: unavailable ? 0 : 1000 } },
       );
-      await isolation.attached({
+      const attached = isolation.attached({
         sessionId: "foreign",
         targetInfo: "target" in failure ? failure.target : componentTarget,
         waitingForDebugger: true,
       });
+      if (!unavailable) expect(isolation.held).toBe(true);
+      await attached;
       expect(isolation.held).toBe(true);
       expect(isolation.ready).toBe(false);
       expect(calls).toEqual([]);
+      expect(reports).toEqual([
+        `HOLD:${
+          unavailable
+            ? "component_provenance_unavailable"
+            : "registration" in failure
+              ? "component_provenance_refused"
+              : "worker_restart_or_identity_refused"
+        }`,
+      ]);
     }
   });
 
