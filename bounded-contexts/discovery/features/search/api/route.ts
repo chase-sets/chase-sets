@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { DiscoveryItemSearchServices } from "./runtime";
 import type { DiscoveryMarketActivityFilter } from "../read-model/queries";
+import type { DiscoverySearchResponse } from "../../../support/client-support/contracts";
 import { truncateDiscoverySearchQuery, truncateDiscoverySearchSuggestionQuery } from "../domain/normalization";
 
 export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices) {
@@ -52,7 +53,8 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       lexicalCount: result.lexicalCount,
       queryHash: result.queryHash,
       resultSetKey: result.resultSetKey,
-    });
+      ...(result.cursorState === "restarted" ? { cursorRestarted: true } : {}),
+    } satisfies DiscoverySearchResponse);
   });
 
   return app;

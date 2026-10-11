@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
-import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
+import { buildSimpleSearchQuery, foldSearchDiacritics, normalizeSimpleSearchText } from "../domain/normalization";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
@@ -10,6 +10,22 @@ import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValu
 
 const FACET_VALUE_LIMIT = 50;
 const FACET_GROUP_LIMIT = 10;
+const RELEVANCE_CURSOR_VERSION = 2;
+const EXPLICIT_SORTS = new Set(["title_asc", "title_desc", "newest", "price_asc", "price_desc"]);
+const SEARCH_ITEM_COLUMNS =
+  "catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, lowest_price_amount::text AS lowest_price_amount, lowest_price_currency_code, visible_quantity, updated_at";
+
+// Exact identity normalization uses explicit code points so it never depends on the
+// database's LC_CTYPE. Each range is a subset of what the oracle
+// `normalizeSimpleSearchText(value).toLowerCase()` folds, so SQL equality may be
+// stricter than the oracle but never looser: marks fold only after these Latin
+// letters (Japanese dakuten/handakuten survive), only these punctuation, space, and
+// control runs become one space, and lowercasing is ASCII-only.
+const LATIN_BASE_LETTERS = String.raw`A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u1E00-\u1EFF`;
+const LATIN_COMBINING_MARKS = String.raw`\u0300-\u036F`;
+const IDENTITY_SEPARATORS = String.raw`\u0001-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u00A9\u00AB-\u00B1\u00B4\u00B6-\u00B8\u00BB\u00BF\u00D7\u00F7\u2000-\u206F\u3000-\u3004\u3008-\u3020\u3030\u303D-\u303F\u309B\u309C\u30A0\u30FB\uFF01-\uFF0F\uFF1A-\uFF20\uFF3B-\uFF40\uFF5B-\uFF65`;
+
+export type DiscoverySearchCursorState = "fresh" | "cursor" | "restarted";
 
 export type DiscoverySearchParams = {
   search?: string;
@@ -133,6 +149,7 @@ type SearchIndexItemRow = BaseDiscoverySearchItemRow & {
   lowest_price_amount: string | null;
   lowest_price_currency_code: string | null;
   visible_quantity: number | null;
+  search_exact_tier?: number | null;
 };
 
 async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly string[]) {
@@ -196,7 +213,6 @@ type BuiltSearchFilter = Readonly<{
   values: unknown[];
   where: string;
   nextParamIndex: number;
-  hasSearch: boolean;
   englishSearchParamIndex: number | null;
   simpleSearchParamIndex: number | null;
 }>;
@@ -211,7 +227,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   values.push(params.status ?? "active");
   paramIndex++;
 
-  let hasSearch = false;
   let englishSearchParamIndex: number | null = null;
   let simpleSearchParamIndex: number | null = null;
 
@@ -230,7 +245,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     );
     values.push(buildSimpleSearchQuery(params.search));
     paramIndex++;
-    hasSearch = true;
   }
 
   if (params.category && options.excludeFacet?.kind !== "category") {
@@ -345,7 +359,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     values,
     where: conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "",
     nextParamIndex: paramIndex,
-    hasSearch,
     englishSearchParamIndex,
     simpleSearchParamIndex,
   };
@@ -521,19 +534,17 @@ export async function searchDiscoveryItems(
   options: Readonly<{ loadFacets?: boolean; loadMarketSummaries?: boolean }> = {},
 ): Promise<ListResult<DiscoverySearchItemRow>> {
   const baseFilter = buildSearchFilter(params);
-  const conditions = [...baseFilter.conditions];
   const values = [...baseFilter.values];
   let paramIndex = baseFilter.nextParamIndex;
-  const where = baseFilter.where;
-  const hasSearch = baseFilter.hasSearch;
-  const englishSearchParamIndex = baseFilter.englishSearchParamIndex;
-  const simpleSearchParamIndex = baseFilter.simpleSearchParamIndex;
+  const relevance = usesRelevanceOrdering(params);
+  const relevanceCursor = relevance ? decodeRelevanceCursor(params.cursor) : null;
+  const cursor = relevance ? null : decodeKeysetCursor(params.cursor);
+  // Metadata follows the effective cursor: a rejected cursor restarts as a fresh page.
+  const continuing = relevanceCursor !== null || cursor !== null;
 
-  let rankExpression: string | null = null;
-  let baseMatchExpression: string | null = null;
+  let candidateSql: string | null = null;
   let orderBy: string;
   let cursorCondition: string | null = null;
-  const cursor = decodeSearchCursor(params.cursor);
   switch (params.sort) {
     case "title_asc":
       orderBy = "title ASC, catalog_item_id ASC";
@@ -589,33 +600,44 @@ export async function searchDiscoveryItems(
       break;
     case "relevance":
     default:
-      if (hasSearch) {
-        baseMatchExpression = `(search_text @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR search_text_simple @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`;
+      if (relevance) {
+        const englishQuery = `plainto_tsquery('english', $${baseFilter.englishSearchParamIndex})`;
+        const simpleQuery = `plainto_tsquery('simple', $${baseFilter.simpleSearchParamIndex})`;
+        const exactQueryParam = `$${paramIndex}`;
+        values.push(exactIdentityQuery(params.search ?? ""));
+        paramIndex++;
         // Contents text is folded into search_text at weight D, so ts_rank over the
         // item's own tsvectors already accounts for content matches (weight D ranks
         // them below title/subtitle/body). No correlated per-row rank subquery, and
         // the former 0.20 content dampener is dropped: weight D already orders
         // content-only matches below every base-text match, so the extra factor was
         // redundant double-dampening on top of the per-content-type weight.
-        rankExpression = `(ts_rank(search_text, plainto_tsquery('english', $${englishSearchParamIndex})) + ts_rank(search_text_simple, plainto_tsquery('simple', $${simpleSearchParamIndex})))`;
-        orderBy = `${baseMatchExpression} DESC, ${rankExpression} DESC, title ASC, catalog_item_id ASC`;
-        if (cursor) {
-          // ORDER BY mixes directions (baseMatch DESC, rank DESC, title ASC, id ASC),
-          // so the "after cursor" predicate must expand lexicographically with each
-          // column's own inequality. A single row-value comparison would (incorrectly)
-          // apply one direction to every column and duplicate/drop rows on rank ties.
-          const baseMatchColumn = `${baseMatchExpression}::integer`;
-          const baseMatchParam = `$${paramIndex}::integer`;
-          const rankParam = `$${paramIndex + 1}::real`;
-          const titleParam = `$${paramIndex + 2}`;
-          const idParam = `$${paramIndex + 3}`;
+        // OFFSET 0 keeps the derived table from being flattened, so rank, base match,
+        // and exact tier are computed once per qualifying row rather than again in
+        // every keyset disjunct.
+        candidateSql = `(
+      SELECT ${SEARCH_ITEM_COLUMNS}, (ts_rank(search_text, ${englishQuery}) + ts_rank(search_text_simple, ${simpleQuery})) AS search_rank, (search_text @@ ${englishQuery} OR search_text_simple @@ ${simpleQuery}) AS search_base_match, ${exactIdentityTierSql(exactQueryParam)} AS search_exact_tier
+      FROM discovery_search_items ${baseFilter.where}
+      OFFSET 0
+    ) AS candidate`;
+        orderBy = "search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC";
+        if (relevanceCursor) {
+          // ORDER BY mixes directions, so "after cursor" compares the descending prefix
+          // and the ascending tiebreakers separately. One row-value comparison would
+          // apply a single direction to every column and duplicate/drop rows on ties.
+          const descending = "(search_exact_tier, search_base_match::integer, search_rank)";
+          const descendingValues = `($${paramIndex}::integer, $${paramIndex + 1}::integer, $${paramIndex + 2}::real)`;
           cursorCondition =
-            `(${baseMatchColumn} < ${baseMatchParam}` +
-            ` OR (${baseMatchColumn} = ${baseMatchParam} AND ${rankExpression} < ${rankParam})` +
-            ` OR (${baseMatchColumn} = ${baseMatchParam} AND ${rankExpression} = ${rankParam} AND title > ${titleParam})` +
-            ` OR (${baseMatchColumn} = ${baseMatchParam} AND ${rankExpression} = ${rankParam} AND title = ${titleParam} AND catalog_item_id > ${idParam}))`;
-          values.push(cursor.baseMatch ? 1 : 0, cursor.rank, cursor.title, cursor.id);
-          paramIndex += 4;
+            `(${descending} < ${descendingValues}` +
+            ` OR (${descending} = ${descendingValues} AND (title, catalog_item_id) > ($${paramIndex + 3}, $${paramIndex + 4})))`;
+          values.push(
+            relevanceCursor.tier,
+            relevanceCursor.baseMatch ? 1 : 0,
+            relevanceCursor.rank,
+            relevanceCursor.title,
+            relevanceCursor.id,
+          );
+          paramIndex += 5;
         }
       } else {
         orderBy = "title ASC, catalog_item_id ASC";
@@ -628,11 +650,6 @@ export async function searchDiscoveryItems(
       break;
   }
 
-  if (cursorCondition) {
-    conditions.push(cursorCondition);
-  }
-
-  const whereWithCursor = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = clampLimit(params.limit);
   const offset = clampOffset(params.offset);
   const useLegacyOffset = offset > 0;
@@ -640,24 +657,28 @@ export async function searchDiscoveryItems(
   const listLimitSql = useLegacyOffset
     ? `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`
     : `LIMIT $${values.length + 1}`;
-  const selectRank = rankExpression ? `, ${rankExpression} AS search_rank` : "";
-  const selectBaseMatch = baseMatchExpression ? `, ${baseMatchExpression} AS search_base_match` : "";
+  const listConditions = [
+    ...(candidateSql ? [] : baseFilter.conditions),
+    ...(cursorCondition ? [cursorCondition] : []),
+  ];
+  const listWhere = listConditions.length > 0 ? `WHERE ${listConditions.join(" AND ")}` : "";
 
+  // The count never sees the exact-query or keyset bindings: only the base WHERE.
   const countPromise =
-    !params.cursor && (params.includeTotal || useLegacyOffset)
+    !continuing && (params.includeTotal || useLegacyOffset)
       ? db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM discovery_search_items ${where}`,
-          values.slice(0, values.length - (cursorCondition ? cursorValueCount(params.sort, hasSearch, cursor) : 0)),
+          `SELECT COUNT(*) AS count FROM discovery_search_items ${baseFilter.where}`,
+          baseFilter.values,
         )
       : Promise.resolve({ rows: [] });
-  const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, lowest_price_amount::text AS lowest_price_amount, lowest_price_currency_code, visible_quantity, updated_at${selectRank}${selectBaseMatch}
-    FROM discovery_search_items ${whereWithCursor}
+  const listSql = `${candidateSql ? `SELECT * FROM ${candidateSql}` : `SELECT ${SEARCH_ITEM_COLUMNS} FROM discovery_search_items`}
+    ${listWhere}
     ORDER BY ${orderBy}
     ${listLimitSql}`;
 
   const [countResult, listResult] = await Promise.all([
     countPromise,
-    db.query<SearchIndexItemRow & { search_rank?: string | number | null }>(listSql, listValues),
+    db.query<SearchIndexItemRow>(listSql, listValues),
   ]);
   const rows = useLegacyOffset ? listResult.rows : listResult.rows.slice(0, limit);
   const lastRow = rows.at(-1);
@@ -670,7 +691,7 @@ export async function searchDiscoveryItems(
           db,
           rows.map((row) => row.catalog_item_id),
         );
-  const loadFacets = options.loadFacets !== false && !params.cursor;
+  const loadFacets = options.loadFacets !== false && !continuing;
   const facets = loadFacets ? await loadSearchFacets(db, params) : [];
   const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params) : [];
 
@@ -680,6 +701,7 @@ export async function searchDiscoveryItems(
         lowest_price_amount: _lowestPriceAmount,
         lowest_price_currency_code: _lowestPriceCurrencyCode,
         visible_quantity: _visibleQuantity,
+        search_exact_tier: _exactTier,
         ...row
       }) => ({
         ...row,
@@ -689,8 +711,49 @@ export async function searchDiscoveryItems(
     facets,
     category_counts,
     total: countResult.rows[0]?.count ? Number.parseInt(countResult.rows[0].count, 10) : null,
-    nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow) : null,
+    nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow, relevance) : null,
   };
+}
+
+/**
+ * Effective state of `params.cursor` for the ordering it would continue. A cursor that
+ * ordering cannot decode (unversioned or malformed relevance cursors included) restarts
+ * as a fresh request instead of defaulting into a partial keyset.
+ */
+export function discoverySearchCursorState(params: DiscoverySearchParams): DiscoverySearchCursorState {
+  if (!params.cursor) {
+    return "fresh";
+  }
+
+  const decoded = usesRelevanceOrdering(params)
+    ? decodeRelevanceCursor(params.cursor)
+    : decodeKeysetCursor(params.cursor);
+  return decoded ? "cursor" : "restarted";
+}
+
+function usesRelevanceOrdering(params: DiscoverySearchParams): boolean {
+  return Boolean(params.search) && !EXPLICIT_SORTS.has(params.sort ?? "");
+}
+
+/**
+ * Tier 1 when the normalized query equals the normalized title or `title subtitle`
+ * (a NULL subtitle leaves the title alone); otherwise, including an empty normalized
+ * query, tier 0. One SQL expression normalizes the bound query and both row forms.
+ */
+function exactIdentityTierSql(queryParam: string): string {
+  return `CASE ${exactIdentitySql(queryParam)} WHEN '' THEN 0 WHEN ${exactIdentitySql("title")} THEN 1 WHEN ${exactIdentitySql("title || ' ' || subtitle")} THEN 1 ELSE 0 END`;
+}
+
+function exactIdentitySql(text: string): string {
+  return `lower(btrim(regexp_replace(normalize(regexp_replace(normalize(${text}, NFD), '(?<=[${LATIN_BASE_LETTERS}])[${LATIN_COMBINING_MARKS}]+', '', 'g'), NFC), '[${IDENTITY_SEPARATORS}]+', ' ', 'g'), ' ') COLLATE "C")`;
+}
+
+/**
+ * The SQL keeps symbols the oracle drops, so it would read a symbol-only query as a
+ * non-empty identity. The oracle decides emptiness only; equality stays in SQL.
+ */
+function exactIdentityQuery(search: string): string {
+  return normalizeSimpleSearchText(search) ? search : "";
 }
 
 /**
@@ -1565,55 +1628,79 @@ function clampOffset(offset: number | undefined): number {
   return Math.min(1_000, Math.max(0, Math.trunc(offset as number)));
 }
 
-function cursorValueCount(
-  sort: string | undefined,
-  hasSearch: boolean,
-  cursor: ReturnType<typeof decodeSearchCursor>,
-): number {
-  if (sort === "price_asc" || sort === "price_desc") {
-    return cursor?.lowestPriceAmount === null ? 1 : 2;
+function encodeSearchCursor(row: SearchIndexItemRow, relevance: boolean): string {
+  const rank = Number(row.search_rank ?? 0);
+  const baseMatch = Boolean(row.search_base_match);
+  const value = relevance
+    ? {
+        v: RELEVANCE_CURSOR_VERSION,
+        id: row.catalog_item_id,
+        title: row.title,
+        updatedAt: row.updated_at,
+        rank,
+        baseMatch,
+        tier: Number(row.search_exact_tier ?? 0),
+        lowestPriceAmount: row.lowest_price_amount,
+      }
+    : {
+        id: row.catalog_item_id,
+        title: row.title,
+        updatedAt: row.updated_at,
+        rank,
+        baseMatch,
+        lowestPriceAmount: row.lowest_price_amount,
+      };
+
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+/** Relevance continues only from a complete v2 tuple; nothing defaults into it. */
+function decodeRelevanceCursor(cursor: string | undefined) {
+  const value = parseCursorObject(cursor);
+  if (
+    value?.v !== RELEVANCE_CURSOR_VERSION ||
+    (value.tier !== 0 && value.tier !== 1) ||
+    typeof value.baseMatch !== "boolean" ||
+    typeof value.rank !== "number" ||
+    !Number.isFinite(value.rank) ||
+    typeof value.title !== "string" ||
+    typeof value.id !== "string" ||
+    value.id.length === 0
+  ) {
+    return null;
   }
 
-  return (sort === "relevance" || sort === undefined) && hasSearch ? 4 : 2;
+  return { tier: value.tier, baseMatch: value.baseMatch, rank: value.rank, title: value.title, id: value.id };
 }
 
-function encodeSearchCursor(row: SearchIndexItemRow & { search_rank?: string | number | null }): string {
-  return Buffer.from(
-    JSON.stringify({
-      id: row.catalog_item_id,
-      title: row.title,
-      updatedAt: row.updated_at,
-      rank: Number(row.search_rank ?? 0),
-      baseMatch: Boolean(row.search_base_match),
-      lowestPriceAmount: row.lowest_price_amount,
-    }),
-    "utf8",
-  ).toString("base64url");
+/** Explicit sorts and text-free relevance keep their unversioned keyset format. */
+function decodeKeysetCursor(cursor: string | undefined) {
+  const value = parseCursorObject(cursor);
+  if (!value) {
+    return null;
+  }
+
+  return {
+    id: String(value.id ?? ""),
+    title: String(value.title ?? ""),
+    updatedAt: String(value.updatedAt ?? ""),
+    lowestPriceAmount:
+      typeof value.lowestPriceAmount === "string" && value.lowestPriceAmount.length > 0
+        ? value.lowestPriceAmount
+        : null,
+  };
 }
 
-function decodeSearchCursor(cursor: string | undefined) {
+function parseCursorObject(cursor: string | undefined): Readonly<Record<string, unknown>> | null {
   if (!cursor) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-
-    const value = parsed as Record<string, unknown>;
-    return {
-      id: String(value.id ?? ""),
-      title: String(value.title ?? ""),
-      updatedAt: String(value.updatedAt ?? ""),
-      rank: Number(value.rank ?? 0),
-      baseMatch: Boolean(value.baseMatch),
-      lowestPriceAmount:
-        typeof value.lowestPriceAmount === "string" && value.lowestPriceAmount.length > 0
-          ? value.lowestPriceAmount
-          : null,
-    };
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Readonly<Record<string, unknown>>)
+      : null;
   } catch {
     return null;
   }

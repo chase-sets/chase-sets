@@ -20,6 +20,20 @@ describe("search scroll restoration", () => {
     expect(restoreSearchRestoration(window.sessionStorage, "pikachu")).toEqual({ pages: [], scrollY: null });
   });
 
+  it("round-trips a cursor-restart replacement over, never alongside, the old stored pages", () => {
+    const oldPages = [page("old-second", "legacy_3"), page("old-third", "legacy_4")];
+    persistSearchRestoration(window.sessionStorage, "charizard", oldPages, 900);
+
+    // The restart replaces the first page in the loader cache and discards every extra page.
+    persistSearchRestoration(window.sessionStorage, "charizard", [], 900);
+    expect(restoreSearchRestoration(window.sessionStorage, "charizard")).toEqual({ pages: [], scrollY: null });
+
+    // Later valid v2 pages are the only extra pages restoration can revive.
+    const v2Pages = [page("v2-second", "v2_3")];
+    persistSearchRestoration(window.sessionStorage, "charizard", v2Pages, 1_200);
+    expect(restoreSearchRestoration(window.sessionStorage, "charizard")).toEqual({ pages: v2Pages, scrollY: 1_200 });
+  });
+
   it("caps persisted pages at a contiguous prefix so its final cursor remains resumable", () => {
     const pages = Array.from({ length: MAX_PERSISTED_SEARCH_EXTRA_PAGES + 2 }, (_, index) =>
       page(`page-${index + 2}`, `cursor_${index + 3}`),

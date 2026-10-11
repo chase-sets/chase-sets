@@ -1,7 +1,46 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DiscoveryItemSearchServices } from "./runtime";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createDiscoveryItemSearchRuntime, type DiscoveryItemSearchServices } from "./runtime";
 import { discoveryItemSearchRoutes } from "./route";
 import { DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS } from "../domain/normalization";
+
+// Plays the Search Index for one relevance Result Set: an exact first row and one other.
+function scriptedSearchDb() {
+  const listCalls: Array<readonly unknown[]> = [];
+  const row = (id: string, title: string, tier: number) => ({
+    catalog_item_id: id,
+    slug: id,
+    title,
+    subtitle: null,
+    updated_at: "2026-05-16T00:00:00.000Z",
+    lowest_price_amount: null,
+    lowest_price_currency_code: null,
+    visible_quantity: null,
+    search_rank: tier === 1 ? 0.1 : 0.9,
+    search_base_match: true,
+    search_exact_tier: tier,
+  });
+  const rowsFor = (sql: string, values: readonly unknown[]): unknown[] => {
+    if (sql.startsWith("SELECT COUNT(*) AS count")) return [{ count: "2" }];
+    if (sql.includes("AS slug, COUNT(DISTINCT")) return [{ slug: "cards", count: 2 }];
+    if (!sql.startsWith("SELECT * FROM (")) return [];
+    listCalls.push(values);
+    const exact = row("cat_exact", "Charizard ex", 1);
+    const other = row("cat_other", "Charizard ex Box", 0);
+    return sql.includes("search_rank) < (") ? [other] : [exact, other];
+  };
+  const db: PgQueryable = {
+    query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+      const rows = rowsFor(sql, values);
+      return { rows: rows as Row[], rowCount: rows.length };
+    },
+  };
+  return { db, listCalls };
+}
+
+function decodeCursorJson(cursor: unknown): unknown {
+  return JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+}
 
 function createServices(): DiscoveryItemSearchServices {
   return {
@@ -14,6 +53,7 @@ function createServices(): DiscoveryItemSearchServices {
       nextCursor: null,
       retrievalMode: "lexical" as const,
       lexicalCount: 0,
+      cursorState: "fresh" as const,
       queryHash: "",
       resultSetKey: "",
     })),
@@ -57,6 +97,7 @@ describe("discovery item search routes", () => {
       nextCursor: null,
       retrievalMode: "lexical",
       lexicalCount: 0,
+      cursorState: "fresh",
       queryHash,
       resultSetKey,
     });
@@ -219,5 +260,65 @@ describe("discovery item search routes", () => {
       signal: expect.any(AbortSignal),
     });
     expect([...expected]).toHaveLength(Math.min([...search].length, DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS));
+  });
+
+  it.each([
+    [
+      "an unversioned legacy cursor",
+      Buffer.from(JSON.stringify({ id: "cat_old", title: "Old", rank: 0.9 })).toString("base64url"),
+    ],
+    ["a malformed cursor", "not-a-cursor"],
+    ["array JSON", Buffer.from(JSON.stringify([0, 1, 0.9, "Old", "cat_old"])).toString("base64url")],
+  ])("legacy or invalid relevance cursor restarts with metadata over HTTP: %s", async (_label, rejectedCursor) => {
+    const { db, listCalls } = scriptedSearchDb();
+    const app = discoveryItemSearchRoutes(
+      createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+    );
+
+    // A load-more request: a cursor and no includeTotal.
+    const restarted = await (await app.request(`/?search=Charizard%20ex&limit=1&cursor=${rejectedCursor}`)).json();
+
+    expect(restarted).toMatchObject({
+      cursorRestarted: true,
+      total: 2,
+      category_counts: [{ slug: "cards", count: 2 }],
+      count: 1,
+      retrievalMode: "lexical",
+    });
+    expect(restarted.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual(["cat_exact"]);
+    expect(restarted.items[0]).not.toHaveProperty("search_exact_tier");
+    expect(decodeCursorJson(restarted.nextCursor)).toMatchObject({ v: 2, id: "cat_exact", tier: 1 });
+    expect(listCalls[0]).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 2]);
+
+    // The v2 continuation pages on without a restart marker or first-page metadata.
+    const next = await (await app.request(`/?search=Charizard%20ex&limit=1&cursor=${restarted.nextCursor}`)).json();
+
+    expect(next).not.toHaveProperty("cursorRestarted");
+    expect(next).toMatchObject({ total: null, category_counts: [], facets: [], nextCursor: null });
+    expect(next.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual(["cat_other"]);
+    expect(listCalls[1]).toEqual([
+      "active",
+      "Charizard ex",
+      "Charizard ex",
+      "Charizard ex",
+      1,
+      1,
+      0.1,
+      "Charizard ex",
+      "cat_exact",
+      2,
+    ]);
+  });
+
+  it("omits cursorRestarted from fresh first pages", async () => {
+    const { db } = scriptedSearchDb();
+    const app = discoveryItemSearchRoutes(
+      createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+    );
+
+    const fresh = await (await app.request("/?search=Charizard%20ex&limit=1&includeTotal=true")).json();
+
+    expect(fresh).not.toHaveProperty("cursorRestarted");
+    expect(fresh).toMatchObject({ total: 2, category_counts: [{ slug: "cards", count: 2 }] });
   });
 });

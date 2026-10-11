@@ -1,6 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
 import {
+  discoverySearchCursorState,
   previewBulkAddSearchResults,
   searchDiscoveryItems,
   searchDiscoveryItemsByNaturalKey,
@@ -9,6 +10,7 @@ import {
 import { buildSimpleSearchQuery } from "../domain/normalization";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
+// Duplicates the production encoders in queries.ts; change both together.
 function encodeCursor(input: {
   id: string;
   title: string;
@@ -17,29 +19,65 @@ function encodeCursor(input: {
   baseMatch?: boolean;
   lowestPriceAmount?: string | null;
 }) {
-  return Buffer.from(
-    JSON.stringify({
-      id: input.id,
-      title: input.title,
-      updatedAt: input.updatedAt,
-      rank: input.rank ?? 0,
-      baseMatch: input.baseMatch ?? false,
-      lowestPriceAmount: input.lowestPriceAmount ?? null,
-    }),
-    "utf8",
-  ).toString("base64url");
+  return encodeCursorJson({
+    id: input.id,
+    title: input.title,
+    updatedAt: input.updatedAt,
+    rank: input.rank ?? 0,
+    baseMatch: input.baseMatch ?? false,
+    lowestPriceAmount: input.lowestPriceAmount ?? null,
+  });
 }
 
-function createCapturingDb() {
+function encodeRelevanceCursor(input: { tier: number; baseMatch: boolean; rank: number; title: string; id: string }) {
+  return encodeCursorJson({
+    v: 2,
+    id: input.id,
+    title: input.title,
+    updatedAt: "2026-05-16T00:00:00.000Z",
+    rank: input.rank,
+    baseMatch: input.baseMatch,
+    tier: input.tier,
+    lowestPriceAmount: null,
+  });
+}
+
+function encodeCursorJson(value: unknown) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeCursorJson(cursor: string | null): unknown {
+  return cursor ? JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) : null;
+}
+
+function createCapturingDb(listRows: readonly Record<string, unknown>[] = []) {
   const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   const db: PgQueryable = {
     query: async <Row>(sql: string, values: readonly unknown[] = []) => {
       calls.push({ sql, values });
-      return { rows: [] as Row[], rowCount: 0 };
+      const rows = sql.startsWith("SELECT catalog_item_id") || sql.startsWith("SELECT * FROM (") ? listRows : [];
+      return { rows: rows as Row[], rowCount: rows.length };
     },
   };
 
   return { db, calls };
+}
+
+function listRow(id: string, title: string, extra: Record<string, unknown> = {}) {
+  return {
+    catalog_item_id: id,
+    title,
+    subtitle: null,
+    updated_at: "2026-05-16T00:00:00.000Z",
+    lowest_price_amount: null,
+    lowest_price_currency_code: null,
+    visible_quantity: null,
+    ...extra,
+  };
+}
+
+function findListCall(calls: ReadonlyArray<{ sql: string; values: readonly unknown[] }>) {
+  return calls.find((call) => call.sql.startsWith("SELECT catalog_item_id") || call.sql.startsWith("SELECT * FROM ("));
 }
 
 function expectBuyerVisibleListingPredicate(sql: string | undefined) {
@@ -405,15 +443,9 @@ describe("searchDiscoveryItems cursor paging", () => {
     },
   );
 
-  it("applies a rank cursor for relevance searches", async () => {
+  it("applies the complete exact-tier keyset for v2 relevance cursors", async () => {
     const { db, calls } = createCapturingDb();
-    const cursor = encodeCursor({
-      id: "cat_002",
-      title: "Bulbasaur",
-      updatedAt: "2026-05-16T00:00:00.000Z",
-      rank: 0.75,
-      baseMatch: true,
-    });
+    const cursor = encodeRelevanceCursor({ tier: 1, baseMatch: true, rank: 0.75, title: "Bulbasaur", id: "cat_002" });
 
     await searchDiscoveryItems(db, {
       search: "pokemon",
@@ -422,24 +454,194 @@ describe("searchDiscoveryItems cursor paging", () => {
       limit: 24,
     });
 
-    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    const listCall = findListCall(calls);
     expect(listCall?.sql).toContain("(ts_rank(search_text");
     // Rank is computed purely from the item's own folded tsvectors — no correlated
     // content-rank subquery and no 0.20 content dampener.
     expect(listCall?.sql).not.toContain("discovery_search_product_contents");
     expect(listCall?.sql).not.toContain("* 0.20");
-    expect(listCall?.sql).toContain("search_base_match");
-    // Mixed-direction ORDER BY (baseMatch DESC, rank DESC, title ASC, id ASC) requires an
-    // expanded lexicographic keyset predicate rather than a single row-value comparison.
-    expect(listCall?.sql).toContain(")::integer < $4::integer");
-    expect(listCall?.sql).toContain(") < $5::real)");
-    expect(listCall?.sql).toContain("AND title > $6)");
-    expect(listCall?.sql).toContain("AND title = $6 AND catalog_item_id > $7))");
-    expect(listCall?.sql).not.toContain(", title, catalog_item_id) <");
-    expect(listCall?.sql).toContain("ORDER BY (search_text @@");
-    expect(listCall?.sql).toContain("DESC, title ASC, catalog_item_id ASC");
-    expect(listCall?.sql).not.toContain("OFFSET");
-    expect(listCall?.values.slice(-5)).toEqual([1, 0.75, "Bulbasaur", "cat_002", 25]);
+    // Mixed-direction ORDER BY (tier/baseMatch/rank DESC, title/id ASC) splits the keyset
+    // by direction rather than applying one row-value comparison to every column.
+    expect(listCall?.sql).toContain(
+      "WHERE ((search_exact_tier, search_base_match::integer, search_rank) < ($5::integer, $6::integer, $7::real)" +
+        " OR ((search_exact_tier, search_base_match::integer, search_rank) = ($5::integer, $6::integer, $7::real)" +
+        " AND (title, catalog_item_id) > ($8, $9)))",
+    );
+    expect(listCall?.sql).toContain(
+      "ORDER BY search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
+    );
+    expect(listCall?.sql).toContain("LIMIT $10");
+    expect(listCall?.sql).not.toContain("OFFSET $");
+    expect(listCall?.values).toEqual([
+      "active",
+      "pokemon",
+      "pokemon",
+      "pokemon",
+      1,
+      1,
+      0.75,
+      "Bulbasaur",
+      "cat_002",
+      25,
+    ]);
+  });
+
+  it("selects the exact identity tier once per qualifying row from one SQL normalization of both sides", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+    const sql = findListCall(calls)?.sql ?? "";
+    const normalized = (text: string) =>
+      `lower(btrim(regexp_replace(normalize(regexp_replace(normalize(${text}, NFD), '(?<=[`;
+    // One expression shape normalizes the bound raw query, the title, and title + subtitle.
+    expect(sql).toContain(`CASE ${normalized("$4")}`);
+    expect(sql).toContain(`WHEN '' THEN 0 WHEN ${normalized("title")}`);
+    expect(sql).toContain(`THEN 1 WHEN ${normalized("title || ' ' || subtitle")}`);
+    expect(sql).toContain(`COLLATE "C") THEN 1 ELSE 0 END AS search_exact_tier`);
+    // Explicit code-point ranges, never LC_CTYPE-dependent classes or extension folding.
+    expect(sql).not.toMatch(/\[\[:|\\w|\\p\{|unaccent/);
+    // The derived table computes rank, base match, and tier once; the outer query orders and pages it.
+    expect(sql).toMatch(/^SELECT \* FROM \(\s*SELECT catalog_item_id, /);
+    expect(sql).toContain(" AS search_rank, ");
+    expect(sql).toContain(" AS search_base_match, ");
+    expect(sql.match(/AS search_exact_tier/g)).toHaveLength(1);
+    expect(sql).toContain("OFFSET 0\n    ) AS candidate");
+    expect(sql).toContain(
+      "ORDER BY search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
+    );
+    // The query side is bound raw (never folded in JS) after the base WHERE values.
+    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", "Pokémon", 25]);
+  });
+
+  it("binds an empty exact query when the oracle normalizes the search to nothing", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { search: "¡¿…!!", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+    expect(findListCall(calls)?.values).toEqual(["active", "¡¿…!!", "", "", 25]);
+  });
+
+  it("keeps explicit sorts and text-free relevance off the exact tier", async () => {
+    for (const params of [{ search: "pokemon", sort: "title_asc" }, { sort: "relevance" }] as const) {
+      const { db, calls } = createCapturingDb();
+
+      await searchDiscoveryItems(db, { ...params, limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+      const listCall = findListCall(calls);
+      expect(listCall?.sql).not.toContain("search_exact_tier");
+      expect(listCall?.sql).toContain("ORDER BY title ASC, catalog_item_id ASC");
+    }
+  });
+
+  it("encodes v2 relevance cursors with the tier and leaves explicit-sort cursors unversioned", async () => {
+    const relevance = createCapturingDb([
+      listRow("cat_exact", "Charizard ex", { search_rank: 0.25, search_base_match: true, search_exact_tier: 1 }),
+      listRow("cat_next", "Charizard ex Box", { search_rank: 0.5, search_base_match: true, search_exact_tier: 0 }),
+    ]);
+    const relevancePage = await searchDiscoveryItems(
+      relevance.db,
+      { search: "Charizard ex", limit: 1 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    expect(decodeCursorJson(relevancePage.nextCursor)).toEqual({
+      v: 2,
+      id: "cat_exact",
+      title: "Charizard ex",
+      updatedAt: "2026-05-16T00:00:00.000Z",
+      rank: 0.25,
+      baseMatch: true,
+      tier: 1,
+      lowestPriceAmount: null,
+    });
+    expect(relevancePage.items[0]).not.toHaveProperty("search_exact_tier");
+
+    const titleSort = createCapturingDb([listRow("cat_a", "Alpha"), listRow("cat_b", "Beta")]);
+    const titlePage = await searchDiscoveryItems(
+      titleSort.db,
+      { search: "Charizard ex", sort: "title_asc", limit: 1 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    expect(decodeCursorJson(titlePage.nextCursor)).toEqual({
+      id: "cat_a",
+      title: "Alpha",
+      updatedAt: "2026-05-16T00:00:00.000Z",
+      rank: 0,
+      baseMatch: false,
+      lowestPriceAmount: null,
+    });
+  });
+
+  it("counts relevance first pages with only the base WHERE values", async () => {
+    for (const params of [
+      { includeTotal: true, limit: 24 },
+      { offset: 48, limit: 24 },
+    ]) {
+      const { db, calls } = createCapturingDb();
+
+      await searchDiscoveryItems(
+        db,
+        { search: "pokemon", category: "cards", ...params },
+        { loadFacets: false, loadMarketSummaries: false },
+      );
+
+      const countCall = calls.find((call) => call.sql.startsWith("SELECT COUNT(*) AS count"));
+      expect(countCall?.sql).toContain("WHERE status = $1 AND (search_text @@ plainto_tsquery('english', $2)");
+      expect(countCall?.sql).not.toContain("$5");
+      expect(countCall?.values).toEqual(["active", "pokemon", "pokemon", JSON.stringify(["cards"])]);
+    }
+  });
+
+  it.each([
+    [
+      "an unversioned legacy cursor",
+      encodeCursor({ id: "cat_002", title: "Bulbasaur", updatedAt: "2026", rank: 0.75, baseMatch: true }),
+    ],
+    ["a malformed cursor", "not-a-cursor"],
+    ["array JSON", encodeCursorJson([2, 1, true, 0.75, "Bulbasaur", "cat_002"])],
+    [
+      "a cursor missing its tier",
+      encodeCursorJson({ v: 2, id: "cat_002", title: "Bulbasaur", rank: 0.75, baseMatch: true }),
+    ],
+    [
+      "a wrong cursor version",
+      encodeCursorJson({ v: 3, id: "cat_002", title: "Bulbasaur", rank: 0.75, baseMatch: true, tier: 1 }),
+    ],
+    [
+      "an out-of-range tier",
+      encodeCursorJson({ v: 2, id: "cat_002", title: "Bulbasaur", rank: 0.75, baseMatch: true, tier: 2 }),
+    ],
+    ["a hybrid cursor", encodeCursorJson({ kind: "hybrid", offset: 24 })],
+  ])("legacy or invalid relevance cursor restarts with metadata: %s", async (_label, cursor) => {
+    const { db, calls } = createCapturingDb();
+    const params = { search: "pokemon", category: "cards", cursor, includeTotal: true, limit: 24 };
+
+    expect(discoverySearchCursorState(params)).toBe("restarted");
+    await searchDiscoveryItems(db, params);
+
+    const listCall = findListCall(calls);
+    expect(listCall?.sql).not.toContain("search_exact_tier, search_base_match::integer, search_rank) <");
+    expect(listCall?.values).toEqual(["active", "pokemon", "pokemon", JSON.stringify(["cards"]), "pokemon", 25]);
+    expect(calls.some((call) => call.sql.startsWith("SELECT COUNT(*) AS count"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("AS summaries"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("AS slug, COUNT(DISTINCT item.catalog_item_id)"))).toBe(true);
+  });
+
+  it("classifies only cursors the active ordering can decode as continuations", () => {
+    const relevanceCursor = encodeRelevanceCursor({ tier: 0, baseMatch: true, rank: 0.5, title: "A", id: "cat_a" });
+    const legacyCursor = encodeCursor({ id: "cat_a", title: "A", updatedAt: "2026-05-16T00:00:00.000Z" });
+
+    expect(discoverySearchCursorState({ search: "pokemon" })).toBe("fresh");
+    expect(discoverySearchCursorState({ search: "pokemon", cursor: relevanceCursor })).toBe("cursor");
+    expect(discoverySearchCursorState({ search: "pokemon", sort: "relevance", cursor: legacyCursor })).toBe(
+      "restarted",
+    );
+    // Explicit sorts and text-free relevance keep their unversioned keysets.
+    expect(discoverySearchCursorState({ search: "pokemon", sort: "newest", cursor: legacyCursor })).toBe("cursor");
+    expect(discoverySearchCursorState({ cursor: legacyCursor })).toBe("cursor");
+    expect(discoverySearchCursorState({ sort: "title_asc", cursor: "not-a-cursor" })).toBe("restarted");
   });
 
   it("matches container contents through the folded item tsvector without a correlated subquery", async () => {
@@ -463,9 +665,9 @@ describe("searchDiscoveryItems cursor paging", () => {
       "(search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3))",
     );
     expect(listCall?.sql).toContain(
-      "ORDER BY (search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3)) DESC",
+      "(search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3)) AS search_base_match",
     );
-    expect(listCall?.values).toEqual(["active", "Charizard", "Charizard", 25]);
+    expect(listCall?.values).toEqual(["active", "Charizard", "Charizard", "Charizard", 25]);
   });
 
   it("applies first-class reference filters by Reference Type", async () => {
@@ -904,7 +1106,7 @@ describe("searchDiscoveryItems input hardening", () => {
 
     await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
 
-    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", 25]);
+    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", "Pokémon", 25]);
   });
 
   it.each([
@@ -920,7 +1122,7 @@ describe("searchDiscoveryItems input hardening", () => {
     expect(calls[0]?.sql).toContain("plainto_tsquery('english', $2)");
     expect(calls[0]?.sql).toContain("plainto_tsquery('simple', $3)");
     expect(calls[0]?.sql).not.toContain(search);
-    expect(calls[0]?.values).toEqual(["active", search, buildSimpleSearchQuery(search), 25]);
+    expect(calls[0]?.values).toEqual(["active", search, buildSimpleSearchQuery(search), search, 25]);
   });
 });
 

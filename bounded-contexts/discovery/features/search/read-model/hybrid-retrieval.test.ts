@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
-import { retrieveDiscoveryItems } from "./hybrid-retrieval";
-import type { DiscoverySearchItemRow, ListResult } from "./queries";
+import { classifyDiscoverySearchCursor, retrieveDiscoveryItems } from "./hybrid-retrieval";
+import type { DiscoverySearchItemRow, DiscoverySearchParams, ListResult } from "./queries";
 
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
 
@@ -43,7 +43,12 @@ describe("Discovery hybrid retrieval", () => {
       { search: "intent" },
     );
     await vi.advanceTimersByTimeAsync(800);
-    await expect(pending).resolves.toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 17 });
+    await expect(pending).resolves.toEqual({
+      ...lexical,
+      retrievalMode: "lexical",
+      lexicalCount: 17,
+      cursorState: "fresh",
+    });
     expect(onEmbeddingWait).toHaveBeenCalledWith({ outcome: "timeout", waiterDurationMs: 800 });
     expect(provider.embed).toHaveBeenCalledExactlyOnceWith(
       ["intent"],
@@ -77,7 +82,7 @@ describe("Discovery hybrid retrieval", () => {
         },
         { search: "intent" },
       );
-      expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 1 });
+      expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 1, cursorState: "fresh" });
       expect(onEmbeddingWait).toHaveBeenCalledWith(expect.objectContaining({ outcome: "error" }));
       expect(cache.size()).toBe(0);
     },
@@ -157,7 +162,7 @@ describe("Discovery hybrid retrieval", () => {
       { search: "semantic intent" },
     );
 
-    expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 0 });
+    expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 0, cursorState: "fresh" });
   });
 
   it("fails open when the filtered vector query is unavailable", async () => {
@@ -175,7 +180,7 @@ describe("Discovery hybrid retrieval", () => {
       { search: "related item" },
     );
 
-    expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 1 });
+    expect(actual).toEqual({ ...lexical, retrievalMode: "lexical", lexicalCount: 1, cursorState: "fresh" });
   });
 
   it("resolves a structured set-code + collector-number query ahead of lexical/semantic retrieval", async () => {
@@ -254,11 +259,37 @@ describe("Discovery hybrid retrieval", () => {
     expect(searchNaturalKey).not.toHaveBeenCalled();
   });
 
-  it("skips structured resolution when paging (a cursor is present)", async () => {
+  it("skips structured resolution and rescue when paging a valid v2 relevance cursor", async () => {
     const searchNaturalKey = vi.fn();
     const searchLexical = vi.fn(async () => result([row("page-2")]));
+    const provider = fakeProvider();
+    const cursor = relevanceCursor();
 
-    await retrieveDiscoveryItems(
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: false,
+        searchNaturalKey,
+        searchLexical,
+        searchSemantic: vi.fn(),
+      },
+      { search: "sv04 123", cursor },
+    );
+
+    expect(searchNaturalKey).not.toHaveBeenCalled();
+    expect(provider.embed).not.toHaveBeenCalled();
+    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cursor }));
+    expect(actual).toMatchObject({ retrievalMode: "lexical", cursorState: "cursor" });
+  });
+
+  it("restarts a rejected cursor on a structured query as a fresh structured request", async () => {
+    const searchNaturalKey = vi.fn(async () => result([row("sv04-123", "Charizard ex")]));
+    const searchLexical = vi.fn();
+
+    const actual = await retrieveDiscoveryItems(
       {
         db: {} as never,
         rescueEnabled: false,
@@ -267,10 +298,136 @@ describe("Discovery hybrid retrieval", () => {
         searchLexical,
         searchSemantic: vi.fn(),
       },
-      { search: "sv04 123", cursor: "some-cursor" },
+      { search: "SV04 123/182", cursor: legacyCursor() },
     );
 
-    expect(searchNaturalKey).not.toHaveBeenCalled();
+    expect(searchNaturalKey).toHaveBeenCalledWith(
+      expect.anything(),
+      { setCode: "sv04", cardNumber: "123" },
+      expect.objectContaining({ cursor: undefined, includeTotal: true }),
+    );
+    expect(searchLexical).not.toHaveBeenCalled();
+    expect(actual).toMatchObject({ retrievalMode: "structured", cursorState: "restarted" });
+  });
+
+  it("restarts a rejected cursor on a low-result lexical query and runs rescue with fresh metadata", async () => {
+    const provider = fakeProvider();
+    const searchLexical = vi.fn(async (_db, params: DiscoverySearchParams) => ({
+      ...result([row("lexical", "Blue dragon")]),
+      total: params.includeTotal ? 1 : null,
+      category_counts: params.cursor === undefined ? [{ slug: "cards", count: 1 }] : [],
+    }));
+    const searchSemantic = vi.fn(async () => [{ item: row("semantic", "Azure creature"), similarity: 0.91 }]);
+
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: false,
+        searchLexical,
+        searchSemantic,
+      },
+      { search: "blue dragon", cursor: legacyCursor() },
+    );
+
+    expect(searchLexical).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      expect.objectContaining({ cursor: undefined, includeTotal: true }),
+    );
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic"]);
+    expect(actual).toMatchObject({
+      retrievalMode: "rescue",
+      total: 1,
+      category_counts: [{ slug: "cards", count: 1 }],
+      cursorState: "restarted",
+    });
+  });
+
+  it("classifies a hybrid cursor first and restarts it when hybrid retrieval is disabled", async () => {
+    const searchLexical = vi.fn(async (_db, params: DiscoverySearchParams) => ({
+      ...result([row("first", "Pikachu")]),
+      total: params.includeTotal ? 1 : null,
+    }));
+
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        provider: fakeProvider(),
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchLexical,
+        searchSemantic: vi.fn(),
+      },
+      { search: "Pikachu", cursor: hybridCursor(24) },
+    );
+
+    expect(searchLexical).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      expect.objectContaining({ cursor: undefined, includeTotal: true }),
+    );
+    expect(actual).toMatchObject({ items: [expect.objectContaining({ catalog_item_id: "first" })], total: 1 });
+    expect(actual.cursorState).toBe("restarted");
+  });
+
+  it("restarts a rejected cursor as a fresh hybrid first page when hybrid retrieval is enabled", async () => {
+    const searchLexical = vi.fn(async (_db, params: DiscoverySearchParams) => ({
+      ...result([row("exact", "Pikachu")]),
+      total: params.includeTotal ? 1 : null,
+    }));
+
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        provider: fakeProvider(),
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: true,
+        searchLexical,
+        searchSemantic: vi.fn(async () => [{ item: row("semantic", "Electric mascot"), similarity: 0.99 }]),
+        hydrateItems: vi.fn(async (_db, items) => [...items]),
+      },
+      { search: "Pikachu", cursor: legacyCursor(), limit: 1 },
+    );
+
+    expect(searchLexical).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ cursor: undefined, includeTotal: true }),
+      expect.anything(),
+    );
+    expect(actual).toMatchObject({ retrievalMode: "hybrid", total: 1, cursorState: "restarted" });
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
+  });
+
+  it("keeps explicit-sort keyset cursors as continuations", async () => {
+    const cursor = legacyCursor();
+    const searchLexical = vi.fn(async () => result([row("page-2")]));
+
+    const actual = await retrieveDiscoveryItems(
+      { db: {} as never, rescueEnabled: false, hybridEnabled: false, searchLexical, searchSemantic: vi.fn() },
+      { search: "pikachu", sort: "newest", cursor },
+    );
+
+    expect(searchLexical).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ cursor }));
+    expect(actual.cursorState).toBe("cursor");
+  });
+
+  it("classifies the effective cursor state without retrieving", () => {
+    const hybrid = { provider: fakeProvider(), cache: createQueryEmbeddingCache(), hybridEnabled: true };
+    const lexicalOnly = { ...hybrid, hybridEnabled: false };
+
+    expect(classifyDiscoverySearchCursor(hybrid, { search: "pikachu" })).toBe("fresh");
+    expect(classifyDiscoverySearchCursor(hybrid, { search: "pikachu", cursor: hybridCursor(24) })).toBe("cursor");
+    expect(classifyDiscoverySearchCursor(lexicalOnly, { search: "pikachu", cursor: hybridCursor(24) })).toBe(
+      "restarted",
+    );
+    expect(classifyDiscoverySearchCursor(hybrid, { search: "pikachu", sort: "newest", cursor: hybridCursor(24) })).toBe(
+      "restarted",
+    );
+    expect(classifyDiscoverySearchCursor(lexicalOnly, { search: "pikachu", cursor: relevanceCursor() })).toBe("cursor");
+    expect(classifyDiscoverySearchCursor(lexicalOnly, { search: "pikachu", cursor: legacyCursor() })).toBe("restarted");
   });
 
   it("keeps lexical matches ahead of semantic-only candidates in hybrid mode", async () => {
@@ -324,8 +481,42 @@ describe("Discovery hybrid retrieval", () => {
       expect.anything(),
     );
     expect(cursorPage.total).toBeNull();
+    expect(firstPage.cursorState).toBe("fresh");
+    expect(cursorPage.cursorState).toBe("cursor");
   });
 });
+
+function legacyCursor(): string {
+  return encodeCursorJson({
+    id: "cat_1",
+    title: "Pikachu",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+    rank: 0.5,
+    baseMatch: true,
+    lowestPriceAmount: null,
+  });
+}
+
+function relevanceCursor(): string {
+  return encodeCursorJson({
+    v: 2,
+    id: "cat_1",
+    title: "Pikachu",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+    rank: 0.5,
+    baseMatch: true,
+    tier: 1,
+    lowestPriceAmount: null,
+  });
+}
+
+function hybridCursor(offset: number): string {
+  return encodeCursorJson({ kind: "hybrid", offset });
+}
+
+function encodeCursorJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
 
 function fakeProvider(): DiscoveryEmbeddingProvider {
   return {

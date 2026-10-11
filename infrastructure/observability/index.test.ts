@@ -324,6 +324,48 @@ describe("Discovery search observability", () => {
     expect(histogramRecords).toHaveLength(3);
   });
 
+  it("exports the effective fresh, cursor, and restarted cursor state as one bounded label", () => {
+    const records: Array<{ name: string; attributes: unknown }> = [];
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: (name: string) => ({
+        add: (_value: number, attributes: unknown) => records.push({ name, attributes }),
+      }),
+      createHistogram: (name: string) => ({
+        record: (_value: number, attributes: unknown) => records.push({ name, attributes }),
+      }),
+    } as never);
+    try {
+      for (const cursorState of ["fresh", "cursor", "restarted"] as const) {
+        recordDiscoverySearchQuerySignal({
+          queryHash: "secret-hash",
+          resultSetKey: "secret-result",
+          filterState: "none",
+          sortOrder: "relevance",
+          cursorState,
+          resultCount: 1,
+          total: cursorState === "cursor" ? null : 1,
+          zeroResults: false,
+          retrievalMode: "lexical",
+          outcome: "success",
+          normalizationDurationMs: 0,
+          retrievalDurationMs: 1,
+          totalDurationMs: 1,
+          queryEmbeddingOutcome: "not-attempted",
+          queryEmbeddingWaiterDurationMs: 0,
+        });
+      }
+    } finally {
+      getMeter.mockRestore();
+    }
+
+    expect(
+      records
+        .filter(({ name }) => name === "chase_sets_discovery_search_queries_total")
+        .map(({ attributes }) => (attributes as { cursor_state: string }).cursor_state),
+    ).toEqual(["fresh", "cursor", "restarted"]);
+    expect(JSON.stringify(records)).not.toContain("secret-");
+  });
+
   it("exports six bounded embedding outcomes, distinct waiter/load timings, and no identifying labels", () => {
     const records: Array<{ name: string; value: number; attributes: unknown }> = [];
     const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({

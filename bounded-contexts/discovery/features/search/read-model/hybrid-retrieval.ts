@@ -9,10 +9,12 @@ import { foldSearchDiacritics } from "../domain/normalization";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { parseStructuredNaturalKeyQuery } from "../domain/structured-natural-key-query";
 import {
+  discoverySearchCursorState,
   searchDiscoveryItems,
   searchDiscoveryItemsByNaturalKey,
   searchDiscoverySemanticItems,
   hydrateDiscoverySearchItemMarketSummaries,
+  type DiscoverySearchCursorState,
   type DiscoverySearchItemRow,
   type DiscoverySearchParams,
   type DiscoverySemanticSearchItem,
@@ -28,7 +30,9 @@ export type DiscoverySearchResult = ListResult<DiscoverySearchItemRow> &
   Readonly<{
     retrievalMode: DiscoveryRetrievalMode;
     lexicalCount: number | null;
+    cursorState: DiscoverySearchCursorState;
   }>;
+type DiscoveryRetrievedPage = Omit<DiscoverySearchResult, "cursorState">;
 
 type SearchLexical = typeof searchDiscoveryItems;
 type SearchSemantic = typeof searchDiscoverySemanticItems;
@@ -54,6 +58,36 @@ export async function retrieveDiscoveryItems(
   dependencies: DiscoveryHybridRetrievalDependencies,
   params: DiscoverySearchParams = {},
 ): Promise<DiscoverySearchResult> {
+  const cursorState = classifyDiscoverySearchCursor(dependencies, params);
+  // A rejected cursor restarts as a fresh request in every branch below, including
+  // structured resolution, hybrid, and rescue, with full first-page metadata.
+  const request =
+    cursorState === "cursor"
+      ? params
+      : { ...params, cursor: undefined, ...(cursorState === "restarted" ? { includeTotal: true } : {}) };
+
+  return { ...(await retrieveDiscoveryPage(dependencies, request)), cursorState };
+}
+
+/**
+ * Effective cursor state: hybrid cursors classify first and continue only under enabled
+ * hybrid retrieval; any other cursor must decode for the lexical ordering it continues.
+ */
+export function classifyDiscoverySearchCursor(
+  dependencies: Pick<DiscoveryHybridRetrievalDependencies, "provider" | "cache" | "hybridEnabled">,
+  params: DiscoverySearchParams,
+): DiscoverySearchCursorState {
+  if (!params.cursor) return "fresh";
+  if (decodeHybridCursor(params.cursor)) {
+    return isSemanticEligible(dependencies, params) && dependencies.hybridEnabled ? "cursor" : "restarted";
+  }
+  return discoverySearchCursorState(params);
+}
+
+async function retrieveDiscoveryPage(
+  dependencies: DiscoveryHybridRetrievalDependencies,
+  params: DiscoverySearchParams,
+): Promise<DiscoveryRetrievedPage> {
   const searchLexical = dependencies.searchLexical ?? searchDiscoveryItems;
   const searchSemantic = dependencies.searchSemantic ?? searchDiscoverySemanticItems;
   const searchNaturalKey = dependencies.searchNaturalKey ?? searchDiscoveryItemsByNaturalKey;
@@ -74,9 +108,7 @@ export async function retrieveDiscoveryItems(
     }
   }
 
-  const semanticEligible =
-    Boolean(dependencies.provider && dependencies.cache && query) &&
-    (params.sort === undefined || params.sort === "relevance");
+  const semanticEligible = isSemanticEligible(dependencies, params);
   const hybridCursor = decodeHybridCursor(params.cursor);
 
   if (semanticEligible && dependencies.hybridEnabled && (params.cursor === undefined || hybridCursor !== null)) {
@@ -134,7 +166,7 @@ async function retrieveHybridPage(
   offset: number,
   searchLexical: SearchLexical,
   searchSemantic: SearchSemantic,
-): Promise<DiscoverySearchResult> {
+): Promise<DiscoveryRetrievedPage> {
   const query = params.search?.trim() ?? "";
   const queryEmbedding = await loadQueryEmbedding(dependencies, query);
   const candidateParams = {
@@ -237,8 +269,18 @@ function relevanceCandidate(
   };
 }
 
-function lexicalResult(result: ListResult<DiscoverySearchItemRow>): DiscoverySearchResult {
+function lexicalResult(result: ListResult<DiscoverySearchItemRow>): DiscoveryRetrievedPage {
   return { ...result, retrievalMode: "lexical", lexicalCount: result.total };
+}
+
+function isSemanticEligible(
+  dependencies: Pick<DiscoveryHybridRetrievalDependencies, "provider" | "cache">,
+  params: DiscoverySearchParams,
+): boolean {
+  return (
+    Boolean(dependencies.provider && dependencies.cache && params.search?.trim()) &&
+    (params.sort === undefined || params.sort === "relevance")
+  );
 }
 
 function searchLimit(limit: number | undefined): number {
