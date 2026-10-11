@@ -246,4 +246,39 @@ Not yet written; see #7700 phase 2 and #7037.
 
 ## eBay
 
-Not yet written; see #7700 phase 2 and #7037.
+### Account-deletion receipts
+
+Weekly, and immediately before the #8618 Production Save, a staff operator with
+`support.manage` opens **eBay Deletion Lookup** in admin. Look up each exact
+operator-held eBay user ID separately. The page does not list or export subjects;
+an empty result means only that no unexpired receipt matches that identity.
+For every matching receipt, delete the corresponding tokens and usernames from
+the operator store. Record completion separately in the operator's restricted
+record, using the notification ID and completion time, not a copied subject.
+Receipt presence is not proof of erasure or of provider acceptance.
+
+Before Production Save, both displayed platform counts must be zero:
+non-disconnected Production `ebay` connections and their credential envelopes.
+A failed lookup/count is not zero. Stop Save on unavailable or nonzero counts;
+do not copy user IDs into logs, issue comments, screenshots, or verification
+artifacts. POST signature acceptance and deletion activation belong to #9296
+and #9304, not this lookup.
+
+Receipts retain encrypted subjects for 30 days from server receipt time. The
+worker starts on restart, then at fixed 1800-second intervals, draining up to
+500 rows per DELETE for at most 1800 seconds. `cleanup-incomplete` is a failure,
+not successful expiry. Inspect subject-free reason/count/timing observations
+and restore the worker/database promptly; never infer cleanup from a short
+batch. An outage or backlog outside the measured operating envelope requires
+an explicit host decision, not a retention waiver.
+
+The existing `CHANNELS_CREDENTIAL_KEYRING_JSON` must retain the immutable named
+root `ebay-subject-root-v1`, independent of `activeKeyId`. Keep its material and
+identity unchanged across seal rotations. Keep historical seal keys while
+referenced. Before installing a replacement keyring, use Channels'
+`assertKeyringContinuity` against receipt references and the exported
+`assertEbaySubjectKeyringContinuity` against subject-binding references owned by
+#9299/#9304. Never remove referenced root or seal keys. A missing key makes
+custody unavailable; it does not authorize overwriting a receipt or treating a
+retry as a different subject. Root metadata lives in the fingerprint, not an
+additional table column or keyring.
