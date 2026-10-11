@@ -1944,6 +1944,7 @@
       "purpose": "Provide reusable runtime-support assets shared by identity-owned features and composition seams.",
       "expectedConsumers": [
         "access-hub",
+        "account-capabilities",
         "accounts",
         "api-keys",
         "consents",
