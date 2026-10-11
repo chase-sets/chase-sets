@@ -248,7 +248,7 @@ export function createFilesystemPrivateObjectStore(options: FilesystemPrivateObj
   return createPrivateObjectStore({
     suppliesContentType: false,
     async put(input, deadline) {
-      const raced = await deadline.race(writeFileAtomically(rootDir, objectPath(input.key), input.body));
+      const raced = await deadline.race(writeFileAtomically(rootDir, objectPath(input.key), input.body, deadline));
       if (raced.kind === "deadline") {
         return { status: "ambiguous", key: input.key, reason: "deadline-exceeded" };
       }
@@ -531,7 +531,7 @@ async function readFileBounded(filePath: string, maxBytes: number, deadline: Dea
   }
 }
 
-async function writeFileAtomically(rootDir: string, targetPath: string, body: Uint8Array): Promise<void> {
+async function writeFileAtomically(rootDir: string, targetPath: string, body: Uint8Array, deadline: Deadline): Promise<void> {
   const tempDir = path.join(rootDir, FILESYSTEM_TEMP_DIR);
   const tempPath = path.join(tempDir, randomUUID());
   await mkdir(tempDir, { recursive: true });
@@ -544,24 +544,24 @@ async function writeFileAtomically(rootDir: string, targetPath: string, body: Ui
     } finally {
       await handle.close();
     }
-    await renameReplacing(tempPath, targetPath);
+    await renameReplacing(tempPath, targetPath, deadline);
   } finally {
     await rm(tempPath, { force: true });
   }
 }
 
-async function renameReplacing(sourcePath: string, targetPath: string): Promise<void> {
-  // Windows refuses to replace a file another handle holds open; a concurrent identical writer or reader clears quickly.
+async function renameReplacing(sourcePath: string, targetPath: string, deadline: Deadline): Promise<void> {
+  // Windows refuses to replace a file while another reader or writer holds it, so retry until the caller's deadline.
   for (let attempt = 1; ; attempt += 1) {
     try {
       await rename(sourcePath, targetPath);
       return;
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (process.platform !== "win32" || attempt >= 20 || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "")) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (process.platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(code) || deadline.isExpired()) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, attempt * 5));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(attempt * 5, 50)));
     }
   }
 }

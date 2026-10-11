@@ -284,8 +284,9 @@ describe("private object store: putPrivate (AC-C1)", () => {
 
     expect(results).toEqual(Array.from({ length: 8 }, () => ({ status: "completed", key })));
     expect(sha256Hex(await readFile(path.join(rootDir, ...key.split("/"))))).toBe(expected);
+    // A reader may miss the object or briefly lose a Windows replace race, but never sees partial bytes.
     for (const observed of observedReads) {
-      expect(["absent", `${body.byteLength}:${expected}`]).toContain(observed);
+      expect(["absent", "unavailable", `${body.byteLength}:${expected}`]).toContain(observed);
     }
     await expect(readdir(path.join(rootDir, ".private-object-store-tmp"))).resolves.toEqual([]);
   });
