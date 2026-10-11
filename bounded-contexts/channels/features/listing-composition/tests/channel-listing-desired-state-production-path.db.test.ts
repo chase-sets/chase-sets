@@ -589,7 +589,9 @@ describeDb("channel-listing-desired-state-production-path", () => {
       "channels.channel-listing.publication-recorded",
       "channels.channel-listing.desired-state-changed",
     ]);
-    expect(events[2]).toMatchObject({ payload: { reportedDesiredStateSequence: 1, outcome: { kind: "succeeded" } } });
+    expect(events[2]).toMatchObject({
+      payload: { reportedDesiredStateSequence: 1, outcome: { kind: "succeeded" }, adoption: "identity-adopted" },
+    });
     expect(events[3]).toMatchObject({
       payload: {
         intent: "update",
