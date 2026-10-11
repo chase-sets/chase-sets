@@ -25,7 +25,12 @@ import { module as inventoryModule } from "@chase-sets/inventory";
 import { createOutboundSyncRuntime } from "../../outbound-sync/api/runtime";
 import { buildChannelListingStateProjectionHandlers } from "../../listing-composition/read-model/state-projection";
 import { createChannelProviderRegistry } from "../../publication-port/api/registry";
-import type { ChannelProviderDescriptor, ChannelStateLineV1 } from "../../publication-port/domain/contracts";
+import type {
+  ChannelProviderDescriptor,
+  ChannelStateLineV1,
+  ChannelSaleLineV1,
+  ChannelSaleFetchResult,
+} from "../../publication-port/domain/contracts";
 import { createChannelReconciliationRuntime } from "../api/runtime";
 import type { ChannelReconciliationRuntimeDependencies, RepushChannelListing } from "../domain/contracts";
 import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
@@ -2214,10 +2219,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     ).resolves.toMatchObject({ rows: [{ state: "running", generation: "1", revision: "3" }] });
   });
 
-  it("enumerates connection lifecycle eligibility without fetching inactive connections", async () => {
+  it("channel-held-inline-eligibility excludes inactive due and direct calls before either source", async () => {
     await seedConnectionAndListings(pools.channels);
     const fetch = vi.fn(async () => driftItems());
-    const registry = inlineRegistry(fetch);
+    const fetchSales = vi.fn(async () => completeSales([]));
+    const registry = inlineRegistryWithSaleResult(fetch, fetchSales);
     const runtime = createRuntime(registry);
 
     for (const status of ["pending-setup", "disconnected"] as const) {
@@ -2231,6 +2237,9 @@ describeDb("Channel Reconciliation guarded production path", () => {
           context,
         ),
       ).rejects.toThrow("not eligible");
+      expect(await runtime.reconcileDueConnections({ registry, sourceAttempt: 1 }, () => context)).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fetchSales).not.toHaveBeenCalled();
     }
     await pools.channels.query(`UPDATE channel_connections SET status='paused' WHERE connection_id='connection-1'`);
     await expect(
@@ -2240,7 +2249,399 @@ describeDb("Channel Reconciliation guarded production path", () => {
       ),
     ).resolves.toMatchObject({ state: "held", counts: { listingsReconciled: 0 } });
     expect(fetch).not.toHaveBeenCalled();
+    expect(fetchSales).toHaveBeenCalledTimes(1);
   });
+
+  it("channel-held-inline-sale-absorption records before lookback expiry and retains day-after/release cadence", async () => {
+    await seedConnectionAndListings(pools.channels);
+    await seedInventoryItem(pools.inventory, "item-repairable");
+    await pools.channels.query(
+      "UPDATE channel_connections SET status='paused' WHERE connection_id='connection-1' AND last_stream_version=2",
+    );
+    const start = new Date();
+    let at = start;
+    const sale = heldSale(start.toISOString());
+    const fetchState = vi.fn(async () => matchingItems());
+    const returned: number[] = [];
+    const fetchSales = vi.fn(async ({ since }: { since: string }) => {
+      const lines = [sale].filter((line) => Date.parse(line.soldAt!) >= Date.parse(since));
+      returned.push(lines.length);
+      return completeSales(lines);
+    });
+    const registry = inlineRegistryWithSaleResult(fetchState, fetchSales);
+    const runtime = s5Runtime({
+      resolveKillSwitch: async () => ({ heldProviderKeys: [], heldConnectionIds: [] }),
+      clock: { now: () => at },
+    });
+    const cadence = CHANNEL_RECONCILIATION_POLICY_FALLBACK.cadenceMs;
+    const sweep = () => runtime.reconcileDueConnections({ registry, sourceAttempt: 1 }, () => context);
+    for (let step = 0; step <= 100; step++) {
+      at = new Date(start.getTime() + step * cadence);
+      expect(await sweep()).toMatchObject([{ state: "held", clean: false, counts: { listingsReconciled: 0 } }]);
+      expect(await sweep()).toEqual([]);
+      if (step === 0 || step === 100) await expectOneHeldSale();
+    }
+    expect(returned[0]).toBe(1);
+    expect(returned.at(-1)).toBe(0);
+    expect(fetchState).not.toHaveBeenCalled();
+    expect(fetchSales).toHaveBeenCalledTimes(101);
+    expect((await pools.channels.query("SELECT last_clean_run_at FROM channel_reconciliation_state")).rows[0]).toEqual({
+      last_clean_run_at: null,
+    });
+    await pools.channels.query(
+      "UPDATE channel_connections SET status='active' WHERE connection_id='connection-1' AND status='paused'",
+    );
+    for (const step of [101, 102]) {
+      at = new Date(start.getTime() + step * cadence);
+      expect(await sweep()).toMatchObject([{ state: "completed", clean: true }]);
+      expect(await sweep()).toEqual([]);
+      await expectOneHeldSale();
+      const row = (
+        await pools.channels.query<{ next_due_at: Date; last_clean_run_at: Date }>(
+          "SELECT next_due_at,last_clean_run_at FROM channel_reconciliation_state",
+        )
+      ).rows[0]!;
+      expect(row.next_due_at.toISOString()).toBe(new Date(at.getTime() + cadence).toISOString());
+      expect(row.last_clean_run_at.toISOString()).toBe(at.toISOString());
+    }
+    expect(fetchState).toHaveBeenCalledTimes(2);
+  });
+
+  it("channel-held-inline-partial-observation retains unobserved drift, state findings and repush without health authority", async () => {
+    await seedConnectionAndListings(pools.channels);
+    const initialAt = new Date();
+    let at = initialAt;
+    let held = false;
+    let items = matchingItems();
+    let saleResult = completeSales([]);
+    const outboundSync = {
+      enqueueReconciliationRepair: vi.fn(async () => null),
+      enqueueRepush: vi.fn(async () => null),
+      readOutboundOperationsByIds: vi.fn(async () => []),
+    };
+    const fetchState = vi.fn(async () => items);
+    const runtime = s5Runtime({
+      outboundSync,
+      resolveKillSwitch: async () => ({ heldProviderKeys: held ? ["inline-provider"] : [], heldConnectionIds: [] }),
+      clock: { now: () => at },
+    });
+    const input = {
+      connectionId: "connection-1",
+      registry: inlineRegistryWithSaleResult(fetchState, async () => saleResult),
+      sourceAttempt: 1,
+      healthAuthority: { policyRevision: fingerprint("2"), evaluationGeneration: 1 },
+    };
+    expect(await runtime.reconcileConnection(input, context)).toMatchObject({ clean: true });
+    at = new Date(at.getTime() + 900_000);
+    items = [...driftItems(), state("synthetic-unlinked-state", "1", 100, 1, fingerprint("c"))];
+    await runtime.reconcileConnection(input, context);
+    await seedRetainedRepushRequest({
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      expectedDecisionRevision: 0,
+      operationId: "synthetic-held-repush",
+    });
+    const retained = (
+      await pools.channels.query<{ drift_generation: RetainedDriftGeneration }>(
+        "SELECT drift_generation FROM channel_reconciliation_state",
+      )
+    ).rows[0]!.drift_generation;
+    const stateRows = (
+      await pools.channels.query("SELECT * FROM channel_reconciliation_items ORDER BY channel_listing_id")
+    ).rows;
+    const findings = (
+      await pools.channels.query("SELECT * FROM channel_reconciliation_findings WHERE kind='unmapped-channel-state'")
+    ).rows;
+    const repush = await repushFacts();
+    const healthCount = (await runtime.readPendingHealthObservations({ limit: 100 })).length;
+    held = true;
+    fetchState.mockClear();
+    outboundSync.enqueueReconciliationRepair.mockClear();
+    for (const result of [
+      completeSales([]),
+      { kind: "bounded-unknown", reason: "source-error" } as const,
+      completeSales([]),
+    ]) {
+      saleResult = result;
+      at = new Date(at.getTime() + 900_000);
+      expect(await runtime.reconcileConnection(input, context)).toMatchObject({
+        clean: false,
+        counts: { listingsReconciled: 0, repairsEnqueued: 0, sourceUnavailable: result.kind === "complete" ? 0 : 1 },
+      });
+      const row = (
+        await pools.channels.query<{ drift_generation: RetainedDriftGeneration; last_clean_run_at: Date }>(
+          "SELECT drift_generation,last_clean_run_at FROM channel_reconciliation_state",
+        )
+      ).rows[0]!;
+      for (const member of retained.members) expect(row.drift_generation.members).toContainEqual(member);
+      expect(row.drift_generation.members.filter((member) => member.identity === "source:state")).toEqual(
+        retained.members.filter((member) => member.identity === "source:state"),
+      );
+      expect(row.last_clean_run_at.toISOString()).toBe(initialAt.toISOString());
+      expect(row.drift_generation.resolution).toBeNull();
+      expect(
+        (await pools.channels.query("SELECT * FROM channel_reconciliation_items ORDER BY channel_listing_id")).rows,
+      ).toEqual(stateRows);
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT * FROM channel_reconciliation_findings WHERE kind='unmapped-channel-state'",
+          )
+        ).rows,
+      ).toEqual(findings);
+      expect(await repushFacts()).toEqual(repush);
+    }
+    const newHealth = (await runtime.readPendingHealthObservations({ limit: 100 })).slice(healthCount);
+    expect(newHealth).toHaveLength(1);
+    expect(newHealth[0]).toMatchObject({ outcome: "failure" });
+    expect(fetchState).not.toHaveBeenCalled();
+    expect(outboundSync.enqueueReconciliationRepair).not.toHaveBeenCalled();
+    expect(outboundSync.enqueueRepush).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "empty",
+    "nonempty",
+    "unknown",
+    "throw-fetch",
+    "cap",
+    "unmappable",
+    "refused",
+    "throw-recorder",
+    "storage",
+  ] as const)(
+    "channel-held-inline-failure-recovery accounts for %s and later real recording without state observations",
+    async (mode) => {
+      await seedConnectionAndListings(pools.channels);
+      await seedInventoryItem(pools.inventory, "item-repairable");
+      let recovering = false;
+      let at = new Date();
+      const sale = heldSale(at.toISOString());
+      const recorder = createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context);
+      const record = vi.fn<ChannelReconciliationRuntimeDependencies["channelSaleRecorder"]>(async (command) => {
+        if (!recovering && mode === "throw-recorder") throw new Error("synthetic recorder failure");
+        if (!recovering && mode === "refused")
+          return {
+            code: "external-channel-sale-history-invalid",
+            saleStreamId: "synthetic-refused",
+            reason: "empty-existing-stream",
+            eventIndex: null,
+          };
+        return recorder(command);
+      });
+      const db = interceptTransactions(pools.channels, async (sql, phase) => {
+        if (
+          !recovering &&
+          mode === "storage" &&
+          phase === "before" &&
+          sql.includes("INSERT INTO channel_recorded_sale_receipts")
+        )
+          throw new Error("synthetic receipt storage failure");
+      });
+      const fetchState = vi.fn(async () => matchingItems());
+      const fetchSales = vi.fn(async (): Promise<ChannelSaleFetchResult> => {
+        if (recovering) return completeSales([sale]);
+        if (mode === "throw-fetch") throw new Error("synthetic fetch failure");
+        if (mode === "unknown") return { kind: "bounded-unknown", reason: "source-error" };
+        if (mode === "empty") return completeSales([]);
+        if (mode === "cap")
+          return completeSales([
+            sale,
+            { ...sale, saleKey: { ...sale.saleKey, orderLineIdentity: "synthetic-over-cap" } },
+          ]);
+        return completeSales([
+          { ...sale, externalListingId: mode === "unmappable" ? "synthetic-unmapped" : sale.externalListingId },
+        ]);
+      });
+      const runtime = s5Runtime({
+        db,
+        channelSaleRecorder: record,
+        clock: { now: () => at },
+        resolvePolicy: async () => ({
+          value: { ...CHANNEL_RECONCILIATION_POLICY_FALLBACK, maxSaleLinesPerRun: 1 },
+          revision: 0,
+        }),
+      });
+      const input = {
+        connectionId: "connection-1",
+        registry: inlineRegistryWithSaleResult(fetchState, fetchSales),
+        sourceAttempt: 1,
+        healthAuthority: { policyRevision: fingerprint("2"), evaluationGeneration: 1 },
+      };
+      const sourceUnknown = ["unknown", "throw-fetch", "cap"].includes(mode);
+      const exception = ["throw-recorder", "storage"].includes(mode);
+      for (let pass = 0; pass < 3; pass++) {
+        const result = await runtime.reconcileConnection(input, context);
+        expect(result).toMatchObject({
+          state: sourceUnknown || exception ? "bounded-unknown" : "held",
+          clean: false,
+          counts: {
+            listingsReconciled: 0,
+            repairsEnqueued: 0,
+            sourceUnavailable: sourceUnknown ? 1 : 0,
+            structural: mode === "unmappable" ? 1 : 0,
+          },
+        });
+        if (["refused", "unmappable"].includes(mode)) expect(result.counts.missedSaleGaps).toBe(1);
+        at = new Date(at.getTime() + 900_000);
+      }
+      expect(fetchSales).toHaveBeenCalledTimes(3);
+      expect(fetchState).not.toHaveBeenCalled();
+      if (sourceUnknown || mode === "empty" || mode === "unmappable") expect(record).not.toHaveBeenCalled();
+      const row = (
+        await pools.channels.query<{
+          drift_generation: RetainedDriftGeneration | null;
+          last_clean_run_at: Date | null;
+        }>("SELECT drift_generation,last_clean_run_at FROM channel_reconciliation_state")
+      ).rows[0]!;
+      expect(row.last_clean_run_at).toBeNull();
+      expect(row.drift_generation?.members.some((member) => member.identity === "source:state") ?? false).toBe(false);
+      if (sourceUnknown)
+        expect(row.drift_generation?.members).toContainEqual(
+          expect.objectContaining({ identity: "source:sales", settlement: "open" }),
+        );
+      if (mode === "refused")
+        expect(
+          (await pools.channels.query("SELECT kind FROM channel_reconciliation_findings WHERE open")).rows,
+        ).toEqual([{ kind: "persistent-sale-gap" }]);
+      expect(
+        (await runtime.readPendingHealthObservations({ limit: 100 })).every(
+          (observation) => observation.outcome === "failure",
+        ),
+      ).toBe(true);
+      recovering = true;
+      expect(await runtime.reconcileConnection(input, context)).toMatchObject({ state: "held", clean: false });
+      await expectOneHeldSale();
+      expect((await pools.channels.query("SELECT 1 FROM channel_missed_sale_gaps WHERE open")).rows).toEqual([]);
+      expect((await pools.channels.query("SELECT 1 FROM channel_reconciliation_findings WHERE open")).rows).toEqual([]);
+      expect(fetchState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("channel-held-inline-generation-interleavings admits one live lease and rejects late completion after recovery", async () => {
+    await seedConnectionAndListings(pools.channels);
+    await seedInventoryItem(pools.inventory, "item-repairable");
+    let at = new Date();
+    const sale = heldSale(at.toISOString());
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchState = vi.fn(async () => matchingItems());
+    const lateSales = vi.fn(async () => {
+      enter();
+      await released;
+      return completeSales([sale]);
+    });
+    const runtime = s5Runtime({ clock: { now: () => at } });
+    const input = {
+      connectionId: "connection-1",
+      registry: inlineRegistryWithSaleResult(fetchState, lateSales),
+      sourceAttempt: 1,
+      healthAuthority: null,
+    };
+    const late = runtime.reconcileConnection(input, context);
+    const lateRejected = expect(late).rejects.toThrow("completion lost its generation fence");
+    await entered;
+    await expect(runtime.reconcileConnection(input, context)).rejects.toThrow("already claimed");
+    expect(lateSales).toHaveBeenCalledTimes(1);
+    at = new Date(at.getTime() + 1_800_001);
+    expect(
+      await runtime.reconcileConnection(
+        { ...input, registry: inlineRegistryWithSaleResult(fetchState, async () => completeSales([sale])) },
+        context,
+      ),
+    ).toMatchObject({ state: "held", generation: 2 });
+    const before = (await pools.channels.query("SELECT * FROM channel_reconciliation_state")).rows;
+    release();
+    await lateRejected;
+    expect((await pools.channels.query("SELECT * FROM channel_reconciliation_state")).rows).toEqual(before);
+    await expectOneHeldSale();
+    expect(fetchState).not.toHaveBeenCalled();
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT run_generation,run_state FROM channel_reconciliation_metrics ORDER BY run_generation",
+        )
+      ).rows,
+    ).toEqual([
+      { run_generation: "1", run_state: "bounded-unknown" },
+      { run_generation: "2", run_state: "held" },
+    ]);
+  });
+
+  it.each(["generation", "revision", "state", "run_fingerprint", "stream-version"] as const)(
+    "channel-held-inline-generation-interleavings isolates the %s finish fence after Inventory commits",
+    async (fence) => {
+      await seedConnectionAndListings(pools.channels);
+      await seedInventoryItem(pools.inventory, "item-repairable");
+      const at = new Date();
+      const recorder = createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context);
+      const eventStore = createPostgresEventStore({ pool: pools.channels });
+      let before: unknown;
+      const record = vi.fn<ChannelReconciliationRuntimeDependencies["channelSaleRecorder"]>(async (command) => {
+        const outcome = await recorder(command);
+        if (fence === "stream-version") {
+          await eventStore.appendToStream({
+            streamId: "channels.channel-reconciliation-connection-1",
+            expectedVersion: 2,
+            context,
+            events: [{ eventType: "channels.synthetic-competing-write", payload: { synthetic: true } }],
+          });
+        } else {
+          const assignment = {
+            generation: "generation=2",
+            revision: "revision=revision+1",
+            state: "state='held',lease_expires_at=NULL",
+            run_fingerprint: "run_fingerprint=repeat('f',64)",
+          }[fence];
+          expect(
+            (
+              await pools.channels.query(
+                `UPDATE channel_reconciliation_state SET ${assignment} WHERE connection_id='connection-1' AND generation=1 AND revision=2 AND state='running'`,
+              )
+            ).rowCount,
+          ).toBe(1);
+        }
+        before = (await pools.channels.query("SELECT * FROM channel_reconciliation_state")).rows;
+        return outcome;
+      });
+      const runtime = s5Runtime({ channelSaleRecorder: record, clock: { now: () => at } });
+      const running = runtime.reconcileConnection(
+        {
+          connectionId: "connection-1",
+          registry: inlineRegistry(() => matchingItems(), [heldSale(at.toISOString())]),
+          sourceAttempt: 1,
+          healthAuthority: null,
+        },
+        context,
+      );
+      if (fence === "stream-version") await expect(running).rejects.toThrow();
+      else await expect(running).rejects.toThrow("completion lost its generation fence");
+      expect(record).toHaveBeenCalledTimes(1);
+      expect((await pools.channels.query("SELECT * FROM channel_reconciliation_state")).rows).toEqual(before);
+      expect((await pools.channels.query("SELECT 1 FROM channel_reconciliation_metrics")).rows).toEqual([]);
+      const finished = await pools.channels.query(
+        "SELECT 1 FROM event_store_events WHERE event_type='channels.channel-reconciliation.finished'",
+      );
+      expect(finished.rows).toEqual([]);
+      await expectOneHeldSale();
+      await recorder({
+        accountId: "account-1",
+        inventoryItemId: "item-repairable",
+        storageLocationId: "location-1",
+        saleKey: heldSale(at.toISOString()).saleKey,
+        requestedQuantity: 1,
+        connectionAuditReference: "connection-1",
+        soldAt: at.toISOString(),
+      });
+      await expectOneHeldSale();
+    },
+  );
 
   it("rejects poisoned drift-decision history before appending or changing its projection", async () => {
     await seedConnectionAndListings(pools.channels);
@@ -3835,7 +4236,7 @@ function inlineRegistry(
 
 function inlineRegistryWithSaleResult(
   read: () => readonly ChannelStateLineV1[] | Promise<readonly ChannelStateLineV1[]>,
-  fetchSales: () => Promise<import("../../publication-port/domain/contracts").ChannelSaleFetchResult>,
+  fetchSales: (input: { connectionId: string; since: string }) => Promise<ChannelSaleFetchResult>,
 ) {
   return createChannelProviderRegistry([
     descriptor("inline-provider", {
@@ -3850,6 +4251,40 @@ function inlineRegistryWithSaleResult(
       fetchSales,
     }),
   ]);
+}
+
+function completeSales(lines: readonly ChannelSaleLineV1[]): ChannelSaleFetchResult {
+  return { kind: "complete", lines, collectedCount: lines.length, authorityTotal: lines.length, pageCount: 1 };
+}
+
+function heldSale(soldAt: string): ChannelSaleLineV1 {
+  return {
+    saleKey: {
+      version: "v1",
+      providerKey: "synthetic-held-inline",
+      sellerEnvironmentLineage: "synthetic-sandbox",
+      orderLineIdentity: "synthetic-held-order:line-1",
+    },
+    externalListingId: "external-repairable",
+    externalOfferId: null,
+    requestedQuantity: 1,
+    soldAt,
+  };
+}
+
+async function expectOneHeldSale() {
+  const sales = await pools.inventory.query<{
+    payload: { appliedQuantity: number; refusedQuantity: number; inventoryAdjustmentEventId: string };
+  }>(
+    "SELECT payload->'result' AS payload FROM event_store_events WHERE event_type='inventory.external-channel-sale.recorded'",
+  );
+  expect(sales.rows).toHaveLength(1);
+  expect(sales.rows[0]!.payload).toMatchObject({ appliedQuantity: 1, refusedQuantity: 0 });
+  const adjustment = await pools.inventory.query("SELECT payload FROM event_store_events WHERE event_id=$1", [
+    sales.rows[0]!.payload.inventoryAdjustmentEventId,
+  ]);
+  expect(adjustment.rows).toHaveLength(1);
+  expect(adjustment.rows[0]!.payload).toMatchObject({ quantityDelta: -1 });
 }
 
 function descriptor(

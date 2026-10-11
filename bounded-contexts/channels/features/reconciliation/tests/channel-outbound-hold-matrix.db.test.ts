@@ -15,6 +15,7 @@ import { createChannelProviderRegistry } from "../../publication-port/api/regist
 import type { ChannelProviderDescriptor } from "../../publication-port/domain/contracts";
 import { createChannelReconciliationRuntime } from "../api/runtime";
 import { CHANNEL_RECONCILIATION_POLICY_FALLBACK } from "../domain/policy";
+import type { ChannelReconciliationRuntimeDependencies } from "../domain/contracts";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -124,10 +125,14 @@ describeDb("channel-outbound-hold-matrix at real outbound admission", () => {
     },
   );
 
-  it.each(combinations)(
-    "gates reconciliation fetch for seller=$seller health=$health operator=$operator",
-    async ({ seller, health, operator }) => {
+  it.each([
+    ...combinations.map((combination) => ({ ...combination, policy: "provider" })),
+    ...["connection", "null", "thrown"].map((policy) => ({ seller: false, health: false, operator: true, policy })),
+  ])(
+    "channel-outbound-hold-matrix acquires sales for seller=$seller health=$health operator=$operator policy=$policy",
+    async ({ seller, health, operator, policy }) => {
       await insertConnection(pools.channels, "connection-reconciliation", "inline-provider", seller);
+      await seedSaleTarget(pools.channels);
       const fetchChannelState = vi.fn(async () => ({
         kind: "complete" as const,
         items: [],
@@ -137,30 +142,60 @@ describeDb("channel-outbound-hold-matrix at real outbound admission", () => {
       }));
       const fetchSales = vi.fn(async () => ({
         kind: "complete" as const,
-        lines: [],
-        collectedCount: 0,
-        authorityTotal: 0,
+        lines: [
+          {
+            saleKey: {
+              version: "v1" as const,
+              providerKey: "synthetic-hold-matrix",
+              sellerEnvironmentLineage: "synthetic-sandbox",
+              orderLineIdentity: "synthetic-order:1",
+            },
+            externalListingId: "synthetic-external",
+            externalOfferId: null,
+            requestedQuantity: 1,
+          },
+        ],
+        collectedCount: 1,
+        authorityTotal: 1,
         pageCount: 1,
+      }));
+      const enqueueReconciliationRepair = vi.fn(async () => null);
+      const enqueueRepush = vi.fn(async () => null);
+      const recorder = vi.fn<ChannelReconciliationRuntimeDependencies["channelSaleRecorder"]>(async (command) => ({
+        status: "committed",
+        sale: {
+          ...command,
+          accountId: command.accountId as never,
+          saleStreamId: "inventory.external-channel-sale-synthetic-hold-matrix",
+          saleEventId: "synthetic-sale-event" as never,
+          appliedQuantity: 1,
+          refusedQuantity: 0,
+          protectedOrderIds: [],
+          collisionPolicyRef: "inventory.external-channel-sale-collision/v1",
+          collisionPolicyRevision: 1,
+          inventoryAdjustmentEventId: "synthetic-adjustment" as never,
+          saleShortfallKey: null,
+          committedAt: "2026-09-12T05:00:00.000Z",
+        },
       }));
       const runtime = createChannelReconciliationRuntime({
         db: pools.channels,
         eventStore: createPostgresEventStore({ pool: pools.channels }),
         outboundSync: {
-          enqueueReconciliationRepair: async () => null,
-          enqueueRepush: async () => null,
+          enqueueReconciliationRepair,
+          enqueueRepush,
           readOutboundOperationsByIds: async () => [],
         },
-        channelSaleRecorder: async () => ({
-          code: "external-channel-sale-history-invalid",
-          saleStreamId: "unused",
-          reason: "empty-existing-stream",
-          eventIndex: null,
-        }),
+        channelSaleRecorder: recorder,
         resolvePolicy: async () => ({ value: CHANNEL_RECONCILIATION_POLICY_FALLBACK, revision: 0 }),
-        resolveKillSwitch: async () => ({
-          heldProviderKeys: operator ? ["inline-provider"] : [],
-          heldConnectionIds: [],
-        }),
+        resolveKillSwitch: async () => {
+          if (policy === "thrown") throw new Error("synthetic unavailable policy");
+          if (policy === "null") return null;
+          return {
+            heldProviderKeys: operator && policy === "provider" ? ["inline-provider"] : [],
+            heldConnectionIds: policy === "connection" ? ["connection-reconciliation"] : [],
+          };
+        },
         readHealthHold: async () => health,
       });
       const result = await runtime.reconcileConnection(
@@ -182,7 +217,12 @@ describeDb("channel-outbound-hold-matrix at real outbound admission", () => {
       const held = seller || health || operator;
       expect(result.state).toBe(held ? "held" : "completed");
       expect(fetchChannelState).toHaveBeenCalledTimes(held ? 0 : 1);
-      expect(fetchSales).toHaveBeenCalledTimes(held ? 0 : 1);
+      expect(fetchSales).toHaveBeenCalledTimes(1);
+      expect(recorder).toHaveBeenCalledTimes(1);
+      expect(result.clean).toBe(!held);
+      expect(enqueueReconciliationRepair).not.toHaveBeenCalled();
+      expect(enqueueRepush).not.toHaveBeenCalled();
+      expect((await pools.channels.query("SELECT 1 FROM channel_recorded_sale_receipts")).rows).toHaveLength(1);
     },
   );
 });
@@ -191,6 +231,31 @@ const reconciliationContext: EventStoreContext = {
   tenantId: "tnt_hold_matrix" as never,
   audit: { performedByUserId: "usr_hold_matrix" as never, forAccountId: "account-1" as never },
 };
+
+async function seedSaleTarget(db: PgTransactionalPool) {
+  await db.query(`UPDATE channel_connections SET bindings='[{"storageLocationId":"location-1","revision":1}]'
+    WHERE connection_id='connection-reconciliation' AND last_stream_version=1`);
+  await db.query(`INSERT INTO channels_connection_facts
+    (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)
+    VALUES ('connection-reconciliation','account-1','inline-provider','sandbox','active',now(),1)`);
+  await db.query(`INSERT INTO channels_listing_publication_facts
+    (listing_id,account_id,inventory_item_id,catalog_item_id,price_amount,price_currency_code,quantity_cap,
+     selected_options,selected_option_key,listing_status,updated_at,listing_stream_version)
+    VALUES ('synthetic-listing','account-1','synthetic-item','synthetic-catalog','10.00','USD',2,'[]','key','active',now(),1)`);
+  await db.query(`INSERT INTO channels_inventory_item_facts
+    (item_id,account_id,catalog_item_id,storage_location_id,total_quantity,updated_at,item_stream_version)
+    VALUES ('synthetic-item','account-1','synthetic-catalog','location-1',2,now(),1)`);
+  // A settled delist is absent from outbound expectations but remains an exact inbound Link.
+  await db.query(
+    `INSERT INTO channels_channel_listing_links
+    (connection_id,listing_id,channel_listing_id,external_listing_id,external_offer_id,
+     last_desired_state_sequence,last_desired_listing_revision,last_desired_state_hash,last_desired_intent,
+     last_desired_payload,last_pushed_listing_revision,publish_state,updated_at,last_stream_version)
+    VALUES ('connection-reconciliation','synthetic-listing','synthetic-channel-listing','synthetic-external',NULL,
+      1,1,$1,'delist','{}',1,'delisted',now(),1)`,
+    ["1".repeat(64)],
+  );
+}
 
 function registry(providerKey: string, publication: NonNullable<ChannelProviderDescriptor["publication"]>) {
   return createChannelProviderRegistry([

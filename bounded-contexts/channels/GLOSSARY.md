@@ -181,8 +181,11 @@ It is separate from the seller-owned connection lifecycle: `unknown` has no
 complete healthy authority, `healthy` has every reason closed, `degraded` has an
 open reason below its failure thresholds, and `failing` is a system pause.
 Reason generations bind a fingerprint and retain their opening work lineage.
-System pause holds outbound publication and polling while independently verified
-inbound sale observations remain available; it never clears a seller pause.
+System pause holds outbound publication and channel-state polling, not bounded
+inline sale acquisition for eligible active or paused connections. Independently
+verified inbound sale recording remains available; neither path clears a seller
+pause. Sale-only reconciliation is partial observation, never clean or healthy
+authority. Unknown health is not itself the reconciliation system-pause predicate.
 
 ## Channel Action
 
@@ -399,4 +402,4 @@ A **Missed-Sale Gap** is a returned external sale line whose exact external Chan
 
 ## Channel Outbound Hold
 
-A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, Channel Health, and the operator kill switch; verified inbound sale recording remains admitted.
+A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, failing Channel Health, and the operator kill switch. Eligible inline reconciliation continues bounded sale acquisition and verified recording while suppressing its own channel-state reads and repair/repush work. Independently verified inbound sale recording remains admitted.

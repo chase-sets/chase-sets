@@ -115,15 +115,18 @@ export function createChannelReconciliationRuntime(
       const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
       const publication = provider?.publication ?? null;
       const snapshotAgeScope = publication?.execution === "claimed" && connection.providerKey === "tcgplayer";
+      const heldInline = hold.held && publication?.execution === "inline";
       // Outbound holds must not prevent recovery from locally persisted capture evidence.
-      if (hold.held && !snapshotAgeScope) {
+      if (hold.held && !snapshotAgeScope && !heldInline) {
         return finishRun(dependencies, connection, claim, "held", counts, false, policy.cadenceMs, startedAt, context);
       }
 
-      const expected = await readExpectedReconciliationListings(dependencies.db, {
-        connectionId: connection.connectionId,
-        limit: policy.maxListingsPerRun,
-      });
+      const expected = heldInline
+        ? { items: [], bounded: false }
+        : await readExpectedReconciliationListings(dependencies.db, {
+            connectionId: connection.connectionId,
+            limit: policy.maxListingsPerRun,
+          });
       if (snapshotAgeScope) {
         const snapshots = await readLatestLiveSnapshotMetadata(dependencies.db, connection.connectionId);
         const age = evaluateSnapshotAge(snapshots, startedAt, policy.snapshotMaxAgeMs);
@@ -154,7 +157,7 @@ export function createChannelReconciliationRuntime(
       let stateResult: ChannelStateFetchResult = { kind: "bounded-unknown", reason: "source-error" };
       if (expected.bounded) {
         stateResult = { kind: "bounded-unknown", reason: "hard-cap" };
-      } else if (publication?.execution === "inline") {
+      } else if (publication?.execution === "inline" && !heldInline) {
         try {
           stateResult = await publication.fetchChannelState({ connectionId: connection.connectionId });
         } catch {
@@ -408,6 +411,10 @@ export function createChannelReconciliationRuntime(
 
       let saleComplete = true;
       let saleAuthorityComplete = false;
+      let saleSourceAuthority: ChannelDriftObservation["sourceAuthority"] = {
+        kind: "declared-incomplete",
+        reason: "source-error",
+      };
       if (publication?.execution === "inline") {
         let saleResult: ChannelSaleFetchResult;
         try {
@@ -419,6 +426,10 @@ export function createChannelReconciliationRuntime(
           saleResult = { kind: "bounded-unknown", reason: "source-error" };
         }
         saleComplete = saleResult.kind === "complete" && saleResult.lines.length <= policy.maxSaleLinesPerRun;
+        saleSourceAuthority =
+          saleComplete && saleResult.kind === "complete"
+            ? { kind: "complete", collectedCount: saleResult.collectedCount, authorityTotal: saleResult.authorityTotal }
+            : { kind: "declared-incomplete", reason: saleResult.kind === "complete" ? "hard-cap" : saleResult.reason };
         if (saleComplete && saleResult.kind === "complete") {
           saleAuthorityComplete = true;
           for (const line of saleResult.lines) {
@@ -466,6 +477,7 @@ export function createChannelReconciliationRuntime(
 
       const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
       let clean =
+        !heldInline &&
         stateComplete &&
         saleAuthorityComplete &&
         saleComplete &&
@@ -499,7 +511,14 @@ export function createChannelReconciliationRuntime(
         ["source:state", stateComplete],
         ["source:sales", saleAuthorityComplete],
       ] as const) {
-        if (complete || snapshotAgeScope || !claim.driftGeneration || claim.driftGeneration.resolution !== null)
+        if (heldInline && identity === "source:state") continue;
+        if (
+          heldInline ||
+          complete ||
+          snapshotAgeScope ||
+          !claim.driftGeneration ||
+          claim.driftGeneration.resolution !== null
+        )
           members.push({
             identity,
             kind: "source-unavailable",
@@ -522,6 +541,12 @@ export function createChannelReconciliationRuntime(
           ),
         );
       }
+      if (heldInline) {
+        const observedIdentities = new Set(members.map((member) => member.identity));
+        members.push(
+          ...(claim.driftGeneration?.members ?? []).filter((member) => !observedIdentities.has(member.identity)),
+        );
+      }
       const driftGeneration =
         absentByDesign && !snapshotAgeAttention
           ? claim.driftGeneration
@@ -530,11 +555,13 @@ export function createChannelReconciliationRuntime(
       const health =
         input.healthAuthority &&
         (!absentByDesign || snapshotAgeAttention) &&
-        (clean ||
-          counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
-          !stateComplete ||
-          persistentGaps.length > 0 ||
-          driftGeneration?.resolution === null)
+        (heldInline
+          ? counts.structural + counts.sourceUnavailable > 0 || persistentGaps.length > 0
+          : clean ||
+            counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
+            !stateComplete ||
+            persistentGaps.length > 0 ||
+            driftGeneration?.resolution === null)
           ? mapChannelDriftToHealthObservation({
               connectionId: connection.connectionId,
               runGeneration: claim.generation,
@@ -542,13 +569,20 @@ export function createChannelReconciliationRuntime(
               resultOrdinal: 1,
               ...input.healthAuthority,
               classification: clean ? "in-sync" : "source-unavailable",
-              sourceAuthority,
+              sourceAuthority: heldInline ? saleSourceAuthority : sourceAuthority,
               materialFingerprint: driftGeneration?.fingerprint ?? digest(`connection:${connection.connectionId}`),
               occurredAt: startedAt,
               snapshotAgeAttention,
             })
           : null;
-      const state = hold.held ? "held" : stateComplete && saleComplete ? "completed" : "bounded-unknown";
+      const state =
+        heldInline && !saleComplete
+          ? "bounded-unknown"
+          : hold.held
+            ? "held"
+            : stateComplete && saleComplete
+              ? "completed"
+              : "bounded-unknown";
       return finishRun(
         dependencies,
         connection,
