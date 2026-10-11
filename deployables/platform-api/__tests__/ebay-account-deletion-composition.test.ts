@@ -33,12 +33,12 @@ describe("ebay-account-deletion-composition", () => {
     });
     const app = buildPlatformApiApp(runtime);
     for (const headers of [
-      {},
-      {
+      new Headers(),
+      new Headers({
         host: "attacker.example",
         forwarded: "host=attacker.example;proto=http",
         "x-forwarded-host": "attacker.example",
-      },
+      }),
     ]) {
       const response = await app.request(CHANNELS_EBAY_ACCOUNT_DELETION_PATH + "?challenge_code=synthetic-challenge", {
         headers,

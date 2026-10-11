@@ -823,7 +823,7 @@
   "directoryIntent": {
     "ebay-account-deletion": {
       "classification": "slice",
-      "purpose": "Own the deployment-configured eBay account-deletion challenge GET and its protocol tests.",
+      "purpose": "Own the Channels ebay-account-deletion challenge GET, deployment configuration, and protocol tests.",
       "expectedConsumers": ["Channels public webhook mount", "platform-api configuration loader"]
     },
     "order-fulfillment-observations": {
