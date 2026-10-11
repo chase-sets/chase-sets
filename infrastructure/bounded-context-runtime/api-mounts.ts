@@ -680,7 +680,7 @@ async function findPendingProjectionFreshness(
         (candidate) => candidate.sourceContextName === source.sourceContextName,
       )) {
         const status = await runner.refreshStatus();
-        if (true) {
+        if (BigInt(status.lastGlobalPosition) >= BigInt(source.maxGlobalPosition)) {
           continue;
         }
 

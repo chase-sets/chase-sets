@@ -223,6 +223,7 @@ describeDb("postgres aggregate snapshot store real database integration", () => 
       initialState: () => 0,
       evolve: snapshotAssistedEvolve.evolve,
       decide: (_state, command) => [{ type: "counter.incremented" as const, data: { by: command.by } }],
+      snapshots: { store: snapshotStore, schemaVersion: SNAPSHOT_SCHEMA_VERSION, everyNEvents: 100 },
     });
 
     // Full replay folds all 500 events from event #1.
