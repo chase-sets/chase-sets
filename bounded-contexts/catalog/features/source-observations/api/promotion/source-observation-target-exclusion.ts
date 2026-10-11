@@ -221,7 +221,7 @@ async function proveRetainedCreate(
       normalized: requireCatalogItemPromotionObservation(source.normalized, source.providerKey),
     });
   }
-  for (const { source, version, normalized } of validated) {
+  for (const [index, { source, version, normalized }] of validated.entries()) {
     const catalogMapping = await loadCatalogItemPromotionProfile(input.deps, version.profile);
     await guardPromotionMaterial({
       deps: input.deps,
@@ -230,7 +230,11 @@ async function proveRetainedCreate(
       mapping: catalogMapping,
       normalized,
     });
-    if (!source.promotionPlanFingerprint) continue;
+    if (
+      !source.promotionPlanFingerprint ||
+      source.promotionPlanFingerprint === validated[index - 1]?.source.promotionPlanFingerprint
+    )
+      continue;
     let matched = false;
     for (const productAssetSet of assetSets.values()) {
       for (const mode of ["create", "refresh"] as const) {

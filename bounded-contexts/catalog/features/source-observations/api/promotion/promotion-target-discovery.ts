@@ -77,23 +77,14 @@ export function locatedPromotionSourceTargets(
     targets.add(sourceObservationTargetId(revision.id!));
     if (revision.promotedCatalogItemId) targets.add(revision.promotedCatalogItemId);
     const externalKey = sourceObservationLinkExternalKey(revision.languageCode, revision.externalKey);
-    for (const [id] of evidence.items) {
+    for (const [id, item] of evidence.items) {
       if (
-        evidence.histories
-          .get(`catalog.item-${id}`)
-          ?.some(
-            (event) =>
-              [
-                "catalog.catalog-item.external-product-reference-linked",
-                "catalog.catalog-item.external-product-reference-unlinked",
-              ].includes(event.eventType) &&
-              typeof event.payload.providerKey === "string" &&
-              typeof event.payload.externalKey === "string" &&
-              canonicalPromotionReferenceText(event.payload.providerKey) ===
-                canonicalPromotionReferenceText(revision.providerKey) &&
-              canonicalPromotionReferenceText(event.payload.externalKey) ===
-                canonicalPromotionReferenceText(externalKey),
-          )
+        item.externalProductReferences.some(
+          (reference) =>
+            canonicalPromotionReferenceText(reference.providerKey) ===
+              canonicalPromotionReferenceText(revision.providerKey) &&
+            canonicalPromotionReferenceText(reference.externalKey) === canonicalPromotionReferenceText(externalKey),
+        )
       )
         targets.add(id);
     }
@@ -113,6 +104,8 @@ export async function discoverPromotionTargets(input: {
   const items = new Map<string, CatalogItemState>();
   const bindings = new Map<string, PromotionTargetBinding | null>();
   const retainedBindings: PromotionTargetBinding[] = [];
+  const candidateTargets = new Set(input.additionalTargetIds);
+  const expandedItems = new Set<string>();
   const pendingStreams = new Set(input.additionalTargetIds.map((id) => `catalog.item-${id}`));
   const addKey = (key: PromotionTargetKey) => {
     const retainedStream = retainedPromotionTargetBindingStream(key);
@@ -148,7 +141,10 @@ export async function discoverPromotionTargets(input: {
         binding = next;
       }
       bindings.set(identity, binding);
-      if (binding) pendingStreams.add(`catalog.item-${binding.targetId}`);
+      if (binding) {
+        candidateTargets.add(binding.targetId);
+        pendingStreams.add(`catalog.item-${binding.targetId}`);
+      }
       if (key.level === "member") pendingStreams.add(`catalog.source-observation-${key.observationId}`);
       else for (const located of await input.locate(key)) pendingStreams.add(located);
     }
@@ -181,22 +177,47 @@ export async function discoverPromotionTargets(input: {
         const current = bindings.get(identity);
         if (current && current.targetId !== binding.targetId) throw new Error("promotion-target-conflicting-binding");
         retainedBindings.push(binding);
+        candidateTargets.add(binding.targetId);
         pendingStreams.add(`catalog.item-${binding.targetId}`);
       } else if (streamId.startsWith("catalog.source-observation-")) {
         if (history.length === 0) throw new Error(`promotion-target-missing-source:${streamId}`);
         const id = streamId.slice("catalog.source-observation-".length);
         const source = foldPromotionTargetSource(id, history);
         sources.set(id, source);
+        candidateTargets.add(sourceObservationTargetId(id));
         pendingStreams.add(`catalog.item-${sourceObservationTargetId(id)}`);
         for (const revision of source.revisions) {
           sourceObservationTargetKeys(revision).forEach(addKey);
-          if (revision.promotedCatalogItemId) pendingStreams.add(`catalog.item-${revision.promotedCatalogItemId}`);
+          if (revision.promotedCatalogItemId) {
+            candidateTargets.add(revision.promotedCatalogItemId);
+            pendingStreams.add(`catalog.item-${revision.promotedCatalogItemId}`);
+          }
         }
       } else if (streamId.startsWith("catalog.item-")) {
         const id = streamId.slice("catalog.item-".length);
         const state = foldPromotionTargetItem(id, history);
         items.set(id, state);
-        for (const event of history) {
+      } else throw new Error(`promotion-target-invalid-locator:${streamId}`);
+    }
+    // Released histories remain guarded negative evidence, but only ownership
+    // candidates expand the identity set. Revisit deferred items as it grows.
+    for (const [id, item] of items) {
+      if (expandedItems.has(id)) continue;
+      const ownsKey = [
+        ...item.externalCatalogItemReferences.map(({ providerKey, externalKey }) => ({
+          level: "item" as const,
+          providerKey,
+          externalKey,
+        })),
+        ...item.externalProductReferences.map(({ providerKey, externalKey }) => ({
+          level: "product" as const,
+          providerKey,
+          externalKey,
+        })),
+      ].some((key) => keys.has(promotionTargetKeyIdentity(key)));
+      if (candidateTargets.has(id) || ownsKey) {
+        expandedItems.add(id);
+        for (const event of histories.get(`catalog.item-${id}`)!) {
           const level = event.eventType.includes(".external-catalog-item-reference-")
             ? "item"
             : event.eventType.includes(".external-product-reference-")
@@ -211,9 +232,13 @@ export async function discoverPromotionTargets(input: {
               }),
             );
         }
-      } else throw new Error(`promotion-target-invalid-locator:${streamId}`);
+      }
     }
-    if ([...keys.keys()].every((key) => bindings.has(key))) break;
+    if (
+      [...keys.keys()].every((key) => bindings.has(key)) &&
+      [...pendingStreams].every((stream) => histories.has(stream))
+    )
+      break;
   }
   for (const binding of retainedBindings) {
     const identity = promotionTargetKeyIdentity(binding.key);

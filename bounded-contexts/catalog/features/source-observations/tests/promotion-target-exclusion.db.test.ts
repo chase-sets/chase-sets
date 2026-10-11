@@ -180,6 +180,31 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     return createPostgresPromotionTargetExclusion({ pool, eventStore: createPostgresEventStore({ pool }) });
   }
 
+  it("refreshes changed A at its original target and resolves overlapping B without another creation", async () => {
+    await record("changed-A");
+    const first = await services.sourceObservations.promoteObservation({ observationId: "changed-A", context });
+    const store = createPostgresEventStore({ pool });
+    const streamId = `catalog.item-${first.catalogItemId}`;
+    const before = await readCompleteStream(store, { streamId });
+    const changed = {
+      card: { ...fixture.card, name: "Synthetic changed name" },
+      catalogHashMaterial: { ...fixture.catalogHashMaterial, revision: "changed" },
+    };
+    await record("changed-A", undefined, changed);
+    await expect(
+      createCatalogServices(pool).sourceObservations.promoteObservation({ observationId: "changed-A", context }),
+    ).resolves.toMatchObject({ catalogItemId: first.catalogItemId });
+    const after = await readCompleteStream(store, { streamId });
+    expect(after.slice(0, before.length)).toEqual(before);
+    expect(after.length).toBeGreaterThan(before.length);
+    expect(await itemCreations()).toHaveLength(1);
+    await record("changed-B", undefined, changed);
+    await expect(
+      createCatalogServices(pool).sourceObservations.promoteObservation({ observationId: "changed-B", context }),
+    ).resolves.toMatchObject({ catalogItemId: first.catalogItemId });
+    expect(await itemCreations()).toHaveLength(1);
+  });
+
   function acquire(
     targetId: string,
     keys: readonly PromotionTargetKey[],
@@ -468,68 +493,91 @@ describeDb("promotion target exclusion through real Catalog services", () => {
     }
   });
 
-  it.each(["linked", "unlinked", "relinked", "inactive-pinned", "inactive-released"] as const)(
-    "distinguishes real retained %s history before allocating",
-    async (state) => {
-      const retained = await retainedPlan("lifecycle-A");
-      const owner = "cat_synthetic_lifecycle" as CatalogItemId;
-      for (const command of retained.plan.commands.filter(
-        (command) => command.type !== "LinkExternalProductReference",
-      )) {
-        await services.items.commandHandler({
-          streamId: `catalog.item-${owner}`,
-          command: command.type === "CreateCatalogItem" ? { ...command, itemId: owner } : command,
-          context,
-        });
-      }
-      if (["unlinked", "relinked", "inactive-released"].includes(state))
-        await services.items.commandHandler({
-          streamId: `catalog.item-${owner}`,
-          command: {
-            type: "UnlinkExternalCatalogItemReference",
-            providerKey: "TCGPLAYER",
-            externalKey: " PRODUCT:SYNTHETIC-493958 ",
-          },
-          context,
-        });
-      if (state === "relinked")
-        await services.items.commandHandler({
-          streamId: `catalog.item-${owner}`,
-          command: {
-            type: "LinkExternalCatalogItemReference",
-            providerKey: "tcgplayer",
-            externalKey: "product:synthetic-493958",
-          },
-          context,
-        });
-      if (state.startsWith("inactive"))
-        await services.items.commandHandler({
-          streamId: `catalog.item-${owner}`,
-          command: { type: "RemoveDraftCatalogItem" },
-          context,
-        });
-      await record("lifecycle-B");
-      const before = await readCompleteStream(createPostgresEventStore({ pool }), {
+  it.each([
+    "linked",
+    "unlinked",
+    "source-product-unlinked",
+    "relinked",
+    "inactive-pinned",
+    "inactive-released",
+  ] as const)("distinguishes real retained %s history before allocating", async (state) => {
+    const retained = await retainedPlan("lifecycle-A");
+    const owner = "cat_synthetic_lifecycle" as CatalogItemId;
+    for (const command of retained.plan.commands.filter(
+      (command) => state === "source-product-unlinked" || command.type !== "LinkExternalProductReference",
+    )) {
+      await services.items.commandHandler({
         streamId: `catalog.item-${owner}`,
-      });
-      const attempt = createCatalogServices(pool).sourceObservations.promoteObservation({
-        observationId: "lifecycle-B",
+        command: command.type === "CreateCatalogItem" ? { ...command, itemId: owner } : command,
         context,
       });
-      if (state === "inactive-pinned") {
-        await expect(attempt).rejects.toThrow("promotion-target-inactive");
-        expect(await itemCreations()).toHaveLength(1);
-      } else {
-        const result = await attempt;
-        if (state === "linked" || state === "relinked") expect(result.catalogItemId).toBe(owner);
-        else expect(result.catalogItemId).not.toBe(owner);
+    }
+    if (["unlinked", "source-product-unlinked", "relinked", "inactive-released"].includes(state))
+      await services.items.commandHandler({
+        streamId: `catalog.item-${owner}`,
+        command: {
+          type: "UnlinkExternalCatalogItemReference",
+          providerKey: "TCGPLAYER",
+          externalKey: " PRODUCT:SYNTHETIC-493958 ",
+        },
+        context,
+      });
+    if (state === "relinked")
+      await services.items.commandHandler({
+        streamId: `catalog.item-${owner}`,
+        command: {
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:synthetic-493958",
+        },
+        context,
+      });
+    if (state === "source-product-unlinked")
+      for (const command of retained.plan.commands) {
+        if (command.type === "LinkExternalProductReference")
+          await services.items.commandHandler({
+            streamId: `catalog.item-${owner}`,
+            context,
+            command: {
+              type: "UnlinkExternalProductReference",
+              providerKey: command.providerKey,
+              externalKey: command.externalKey,
+            },
+          });
       }
-      if (state.startsWith("inactive"))
-        expect(
-          await readCompleteStream(createPostgresEventStore({ pool }), { streamId: `catalog.item-${owner}` }),
-        ).toEqual(before);
-    },
-  );
+    if (state === "unlinked" || state === "source-product-unlinked")
+      await services.items.commandHandler({
+        streamId: `catalog.item-${owner}`,
+        command: { type: "LinkExternalCatalogItemReference", providerKey: "synthetic", externalKey: "unrelated-r2" },
+        context,
+      });
+    if (state.startsWith("inactive"))
+      await services.items.commandHandler({
+        streamId: `catalog.item-${owner}`,
+        command: { type: "RemoveDraftCatalogItem" },
+        context,
+      });
+    await record("lifecycle-B");
+    const before = await readCompleteStream(createPostgresEventStore({ pool }), {
+      streamId: `catalog.item-${owner}`,
+    });
+    const attempt = createCatalogServices(pool).sourceObservations.promoteObservation({
+      observationId: "lifecycle-B",
+      context,
+    });
+    if (state === "inactive-pinned") {
+      await expect(attempt).rejects.toThrow("promotion-target-inactive");
+      expect(await itemCreations()).toHaveLength(1);
+    } else {
+      const result = await attempt;
+      if (state === "linked" || state === "relinked") expect(result.catalogItemId).toBe(owner);
+      else expect(result.catalogItemId).not.toBe(owner);
+    }
+    if (state.startsWith("inactive") || state === "unlinked" || state === "source-product-unlinked")
+      expect(
+        await readCompleteStream(createPostgresEventStore({ pool }), { streamId: `catalog.item-${owner}` }),
+      ).toEqual(before);
+  });
 
   it("folds the decisive owner and negative unlink beyond page 500 and fences a later relink", async () => {
     const store = createPostgresEventStore({ pool });
@@ -1071,26 +1119,29 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       const connect = pool.connect.bind(pool);
       let commits = 0;
       let interrupted = false;
-      const spy = vi.spyOn(pool, "connect").mockImplementation(async () => {
-        const client = await connect();
-        let promotion = false;
-        return new Proxy(client, {
-          get(target, key) {
-            if (key === "query")
-              return async (sql: string, values?: readonly unknown[]) => {
-                if (sql === "LOCK TABLE catalog_provider_integration_profile_versions IN SHARE MODE") promotion = true;
-                const result = await target.query(sql, values);
-                // Acquire and preparePlan bind first; each following COMMIT is one
-                // atomic command, including commands whose domain result is empty.
-                if (sql === "COMMIT" && promotion && ++commits === commandNumber + 2) {
-                  interrupted = true;
-                  throw new Error("synthetic-after-command-commit");
-                }
-                return result;
-              };
-            const value = Reflect.get(target, key, target);
-            return typeof value === "function" ? value.bind(target) : value;
-          },
+      const spy = vi.spyOn(pool, "connect").mockImplementation((...args: unknown[]) => {
+        if (typeof args[0] === "function") return Reflect.apply(connect, pool, args);
+        return connect().then((client) => {
+          let promotion = false;
+          return new Proxy(client, {
+            get(target, key) {
+              if (key === "query")
+                return async (sql: string, values?: readonly unknown[]) => {
+                  if (sql === "LOCK TABLE catalog_provider_integration_profile_versions IN SHARE MODE")
+                    promotion = true;
+                  const result = await target.query(sql, values);
+                  // Acquire and preparePlan bind first; each following COMMIT is one
+                  // atomic command, including commands whose domain result is empty.
+                  if (sql === "COMMIT" && promotion && ++commits === commandNumber + 2) {
+                    interrupted = true;
+                    throw new Error("synthetic-after-command-commit");
+                  }
+                  return result;
+                };
+              const value = Reflect.get(target, key, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          });
         });
       });
       try {
