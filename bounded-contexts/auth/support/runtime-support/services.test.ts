@@ -341,6 +341,15 @@ describe("fabricated read-time authentication moment (predecessor) vs stored aut
 describe("Projected Capability Grants on Session-backed actors", () => {
   const SYNTHETIC_GRANT = { key: "support.evidence.any-case", assignmentId: "acap_synthetic", version: 3 } as const;
 
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_READ_MOMENT);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function servicesWithGrants(grants: readonly (typeof SYNTHETIC_GRANT)[], primaryEmail: string | null = null) {
     const fixture = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
     const listGrantedAccountCapabilities = vi.fn(async () => grants);
