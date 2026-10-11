@@ -15,7 +15,7 @@ import * as projection from "../../tcgplayer-csv/read-model/projection";
 import type { createTcgplayerLiveExportSnapshotRuntime } from "../api/runtime";
 import type { persistTcgplayerExportSnapshot } from "../../tcgplayer-csv/api/runtime";
 import type { evaluateSnapshotAge } from "../../reconciliation/domain/snapshot-age";
-import { loadMutant } from "./test-support";
+import { loadMutant } from "./mutant-loader";
 
 /** The consumer with one control rewritten; every other import is the real owner. */
 export function consumerMutant(anchor: string, replacement: string): typeof createTcgplayerLiveExportSnapshotRuntime {

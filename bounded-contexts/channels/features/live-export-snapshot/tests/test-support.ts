@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
-import ts from "@chase-sets/typescript-compiler-api";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -166,33 +163,4 @@ export async function consumerProgress(db: PgQueryable, connection = connectionI
       [connection],
     )
   ).rows[0];
-}
-
-/**
- * In-memory bypass only: the candidate file and database authority are never rewritten.
- * The anchor must occur exactly once so a moved control fails loudly instead of silently passing.
- */
-export function loadMutant<T>(
-  sourceUrl: URL,
-  anchor: string,
-  replacement: string,
-  bindings: Readonly<Record<string, unknown>>,
-): T {
-  const source = readFileSync(sourceUrl, "utf8");
-  if (source.split(anchor).length !== 2) throw new Error(`live-export-snapshot-mutant-anchor-moved: ${anchor}`);
-  const exports: Record<string, unknown> = {};
-  runInNewContext(
-    ts.transpileModule(source.replace(anchor, replacement), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-    }).outputText,
-    {
-      exports,
-      require: (specifier: string) => {
-        if (!Object.hasOwn(bindings, specifier))
-          throw new Error(`live-export-snapshot-mutant-import-unbound: ${specifier}`);
-        return bindings[specifier];
-      },
-    },
-  );
-  return exports as T;
 }

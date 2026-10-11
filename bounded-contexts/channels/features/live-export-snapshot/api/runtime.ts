@@ -93,7 +93,7 @@ export function createTcgplayerLiveExportSnapshotRuntime(deps: Dependencies) {
             surface: "live",
             parsed: plan.payload.parsed,
             ingestedAt,
-            // #9286 R9286-2: the connector-measured instant verbatim, never ingestion or any consumer clock.
+            // The connector-measured instant verbatim, never ingestion or any consumer clock.
             capturedAt: plan.payload.capturedAt,
             capturedAtSource: "connector-captured",
           }),
