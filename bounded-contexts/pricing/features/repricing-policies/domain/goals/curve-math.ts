@@ -1,6 +1,7 @@
 import {
   centsToMoneyAmount,
   centsToSignedMoneyAmount,
+  moneyToCents,
   type MoneyAmount,
   type SignedMoneyAmount,
 } from "@chase-sets/primitives/money";
@@ -44,39 +45,48 @@ export const toMoneyAmount = (value: number): MoneyAmount => centsToMoneyAmount(
 export const toSignedMoneyAmount = (value: number): SignedMoneyAmount =>
   centsToSignedMoneyAmount(Math.round(value * 100));
 
+/** Basis points in a whole; cents times this are sub-cent basis-point units. */
+const BASIS_POINTS = 10_000n;
+
 /**
- * Net Proceeds per unit: the price less each overhead term's relative part,
- * capped, plus its fixed part. It is signed, so a loss stays visible, and
- * continuous, like the app's objective; with no caps it equals the app's
- * `price x (1 - relative) - static`. Economics' order quote rounds each fee up
- * to the cent and floors its `netProceedsAmount` at zero, so it is not used here.
+ * Net Proceeds per unit at a cent-valued price: the price less each overhead
+ * term's relative part, capped, plus its fixed part. It is signed, so a loss
+ * stays visible, and continuous, like the app's objective; with no caps it equals
+ * the app's `price x (1 - relative) - static`. Terms add exactly in sub-cent
+ * basis-point units (a cent x 10,000, a million to the currency unit) and only
+ * the total becomes a number, so break-even is exactly zero and a sub-cent profit
+ * or loss keeps its sign. Economics' order quote rounds each fee up to the cent
+ * and floors its `netProceedsAmount` at zero, so it is not used here.
  */
 export function netProceedsAtPrice(price: number, terms: SellerOverheadTerms): number {
-  return (
-    price -
+  const priceCents = BigInt(Math.round(price * 100));
+  const net =
+    priceCents * BASIS_POINTS -
     unitOverhead(
-      price,
+      priceCents,
       terms.platformFeeRelativeBps,
       terms.platformFeeFixedPerUnitAmount,
       terms.platformFeeCapPerUnitAmount,
     ) -
     unitOverhead(
-      price,
+      priceCents,
       terms.sellerHandlingRelativeBps,
       terms.sellerHandlingFixedPerUnitAmount,
       terms.sellerHandlingCapPerUnitAmount,
-    )
-  );
+    );
+  return Number(net) / 1_000_000;
 }
 
+/** One overhead term in sub-cent basis-point units; Economics admits only integer basis points. */
 function unitOverhead(
-  price: number,
+  priceCents: bigint,
   relativeBps: number,
   fixed: SellerOverheadTerms["platformFeeFixedPerUnitAmount"],
   relativeCap: SellerOverheadTerms["platformFeeCapPerUnitAmount"],
-): number {
-  const relative = (price * relativeBps) / 10_000;
-  return (relativeCap === null ? relative : Math.min(relative, Number(relativeCap.amount))) + Number(fixed.amount);
+): bigint {
+  const relative = priceCents * BigInt(relativeBps);
+  const cap = relativeCap === null ? null : moneyToCents(relativeCap.amount) * BASIS_POINTS;
+  return (cap === null || relative < cap ? relative : cap) + moneyToCents(fixed.amount) * BASIS_POINTS;
 }
 
 function isPositive(value: number | null): value is number {

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { requireBasisPoints } from "../../economics/domain/contracts";
 import type { CurvePoint } from "../../market-estimates/domain/demand-curve/curve";
 import { fixedPercentileGoal } from "../domain/goals/fixed-percentile";
 import { profitPerDayGoal } from "../domain/goals/profit-per-day";
@@ -37,6 +38,15 @@ const fixedSixDollarTerms: GoalFeeTerms = {
   sellerHandlingRelativeBps: 0,
   sellerHandlingFixedPerUnitAmount: "0.00",
 };
+/** Relative fees only: 1000 platform basis points plus the given handling share, each admitted by Economics. */
+const relativeOnlyTerms = (handlingBps: number): GoalFeeTerms => ({
+  platformFeeRelativeBps: requireBasisPoints(1_000, "platformFeeRelativeBps"),
+  platformFeeFixedPerUnitAmount: "0.00",
+  platformFeeCapPerUnitAmount: null,
+  sellerHandlingRelativeBps: requireBasisPoints(handlingBps, "sellerHandlingRelativeBps"),
+  sellerHandlingFixedPerUnitAmount: "0.00",
+  sellerHandlingCapPerUnitAmount: null,
+});
 const goals = [fixedPercentileGoal, targetHorizonGoal, profitPerDayGoal] as const;
 const curveOnlyGoals = [fixedPercentileGoal, targetHorizonGoal] as const;
 
@@ -469,6 +479,45 @@ describe("AC4: unavailable curves, capped terms, least loss and explanations", (
     }
     expect(slowLeastLoss.forecast.medianSellDays).toBeCloseTo(200, 9);
     expect(fastLeastLoss.forecast.medianSellDays).toBeCloseTo(2, 9);
+  });
+
+  it("classifies exact break-even as unprofitable and keeps the sign of a sub-cent profit or loss", () => {
+    // Synthetic: one $0.10 point. In cents x 10,000 basis points the exact net is
+    // 10 x 10,000 - 10 x 1,000 - 10 x handling: +10, exactly 0 and -10 for these three.
+    for (const [handlingBps, unprofitable] of [
+      [8_999, false],
+      [9_000, true],
+      [9_001, true],
+    ] as const) {
+      expect(10 * 10_000 - 10 * 1_000 - 10 * handlingBps <= 0, String(handlingBps)).toBe(unprofitable);
+      const result = decision(profitPerDayGoal, {
+        curve: curve([point(50, "0.10", 1)]),
+        economics: resolvedGoalEconomics(relativeOnlyTerms(handlingBps), 0.005),
+      });
+      // All three report the same rounded amount, so only the exact sign can tell them apart.
+      expect(result, String(handlingBps)).toMatchObject({
+        selectedPriceAmount: "0.10",
+        unprofitable,
+        rationale: { netProceeds: "0.00" },
+      });
+      expect(profitPerDayGoal.explain(result).unprofitable, String(handlingBps)).toBe(unprofitable);
+    }
+  });
+
+  it("never discounts break-even as profit, so when every price breaks even the fastest point is kept, unprofitable", () => {
+    // 1000 + 9000 basis points take all of every price, so every candidate ties at exactly zero and the
+    // fastest is kept; a positive rounding residue at $0.10 would be discounted as profit and win.
+    const result = decision(profitPerDayGoal, {
+      curve: curve([point(40, "0.09", 2), point(60, "0.10", 200)]),
+      economics: resolvedGoalEconomics(relativeOnlyTerms(9_000), 0.005),
+    });
+    expect(result).toMatchObject({
+      selectedPriceAmount: "0.09",
+      unprofitable: true,
+      rationale: { netProceeds: "0.00" },
+    });
+    expect(result.forecast.medianSellDays).toBeCloseTo(2, 9);
+    expect(profitPerDayGoal.explain(result).unprofitable).toBe(true);
   });
 
   it("explains each goal with its table drivers, as values only", () => {
