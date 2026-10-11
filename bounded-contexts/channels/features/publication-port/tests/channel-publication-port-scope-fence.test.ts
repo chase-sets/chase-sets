@@ -11,6 +11,7 @@ describe("channel-publication-port-scope-fence", () => {
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
     expect(manifest.slices).toEqual([
+      "ebay-account-deletion",
       "connector-feed",
       "connections",
       "credentials",
@@ -28,6 +29,17 @@ describe("channel-publication-port-scope-fence", () => {
       "reconciliation",
     ]);
     expect(manifest.hostPorts).toEqual([
+      {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
       {
         portName: "storageLocationAuthority",
         providedBy: "platform-api, platform-worker",
