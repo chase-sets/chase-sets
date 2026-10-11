@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadConfig } from "../src/config";
+import { getContextDatabaseEnvName, getPlatformApiContextsForRuntimeProfile, loadConfig } from "../src/config";
 
 const endpoint = "https://Example.com:443/api/channels-webhooks/ebay/account-deletion";
 const token = "synthetic_verification_token_0123456789";
 beforeEach(() => {
-  vi.stubEnv("DATABASE_URL", "postgresql://localhost/chase_sets");
+  vi.stubEnv("PLATFORM_CONTROL_DATABASE_URL", "postgresql://localhost/chase_sets");
+  vi.stubEnv("CHASE_SETS_RUNTIME_PROFILE", "public");
+  for (const context of getPlatformApiContextsForRuntimeProfile("public")) {
+    vi.stubEnv(getContextDatabaseEnvName(context), "postgresql://localhost/chase_sets");
+  }
   vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "local");
   vi.stubEnv("EBAY_ACCOUNT_DELETION_ENDPOINT", "");
   vi.stubEnv("EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN", "");

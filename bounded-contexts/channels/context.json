@@ -821,6 +821,11 @@
     }
   ],
   "directoryIntent": {
+    "ebay-account-deletion": {
+      "classification": "slice",
+      "purpose": "Own the deployment-configured eBay account-deletion challenge GET and its protocol tests.",
+      "expectedConsumers": ["Channels public webhook mount", "platform-api configuration loader"]
+    },
     "order-fulfillment-observations": {
       "classification": "slice",
       "purpose": "Own the order-fulfillment-observations slice's shared versioned Channel Order Fulfillment Observation reference composer.",
