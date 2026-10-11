@@ -176,3 +176,13 @@ export {
   type EbayAccountDeletionConfiguration,
 } from "./features/ebay-account-deletion/domain/configuration";
 export { CHANNELS_EBAY_ACCOUNT_DELETION_PATH } from "./features/ebay-account-deletion/api/provider-webhook-paths";
+export {
+  createEbayAccountDeletionRuntime,
+  type EbayAccountDeletionServices,
+} from "./features/ebay-account-deletion/api/runtime";
+export {
+  createEbaySubjectCipher,
+  assertEbaySubjectKeyringContinuity,
+  ebaySubjectRootKeyId,
+} from "./features/ebay-account-deletion/domain/subject";
+export { createEbayReceiptExpiryRunner } from "./features/ebay-account-deletion/api/expiry-runner";

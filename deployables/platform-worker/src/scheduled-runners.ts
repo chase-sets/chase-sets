@@ -1,5 +1,6 @@
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import { isChannelsServices } from "@chase-sets/channels/server";
+import { createEbayReceiptExpiryRunner } from "@chase-sets/channels/server";
 import type { InventoryServices } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
@@ -228,6 +229,9 @@ export function createRegisteredScheduledRunners({
   const durableJobRetention = createDurableJobRetentionTask(services, logger);
   const runners: WorkerRunner[] = [];
   const channels = services.channels;
+  if (isChannelsServices(channels)) {
+    runners.push(createEbayReceiptExpiryRunner(channels.ebayReceiptExpiry, logger, undefined, controlPlane));
+  }
   if (input.channelsConnectorLivenessSweepIntervalMs && isChannelsServices(channels)) {
     runners.push(
       createScheduledJobRunner(

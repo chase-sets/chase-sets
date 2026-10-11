@@ -2,6 +2,7 @@
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
   "ownedNouns": [
+    "ebay-account-deletion-receipt",
     "channel-connection",
     "channel-health",
     "channel-publication-facts",
@@ -437,6 +438,19 @@
   "workerRuntimeProfiles": ["proof", "public"],
   "deployableContributions": [
     {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ebay-account-deletion-lookup",
+          "routePath": "ebay-account-deletion",
+          "fileExport": "./routes/admin/ebay-account-deletion",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "section": "support"
+        }
+      ]
+    },
+    {
       "deployable": "marketplace-web",
       "routes": [
         {
@@ -534,6 +548,18 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "ebay-account-deletion-lookup",
+      "label": "eBay Deletion Lookup",
+      "icon": "search",
+      "href": "/ebay-account-deletion",
+      "section": "support",
+      "order": 7,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -823,8 +849,15 @@
   "directoryIntent": {
     "ebay-account-deletion": {
       "classification": "slice",
-      "purpose": "Own the Channels ebay-account-deletion challenge GET, deployment configuration, and protocol tests.",
-      "expectedConsumers": ["Channels public webhook mount", "platform-api configuration loader"]
+      "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",
+      "expectedConsumers": [
+        "Channels public webhook mount",
+        "platform-api configuration loader",
+        "Channels webhook receipt caller",
+        "Channels subject binding and deletion consumers",
+        "Scheduled worker",
+        "Staff admin lookup"
+      ]
     },
     "order-fulfillment-observations": {
       "classification": "slice",

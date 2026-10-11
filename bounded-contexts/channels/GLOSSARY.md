@@ -170,6 +170,13 @@ only with token material; envelope revision changes on every actual rewrite.
 `ChannelOAuthTokenSet/v1` is the closed canonical plaintext format. Readability does
 not establish provider-valid authority.
 
+## eBay Account-Deletion Receipt
+
+An **eBay Account-Deletion Receipt** is a 30-day, encrypted record of one admitted
+eBay account-deletion notification. Its root-qualified subject fingerprint is
+stable across seal-key rotation. A duplicate never extends expiry or rewrites
+the envelope. A receipt is not evidence that operator-held data was erased.
+
 ## Channel Webhook
 
 A **Channel Webhook** is the inbound event subscription configured for a Sales Channel.

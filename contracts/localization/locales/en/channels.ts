@@ -1,4 +1,21 @@
 export const channelsEnglishTranslations = {
+  "channels.ebayDeletion.title": "eBay account-deletion lookup",
+  "channels.ebayDeletion.description":
+    "Look up one operator-held eBay user ID. Receipts do not confirm deletion of operator-held data.",
+  "channels.ebayDeletion.lookup": "Look up receipts",
+  "channels.ebayDeletion.userId": "Exact eBay user ID",
+  "channels.ebayDeletion.loading": "Looking up receipts...",
+  "channels.ebayDeletion.error": "Lookup unavailable. Check your staff access and try again.",
+  "channels.ebayDeletion.receipts": "Unexpired receipts",
+  "channels.ebayDeletion.empty": "No unexpired receipt matches",
+  "channels.ebayDeletion.notification": "Notification ID",
+  "channels.ebayDeletion.eventDate": "Event date",
+  "channels.ebayDeletion.expiresAt": "Expires at",
+  "channels.ebayDeletion.countTitle": "Production eBay subject data",
+  "channels.ebayDeletion.counts":
+    "Non-disconnected connections: {connections}. Credential envelopes: {credentialEnvelopes}.",
+  "channels.ebayDeletion.saveWarning":
+    "Both counts must be zero before Production Save. Operator-held data must be checked separately.",
   "channels.connections.connect": "Connect a channel",
   "channels.connections.provider": "Sales Channel",
   "channels.connections.setup": "Connection setup",
