@@ -492,21 +492,26 @@ describe("searchDiscoveryItems cursor paging", () => {
     await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
 
     const sql = findListCall(calls)?.sql ?? "";
-    const normalized = (text: string) =>
-      `lower(btrim(regexp_replace(normalize(regexp_replace(normalize(${text}, NFD), '(?<=[`;
+    const normalized = (text: string) => `lower(btrim(regexp_replace(regexp_replace(normalize(${text}, NFD), '(?<=[`;
     // One expression shape normalizes the bound raw query, the title, and title + subtitle.
     expect(sql).toContain(`CASE ${normalized("$4")}`);
-    expect(sql).toContain(`WHEN '' THEN 0 WHEN ${normalized("title")}`);
-    expect(sql).toContain(`THEN 1 WHEN ${normalized("title || ' ' || subtitle")}`);
-    expect(sql).toContain(`COLLATE "C") THEN 1 ELSE 0 END AS search_exact_tier`);
+    expect(sql).toContain(`${normalized("title")}`);
+    expect(sql).toContain(`COLLATE "C") AS search_title_identity`);
+    expect(sql).toContain(
+      `WHEN '' THEN 0 WHEN search_title_identity THEN 1 WHEN CASE WHEN search_title_identity = '' OR starts_with(${normalized("$4")}`,
+    );
+    expect(sql).toContain(`search_title_identity || ' ') THEN ${normalized("title || ' ' || subtitle")}`);
+    expect(sql).toContain(`COLLATE "C") END THEN 1 ELSE 0 END AS search_exact_tier`);
     // Explicit code-point ranges, never LC_CTYPE-dependent classes or extension folding.
     expect(sql).not.toMatch(/\[\[:|\\w|\\p\{|unaccent/);
-    // The derived table computes rank, base match, and tier once; the outer query orders and pages it.
-    expect(sql).toMatch(/^SELECT \* FROM \(\s*SELECT catalog_item_id, /);
+    // The fenced derived table computes rank, base match, and the normalized title once per
+    // qualifying row; the tier compares that text, and the outer query orders and pages it.
+    expect(sql).toMatch(/^SELECT \* FROM \(\s*SELECT \*, CASE /);
     expect(sql).toContain(" AS search_rank, ");
     expect(sql).toContain(" AS search_base_match, ");
     expect(sql.match(/AS search_exact_tier/g)).toHaveLength(1);
-    expect(sql).toContain("OFFSET 0\n    ) AS candidate");
+    expect(sql.match(/AS search_title_identity/g)).toHaveLength(1);
+    expect(sql).toContain("OFFSET 0\n      ) AS normalized\n    ) AS candidate");
     expect(sql).toContain(
       "ORDER BY search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
     );
@@ -536,7 +541,12 @@ describe("searchDiscoveryItems cursor paging", () => {
 
   it("encodes v2 relevance cursors with the tier and leaves explicit-sort cursors unversioned", async () => {
     const relevance = createCapturingDb([
-      listRow("cat_exact", "Charizard ex", { search_rank: 0.25, search_base_match: true, search_exact_tier: 1 }),
+      listRow("cat_exact", "Charizard ex", {
+        search_rank: 0.25,
+        search_base_match: true,
+        search_exact_tier: 1,
+        search_title_identity: "charizard ex",
+      }),
       listRow("cat_next", "Charizard ex Box", { search_rank: 0.5, search_base_match: true, search_exact_tier: 0 }),
     ]);
     const relevancePage = await searchDiscoveryItems(
@@ -556,6 +566,7 @@ describe("searchDiscoveryItems cursor paging", () => {
       lowestPriceAmount: null,
     });
     expect(relevancePage.items[0]).not.toHaveProperty("search_exact_tier");
+    expect(relevancePage.items[0]).not.toHaveProperty("search_title_identity");
 
     const titleSort = createCapturingDb([listRow("cat_a", "Alpha"), listRow("cat_b", "Beta")]);
     const titlePage = await searchDiscoveryItems(

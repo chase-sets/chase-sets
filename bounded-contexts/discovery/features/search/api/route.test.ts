@@ -19,6 +19,7 @@ function scriptedSearchDb() {
     search_rank: tier === 1 ? 0.1 : 0.9,
     search_base_match: true,
     search_exact_tier: tier,
+    search_title_identity: title.toLowerCase(),
   });
   const rowsFor = (sql: string, values: readonly unknown[]): unknown[] => {
     if (sql.startsWith("SELECT COUNT(*) AS count")) return [{ count: "2" }];
@@ -287,6 +288,7 @@ describe("discovery item search routes", () => {
     });
     expect(restarted.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual(["cat_exact"]);
     expect(restarted.items[0]).not.toHaveProperty("search_exact_tier");
+    expect(restarted.items[0]).not.toHaveProperty("search_title_identity");
     expect(decodeCursorJson(restarted.nextCursor)).toMatchObject({ v: 2, id: "cat_exact", tier: 1 });
     expect(listCalls[0]).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 2]);
 

@@ -20,7 +20,8 @@ const SEARCH_ITEM_COLUMNS =
 // `normalizeSimpleSearchText(value).toLowerCase()` folds, so SQL equality may be
 // stricter than the oracle but never looser: marks fold only after these Latin
 // letters (Japanese dakuten/handakuten survive), only these punctuation, space, and
-// control runs become one space, and lowercasing is ASCII-only.
+// control runs become one space, and lowercasing is ASCII-only. Both sides compare in
+// NFD, which canonical equivalence makes as exact as recomposing to NFC, at less cost.
 const LATIN_BASE_LETTERS = String.raw`A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u1E00-\u1EFF`;
 const LATIN_COMBINING_MARKS = String.raw`\u0300-\u036F`;
 const IDENTITY_SEPARATORS = String.raw`\u0001-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u00A9\u00AB-\u00B1\u00B4\u00B6-\u00B8\u00BB\u00BF\u00D7\u00F7\u2000-\u206F\u3000-\u3004\u3008-\u3020\u3030\u303D-\u303F\u309B\u309C\u30A0\u30FB\uFF01-\uFF0F\uFF1A-\uFF20\uFF3B-\uFF40\uFF5B-\uFF65`;
@@ -150,6 +151,7 @@ type SearchIndexItemRow = BaseDiscoverySearchItemRow & {
   lowest_price_currency_code: string | null;
   visible_quantity: number | null;
   search_exact_tier?: number | null;
+  search_title_identity?: string | null;
 };
 
 async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly string[]) {
@@ -612,13 +614,16 @@ export async function searchDiscoveryItems(
         // the former 0.20 content dampener is dropped: weight D already orders
         // content-only matches below every base-text match, so the extra factor was
         // redundant double-dampening on top of the per-content-type weight.
-        // OFFSET 0 keeps the derived table from being flattened, so rank, base match,
-        // and exact tier are computed once per qualifying row rather than again in
-        // every keyset disjunct.
+        // OFFSET 0 keeps the inner derived table from being flattened, so rank, base
+        // match, and the normalized title are computed once per qualifying row rather
+        // than again in every keyset disjunct; the tier then compares precomputed text.
         candidateSql = `(
-      SELECT ${SEARCH_ITEM_COLUMNS}, (ts_rank(search_text, ${englishQuery}) + ts_rank(search_text_simple, ${simpleQuery})) AS search_rank, (search_text @@ ${englishQuery} OR search_text_simple @@ ${simpleQuery}) AS search_base_match, ${exactIdentityTierSql(exactQueryParam)} AS search_exact_tier
-      FROM discovery_search_items ${baseFilter.where}
-      OFFSET 0
+      SELECT *, ${exactIdentityTierSql(exactQueryParam)} AS search_exact_tier
+      FROM (
+        SELECT ${SEARCH_ITEM_COLUMNS}, (ts_rank(search_text, ${englishQuery}) + ts_rank(search_text_simple, ${simpleQuery})) AS search_rank, (search_text @@ ${englishQuery} OR search_text_simple @@ ${simpleQuery}) AS search_base_match, ${exactIdentitySql("title")} AS search_title_identity
+        FROM discovery_search_items ${baseFilter.where}
+        OFFSET 0
+      ) AS normalized
     ) AS candidate`;
         orderBy = "search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC";
         if (relevanceCursor) {
@@ -702,6 +707,7 @@ export async function searchDiscoveryItems(
         lowest_price_currency_code: _lowestPriceCurrencyCode,
         visible_quantity: _visibleQuantity,
         search_exact_tier: _exactTier,
+        search_title_identity: _titleIdentity,
         ...row
       }) => ({
         ...row,
@@ -736,16 +742,21 @@ function usesRelevanceOrdering(params: DiscoverySearchParams): boolean {
 }
 
 /**
- * Tier 1 when the normalized query equals the normalized title or `title subtitle`
- * (a NULL subtitle leaves the title alone); otherwise, including an empty normalized
- * query, tier 0. One SQL expression normalizes the bound query and both row forms.
+ * Tier 1 when the normalized query equals the normalized title (`search_title_identity`)
+ * or `title subtitle` (a NULL subtitle leaves the title alone); otherwise, including an
+ * empty normalized query, tier 0. One SQL expression normalizes the bound query and both
+ * row forms. Normalizing `title subtitle` equals the normalized title, a space, and the
+ * normalized subtitle, so it can match only when the normalized title is empty or a word
+ * prefix of the query; only those rows pay for that second normalization.
  */
 function exactIdentityTierSql(queryParam: string): string {
-  return `CASE ${exactIdentitySql(queryParam)} WHEN '' THEN 0 WHEN ${exactIdentitySql("title")} THEN 1 WHEN ${exactIdentitySql("title || ' ' || subtitle")} THEN 1 ELSE 0 END`;
+  const query = exactIdentitySql(queryParam);
+  const titleSubtitle = exactIdentitySql("title || ' ' || subtitle");
+  return `CASE ${query} WHEN '' THEN 0 WHEN search_title_identity THEN 1 WHEN CASE WHEN search_title_identity = '' OR starts_with(${query}, search_title_identity || ' ') THEN ${titleSubtitle} END THEN 1 ELSE 0 END`;
 }
 
 function exactIdentitySql(text: string): string {
-  return `lower(btrim(regexp_replace(normalize(regexp_replace(normalize(${text}, NFD), '(?<=[${LATIN_BASE_LETTERS}])[${LATIN_COMBINING_MARKS}]+', '', 'g'), NFC), '[${IDENTITY_SEPARATORS}]+', ' ', 'g'), ' ') COLLATE "C")`;
+  return `lower(btrim(regexp_replace(regexp_replace(normalize(${text}, NFD), '(?<=[${LATIN_BASE_LETTERS}])[${LATIN_COMBINING_MARKS}]+', '', 'g'), '[${IDENTITY_SEPARATORS}]+', ' ', 'g'), ' ') COLLATE "C")`;
 }
 
 /**
