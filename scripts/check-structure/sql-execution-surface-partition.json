@@ -111,6 +111,7 @@
     "bounded-contexts/channels/features/listing-composition/read-model/facts-projection.ts",
     "bounded-contexts/channels/features/listing-composition/read-model/queries.ts",
     "bounded-contexts/channels/features/listing-composition/read-model/state-projection.ts",
+    "bounded-contexts/channels/features/live-export-snapshot/api/runtime.ts",
     "bounded-contexts/channels/features/manual-sync/api/runtime.ts",
     "bounded-contexts/channels/features/manual-sync/api/seed.ts",
     "bounded-contexts/channels/features/manual-sync/read-model/attention-query.ts",

@@ -29,6 +29,7 @@
     "listing-composition",
     "tcgplayer-csv",
     "tcgplayer-orders",
+    "live-export-snapshot",
     "order-fulfillment-observations",
     "outbound-sync",
     "connection-health",
@@ -888,6 +889,11 @@
       "classification": "slice",
       "purpose": "The tcgplayer-orders slice owns recoverable Channel Sale Observations and complete pull accounting through the admitted connector reader.",
       "expectedConsumers": ["Channels connector consumers and platform worker"]
+    },
+    "live-export-snapshot": {
+      "classification": "slice",
+      "purpose": "The live-export-snapshot slice persists each admitted connector export payload as one Live Channel Inventory Snapshot through the tcgplayer-csv owner.",
+      "expectedConsumers": ["Channels module composition and platform worker"]
     },
     "reconciliation": {
       "classification": "slice",

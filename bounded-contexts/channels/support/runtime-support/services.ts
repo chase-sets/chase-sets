@@ -17,6 +17,7 @@ import type { createStagedImportDispatchPolicyReader } from "../../features/conn
 import type { ConnectorLivenessServices } from "../../features/connector-feed/read-model/liveness";
 import type { ChannelCredentialServices } from "../../features/credentials/api/runtime";
 import type { TcgplayerOrderServices } from "../../features/tcgplayer-orders/api/runtime";
+import type { TcgplayerLiveExportSnapshotServices } from "../../features/live-export-snapshot/api/runtime";
 import type { FulfillmentObservationServices } from "../../features/order-fulfillment-observations/api/runtime";
 
 export type ChannelsServices = Readonly<{
@@ -30,6 +31,7 @@ export type ChannelsServices = Readonly<{
   reconciliation: ChannelReconciliationServices;
   tcgplayerCsv: TcgplayerCsvServices;
   tcgplayerOrders: TcgplayerOrderServices;
+  liveExportSnapshots: TcgplayerLiveExportSnapshotServices;
   fulfillmentObservations: FulfillmentObservationServices;
   manualSync: ManualSyncServices;
   connectorFeed: ConnectorFeedServices &
@@ -51,6 +53,7 @@ export const channelsServicesMembers = defineChannelsServicesMembers([
   "reconciliation",
   "tcgplayerCsv",
   "tcgplayerOrders",
+  "liveExportSnapshots",
   "fulfillmentObservations",
   "manualSync",
   "connectorFeed",
@@ -70,6 +73,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const outboundSync = Reflect.get(value, "outboundSync");
   const reconciliation = Reflect.get(value, "reconciliation");
   const tcgplayerCsv = Reflect.get(value, "tcgplayerCsv");
+  const liveExportSnapshots = Reflect.get(value, "liveExportSnapshots");
   const manualSync = Reflect.get(value, "manualSync");
   const connectorFeed = Reflect.get(value, "connectorFeed");
   const projectors = Reflect.get(value, "projectors");
@@ -107,6 +111,9 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(reconciliation, "deliverHealthObservations") === "function" &&
     isObject(tcgplayerCsv) &&
     isObject(Reflect.get(value, "tcgplayerOrders")) &&
+    isObject(liveExportSnapshots) &&
+    typeof Reflect.get(liveExportSnapshots, "consumeConnection") === "function" &&
+    typeof Reflect.get(liveExportSnapshots, "consumeDueConnections") === "function" &&
     isObject(Reflect.get(value, "fulfillmentObservations")) &&
     isObject(manualSync) &&
     isObject(connectorFeed) &&
