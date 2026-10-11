@@ -10,6 +10,7 @@ import {
 } from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
 import {
+  buildAuthIdentityAccountCapabilityProjectionHandlers,
   buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityInvitationProjectionHandlers,
   buildAuthIdentityMembershipProjectionHandlers,
@@ -53,6 +54,8 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
           buildAuthIdentityMembershipProjectionHandlers(services.db),
         "identity.auth-identity-invitation-projection": () =>
           buildAuthIdentityInvitationProjectionHandlers(services.db),
+        "identity.auth-identity-account-capability-projection": () =>
+          buildAuthIdentityAccountCapabilityProjectionHandlers(services.db),
       },
     }),
   seed: seedAuthDatabase,

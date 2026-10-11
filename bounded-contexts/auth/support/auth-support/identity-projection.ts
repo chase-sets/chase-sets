@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ProjectorHandler, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -120,7 +120,18 @@ ALTER TABLE auth_identity_invitations
   ADD COLUMN IF NOT EXISTS invited_by_user_id text NULL;
 
 CREATE INDEX IF NOT EXISTS auth_identity_invitations_email_status_expires_at_idx
-  ON auth_identity_invitations (email, status, expires_at DESC);`;
+  ON auth_identity_invitations (email, status, expires_at DESC);
+
+CREATE TABLE IF NOT EXISTS auth_identity_account_capabilities (
+  tenant_id text NOT NULL,
+  account_id text NOT NULL,
+  capability_key text NOT NULL,
+  assignment_id text NOT NULL,
+  version integer NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, account_id, capability_key)
+);`;
 
 export type AuthIdentityUserRow = Readonly<{
   user_id: string;
@@ -180,6 +191,21 @@ export type AuthIdentitySessionMembership = Readonly<{
   roleKey: string;
   status: string;
   rolePermissions: readonly string[];
+}>;
+
+/** A current Capability Grant projected from Identity onto every Actor of the granted Account. */
+export type AuthAccountCapabilityAssignment = Readonly<{
+  key: string;
+  assignmentId: string;
+  version: number;
+}>;
+
+type AuthAccountCapabilityAssignmentFact = Readonly<{
+  tenantId: string;
+  accountId: string;
+  capabilityKey: string;
+  assignmentId: string;
+  version: number;
 }>;
 
 type ContactMethodRow = Readonly<{
@@ -1033,6 +1059,72 @@ export function buildAuthIdentityInvitationProjectionHandlers(db: PgQueryable): 
       });
     },
   };
+}
+
+export function buildAuthIdentityAccountCapabilityProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "identity.account-capability.granted": (event) => projectAccountCapabilityAssignment(db, event, "granted"),
+    "identity.account-capability.revoked": (event) => projectAccountCapabilityAssignment(db, event, "revoked"),
+  };
+}
+
+/**
+ * Keeps the newest assignment version per tenant, Account and key. A replayed
+ * or delayed older event is a no-op, so revoke/regrant replays converge.
+ */
+async function projectAccountCapabilityAssignment(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandler>[0],
+  status: "granted" | "revoked",
+) {
+  const fact = parseAccountCapabilityAssignmentFact(event.data, event.tenantId);
+  await db.query(
+    `INSERT INTO auth_identity_account_capabilities
+       (tenant_id, account_id, capability_key, assignment_id, version, status, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (tenant_id, account_id, capability_key) DO UPDATE
+       SET assignment_id = EXCLUDED.assignment_id,
+           version = EXCLUDED.version,
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at
+       WHERE auth_identity_account_capabilities.version < EXCLUDED.version`,
+    [fact.tenantId, fact.accountId, fact.capabilityKey, fact.assignmentId, fact.version, status, event.timing.recordedAt],
+  );
+}
+
+function parseAccountCapabilityAssignmentFact(
+  data: Readonly<Record<string, unknown>>,
+  eventTenantId: string,
+): AuthAccountCapabilityAssignmentFact {
+  const { tenantId, accountId, capabilityKey, assignmentId, version } = data;
+  if (
+    typeof tenantId !== "string" ||
+    tenantId !== eventTenantId ||
+    typeof accountId !== "string" ||
+    typeof capabilityKey !== "string" ||
+    typeof assignmentId !== "string" ||
+    typeof version !== "number" ||
+    !Number.isSafeInteger(version) ||
+    version < 1
+  ) {
+    throw new Error("Account Capability assignment event is malformed or names another tenant.");
+  }
+  return { tenantId, accountId, capabilityKey, assignmentId, version };
+}
+
+export async function listGrantedAuthAccountCapabilities(
+  db: PgQueryable,
+  tenantId: string,
+  accountId: string,
+): Promise<readonly AuthAccountCapabilityAssignment[]> {
+  const result = await db.query<{ capability_key: string; assignment_id: string; version: number }>(
+    `SELECT capability_key, assignment_id, version
+     FROM auth_identity_account_capabilities
+     WHERE tenant_id = $1 AND account_id = $2 AND status = 'granted'
+     ORDER BY capability_key`,
+    [tenantId, accountId],
+  );
+  return result.rows.map((row) => ({ key: row.capability_key, assignmentId: row.assignment_id, version: row.version }));
 }
 
 export async function getAuthIdentityUser(db: PgQueryable, userId: string) {

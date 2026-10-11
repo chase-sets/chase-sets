@@ -5,6 +5,7 @@
   "ownedNouns": [
     "user",
     "account",
+    "account-capability",
     "membership",
     "invitation",
     "api-key",
@@ -19,6 +20,7 @@
   "slices": [
     "access-hub",
     "accounts",
+    "account-capabilities",
     "users",
     "memberships",
     "invitations",
@@ -1879,6 +1881,11 @@
     "accounts": {
       "classification": "slice",
       "purpose": "Own accounts feature behavior, read models, and UI contracts for the identity context.",
+      "expectedConsumers": ["Internal identity module composition"]
+    },
+    "account-capabilities": {
+      "classification": "slice",
+      "purpose": "Own the Capability Grant stream: grant and revoke facts for the one assignable Account Capability, with admission supplied by the Capability Administration Authority.",
       "expectedConsumers": ["Internal identity module composition"]
     },
     "users": {

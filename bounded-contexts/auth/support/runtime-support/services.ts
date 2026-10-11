@@ -28,6 +28,7 @@ import {
   getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
   listActiveAuthAccountIds,
+  listGrantedAuthAccountCapabilities,
   listActiveAuthMembershipsForUser,
   normalizeAuthEmail,
 } from "../auth-support/identity-projection";
@@ -73,6 +74,15 @@ type AuthIdentityReadServices = Readonly<{
   ) => ReturnType<typeof getActiveAuthMembershipForUserAccount>;
   getInvitation: (invitationId: string) => ReturnType<typeof getAuthIdentityInvitation>;
   findPendingInvitationByEmail: (email: string) => ReturnType<typeof getPendingAuthIdentityInvitationByEmail>;
+  /**
+   * Current Capability Grants for one Account. Always populated by
+   * `createAuthServices`; optional on the type only so unit-test identity
+   * doubles keep typechecking. A missing reader projects no grant.
+   */
+  listGrantedAccountCapabilities?: (
+    tenantId: string,
+    accountId: string,
+  ) => ReturnType<typeof listGrantedAuthAccountCapabilities>;
 }>;
 
 export type RegistrationAdmissionHostConfig = RegistrationAdmissionConfig &
@@ -212,6 +222,8 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
       findPendingInvitationByEmail: (email) => getPendingAuthIdentityInvitationByEmail(db, email),
+      listGrantedAccountCapabilities: (tenantId, accountId) =>
+        listGrantedAuthAccountCapabilities(db, tenantId, accountId),
     },
     awaitInvitationProjectionFreshness: createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
@@ -632,6 +644,10 @@ export async function resolveActorFromSessionId(
     user,
     session.authentication_method,
   );
+  // Grants never widen the unverified-email restriction: such an actor carries none.
+  const capabilityAssignments = hasVerifiedEmailForCommerce(user, session.authentication_method)
+    ? ((await services.identity.listGrantedAccountCapabilities?.(AUTH_BOOTSTRAP_TENANT_ID, session.account_id)) ?? [])
+    : [];
 
   return {
     sessionId: session.session_id,
@@ -642,5 +658,6 @@ export async function resolveActorFromSessionId(
     roleKey: membership.role_key,
     permissions,
     authenticatedAt: session.started_at ?? null,
+    ...(capabilityAssignments.length > 0 ? { capabilityAssignments } : {}),
   };
 }

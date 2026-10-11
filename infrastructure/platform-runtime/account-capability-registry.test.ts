@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { BcAccountCapabilityDeclaration } from "@chase-sets/bounded-context-module";
+import {
+  defineBoundedContextModule,
+  type BcAccountCapabilityDeclaration,
+  type BcContextManifestInput,
+} from "@chase-sets/bounded-context-module";
+import { createApiHost } from "./api";
 import {
   buildAccountCapabilityRegistry,
   type AccountCapabilityModuleRegistration,
@@ -234,6 +241,61 @@ describe("Account Capability registry", () => {
         ],
       ]),
     ).toThrow(/inventory\.locations.*finite non-negative/);
+  });
+
+  it("support any-case declaration", () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(import.meta.dirname, "..", "..", "bounded-contexts", "platform-operations", "context.json"),
+        "utf8",
+      ),
+    ) as BcContextManifestInput & Readonly<{ apiDeployables?: readonly string[] }>;
+    const expected = {
+      owningContext: "platform-operations",
+      key: "support.evidence.any-case",
+      description: "Declares whether an Account may hold any-case Support evidence authority.",
+      kind: "boolean",
+      defaultValue: false,
+    };
+    const module = defineBoundedContextModule({
+      manifest,
+      schemaSql: "",
+      createServices: () => {
+        throw new Error("An unmounted context must never create services.");
+      },
+      buildApis: () => [],
+    });
+    // Platform Operations (and its Support surfaces) is registered but mounted on no host here.
+    const host = createApiHost(
+      [
+        {
+          contextName: "platform-operations",
+          packageName: "@chase-sets/platform-operations",
+          manifest: { contextName: "platform-operations", apiDeployables: [] },
+          module,
+        },
+      ],
+      "platform-api",
+      { pools: {} },
+    );
+
+    expect(manifest.apiDeployables).toContain("platform-api");
+    expect(manifest.accountCapabilities).toContainEqual({
+      key: expected.key,
+      description: expected.description,
+      kind: "boolean",
+      defaultValue: false,
+    });
+    expect(module.accountCapabilities).toContainEqual(
+      expect.objectContaining({ key: expected.key, kind: "boolean", defaultValue: false }),
+    );
+    expect(host.mountedContexts).toEqual([]);
+    expect(host.services).toEqual({});
+    expect(host.accountCapabilityRegistry.filter(({ key }) => key === expected.key)).toEqual([expected]);
+    // The declaration is inert catalog metadata: no grant, assignment or allow-list field rides on it.
+    expect(Object.keys(host.accountCapabilityRegistry.find(({ key }) => key === expected.key) ?? {}).sort()).toEqual(
+      ["defaultValue", "description", "key", "kind", "owningContext"],
+    );
   });
 
   it("returns a required immutable empty catalog when no declarations exist", () => {

@@ -1,4 +1,8 @@
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PERMISSION_PRESETS, ROLE_PERMISSIONS } from "../features/memberships/read-model/constants";
+import { ROLE_KEYS } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 import {
   ADMIN_QA_ACTOR_FIXTURES,
@@ -247,4 +251,56 @@ describe("admin-qa actor fixtures", () => {
     await readConsentActivationAuthority(undefined as never, "identity.terms-of-service-active-version" as never);
     expect(activationAuthorityReads).toHaveBeenCalledTimes(1);
   });
+
+  it("authors no Capability Grant and no role or preset holds the any-case key or its administration", async () => {
+    const capabilityLike = /support\.evidence|any-case|capabilit/i;
+    expect(ROLE_KEYS.filter((roleKey) => capabilityLike.test(roleKey))).toEqual([]);
+    expect(Object.values(ROLE_PERMISSIONS).flat().filter((permission) => capabilityLike.test(permission))).toEqual([]);
+    expect(Object.values(PERMISSION_PRESETS).flat().filter((permission) => capabilityLike.test(permission))).toEqual([]);
+    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain("support.evidence.any-case");
+
+    // A live observer: a restored fixture grant would reach these spies.
+    const { services, records } = createServices();
+    const accountCapabilities = {
+      grantAccountCapability: vi.fn(),
+      revokeAccountCapability: vi.fn(),
+    };
+    Object.assign(services, { accountCapabilities });
+    await provisionAdminQaActorFixtures(services);
+    await provisionAdminQaActorFixtures(services);
+
+    expect(accountCapabilities.grantAccountCapability).not.toHaveBeenCalled();
+    expect(accountCapabilities.revokeAccountCapability).not.toHaveBeenCalled();
+    expect(JSON.stringify(records)).not.toMatch(/capabilit/i);
+  });
+
+  it("inventories every production assignment source: only the Identity runtime defines grant and revoke", () => {
+    const repositoryRoot = path.join(import.meta.dirname, "..", "..", "..");
+    const callers = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages", "scripts"].flatMap(
+      (root) =>
+        listProductionSources(path.join(repositoryRoot, root))
+          .filter((file) => /(grant|revoke)AccountCapability|"(Grant|Revoke)AccountCapability"/.test(readFileSync(file, "utf8")))
+          .map((file) => path.relative(repositoryRoot, file).split(path.sep).join("/")),
+    );
+
+    // Seed, production bootstrap, Admin QA fixtures, routes and hosts are absent until #9385 adds the admission path.
+    expect(callers.sort()).toEqual([
+      "bounded-contexts/identity/features/account-capabilities/api/runtime.ts",
+      "bounded-contexts/identity/features/account-capabilities/domain/domain.ts",
+    ]);
+  });
 });
+
+function listProductionSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return ["node_modules", "dist", "build", ".turbo"].includes(entry.name)
+        ? []
+        : listProductionSources(entryPath);
+    }
+    return /\.(ts|tsx|mts|mjs|js)$/.test(entry.name) && !/\.test\.|test-support|\.d\.ts$/.test(entry.name)
+      ? [entryPath]
+      : [];
+  });
+}
