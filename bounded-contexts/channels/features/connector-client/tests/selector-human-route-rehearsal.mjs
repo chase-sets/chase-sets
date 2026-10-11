@@ -285,6 +285,35 @@ export function assertNoSyntheticPrivateTokens(text) {
   }
 }
 
+function chromeBundledComponentWorker(targetInfo, preparation) {
+  const id = "fignfifoniblkonapihmkfakmlgkbkcf";
+  if (
+    preparation.extensionId === id ||
+    targetInfo.type !== "service_worker" ||
+    targetInfo.url !== `chrome-extension://${id}/service_worker.js`
+  )
+    return false;
+  try {
+    const preferences = path.join(preparation.profileDirectory, "Default", "Secure Preferences");
+    realPath(preferences);
+    check(lstatSync(preferences).isFile(), "component_preferences_refused");
+    const registration = JSON.parse(readFileSync(preferences, "utf8")).extensions?.settings?.[id];
+    // Chrome's bundled resource path is logical, not necessarily a directory on disk.
+    return (
+      registration?.location === 5 &&
+      registration.manifest?.manifest_version === 3 &&
+      registration.manifest.background?.service_worker === "service_worker.js" &&
+      typeof registration.path === "string" &&
+      path.win32.isAbsolute(registration.path) &&
+      /^\d+\.\d+\.\d+\.\d+\\resources\\network_speech_synthesis\\mv3$/.test(
+        path.win32.relative(path.win32.dirname(CHROME), registration.path),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 export class WorkerIsolation {
   constructor(send, metadata, report) {
     this.send = send;
@@ -310,6 +339,16 @@ export class WorkerIsolation {
   }
   async attached({ sessionId, targetInfo, waitingForDebugger }) {
     const p = this.metadata.preparation;
+    if (!this.held && chromeBundledComponentWorker(targetInfo, p)) {
+      try {
+        await this.send("Runtime.runIfWaitingForDebugger", {}, sessionId);
+        await this.send("Target.detachFromTarget", { sessionId });
+        this.report("COMPONENT_DETACHED", "chrome_bundled_network_speech_no_binding");
+      } catch {
+        this.hold("component_worker_detach_refused");
+      }
+      return;
+    }
     if (
       this.held ||
       this.session ||
@@ -398,6 +437,11 @@ export class WorkerCdp {
   send(method, params = {}, sessionId) {
     check(
       method === "Target.setAutoAttach" ||
+        (method === "Target.detachFromTarget" &&
+          !sessionId &&
+          Object.keys(params).length === 1 &&
+          typeof params.sessionId === "string" &&
+          params.sessionId.length > 0) ||
         (sessionId &&
           [
             "Network.enable",
