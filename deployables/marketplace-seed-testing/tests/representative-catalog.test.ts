@@ -237,23 +237,60 @@ describe("representative catalog Observation Pack replay", () => {
       vi.stubGlobal("fetch", async () => {
         throw new Error("synthetic replay must stay offline");
       });
-      const createServices = catalogModule.createServices;
       let interruptedItemId: string | null = null;
-      const spy = vi.spyOn(catalogModule, "createServices").mockImplementation((...args) => {
-        const services = createServices(...args);
-        const handler = services.items.commandHandler;
-        vi.spyOn(services.items, "commandHandler").mockImplementation(async (input) => {
-          const result = await handler(input);
-          if (input.command.type === interruptedCommand && interruptedItemId === null) {
-            interruptedItemId = input.streamId.slice("catalog.item-".length);
-            throw new Error("synthetic crash after durable item creation");
-          }
-          return result;
+      const pool = seedRuntime.pools.catalog;
+      const connect = pool.connect.bind(pool);
+      const interruptedEvent =
+        interruptedCommand === "CreateCatalogItem"
+          ? "catalog.catalog-item.created"
+          : "catalog.catalog-item.product-asset-sets-set";
+      const spy = vi.spyOn(pool, "connect").mockImplementation((...args: unknown[]) => {
+        if (typeof args[0] === "function") return Reflect.apply(connect, pool, args);
+        return connect().then((client) => {
+          const originalQuery = client.query.bind(client);
+          let query: typeof client.query = async <Row = Record<string, unknown>>(
+            sql: string,
+            values?: readonly unknown[],
+          ) => {
+            const committedItem =
+              sql === "COMMIT" && interruptedItemId === null
+                ? await originalQuery<{ stream_id: string }>(
+                    "SELECT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.item-cat_source_%' AND event_type=$1 ORDER BY global_position LIMIT 1",
+                    [interruptedEvent],
+                  )
+                : null;
+            const result = await originalQuery<Row>(sql, values);
+            if (committedItem?.rows[0]) {
+              interruptedItemId = committedItem.rows[0].stream_id.slice("catalog.item-".length);
+              throw new Error("synthetic crash after durable item creation");
+            }
+            return result;
+          };
+          // Preserve the entire pg client, including event/listener methods. The
+          // fault is after real COMMIT, never after an uncommitted item insert.
+          return new Proxy(client, {
+            get(target, key) {
+              if (key === "query") return query;
+              const value = Reflect.get(target, key, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+            // Honor projection timeout wrappers and their restoration without
+            // feeding the interceptor back into itself on the raw pooled client.
+            set(target, key, value) {
+              if (key === "query") {
+                query = value;
+                return true;
+              }
+              return Reflect.set(target, key, value, target);
+            },
+          });
         });
-        return services;
       });
-      await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
-      spy.mockRestore();
+      try {
+        await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
+      } finally {
+        spy.mockRestore();
+      }
       expect(interruptedItemId).not.toBeNull();
       const recorded = await seedRuntime.pools.catalog.query<{ count: number }>(
         "SELECT COUNT(*)::integer AS count FROM event_store_events WHERE event_type = 'catalog.source-observation.recorded'",

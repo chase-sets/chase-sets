@@ -4,6 +4,10 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
+import { initialCatalogItemState, type CatalogItemState } from "../../../catalog-items/domain/domain";
+import type { BlueprintId, CatalogItemId, CategoryId } from "../../../../ids";
+import { asArray } from "../../../../support/projection-support/read-model-support";
+import type { PromotionTargetExclusion } from "../promotion/promotion-target-exclusion";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
 import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
 import type { ReferenceRecordCommand } from "../../../reference-data/domain/domain";
@@ -1663,7 +1667,12 @@ export function createChangedObservationRefreshHarness(
     source_payload: { id: "me02.5-136" },
     status: input.status ?? "changed",
     status_reason: null,
-    promoted_catalog_item_id: input.promotedCatalogItemId === undefined ? "cat_existing" : input.promotedCatalogItemId,
+    promoted_catalog_item_id:
+      input.promotedCatalogItemId === undefined
+        ? input.status === "observed"
+          ? null
+          : "cat_existing"
+        : input.promotedCatalogItemId,
     promoted_reference_record_id:
       input.promotedReferenceRecordId === undefined ? null : input.promotedReferenceRecordId,
     promoted_at: "2026-05-19T00:00:00.000Z",
@@ -1871,6 +1880,44 @@ export function createChangedObservationRefreshHarness(
   });
   const deps = {
     db: displayIdentityDb,
+    // Orchestration double only; the real boundary is covered by the DB suite.
+    promotionTargetExclusion: {
+      acquire: async (request) => {
+        const targetId = request.additionalTargetIds.at(-1)!;
+        const current =
+          input.displayIdentity?.currentItems?.find((item) => item.catalog_item_id === targetId) ??
+          syntheticCurrentCatalogItem({ catalog_item_id: targetId });
+        const state: CatalogItemState = {
+          ...initialCatalogItemState,
+          id: knownCatalogItemIds.includes(targetId) ? (targetId as CatalogItemId) : null,
+          languageCode: current.language_code,
+          status: current.status === "active" ? ("active" as const) : ("draft" as const),
+          title: { defaultLocale: "en", values: { en: current.title, [current.language_code]: current.title } },
+          subtitle: current.subtitle
+            ? { defaultLocale: "en", values: { en: current.subtitle, [current.language_code]: current.subtitle } }
+            : null,
+          blueprintId: current.blueprint_id as BlueprintId | null,
+          fieldValues: asArray<CatalogItemState["fieldValues"][number]>(current.field_values),
+          categoryIds: asArray<CategoryId>(current.category_ids),
+        };
+        return {
+          targetId,
+          evidence: {
+            items: new Map([[targetId, state]]),
+            histories: new Map(),
+            sources: new Map(),
+            keys: new Map(),
+            bindings: new Map(),
+          },
+          commandHandler: items.commandHandler,
+          preparePlan: async () => 0,
+          guard: () => undefined,
+          append: async () => {
+            throw new Error("Synthetic orchestration port only accepts commands");
+          },
+        };
+      },
+    } satisfies PromotionTargetExclusion,
     eventStore: {
       readStream: async ({ streamId: requestedStream }: { streamId: string }) =>
         requestedStream === streamId ? sourceEvents : (referenceHistories.get(requestedStream) ?? []),

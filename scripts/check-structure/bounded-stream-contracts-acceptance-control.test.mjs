@@ -65,6 +65,11 @@ const boundedSites = [
 
 const expectedInventory = [
   ...boundedSites.map(({ id }) => [id, "1"]),
+  // The authority-tracking decorator forwards the caller's complete read request.
+  [
+    "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
+    null,
+  ],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1", "pageLimit"],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#2", "batchSize"],
@@ -83,9 +88,17 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact eleven-call production census and eight pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twelve-call production census and eight pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("keeps the promotion authority decorator's page request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("promotion-material-guards.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["request"]);
   });
 
   it("keeps test support free of a ninth direct readStream call", () => {
