@@ -394,7 +394,9 @@ queue, production key provisioning, or deletion policy is supplied here.
     through the existing recorder. Its held completion is non-clean, retains
     unobserved state drift and repush intent, and cannot supply healthy authority
     or auto-resume. Unknown sale authority and exceptions retain their failure
-    paths. Ordinary held sweeps reduce the lookback blind interval; they do not
+    paths. Held inline runs always record actual `source:sales` settlement, so a
+    held sale outage may open a new drift generation where an unheld outage would
+    not. Ordinary held sweeps reduce the lookback blind interval; they do not
     guarantee recovery after unavailable authority or an outage beyond lookback.
     Independent account-scoped Inventory recording and effects on other
     connections remain admitted; claimed local snapshot processing is unchanged.
