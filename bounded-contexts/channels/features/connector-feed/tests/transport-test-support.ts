@@ -4,9 +4,9 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
@@ -198,6 +198,13 @@ export function transportDatabase(
     });
     return { token: exchanged.access_token, pairingId: pairing.pairingId };
   }
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    async () => {
+      await bootstrapContextDatabase(authModule, pools.auth);
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    },
+  );
   beforeAll(async () => {
     if (!baseUrl) throw new Error("missing-test-database");
     const urls = createMultiContextTestDatabaseUrls(baseUrl, ["channels", "auth"], suffix);
@@ -205,9 +212,7 @@ export function transportDatabase(
     pools = createMultiContextTestPools(urls);
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(authModule, pools.auth);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await dataReset.reset();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-07T12:00:00.000Z"));
     auth = authModule.createServices(pools.auth, {});

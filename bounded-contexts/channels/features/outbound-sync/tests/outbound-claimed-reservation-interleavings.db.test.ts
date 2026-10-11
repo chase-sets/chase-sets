@@ -3,9 +3,9 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -77,10 +77,15 @@ describeDb(
       pools = createMultiContextTestPools(urls);
     });
 
+    const dataReset = createMultiContextTestDataReset(
+      () => pools,
+      async () => {
+        await bootstrapContextDatabase(channelsModule, pools.channels);
+        await createBoundRunFixtureTable(pools.channels);
+      },
+    );
     beforeEach(async () => {
-      await resetMultiContextTestSchemas(pools);
-      await bootstrapContextDatabase(channelsModule, pools.channels);
-      await createBoundRunFixtureTable(pools.channels);
+      await dataReset.reset();
       await insertConnection(pools.channels, "connection-a", "synthetic-claimed");
     });
 

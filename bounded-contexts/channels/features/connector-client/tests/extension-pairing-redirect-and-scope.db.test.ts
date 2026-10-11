@@ -3,9 +3,9 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as authModule } from "@chase-sets/auth";
 import { createConnectorOAuthService } from "@chase-sets/auth/server";
@@ -97,12 +97,17 @@ describeDb("extension-pairing-redirect-and-scope", () => {
     await ensureMultiContextTestDatabases(baseUrl, urls);
     pools = createMultiContextTestPools(urls);
   });
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    async () => {
+      await bootstrapContextDatabase(authModule, pools.auth);
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    },
+  );
   beforeEach(async () => {
     serverNow = Date.parse(now);
     actor = seller;
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(authModule, pools.auth);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await dataReset.reset();
     const auth = authModule.createServices(pools.auth, {});
     oauth = createConnectorOAuthService(
       () => auth,

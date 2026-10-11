@@ -882,6 +882,7 @@ describeDb("order-pull-producer-schema-and-profiles", () => {
     await ensureMultiContextTestDatabases(baseUrl, urls);
     pools = createMultiContextTestPools(urls);
   });
+  // #9344 B opt-out: every test here boots its own predecessor or current schema from an empty database.
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);

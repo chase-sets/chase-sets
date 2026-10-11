@@ -3,9 +3,9 @@ import { bootstrapContextDatabase, createSubscriptionRunner } from "@chase-sets/
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
+  createMultiContextTestDataReset,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createTcgplayerOrderRuntime } from "../../tcgplayer-orders/api/runtime";
@@ -54,10 +54,15 @@ describeDb("channel-allocation-change-fan-out / channel-allocation-sale-fan-out"
     pools = createMultiContextTestPools(urls);
   });
 
+  const dataReset = createMultiContextTestDataReset(
+    () => pools,
+    async () => {
+      await bootstrapContextDatabase(inventoryModule, pools.inventory);
+      await bootstrapContextDatabase(channelsModule, pools.channels);
+    },
+  );
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(inventoryModule, pools.inventory);
-    await bootstrapContextDatabase(channelsModule, pools.channels);
+    await dataReset.reset();
     await seedCompositionFacts(pools.channels);
   });
 
