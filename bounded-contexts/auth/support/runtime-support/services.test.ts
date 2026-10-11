@@ -413,7 +413,7 @@ describe("Projected Capability Grants on Session-backed actors", () => {
 
   it("resolves no actor and reads no grant without an active Membership", async () => {
     const { services, listGrantedAccountCapabilities } = servicesWithGrants([SYNTHETIC_GRANT]);
-    vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue(null);
+    vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue(null as never);
 
     expect(await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID)).toBeNull();
     expect(listGrantedAccountCapabilities).not.toHaveBeenCalled();
