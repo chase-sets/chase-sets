@@ -247,28 +247,41 @@ describe("representative catalog Observation Pack replay", () => {
       const spy = vi.spyOn(pool, "connect").mockImplementation((...args: unknown[]) => {
         if (typeof args[0] === "function") return Reflect.apply(connect, pool, args);
         return connect().then((client) => {
+          const originalQuery = client.query.bind(client);
+          let query: typeof client.query = async <Row = Record<string, unknown>>(
+            sql: string,
+            values?: readonly unknown[],
+          ) => {
+            const committedItem =
+              sql === "COMMIT" && interruptedItemId === null
+                ? await originalQuery<{ stream_id: string }>(
+                    "SELECT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.item-cat_source_%' AND event_type=$1 ORDER BY global_position LIMIT 1",
+                    [interruptedEvent],
+                  )
+                : null;
+            const result = await originalQuery<Row>(sql, values);
+            if (committedItem?.rows[0]) {
+              interruptedItemId = committedItem.rows[0].stream_id.slice("catalog.item-".length);
+              throw new Error("synthetic crash after durable item creation");
+            }
+            return result;
+          };
           // Preserve the entire pg client, including event/listener methods. The
           // fault is after real COMMIT, never after an uncommitted item insert.
           return new Proxy(client, {
             get(target, key) {
-              if (key === "query")
-                return async (sql: string, values?: readonly unknown[]) => {
-                  const committedItem =
-                    sql === "COMMIT" && interruptedItemId === null
-                      ? await target.query<{ stream_id: string }>(
-                          "SELECT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.item-cat_source_%' AND event_type=$1 ORDER BY global_position LIMIT 1",
-                          [interruptedEvent],
-                        )
-                      : null;
-                  const result = await target.query(sql, values);
-                  if (committedItem?.rows[0]) {
-                    interruptedItemId = committedItem.rows[0].stream_id.slice("catalog.item-".length);
-                    throw new Error("synthetic crash after durable item creation");
-                  }
-                  return result;
-                };
+              if (key === "query") return query;
               const value = Reflect.get(target, key, target);
               return typeof value === "function" ? value.bind(target) : value;
+            },
+            // Honor projection timeout wrappers and their restoration without
+            // feeding the interceptor back into itself on the raw pooled client.
+            set(target, key, value) {
+              if (key === "query") {
+                query = value;
+                return true;
+              }
+              return Reflect.set(target, key, value, target);
             },
           });
         });

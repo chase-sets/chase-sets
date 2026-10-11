@@ -346,6 +346,16 @@ describeDb("promotion target exclusion through real Catalog services", () => {
       validateAuthority: async () => undefined,
       selectTarget: async () => targetId,
     });
+    const targetStream = `catalog.item-${targetId}`;
+    // Acquisition commits an empty target guard row, not an item event. The
+    // failed append must preserve that row and roll back newly inserted guards.
+    const before = await pool.query("SELECT * FROM event_store_streams WHERE stream_id=$1", [targetStream]);
+    expect(before.rows).toEqual([expect.objectContaining({ stream_id: targetStream, current_version: "0" })]);
+    const newGuard = "catalog.item-cat_rollback_new_guard";
+    expect((await pool.query("SELECT stream_id FROM event_store_streams WHERE stream_id=$1", [newGuard])).rows).toEqual(
+      [],
+    );
+    session.guard(newGuard, 0);
     session.guard("catalog.source-observation-late-negative", 0);
     await record("late-negative");
     const listener = (await pool.connect()) as PgPoolClient & {
@@ -370,9 +380,11 @@ describeDb("promotion target exclusion through real Catalog services", () => {
         }),
       ).rejects.toMatchObject({ code: "concurrency_conflict" });
       expect(await readCompleteStream(store, { streamId: `catalog.item-${targetId}` })).toEqual([]);
+      expect((await pool.query("SELECT * FROM event_store_streams WHERE stream_id=$1", [targetStream])).rows).toEqual(
+        before.rows,
+      );
       expect(
-        (await pool.query("SELECT stream_id FROM event_store_streams WHERE stream_id=$1", [`catalog.item-${targetId}`]))
-          .rows,
+        (await pool.query("SELECT stream_id FROM event_store_streams WHERE stream_id=$1", [newGuard])).rows,
       ).toEqual([]);
       await pool.query("SELECT pg_notify($1, $2)", [channel, "synthetic-delivery-barrier"]);
       const deadline = Date.now() + 30000;
@@ -1123,23 +1135,35 @@ describeDb("promotion target exclusion through real Catalog services", () => {
         if (typeof args[0] === "function") return Reflect.apply(connect, pool, args);
         return connect().then((client) => {
           let promotion = false;
+          const originalQuery = client.query.bind(client);
+          let query: typeof client.query = async <Row = Record<string, unknown>>(
+            sql: string,
+            values?: readonly unknown[],
+          ) => {
+            if (sql === "LOCK TABLE catalog_provider_integration_profile_versions IN SHARE MODE") promotion = true;
+            const result = await originalQuery<Row>(sql, values);
+            // Acquire and preparePlan bind first; each following COMMIT is one
+            // atomic command, including commands whose domain result is empty.
+            if (sql === "COMMIT" && promotion && ++commits === commandNumber + 2) {
+              interrupted = true;
+              throw new Error("synthetic-after-command-commit");
+            }
+            return result;
+          };
           return new Proxy(client, {
             get(target, key) {
-              if (key === "query")
-                return async (sql: string, values?: readonly unknown[]) => {
-                  if (sql === "LOCK TABLE catalog_provider_integration_profile_versions IN SHARE MODE")
-                    promotion = true;
-                  const result = await target.query(sql, values);
-                  // Acquire and preparePlan bind first; each following COMMIT is one
-                  // atomic command, including commands whose domain result is empty.
-                  if (sql === "COMMIT" && promotion && ++commits === commandNumber + 2) {
-                    interrupted = true;
-                    throw new Error("synthetic-after-command-commit");
-                  }
-                  return result;
-                };
+              if (key === "query") return query;
               const value = Reflect.get(target, key, target);
               return typeof value === "function" ? value.bind(target) : value;
+            },
+            // Projection transactions temporarily wrap query. Keep that wrapper
+            // visible without mutating the pooled client's underlying method.
+            set(target, key, value) {
+              if (key === "query") {
+                query = value;
+                return true;
+              }
+              return Reflect.set(target, key, value, target);
             },
           });
         });
