@@ -98,13 +98,14 @@ export type CatalogMergeCandidateApplicationPorts = Readonly<{
  * codes refuse a retained plan or target without retargeting or completing it.
  */
 export class CatalogMergeCandidateApplicationError extends Error {
-  constructor(
-    readonly code: string,
-    detail?: string,
-    readonly diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode,
-  ) {
+  readonly code: string;
+  readonly diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+
+  constructor(code: string, detail?: string, diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode) {
     super(detail ? `${code}: ${detail}` : code);
     this.name = "CatalogMergeCandidateApplicationError";
+    this.code = code;
+    this.diagnosticCode = diagnosticCode;
   }
 }
 
