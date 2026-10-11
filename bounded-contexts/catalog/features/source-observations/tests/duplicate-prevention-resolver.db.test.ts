@@ -26,10 +26,14 @@ import tcgdexFixture from "../api/__fixtures__/tcgdex/normal.json";
 import scryfallFixture from "../api/__fixtures__/scryfall-card-print/normal.json";
 import tcgplayerMtgSealedFixture from "../api/__fixtures__/tcgplayer-mtg-sealed-product/normal.json";
 import scrydexOnePieceCardFixture from "../api/__fixtures__/scrydex-one-piece-card-print/normal.json";
+import scrydexOnePieceSealedFixture from "../api/__fixtures__/scrydex-one-piece-sealed-product/normal.json";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
 import { scryfallMtgCardPrintSourceObservationMappingContract } from "../api/scryfall-executable-mapping-contract";
 import { tcgplayerMtgSealedProductSourceObservationMappingContract } from "../api/tcgplayer-executable-mapping-contract";
-import { scrydexOnePieceCardPrintSourceObservationMappingContract } from "../api/scrydex-one-piece-executable-mapping-contract";
+import {
+  scrydexOnePieceCardPrintSourceObservationMappingContract,
+  scrydexOnePieceSealedProductSourceObservationMappingContract,
+} from "../api/scrydex-one-piece-executable-mapping-contract";
 import {
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
@@ -46,6 +50,7 @@ import {
 } from "../api/promotion/provider-duplicate-prevention-resolver";
 import {
   scrydexOnePieceCardPrintProviderProfile,
+  scrydexOnePieceSealedProductProviderProfile,
   scryfallMtgCardPrintProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerMtgSealedProductProviderProfile,
@@ -71,10 +76,9 @@ type TracedQuery = Readonly<{ sql: string; values: readonly unknown[] }>;
  * Records by provider id, while the deterministic rules look the record up by
  * its name key, so those rows provision the name-keyed record a set-name
  * hierarchy (Scryfall, TCGplayer) creates. The item's field values always come
- * from the executable normalizer and promotion planner. Scrydex One Piece
- * sealed products are absent: their catalog mapping needs a
- * `sealed-product-id` field the integration bootstrap does not seed, so
- * promotion stops before the resolver runs.
+ * from the executable normalizer and promotion planner. These isolated rules
+ * do not prove ordinary same-provider repeat convergence, which can match
+ * through earlier exact-reference or source-observation-link rules.
  */
 type ReferenceLookup = "provider-hierarchy" | "name-keyed";
 
@@ -105,6 +109,13 @@ const fieldRuleCases = [
     profile: scrydexOnePieceCardPrintProviderProfile,
     contract: scrydexOnePieceCardPrintSourceObservationMappingContract,
     payload: scrydexOnePieceCardFixture,
+    reference: { typeKey: "set", nameKey: "setName", fieldKey: "set", lookup: "name-keyed" },
+  },
+  {
+    ruleKey: "one-piece-sealed-product-deterministic-fields",
+    profile: scrydexOnePieceSealedProductProviderProfile,
+    contract: scrydexOnePieceSealedProductSourceObservationMappingContract,
+    payload: scrydexOnePieceSealedFixture,
     reference: { typeKey: "set", nameKey: "setName", fieldKey: "set", lookup: "name-keyed" },
   },
 ] as const satisfies readonly Readonly<{
@@ -286,6 +297,24 @@ describeDb("duplicate-prevention field rules against projected Catalog Items (db
     return { result, trace };
   }
 
+  it("rejects the pre-fix One Piece sealed key against the real seeded catalog", async () => {
+    const profile = scrydexOnePieceSealedProductProviderProfile;
+    await expect(
+      loadCatalogItemPromotionProfile(deps, {
+        ...profile,
+        catalogFieldMapping: {
+          ...profile.catalogFieldMapping,
+          fieldKeys: { ...profile.catalogFieldMapping.fieldKeys, cardNumber: "sealed-product-id" },
+        },
+      }),
+    ).rejects.toThrow("requires active Catalog catalog_fields key 'sealed-product-id'");
+    const catalog = await loadCatalogItemPromotionProfile(deps, profile);
+    const seeded = await pool.query<{ field_id: FieldId }>(
+      "SELECT field_id FROM catalog_fields WHERE key = 'sealed-product-number' AND status = 'active'",
+    );
+    expect(seeded.rows).toEqual([{ field_id: catalog.fieldIds.cardNumber }]);
+  });
+
   it.each(fieldRuleCases)(
     "$ruleKey matches a projected item holding every rule field and refuses any differing or absent field",
     async (testCase) => {
@@ -310,6 +339,24 @@ describeDb("duplicate-prevention field rules against projected Catalog Items (db
         catalogItemId,
         ruleKey: testCase.ruleKey,
       });
+
+      if (testCase.ruleKey === "one-piece-sealed-product-deterministic-fields") {
+        const repeat = observe(testCase.contract, {
+          ...scrydexOnePieceSealedFixture,
+          sealedProduct: { ...scrydexOnePieceSealedFixture.sealedProduct, id: "op01-booster-box-repeat" },
+        });
+        expect(repeat.externalKey).not.toBe(observation.externalKey);
+        expect(
+          (
+            await resolve({
+              profile: testCase.profile,
+              ruleKey: testCase.ruleKey,
+              observation: repeat,
+              catalog,
+            })
+          ).result,
+        ).toMatchObject({ status: "matched", catalogItemId, ruleKey: testCase.ruleKey });
+      }
 
       const fieldMatches = ruleFieldMatches(testCase.profile, testCase.ruleKey);
       expect(fieldMatches.length).toBeGreaterThan(0);
