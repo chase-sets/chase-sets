@@ -1,8 +1,9 @@
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { classifyDiscoverySearchCursor, retrieveDiscoveryItems } from "./hybrid-retrieval";
-import type { DiscoverySearchItemRow, ListResult } from "./queries";
+import { searchDiscoveryItems, type DiscoverySearchItemRow, type ListResult } from "./queries";
 
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
 
@@ -401,6 +402,55 @@ describe("Discovery hybrid retrieval", () => {
     expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
   });
 
+  it.each([
+    ["an unversioned legacy cursor", legacyCursor()],
+    ["a malformed cursor", "not-a-cursor"],
+    [
+      "a wrong cursor version",
+      encodeCursorJson({ v: 3, id: "cat_1", title: "Pikachu", rank: 0.5, baseMatch: true, tier: 1 }),
+    ],
+  ])("restarts %s with an offset at the first page", async (_label, cursor) => {
+    const { db, listValues } = scriptedRelevanceDb();
+    const searchLexical = vi.fn(searchDiscoveryItems);
+
+    const actual = await retrieveDiscoveryItems(
+      { db, rescueEnabled: false, hybridEnabled: false, searchLexical, searchSemantic: vi.fn() },
+      { search: "Pikachu", cursor, offset: 1, limit: 1 },
+    );
+
+    expect(searchLexical).toHaveBeenCalledExactlyOnceWith(
+      db,
+      expect.objectContaining({ cursor: undefined, offset: undefined, includeTotal: true }),
+    );
+    expect(listValues).toEqual([["active", "Pikachu", "Pikachu", "Pikachu", 2]]);
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
+    expect(actual).toMatchObject({ retrievalMode: "lexical", total: 2, cursorState: "restarted" });
+    expect(decodeCursorJson(actual.nextCursor)).toMatchObject({ v: 2, id: "exact", tier: 1 });
+  });
+
+  it("restarts a rejected cursor with an offset at the first page when hybrid retrieval fails open", async () => {
+    const { db, listValues } = scriptedRelevanceDb();
+    const provider = fakeProvider();
+    vi.mocked(provider.embed).mockRejectedValue(new Error("provider unavailable"));
+
+    const actual = await retrieveDiscoveryItems(
+      {
+        db,
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: true,
+        searchSemantic: vi.fn(),
+      },
+      { search: "Pikachu", cursor: legacyCursor(), offset: 1, limit: 1 },
+    );
+
+    expect(listValues).toEqual([["active", "Pikachu", "Pikachu", "Pikachu", 2]]);
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["exact"]);
+    expect(actual).toMatchObject({ retrievalMode: "lexical", total: 2, cursorState: "restarted" });
+    expect(decodeCursorJson(actual.nextCursor)).toMatchObject({ v: 2, id: "exact", tier: 1 });
+  });
+
   it("keeps explicit-sort keyset cursors as continuations", async () => {
     const cursor = legacyCursor();
     const searchLexical = vi.fn(async () => result([row("page-2")]));
@@ -516,6 +566,40 @@ function hybridCursor(offset: number): string {
 
 function encodeCursorJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeCursorJson(cursor: string | null): unknown {
+  return JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+}
+
+// Plays the Search Index for one relevance Result Set (the exact title first, then one
+// other), applying only the emitted LIMIT/OFFSET bindings; SQL order is the DB tests' job.
+function scriptedRelevanceDb() {
+  const listValues: Array<readonly unknown[]> = [];
+  const indexRow = (catalogItemId: string, title: string, tier: number, rank: number) => ({
+    ...row(catalogItemId, title),
+    lowest_price_amount: null,
+    lowest_price_currency_code: null,
+    visible_quantity: null,
+    search_rank: rank,
+    search_base_match: true,
+    search_exact_tier: tier,
+    search_title_identity: title.toLowerCase(),
+  });
+  const rows = [indexRow("exact", "Pikachu", 1, 0.1), indexRow("other", "Pikachu V", 0, 0.9)];
+  const db: PgQueryable = {
+    query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+      let page: unknown[] = [];
+      if (sql.startsWith("SELECT COUNT(*) AS count")) page = [{ count: String(rows.length) }];
+      if (sql.startsWith("SELECT * FROM (")) {
+        listValues.push(values);
+        const offset = sql.includes("OFFSET $") ? Number(values.at(-1)) : 0;
+        page = rows.slice(offset, offset + Number(values.at(sql.includes("OFFSET $") ? -2 : -1)));
+      }
+      return { rows: page as Row[], rowCount: page.length };
+    },
+  };
+  return { db, listValues };
 }
 
 function fakeProvider(): DiscoveryEmbeddingProvider {

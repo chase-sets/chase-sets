@@ -59,12 +59,15 @@ export async function retrieveDiscoveryItems(
   params: DiscoverySearchParams = {},
 ): Promise<DiscoverySearchResult> {
   const cursorState = classifyDiscoverySearchCursor(dependencies, params);
-  // A rejected cursor restarts as a fresh request in every branch below, including
-  // structured resolution, hybrid, and rescue, with full first-page metadata.
+  // A rejected cursor restarts as a fresh first page in every branch below, including
+  // structured resolution, hybrid, and rescue, with full first-page metadata. Its offset
+  // goes with it, so the restart can never skip the leading rows it reports as fresh.
   const request =
     cursorState === "cursor"
       ? params
-      : { ...params, cursor: undefined, ...(cursorState === "restarted" ? { includeTotal: true } : {}) };
+      : cursorState === "restarted"
+        ? { ...params, cursor: undefined, offset: undefined, includeTotal: true }
+        : { ...params, cursor: undefined };
 
   return { ...(await retrieveDiscoveryPage(dependencies, request)), cursorState };
 }

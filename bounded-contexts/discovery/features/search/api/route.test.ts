@@ -4,7 +4,8 @@ import { createDiscoveryItemSearchRuntime, type DiscoveryItemSearchServices } fr
 import { discoveryItemSearchRoutes } from "./route";
 import { DISCOVERY_SEARCH_QUERY_MAX_CODE_POINTS } from "../domain/normalization";
 
-// Plays the Search Index for one relevance Result Set: an exact first row and one other.
+// Plays the Search Index for one relevance Result Set: an exact first row and one other,
+// applying the emitted keyset and LIMIT/OFFSET bindings.
 function scriptedSearchDb() {
   const listCalls: Array<readonly unknown[]> = [];
   const row = (id: string, title: string, tier: number) => ({
@@ -28,7 +29,9 @@ function scriptedSearchDb() {
     listCalls.push(values);
     const exact = row("cat_exact", "Charizard ex", 1);
     const other = row("cat_other", "Charizard ex Box", 0);
-    return sql.includes("search_rank) < (") ? [other] : [exact, other];
+    const ordered = sql.includes("search_rank) < (") ? [other] : [exact, other];
+    const offset = sql.includes("OFFSET $") ? Number(values.at(-1)) : 0;
+    return ordered.slice(offset, offset + Number(values.at(sql.includes("OFFSET $") ? -2 : -1)));
   };
   const db: PgQueryable = {
     query: async <Row>(sql: string, values: readonly unknown[] = []) => {
@@ -42,6 +45,10 @@ function scriptedSearchDb() {
 function decodeCursorJson(cursor: unknown): unknown {
   return JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
 }
+
+const legacyRelevanceCursor = Buffer.from(JSON.stringify({ id: "cat_old", title: "Old", rank: 0.9 })).toString(
+  "base64url",
+);
 
 function createServices(): DiscoveryItemSearchServices {
   return {
@@ -264,20 +271,20 @@ describe("discovery item search routes", () => {
   });
 
   it.each([
-    [
-      "an unversioned legacy cursor",
-      Buffer.from(JSON.stringify({ id: "cat_old", title: "Old", rank: 0.9 })).toString("base64url"),
-    ],
-    ["a malformed cursor", "not-a-cursor"],
-    ["array JSON", Buffer.from(JSON.stringify([0, 1, 0.9, "Old", "cat_old"])).toString("base64url")],
-  ])("legacy or invalid relevance cursor restarts with metadata over HTTP: %s", async (_label, rejectedCursor) => {
+    ["an unversioned legacy cursor", legacyRelevanceCursor, ""],
+    ["an unversioned legacy cursor with an offset", legacyRelevanceCursor, "&offset=1"],
+    ["a malformed cursor", "not-a-cursor", ""],
+    ["array JSON", Buffer.from(JSON.stringify([0, 1, 0.9, "Old", "cat_old"])).toString("base64url"), ""],
+  ])("legacy or invalid relevance cursor restarts with metadata over HTTP: %s", async (_, rejectedCursor, extra) => {
     const { db, listCalls } = scriptedSearchDb();
     const app = discoveryItemSearchRoutes(
       createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
     );
 
     // A load-more request: a cursor and no includeTotal.
-    const restarted = await (await app.request(`/?search=Charizard%20ex&limit=1&cursor=${rejectedCursor}`)).json();
+    const restarted = await (
+      await app.request(`/?search=Charizard%20ex&limit=1&cursor=${rejectedCursor}${extra}`)
+    ).json();
 
     expect(restarted).toMatchObject({
       cursorRestarted: true,
@@ -310,6 +317,20 @@ describe("discovery item search routes", () => {
       "cat_exact",
       2,
     ]);
+  });
+
+  it("keeps an intentional offset page without a cursor or restart marker", async () => {
+    const { db, listCalls } = scriptedSearchDb();
+    const app = discoveryItemSearchRoutes(
+      createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+    );
+
+    const page = await (await app.request("/?search=Charizard%20ex&limit=1&offset=1")).json();
+
+    expect(page).not.toHaveProperty("cursorRestarted");
+    expect(page).toMatchObject({ total: 2, nextCursor: null });
+    expect(page.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual(["cat_other"]);
+    expect(listCalls[0]).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 1, 1]);
   });
 
   it("omits cursorRestarted from fresh first pages", async () => {

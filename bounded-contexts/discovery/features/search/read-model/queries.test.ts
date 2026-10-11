@@ -640,6 +640,57 @@ describe("searchDiscoveryItems cursor paging", () => {
     expect(calls.some((call) => call.sql.includes("AS slug, COUNT(DISTINCT item.catalog_item_id)"))).toBe(true);
   });
 
+  it.each([
+    [
+      "an unversioned legacy cursor",
+      encodeCursor({ id: "cat_old", title: "Old", updatedAt: "2026", rank: 0.9, baseMatch: true }),
+    ],
+    ["a malformed cursor", "not-a-cursor"],
+    [
+      "a wrong cursor version",
+      encodeCursorJson({ v: 3, id: "cat_old", title: "Old", rank: 0.9, baseMatch: true, tier: 1 }),
+    ],
+  ])("restarts %s with an offset at the first page", async (_label, cursor) => {
+    const { db, calls } = createCapturingDb([
+      listRow("cat_exact", "Charizard ex", { search_rank: 0.25, search_base_match: true, search_exact_tier: 1 }),
+      listRow("cat_next", "Charizard ex Box", { search_rank: 0.5, search_base_match: true, search_exact_tier: 0 }),
+    ]);
+
+    const page = await searchDiscoveryItems(
+      db,
+      { search: "Charizard ex", cursor, offset: 48, limit: 1, includeTotal: true },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    const listCall = findListCall(calls);
+    expect(listCall?.sql).toContain("LIMIT $5");
+    expect(listCall?.sql).not.toContain("OFFSET $");
+    expect(listCall?.values).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 2]);
+    expect(calls.find((call) => call.sql.startsWith("SELECT COUNT(*) AS count"))?.values).toEqual([
+      "active",
+      "Charizard ex",
+      "Charizard ex",
+    ]);
+    expect(page.items.map((item) => item.catalog_item_id)).toEqual(["cat_exact"]);
+    expect(decodeCursorJson(page.nextCursor)).toMatchObject({ v: 2, id: "cat_exact", tier: 1 });
+  });
+
+  it("keeps intentional offset paging when no cursor is supplied", async () => {
+    const { db, calls } = createCapturingDb([listRow("cat_next", "Charizard ex Box", { search_exact_tier: 0 })]);
+
+    const page = await searchDiscoveryItems(
+      db,
+      { search: "Charizard ex", offset: 48, limit: 1 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    const listCall = findListCall(calls);
+    expect(listCall?.sql).toContain("LIMIT $5 OFFSET $6");
+    expect(listCall?.values).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 1, 48]);
+    expect(calls.some((call) => call.sql.startsWith("SELECT COUNT(*) AS count"))).toBe(true);
+    expect(page.nextCursor).toBeNull();
+  });
+
   it("classifies only cursors the active ordering can decode as continuations", () => {
     const relevanceCursor = encodeRelevanceCursor({ tier: 0, baseMatch: true, rank: 0.5, title: "A", id: "cat_a" });
     const legacyCursor = encodeCursor({ id: "cat_a", title: "A", updatedAt: "2026-05-16T00:00:00.000Z" });

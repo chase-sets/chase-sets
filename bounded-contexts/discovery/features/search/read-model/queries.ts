@@ -541,8 +541,10 @@ export async function searchDiscoveryItems(
   const relevance = usesRelevanceOrdering(params);
   const relevanceCursor = relevance ? decodeRelevanceCursor(params.cursor) : null;
   const cursor = relevance ? null : decodeKeysetCursor(params.cursor);
-  // Metadata follows the effective cursor: a rejected cursor restarts as a fresh page.
+  // Metadata and paging follow the effective cursor: a rejected cursor restarts as a
+  // fresh first page, so a supplied offset is discarded with it.
   const continuing = relevanceCursor !== null || cursor !== null;
+  const restarting = Boolean(params.cursor) && !continuing;
 
   let candidateSql: string | null = null;
   let orderBy: string;
@@ -656,7 +658,7 @@ export async function searchDiscoveryItems(
   }
 
   const limit = clampLimit(params.limit);
-  const offset = clampOffset(params.offset);
+  const offset = restarting ? 0 : clampOffset(params.offset);
   const useLegacyOffset = offset > 0;
   const listValues = useLegacyOffset ? [...values, limit, offset] : [...values, limit + 1];
   const listLimitSql = useLegacyOffset
