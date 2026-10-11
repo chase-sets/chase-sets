@@ -111,6 +111,79 @@ const reviewedPreviewWildcardDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #9293 adds only the two deployment values at the five existing Secret-apply sinks.
+const ebayAccountDeletionDelta = [
+  {
+    file: ".github/workflows/platform-ephemeral-verification.yml",
+    jobId: "verify-release",
+    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+    secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-ephemeral-verification.yml",
+    jobId: "verify-release",
+    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+    secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-merge-gate-verification.yml",
+    jobId: "verify",
+    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
+    secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-merge-gate-verification.yml",
+    jobId: "verify",
+    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
+    secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-pr.yml",
+    jobId: "preview-deploy-smoke",
+    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
+    secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-pr.yml",
+    jobId: "preview-deploy-smoke",
+    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
+    secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-production",
+    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
+    secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-production",
+    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
+    secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+    purpose: "application-runtime",
+  },
+];
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 const reviewedStepInsertions = [
@@ -316,9 +389,10 @@ describe("managed Postgres authority source generator", () => {
       grants: [
         ...[...original.grants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
         ...reviewedPreviewWildcardDelta,
+        ...ebayAccountDeletionDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1619);
+    expect(expected.grants).toHaveLength(1629);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
