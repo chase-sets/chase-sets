@@ -533,7 +533,9 @@ async function captureTestDataBaseline(pool: PgTransactionalPool): Promise<TestD
       }),
     ...(sequences.rows.length === 0
       ? []
-      : [`SELECT ${sequences.rows.map((sequence) => `setval(${sequence.name}::regclass, ${sequence.position})`).join(", ")};`]),
+      : [
+          `SELECT ${sequences.rows.map((sequence) => `setval(${sequence.name}::regclass, ${sequence.position})`).join(", ")};`,
+        ]),
   ];
 
   return { pool, catalog, resetSql: statements.join("\n") };
