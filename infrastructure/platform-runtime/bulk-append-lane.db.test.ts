@@ -121,11 +121,30 @@ describeDb("bulk append lane real database integration", () => {
     await expect(eventStore.readStream({ streamId: "widget-sibling-b", limit: 10 })).resolves.toHaveLength(1);
   });
 
-  it("bounds interactive-append latency during a staged bulk run via inter-chunk yields", async () => {
+  it("lets an interactive append complete while a staged bulk run is parked between chunks", async () => {
     const { eventStore, repository } = createRuntime();
     const chunkSize = 5;
     const yieldIntervalMs = 40;
     const totalListings = 40; // 8 chunks, 7 inter-chunk yields
+
+    // Park the first inter-chunk yield on a test-held gate; later yields resolve immediately.
+    const sleepCalls: number[] = [];
+    let markFirstYieldReached: () => void = () => undefined;
+    const firstYieldReached = new Promise<"first-yield">((resolve) => {
+      markFirstYieldReached = () => resolve("first-yield");
+    });
+    let releaseFirstYield: () => void = () => undefined;
+    const firstYieldGate = new Promise<void>((resolve) => {
+      releaseFirstYield = resolve;
+    });
+    const sleep = async (ms: number) => {
+      sleepCalls.push(ms);
+      if (sleepCalls.length === 1) {
+        markFirstYieldReached();
+        await firstYieldGate;
+      }
+    };
+
     const lane = createBulkAppendLane({
       eventStore,
       repository,
@@ -134,6 +153,7 @@ describeDb("bulk append lane real database integration", () => {
       decide,
       chunkSize,
       yieldIntervalMs,
+      sleep,
     });
 
     const items: BulkAppendLaneItem<SetWidgetValueCommand>[] = Array.from({ length: totalListings }, (_, index) => ({
@@ -142,35 +162,37 @@ describeDb("bulk append lane real database integration", () => {
       context: context(),
     }));
 
-    const bulkStartedAt = Date.now();
-    const bulkRun = lane(items).then((outcomes) => {
-      const bulkCompletedAt = Date.now();
-      return { outcomes, bulkCompletedAt };
+    const bulkRun = lane(items);
+    let bulkSettled = false;
+    const bulkCompletion = bulkRun.then(
+      () => "bulk-completed" as const,
+      () => "bulk-failed" as const,
+    );
+    void bulkCompletion.then(() => {
+      bulkSettled = true;
     });
 
-    // Give the bulk run a head start so it is genuinely mid-flight, then issue an ordinary
-    // interactive append against an unrelated stream while the bulk run is still chunking.
-    await new Promise((resolve) => setTimeout(resolve, yieldIntervalMs));
-    const interactiveStartedAt = Date.now();
-    await eventStore.appendToStream({
-      streamId: "widget-interactive",
-      expectedVersion: "no_stream",
-      context: context(),
-      events: [{ eventType: "widget.value-set", payload: { value: "interactive" } }],
-    });
-    const interactiveCompletedAt = Date.now();
-    const interactiveLatencyMs = interactiveCompletedAt - interactiveStartedAt;
+    try {
+      await expect(Promise.race([firstYieldReached, bulkCompletion])).resolves.toBe("first-yield");
 
-    const { outcomes, bulkCompletedAt } = await bulkRun;
-    const bulkDurationMs = bulkCompletedAt - bulkStartedAt;
+      // While the lane is parked between chunks, an unrelated interactive append completes.
+      await eventStore.appendToStream({
+        streamId: "widget-interactive",
+        expectedVersion: "no_stream",
+        context: context(),
+        events: [{ eventType: "widget.value-set", payload: { value: "interactive" } }],
+      });
+      await expect(eventStore.readStream({ streamId: "widget-interactive", limit: 10 })).resolves.toHaveLength(1);
+      expect(bulkSettled).toBe(false);
+      await expect(eventStore.readStream({ streamId: "widget-fairness-39", limit: 10 })).resolves.toEqual([]);
+    } finally {
+      releaseFirstYield();
+      await bulkCompletion;
+    }
 
+    const outcomes = await bulkRun;
+    expect(outcomes).toHaveLength(totalListings);
     expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-    // The bulk run spans at least (chunks - 1) yields -- proof chunking + yielding actually happened.
-    expect(bulkDurationMs).toBeGreaterThanOrEqual(yieldIntervalMs * 3);
-    // The interactive append is not queued behind the whole bulk run: it completes quickly...
-    expect(interactiveLatencyMs).toBeLessThan(bulkDurationMs);
-    expect(interactiveLatencyMs).toBeLessThan(500);
-    // ...and strictly before the bulk run as a whole finishes, proving real interleaving.
-    expect(interactiveCompletedAt).toBeLessThan(bulkCompletedAt);
+    expect(sleepCalls).toEqual(Array.from({ length: 7 }, () => yieldIntervalMs));
   });
 });

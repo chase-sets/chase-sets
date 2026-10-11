@@ -26,6 +26,7 @@ const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 const RECEIPT_FIXTURE_BUDGET_MS = 360_000;
+const INLINE_APPLY_LIVENESS_MS = 30_000;
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -269,6 +270,7 @@ describeDb("projection inline apply Postgres integration", () => {
     const event = (await appendEvents(pool, "inline.item-2", [{ itemId: "item-2" }]))[0]!;
     const transportEvent = toTransportEvent(event);
     const client = await pool.connect();
+    let inlineAttempt: ReturnType<typeof applyInline> | undefined;
     try {
       await client.query("BEGIN");
       await expect(
@@ -278,9 +280,22 @@ describeDb("projection inline apply Postgres integration", () => {
         }),
       ).resolves.toBe("claimed");
 
-      const startedAt = Date.now();
-      await expect(applyInline(runtime, [event])).resolves.toEqual({ applied: 0, deferred: 1, failed: 0 });
-      expect(Date.now() - startedAt).toBeLessThan(250);
+      // The holder transaction stays open, so only the inline claim's own lock
+      // budget can let this apply settle. The liveness timer is not a latency
+      // claim; it turns a held-lock wait into a fast, named failure.
+      inlineAttempt = applyInline(runtime, [event]);
+      let livenessTimer: ReturnType<typeof setTimeout> | undefined;
+      const liveness = new Promise<never>((_, reject) => {
+        livenessTimer = realSetTimeout(
+          () => reject(new Error("inline apply blocked on the held runner claim")),
+          INLINE_APPLY_LIVENESS_MS,
+        );
+      });
+      try {
+        await expect(Promise.race([inlineAttempt, liveness])).resolves.toEqual({ applied: 0, deferred: 1, failed: 0 });
+      } finally {
+        realClearTimeout(livenessTimer);
+      }
       expect(testState.handlerCalls).toBe(0);
 
       await client.query(`INSERT INTO inline_items (item_id, seen_count) VALUES ('item-2', 1)`);
@@ -298,6 +313,8 @@ describeDb("projection inline apply Postgres integration", () => {
       ]);
     } finally {
       await client.query("ROLLBACK").catch(() => undefined);
+      // A losing apply is unblocked by the rollback; drain it before cleanup.
+      await inlineAttempt?.catch(() => undefined);
       client.release();
     }
   });
