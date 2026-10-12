@@ -816,6 +816,11 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
   }
 
   async function completionFacts() {
+    const candidates = await pool.query<{ candidate_id: string }>(
+      "SELECT candidate_id FROM catalog_merge_candidates WHERE scope_record_id = $1 ORDER BY candidate_id",
+      [applicationScopeId],
+    );
+    await candidateWriter(pool, store).reproject(candidates.rows.map((row) => row.candidate_id));
     const batchId = "batch_application_completion";
     const batches = createScopeSyncBatchStore(pool);
     if (!(await batches.get(batchId, context))) {
