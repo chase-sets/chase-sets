@@ -1150,32 +1150,34 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(recovered.members).toEqual(previous.members.filter((member) => member.identity !== "finding:snapshot-age"));
 
     let members = [...recovered.members];
-    const member = members[0]!;
+    const memberIndex = members.findIndex((member) => member.identity === "source:state");
+    expect(memberIndex).toBeGreaterThanOrEqual(0);
+    const member = members[memberIndex]!;
     switch (scenario) {
       case "wider removal":
         members = members.slice(1);
         expect(members).toHaveLength(1);
         break;
       case "member identity":
-        members[0] = { ...member, identity: "synthetic-replaced-source" };
+        members[memberIndex] = { ...member, identity: "synthetic-replaced-source" };
         break;
       case "member kind":
-        members[0] = { ...member, kind: "structural" };
+        members[memberIndex] = { ...member, kind: "structural" };
         break;
       case "expected fingerprint":
-        members[0] = { ...member, expectedFingerprint: "a".repeat(64) };
+        members[memberIndex] = { ...member, expectedFingerprint: "a".repeat(64) };
         break;
       case "observed fingerprint":
-        members[0] = { ...member, observedFingerprint: "b".repeat(64) };
+        members[memberIndex] = { ...member, observedFingerprint: "b".repeat(64) };
         break;
       case "settlement":
-        members[0] = { ...member, settlement: "recovered" };
+        members[memberIndex] = { ...member, settlement: "recovered" };
         break;
       case "decision revision":
-        members[0] = { ...member, decisionRevision: member.decisionRevision + 1 };
+        members[memberIndex] = { ...member, decisionRevision: member.decisionRevision + 1 };
         break;
       case "recovery provenance":
-        members[0] = { ...member, recoveryRequested: !member.recoveryRequested };
+        members[memberIndex] = { ...member, recoveryRequested: !member.recoveryRequested };
         break;
     }
     const fingerprint = (drift: RetainedDriftGeneration) =>
