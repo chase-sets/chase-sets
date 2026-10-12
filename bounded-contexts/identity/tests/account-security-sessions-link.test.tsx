@@ -164,8 +164,8 @@ describe("account-security-sessions-link", () => {
             }
           : undefined,
       );
-      const call =
-        kind === "loader" ? loader({ request, params: {}, context: {} }) : action({ request, params: {}, context: {} });
+      const args = { request, params: {}, context: {}, url: new URL(request.url), pattern: "/account/security" };
+      const call = kind === "loader" ? loader(args) : action(args);
       await expect(call).rejects.toMatchObject({ status: 403 });
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(String(fetch.mock.calls[0][0])).toContain("/api/auth/session");
