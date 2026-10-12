@@ -3,6 +3,10 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import { decideEvidenceAccess, type EvidenceAccessAction } from "../domain/evidence-access-policy";
+import { createEvidenceAccessAudit, EvidenceAccessError, type EvidenceAccessAuditPage } from "./evidence-access-audit";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -213,19 +217,20 @@ export type SupportRequestServices = Readonly<{
   uploadAttachments: (
     params: Readonly<{
       supportRequestId: string;
-      accountId: string;
-      roleKey: string;
-      uploads: readonly SupportEvidenceAttachmentUpload[];
+      actor: ResolvedActor | null;
+      uploads: () => Promise<readonly SupportEvidenceAttachmentUpload[]>;
     }>,
-  ) => Promise<readonly StoredSupportEvidenceAttachment[] | null>;
+  ) => Promise<readonly StoredSupportEvidenceAttachment[]>;
   getAttachment: (
     params: Readonly<{
       supportRequestId: string;
       attachmentId: string;
-      accountId: string;
-      roleKey: string;
+      actor: ResolvedActor | null;
     }>,
   ) => Promise<Readonly<{ body: Uint8Array; contentType: string }> | null>;
+  getEvidenceAccessAudit: (
+    params: Readonly<{ supportRequestId: string; actor: ResolvedActor | null; cursor?: string }>,
+  ) => Promise<EvidenceAccessAuditPage>;
   submitEvidence: (
     params: Readonly<{
       supportRequestId: string;
@@ -236,8 +241,9 @@ export type SupportRequestServices = Readonly<{
       occurredAt?: string | null;
       attachments?: readonly string[];
       scope?: SupportRequestMutationScope;
+      actor?: ResolvedActor | null;
     }>,
-    context: EventStoreContext,
+    context: EventStoreContext | undefined,
   ) => Promise<{ supportRequestId: string; version: number }>;
   recordResponse: (
     params: Readonly<{
@@ -630,10 +636,37 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     return { value: resolved.value, version: platformRemedyPolicyVersion(resolved) };
   }
 
-  async function getAttachmentCase(params: Readonly<{ supportRequestId: string; accountId: string; roleKey: string }>) {
-    return params.roleKey === "platform-admin"
-      ? getSupportOperationsRequest(deps.db, params.supportRequestId)
-      : getAccountSupportRequest(deps.db, params.supportRequestId, params.accountId);
+  const evidenceAudit = createEvidenceAccessAudit(deps.eventStore, () => deps.now?.() ?? new Date().toISOString());
+
+  async function authorizeEvidenceAccess(
+    supportRequestId: string,
+    actor: ResolvedActor | null,
+    action: EvidenceAccessAction,
+  ) {
+    if (!/^sup_[A-Za-z0-9_-]{1,80}$/.test(supportRequestId)) throw new EvidenceAccessError(404);
+    let state = initialSupportRequestState;
+    let authorityUnavailable = false;
+    try {
+      const events = await readCompleteStream(deps.eventStore, {
+        streamId: `support.support-request-${supportRequestId}`,
+      });
+      const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
+      state = events.reduce((current, event) => evolveSupportRequest(current, codec.decode(event)), state);
+    } catch {
+      authorityUnavailable = true;
+    }
+    const decision = decideEvidenceAccess(action, actor, state);
+    const access =
+      authorityUnavailable && decision.status !== 401 && decision.status !== 403
+        ? { ...decision, decision: "denied" as const, reason: "authority-unavailable" as const, status: 503 as const }
+        : decision;
+    try {
+      await evidenceAudit.record(supportRequestId, action, actor, access);
+    } catch {
+      throw new EvidenceAccessError(503);
+    }
+    if (access.status !== 200) throw new EvidenceAccessError(access.status);
+    return state;
   }
 
   async function evaluatePlatformRemedyProposal(
@@ -928,22 +961,16 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       return { supportRequestId, version: result.version };
     },
     uploadAttachments: async (params) => {
-      const supportRequest = await getAttachmentCase(params);
-      if (!supportRequest) {
-        return null;
-      }
+      await authorizeEvidenceAccess(params.supportRequestId, params.actor, "upload");
       return storeSupportEvidenceAttachments({
         supportRequestId: params.supportRequestId,
-        uploads: params.uploads,
+        uploads: await params.uploads(),
         storage: deps.attachmentStorage,
         securityScanner: deps.attachmentSecurityScanner,
       });
     },
     getAttachment: async (params) => {
-      const supportRequest = await getAttachmentCase(params);
-      if (!supportRequest) {
-        return null;
-      }
+      const supportRequest = await authorizeEvidenceAccess(params.supportRequestId, params.actor, "download");
       const reference = supportRequest.evidence
         .flatMap((evidence) => evidence.attachments)
         .find((candidate) => parseSupportEvidenceAttachmentReference(candidate)?.attachmentId === params.attachmentId);
@@ -956,10 +983,41 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         storage: deps.attachmentStorage,
       });
     },
+    getEvidenceAccessAudit: async (params) => {
+      await authorizeEvidenceAccess(params.supportRequestId, params.actor, "audit-read");
+      try {
+        return await evidenceAudit.page(params.supportRequestId, params.cursor);
+      } catch (error) {
+        throw error instanceof EvidenceAccessError ? error : new EvidenceAccessError(503);
+      }
+    },
     submitEvidence: async (params, context) => {
-      const supportRequest = await requireMutableSupportRequest(deps.db, params);
+      let evidenceState: SupportRequestState | null = null;
+      if (params.attachments?.length) {
+        const actor = params.actor ?? null;
+        evidenceState = await authorizeEvidenceAccess(
+          params.supportRequestId,
+          actor,
+          params.scope === "operations" ? "submit-operations" : "submit-participant",
+        );
+        if (
+          actor?.accountId !== params.accountId ||
+          context?.audit.forAccountId !== actor.accountId ||
+          context.audit.performedByUserId !== actor.userId ||
+          context.tenantId !== actor.tenantId
+        )
+          throw new EvidenceAccessError(403);
+      }
+      if (!context) throw new EvidenceAccessError(401);
+      const supportRequest = evidenceState ? null : await requireMutableSupportRequest(deps.db, params);
       const submittedByRole =
-        params.scope === "operations" ? "support" : accountRoleForSupportRequest(supportRequest, params.accountId);
+        params.scope === "operations"
+          ? "support"
+          : evidenceState
+            ? evidenceState.buyerAccountId === params.accountId
+              ? "buyer"
+              : "seller"
+            : accountRoleForSupportRequest(supportRequest, params.accountId);
       const result = await commandHandler({
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {

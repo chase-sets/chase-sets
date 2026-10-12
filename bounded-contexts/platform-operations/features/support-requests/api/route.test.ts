@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
 import type { SupportRequestServices } from "./runtime";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
+import { createSupportRequestRuntime } from "./runtime";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
+import { guestCheckoutActorThroughAuth, mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
 
 function buildApp(
   services: SupportRequestServices,
@@ -19,17 +28,9 @@ function buildApp(
   const app = new Hono<SupportApiEnv>();
 
   app.use("*", async (c, next) => {
-    c.set("actor", {
-      sessionId: "ses_operator",
-      tenantId: "tnt_chase_sets",
-      userId: "usr_operator",
-      accountId: "acc_operator",
-      membershipId: "mem_operator",
-      roleKey: "platform-admin",
-      permissions: [...permissions],
-    });
+    c.set("actor", evidenceActor("platform-admin", permissions, false, "acc_operator"));
     c.set("context", {
-      tenantId: "tnt_chase_sets",
+      tenantId: "tnt_identity",
       audit: { performedByUserId: "usr_operator", forAccountId: "acc_operator" },
     } as never);
     await next();
@@ -38,6 +39,496 @@ function buildApp(
   app.route("/support-requests", createAccountSupportRequestRoutes(services));
 
   return app;
+}
+
+describe("support attachment capability x role x participation", () => {
+  for (const role of ["owner", "manager", "fulfillment", "viewer", "platform-admin"]) {
+    for (const permitted of [false, true]) {
+      for (const granted of [false, true]) {
+        for (const participation of ["participant", "unrelated", "missing"] as const) {
+          for (const action of ["upload", "download", "audit-read"] as const) {
+            const mutant = !permitted
+              ? "base-permission-bypass"
+              : participation === "missing"
+                ? "missing-case-bypass"
+                : action === "audit-read" && !granted && participation === "participant"
+                  ? "audit-participant-bypass"
+                  : participation === "unrelated" && !granted
+                    ? "participation-bypass"
+                    : "grant-or-participant-refusal";
+            it(`${action}: ${role}, base=${permitted}, grant=${granted}, ${participation}; kills ${mutant} mutant`, async () => {
+              const fixture = await attachmentRouteFixture(participation !== "missing");
+              const permission = action === "upload" ? "support.manage" : "support.view";
+              const actor = evidenceActor(
+                role,
+                permitted ? [permission] : [],
+                granted,
+                participation === "participant" ? "acc_buyer" : "acc_unrelated",
+              );
+              const app = attachmentApp(fixture.runtime, actor);
+              const request = new Request(
+                `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+                {
+                  method: action === "upload" ? "POST" : "GET",
+                  ...(action === "upload"
+                    ? { body: "invalid multipart marker", headers: { "content-type": "multipart/form-data" } }
+                    : {}),
+                },
+              );
+              const form = new FormData();
+              form.append(
+                "attachments",
+                new File(
+                  [readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg")],
+                  "photo.jpg",
+                  { type: "image/jpeg" },
+                ),
+              );
+              const parse = vi.spyOn(request, "formData").mockResolvedValue(form);
+              const response = await app.request(request);
+              const status = !permitted
+                ? 403
+                : participation === "missing"
+                  ? 404
+                  : action === "audit-read"
+                    ? granted
+                      ? 200
+                      : participation === "participant"
+                        ? 403
+                        : 404
+                    : granted || participation === "participant"
+                      ? action === "upload"
+                        ? 201
+                        : 200
+                      : 404;
+              expect(response.status).toBe(status);
+              if (status >= 400) {
+                expect(parse).not.toHaveBeenCalled();
+                expect(fixture.storage.putObject).not.toHaveBeenCalled();
+                expect(fixture.storage.getObject).not.toHaveBeenCalled();
+              }
+              expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(
+                1,
+              );
+              expect(fixture.allEvents.at(-1)?.payload).toMatchObject({
+                decision: status >= 400 ? "denied" : "allowed",
+                action,
+              });
+            });
+          }
+        }
+      }
+    }
+  }
+
+  it.each(["upload", "download", "audit-read"])(
+    "%s signed out kills unauthenticated unrecorded-denial mutant",
+    async (action) => {
+      const fixture = await attachmentRouteFixture();
+      const request = new Request(
+        `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+        {
+          method: action === "upload" ? "POST" : "GET",
+          ...(action === "upload" ? { body: "unparsed" } : {}),
+        },
+      );
+      const parse = vi.spyOn(request, "formData");
+      expect((await attachmentApp(fixture.runtime, null).request(request)).status).toBe(401);
+      expect(parse).not.toHaveBeenCalled();
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+      expect(fixture.allEvents.at(-1)).toMatchObject({
+        tenantId: "tnt_identity",
+        payload: { tenantId: null, userId: null, accountId: null, membershipId: null },
+      });
+    },
+  );
+
+  it.each(["download", "upload", "audit-read"])(
+    "%s guest checkout records one denied attempt without storage I/O or body parsing",
+    async (action) => {
+      const fixture = await attachmentRouteFixture();
+      const actor = guestCheckoutActorThroughAuth("acc_buyer");
+      const request = new Request(
+        `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+        {
+          method: action === "upload" ? "POST" : "GET",
+          ...(action === "upload" ? { body: "unparsed" } : {}),
+        },
+      );
+      const parse = vi.spyOn(request, "formData");
+      const response = await attachmentApp(fixture.runtime, actor).request(request);
+      const attempts = fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+      expect.soft(response.status).toBe(403);
+      expect.soft(attempts).toHaveLength(1);
+      expect(await response.json()).toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(attempts[0]?.payload).toMatchObject({
+        decision: "denied",
+        reason: "base-permission-required",
+        membershipId: null,
+        accountId: "acc_buyer",
+        userId: "usr_guest_checkout",
+      });
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(parse).not.toHaveBeenCalled();
+    },
+  );
+
+  it("downloads for principals minted and persisted by the real Identity API with one allowed attempt", async () => {
+    const actor = await mintEvidenceActorThroughIdentity();
+    const fixture = await attachmentRouteFixture(true, actor.accountId);
+    const response = await attachmentApp(fixture.runtime, actor).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(200);
+    const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].payload).toMatchObject({
+      decision: "allowed",
+      membershipId: actor.membershipId,
+      userId: actor.userId,
+      accountId: actor.accountId,
+    });
+    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    "nonempty %s operations submission preserves domain validation as 400 after one allowed attempt",
+    async (operations) => {
+      const fixture = await attachmentRouteFixture();
+      const actor = evidenceActor("owner", ["support.manage"], operations);
+      const response = await attachmentApp(fixture.runtime, actor).request(
+        `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            submittedByRole: "buyer",
+            evidenceType: "support-note",
+            summary: "",
+            attachments: ["att_1"],
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
+      const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "nonempty %s operations submission bounds unexpected failures as 503 after one allowed attempt",
+    async (operations) => {
+      const fixture = await attachmentRouteFixture();
+      const append = fixture.eventStore.appendToStream.bind(fixture.eventStore);
+      vi.spyOn(fixture.eventStore, "appendToStream").mockImplementation(async (input) => {
+        if (input.streamId === "support.evidence-access-sup_case") return append(input);
+        throw new Error("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
+      });
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], operations),
+      ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          submittedByRole: "buyer",
+          evidenceType: "support-note",
+          summary: "Case evidence",
+          attachments: ["att_1"],
+        }),
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: { code: "evidence_unavailable", message: "Support evidence is unavailable." },
+      });
+      const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
+      expect(JSON.stringify(fixture.allEvents)).not.toContain("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    },
+  );
+
+  for (const operations of [false, true]) {
+    for (const permitted of [false, true])
+      for (const granted of [false, true]) {
+        for (const participant of [false, true]) {
+          it(`nonempty references ${operations ? "operations" : "participant"}: base=${permitted}, grant=${granted}, participant=${participant}; kills submission-authority-bypass mutant`, async () => {
+            const fixture = await attachmentRouteFixture();
+            const actor = evidenceActor(
+              "platform-admin",
+              permitted ? ["support.manage"] : [],
+              granted,
+              participant ? "acc_buyer" : "acc_unrelated",
+            );
+            const response = await attachmentApp(fixture.runtime, actor).request(
+              `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  evidenceType: "support-note",
+                  summary: "Case evidence",
+                  attachments: ["att_1"],
+                }),
+              },
+            );
+            expect(response.status).toBe(
+              !permitted ? 403 : operations ? (granted ? 200 : participant ? 403 : 404) : participant ? 200 : 404,
+            );
+            expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+            expect(fixture.storage.getObject).not.toHaveBeenCalled();
+            expect(fixture.storage.putObject).not.toHaveBeenCalled();
+          });
+        }
+      }
+    it(`empty references preserve ${operations ? "operations" : "participant"} authorization without a grant or attempt`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], false, operations ? "acc_unrelated" : "acc_buyer"),
+      ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ evidenceType: "support-note", summary: "Case note", attachments: [] }),
+      });
+      expect(response.status).toBe(200);
+      expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(0);
+    });
+    it(`signed-out nonempty ${operations ? "operations" : "participant"} submission is durably denied`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const response = await attachmentApp(fixture.runtime, null).request(
+        `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ attachments: ["att_1"] }),
+        },
+      );
+      expect(response.status).toBe(401);
+      expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+    });
+  }
+
+  it("grant revoke on next resolution returns to participant rules, never role fallback", async () => {
+    const fixture = await attachmentRouteFixture();
+    const granted = evidenceActor("platform-admin", ["support.view"], true, "acc_unrelated");
+    expect(
+      (await attachmentApp(fixture.runtime, granted).request("/support-requests/sup_case/attachments/sea_photo"))
+        .status,
+    ).toBe(200);
+    const revoked = { ...granted, capabilityAssignments: [] };
+    expect(
+      (await attachmentApp(fixture.runtime, revoked).request("/support-requests/sup_case/attachments/sea_photo"))
+        .status,
+    ).toBe(404);
+    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+  });
+
+  it("seller participation authorizes downloads but not audit reads without an assignment", async () => {
+    const fixture = await attachmentRouteFixture();
+    const app = attachmentApp(fixture.runtime, evidenceActor("viewer", ["support.view"], false, "acc_seller"));
+    expect((await app.request("/support-requests/sup_case/attachments/sea_photo")).status).toBe(200);
+    expect(fixture.allEvents.at(-1)?.payload).toMatchObject({ participation: "seller", reason: "participant" });
+    expect((await app.request("/support-requests/ops/sup_case/attachments/access-audit")).status).toBe(403);
+    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+  });
+
+  it("audit append failure kills unaudited-read and multipart-before-audit mutants", async () => {
+    const fixture = await attachmentRouteFixture();
+    vi.spyOn(fixture.eventStore, "appendToStream").mockRejectedValue(new Error("PLANTED_AUDIT_SECRET"));
+    const actor = evidenceActor("owner", ["support.manage", "support.view"]);
+    const request = new Request("http://localhost/support-requests/sup_case/attachments", {
+      method: "POST",
+      body: "unparsed",
+    });
+    const parse = vi.spyOn(request, "formData");
+    expect((await attachmentApp(fixture.runtime, actor).request(request)).status).toBe(503);
+    expect(parse).not.toHaveBeenCalled();
+    const response = await attachmentApp(fixture.runtime, actor).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("PLANTED_AUDIT_SECRET");
+    expect(fixture.storage.getObject).not.toHaveBeenCalled();
+    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("provider GET observes committed authorization; later failure cannot claim delivery or expose markers", async () => {
+    const fixture = await attachmentRouteFixture();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      fixture.storage.getObject.mockImplementationOnce(async () => {
+        const attempts = fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].payload).toMatchObject({ decision: "allowed", action: "download" });
+        throw new Error("PLANTED_PROVIDER_SECRET");
+      });
+      const response = await attachmentApp(fixture.runtime, evidenceActor("viewer", ["support.view"], true)).request(
+        "/support-requests/sup_case/attachments/sea_photo",
+      );
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("PLANTED_PROVIDER_SECRET");
+      expect(JSON.stringify(fixture.allEvents)).not.toContain("PLANTED_PROVIDER_SECRET");
+      expect(JSON.stringify([...errorLog.mock.calls, ...warnLog.mock.calls])).not.toContain("PLANTED_PROVIDER_SECRET");
+      expect(fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case")).toHaveLength(
+        1,
+      );
+    } finally {
+      errorLog.mockRestore();
+      warnLog.mockRestore();
+    }
+  });
+
+  it("audit read records one nonrecursive attempt and cursor pages do not silently truncate", async () => {
+    const fixture = await attachmentRouteFixture();
+    const app = attachmentApp(fixture.runtime, evidenceActor("viewer", ["support.view"], true));
+    for (let index = 0; index < 51; index++)
+      expect((await app.request("/support-requests/sup_case/attachments/sea_photo")).status).toBe(200);
+    const first = await app.request("/support-requests/ops/sup_case/attachments/access-audit");
+    expect(first.headers.get("cache-control")).toBe("private, no-store");
+    const page = await first.json();
+    expect(page.items).toHaveLength(50);
+    expect(page.nextCursor).toBe("51");
+    expect(fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case")).toHaveLength(52);
+    const tail = await (
+      await app.request(`/support-requests/ops/sup_case/attachments/access-audit?cursor=${page.nextCursor}`)
+    ).json();
+    expect(tail.items).toHaveLength(3);
+    expect(tail.nextCursor).toBeNull();
+    expect(fixture.allEvents.filter((event) => event.payload.action === "audit-read")).toHaveLength(2);
+  });
+
+  it("complete authoritative state includes the decisive evidence beyond the 500-event page", async () => {
+    const fixture = await attachmentRouteFixture();
+    const lateReference = `support-attachment:v1:sea_late:${createHash("sha256")
+      .update(new Uint8Array([0xff, 0xd8, 0xff]))
+      .digest("hex")}:jpg`;
+    await fixture.eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "any",
+      context: {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
+      } as never,
+      events: [
+        ...Array.from({ length: 498 }, () => ({
+          eventType: "support.support-request.affected-line-items-recorded",
+          payload: { affectedLineItems: [] },
+        })),
+        {
+          eventType: "support.support-request.evidence-submitted",
+          payload: { evidence: { attachments: [lateReference] }, updatedChecklist: [] },
+        },
+      ],
+    });
+    const read = vi.spyOn(fixture.eventStore, "readStream");
+    const response = await attachmentApp(fixture.runtime, evidenceActor("owner", ["support.view"])).request(
+      "/support-requests/sup_case/attachments/sea_late",
+    );
+    expect(response.status).toBe(200);
+    expect(read).toHaveBeenCalledWith({ streamId: "support.support-request-sup_case", fromVersion: 501, limit: 500 });
+  });
+
+  it("authoritative stream gap is bounded unavailable, recorded, and never authorizes storage", async () => {
+    const fixture = await attachmentRouteFixture();
+    const original = fixture.eventStore.readStream;
+    vi.spyOn(fixture.eventStore, "readStream").mockImplementation(async (input) =>
+      (await original(input)).map((event) => ({ ...event, streamVersion: event.streamVersion + 1 })),
+    );
+    const response = await attachmentApp(fixture.runtime, evidenceActor("owner", ["support.view"])).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(503);
+    expect(fixture.storage.getObject).not.toHaveBeenCalled();
+    expect(fixture.allEvents.at(-1)?.payload).toMatchObject({ decision: "denied", reason: "authority-unavailable" });
+  });
+
+  it("malformed case ids return the same 404 unaudited with an unparsed upload", async () => {
+    const fixture = await attachmentRouteFixture();
+    const request = new Request("http://localhost/support-requests/not-a-case/attachments", {
+      method: "POST",
+      body: "PLANTED_SECRET",
+    });
+    const parse = vi.spyOn(request, "formData");
+    expect((await attachmentApp(fixture.runtime, null).request(request)).status).toBe(404);
+    expect(parse).not.toHaveBeenCalled();
+    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(fixture.allEvents.filter((event) => event.streamId.startsWith("support.evidence-access-"))).toHaveLength(0);
+  });
+});
+
+export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedActor | null) {
+  const app = new Hono<SupportApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", actor);
+    if (actor)
+      c.set("context", {
+        tenantId: actor.tenantId,
+        audit: { performedByUserId: actor.userId, forAccountId: actor.accountId },
+      } as never);
+    await next();
+  });
+  app.route("/support-requests", createAccountSupportRequestRoutes(runtime));
+  return app;
+}
+
+async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer") {
+  const { eventStore, allEvents } = createInMemoryEventStore();
+  const body = new Uint8Array([0xff, 0xd8, 0xff]);
+  const reference = `support-attachment:v1:sea_photo:${createHash("sha256").update(body).digest("hex")}:jpg`;
+  if (exists)
+    await eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "any",
+      context: {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
+      } as never,
+      events: [
+        ...decideSupportRequest(initialSupportRequestState, {
+          type: "OpenSupportRequest",
+          supportRequestId: "sup_case",
+          orderId: "ord_case",
+          buyerAccountId,
+          sellerAccountId: "acc_seller",
+          openedByAccountId: "acc_buyer",
+          openedByRole: "buyer",
+          flowType: "product-not-received",
+          openedAt: "2026-10-12T00:00:00.000Z",
+          orderTotalAmount: "10.00",
+          orderReturnContext: [],
+        } as never).map((event) => ({ eventType: event.type, payload: event.data })),
+        {
+          eventType: "support.support-request.evidence-submitted",
+          payload: {
+            evidence: { attachments: [reference], submittedAt: "2026-10-12T00:00:00.000Z" },
+            updatedChecklist: [],
+          },
+        },
+      ],
+    });
+  const storage = {
+    putObject: vi.fn(async (input: { key: string }) => ({ key: input.key, publicUrl: "private" })),
+    getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
+    deleteObjects: vi.fn(),
+  };
+  const runtime = createSupportRequestRuntime({
+    eventStore,
+    db: { query: vi.fn(async () => ({ rows: [supportRequestDetail()] })) } as never,
+    checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+    attachmentStorage: storage,
+  });
+  return { runtime, eventStore, allEvents, storage };
 }
 
 function supportRequestDetail() {
@@ -81,6 +572,7 @@ function createServices(overrides: Partial<SupportRequestServices> = {}): Suppor
     openSupportRequest: vi.fn(),
     uploadAttachments: vi.fn(),
     getAttachment: vi.fn(),
+    getEvidenceAccessAudit: vi.fn(),
     submitEvidence: vi.fn(),
     recordResponse: vi.fn(),
     acceptOffer: vi.fn(),
@@ -577,9 +1069,11 @@ describe("support request routes", () => {
     expect(uploadAttachments).toHaveBeenCalledWith(
       expect.objectContaining({
         supportRequestId: "sup_1",
-        accountId: "acc_operator",
-        roleKey: "platform-admin",
-        uploads: [],
+        actor: expect.objectContaining({
+          accountId: "acc_operator",
+          permissions: expect.arrayContaining(["support.manage"]),
+        }),
+        uploads: expect.any(Function),
       }),
     );
   });

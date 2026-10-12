@@ -745,10 +745,11 @@
         "description": "Support request writes return lifecycle id/version/status snapshots, private attachment references, and overdue escalation counts; account routes refetch their list while operator actions keep the selected request drawer open and refetch both the deadline-ordered queue and authoritative request detail."
       },
       "proof": {
-        "authoritativeResponse": "Support request lifecycle commands return the committed request id and aggregate version, evidence attachment upload returns the successfully persisted private references, and overdue escalation returns command-owned escalated/skipped counts; operator route actions preserve queue filters and selected request identity before the queue and drawer refetch. Remedy preview remains a command response rendered directly in the open drawer.",
+        "authoritativeResponse": "Support request lifecycle commands return the committed request id and aggregate version, evidence attachment upload returns the successfully persisted private references, and overdue escalation returns command-owned escalated/skipped counts; operator route actions preserve queue filters and selected request identity before the queue and drawer refetch. Remedy preview remains a command response rendered directly in the open drawer. Upload, download, attachment-bearing submissions and GET /ops/:id/attachments/access-audit authorize against complete case streams and append a durable access decision before parsing attachments or provider access; the audit read returns at most 50 records with an explicit continuation cursor.",
         "tests": [
           "bounded-contexts/platform-operations/features/support-requests/api/attachments.test.ts",
           "bounded-contexts/platform-operations/features/support-requests/api/route.test.ts",
+          "bounded-contexts/platform-operations/features/support-requests/api/attachment-access-audit.db.test.ts",
           "bounded-contexts/platform-operations/support/request-support/api-clients.test.ts",
           "bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"
         ]
