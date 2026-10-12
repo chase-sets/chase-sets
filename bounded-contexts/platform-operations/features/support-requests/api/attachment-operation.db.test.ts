@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,6 +70,7 @@ describeDb("durable canonical Support Attachment Operation on PostgreSQL and fil
     await resetMultiContextTestSchemas(pools);
     await pool.query(platformOperationsModule.schemaSql);
     eventStore = createPostgresEventStore({ pool });
+    await mkdir(path.resolve("../../artifacts"), { recursive: true });
     root = await mkdtemp(path.resolve("../../artifacts/support-attachment-operation-"));
     roots.push(root);
   });
