@@ -83,6 +83,14 @@
       "projectionHandlerSetNames": ["auth-identity-invitation-projection"]
     },
     {
+      "sourceContextName": "identity",
+      "projectionName": "auth-identity-account-capability-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account-capability.granted", "identity.account-capability.revoked"],
+      "order": 35,
+      "projectionHandlerSetNames": ["auth-identity-account-capability-projection"]
+    },
+    {
       "sourceContextName": "ordering",
       "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
@@ -139,6 +147,13 @@
       "projectionName": "auth-identity-invitation-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["auth_identity_invitations"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "auth-identity-account-capability-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_account_capabilities"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

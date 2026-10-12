@@ -48,9 +48,9 @@ User preference ownership is governed by [Settings Ownership](../../docs/archite
 
 ## Account Capabilities
 
-An **Account Capability** is a named durable product-policy dimension describing functionality that may be made available to an Account. An **Account Capability Declaration** is context-owned catalog metadata that gives the capability its key, description, kind, and kind-shaped default. An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of which contexts a runtime profile mounts.
+An **Account Capability** is a named durable product-policy dimension describing functionality that may be made available to an Account. An **Account Capability Declaration** is context-owned catalog metadata that gives the capability its key, description, kind, and kind-shaped default. An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of which contexts a runtime profile mounts. A **Capability Grant** is Identity's grant/revoke fact for an Account; it ships for `support.evidence.any-case` only and cannot be recorded until the Capability Administration Authority (#9385) supplies an admission.
 
-The initial catalog declarations are `authenticity.seller-included`, `inventory.locations`, and `mcp.rate-tier`. Their product namespaces do not assert context ownership: `mcp.rate-tier` is owned by Platform Operations. These declarations are inert metadata. They provide no grants, resolution, enforcement, pricing, or UI behavior.
+The catalog declarations are `authenticity.seller-included`, `inventory.locations`, `mcp.rate-tier`, and `support.evidence.any-case`. Their product namespaces do not assert context ownership: `mcp.rate-tier` and `support.evidence.any-case` are owned by Platform Operations. These declarations are inert metadata. They provide no grants, resolution, enforcement, pricing, or UI behavior; only a Capability Grant changes what an Account holds.
 
 ## Core Aggregates and Process Managers
 

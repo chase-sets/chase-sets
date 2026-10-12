@@ -1,7 +1,9 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ADMIN_QA_ACTOR_FIXTURES } from "@chase-sets/identity/server";
 import {
   assertAdminQaActorFixturesRunAllowed,
   assertAdminQaActorFixturesEvidenceIsSupportSafe,
@@ -82,6 +84,31 @@ describe("admin-qa actor fixtures run guardrails", () => {
     }
   });
 });
+
+describe("admin-qa actor fixtures Capability Grant boundary", () => {
+  it("provisions and reports no any-case Capability Grant from the platform-api fixture runner", () => {
+    const sourceRoot = join(import.meta.dirname, "..", "src");
+    const assignmentCallers = listSources(sourceRoot).filter((file) =>
+      /(grant|revoke)AccountCapability|accountCapabilities\./.test(readFileSync(file, "utf8")),
+    );
+
+    expect(assignmentCallers).toEqual([]);
+    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain(
+      "support.evidence.any-case",
+    );
+    expect(supportSafeEvidence().fixtures.flatMap(({ capabilities }) => capabilities)).not.toContain(
+      "support.evidence.any-case",
+    );
+  });
+});
+
+function listSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = join(directory, entry.name);
+    if (entry.isDirectory()) return listSources(entryPath);
+    return /\.(ts|tsx)$/.test(entry.name) ? [entryPath] : [];
+  });
+}
 
 describe("admin-qa actor fixtures evidence artifact", () => {
   it("writes the support-safe evidence payload", async () => {

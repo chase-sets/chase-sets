@@ -543,17 +543,17 @@ An **Account Capability Declaration** is context-owned catalog metadata that giv
 
 An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of the mounted runtime profile. Its `owningContext` comes from module registration, not from the capability key's product namespace.
 
-The shipped catalog contains `authenticity.seller-included`, `inventory.locations`, and `mcp.rate-tier`. These are inert declarations without grants, resolution, enforcement, pricing, or UI behavior. In particular, the `mcp` namespace does not change the `platform-operations` owner of `mcp.rate-tier`.
+The shipped catalog contains `authenticity.seller-included`, `inventory.locations`, `mcp.rate-tier`, and `support.evidence.any-case`. These are inert declarations without grants, resolution, enforcement, pricing, or UI behavior; declaring a key, including its default, never creates a Capability Grant. In particular, the `mcp` namespace does not change the `platform-operations` owner of `mcp.rate-tier`, and `platform-operations` likewise owns the boolean, default-false `support.evidence.any-case` declaration.
+
+### Capability Grant
+
+A **Capability Grant** is Identity's fact that an Account currently holds an Account Capability. It ships for `support.evidence.any-case` only; Identity rejects every other key before recording anything. Each tenant, Account and key has one assignment stream that moves absent, granted, revoked and granted again (`identity.account-capability.granted` and `identity.account-capability.revoked`), each transition at a new assignment version under the assignment's stable id. An exact retry records nothing; a stale or contradictory request fails. Recording a grant or revoke requires an admission from the Capability Administration Authority, which is planned in #9385 and not yet shipped, so no route, seed, fixture, role or declaration default can assign one today. Auth projects current grants onto Actors; see the [Auth glossary](../auth/GLOSSARY.md#projected-capability-grants).
 
 ## Planned Account Capabilities And Channel Connections
 
 These planned terms pre-register upcoming Account Capability lifecycle and store team language. They are not shipped behavior until Identity adds the corresponding facts and workflows.
 
 Channels owns Sales Channel and Channel Connection language, including BYO Channel, Channel Account, Channel Authorization, Channel Credential, Channel Webhook, Channel Health, and Channel Mapping; see the [Channels glossary](../channels/GLOSSARY.md).
-
-### Capability Grant
-
-A **Capability Grant** is the planned fact that an Account has been approved for an Account Capability.
 
 ### Capability Restriction
 

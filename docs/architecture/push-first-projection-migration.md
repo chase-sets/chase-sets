@@ -31,12 +31,13 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (170)
+## Projection Groups (171)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
 | Projection group | Owner | Source contexts | Status | Enabled |
 | --- | --- | --- | --- | --- |
+| `auth:auth-identity-account-capability-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-account-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-invitation-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-membership-projection` | Auth | **identity** | push-enabled | 1/1 |

@@ -32,6 +32,12 @@
       "kind": "tier",
       "allowedValues": ["standard"],
       "defaultValue": "standard"
+    },
+    {
+      "key": "support.evidence.any-case",
+      "description": "Declares whether an Account may hold any-case Support evidence authority.",
+      "kind": "boolean",
+      "defaultValue": false
     }
   ],
   "apiBasePath": "/api/platform",

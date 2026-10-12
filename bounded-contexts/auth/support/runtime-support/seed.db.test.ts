@@ -19,6 +19,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as identityModule } from "@chase-sets/identity";
+import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import { executeRetentionSweepBatch } from "@chase-sets/platform-runtime/retention-sweep";
 import type { TenantId } from "@chase-sets/primitives/typed-ids";
@@ -285,6 +286,61 @@ describeDb("auth seed reconciliation", () => {
     await assertSeedState();
     expect(await history()).toEqual(original);
     expect(await rows()).toEqual(originalRows);
+  });
+
+  it("authors no Capability Grant from seeds or bootstrap and converges fresh, boot-twice, upgraded and replayed databases", async () => {
+    const migrationId = "20261011_auth_identity_account_capabilities_unlogged";
+    const grantState = async () => {
+      const identityEvents = await pools.identity.query<{ total: number; grants: number }>(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE event_type LIKE 'identity.account-capability.%')::int AS grants
+         FROM event_store_events`,
+      );
+      const table = await pool.query<{ persistence: string; rows: number; ledger: number }>(
+        `SELECT (SELECT relpersistence::text FROM pg_class WHERE relname = 'auth_identity_account_capabilities') AS persistence,
+                (SELECT count(*)::int FROM auth_identity_account_capabilities) AS rows,
+                (SELECT count(*)::int FROM bounded_context_schema_migrations WHERE migration_id = $1) AS ledger`,
+        [migrationId],
+      );
+      return { ...identityEvents.rows[0], ...table.rows[0] };
+    };
+    const converged = { grants: 0, persistence: "u", rows: 0, ledger: 1 };
+
+    // Fresh: every Identity seed profile plus the production platform-admin bootstrap, then Auth's full boot.
+    await identityModule.seed!(pools.identity, undefined, {
+      enabledDataProfiles: ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],
+      environmentName: null,
+    });
+    await bootstrapPlatformAdminIdentity(identityModule.createServices(pools.identity, {}), {
+      email: "synthetic-platform-admin@chasesets.test",
+      displayName: "Synthetic Platform Admin",
+      accountName: "Synthetic Platform",
+    });
+    await fullBootstrap();
+    const fresh = await grantState();
+    expect(fresh.total).toBeGreaterThan(0);
+    expect(fresh).toMatchObject(converged);
+
+    // Boot twice: schema and ledger stay single.
+    await bootstrapContextDatabase(authModule, pool);
+    await fullBootstrap();
+    expect(await grantState()).toEqual(fresh);
+
+    // Upgraded: a retained pre-slice database without the table or its ledger row.
+    await pool.query("DROP TABLE auth_identity_account_capabilities");
+    await pool.query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId]);
+    await fullBootstrap();
+    expect(await grantState()).toEqual(fresh);
+
+    // Replayed: a reset and replay of the grant projection authors nothing.
+    const runtime = mountedRuntime();
+    const group = runtime.projectionGroups.find(
+      ({ projectionName }) => projectionName === "auth-identity-account-capability-projection",
+    )!;
+    const revisionSyncToken = await resetProjectionGroup(group);
+    await drainContextRuntime({ subscriptionRunners: group.subscriptionRunners });
+    await group.markRevisionSynced(revisionSyncToken);
+    expect(await grantState()).toEqual(fresh);
   });
 
   it("completes a demo-only interrupted bootstrap without re-dating committed history", async () => {

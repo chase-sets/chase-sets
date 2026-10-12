@@ -176,8 +176,8 @@ describe("platform worker projection wake interest graph", () => {
       "platform-policy-document-projection:payments:v1",
     ]);
     expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 253,
-      sha256: "16a9353d0a9d54c0ae8d3bfdbaf94e801a712b8fc196a5ac59e0d634fbd692fd",
+      count: 254,
+      sha256: "edd07092ca19870223d34bead85750ed4d971ccdec660ea7aca9df666a3a60b6",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -201,8 +201,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 253,
-      sha256: "0416b820abe0f2cfc8f8f6d622e1b5d8c24a2a5469525e37d9b4192f009a8deb",
+      count: 254,
+      sha256: "c41a35ae55ec97bd1a2c40b918d4f7298db9f15dce07c96909986bb638f09c55",
     });
     expect(
       fingerprint(
@@ -212,22 +212,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 158,
-      sha256: "d2d2bf02744c21eb3fd41523246f9795eb74e1362888aaeca098647237d683f0",
+      count: 159,
+      sha256: "c3e7699411661926a03f1e2be17800ce8b8c750907a844abf49ef6feb7749bb5",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 158,
-      sha256: "03a03ff79ac04775c9d0cd7d35807ad72cfbf86d7b63ffa421ae6aae3df07615",
+      count: 159,
+      sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 253,
-      sha256: "aa9a64b5407d65b13dbd5d8ecf8f3f2c8f1daef1345c9dcac6ced67d6aab788f",
+      count: 254,
+      sha256: "2d223ed968afe34f83860c79f106a23f85c0b29ca4d2baf7581074891e6ffcbe",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 122,
+      distinctNames: 123,
       distinctSharedNames: 21,
       runnersUsingSharedNames: 57,
     });
