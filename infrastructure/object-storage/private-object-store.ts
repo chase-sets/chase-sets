@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readdir, rename, rm, stat, unlink } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { lstat, mkdir, open, readdir, realpath, rename, rm, unlink } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -114,6 +116,8 @@ type RawListPage = Readonly<{
   keyCount: number | undefined;
 }>;
 
+type DeleteReport = Readonly<{ deleted: true } | { deleted: false; code: string | undefined }>;
+
 // Internally an oversized read keeps the provider type so verification can refuse a typeless response.
 type BackendReadResult =
   | Exclude<PrivateReadResult, Readonly<{ status: "too-large" }>>
@@ -139,7 +143,7 @@ export function createS3PrivateObjectStore(options: S3PrivateObjectStoreOptions)
   return createPrivateObjectStore({
     suppliesContentType: true,
     async put(input, deadline) {
-      const raced = await deadline.race(
+      const raced = await deadline.race(() =>
         client.send(
           new PutObjectCommand({
             Bucket: bucket,
@@ -151,11 +155,11 @@ export function createS3PrivateObjectStore(options: S3PrivateObjectStoreOptions)
           { abortSignal: deadline.signal },
         ),
       );
+      if (raced.kind === "deadline") {
+        return { status: "ambiguous", key: input.key, reason: "deadline-exceeded" };
+      }
       if (raced.kind === "value") {
         return { status: "completed", key: input.key };
-      }
-      if (raced.kind === "deadline" || deadline.isExpired()) {
-        return { status: "ambiguous", key: input.key, reason: "deadline-exceeded" };
       }
       const status = providerStatus(raced.error);
       if (status === undefined) {
@@ -168,16 +172,13 @@ export function createS3PrivateObjectStore(options: S3PrivateObjectStoreOptions)
       return { status: "failed", key: input.key, code: providerFailureCode(status, raced.error) };
     },
     async read(key, maxBytes, deadline) {
-      const raced = await deadline.race(
+      const raced = await deadline.race(() =>
         client.send(new GetObjectCommand({ Bucket: bucket, Key: key }), { abortSignal: deadline.signal }),
       );
       if (raced.kind === "deadline") {
         return unavailable("deadline-exceeded");
       }
       if (raced.kind === "error") {
-        if (deadline.isExpired()) {
-          return unavailable("deadline-exceeded");
-        }
         const status = providerStatus(raced.error);
         if (status === 404 && errorName(raced.error) !== "NoSuchBucket") {
           return { status: "absent" };
@@ -185,12 +186,13 @@ export function createS3PrivateObjectStore(options: S3PrivateObjectStoreOptions)
         return unavailable(status === undefined ? "transport-failed" : providerFailureCode(status, raced.error));
       }
       const response = raced.value;
-      if (!response.Body || !isAsyncIterable(response.Body)) {
+      // Only a byte-mode Node stream lets each read request a size; any other body could hand over unbounded chunks.
+      if (!(response.Body instanceof Readable) || response.Body.readableObjectMode) {
         return unavailable("invalid-response");
       }
       // Missing or empty provider metadata stays null: a key-derived type would certify nothing.
       const providerContentType = response.ContentType || null;
-      const bytes = await readBoundedChunks(response.Body, maxBytes, deadline);
+      const bytes = await readBoundedStream(response.Body, maxBytes, deadline);
       return bytes.status === "unavailable" ? bytes : { ...bytes, providerContentType };
     },
     async list(input) {
@@ -226,20 +228,28 @@ export function createS3PrivateObjectStore(options: S3PrivateObjectStoreOptions)
         const code = requestFailureCode(error);
         return keys.map((key) => ({ key, status: "failed", code }));
       }
-      const deleted = new Set((response.Deleted ?? []).map((entry) => entry.Key));
-      const errors = new Map((response.Errors ?? []).map((entry) => [entry.Key, entry.Code]));
-      // HTTP success alone is not deletion: each key needs exactly one provider report.
+      // HTTP success alone is not deletion: each key needs exactly one provider report across Deleted and Errors,
+      // so a duplicate can neither hide an error nor repeat a success.
+      const reports = new Map<string | undefined, DeleteReport[]>();
+      const report = (key: string | undefined, outcome: DeleteReport) =>
+        reports.set(key, [...(reports.get(key) ?? []), outcome]);
+      for (const entry of response.Deleted ?? []) {
+        report(entry.Key, { deleted: true });
+      }
+      for (const entry of response.Errors ?? []) {
+        report(entry.Key, { deleted: false, code: entry.Code });
+      }
       return keys.map((key): PrivateDeleteOutcome => {
-        const errorCode = errors.get(key);
-        if (errors.has(key) === deleted.has(key)) {
+        const [outcome, ...duplicates] = reports.get(key) ?? [];
+        if (outcome === undefined || duplicates.length > 0) {
           return { key, status: "failed", code: "invalid-response" };
         }
-        if (!errors.has(key)) {
+        if (outcome.deleted) {
           return { key, status: "deleted" };
         }
-        return errorCode === "NoSuchKey"
+        return outcome.code === "NoSuchKey"
           ? { key, status: "absent" }
-          : { key, status: "failed", code: providerFailureCode(undefined, { name: errorCode }) };
+          : { key, status: "failed", code: providerFailureCode(undefined, { name: outcome.code }) };
       });
     },
   });
@@ -247,12 +257,11 @@ export function createS3PrivateObjectStore(options: S3PrivateObjectStoreOptions)
 
 export function createFilesystemPrivateObjectStore(options: FilesystemPrivateObjectStoreOptions): PrivateObjectStore {
   const rootDir = path.resolve(options.rootDir);
-  const objectPath = (key: string) => path.join(rootDir, ...key.split("/"));
 
   return createPrivateObjectStore({
     suppliesContentType: false,
     async put(input, deadline) {
-      const raced = await deadline.race(writeFileAtomically(rootDir, objectPath(input.key), input.body, deadline));
+      const raced = await deadline.race(() => writeFileAtomically(rootDir, input.key, input.body, deadline));
       if (raced.kind === "deadline") {
         return { status: "ambiguous", key: input.key, reason: "deadline-exceeded" };
       }
@@ -262,7 +271,10 @@ export function createFilesystemPrivateObjectStore(options: FilesystemPrivateObj
       return { status: "completed", key: input.key };
     },
     async read(key, maxBytes, deadline) {
-      const raced = await deadline.race(readFileBounded(objectPath(key), maxBytes, deadline));
+      const raced = await deadline.race(async (): Promise<BackendReadResult> => {
+        const object = await containedObject(rootDir, key);
+        return object.stats.isFile() ? readFileBounded(object.filePath, maxBytes, deadline) : { status: "absent" };
+      });
       if (raced.kind === "deadline") {
         return unavailable("deadline-exceeded");
       }
@@ -278,18 +290,18 @@ export function createFilesystemPrivateObjectStore(options: FilesystemPrivateObj
       }
       try {
         const directoryKey = input.prefix.slice(0, input.prefix.lastIndexOf("/") + 1);
-        const keys = (await listFileKeys(rootDir, directoryKey))
-          .filter((key) => key.startsWith(input.prefix) && (after === null || compareKeys(key, after) > 0))
-          .sort(compareKeys);
-        const page = keys.slice(0, input.maxKeys);
-        const isTruncated = keys.length > page.length;
+        const files = (await listFiles(rootDir, directoryKey))
+          .filter(({ key }) => key.startsWith(input.prefix) && (after === null || compareKeys(key, after) > 0))
+          .sort((left, right) => compareKeys(left.key, right.key));
+        const page = files.slice(0, input.maxKeys);
+        const isTruncated = files.length > page.length;
         const entries = await Promise.all(
-          page.map(async (key) => ({ key, byteSize: (await stat(objectPath(key))).size })),
+          page.map(async ({ key, filePath }) => ({ key, byteSize: (await lstat(filePath)).size })),
         );
         return {
           entries,
           isTruncated,
-          nextContinuationToken: isTruncated ? encodeFilesystemToken(page.at(-1) ?? "") : undefined,
+          nextContinuationToken: isTruncated ? encodeFilesystemToken(page.at(-1)?.key ?? "") : undefined,
           keyCount: entries.length,
         };
       } catch {
@@ -299,12 +311,12 @@ export function createFilesystemPrivateObjectStore(options: FilesystemPrivateObj
     async delete(keys) {
       return Promise.all(
         keys.map(async (key): Promise<PrivateDeleteOutcome> => {
-          const filePath = objectPath(key);
           try {
-            if (!(await lstat(filePath)).isFile()) {
+            const object = await containedObject(rootDir, key);
+            if (!object.stats.isFile()) {
               return { key, status: "absent" };
             }
-            await unlink(filePath);
+            await unlink(object.filePath);
             return { key, status: "deleted" };
           } catch (error) {
             return isMissingPathError(error)
@@ -440,7 +452,11 @@ type Deadline = Readonly<{
   signal: AbortSignal;
   /** Also consults the clock, so work that never yields to timers still observes the deadline. */
   isExpired(): boolean;
-  race<T>(work: Promise<T>): Promise<Raced<T>>;
+  /**
+   * Starts the work inside the race, so a synchronous throw settles like a rejection, and reports the deadline
+   * for anything that settles after the monotonic expiry, even while a starved expiry timer has not yet fired.
+   */
+  race<T>(start: () => Promise<T>): Promise<Raced<T>>;
 }>;
 
 async function withDeadline<T>(deadlineMs: number, run: (deadline: Deadline) => Promise<T>): Promise<T> {
@@ -458,24 +474,27 @@ async function withDeadline<T>(deadlineMs: number, run: (deadline: Deadline) => 
       controller.abort();
     }
   };
+  const isExpired = () => {
+    if (!expired && performance.now() >= expiresAt) {
+      expire();
+    }
+    return expired;
+  };
   const timer = setTimeout(expire, deadlineMs);
   try {
     return await run({
       signal: controller.signal,
-      isExpired() {
-        if (!expired && performance.now() >= expiresAt) {
-          expire();
-        }
-        return expired;
-      },
-      race: (work) =>
-        Promise.race([
-          work.then(
-            (value) => ({ kind: "value" as const, value }),
-            (error: unknown) => ({ kind: "error" as const, error }),
+      isExpired,
+      race: async <T>(start: () => Promise<T>): Promise<Raced<T>> => {
+        const raced = await Promise.race([
+          new Promise<T>((resolve) => resolve(start())).then(
+            (value): Raced<T> => ({ kind: "value", value }),
+            (error: unknown): Raced<T> => ({ kind: "error", error }),
           ),
           expiry,
-        ]),
+        ]);
+        return isExpired() ? { kind: "deadline" } : raced;
+      },
     });
   } finally {
     clearTimeout(timer);
@@ -487,45 +506,66 @@ type BoundedRead =
   | Readonly<{ status: "too-large" }>
   | Readonly<{ status: "unavailable"; code: PrivateObjectFailureCode }>;
 
-async function readBoundedChunks(
-  body: AsyncIterable<unknown>,
-  maxBytes: number,
-  deadline: Deadline,
-): Promise<BoundedRead> {
-  const iterator = body[Symbol.asyncIterator]();
+async function readBoundedStream(stream: Readable, maxBytes: number, deadline: Deadline): Promise<BoundedRead> {
   const chunks: Uint8Array[] = [];
   let byteSize = 0;
   let finished = false;
+  // The store now owns the body: a stream error settles below and never escapes as an unhandled event.
+  stream.on("error", () => undefined);
   try {
     for (;;) {
-      const next = await deadline.race(iterator.next());
-      if (next.kind === "deadline" || deadline.isExpired()) {
+      // A source can refill synchronously inside read(), so the clock is consulted before every read, not only on waits.
+      if (deadline.isExpired()) {
         return unavailable("deadline-exceeded");
       }
-      if (next.kind === "error") {
-        return unavailable("transport-failed");
+      // Take only buffered bytes within the remaining maxBytes + 1 budget, however large the provider's chunks are;
+      // read(0) never returns data and only asks the stream to fill or to announce its end.
+      const chunk: unknown = stream.read(Math.min(maxBytes + 1 - byteSize, stream.readableLength));
+      if (chunk !== null) {
+        if (!(chunk instanceof Uint8Array)) {
+          return unavailable("invalid-response");
+        }
+        byteSize += chunk.byteLength;
+        if (byteSize > maxBytes) {
+          return { status: "too-large" };
+        }
+        chunks.push(chunk);
+        continue;
       }
-      if (next.value.done) {
+      if (stream.readableEnded) {
         finished = true;
         return { status: "found", body: concatBytes(chunks, byteSize), byteSize };
       }
-      const chunk = next.value.value;
-      if (!(chunk instanceof Uint8Array)) {
-        return unavailable("invalid-response");
+      if (stream.errored || stream.destroyed) {
+        return unavailable("transport-failed");
       }
-      byteSize += chunk.byteLength;
-      if (byteSize > maxBytes) {
-        return { status: "too-large" };
+      const event = await deadline.race(() => nextStreamEvent(stream));
+      if (event.kind === "deadline") {
+        return unavailable("deadline-exceeded");
       }
-      chunks.push(chunk);
+      if (event.kind === "error" || event.value === "failed") {
+        return unavailable("transport-failed");
+      }
     }
   } finally {
     if (!finished) {
-      // Stop pulling: never await the iterator here, since a stalled stream may never settle.
-      (body as { destroy?: () => void }).destroy?.();
-      void iterator.return?.().catch(() => undefined);
+      // Stop pulling without awaiting: a stalled stream may never settle.
+      stream.destroy();
     }
   }
+}
+
+function nextStreamEvent(stream: Readable): Promise<"readable" | "end" | "failed"> {
+  return new Promise((resolve) => {
+    const settle = (event: "readable" | "end" | "failed") => () => {
+      stream.off("readable", onReadable).off("end", onEnd).off("error", onFailed).off("close", onFailed);
+      resolve(event);
+    };
+    const onReadable = settle("readable");
+    const onEnd = settle("end");
+    const onFailed = settle("failed");
+    stream.once("readable", onReadable).once("end", onEnd).once("error", onFailed).once("close", onFailed);
+  });
 }
 
 async function readFileBounded(filePath: string, maxBytes: number, deadline: Deadline): Promise<BackendReadResult> {
@@ -553,16 +593,19 @@ async function readFileBounded(filePath: string, maxBytes: number, deadline: Dea
   }
 }
 
-async function writeFileAtomically(
-  rootDir: string,
-  targetPath: string,
-  body: Uint8Array,
-  deadline: Deadline,
-): Promise<void> {
-  const tempDir = path.join(rootDir, FILESYSTEM_TEMP_DIR);
-  const tempPath = path.join(tempDir, randomUUID());
-  await mkdir(tempDir, { recursive: true });
-  await mkdir(path.dirname(targetPath), { recursive: true });
+async function writeFileAtomically(rootDir: string, key: string, body: Uint8Array, deadline: Deadline): Promise<void> {
+  // The configured root itself is trusted, even when it is a link; containment starts at its real path.
+  await mkdir(rootDir, { recursive: true });
+  const realRoot = await realpath(rootDir);
+  const segments = key.split("/");
+  const tempPath = path.join(await containedDirectory(realRoot, [FILESYSTEM_TEMP_DIR], true), randomUUID());
+  const targetPath = path.join(await containedDirectory(realRoot, segments.slice(0, -1), true), segments.at(-1) ?? "");
+  // Rename replaces an existing entry rather than writing through it, but a linked target is still refused.
+  await requireContained(realRoot, targetPath).catch((error: unknown) => {
+    if (!isMissingPathError(error)) {
+      throw error;
+    }
+  });
   try {
     const handle = await open(tempPath, "wx");
     try {
@@ -593,12 +636,23 @@ async function renameReplacing(sourcePath: string, targetPath: string, deadline:
   }
 }
 
-async function listFileKeys(rootDir: string, directoryKey: string): Promise<string[]> {
-  const keys: string[] = [];
-  const walk = async (relativeDir: string): Promise<void> => {
+async function listFiles(rootDir: string, directoryKey: string): Promise<Array<{ key: string; filePath: string }>> {
+  const files: Array<{ key: string; filePath: string }> = [];
+  let realRoot: string;
+  let startDirectory: string;
+  try {
+    realRoot = await realpath(rootDir);
+    startDirectory = await containedDirectory(realRoot, directoryKey.split("/").filter(Boolean), false);
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return files;
+    }
+    throw error;
+  }
+  const walk = async (relativeDir: string, directory: string): Promise<void> => {
     let entries;
     try {
-      entries = await readdir(path.join(rootDir, ...relativeDir.split("/").filter(Boolean)), { withFileTypes: true });
+      entries = await readdir(directory, { withFileTypes: true });
     } catch (error) {
       if (isMissingPathError(error)) {
         return;
@@ -607,18 +661,68 @@ async function listFileKeys(rootDir: string, directoryKey: string): Promise<stri
     }
     for (const entry of entries) {
       const key = `${relativeDir}${entry.name}`;
+      const entryPath = path.join(directory, entry.name);
       if (key === FILESYSTEM_TEMP_DIR) {
         continue;
       }
+      if (entry.isSymbolicLink()) {
+        throw linkRefused();
+      }
       if (entry.isDirectory()) {
-        await walk(`${key}/`);
+        await requireContained(realRoot, entryPath);
+        await walk(`${key}/`, entryPath);
       } else if (entry.isFile()) {
-        keys.push(key);
+        files.push({ key, filePath: entryPath });
       }
     }
   };
-  await walk(directoryKey);
-  return keys;
+  await walk(directoryKey, startDirectory);
+  return files;
+}
+
+/** Resolves an existing object below the real root; a missing component surfaces as the filesystem's own error. */
+async function containedObject(rootDir: string, key: string): Promise<Readonly<{ filePath: string; stats: Stats }>> {
+  const realRoot = await realpath(rootDir);
+  const segments = key.split("/");
+  const filePath = path.join(await containedDirectory(realRoot, segments.slice(0, -1), false), segments.at(-1) ?? "");
+  return { filePath, stats: await requireContained(realRoot, filePath) };
+}
+
+async function containedDirectory(realRoot: string, segments: readonly string[], create: boolean): Promise<string> {
+  let directory = realRoot;
+  for (const segment of segments) {
+    directory = path.join(directory, segment);
+    if (create) {
+      await mkdir(directory).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw error;
+        }
+      });
+    }
+    // Checked after creation too, so a link planted in place of a new directory is never used.
+    await requireContained(realRoot, directory);
+  }
+  return directory;
+}
+
+/**
+ * Key spelling never proves containment: each component below the real root must itself be a non-link entry whose
+ * real path stays inside the root, so a planted symlink, junction or redirecting reparse point is refused.
+ */
+async function requireContained(realRoot: string, candidate: string): Promise<Stats> {
+  const stats = await lstat(candidate);
+  if (stats.isSymbolicLink()) {
+    throw linkRefused();
+  }
+  const relative = path.relative(realRoot, await realpath(candidate));
+  if (relative.split(path.sep)[0] === ".." || path.isAbsolute(relative)) {
+    throw linkRefused();
+  }
+  return stats;
+}
+
+function linkRefused(): Error {
+  return new Error("Filesystem private object paths must not pass through a link or leave the store root.");
 }
 
 function concatBytes(chunks: readonly Uint8Array[], byteSize: number): Uint8Array {
@@ -647,10 +751,6 @@ function decodeFilesystemToken(token: string): string | undefined {
 /** Provider key order: UTF-8 byte order rather than UTF-16 code units. */
 function compareKeys(left: string, right: string): number {
   return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === "function";
 }
 
 function isMissingPathError(error: unknown): boolean {

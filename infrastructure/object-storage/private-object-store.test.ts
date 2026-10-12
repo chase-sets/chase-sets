@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -196,6 +196,65 @@ describe("private object store: putPrivate (AC-C1)", () => {
     expect(result).toMatchObject({ status: "ambiguous", reason: "deadline-exceeded" });
   });
 
+  it("returns ambiguous with an aborted signal when a successful response settles after the deadline but before its starved timer (kills value-before-expiry)", async () => {
+    const late = recordingClient(async () => {
+      busyWait(SHORT_DEADLINE_MS + 20);
+      return putOutput();
+    });
+    const store = createS3PrivateObjectStore({ bucket: BUCKET, client: late.client });
+
+    await expect(
+      store.putPrivate({
+        key: "support-evidence/a.png",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: SHORT_DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "ambiguous", key: "support-evidence/a.png", reason: "deadline-exceeded" });
+    expect(late.sent[0]?.abortSignal?.aborted).toBe(true);
+
+    const inTime = recordingClient(async () => putOutput());
+    await expect(
+      createS3PrivateObjectStore({ bucket: BUCKET, client: inTime.client }).putPrivate({
+        key: "support-evidence/a.png",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: SHORT_DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "completed", key: "support-evidence/a.png" });
+    expect(inTime.sent[0]?.abortSignal?.aborted).toBe(false);
+  });
+
+  it("settles a client that throws synchronously exactly like a no-response transport rejection (kills sync-throw-escapes)", async () => {
+    const input = {
+      key: "support-evidence/a.png",
+      body: new Uint8Array([1]),
+      contentType: "image/png",
+      deadlineMs: DEADLINE_MS,
+    };
+    const synchronous = await createS3PrivateObjectStore({
+      bucket: BUCKET,
+      client: synchronouslyThrowingClient(),
+    }).putPrivate(input);
+    const asynchronous = await createS3PrivateObjectStore({
+      bucket: BUCKET,
+      client: recordingClient(async () => {
+        throw transportError();
+      }).client,
+    }).putPrivate(input);
+
+    expect(synchronous).toEqual({ status: "ambiguous", key: "support-evidence/a.png", reason: "transport-failed" });
+    expect(synchronous).toEqual(asynchronous);
+    expect(JSON.stringify(synchronous)).not.toContain("synthetic-secret-token");
+    // Public validation still rejects before the client is ever reached.
+    await expect(
+      createS3PrivateObjectStore({ bucket: BUCKET, client: synchronouslyThrowingClient() }).putPrivate({
+        ...input,
+        deadlineMs: 0,
+      }),
+    ).rejects.toThrow("Private object deadlines must be finite positive milliseconds within the timer range.");
+  });
+
   it("returns ambiguous on transport loss without a provider response (kills transport-as-failed)", async () => {
     const { client } = recordingClient(async () => {
       throw transportError();
@@ -367,6 +426,128 @@ describe("private object store: readPrivate (AC-C2)", () => {
     expect(endless.stream.destroyed).toBe(true);
   });
 
+  it("takes at most maxBytes + 1 bytes out of a body that delivers one oversized native chunk (kills chunk-then-check)", async () => {
+    const oneMebibyte = new Uint8Array(1024 * 1024).fill(7);
+    for (const maxBytes of [0, 8]) {
+      const metered = meteredChunkBody([oneMebibyte, oneMebibyte]);
+      const store = createS3PrivateObjectStore({
+        bucket: BUCKET,
+        client: recordingClient(async () => ({
+          $metadata: { httpStatusCode: 200 },
+          Body: metered.body,
+          ContentType: "image/png",
+        })).client,
+      });
+
+      await expect(store.readPrivate("support-evidence/a.bin", { maxBytes, deadlineMs: DEADLINE_MS })).resolves.toEqual(
+        { status: "too-large" },
+      );
+      expect(metered.consumed()).toBeLessThanOrEqual(maxBytes + 1);
+      expect(metered.stream.destroyed).toBe(true);
+    }
+
+    // The same bound holds behind the real SDK deserializer.
+    const sdkMetered = meteredChunkBody([oneMebibyte]);
+    const sdkStore = createS3PrivateObjectStore({
+      bucket: BUCKET,
+      client: syntheticS3Client(async () => ({
+        statusCode: 200,
+        headers: { "content-type": "image/png" },
+        body: sdkMetered.stream,
+      })),
+    });
+    await expect(
+      sdkStore.readPrivate("support-evidence/a.bin", { maxBytes: 8, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({ status: "too-large" });
+    expect(sdkMetered.consumed()).toBeLessThanOrEqual(9);
+
+    // Exact-cap and empty objects still succeed from large native chunks.
+    const exact = meteredChunkBody([oneMebibyte]);
+    const empty = meteredChunkBody([]);
+    const objects = [exact, empty].map((metered) =>
+      createS3PrivateObjectStore({
+        bucket: BUCKET,
+        client: recordingClient(async () => ({
+          $metadata: { httpStatusCode: 200 },
+          Body: metered.body,
+          ContentType: "image/png",
+        })).client,
+      }),
+    );
+    await expect(
+      objects[0]?.readPrivate("support-evidence/a.bin", { maxBytes: oneMebibyte.byteLength, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({
+      status: "found",
+      body: oneMebibyte,
+      byteSize: oneMebibyte.byteLength,
+      providerContentType: "image/png",
+    });
+    await expect(
+      objects[1]?.readPrivate("support-evidence/a.bin", { maxBytes: 0, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual({ status: "found", body: new Uint8Array(0), byteSize: 0, providerContentType: "image/png" });
+  });
+
+  it("refuses a body shape that cannot honor the byte budget without collecting it (kills unbounded-iterable-body)", async () => {
+    let started = false;
+    async function* oversizedChunks() {
+      started = true;
+      yield new Uint8Array(1024 * 1024);
+    }
+    const bodies = [{ [Symbol.asyncIterator]: oversizedChunks }, Readable.from([Buffer.alloc(1024 * 1024)])];
+    for (const Body of bodies) {
+      const store = createS3PrivateObjectStore({
+        bucket: BUCKET,
+        client: recordingClient(async () => ({ $metadata: { httpStatusCode: 200 }, Body, ContentType: "image/png" }))
+          .client,
+      });
+
+      await expect(
+        store.readPrivate("support-evidence/a.bin", { maxBytes: 8, deadlineMs: DEADLINE_MS }),
+      ).resolves.toEqual({ status: "unavailable", code: "invalid-response" });
+    }
+    expect(started).toBe(false);
+  });
+
+  it("settles a client that throws synchronously as bounded unavailable for read and verify (kills sync-throw-escapes)", async () => {
+    const store = createS3PrivateObjectStore({ bucket: BUCKET, client: synchronouslyThrowingClient() });
+    const asyncStore = createS3PrivateObjectStore({
+      bucket: BUCKET,
+      client: recordingClient(async () => {
+        throw transportError();
+      }).client,
+    });
+    const expectation = {
+      sha256: sha256Hex(new Uint8Array(8)),
+      byteSize: 8,
+      contentType: "image/png",
+      deadlineMs: DEADLINE_MS,
+    };
+
+    const read = await store.readPrivate("support-evidence/a.png", { maxBytes: 8, deadlineMs: DEADLINE_MS });
+    const verify = await store.verifyPrivate("support-evidence/a.png", expectation);
+
+    expect(read).toEqual({ status: "unavailable", code: "transport-failed" });
+    expect(verify).toEqual({ status: "unavailable", code: "transport-failed" });
+    await expect(
+      asyncStore.readPrivate("support-evidence/a.png", { maxBytes: 8, deadlineMs: DEADLINE_MS }),
+    ).resolves.toEqual(read);
+    await expect(asyncStore.verifyPrivate("support-evidence/a.png", expectation)).resolves.toEqual(verify);
+    expect(JSON.stringify([read, verify])).not.toContain("synthetic-secret-token");
+  });
+
+  it("returns unavailable when a complete GET response settles after the deadline but before its starved timer", async () => {
+    const late = recordingClient(async () => {
+      busyWait(SHORT_DEADLINE_MS + 20);
+      return getOutput(new Uint8Array([1]), "image/png");
+    });
+    const store = createS3PrivateObjectStore({ bucket: BUCKET, client: late.client });
+
+    await expect(
+      store.readPrivate("support-evidence/a.png", { maxBytes: 8, deadlineMs: SHORT_DEADLINE_MS }),
+    ).resolves.toEqual({ status: "unavailable", code: "deadline-exceeded" });
+    expect(late.sent[0]?.abortSignal?.aborted).toBe(true);
+  });
+
   it("returns unavailable at the deadline for a stalled stream and aborts the request", async () => {
     const stalled = stalledBody(new Uint8Array([1, 2]));
     const { client, sent } = recordingClient(async () => ({
@@ -386,7 +567,7 @@ describe("private object store: readPrivate (AC-C2)", () => {
   it("returns unavailable at the deadline for an endless under-cap stream that never yields to timers (kills timer-only-deadline)", async () => {
     const { client } = recordingClient(async () => ({
       $metadata: { httpStatusCode: 200 },
-      Body: endlessEmptyChunkBody(),
+      Body: endlessTrickleBody(),
       ContentType: "image/png",
     }));
     const store = createS3PrivateObjectStore({ bucket: BUCKET, client });
@@ -449,10 +630,10 @@ describe("private object store: readPrivate (AC-C2)", () => {
         async () => ({
           statusCode: 200,
           headers: { "content-type": "image/png" },
-          body: Readable.from([Buffer.from([5, 6])]),
+          body: byteStream(new Uint8Array([5, 6])),
         }),
       ],
-      ["untyped", async () => ({ statusCode: 200, headers: {}, body: Readable.from([Buffer.from([5, 6])]) })],
+      ["untyped", async () => ({ statusCode: 200, headers: {}, body: byteStream(new Uint8Array([5, 6])) })],
       ["missing", async () => xmlResponse(404, errorXml("NoSuchKey"))],
       [
         "stalled",
@@ -780,6 +961,53 @@ describe("private object store: deleteKeys (AC-C4)", () => {
     ]);
   });
 
+  it("fails a key with duplicate or conflicting provider reports in any order (kills last-report-wins)", async () => {
+    // Synthetic malformed output: no live provider identity is paired with these reports.
+    const output: DeleteObjectsCommandOutput = {
+      $metadata: { httpStatusCode: 200 },
+      Deleted: [
+        { Key: "support-evidence/deleted.bin" },
+        { Key: "support-evidence/deleted-twice.bin" },
+        { Key: "support-evidence/deleted-twice.bin" },
+        { Key: "support-evidence/deleted-and-failed.bin" },
+      ],
+      Errors: [
+        { Key: "support-evidence/denied-then-missing.bin", Code: "AccessDenied", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/denied-then-missing.bin", Code: "NoSuchKey", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/missing-then-denied.bin", Code: "NoSuchKey", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/missing-then-denied.bin", Code: "AccessDenied", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/missing-twice.bin", Code: "NoSuchKey", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/missing-twice.bin", Code: "NoSuchKey", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/deleted-and-failed.bin", Code: "InternalError", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/missing.bin", Code: "NoSuchKey", Message: RAW_PROVIDER_TEXT },
+        { Key: "support-evidence/denied.bin", Code: "AccessDenied", Message: RAW_PROVIDER_TEXT },
+      ],
+    };
+    const store = createS3PrivateObjectStore({ bucket: BUCKET, client: recordingClient(async () => output).client });
+
+    await expect(
+      store.deleteKeys([
+        "support-evidence/deleted.bin",
+        "support-evidence/deleted-twice.bin",
+        "support-evidence/deleted-and-failed.bin",
+        "support-evidence/denied-then-missing.bin",
+        "support-evidence/missing-then-denied.bin",
+        "support-evidence/missing-twice.bin",
+        "support-evidence/missing.bin",
+        "support-evidence/denied.bin",
+      ]),
+    ).resolves.toEqual([
+      { key: "support-evidence/deleted.bin", status: "deleted" },
+      { key: "support-evidence/deleted-twice.bin", status: "failed", code: "invalid-response" },
+      { key: "support-evidence/deleted-and-failed.bin", status: "failed", code: "invalid-response" },
+      { key: "support-evidence/denied-then-missing.bin", status: "failed", code: "invalid-response" },
+      { key: "support-evidence/missing-then-denied.bin", status: "failed", code: "invalid-response" },
+      { key: "support-evidence/missing-twice.bin", status: "failed", code: "invalid-response" },
+      { key: "support-evidence/missing.bin", status: "absent" },
+      { key: "support-evidence/denied.bin", status: "failed", code: "access-denied" },
+    ]);
+  });
+
   it("fails every key when the batch request fails", async () => {
     const store = createS3PrivateObjectStore({
       bucket: BUCKET,
@@ -901,6 +1129,39 @@ describe("private object store: verifyPrivate (AC-C6)", () => {
     expect(endless.pulled()).toBeLessThanOrEqual(6);
   });
 
+  it("takes at most byteSize + 1 bytes out of a body that delivers one oversized native chunk (kills chunk-then-check)", async () => {
+    const oneMebibyte = new Uint8Array(1024 * 1024).fill(7);
+    const verifyAgainst = async (byteSize: number, sha256: string) => {
+      const metered = meteredChunkBody([oneMebibyte, oneMebibyte]);
+      const store = createS3PrivateObjectStore({
+        bucket: BUCKET,
+        client: recordingClient(async () => ({
+          $metadata: { httpStatusCode: 200 },
+          Body: metered.body,
+          ContentType: "image/png",
+        })).client,
+      });
+      const result = await store.verifyPrivate("support-evidence/a.png", {
+        sha256,
+        byteSize,
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      });
+      return { result, consumed: metered.consumed() };
+    };
+
+    for (const byteSize of [0, 8]) {
+      const { result, consumed } = await verifyAgainst(byteSize, sha256Hex(new Uint8Array(byteSize)));
+      expect(result).toEqual({ status: "conflict", difference: "byte-size" });
+      expect(consumed).toBeLessThanOrEqual(byteSize + 1);
+    }
+    const doubled = new Uint8Array(2 * oneMebibyte.byteLength).fill(7);
+    await expect(verifyAgainst(doubled.byteLength, sha256Hex(doubled))).resolves.toEqual({
+      result: { status: "match" },
+      consumed: doubled.byteLength,
+    });
+  });
+
   it("treats a response without Content-Type as unavailable, never match (kills null-type-match)", async () => {
     const store = createS3PrivateObjectStore({
       bucket: BUCKET,
@@ -977,7 +1238,7 @@ describe("private object store: verifyPrivate (AC-C6)", () => {
       client: syntheticS3Client(async () => ({
         statusCode: 200,
         headers: {},
-        body: Readable.from([Buffer.from(bytes)]),
+        body: byteStream(bytes),
       })),
     });
 
@@ -1009,6 +1270,150 @@ describe("private object store: verifyPrivate (AC-C6)", () => {
       difference: "byte-size",
     });
     await expect(store.verifyPrivate("support-evidence/missing.png", expected)).resolves.toEqual({ status: "absent" });
+  });
+});
+
+describe("private object store: filesystem root containment", () => {
+  const outsideBytes = Buffer.from("outside-synthetic");
+  const expectOutsideUnchanged = async (outside: string) => {
+    await expect(readdir(outside)).resolves.toEqual(["original.bin"]);
+    await expect(readFile(path.join(outside, "original.bin"))).resolves.toEqual(outsideBytes);
+  };
+
+  it("refuses a linked ancestor directory for put, read, verify, list and delete (kills lexical-only-containment)", async () => {
+    const { rootDir, outside, store } = await linkedStore();
+
+    await expect(
+      store.putPrivate({
+        key: "escape/written.bin",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "failed", key: "escape/written.bin", code: "filesystem-error" });
+    await expect(
+      store.putPrivate({
+        key: "escape/nested/written.bin",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "failed", key: "escape/nested/written.bin", code: "filesystem-error" });
+    await expect(store.readPrivate("escape/original.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+      status: "unavailable",
+      code: "filesystem-error",
+    });
+    await expect(
+      store.verifyPrivate("escape/original.bin", {
+        sha256: sha256Hex(outsideBytes),
+        byteSize: outsideBytes.byteLength,
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "unavailable", code: "filesystem-error" });
+    for (const prefix of ["escape/", "escape/orig", ""]) {
+      await expect(store.listPrivate({ prefix, maxKeys: 10 })).resolves.toEqual({
+        status: "list-incomplete",
+        reason: "page-failed",
+        code: "filesystem-error",
+      });
+    }
+    await expect(store.deleteKeys(["escape/original.bin"])).resolves.toEqual([
+      { key: "escape/original.bin", status: "failed", code: "filesystem-error" },
+    ]);
+    await expectOutsideUnchanged(outside);
+
+    // Ordinary nested keys beside the link keep working.
+    await expect(
+      store.putPrivate({
+        key: "inside/a/b.bin",
+        body: new Uint8Array([4, 2]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "completed", key: "inside/a/b.bin" });
+    await expect(store.readPrivate("inside/a/b.bin", { maxBytes: 2, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+      status: "found",
+      body: new Uint8Array([4, 2]),
+      byteSize: 2,
+      providerContentType: null,
+    });
+    await expect(store.listPrivate({ prefix: "inside/", maxKeys: 10 })).resolves.toEqual({
+      status: "page",
+      entries: [{ key: "inside/a/b.bin", byteSize: 2 }],
+      nextContinuationToken: null,
+    });
+    await expect(store.deleteKeys(["inside/a/b.bin"])).resolves.toEqual([{ key: "inside/a/b.bin", status: "deleted" }]);
+    await expect(readdir(path.join(rootDir, "inside", "a"))).resolves.toEqual([]);
+  });
+
+  it("refuses a linked final file and a linked temp directory", async () => {
+    const { rootDir, outside, store } = await linkedStore();
+    await symlink(path.join(outside, "original.bin"), path.join(rootDir, "linked.bin"), "file");
+
+    await expect(store.readPrivate("linked.bin", { maxBytes: 64, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+      status: "unavailable",
+      code: "filesystem-error",
+    });
+    await expect(
+      store.verifyPrivate("linked.bin", {
+        sha256: sha256Hex(outsideBytes),
+        byteSize: outsideBytes.byteLength,
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "unavailable", code: "filesystem-error" });
+    await expect(
+      store.putPrivate({
+        key: "linked.bin",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "failed", key: "linked.bin", code: "filesystem-error" });
+    await expect(store.deleteKeys(["linked.bin"])).resolves.toEqual([
+      { key: "linked.bin", status: "failed", code: "filesystem-error" },
+    ]);
+    await expectOutsideUnchanged(outside);
+
+    const linkedTemp = await linkedStore();
+    await symlink(linkedTemp.outside, path.join(linkedTemp.rootDir, ".private-object-store-tmp"), "junction");
+    await expect(
+      linkedTemp.store.putPrivate({
+        key: "fresh.bin",
+        body: new Uint8Array([1]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "failed", key: "fresh.bin", code: "filesystem-error" });
+    await expectOutsideUnchanged(linkedTemp.outside);
+    await expect(linkedTemp.store.readPrivate("fresh.bin", { maxBytes: 1, deadlineMs: DEADLINE_MS })).resolves.toEqual({
+      status: "absent",
+    });
+  });
+
+  it("binds a linked configured root to its real directory", async () => {
+    const base = await tempRoot();
+    const realRoot = path.join(base, "real-root");
+    await mkdir(realRoot);
+    await symlink(realRoot, path.join(base, "configured-root"), "junction");
+    const store = createFilesystemPrivateObjectStore({ rootDir: path.join(base, "configured-root") });
+
+    await expect(
+      store.putPrivate({
+        key: "a/b.bin",
+        body: new Uint8Array([9]),
+        contentType: "image/png",
+        deadlineMs: DEADLINE_MS,
+      }),
+    ).resolves.toEqual({ status: "completed", key: "a/b.bin" });
+    await expect(readFile(path.join(realRoot, "a", "b.bin"))).resolves.toEqual(Buffer.from([9]));
+    await expect(store.listPrivate({ prefix: "", maxKeys: 10 })).resolves.toEqual({
+      status: "page",
+      entries: [{ key: "a/b.bin", byteSize: 1 }],
+      nextContinuationToken: null,
+    });
+    await expect(store.deleteKeys(["a/b.bin"])).resolves.toEqual([{ key: "a/b.bin", status: "deleted" }]);
   });
 });
 
@@ -1081,7 +1486,7 @@ function putOutput(): PutObjectCommandOutput {
 function getOutput(bytes: Uint8Array, contentType: string | undefined): GetObjectCommandOutput {
   return {
     $metadata: { httpStatusCode: 200 },
-    Body: sdkBody(Readable.from([Buffer.from(bytes)])),
+    Body: sdkBody(byteStream(bytes)),
     ContentType: contentType,
     ContentLength: bytes.byteLength,
   };
@@ -1116,13 +1521,72 @@ function stalledBody(prefix: Uint8Array) {
   return { body: sdkBody(stream), stream };
 }
 
-function endlessEmptyChunkBody() {
-  function* emptyChunks() {
-    for (;;) {
-      yield new Uint8Array(0);
+/** The Node SDK hands GetObject bodies over as byte-mode streams, never object mode. */
+function byteStream(bytes: Uint8Array): Readable {
+  return Readable.from([Buffer.from(bytes)], { objectMode: false });
+}
+
+// Meters bytes actually taken out of the stream: every Node consumer, including async iteration, goes through read().
+function meteredChunkBody(chunks: readonly Uint8Array[]) {
+  const queued = [...chunks];
+  let consumed = 0;
+  const stream = new Readable({
+    read() {
+      const next = queued.shift();
+      this.push(next === undefined ? null : Buffer.from(next));
+    },
+  });
+  const first = queued.shift();
+  // A non-empty pre-buffer: the first native chunk is already waiting before the store reads anything.
+  stream.push(first === undefined ? null : Buffer.from(first));
+  const read = stream.read.bind(stream);
+  stream.read = (size?: number) => {
+    const chunk: unknown = read(size);
+    if (chunk instanceof Uint8Array) {
+      consumed += chunk.byteLength;
     }
+    return chunk;
+  };
+  return { body: sdkBody(stream), stream, consumed: () => consumed };
+}
+
+function endlessTrickleBody() {
+  // One byte per pull after a busy millisecond: data keeps arriving through ticks and microtasks only.
+  const stream = new Readable({
+    highWaterMark: 1,
+    read() {
+      busyWait(1);
+      this.push(Buffer.from([0x61]));
+    },
+  });
+  return sdkBody(stream);
+}
+
+function busyWait(milliseconds: number): void {
+  const until = performance.now() + milliseconds;
+  while (performance.now() < until) {
+    // Holds the thread so the expiry timer cannot run.
   }
-  return sdkBody(Readable.from(emptyChunks()));
+}
+
+function synchronouslyThrowingClient(): Pick<S3Client, "send"> {
+  return {
+    send() {
+      throw transportError();
+    },
+  } as unknown as Pick<S3Client, "send">;
+}
+
+async function linkedStore() {
+  const base = await tempRoot();
+  const rootDir = path.join(base, "root");
+  const outside = path.join(base, "outside");
+  await mkdir(rootDir);
+  await mkdir(outside);
+  await writeFile(path.join(outside, "original.bin"), "outside-synthetic");
+  // A junction on Windows and a directory symlink elsewhere: both redirect a lexically in-root path.
+  await symlink(outside, path.join(rootDir, "escape"), "junction");
+  return { rootDir, outside, store: createFilesystemPrivateObjectStore({ rootDir }) };
 }
 
 function heldResponse<T>() {
