@@ -27,6 +27,8 @@ describe("UCP OAuth routes", () => {
       headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" },
     });
     expect(response.status).toBe(302);
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     const destination = new URL(response.headers.get("location")!, "http://localhost");
     expect(destination.pathname).toBe("/account/agents/consent");
     expect(destination.searchParams.has("code")).toBe(false);
@@ -44,6 +46,8 @@ describe("UCP OAuth routes", () => {
     const token = await fixture.start();
     const display = await fixture.app.request(`/ucp/oauth/consent?consent_token=${token}`);
     expect(display.status).toBe(200);
+    expect(display.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(display.headers.get("Cache-Control")).toBe("no-store");
     await expect(display.json()).resolves.toMatchObject({
       consent: {
         clientName: "Synthetic Agent",
@@ -66,6 +70,8 @@ describe("UCP OAuth routes", () => {
       },
     );
     expect(response.status).toBe(302);
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     const destination = new URL(response.headers.get("location")!);
     expect(destination.origin).toBe("https://agent.example");
     expect(destination.searchParams.get("state")).toBe("synthetic-state");
@@ -96,6 +102,7 @@ describe("UCP OAuth routes", () => {
     "unknown",
     "origin",
     "missing-origin",
+    "null-origin",
     "fetch-site",
   ])("consent rejects only the governing %s mismatch without consuming or redirecting", async (governing) => {
     const fixture = await consentFixture();
@@ -113,6 +120,7 @@ describe("UCP OAuth routes", () => {
     if (governing === "unknown") token = "synthetic-unknown";
     if (governing === "origin") headers.Origin = "https://attacker.example";
     if (governing === "missing-origin") headers.Origin = "";
+    if (governing === "null-origin") headers.Origin = "null";
     if (governing === "fetch-site") headers["Sec-Fetch-Site"] = "cross-site";
     const response = await fixture.decide(token, "approve", headers);
     expect(response.status).toBeGreaterThanOrEqual(400);

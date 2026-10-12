@@ -29,6 +29,19 @@ function args(request: Request): LoaderFunctionArgs & ActionFunctionArgs {
 function request() {
   return new Request("https://marketplace.example/account/agents/consent?consent_token=synthetic-token");
 }
+function switchRequest() {
+  return new Request(request(), {
+    method: "POST",
+    headers: { Origin: "https://marketplace.example", "Sec-Fetch-Site": "same-origin" },
+    body: new URLSearchParams({ accountId: "account-two", consent_token: "synthetic-token" }),
+  });
+}
+function expectProtectedHeaders(resultHeaders: Headers) {
+  expect(resultHeaders.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
+  expect(resultHeaders.get("Content-Security-Policy")).not.toContain("form-action");
+  expect(resultHeaders.get("Referrer-Policy")).toBe("strict-origin");
+  expect(resultHeaders.get("Cache-Control")).toBe("no-store");
+}
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -43,8 +56,12 @@ describe("OAuth consent marketplace route", () => {
     const resultHeaders = headers();
     expect(resultHeaders.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
     expect(resultHeaders.get("Content-Security-Policy")).not.toContain("form-action");
-    expect(resultHeaders.get("Referrer-Policy")).toBe("no-referrer");
+    expect(resultHeaders.get("Referrer-Policy")).toBe("strict-origin");
     expect(resultHeaders.get("Cache-Control")).toBe("no-store");
+  });
+  it("pins strict-origin for native consent POST Origin", () => {
+    // https://fetch.spec.whatwg.org/#append-a-request-origin-header: no-referrer nulls native POST Origin.
+    expect(headers().get("Referrer-Policy")).toBe("strict-origin");
   });
   it.each([400, 404])("renders an invalid request for API status %s without leaking the token", async (status) => {
     mocks.getAgentConsent.mockRejectedValue(new AuthApiError(status, { error: "invalid_request" }));
@@ -61,9 +78,48 @@ describe("OAuth consent marketplace route", () => {
       const location = new URL(response.headers.get("location")!, "https://marketplace.example");
       expect(location.pathname).toBe("/sign-in");
       expect(location.searchParams.get("returnTo")).toBe("/account/agents/consent?consent_token=synthetic-token");
-      expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+      expect(response.headers.get("Referrer-Policy")).toBe("strict-origin");
     }
   });
+  it.each([400, 404])(
+    "redirects an invalid account-switch consent request back to its invalid state (%s)",
+    async (status) => {
+      mocks.getAgentConsent.mockRejectedValue(new AuthApiError(status, { error: "invalid_request" }));
+      const response = await action(args(switchRequest()));
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/account/agents/consent?consent_token=synthetic-token");
+      expectProtectedHeaders(response.headers);
+      expect(mocks.switchSessionAccount).not.toHaveBeenCalled();
+      const result = await loader(args(request()));
+      expect(result.data).toEqual({ consent: null, consentToken: "" });
+      expectProtectedHeaders(new Headers(result.init?.headers));
+    },
+  );
+  it("redirects a signed-out account-switch consent request through sign-in", async () => {
+    mocks.getAgentConsent.mockRejectedValue(new AuthApiError(401, {}));
+    const response = await action(args(switchRequest())).then(
+      () => {
+        throw new Error("Expected the sign-in redirect to be thrown");
+      },
+      (error: unknown) => error,
+    );
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) throw response;
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location")!, "https://marketplace.example");
+    expect(location.pathname).toBe("/sign-in");
+    expect(location.searchParams.get("returnTo")).toBe("/account/agents/consent?consent_token=synthetic-token");
+    expectProtectedHeaders(response.headers);
+    expect(mocks.switchSessionAccount).not.toHaveBeenCalled();
+  });
+  it.each([new AuthApiError(500, {}), new Error("synthetic upstream failure")])(
+    "rethrows unexpected account-switch consent errors without switching (%s)",
+    async (error) => {
+      mocks.getAgentConsent.mockRejectedValue(error);
+      await expect(action(args(switchRequest()))).rejects.toBe(error);
+      expect(mocks.switchSessionAccount).not.toHaveBeenCalled();
+    },
+  );
   it("switches only an offered membership on the bound session then restarts authorize", async () => {
     const response = await action(
       args(
@@ -78,7 +134,7 @@ describe("OAuth consent marketplace route", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(consent.authorizePath);
   });
-  it.each(["foreign-origin", "cross-site", "missing-origin", "foreign-account"])(
+  it.each(["foreign-origin", "cross-site", "missing-origin", "null-origin", "foreign-account"])(
     "refuses %s account switching",
     async (governing) => {
       const fields = new URLSearchParams({
@@ -90,7 +146,9 @@ describe("OAuth consent marketplace route", () => {
           ? "https://attacker.example"
           : governing === "missing-origin"
             ? ""
-            : "https://marketplace.example";
+            : governing === "null-origin"
+              ? "null"
+              : "https://marketplace.example";
       const response = await action(
         args(
           new Request(request(), {
@@ -104,7 +162,9 @@ describe("OAuth consent marketplace route", () => {
         ),
       );
       expect(response.status).toBe(403);
+      expect(response.headers.has("location")).toBe(false);
       expect(mocks.switchSessionAccount).not.toHaveBeenCalled();
+      if (governing !== "foreign-account") expect(mocks.getAgentConsent).not.toHaveBeenCalled();
     },
   );
 });

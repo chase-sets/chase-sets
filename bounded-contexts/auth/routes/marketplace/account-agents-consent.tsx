@@ -7,9 +7,19 @@ import { AgentConsentPage } from "../../features/agent-grants/ui/agent-consent-p
 export function headers() {
   return new Headers({
     "Content-Security-Policy": "frame-ancestors 'none'",
-    "Referrer-Policy": "no-referrer",
+    "Referrer-Policy": "strict-origin",
     "Cache-Control": "no-store",
   });
+}
+
+function handleConsentRequestError(error: unknown, url: URL) {
+  if (error instanceof AuthApiError && error.status === 401) {
+    throw redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, {
+      headers: headers(),
+    });
+  }
+  if (error instanceof AuthApiError && (error.status === 400 || error.status === 404)) return;
+  throw error;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -19,15 +29,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     const result = await createUcpOAuthRequestApiClient(request).getAgentConsent(consentToken);
     return data({ consent: result.consent, consentToken }, { headers: headers() });
   } catch (error) {
-    if (error instanceof AuthApiError && error.status === 401) {
-      throw redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, {
-        headers: headers(),
-      });
-    }
-    if (error instanceof AuthApiError && (error.status === 400 || error.status === 404)) {
-      return data({ consent: null, consentToken: "" }, { headers: headers() });
-    }
-    throw error;
+    handleConsentRequestError(error, url);
+    return data({ consent: null, consentToken: "" }, { headers: headers() });
   }
 }
 
@@ -41,7 +44,15 @@ export async function action({ request }: ActionFunctionArgs) {
   const form = await request.formData();
   const token = String(form.get("consent_token") ?? "");
   const accountId = String(form.get("accountId") ?? "");
-  const { consent } = await createUcpOAuthRequestApiClient(request).getAgentConsent(token);
+  const url = new URL(request.url);
+  let result;
+  try {
+    result = await createUcpOAuthRequestApiClient(request).getAgentConsent(token);
+  } catch (error) {
+    handleConsentRequestError(error, url);
+    return redirect(`${url.pathname}${url.search}`, { headers: headers() });
+  }
+  const { consent } = result;
   if (!consent.memberships.some((membership) => membership.accountId === accountId)) {
     return new Response(null, { status: 403, headers: headers() });
   }
