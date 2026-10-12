@@ -1,6 +1,6 @@
 import { definePolicy, type PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { compareMoneyAmounts } from "@chase-sets/primitives/money";
+import { compareMoneyAmounts, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { RefundTrigger } from "@chase-sets/primitives/platform-coverage";
 import { SupportDomainError } from "./common";
 
@@ -165,13 +165,27 @@ export function assertRemedyPolicyLimit(
     policy: PlatformRemedyPolicyValue;
   }>,
 ) {
+  const amountCents = tryMoneyToCents(params.amount);
+  if (amountCents === null) {
+    throw new SupportDomainError("Remedy amount must be a valid money amount.");
+  }
   const maximumAmount = params.policy.maximumAmountByCapability[params.authority];
   if (compareMoneyAmounts(params.amount, maximumAmount) > 0) {
     throw new SupportDomainError(`Remedy amount exceeds the ${params.authority} amount limit.`);
   }
-  const eligible = Number(params.eligibleAmount);
-  const percentage = eligible <= 0 ? 100 : (Number(params.amount) / eligible) * 100;
-  if (percentage > params.policy.maximumPercentageByCapability[params.authority]) {
+  const eligibleCents = tryMoneyToCents(params.eligibleAmount);
+  if (eligibleCents === null) {
+    throw new SupportDomainError("Remedy eligible amount must be a valid money amount.");
+  }
+  const limit = params.policy.maximumPercentageByCapability[params.authority];
+  const [decimal = "0", exponent = "0"] = String(limit).split("e");
+  const fractionalDigits = decimal.split(".")[1]?.length ?? 0;
+  const digits = BigInt(decimal.replace(".", ""));
+  const scale = BigInt(fractionalDigits - Number(exponent));
+  if (
+    (eligibleCents > 0n && amountCents * 100n * 10n ** scale > digits * eligibleCents) ||
+    (eligibleCents === 0n && limit < 100)
+  ) {
     throw new SupportDomainError(`Remedy amount exceeds the ${params.authority} percentage limit.`);
   }
 }
