@@ -1,5 +1,10 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
+  candidateJobRowToCatalogMergeCandidateBulkJob,
+  catalogMergeCandidatePromotionApplicationJobKind,
+  reconcileCatalogMergeCandidateApplications,
+} from "../../source-observations/api/source-observation-merge-candidate-bulk-job-runtime";
+import {
   productionCatalogCompletionManifestVersion,
   type ManifestAssetProcessing,
   type ManifestCatalogItemCounts,
@@ -20,8 +25,8 @@ import {
 // read from Catalog-owned tables inside one read-only repeatable-read snapshot,
 // so the report describes a single consistent moment and the session cannot
 // write. A fact the database cannot establish is listed in `unknownFacts`; it
-// is never reported as zero. Only counts and Catalog identifiers are selected;
-// raw payloads, URLs, and account identifiers never are.
+// is never reported as zero. Job contracts are validated internally; returned
+// facts contain counts and Catalog identifiers, never raw payloads or URLs.
 
 export type ProductionCatalogReportedFacts = Readonly<{
   // Provider external ids that map to more than one Catalog Item across the
@@ -186,7 +191,7 @@ async function readProductionCatalogCompletionFacts(
   const unknownFacts: string[] = [];
   const observedUnits = await queryObservedUnits(tx, { scopeRecordIds, unknownFacts });
   const mergeCandidates = await queryMergeCandidates(tx, scopeRecordIds);
-  const promotions = await queryPromotionOutcomes(tx, scopeRecordIds);
+  const promotions = await queryPromotionOutcomes(tx, scopeRecordIds, mergeCandidates, unknownFacts);
   const catalogItemsByStatus = await queryCountsByStatus(tx, "catalog_items");
   const sourceObservations = await querySourceObservationCounts(tx, syncRunIds);
   const assetProcessing = await queryAssetProcessing(tx, {
@@ -424,21 +429,44 @@ async function queryMergeCandidates(
 async function queryPromotionOutcomes(
   tx: PgQueryable,
   scopeRecordIds: readonly string[],
+  mergeCandidates: readonly ManifestMergeCandidate[],
+  unknownFacts: string[],
 ): Promise<ManifestPromotionOutcomes> {
-  const result = await tx.query<{ status: string; promotion_intent: string; total: number | string }>(
-    `SELECT status, promotion_intent, count(*) AS total
+  // Read the complete scope history, not a recent-job window or work-unit
+  // count. The producer's reader owns version validation and retry identity.
+  const jobs = await tx.query<Parameters<typeof candidateJobRowToCatalogMergeCandidateBulkJob>[0]>(
+    `SELECT job_id, job_kind, status, payload, progress, result, error_message,
+            created_at, started_at, completed_at, updated_at
+       FROM catalog_source_observation_bulk_review_jobs
+      WHERE job_kind = ANY($2::text[])
+        AND status = 'completed'
+        AND payload->>'scopeRecordId' = ANY($1::text[])
+      ORDER BY completed_at ASC, job_id ASC`,
+    [scopeRecordIds, ["merge-candidate-promote", catalogMergeCandidatePromotionApplicationJobKind]],
+  );
+  const applications = reconcileCatalogMergeCandidateApplications(
+    jobs.rows.map(candidateJobRowToCatalogMergeCandidateBulkJob),
+  );
+  const result = await tx.query<{ status: string; total: number | string }>(
+    `SELECT status, count(*) AS total
        FROM catalog_merge_candidates
       WHERE scope_record_id = ANY($1::text[])
-      GROUP BY status, promotion_intent`,
+      GROUP BY status`,
     [scopeRecordIds],
   );
   const outcomes = { create: 0, update: 0, ignore: 0, defer: 0 };
+  for (const application of applications.applied.values()) {
+    if (application.appliedMode === "create") outcomes.create += 1;
+    else outcomes.update += 1;
+  }
+  for (const candidate of mergeCandidates) {
+    if (candidate.status === "promoted" && !applications.applied.has(candidate.candidateId)) {
+      unknownFacts.push(`merge-candidate-application:${candidate.candidateId}`);
+    }
+  }
   for (const row of result.rows) {
     const count = Number(row.total);
-    if (row.status === "promoted") {
-      if (row.promotion_intent === "create-catalog-item") outcomes.create += count;
-      else outcomes.update += count;
-    } else if (row.status === "rejected") {
+    if (row.status === "rejected") {
       outcomes.ignore += count;
     } else if (row.status === "deferred") {
       outcomes.defer += count;
@@ -510,7 +538,7 @@ async function queryAssetProcessing(
       WHERE unit.state = 'failed'
         AND unit.created_at >= $3::timestamptz
         AND (
-          (job.job_kind = 'merge-candidate-promote' AND job.payload->>'scopeRecordId' = ANY($1::text[]))
+          (job.job_kind = ANY($4::text[]) AND job.payload->>'scopeRecordId' = ANY($1::text[]))
           OR (
             job.job_kind = 'promote'
             AND (
@@ -531,7 +559,12 @@ async function queryAssetProcessing(
           )
         )
       ORDER BY unit.job_id ASC, unit.unit_id ASC`,
-    [input.scopeRecordIds, input.syncRunIds, input.since],
+    [
+      input.scopeRecordIds,
+      input.syncRunIds,
+      input.since,
+      ["merge-candidate-promote", catalogMergeCandidatePromotionApplicationJobKind],
+    ],
   );
   let approvedFailures = 0;
   for (const row of result.rows) {

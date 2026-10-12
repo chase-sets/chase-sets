@@ -629,7 +629,7 @@ export function summarizeCatalogMergeCandidateBulkOutcomes(
   };
 }
 
-function candidateJobRowToCatalogMergeCandidateBulkJob(row: CandidateJobRow): CatalogMergeCandidateBulkJob {
+export function candidateJobRowToCatalogMergeCandidateBulkJob(row: CandidateJobRow): CatalogMergeCandidateBulkJob {
   const payload = parseJsonField<CatalogMergeCandidateBulkJobPayload>(row.payload, "payload");
   const discriminator = readCatalogMergeCandidateBulkJobDiscriminator(row.job_id, row.job_kind, payload);
   return {
