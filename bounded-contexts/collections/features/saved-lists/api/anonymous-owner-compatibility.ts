@@ -1,6 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { savedListCanonicalIdentifier, savedListFingerprint } from "./anonymous-owner";
 
+export const anonymousIntentColumns = `intent_id, anonymous_owner_fingerprint, owner_revision,
+  source_path, source_surface, catalog_catalog_item_id, product_id, selected_options,
+  product_summary, add_command_id, line_id, status, claimed_account_id, claimed_list_id,
+  claimed_create_command_id, claimed_list_title, claimed_tracked_quantity,
+  claimed_expected_version, claimed_response, claimed_at, expires_at, created_at, updated_at`;
+
 export function createAnonymousOwnerCompatibility(db: PgQueryable) {
   return {
     async resolve(rawOwner: string, intentId: string | null = null): Promise<string> {
@@ -24,8 +30,16 @@ export function createAnonymousOwnerCompatibility(db: PgQueryable) {
       }
       return fingerprint;
     },
-    async insert<Row>(sql: string, values: readonly unknown[], rawOwner: string) {
-      return db.query<Row>(sql, [...values, savedListCanonicalIdentifier(rawOwner)]);
+    async insert<Row>(values: readonly unknown[], rawOwner: string) {
+      return db.query<Row>(
+        `INSERT INTO collections_anonymous_saved_list_intents (
+           intent_id, anonymous_owner_fingerprint, source_path, source_surface,
+           catalog_catalog_item_id, product_id, selected_options, product_summary,
+           add_command_id, line_id, expires_at, anonymous_owner_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
+         RETURNING ${anonymousIntentColumns}`,
+        [...values, savedListCanonicalIdentifier(rawOwner)],
+      );
     },
   };
 }

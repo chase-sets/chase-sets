@@ -12,7 +12,7 @@ import { SavedListDiscoveryError, type SavedListDiscoveryServices } from "./disc
 import type { SavedListProductSelection } from "../domain/contracts";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { additionAnalytics, recordSavedListAnalytics, type SavedListAnalyticsRecorder } from "./analytics-telemetry";
-import { savedListCanonicalIdentifier, savedListCanonicalProduct, savedListFingerprint } from "./anonymous-owner";
+import { savedListCanonicalIdentifier, savedListCanonicalProduct } from "./anonymous-owner";
 
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;
@@ -276,7 +276,6 @@ function parseSurface(value: unknown): SavedListDiscoverySurface {
 function readAnonymousOwnerId(value: string | undefined) {
   try {
     const normalized = savedListCanonicalIdentifier(value);
-    savedListFingerprint(["collections.anonymous-owner.v1", normalized]);
     return normalized.startsWith("anon_") ? normalized : null;
   } catch {
     return null;

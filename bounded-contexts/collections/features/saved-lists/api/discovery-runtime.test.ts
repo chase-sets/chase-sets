@@ -59,6 +59,41 @@ function setup(db: PgQueryable = emptyDb()) {
 }
 
 describe("Saved List discovery application", () => {
+  it("reuses a legacy intent with a differently ordered Option array", async () => {
+    const memory = createIntentDb();
+    memory.insertIntent({ intentId: "sli_reordered" });
+    const selection = {
+      ...product(),
+      selectedOptions: [
+        { dimensionId: "B", optionId: "b" },
+        { dimensionId: "a", optionId: "a" },
+      ],
+    };
+    memory.intents.get("sli_reordered")!.selected_options = [...selection.selectedOptions].reverse();
+    const { discovery } = setup(memory.db);
+    const captured = await discovery.createAnonymousIntent({
+      anonymousOwnerId: "anon_device",
+      sourcePath: "/search",
+      sourceSurface: "search",
+      product: selection,
+    });
+    expect(captured.intentId).toBe("sli_reordered");
+  });
+
+  it("does not expose a raw secret marker in validation errors", async () => {
+    const marker = "anon_SECRET_MARKER_8931\ud800";
+    const { discovery } = setup();
+    const error = await discovery
+      .createAnonymousIntent({
+        anonymousOwnerId: marker,
+        sourcePath: "/search",
+        sourceSurface: "search",
+        product: product(),
+      })
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(SavedListDiscoveryError);
+    expect((error as Error).message).not.toContain("SECRET_MARKER_8931");
+  });
   it("anonymous-owner-mixed-version-compatibility alternate-raw-interface mutant", async () => {
     const memory = createIntentDb();
     const { discovery } = setup(memory.db);
@@ -197,6 +232,12 @@ function emptyDb(): PgQueryable {
   return { query: vi.fn(async () => ({ rows: [] })) } as unknown as PgQueryable;
 }
 
+function normalizeTestOptions(value: unknown) {
+  return [...(value as { dimensionId: string; optionId: string }[])].sort((left, right) =>
+    left.dimensionId < right.dimensionId ? -1 : left.dimensionId > right.dimensionId ? 1 : 0,
+  );
+}
+
 type IntentRecord = Record<string, unknown> & {
   intent_id: string;
   anonymous_owner_id: string;
@@ -275,7 +316,10 @@ function createIntentDb() {
           intent.anonymous_owner_fingerprint === values[0] &&
           intent.status === "active" &&
           intent.product_id === values[2] &&
-          JSON.stringify(intent.selected_options) === values[3],
+          (sql.includes("selected_options @>")
+            ? JSON.stringify(normalizeTestOptions(intent.selected_options)) ===
+              JSON.stringify(normalizeTestOptions(JSON.parse(String(values[3]))))
+            : JSON.stringify(intent.selected_options) === values[3]),
       );
       return { rows: match ? [match] : [] };
     }
@@ -284,6 +328,18 @@ function createIntentDb() {
         (intent) => intent.anonymous_owner_fingerprint === values[0] && intent.status === "active",
       ).length;
       return { rows: [{ count: String(count) }] };
+    }
+    if (sql.startsWith("UPDATE collections_anonymous_saved_list_intents SET source_path")) {
+      const intent = intents.get(String(values[0]));
+      if (!intent || intent.status !== "active" || intent.owner_revision !== values[5]) return { rows: [] };
+      Object.assign(intent, {
+        source_path: values[1],
+        source_surface: values[2],
+        product_summary: values[3],
+        expires_at: values[4],
+        owner_revision: Number(intent.owner_revision) + 1,
+      });
+      return { rows: [intent] };
     }
     if (sql.startsWith("INSERT INTO collections_anonymous_saved_list_intents")) {
       const record: IntentRecord = {

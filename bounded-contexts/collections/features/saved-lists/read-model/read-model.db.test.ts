@@ -123,6 +123,10 @@ describeDb("Saved List read-model SQL boundary", () => {
     const ledger = await db.query(`SELECT migration_id FROM bounded_context_schema_migrations
       WHERE migration_id = '20261012_collections_anonymous_owner_fingerprint'`);
     expect(ledger.rows).toHaveLength(1);
+    await expect(
+      db.query(`UPDATE collections_anonymous_saved_list_intents SET anonymous_owner_id = NULL
+      WHERE intent_id = 'sli_upgrade'`),
+    ).rejects.toMatchObject({ code: "23502" });
     await insertLegacyIntent(db, "sli_after_boot", "anon_upgrade");
     expect(
       (
@@ -269,6 +273,29 @@ describeDb("Saved List read-model SQL boundary", () => {
         accountId: ownerAccountId,
       }),
     ).rejects.toMatchObject({ code: "intent-not-found" });
+  });
+
+  it("anonymous-owner-mixed-version-compatibility reuses differently ordered legacy Options", async () => {
+    const db = pools.collections;
+    await insertLegacyIntent(db, "sli_options", "anon_options");
+    const options = [
+      { dimensionId: "B", optionId: "b" },
+      { dimensionId: "a", optionId: "a" },
+    ];
+    await db.query(
+      `UPDATE collections_anonymous_saved_list_intents SET selected_options = $1::jsonb
+      WHERE intent_id = 'sli_options'`,
+      [JSON.stringify([...options].reverse())],
+    );
+    const captured = await anonymousDiscovery(db).createAnonymousIntent({
+      anonymousOwnerId: "anon_options",
+      sourcePath: "/search",
+      sourceSurface: "search",
+      product: { ...anonymousProduct, selectedOptions: options },
+    });
+    expect(captured.intentId).toBe("sli_options");
+    expect(captured.addCommandId).toBe("slc_sli_options");
+    expect(captured.lineId).toBe("sll_sli_options");
   });
 
   it("converges to the same enriched summary and line order when Catalog and Saved List replay order reverses", async () => {

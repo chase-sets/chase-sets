@@ -14,7 +14,7 @@ import {
 } from "../domain/contracts";
 import { listRecentSavedLists } from "../read-model/picker-queries";
 import { savedListCanonicalIdentifier, savedListCanonicalProduct, savedListCanonicalTitle } from "./anonymous-owner";
-import { createAnonymousOwnerCompatibility } from "./anonymous-owner-compatibility";
+import { anonymousIntentColumns, createAnonymousOwnerCompatibility } from "./anonymous-owner-compatibility";
 import type {
   AddProductToSavedListRequest,
   AnonymousSavedListClaimPreparation,
@@ -28,11 +28,6 @@ import type {
 
 const ANONYMOUS_SAVED_LIST_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_ACTIVE_ANONYMOUS_SAVED_LIST_INTENTS = 20;
-const anonymousIntentColumns = `intent_id, anonymous_owner_fingerprint, owner_revision,
-  source_path, source_surface, catalog_catalog_item_id, product_id, selected_options,
-  product_summary, add_command_id, line_id, status, claimed_account_id, claimed_list_id,
-  claimed_create_command_id, claimed_list_title, claimed_tracked_quantity,
-  claimed_expected_version, claimed_response, claimed_at, expires_at, created_at, updated_at`;
 
 export type SavedListDiscoveryErrorCode =
   | "invalid-request"
@@ -331,7 +326,7 @@ export function createSavedListDiscoveryRuntime(
            AND expires_at > now()
            AND catalog_catalog_item_id = $2
            AND product_id = $3
-           AND selected_options = $4::jsonb
+           AND selected_options @> $4::jsonb AND selected_options <@ $4::jsonb
          ORDER BY updated_at DESC
          LIMIT 1`,
         [anonymousOwnerId, product.catalogItemId, product.productId, JSON.stringify(product.selectedOptions)],
@@ -378,21 +373,6 @@ export function createSavedListDiscoveryRuntime(
 
       const tokens = createSavedListAdditionTokens();
       const inserted = await owners.insert<AnonymousIntentRow>(
-        `INSERT INTO collections_anonymous_saved_list_intents (
-           intent_id,
-           anonymous_owner_fingerprint,
-           source_path,
-           source_surface,
-           catalog_catalog_item_id,
-           product_id,
-           selected_options,
-           product_summary,
-           add_command_id,
-           line_id,
-           expires_at,
-           anonymous_owner_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
-         RETURNING ${anonymousIntentColumns}`,
         [
           createId("sli"),
           anonymousOwnerId,

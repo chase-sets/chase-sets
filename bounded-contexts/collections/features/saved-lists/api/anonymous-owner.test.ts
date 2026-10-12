@@ -115,12 +115,21 @@ describe("saved-list-canonical-fingerprint-vectors", () => {
       ],
       [...intent.slice(0, 3), ["item_test", "product_test", undefined], ...intent.slice(4)],
       [...claim.slice(0, 5), 1.5, "search"],
+      [
+        ...intent.slice(0, 3),
+        ["item_test", "product_test", Array.from({ length: 65 }, (_, index) => [`d${index}`, "o"])],
+        ...intent.slice(4),
+      ],
+      Object.defineProperty([...intent], "unknown", { value: true }),
       [...addition.slice(0, 3), ["new", "list_test", "create_test", "x\ud800"], ...addition.slice(4)],
       ["collections.anonymous-owner.v1", ,],
       { kind: "collections.anonymous-owner.v1", owner: "anon_test" },
     ];
     malformed.forEach((tuple) => expect(() => savedListFingerprint(tuple)).toThrow());
     expect(savedListCanonicalPreimage(intent)).toContain("[]");
+    expect(savedListCanonicalPreimage(["collections.anonymous-owner.v1", "anon_🙂"])).toBe(
+      '["collections.anonymous-owner.v1","anon_🙂"]',
+    );
     expect(() => savedListFingerprint([...claim, { expectedVersion: 1 }])).toThrow();
   });
 });
