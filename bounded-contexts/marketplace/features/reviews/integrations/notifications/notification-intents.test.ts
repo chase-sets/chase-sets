@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { matchRoutes } from "react-router";
 import { resolveWebHostRouteRecords } from "@chase-sets/platform-runtime/web";
+import type { WebNotificationChannel } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import marketplaceManifest from "../../../../context.json";
 import {
@@ -69,7 +70,9 @@ describe("review nudge notification intents (m108, #4270)", () => {
     const expectedHref = `/account/${role === "buyer" ? "purchases" : "sales"}/${input.orderId}/review`;
     const expectedRouteId = `marketplace/${role === "buyer" ? "account-purchase-review" : "account-sale-review"}`;
     const expectedParams = role === "buyer" ? { purchaseId: input.orderId } : { orderId: input.orderId };
-    const webChannels = message.channels.filter((channel) => channel.channel === "web");
+    const webChannels = message.channels.filter(
+      (channel): channel is WebNotificationChannel => channel.channel === "web",
+    );
     expect(webChannels).toHaveLength(1);
 
     for (const href of [message.actionHref, message.templateData.actionHref, ...webChannels.map((c) => c.actionHref)]) {
@@ -120,7 +123,7 @@ describe("review nudge notification intents (m108, #4270)", () => {
         for (const href of [
           message.actionHref,
           message.templateData.actionHref,
-          ...message.channels.filter((c) => c.channel === "web").map((c) => c.actionHref),
+          ...message.channels.filter((c): c is WebNotificationChannel => c.channel === "web").map((c) => c.actionHref),
         ]) {
           expect(href).not.toContain("/account/reviews/opportunities/");
         }
