@@ -790,7 +790,7 @@ describe("UCP MCP routes", () => {
     const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "ok" as const }, products: [] }));
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { search_catalog: handler } }));
     // Raw JSON-RPC fetch adapter: the pinned SDK supports legacy revisions only.
-    const scriptedFetch: typeof fetch = (input, init) => app.request(new Request(input, init));
+    const scriptedFetch: typeof fetch = async (input, init) => app.request(new Request(input, init));
     const calls = [
       { method: "server/discover", params: {}, name: undefined },
       { method: "tools/list", params: {}, name: undefined },
@@ -895,7 +895,14 @@ describe("UCP MCP routes", () => {
     });
 
     const headers = modernHeaders("tools/call", "search_catalog");
-    const rows = [
+    const rows: readonly {
+      name: string;
+      method?: string;
+      headers: Readonly<Record<string, string>>;
+      meta: Readonly<Record<string, unknown>>;
+      status: number;
+      code: number | undefined;
+    }[] = [
       { name: "modern without optional clientInfo", headers, meta: modernMeta, status: 200, code: undefined },
       {
         name: "unsupported metadata",
@@ -1009,7 +1016,7 @@ describe("UCP MCP routes", () => {
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: "matrix",
-          method: "method" in row ? row.method : "tools/call",
+          method: row.method ?? "tools/call",
           params: { name: "search_catalog", arguments: { query: "pikachu" }, _meta: row.meta },
         }),
       });

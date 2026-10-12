@@ -206,7 +206,14 @@ describe("MCP runtime routes", () => {
     const emptyTools = { jsonrpc: "2.0", id: "request_1", result: { tools: [] } };
     const mismatch = (message: string) => error(-32001, message);
     const invalid = (message: string) => error(-32602, message);
-    const cases = [
+    const cases: readonly {
+      name: string;
+      method?: string;
+      headers: Readonly<Record<string, string>>;
+      params: unknown;
+      status: number;
+      body: unknown;
+    }[] = [
       { name: "no header", headers: {}, params: {}, status: 200, body: emptyTools },
       ...[MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25].map((version) => ({
         name: `legacy ${version}`,
@@ -370,7 +377,7 @@ describe("MCP runtime routes", () => {
       const response = await app.request("/", {
         method: "POST",
         headers: row.headers,
-        body: JSON.stringify(createRequest("method" in row ? row.method : "tools/list", row.params)),
+        body: JSON.stringify(createRequest(row.method ?? "tools/list", row.params)),
       });
       expect(response.status).toBe(row.status);
       expect(await response.text()).toBe(JSON.stringify(row.body));
