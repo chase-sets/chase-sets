@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createSavedListEventCodec } from "../domain/codec";
+import { decideSavedList, savedListStreamId } from "../domain/domain";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type {
@@ -59,7 +61,142 @@ async function setup(productCatalog: SavedListProductCatalog = activeCatalog()) 
   return { ...store, runtime, created };
 }
 
+async function setupHistory(length: number) {
+  const store = await setup();
+  const first = store.allEvents[0]!;
+  const details = createSavedListEventCodec().encode(
+    decideSavedList(store.created.savedList, {
+      type: "ChangeSavedListDetails",
+      commandId: commandId("history"),
+      title: "History",
+      changedAt: "2026-07-13T12:00:00.000Z",
+    })[0]!,
+  );
+  const events = [
+    first,
+    ...Array.from({ length: length - 1 }, (_, index) => ({
+      ...first,
+      ...details,
+      eventId: `evt_history_${index + 2}` as typeof first.eventId,
+      streamVersion: index + 2,
+      globalPosition: String(index + 2) as typeof first.globalPosition,
+      metadata: {},
+    })),
+  ];
+  store.streams.set(savedListStreamId(listId), events);
+  store.allEvents.splice(0, store.allEvents.length, ...events);
+  return store;
+}
+
 describe("Saved List command runtime", () => {
+  it("saved-list-history-bound-exact-and-over", async () => {
+    const { runtime, allEvents, streams, eventStore } = await setupHistory(50_000);
+    const append = vi.spyOn(eventStore, "appendToStream");
+    const input = { commandId: commandId("create"), listId, ownerAccountId, title: "Trade targets" } as const;
+    await expect(runtime.getOwnerSnapshot({ listId, ownerAccountId }, context)).resolves.toMatchObject({
+      version: 50_000,
+    });
+    await expect(runtime.createSavedList(input, context)).resolves.toMatchObject({
+      receipt: { replayed: true, committedVersion: 1 },
+      savedList: { version: 50_000 },
+    });
+    await expect(
+      runtime.changeDetails(
+        { ...input, commandId: commandId("cross-cap"), expectedVersion: 50_000, title: "Crossing append" },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "saved-list-history-limit-reached" });
+    expect(allEvents).toHaveLength(50_000);
+    expect(append).not.toHaveBeenCalled();
+    const overflow = { ...allEvents.at(-1)!, streamVersion: 50_001 };
+    streams.get(savedListStreamId(listId))!.push(overflow);
+    for (const read of [
+      () => runtime.getOwnerSnapshot({ listId, ownerAccountId }, context),
+      () => runtime.createSavedList(input, context),
+    ]) {
+      await expect(read()).rejects.toMatchObject({ code: "saved-list-history-limit-reached" });
+    }
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it("saved-list-complete-receipt-history", async () => {
+    const { runtime, eventStore, allEvents } = await setupHistory(501);
+    const read = vi.spyOn(eventStore, "readStream");
+    const append = vi.spyOn(eventStore, "appendToStream");
+    const input = { commandId: commandId("create"), listId, ownerAccountId, title: "Trade targets" } as const;
+    await expect(runtime.createSavedList(input, context)).resolves.toMatchObject({
+      receipt: { replayed: true },
+      savedList: { version: 501 },
+    });
+    expect(read).toHaveBeenNthCalledWith(1, { streamId: savedListStreamId(listId), fromVersion: 1, limit: 500 });
+    expect(read).toHaveBeenNthCalledWith(2, { streamId: savedListStreamId(listId), fromVersion: 501, limit: 500 });
+    expect(append).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(501);
+  });
+
+  it("saved-list-history-bound-exact-and-over batch-atomic", async () => {
+    const { runtime, eventStore, allEvents } = await setupHistory(49_999);
+    const append = vi.spyOn(eventStore, "appendToStream");
+    await expect(
+      runtime.applyLineChanges(
+        {
+          commandId: commandId("crossing-batch"),
+          listId,
+          ownerAccountId,
+          expectedVersion: 49_999,
+          operations: ["one", "two"].map((value) => ({
+            operationId: value,
+            kind: "add" as const,
+            lineId: lineId(value),
+            product: product(value),
+            trackedQuantity: 1,
+          })),
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "saved-list-history-limit-reached" });
+    expect(append).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(49_999);
+    const input = {
+      commandId: commandId("exact-append"),
+      listId,
+      ownerAccountId,
+      expectedVersion: 49_999,
+      title: "Exact append",
+    } as const;
+    await expect(runtime.changeDetails(input, context)).resolves.toMatchObject({
+      receipt: { committedVersion: 50_000, replayed: false },
+      savedList: { version: 50_000 },
+    });
+    await expect(runtime.changeDetails(input, context)).resolves.toMatchObject({
+      receipt: { committedVersion: 50_000, replayed: true },
+      savedList: { version: 50_000 },
+    });
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(allEvents).toHaveLength(50_000);
+  });
+
+  it("saved-list-complete-receipt-history partial-history poison", async () => {
+    const { runtime, eventStore, allEvents } = await setupHistory(501);
+    const read = vi.spyOn(eventStore, "readStream");
+    const append = vi.spyOn(eventStore, "appendToStream");
+    const input = { commandId: commandId("create"), listId, ownerAccountId, title: "Trade targets" } as const;
+    read.mockImplementation(async ({ fromVersion = 1 }) =>
+      fromVersion === 1
+        ? allEvents.slice(0, 500)
+        : [
+            {
+              ...allEvents[500]!,
+              streamVersion: 502,
+            },
+          ],
+    );
+    await expect(runtime.createSavedList(input, context)).rejects.toThrow("inclusive read expected 501");
+    read.mockImplementation(async () => allEvents.slice(1, 501));
+    await expect(runtime.createSavedList(input, context)).rejects.toThrow("inclusive read expected 1");
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it("returns authoritative snapshots and durable idempotent receipts", async () => {
     const store = createInMemoryEventStore();
     const runtime = createSavedListRuntime({
