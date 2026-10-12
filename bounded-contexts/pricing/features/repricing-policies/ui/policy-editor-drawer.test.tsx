@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
@@ -63,6 +63,26 @@ function fill(label: string, value: string) {
 }
 
 describe("policy editor prerequisites and gates", () => {
+  it("summary callers preserve Pricing message-only alerts without automatic focus", async () => {
+    const api = apiFixture();
+    vi.mocked(api.startRepricingDryRun).mockRejectedValue(
+      new PricingApiError(400, {
+        error: { code: "validation_failed", details: [{ field: "name", message: "Use a unique policy name." }] },
+      }),
+    );
+    render(<PolicyEditorDrawer api={api} initialBody={body} onSave={vi.fn()} onClose={vi.fn()} />);
+    const name = await screen.findByLabelText("Policy name");
+    expect(screen.queryByRole("alert")).toBeNull();
+    name.focus();
+    fireEvent.click(screen.getByRole("button", { name: "Preview policy" }));
+    await screen.findByText("Use a unique policy name.");
+    const summary = screen.getByRole("alert");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(summary.getAttribute("aria-live")).toBe("assertive");
+    expect(summary.getAttribute("tabindex")).toBe("-1");
+    expect(within(summary).queryByRole("link")).toBeNull();
+    expect(document.activeElement).toBe(name);
+  });
   it.each([[], ["CAD"], ["CAD", "USD"]].map((listingCurrencyCodes) => ({ listingCurrencyCodes })))(
     "authoring prerequisites never invent currency or amounts: $listingCurrencyCodes",
     async ({ listingCurrencyCodes }) => {
