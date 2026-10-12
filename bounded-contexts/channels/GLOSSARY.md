@@ -297,6 +297,11 @@ A **Channel Inventory Snapshot** is channel-reported quantity state captured for
 
 ## Snapshot Staleness
 
+Claimed TCGplayer reconciliation reads persisted Live snapshots and authoritative applied batch membership.
+It compares present listings and warns about stale captures and quantity drops not explained by recorded original sale facts.
+Recent sales coverage remains unverified: a listing-settled run can close drift attention and recover drift health,
+but never records a clean run, last-clean time, or a connection-level In sync result. Ready to Ship intake is unchanged.
+
 **Snapshot Staleness** is the age of an attributed (operator-declared or connector-captured) Live capture relative to
 the reconciliation run clock. Age strictly beyond the configured window is stale;
 missing, unattributed, invalid, future, or non-increasing capture evidence is unknown.

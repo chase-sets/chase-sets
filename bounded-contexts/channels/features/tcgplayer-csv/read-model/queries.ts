@@ -13,6 +13,72 @@ import type {
 import { tcgplayerLocalRefusalReasons, tcgplayerLocalSnapshotRowCeiling } from "../domain/contracts";
 import { digestChannelSyncRunMembers } from "../domain/digest";
 import { assertBoundedText, assertClosedRecord, assertSafeInteger } from "../domain/validation";
+import { tcgplayerExternalListingId } from "../domain/composition";
+
+export async function readAppliedListingMembership(
+  db: PgQueryable,
+  input: Readonly<{ connectionId: string; maxRows: number }>,
+): Promise<readonly Readonly<{ channelListingId: string; materialIdentity: string }>[] | null> {
+  assertClosedRecord(input, ["connectionId", "maxRows"], "applied membership input");
+  assertBoundedText(input.connectionId, "connectionId");
+  assertSafeInteger(input.maxRows, 1, tcgplayerLocalSnapshotRowCeiling, "maxRows");
+  const latest = await db.query<{ channel_listing_id: string; run_id: string }>(
+    `WITH ranked AS (
+       SELECT member.channel_listing_id,run.run_id,
+         dense_rank() OVER (PARTITION BY member.channel_listing_id ORDER BY run.sequence DESC) AS rank
+       FROM channel_sync_runs AS run JOIN channel_sync_run_rows AS member USING (run_id)
+       WHERE run.connection_id=$1 AND run.state='applied' AND member.member_kind<>'refused'
+     ) SELECT channel_listing_id,run_id FROM ranked WHERE rank=1
+       ORDER BY channel_listing_id,run_id LIMIT $2`,
+    [input.connectionId, input.maxRows + 1],
+  );
+  if (
+    latest.rows.length > input.maxRows ||
+    new Set(latest.rows.map((row) => row.channel_listing_id)).size !== latest.rows.length
+  )
+    return null;
+  const runIds = [...new Set(latest.rows.map((row) => row.run_id))];
+  if (runIds.length === 0) return [];
+  const runs = await db.query<RunRow>(
+    "SELECT * FROM channel_sync_runs WHERE connection_id=$1 AND state='applied' AND run_id=ANY($2::text[])",
+    [input.connectionId, runIds],
+  );
+  const rows = await db.query<Record<string, unknown>>(
+    "SELECT * FROM channel_sync_run_rows WHERE run_id=ANY($1::text[]) ORDER BY run_id,ordinal LIMIT $2",
+    [runIds, input.maxRows + 1],
+  );
+  if (runs.rows.length !== runIds.length || rows.rows.length > input.maxRows) return null;
+  const membership = new Map<string, ChannelSyncRunMember[]>();
+  for (const row of rows.rows) {
+    const id = text(row.run_id);
+    const members = membership.get(id) ?? [];
+    members.push(mapMember(row));
+    membership.set(id, members);
+  }
+  for (const run of runs.rows) {
+    const members = membership.get(run.run_id) ?? [];
+    if (
+      members.length !== run.member_count ||
+      digestChannelSyncRunMembers(members) !== run.member_digest ||
+      members.some((member) => member.reservationId !== run.reservation_id)
+    )
+      return null;
+  }
+  const result: Array<{ channelListingId: string; materialIdentity: string }> = [];
+  for (const selected of latest.rows) {
+    const members = membership
+      .get(selected.run_id)
+      ?.filter((member) => member.channelListingId === selected.channel_listing_id);
+    if (!members || members.length !== 1 || members[0]!.memberKind === "refused") return null;
+    const member = members[0]!;
+    if (member.externalKey === null) return null;
+    result.push({
+      channelListingId: selected.channel_listing_id,
+      materialIdentity: tcgplayerExternalListingId(member.externalKey, member.conditionText),
+    });
+  }
+  return result;
+}
 
 type RunRow = Readonly<{
   run_id: string;
