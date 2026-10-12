@@ -272,6 +272,8 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.registrationGates.registration.requires.an.invitation":
     "Registration requires an invitation.",
   "auth.support.routeSupport.authHost.magic.link.token.entry.is.not": "Magic link token entry is not available here.",
+  "auth.support.routeSupport.authHost.request.failed": "This request could not be completed. Try again.",
+  "auth.support.routeSupport.authHost.rate.limited": "Too many attempts. Try again later.",
   "auth.support.routeSupport.authHost.sign.in.temporarily.unavailable":
     "Sign-in is temporarily unavailable. Try again in a few seconds.",
   "auth.support.routeSupport.magicLinkLanding.magic.link.could.not.be.completed": "Magic link could not be completed",

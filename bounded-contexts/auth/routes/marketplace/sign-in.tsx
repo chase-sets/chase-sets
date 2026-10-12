@@ -7,6 +7,7 @@ import { marketplaceAuthHost } from "../../support/route-support/auth-host.serve
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 import { marketplaceAccountGateContextMessage } from "../../support/route-support/marketplace-account-gate-context";
 import { authFormActionFromRequest } from "../../support/route-support/auth-form-action";
+import { socialLoginErrorMessage } from "../../support/route-support/social-login-errors";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.signIn });
 
@@ -21,7 +22,7 @@ export function loader({ request }: LoaderFunctionArgs) {
     contextMessage: marketplaceAccountGateContextMessage(returnTo),
     initialIdentifier: url.searchParams.get("signInIdentifier"),
     initialMethod: url.searchParams.get("signInMethod"),
-    socialLoginError: url.searchParams.get("socialLoginError"),
+    socialLoginError: socialLoginErrorMessage(url.searchParams.get("socialLoginError")),
   };
 }
 
@@ -36,7 +37,7 @@ export default function MarketplaceSignInRoute() {
         contextMessage={data.contextMessage}
         notice={actionData && "status" in actionData ? actionData : null}
         action={data.formAction}
-        initialIdentifier={actionError?.identifier ?? data.initialIdentifier}
+        initialIdentifier={data.initialIdentifier}
         initialMethod={actionError?.method ?? data.initialMethod}
         returnTo={data.returnTo}
         signInMethods={marketplaceAuthHostConfig.signInMethods}

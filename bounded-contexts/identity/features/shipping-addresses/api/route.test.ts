@@ -5,6 +5,12 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { IdentityApiEnv } from "../../../api";
 import { shippingAddressRoutes } from "./route";
 import type { ShippingAddressServices } from "./runtime";
+import {
+  decideShippingAddressBook,
+  initialShippingAddressBookState,
+  normalizeShippingAddressSnapshot,
+} from "../domain/domain";
+import { ShippingAddressUndeliverableError } from "../domain/errors";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -60,6 +66,47 @@ function buildServices(overrides: Partial<ShippingAddressServices> = {}) {
 }
 
 describe("shipping address API route", () => {
+  it("preserves rejection parity and no write", async () => {
+    const written = vi.fn();
+    const services = buildServices({
+      commandHandler: vi.fn(async (input) => {
+        const events = decideShippingAddressBook(initialShippingAddressBookState, input.command);
+        written(events);
+        return { state: initialShippingAddressBookState, version: 1 };
+      }),
+    });
+    for (const field of ["name", "line1", "city", "state", "postalCode", "country"] as const) {
+      for (const value of ["", "   "]) {
+        const snapshot = { ...addressBody, company: null, line2: null, phone: null, email: null, [field]: value };
+        expect(() => normalizeShippingAddressSnapshot(snapshot)).toThrow();
+        // Empty country is already defaulted by the API; whitespace is not.
+        if (field === "country" && value === "") continue;
+        const response = await buildApp(services).request("/accounts/acc_1/shipping-addresses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(snapshot),
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+          error: { code: "validation_failed", details: [{ field, code: "required", message: expect.any(String) }] },
+        });
+      }
+    }
+    expect(written).not.toHaveBeenCalled();
+    expect(
+      normalizeShippingAddressSnapshot({
+        ...addressBody,
+        company: " ",
+        line2: null,
+        phone: null,
+        email: null,
+        name: " Alex ",
+        state: " il ",
+        country: " us ",
+      }),
+    ).toMatchObject({ name: "Alex", state: "IL", country: "US", company: null });
+  });
+
   it("adds an address without synchronously draining projections", async () => {
     const services = buildServices();
 
@@ -156,9 +203,7 @@ describe("shipping address API route", () => {
   it("blocks undeliverable saved addresses", async () => {
     const services = buildServices({
       verifyShippingAddress: vi.fn(async () => {
-        throw new Error(
-          "We could not verify this as a deliverable address. Use a deliverable shipping address before saving.",
-        );
+        throw new ShippingAddressUndeliverableError();
       }),
     });
 

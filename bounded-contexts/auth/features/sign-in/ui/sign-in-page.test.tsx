@@ -491,6 +491,9 @@ describe("sign-in page magic link recovery", () => {
     ).resolves.toEqual({
       error: "Magic link token entry is not available here.",
       method: "magic-link",
+      intent: "magic-link-consume",
+      classification: "FORM",
+      errors: { fieldErrors: {}, formErrors: ["Magic link token entry is not available here."] },
     });
     expect(fetch).not.toHaveBeenCalled();
   });

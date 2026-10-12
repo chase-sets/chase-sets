@@ -10,6 +10,7 @@ import {
 } from "../../support/route-support/admin-social-login";
 import { authFormActionFromLocation } from "../../support/route-support/auth-form-action";
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
+import { socialLoginErrorMessage } from "../../support/route-support/social-login-errors";
 
 export const meta: MetaFunction = () => [{ title: adminAuthHostConfig.titles.signIn }];
 
@@ -23,7 +24,11 @@ export default function AccessAdminSignInRoute() {
   return (
     <Container width="narrow">
       <SignInPage
-        errorMessage={actionData && "error" in actionData ? actionData.error : null}
+        errorMessage={
+          actionData && "error" in actionData
+            ? actionData.error
+            : socialLoginErrorMessage(searchParams.get("socialLoginError"))
+        }
         notice={actionData && "status" in actionData ? actionData : null}
         action={authFormActionFromLocation(location)}
         initialIdentifier={searchParams.get("signInIdentifier")}

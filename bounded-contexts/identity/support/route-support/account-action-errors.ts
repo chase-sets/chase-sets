@@ -12,30 +12,46 @@ export type AccountActionFailureResult = Readonly<{
   failure: ExpectedAccountActionError & Readonly<{ message: string; intent: string }>;
 }>;
 
+export function classifyAccountActionError(error: unknown) {
+  const status = identityApiErrorAdapter.getStatus(error);
+  const code = identityApiErrorAdapter.getErrorCode(error);
+  if ((status === 400 || status === 422) && (code === "validation_failed" || code === "validation_error")) {
+    return {
+      kind: "validation",
+      status,
+      code,
+      message: t("identity.support.routeSupport.accountActionErrors.validation"),
+    } as const;
+  }
+  if (status === 404 && code === "not_found") {
+    return {
+      kind: "domain",
+      status,
+      code,
+      message: t("identity.support.routeSupport.accountActionErrors.notFound"),
+    } as const;
+  }
+  if (status === 409 && code === "conflict") {
+    return {
+      kind: "domain",
+      status,
+      code,
+      message: t("identity.support.routeSupport.accountActionErrors.conflict"),
+    } as const;
+  }
+  return null;
+}
+
 export function createAccountActionErrorHandling() {
   const committed = new WeakSet<FormActionContext>();
 
   function onApiError(error: unknown, context: FormActionContext) {
     if (committed.has(context)) throw error;
 
-    const status = identityApiErrorAdapter.getStatus(error);
-    const code = identityApiErrorAdapter.getErrorCode(error);
-    let failure: ExpectedAccountActionError;
-    let message: string;
-    if ((status === 400 || status === 422) && (code === "validation_failed" || code === "validation_error")) {
-      failure = { kind: "validation", status, code };
-      message = t("identity.support.routeSupport.accountActionErrors.validation");
-    } else if (status === 404 && code === "not_found") {
-      failure = { kind: "domain", status, code };
-      message = t("identity.support.routeSupport.accountActionErrors.notFound");
-    } else if (status === 409 && code === "conflict") {
-      failure = { kind: "domain", status, code };
-      message = t("identity.support.routeSupport.accountActionErrors.conflict");
-    } else {
-      throw error;
-    }
+    const failure = classifyAccountActionError(error);
+    if (!failure) throw error;
 
-    return data({ failure: { ...failure, message, intent: context.intent } } satisfies AccountActionFailureResult, {
+    return data({ failure: { ...failure, intent: context.intent } } satisfies AccountActionFailureResult, {
       status: failure.status,
     });
   }

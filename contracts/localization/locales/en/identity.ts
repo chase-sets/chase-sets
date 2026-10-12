@@ -456,6 +456,14 @@ export const identityEnglishTranslations = {
   "identity.features.shippingAddresses.api.route.address.standardization.suggested":
     "We found a standardized version of this address. Choose the suggested address or confirm the address as entered.",
   "identity.features.shippingAddresses.api.route.forbidden": "Forbidden.",
+  "identity.features.shippingAddresses.errors.name.required": "Recipient name is required.",
+  "identity.features.shippingAddresses.errors.line1.required": "Address line 1 is required.",
+  "identity.features.shippingAddresses.errors.city.required": "City is required.",
+  "identity.features.shippingAddresses.errors.state.required": "State is required.",
+  "identity.features.shippingAddresses.errors.postalCode.required": "Postal code is required.",
+  "identity.features.shippingAddresses.errors.country.required": "Country is required.",
+  "identity.features.shippingAddresses.errors.undeliverable":
+    "We could not verify this as a deliverable address. Use a deliverable shipping address before saving.",
   "identity.features.shippingAddresses.ui.shippingAddressPage.account": "Account",
   "identity.features.shippingAddresses.ui.shippingAddressPage.add.description":
     "Create reusable recipient destinations for checkout.",

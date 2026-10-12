@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { data, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
+import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
 import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
@@ -12,8 +13,30 @@ import { IdentityApiError, type ShippingAddress } from "../../support/request-su
 import { ShippingAddressPage } from "../../features/shipping-addresses/ui/shipping-address-page";
 import contextManifest from "../../context.json";
 import { identityApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { classifyAccountActionError } from "../../support/route-support/account-action-errors";
+import { shippingAddressActionErrors } from "../../features/shipping-addresses/ui/action-errors";
 
-type ActionData = Readonly<{ error?: string }>;
+type ActionData = Readonly<{ failure: Readonly<{ message: string }> }>;
+
+function addressIdentity(value: string) {
+  try {
+    return parseStrictTypedUlid(value, "adr");
+  } catch {
+    return undefined;
+  }
+}
+
+function unknownAction() {
+  const message = t("identity.routes.marketplace.accountShippingAddresses.unknown.action");
+  return {
+    failure: {
+      message,
+      intent: "unknown",
+      classification: "INDETERMINATE",
+      errors: { fieldErrors: {}, formErrors: [message] },
+    },
+  } as const;
+}
 
 function text(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
@@ -89,14 +112,35 @@ async function handleShippingAddressAction(intent: string, request: Request, for
         "/account/shipping-addresses",
       );
     }
-    return { error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") };
+    return unknownAction();
   } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
-    } satisfies ActionData;
+    if (!(error instanceof IdentityApiError)) throw error;
+    const code = identityApiErrorAdapter.getErrorCode(error);
+    const failure =
+      classifyAccountActionError(error) ??
+      (error.status === 400 && code === "shipping_address_undeliverable"
+        ? ({
+            kind: "validation",
+            status: 400,
+            code,
+            message: t("identity.features.shippingAddresses.errors.undeliverable"),
+          } as const)
+        : error.status === 409 && code === "address_standardization_suggested"
+          ? ({
+              kind: "domain",
+              status: 409,
+              code,
+              message: t("identity.features.shippingAddresses.api.route.address.standardization.suggested"),
+            } as const)
+          : null);
+    if (!failure) throw error;
+    const normalized = shippingAddressActionErrors(error, intent, failure.message);
+    const message = Object.values(normalized.errors.fieldErrors)[0]?.[0] ?? failure.message;
+    const identity = intent === "update" ? addressIdentity(shippingAddressId) : undefined;
+    return data(
+      { failure: { ...failure, ...normalized, message, intent, ...(identity ? { shippingAddressId: identity } : {}) } },
+      { status: failure.status },
+    );
   }
 }
 
@@ -112,11 +156,7 @@ export const action = defineFormAction({
     archive: ({ request, formData, actor }) =>
       handleShippingAddressAction("archive", request, formData, actor!.accountId),
   },
-  onUnknownIntent: () => ({ error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") }),
-  onError: (error) => ({
-    error:
-      error instanceof Error ? error.message : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
-  }),
+  onUnknownIntent: unknownAction,
 });
 
 export const meta: MetaFunction = () =>
@@ -127,5 +167,10 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as ActionData | undefined;
-  return <ShippingAddressPage addresses={data.addresses} errorMessage={actionData?.error ?? data.loadError ?? null} />;
+  return (
+    <ShippingAddressPage
+      addresses={data.addresses}
+      errorMessage={actionData?.failure?.message ?? data.loadError ?? null}
+    />
+  );
 }
