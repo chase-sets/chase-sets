@@ -288,11 +288,28 @@ describeDb("Channel Reconciliation guarded production path", () => {
       [order.orderNumber, JSON.stringify(order)],
     );
     expect(await read()).toEqual({ kind: "known", quantities: [] });
+    await seedInventoryItem(pools.inventory, "SYN-pair-item", 2);
+    const committed = await createInventoryExternalChannelSaleRecorderForPool(
+      pools.inventory,
+      context,
+    )({
+      accountId: "account-1",
+      inventoryItemId: "SYN-pair-item",
+      storageLocationId: "location-1",
+      saleKey: tcgplayerSaleKey("account-1", "connection-1", order.orderNumber, line),
+      requestedQuantity: line.quantity,
+      unitPriceAmount: line.unitPriceAmount,
+      currencyCode: "USD",
+      soldAt: order.soldAt,
+      connectionAuditReference: "connection-1",
+    });
+    if (!("status" in committed)) throw new Error("SYN-pair sale did not commit through Inventory.");
+    expect(committed.sale).toMatchObject({ requestedQuantity: 5, appliedQuantity: 2, refusedQuantity: 3 });
     await pools.channels.query(
       `INSERT INTO channel_order_lines
       (connection_id,sale_key_fingerprint,facts_fingerprint,committed_sale,backdated)
       VALUES ('connection-1',$1,$2,$3::jsonb,true)`,
-      [key, factsFingerprint, JSON.stringify({ requestedQuantity: 5, appliedQuantity: 2, refusedQuantity: 3 })],
+      [key, factsFingerprint, JSON.stringify(committed.sale)],
     );
     expect(await read()).toEqual({ kind: "known", quantities: [{ skuId: "90000001", quantity: 5 }] });
     await pools.channels.query(
@@ -5298,7 +5315,7 @@ async function plantRunningRun(db: PgTransactionalPool, connectionId: string, le
   });
 }
 
-async function seedInventoryItem(db: PgTransactionalPool, itemId: string) {
+async function seedInventoryItem(db: PgTransactionalPool, itemId: string, quantity = 10) {
   await createPostgresEventStore({ pool: db }).appendToStream({
     streamId: `inventory.item-${itemId}`,
     expectedVersion: "no_stream",
@@ -5314,7 +5331,7 @@ async function seedInventoryItem(db: PgTransactionalPool, itemId: string) {
           selectedOptions: [],
           gradedCard: null,
           storageLocationId: "location-1",
-          totalQuantity: 10,
+          totalQuantity: quantity,
           acquisitionCostAmount: null,
           acquisitionCostCurrencyCode: null,
           acquisitionOccurrence: { kind: "unknown" },

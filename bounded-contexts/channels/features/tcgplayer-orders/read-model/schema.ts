@@ -73,6 +73,10 @@ export const tcgplayerOrdersSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261012_channels_recorded_order_facts",
     description: "Bound the original order facts scan for snapshot pair accounting.",
-    statements: [indexes[0].replace("CREATE INDEX ", "CREATE INDEX CONCURRENTLY ")],
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_facts_scan_idx
+      ON channel_order_observations (connection_id,sequence)
+      WHERE record->>'kind'='order' OR order_reference IS NOT NULL`,
+    ],
   },
 ];
