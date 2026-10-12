@@ -308,15 +308,15 @@ function jpegIndexRejection(body: Uint8Array): ContainerRejection | undefined {
 }
 
 // The MP header is a TIFF header whose offsets count from its byte-order mark. Its index IFD, through its next-IFD word,
-// must fit the segment and state NumberOfImages once, as one LONG. Its MPEntry is UNDEFINED bytes holding exactly one
-// 16-byte record per image inside the segment, clear of the TIFF header and of the index IFD.
+// must fit the segment after the TIFF header and state NumberOfImages once, as one LONG. Its MPEntry is UNDEFINED bytes
+// holding exactly one 16-byte record per image inside the segment, clear of the TIFF header and of the index IFD.
 function mpfIndexedImages(header: Uint8Array): number | undefined {
   const order = ascii(header, 0, 2);
   if (header.byteLength < TIFF_HEADER_BYTES || (order !== "II" && order !== "MM")) return undefined;
   const little = order === "II";
   const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
   const ifd = view.getUint32(4, little);
-  if (view.getUint16(2, little) !== 42 || ifd + 2 > header.byteLength) return undefined;
+  if (view.getUint16(2, little) !== 42 || ifd < TIFF_HEADER_BYTES || ifd + 2 > header.byteLength) return undefined;
   const entriesEnd = ifd + 2 + 12 * view.getUint16(ifd, little);
   const ifdEnd = entriesEnd + 4;
   if (ifdEnd > header.byteLength) return undefined;

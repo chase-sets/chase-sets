@@ -623,6 +623,25 @@ const REJECTIONS: readonly RejectionCase[] = [
       ["one image but two MPEntry records", (header) => header.setUint32(30, 1, true)],
       ["no MPEntry", (header) => header.setUint16(34, 0xb0ff, true)],
       ["MPEntry records past its segment", (header) => header.setUint32(42, 0xffff, true)],
+      [
+        // An IFD at 4 reads its 4 entries' count from its own offset and its first tag (0) from that offset's high bytes;
+        // the rest state one image whose MPEntry record follows the next-IFD word, so only the IFD's position is wrong.
+        "an index IFD over the TIFF header",
+        (header) => {
+          header.setUint32(4, 4, true);
+          for (const [at, tag, type, count, value] of [
+            [18, 0xb001, 4, 1, 1],
+            [30, 0xb002, 7, 16, 58],
+            [42, 0xb000, 7, 4, 0x30303130],
+          ] as const) {
+            header.setUint16(at, tag, true);
+            header.setUint16(at + 2, type, true);
+            header.setUint32(at + 4, count, true);
+            header.setUint32(at + 8, value, true);
+          }
+          header.setUint32(54, 0, true);
+        },
+      ],
     ] as const satisfies readonly (readonly [string, (header: DataView) => void])[]
   ).map(
     ([fault, patch]): RejectionCase => ({
