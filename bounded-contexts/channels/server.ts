@@ -138,7 +138,6 @@ export {
   type ChannelReconciliationServices,
   type RepushChannelListing,
 } from "./features/reconciliation/domain/contracts";
-export type { ClaimedMaterialIndex } from "./features/reconciliation/read-model/source";
 export {
   CHANNEL_OUTBOUND_KILL_SWITCH_FALLBACK,
   CHANNEL_RECONCILIATION_POLICY_FALLBACK,
