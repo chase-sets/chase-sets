@@ -48,20 +48,8 @@ const catalogSignoffReferenceNames = [
   "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
   "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
   "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
 ];
-
-// The production Lorcana unit stops are derived from the active provider profile registry, never typed by hand.
-async function registryLorcanaUnitKeys() {
-  const registry =
-    await import("../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts");
-  return [
-    ...new Set(
-      registry.catalogProviderIntegrationProfileVersions
-        .filter((version) => registry.catalogProviderProfileVersionProductDomain(version) === "lorcana")
-        .map(registry.catalogProviderProfileVersionIngestionUnitKey),
-    ),
-  ].sort();
-}
 
 describe("render platform Helm values", () => {
   it("declares the non-secret default-off Catalog send-window key once on both consumers only", () => {
@@ -306,19 +294,16 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("derives the production cutover posture from the authoritative Terraform parity map", async () => {
+  it("derives the production cutover posture from the authoritative Terraform parity map", () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
-    const lorcanaUnitKeys = (await registryLorcanaUnitKeys()).join(",");
 
     expect(production.global.envOverrides).toEqual({
       CHASE_SETS_CHECKOUT_CLOSED: "true",
       CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
       CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
-      CATALOG_INTEGRATION_IMPORTS_DISABLED: "tcgdex,ygoprodeck,ygojson",
-      CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED: lorcanaUnitKeys,
-      CATALOG_INTEGRATION_PROMOTION_DISABLED: "tcgdex,ygoprodeck,ygojson",
-      CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED: lorcanaUnitKeys,
-      CATALOG_INTEGRATION_REAPPLY_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "open",
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "open",
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "open",
       CHASE_SETS_PUBLIC_INDEXING: "true",
       PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true",
       PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence",
@@ -1108,9 +1093,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 136,
-      "platform-bootstrap": 63,
-      "platform-worker": 133,
+      "platform-api": 137,
+      "platform-bootstrap": 64,
+      "platform-worker": 134,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

@@ -4,11 +4,9 @@
     "CHASE_SETS_CHECKOUT_CLOSED": "true",
     "CATALOG_INTEGRATION_ACTIVATION_MODE": "open",
     "CATALOG_INTEGRATION_CONTROL_PLANE_MODE": "open",
-    "CATALOG_INTEGRATION_IMPORTS_DISABLED": "tcgdex,ygoprodeck,ygojson",
-    "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED": "lorcanajson:lorcana:set:reference-data,lorcanajson:lorcana:single-card:reference-data,lorcast:lorcana:set:reference-data,lorcast:lorcana:single-card:reference-data,scrydex:lorcana:sealed-product:source-observation-import,scrydex:lorcana:set:reference-data,scrydex:lorcana:single-card:source-observation-import,tcgplayer:lorcana:sealed-product:source-observation-import,tcgplayer:lorcana:single-card:source-observation-import",
-    "CATALOG_INTEGRATION_PROMOTION_DISABLED": "tcgdex,ygoprodeck,ygojson",
-    "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED": "lorcanajson:lorcana:set:reference-data,lorcanajson:lorcana:single-card:reference-data,lorcast:lorcana:set:reference-data,lorcast:lorcana:single-card:reference-data,scrydex:lorcana:sealed-product:source-observation-import,scrydex:lorcana:set:reference-data,scrydex:lorcana:single-card:source-observation-import,tcgplayer:lorcana:sealed-product:source-observation-import,tcgplayer:lorcana:single-card:source-observation-import",
-    "CATALOG_INTEGRATION_REAPPLY_DISABLED": "tcgdex,ygoprodeck,ygojson",
+    "CATALOG_INTEGRATION_IMPORTS_DISABLED": "open",
+    "CATALOG_INTEGRATION_PROMOTION_DISABLED": "open",
+    "CATALOG_INTEGRATION_REAPPLY_DISABLED": "open",
     "CHASE_SETS_PUBLIC_INDEXING": "true",
     "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED": "true",
     "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS": "public-presence",
@@ -461,6 +459,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {
@@ -1122,6 +1124,10 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
@@ -1721,6 +1727,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {

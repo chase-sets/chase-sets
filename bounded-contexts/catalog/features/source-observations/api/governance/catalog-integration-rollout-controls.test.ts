@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   assertCatalogIntegrationProfileUnitAllowed,
   CatalogIntegrationRolloutControlError,
@@ -13,8 +13,117 @@ import {
   catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderProfileVersionProductDomain,
 } from "../provider-integration-profiles";
+import { defineCatalogProviderIngestionUnitIdentityContract } from "../providers/provider-integration-mapping-contract";
 
 describe("Catalog integration rollout controls", () => {
+  const newGameSignoffs = [
+    ["pokemon", "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"],
+    ["yugioh", "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"],
+    ["lorcana", "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"],
+  ] as const;
+  const signedProductionEnv = {
+    DEPLOYMENT_ENVIRONMENT: "production",
+    CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
+    CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
+    CATALOG_INTEGRATION_IMPORTS_DISABLED: "open",
+    CATALOG_INTEGRATION_PROMOTION_DISABLED: "open",
+    CATALOG_INTEGRATION_REAPPLY_DISABLED: "open",
+    CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC Magic approval",
+    CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC One Piece approval",
+    ...Object.fromEntries(newGameSignoffs.map(([, name]) => [name, "SYNTHETIC game approval"])),
+  };
+
+  it.each(newGameSignoffs)("requires %s signoff for exactly its registry units, not shared providers", (game, name) => {
+    const versions = catalogProviderIntegrationProfileVersions.filter(
+      (version) => catalogProviderProfileVersionProductDomain(version) === game,
+    );
+    const unitKeys = [...new Set(versions.map(catalogProviderProfileVersionIngestionUnitKey))].sort();
+    expect(unitKeys.length).toBeGreaterThan(0);
+    expect(versions.map((version) => version.providerKey)).toContain("tcgplayer");
+
+    for (const value of [undefined, "", "   ", " false ", "None", "OPEN"]) {
+      const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({ ...signedProductionEnv, [name]: value });
+      const control = policy
+        .snapshot()
+        .controls.find((item) => item.controlId === `${game}-production-signoff-required`);
+      expect(control).toMatchObject({ status: "blocked", unitKeys, providerKeys: [] });
+      for (const version of catalogProviderIntegrationProfileVersions) {
+        const belongsToGame = catalogProviderProfileVersionProductDomain(version) === game;
+        for (const capability of ["import", "promotion", "reapply"] as const) {
+          const decision = policy.decide({
+            capability,
+            providerKey: version.providerKey,
+            unitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+          });
+          expect(decision.allowed, `${value}: ${capability} ${version.profileKey}`).toBe(!belongsToGame);
+          expect(decision.controls.map((item) => item.controlId)).toEqual(
+            belongsToGame ? [`${game}-production-signoff-required`] : [],
+          );
+          const admit = () => assertCatalogIntegrationProfileUnitAllowed(policy, capability, version);
+          if (belongsToGame) expect(admit).toThrow(CatalogIntegrationRolloutControlError);
+          else expect(admit).not.toThrow();
+        }
+      }
+    }
+    const signedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(signedProductionEnv);
+    for (const version of versions) {
+      for (const capability of ["import", "promotion", "reapply"] as const) {
+        expect(() => assertCatalogIntegrationProfileUnitAllowed(signedPolicy, capability, version)).not.toThrow();
+      }
+    }
+    const stagingPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv({
+      ...signedProductionEnv,
+      DEPLOYMENT_ENVIRONMENT: "staging",
+      [name]: "",
+    });
+    expect(
+      stagingPolicy.snapshot().controls.some((item) => item.controlId === `${game}-production-signoff-required`),
+    ).toBe(false);
+  });
+
+  it("derives future Scrydex Pokemon and Yu-Gi-Oh! units from the registry without provider-wide authority", async () => {
+    const scrydex = catalogProviderIntegrationProfileVersions.find(
+      (version) =>
+        version.providerKey === "scrydex" && catalogProviderProfileVersionProductDomain(version) === "lorcana",
+    );
+    if (!scrydex?.ingestionUnitIdentity) throw new Error("Expected an identified Scrydex Lorcana registry unit.");
+    const identity = scrydex.ingestionUnitIdentity;
+    const syntheticVersions = (["pokemon", "yugioh"] as const).map((productDomain) => ({
+      ...scrydex,
+      profileKey: `synthetic-scrydex-${productDomain}`,
+      ingestionUnitIdentity: defineCatalogProviderIngestionUnitIdentityContract({
+        ...identity,
+        productDomain,
+      }),
+    }));
+    vi.resetModules();
+    vi.doMock("../provider-integration-profiles", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../provider-integration-profiles")>()),
+      catalogProviderIntegrationProfileVersions: [...catalogProviderIntegrationProfileVersions, ...syntheticVersions],
+    }));
+    try {
+      const { createCatalogIntegrationRolloutControlPolicyFromEnv: createPolicy } =
+        await import("./catalog-integration-rollout-controls");
+      for (const [game, name] of newGameSignoffs) {
+        const policy = createPolicy({ ...signedProductionEnv, [name]: undefined });
+        for (const version of syntheticVersions) {
+          for (const capability of ["import", "promotion", "reapply"] as const) {
+            expect(
+              policy.decide({
+                capability,
+                providerKey: "scrydex",
+                unitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+              }).allowed,
+            ).toBe(catalogProviderProfileVersionProductDomain(version) !== game);
+          }
+        }
+      }
+    } finally {
+      vi.doUnmock("../provider-integration-profiles");
+      vi.resetModules();
+    }
+  });
+
   it("defaults control-plane operations to open", () => {
     const policy = createCatalogIntegrationRolloutControlPolicy({}, "2026-06-08T00:00:00.000Z");
 
@@ -191,6 +300,7 @@ describe("Catalog integration rollout controls", () => {
       CATALOG_INTEGRATION_REAPPLY_DISABLED: "open",
       CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
       CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: "#2025 #2039 staging UAT evidence",
+      CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE: "SYNTHETIC Pokemon approval",
     };
     const unsignedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(openProductionEnv);
 
@@ -556,27 +666,22 @@ describe("Catalog integration rollout controls", () => {
     ).toThrow("Provider API emergency stop is active for the configured provider scope.");
   });
 
-  it("ships production unit stops that name exactly the registry's Lorcana units", () => {
+  it("ships no provider-wide disables or Lorcana unit stops", () => {
     const shipped = shippedProductionEnvOverrides();
-    const lorcanaUnitKeys = registryLorcanaUnitKeys();
-
-    // Partition of the whole registry: a unit is stopped exactly when it is a Lorcana unit, so a
-    // Lorcana unit added to the registry fails here until the shipped stop list is regenerated.
-    expect(lorcanaUnitKeys.length).toBeGreaterThan(0);
+    for (const name of [
+      "CATALOG_INTEGRATION_IMPORTS_DISABLED",
+      "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+      "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+    ]) {
+      expect(shipped[name]).toBe("open");
+    }
     for (const name of ["CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED", "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"]) {
-      const stopped = shipped[name]?.split(",") ?? [];
-      expect(stopped).toEqual(lorcanaUnitKeys);
-      for (const version of catalogProviderIntegrationProfileVersions) {
-        expect(stopped.includes(catalogProviderProfileVersionIngestionUnitKey(version))).toBe(
-          catalogProviderProfileVersionProductDomain(version) === "lorcana",
-        );
-      }
+      expect(shipped).not.toHaveProperty(name);
     }
   });
 
-  it("opens the shipped production posture for the founder's four product lines and keeps Lorcana stopped", () => {
+  it("keeps all three unsigned games blocked in the shipped production posture and other games open", () => {
     const shipped = shippedProductionEnvOverrides();
-    const lorcanaUnitKeys = registryLorcanaUnitKeys();
     const policy = createCatalogIntegrationRolloutControlPolicyFromEnv({
       ...shipped,
       DEPLOYMENT_ENVIRONMENT: "production",
@@ -595,18 +700,24 @@ describe("Catalog integration rollout controls", () => {
     ).toMatchObject({ allowed: true });
 
     // Every registry unit goes through the runtime's resolved-unit admission, not the provider-only call shape.
-    const blockedProviderKeys = ["tcgdex", "ygoprodeck", "ygojson"];
     const admittedProviderKeys = new Set<string>();
     for (const version of catalogProviderIntegrationProfileVersions) {
       const admit = (capability: "import" | "promotion" | "reapply") => () =>
         assertCatalogIntegrationProfileUnitAllowed(policy, capability, version);
-      if (blockedProviderKeys.includes(version.providerKey)) {
-        expect(admit("import")).toThrow(IMPORTS_PROVIDER_SCOPE_DENIAL);
-        expect(admit("promotion")).toThrow(PROMOTION_PROVIDER_SCOPE_DENIAL);
-        expect(admit("reapply")).toThrow(REAPPLY_PROVIDER_SCOPE_DENIAL);
-      } else if (lorcanaUnitKeys.includes(catalogProviderProfileVersionIngestionUnitKey(version))) {
-        expect(admit("import")).toThrow(IMPORTS_UNIT_SCOPE_DENIAL);
-        expect(admit("promotion")).toThrow(PROMOTION_UNIT_SCOPE_DENIAL);
+      const game = catalogProviderProfileVersionProductDomain(version);
+      if (newGameSignoffs.some(([unsignedGame]) => unsignedGame === game)) {
+        for (const capability of ["import", "promotion", "reapply"] as const) {
+          expect(admit(capability)).toThrow(CatalogIntegrationRolloutControlError);
+          expect(
+            policy
+              .decide({
+                capability,
+                providerKey: version.providerKey,
+                unitKey: catalogProviderProfileVersionIngestionUnitKey(version),
+              })
+              .controls.map((control) => control.controlId),
+          ).toEqual([`${game}-production-signoff-required`]);
+        }
       } else {
         expect(admit("import")).not.toThrow();
         expect(admit("promotion")).not.toThrow();
@@ -615,6 +726,12 @@ describe("Catalog integration rollout controls", () => {
       }
     }
     expect([...admittedProviderKeys].sort()).toEqual(["mtgjson", "scrydex", "scryfall", "tcgplayer"]);
+    const signedPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv({ ...signedProductionEnv, ...shipped });
+    for (const version of catalogProviderIntegrationProfileVersions) {
+      for (const capability of ["import", "promotion", "reapply"] as const) {
+        expect(() => assertCatalogIntegrationProfileUnitAllowed(signedPolicy, capability, version)).not.toThrow();
+      }
+    }
   });
 
   it("keeps the shipped production posture behind the enforced signoff references and a usable emergency stop", () => {
@@ -664,12 +781,6 @@ describe("Catalog integration rollout controls", () => {
 });
 
 const ONE_PIECE_SIGNOFF_REQUIRED_PATTERN = /^One Piece production sync requires recorded provider-data signoff/;
-const IMPORTS_PROVIDER_SCOPE_DENIAL = "Catalog integration imports are disabled for the configured provider scope.";
-const PROMOTION_PROVIDER_SCOPE_DENIAL = "Catalog integration promotion is disabled for the configured provider scope.";
-const REAPPLY_PROVIDER_SCOPE_DENIAL = "Catalog integration reapply is disabled for the configured provider scope.";
-const IMPORTS_UNIT_SCOPE_DENIAL = "Catalog integration imports are disabled for the configured ingestion-unit scope.";
-const PROMOTION_UNIT_SCOPE_DENIAL =
-  "Catalog integration promotion is disabled for the configured ingestion-unit scope.";
 
 const repositoryRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../../../..");
 
@@ -679,14 +790,4 @@ function shippedProductionEnvOverrides(): Readonly<Record<string, string>> {
     readFileSync(path.join(repositoryRoot, "infrastructure/helm/platform/runtime-values.json"), "utf8"),
   ) as { productionEnvOverrides: Record<string, string> };
   return runtimeValues.productionEnvOverrides;
-}
-
-function registryLorcanaUnitKeys(): readonly string[] {
-  return [
-    ...new Set(
-      catalogProviderIntegrationProfileVersions
-        .filter((version) => catalogProviderProfileVersionProductDomain(version) === "lorcana")
-        .map(catalogProviderProfileVersionIngestionUnitKey),
-    ),
-  ].sort();
 }

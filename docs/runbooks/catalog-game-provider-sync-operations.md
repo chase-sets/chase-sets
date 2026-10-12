@@ -10,35 +10,36 @@ Do not paste provider API keys, team identifiers, cookies, request headers, acco
 
 Staging can run the interface UAT after approved profile versions and provider credentials are present. When the variables are unset, the code keeps production safe: `CATALOG_INTEGRATION_CONTROL_PLANE_MODE` defaults to `dry-run-only`, `CATALOG_INTEGRATION_ACTIVATION_MODE` defaults to `test-profiles-only`, and imports, promotion, and reapply default to disabled for `mtgjson,scryfall,tcgplayer`.
 
-Production ships an opened posture for the founder's four product lines (Magic, Pokemon, Yu-Gi-Oh!, and One Piece). It lives in `productionEnvOverrides` in `infrastructure/helm/platform/runtime-values.json`, which `scripts/render-platform-helm-values.mjs` renders into `values.production.yaml`:
+Production ships an open control plane behind enforced game signoff gates. The posture lives in `productionEnvOverrides` in `infrastructure/helm/platform/runtime-values.json`, which `scripts/render-platform-helm-values.mjs` renders into `values.production.yaml`:
 
 - `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=open` and `CATALOG_INTEGRATION_ACTIVATION_MODE=open`.
-- `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` are `tcgdex,ygoprodeck,ygojson`. The public Pokemon and Yu-Gi-Oh! transports stay stopped until their signoff references are code-enforced.
-- `mtgjson`, `scryfall`, and `tcgplayer` open behind the Magic signoff reference. Because that gate is provider-wide, it also covers the TCGplayer Pokemon and Yu-Gi-Oh! units.
-- `scrydex` opens behind the Scrydex credentials. The Scrydex and TCGplayer One Piece card and sealed-product units also need the One Piece signoff reference.
-- Lorcana stays stopped. `CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED` and `CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED` name every Lorcana unit key in the provider profile registry, including the LorcanaJSON, Lorcast, Scrydex, and TCGplayer units.
-  - Runtime import and promotion admit the unit of the profile they resolve, so these stops hold on shared providers.
-  - `catalog-integration-rollout-controls.test.ts` fails when the shipped list and the registry's Lorcana units differ. When a Lorcana unit is added, regenerate both lists from the registry.
+- `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` are `open`. No Lorcana unit stop lists are shipped.
+- The Magic and One Piece gates remain unchanged. Magic's provider-wide gate also covers shared TCGplayer units; opening a game's own gate does not override it.
+- Pokemon, Yu-Gi-Oh!, and Lorcana each require their own signoff reference for import, promotion, reapply, and activation. Their unit membership is derived from the provider profile registry, including TCGplayer and Scrydex units wherever registered for that game, without blocking other games on those providers.
+- With those three references absent, Integration health shows `pokemon-production-signoff-required`, `yugioh-production-signoff-required`, and `lorcana-production-signoff-required` as `blocked`. `catalog-integration-rollout-controls.test.ts` checks every registry unit through resolved-unit admission.
 - `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP` stays empty during normal operation. It can be set to a provider key or `all`.
 - Provider-scoped disabled, imports-disabled, promotion-disabled, reapply-disabled, cache-only, and emergency-stop controls must remain available for every provider that backs the game.
 
-Before a release that carries the opened posture deploys, create these four production GitHub environment variables:
+Magic and One Piece remain required production GitHub environment variables for the opened posture. The other three are optional at deploy time and activate only their game at runtime:
 
 - `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE`
 - `CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE`
 - `CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE`
 - `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE`
+- `CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE`
 
-The production deploy threads all four into the API, worker, and bootstrap runtime. Only the Magic and One Piece references are code-enforced. The Pokemon and Yu-Gi-Oh! references are recorded so that the runbook posture and the runtime agree.
+The production deploy threads all five into the API, worker, and bootstrap runtime. All are code-enforced. Setting any optional reference is an activation step owned by #5204 after that game's rehearsal packet and audit pass. Lorcana additionally requires Todd's provider-use attestation; #8072 comment 5858070909 covers four games only and does not authorize Lorcana.
 
 The deploy step "Validate production configuration" checks the inputs whenever the shipped control plane admits writes. It fails with `Missing required production Catalog integration configuration: <names>` when any of these is missing:
 
 - `SCRYDEX_API_KEY`
 - `SCRYDEX_TEAM_ID`
 - `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE`
-- either enforced signoff reference
+- either required Magic or One Piece signoff reference
 
-The message prints names only, never values.
+Missing Pokemon, Yu-Gi-Oh!, or Lorcana references do not fail deployment: their game stays blocked at runtime. A configured blank, whitespace-only, `false`, `none`, or `open` optional reference fails preflight with `Invalid production Catalog integration signoff reference: <names>`. Messages print names only, never values.
+
+After deploy, capture the release run link and a redacted Integration health readout with each of the three control IDs, `status=blocked`, `severity=error`, capabilities, and registry-derived unit keys (including TCGplayer and Scrydex). Preserve the generated timestamp and deployed revision; do not capture credentials or reference values. Roll back by restoring `tcgdex,ygoprodeck,ygojson` in the three provider-wide disable variables and the registry-derived Lorcana import/promotion unit stops, then redeploy through the normal release workflow.
 
 A per-game production-signoff reference env var (named in each game section) must name the accepted provider-data approval and the game's UAT evidence before production-like writes are opened for that game.
 

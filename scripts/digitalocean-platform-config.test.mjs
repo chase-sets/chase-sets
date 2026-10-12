@@ -484,18 +484,19 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
     "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
     "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
   ];
-  const recordedSignoffReferences = [
-    ...enforcedSignoffReferences,
+  const optionalSignoffReferences = [
     "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
     "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
   ];
+  const recordedSignoffReferences = [...enforcedSignoffReferences, ...optionalSignoffReferences];
   // [GitHub secret or variable name the message names, deploy-production env name the step reads]
   const catalogInputs = [...providerCredentials, ...enforcedSignoffReferences.map((name) => [name, name])];
   const syntheticValue = (name) => `SYNTHETIC-${name}-VALUE`;
 
   // Executes the real step body in a scratch root holding a copy of the shipped runtime values,
   // with every other production requirement satisfied by synthetic values.
-  function runCatalogPreflight(overrides = {}, controlPlaneMode) {
+  function runCatalogPreflight(overrides = {}, controlPlaneMode, optionalVariables = {}) {
     const root = mkdtempSync(join(tmpdir(), "catalog-integration-preflight-"));
     try {
       const runtimeValues = JSON.parse(shippedRuntimeValues);
@@ -523,9 +524,12 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
         TF_VAR_production_marketplace_public_enabled: "false",
         TF_VAR_notification_email_provider: "noop",
         ...Object.fromEntries(catalogInputs.map(([name, envName]) => [envName, syntheticValue(name)])),
+        CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES: JSON.stringify(optionalVariables),
+        ...Object.fromEntries(optionalSignoffReferences.map((name) => [name, optionalVariables[name] ?? ""])),
         ...overrides,
       };
-      const result = spawnSync(operatorBash, ["-c", jobStep("Validate production configuration").run], {
+      const result = spawnSync(operatorBash, ["-s"], {
+        input: jobStep("Validate production configuration").run,
         cwd: root,
         env,
         encoding: "utf8",
@@ -549,6 +553,44 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
     const result = runCatalogPreflight();
     expect(result.status, result.output).toBe(0);
     expectNoInputValue(result.output);
+  });
+
+  it("admits absent optional game signoffs without activating those games", () => {
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).toBe("");
+  });
+
+  it.each(optionalSignoffReferences)("rejects a present-but-blank %s by name without exposing values", (name) => {
+    for (const value of ["", "   ", "false", " None ", "OPEN"]) {
+      const result = runCatalogPreflight({}, undefined, { [name]: value });
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+      expectNoInputValue(result.output);
+    }
+    const result = runCatalogPreflight({}, undefined, { [name]: syntheticValue(name) });
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).not.toContain(syntheticValue(name));
+  });
+
+  it("checks optional signoff variable presence using the production vars object, not the empty env fallback", () => {
+    expect(jobStep("Validate production configuration").env.CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES).toBe(
+      "${{ toJSON(vars) }}",
+    );
+  });
+
+  it("rejects configured blank optional references even when the control plane is closed", () => {
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(
+        {},
+        mode,
+        Object.fromEntries(optionalSignoffReferences.map((name) => [name, ""])),
+      );
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(
+        `Invalid production Catalog integration signoff reference: ${optionalSignoffReferences.join(" ")}\n`,
+      );
+    }
   });
 
   it.each(catalogInputs)("fails the open-plane preflight by name when %s is withheld", (name, envName) => {
