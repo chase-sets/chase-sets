@@ -6,6 +6,8 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
   const api = {
     resolveHeldSetExport: vi.fn(),
     previewScopeSyncBatch: vi.fn(),
+    quoteScopeSyncCounts: vi.fn(),
+    acquireScopeSyncCounts: vi.fn(),
     confirmScopeSyncBatch: vi.fn(),
     cancelScopeSyncBatch: vi.fn(),
     resumeScopeSyncBatch: vi.fn(),
@@ -17,6 +19,32 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
 vi.mock("../../request-support/api-client", () => ({ createCatalogRequestApiClient }));
 
 describe("Scope Sync Batch admin action callers", () => {
+  it.each(["ids", "matching-scope"])(
+    "AC1 forwards %s/held-set selection to an I/O-free count quote, not confirmation",
+    async (mode) => {
+      api.quoteScopeSyncCounts.mockResolvedValue({ plannedCredits: 2, cap: 1 });
+      const form = new FormData();
+      form.set("intent", "count-quote");
+      form.set("selectionMode", mode);
+      form.set("scopeRecordIds", "scope-b,scope-a");
+      form.set("productDomain", "one-piece");
+      form.set("scopeKind", "set");
+      form.set("languageCode", "en");
+      form.set("countCap", "1");
+      await expect(
+        runRequest(formRequest(Object.fromEntries(form.entries()) as Record<string, string>)),
+      ).resolves.toMatchObject({ countQuote: { plannedCredits: 2, cap: 1 } });
+      expect(api.quoteScopeSyncCounts).toHaveBeenCalledWith({
+        cap: 1,
+        selection:
+          mode === "ids"
+            ? { mode, scopeRecordIds: ["scope-b", "scope-a"] }
+            : { mode, query: { productDomain: "one-piece", scopeKind: "set", languageCode: "en" } },
+      });
+      expect(api.confirmScopeSyncBatch).not.toHaveBeenCalled();
+      expect(api.previewScopeSyncBatch).not.toHaveBeenCalled();
+    },
+  );
   beforeEach(() => {
     vi.clearAllMocks();
   });

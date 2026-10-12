@@ -82,6 +82,7 @@ export type ProviderImportScope = Readonly<{
 }>;
 
 export type ProviderUsageEstimate = Readonly<{
+  countSource?: import("../../../scope-sync-batches/domain/count-acquisition").ScrydexCountSource | null;
   enforcedAdmissionMaximum?: Readonly<{
     label: "enforced-admission-maximum";
     requestCount: 256;

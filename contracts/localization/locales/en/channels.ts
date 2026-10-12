@@ -16,6 +16,9 @@ export const channelsEnglishTranslations = {
   "channels.attention.moreOrders": "More order issues",
   "channels.attention.firstOrders": "No order issues on this page. Return to the first page.",
   "channels.drift.title": "Channel differences",
+  "channels.drift.sales-unverified": "Listing comparison only; recent sales coverage is unverified.",
+  "channels.drift.stale-snapshot": "The Live snapshot is stale or its capture time is unavailable.",
+  "channels.drift.missed-sale": "A quantity drop is not explained by recorded sales. Review the channel listing.",
   "channels.drift.disclaimer":
     "Decisions do not confirm that channel changes were queued or applied, or that the connection is healthy. A later complete check confirms the result.",
   "channels.drift.loading": "Loading channel differences.",
