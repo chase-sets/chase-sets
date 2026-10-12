@@ -87,7 +87,7 @@ it("rejects raw message and token markers at social destinations", () => {
   ]) {
     const request = new Request(`https://marketplace.test/sign-in?socialLoginError=${encodeURIComponent(value)}`);
     for (const loader of [signInLoader, registerLoader]) {
-      const result = loader({ request, params: {}, context: {} });
+      const result = loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/sign-in" });
       expect(result.socialLoginError).toBe(socialLoginErrorMessage(value));
       expect(JSON.stringify(result)).not.toContain(marker);
     }

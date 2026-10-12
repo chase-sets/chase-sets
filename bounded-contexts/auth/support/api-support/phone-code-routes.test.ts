@@ -86,6 +86,8 @@ describe("phone code auth routes", () => {
             }),
             params: {},
             context: {},
+            url: new URL("https://marketplace.test/sign-in"),
+            pattern: "/sign-in",
           });
           expect(result).toMatchObject({
             intent,

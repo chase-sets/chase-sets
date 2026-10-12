@@ -69,10 +69,10 @@ describe("shipping address API route", () => {
   it("preserves rejection parity and no write", async () => {
     const written = vi.fn();
     const services = buildServices({
-      commandHandler: vi.fn(async (input) => {
+      commandHandler: vi.fn<ShippingAddressServices["commandHandler"]>(async (input) => {
         const events = decideShippingAddressBook(initialShippingAddressBookState, input.command);
         written(events);
-        return { state: initialShippingAddressBookState, version: 1 };
+        return { state: initialShippingAddressBookState, version: 1, newEvents: events, storedEvents: [] };
       }),
     });
     for (const field of ["name", "line1", "city", "state", "postalCode", "country"] as const) {
