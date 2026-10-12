@@ -2955,7 +2955,9 @@ jobs:
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
         env:
-          CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES: ${{ toJSON(vars) }}
+          CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE":') }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -3170,16 +3172,14 @@ jobs:
               fi
               ;;
           esac
-          # The env fallback loses absence. Inspect variable ownership so missing games stay
-          # runtime-blocked, while a configured blank or open alias fails by name in any mode.
+          # Per-name presence preserves absence without exposing the variable map.
           node --input-type=module -e '
-            const variables = JSON.parse(process.env.CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES);
             const invalid = [
               "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
               "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
               "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
-            ].filter((name) => Object.hasOwn(variables, name) &&
-              ["", "false", "none", "open"].includes(String(variables[name]).trim().toLowerCase()));
+            ].filter((name) => process.env[name + "_PRESENT"] === "true" &&
+              ["", "false", "none", "open"].includes((process.env[name] ?? "").trim().toLowerCase()));
             if (invalid.length) {
               console.error("Invalid production Catalog integration signoff reference: " + invalid.join(" "));
               process.exit(1);

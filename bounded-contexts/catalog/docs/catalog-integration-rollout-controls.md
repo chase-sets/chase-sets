@@ -42,6 +42,10 @@ Operational controls default to open outside production-like environments. Produ
 | `activation-disabled` | `CATALOG_INTEGRATION_ACTIVATION_MODE=disabled` | open | Catalog Source Observations | Blocks provider profile activation |
 | `activation-test-profiles-only` | `CATALOG_INTEGRATION_ACTIVATION_MODE=test-profiles-only` | open | Catalog Source Observations | Blocks activation unless the candidate profile lifecycle is `test` |
 | `magic-production-signoff-required` | `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE=<approval and #2039 UAT evidence>` | open outside production-like envs; blocked for production-like Magic writes when missing | Catalog Source Observations | Blocks MTGJSON, Scryfall, and TCGplayer import, promotion, reapply, and activation until provider-data signoff and interface-only staging UAT evidence are recorded |
+| `one-piece-production-signoff-required` | `CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE=<approval and UAT evidence>` | open outside production-like envs; blocked when missing in production | Catalog Source Observations | Blocks registered One Piece Scrydex/TCGplayer import, promotion and reapply; unit-less activation cannot match the unit scope |
+| `pokemon-production-signoff-required` | `CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE=<approval and UAT evidence>` | open outside production-like envs; blocked when missing in production | Catalog Source Observations | Separate registry-unit and exclusive-provider entries block import, promotion, reapply; exclusive providers also block unit-less activation |
+| `yugioh-production-signoff-required` | `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE=<approval and UAT evidence>` | open outside production-like envs; blocked when missing in production | Catalog Source Observations | Separate registry-unit and exclusive-provider entries block import, promotion, reapply; exclusive providers also block unit-less activation |
+| `lorcana-production-signoff-required` | `CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE=<approval, provider-use attestation and UAT evidence>` | open outside production-like envs; blocked when missing in production | Catalog Source Observations | Separate registry-unit and exclusive-provider entries block import, promotion, reapply; exclusive providers also block unit-less activation |
 | `worker-processing-disabled` | `CATALOG_INTEGRATION_WORKER_MODE=disabled` | open | Catalog Source Observations | Blocks integration worker job processing |
 | `worker-lane-limited` | `CATALOG_INTEGRATION_WORKER_MODE=lane-limited` | open | Ops/Release | Degrades worker throughput; lane counts remain platform-worker config |
 
@@ -49,6 +53,16 @@ Provider-scoped and unit-scoped env values accept comma-separated keys, `all`,
 `true`, or `*`. Empty means unset. `none`, `false`, and `open` mean no scope is
 disabled, and in production-like environments they explicitly open that control
 only after the applicable production signoff gate is also satisfied.
+
+## Per-Game Production Signoff
+
+Production-like config always includes the Pokemon, Yu-Gi-Oh! and Lorcana reference properties, even when absent. Missing, empty, whitespace-only and case-insensitive `open`, `false` or `none` references block their gate. Staging and preview omit these properties and keep their existing behavior. A valid reference opens only its gate; any other matching blocked control still denies the operation.
+
+Unit membership is deduplicated from every profile registry version's product domain and ingestion-unit key. Exclusive providers are those whose every registry version belongs to that game: currently TCGdex for Pokemon, YGOPRODeck/YGOJSON for Yu-Gi-Oh!, and LorcanaJSON/Lorcast for Lorcana. Each game emits an independent unit entry and provider entry with the same id, status and capabilities. Shared TCGplayer/Scrydex units are covered wherever registered for that game, without denying other games' units. Novel identities on exclusive providers are covered by the provider entry; unregistered identities on shared providers remain base-governed. Empty game membership raises a named initialization error. An empty exclusive-provider set omits that entry rather than producing a wildcard.
+
+The provider-profile activate route evaluates `activation` without a unit key. The unit entry cannot match it; the exclusive-provider entry can. No route rewrite or new control type is needed. The readiness API returns both entries, while per-unit diagnostics deduplicate the id.
+
+The #8072 production provider-wide disables for `tcgdex,ygoprodeck,ygojson` and both Lorcana import/promotion unit stops remain unchanged. Recorded Pokemon/Yu-Gi-Oh! references may show `open/info`, but their exclusive-provider writes remain denied by those legacy stops. Profile activation is not a provider write and is not covered by the legacy stops. Lorcana remains `blocked/error` without its reference, including reapply and exclusive-provider profile activation. Magic/One Piece and emergency stops are unchanged. Later checked-in stop removal needs its own reviewed per-game activation slice after authority/UAT/audit approval, before #5204 freezes the post-change manifest; #5205 executes it. See [Catalog Game Provider Sync Operations](../../../docs/runbooks/catalog-game-provider-sync-operations.md#runtime-defaults-and-activation-gates) for operator-owned release proof and rollback.
 
 ## Magic Provider Rollout Behavior
 

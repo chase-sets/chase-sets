@@ -51,6 +51,19 @@ const catalogSignoffReferenceNames = [
   "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
 ];
 
+// The production Lorcana unit stops are derived from the active provider profile registry, never typed by hand.
+async function registryLorcanaUnitKeys() {
+  const registry =
+    await import("../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts");
+  return [
+    ...new Set(
+      registry.catalogProviderIntegrationProfileVersions
+        .filter((version) => registry.catalogProviderProfileVersionProductDomain(version) === "lorcana")
+        .map(registry.catalogProviderProfileVersionIngestionUnitKey),
+    ),
+  ].sort();
+}
+
 describe("render platform Helm values", () => {
   it("declares the non-secret default-off Catalog send-window key once on both consumers only", () => {
     const key = "CATALOG_PROVIDER_SEND_WINDOW_ENABLED";
@@ -294,16 +307,19 @@ describe("render platform Helm values", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("derives the production cutover posture from the authoritative Terraform parity map", () => {
+  it("derives the production cutover posture from the authoritative Terraform parity map", async () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
+    const lorcanaUnitKeys = (await registryLorcanaUnitKeys()).join(",");
 
     expect(production.global.envOverrides).toEqual({
       CHASE_SETS_CHECKOUT_CLOSED: "true",
       CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
       CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
-      CATALOG_INTEGRATION_IMPORTS_DISABLED: "open",
-      CATALOG_INTEGRATION_PROMOTION_DISABLED: "open",
-      CATALOG_INTEGRATION_REAPPLY_DISABLED: "open",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED: lorcanaUnitKeys,
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED: lorcanaUnitKeys,
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "tcgdex,ygoprodeck,ygojson",
       CHASE_SETS_PUBLIC_INDEXING: "true",
       PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true",
       PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence",

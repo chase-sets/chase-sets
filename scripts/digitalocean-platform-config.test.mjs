@@ -524,7 +524,9 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
         TF_VAR_production_marketplace_public_enabled: "false",
         TF_VAR_notification_email_provider: "noop",
         ...Object.fromEntries(catalogInputs.map(([name, envName]) => [envName, syntheticValue(name)])),
-        CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES: JSON.stringify(optionalVariables),
+        ...Object.fromEntries(
+          optionalSignoffReferences.map((name) => [`${name}_PRESENT`, String(Object.hasOwn(optionalVariables, name))]),
+        ),
         ...Object.fromEntries(optionalSignoffReferences.map((name) => [name, optionalVariables[name] ?? ""])),
         ...overrides,
       };
@@ -562,21 +564,35 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
   });
 
   it.each(optionalSignoffReferences)("rejects a present-but-blank %s by name without exposing values", (name) => {
-    for (const value of ["", "   ", "false", " None ", "OPEN"]) {
-      const result = runCatalogPreflight({}, undefined, { [name]: value });
-      expect(result.status).toBe(1);
-      expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
-      expectNoInputValue(result.output);
+    for (const mode of [undefined, "dry-run-only", "read-only", null]) {
+      for (const value of ["", "   ", "false", " None ", "OPEN"]) {
+        const result = runCatalogPreflight({}, mode, { [name]: value });
+        expect(result.status).toBe(1);
+        expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+        expectNoInputValue(result.output);
+      }
+      const result = runCatalogPreflight({}, mode, { [name]: syntheticValue(name) });
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).not.toContain(syntheticValue(name));
     }
-    const result = runCatalogPreflight({}, undefined, { [name]: syntheticValue(name) });
-    expect(result.status, result.output).toBe(0);
-    expect(result.output).not.toContain(syntheticValue(name));
   });
 
-  it("checks optional signoff variable presence using the production vars object, not the empty env fallback", () => {
-    expect(jobStep("Validate production configuration").env.CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES).toBe(
-      "${{ toJSON(vars) }}",
-    );
+  it("passes only targeted presence booleans, never the aggregate variable map", () => {
+    const step = jobStep("Validate production configuration");
+    expect(step.env).not.toHaveProperty("CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES");
+    for (const name of optionalSignoffReferences) {
+      expect(step.env[`${name}_PRESENT`]).toBe(`\${{ contains(toJSON(vars), '"${name}":') }}`);
+    }
+    expect(Object.values(step.env)).not.toContain("${{ toJSON(vars) }}");
+  });
+
+  it("uses presence booleans rather than fallback values to distinguish absent references", () => {
+    for (const name of optionalSignoffReferences) {
+      expect(runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "false" }).status).toBe(0);
+      const result = runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "true" });
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+    }
   });
 
   it("rejects configured blank optional references even when the control plane is closed", () => {

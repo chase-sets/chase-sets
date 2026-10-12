@@ -155,18 +155,32 @@ const ONE_PIECE_PRODUCTION_UNIT_KEYS = [
   "tcgplayer:one-piece:single-card:source-observation-import",
   "tcgplayer:one-piece:sealed-product:source-observation-import",
 ] as const;
-const POKEMON_PRODUCTION_UNIT_KEYS = productionSignoffUnitKeys("pokemon");
-const YUGIOH_PRODUCTION_UNIT_KEYS = productionSignoffUnitKeys("yugioh");
-const LORCANA_PRODUCTION_UNIT_KEYS = productionSignoffUnitKeys("lorcana");
+const POKEMON_PRODUCTION_SCOPE = productionSignoffScope("pokemon");
+const YUGIOH_PRODUCTION_SCOPE = productionSignoffScope("yugioh");
+const LORCANA_PRODUCTION_SCOPE = productionSignoffScope("lorcana");
 
-function productionSignoffUnitKeys(game: "pokemon" | "yugioh" | "lorcana"): readonly string[] {
-  return [
+function productionSignoffScope(game: "pokemon" | "yugioh" | "lorcana") {
+  const unitKeys = [
     ...new Set(
       catalogProviderIntegrationProfileVersions
         .filter((version) => catalogProviderProfileVersionProductDomain(version) === game)
         .map(catalogProviderProfileVersionIngestionUnitKey),
     ),
   ].sort();
+  if (unitKeys.length === 0) {
+    throw new Error(`Catalog production signoff registry has no ingestion units for '${game}'.`);
+  }
+  const providerDomains = new Map<string, Set<string>>();
+  for (const version of catalogProviderIntegrationProfileVersions) {
+    const domains = providerDomains.get(version.providerKey) ?? new Set<string>();
+    domains.add(catalogProviderProfileVersionProductDomain(version));
+    providerDomains.set(version.providerKey, domains);
+  }
+  const providerKeys = [...providerDomains]
+    .filter(([, domains]) => domains.size === 1 && domains.has(game))
+    .map(([providerKey]) => providerKey)
+    .sort();
+  return { unitKeys, providerKeys };
 }
 
 export function createCatalogIntegrationRolloutControlPolicy(
@@ -424,9 +438,9 @@ function buildCatalogIntegrationRolloutControlSnapshot(
     activationControl(config.activationMode ?? "open"),
     magicProductionSignoffControl(config),
     onePieceProductionSignoffControl(config),
-    pokemonProductionSignoffControl(config),
-    yugiohProductionSignoffControl(config),
-    lorcanaProductionSignoffControl(config),
+    ...pokemonProductionSignoffControl(config),
+    ...yugiohProductionSignoffControl(config),
+    ...lorcanaProductionSignoffControl(config),
     workerControl(config.workerMode ?? "open"),
   ].filter((item): item is CatalogIntegrationRolloutControl => Boolean(item));
 
@@ -658,56 +672,72 @@ function onePieceProductionSignoffControl(config: CatalogIntegrationRolloutContr
 
 function pokemonProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
   if (!Object.prototype.hasOwnProperty.call(config, "pokemonProductionSignoffReference")) {
-    return null;
+    return [];
   }
 
   const reference = normalizeProductionSignoffReference(config.pokemonProductionSignoffReference);
-  return control({
-    controlId: "pokemon-production-signoff-required",
-    status: reference ? "open" : "blocked",
-    severity: reference ? "info" : "error",
-    capabilities: ["import", "promotion", "reapply", "activation"],
-    unitKeys: POKEMON_PRODUCTION_UNIT_KEYS,
-    message: reference
-      ? `Pokemon production signoff reference recorded: ${reference}.`
-      : POKEMON_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
-  });
+  return productionSignoffControls(
+    control({
+      controlId: "pokemon-production-signoff-required",
+      status: reference ? "open" : "blocked",
+      severity: reference ? "info" : "error",
+      capabilities: ["import", "promotion", "reapply", "activation"],
+      unitKeys: POKEMON_PRODUCTION_SCOPE.unitKeys,
+      message: reference
+        ? `Pokemon production signoff reference recorded: ${reference}.`
+        : POKEMON_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+    }),
+    POKEMON_PRODUCTION_SCOPE.providerKeys,
+  );
 }
 
 function yugiohProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
   if (!Object.prototype.hasOwnProperty.call(config, "yugiohProductionSignoffReference")) {
-    return null;
+    return [];
   }
 
   const reference = normalizeProductionSignoffReference(config.yugiohProductionSignoffReference);
-  return control({
-    controlId: "yugioh-production-signoff-required",
-    status: reference ? "open" : "blocked",
-    severity: reference ? "info" : "error",
-    capabilities: ["import", "promotion", "reapply", "activation"],
-    unitKeys: YUGIOH_PRODUCTION_UNIT_KEYS,
-    message: reference
-      ? `Yu-Gi-Oh! production signoff reference recorded: ${reference}.`
-      : YUGIOH_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
-  });
+  return productionSignoffControls(
+    control({
+      controlId: "yugioh-production-signoff-required",
+      status: reference ? "open" : "blocked",
+      severity: reference ? "info" : "error",
+      capabilities: ["import", "promotion", "reapply", "activation"],
+      unitKeys: YUGIOH_PRODUCTION_SCOPE.unitKeys,
+      message: reference
+        ? `Yu-Gi-Oh! production signoff reference recorded: ${reference}.`
+        : YUGIOH_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+    }),
+    YUGIOH_PRODUCTION_SCOPE.providerKeys,
+  );
 }
 
 function lorcanaProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
   if (!Object.prototype.hasOwnProperty.call(config, "lorcanaProductionSignoffReference")) {
-    return null;
+    return [];
   }
 
   const reference = normalizeProductionSignoffReference(config.lorcanaProductionSignoffReference);
-  return control({
-    controlId: "lorcana-production-signoff-required",
-    status: reference ? "open" : "blocked",
-    severity: reference ? "info" : "error",
-    capabilities: ["import", "promotion", "reapply", "activation"],
-    unitKeys: LORCANA_PRODUCTION_UNIT_KEYS,
-    message: reference
-      ? `Lorcana production signoff reference recorded: ${reference}.`
-      : LORCANA_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
-  });
+  return productionSignoffControls(
+    control({
+      controlId: "lorcana-production-signoff-required",
+      status: reference ? "open" : "blocked",
+      severity: reference ? "info" : "error",
+      capabilities: ["import", "promotion", "reapply", "activation"],
+      unitKeys: LORCANA_PRODUCTION_SCOPE.unitKeys,
+      message: reference
+        ? `Lorcana production signoff reference recorded: ${reference}.`
+        : LORCANA_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+    }),
+    LORCANA_PRODUCTION_SCOPE.providerKeys,
+  );
+}
+
+function productionSignoffControls(
+  unitControl: CatalogIntegrationRolloutControl,
+  providerKeys: readonly string[],
+): CatalogIntegrationRolloutControl[] {
+  return providerKeys.length === 0 ? [unitControl] : [unitControl, { ...unitControl, providerKeys, unitKeys: [] }];
 }
 
 function workerControl(mode: NonNullable<CatalogIntegrationRolloutControlConfig["workerMode"]>) {
