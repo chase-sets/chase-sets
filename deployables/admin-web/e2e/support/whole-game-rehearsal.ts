@@ -3,11 +3,13 @@
 // journeys make from what the UI and its admin API reads return, so the
 // decisions stay pure and are pinned by scripts/catalog-whole-game-rehearsal.test.mjs.
 // It must not import Playwright or any bounded-context runtime.
-import type {
-  CatalogMergeCandidateBulkJob,
-  CatalogMergeCandidateBulkJobResult,
-  CatalogMergeCandidateBulkUnitResult,
-} from "../../../../bounded-contexts/catalog/features/source-observations/api/source-observation-runtime-contracts";
+import type { CatalogServices } from "@chase-sets/catalog/server";
+
+type CatalogMergeCandidateBulkJob = NonNullable<
+  Awaited<ReturnType<CatalogServices["sourceObservations"]["getCatalogMergeCandidateBulkJob"]>>
+>;
+type CatalogMergeCandidateBulkJobResult = NonNullable<CatalogMergeCandidateBulkJob["result"]>;
+type CatalogMergeCandidateBulkUnitResult = CatalogMergeCandidateBulkJobResult["outcomes"][number];
 
 export const wholeGameJourneyScopes = ["full-game-start", "full-game-settle"] as const;
 export type WholeGameJourneyScope = (typeof wholeGameJourneyScopes)[number];
