@@ -18,6 +18,7 @@ import {
 } from "./support/auth-support/identity-projection";
 import { authSchemaSql } from "./support/runtime-support/schema";
 import { connectorOAuthSchemaMigrations } from "./support/ucp-support/connector-oauth-schema";
+import { authUcpOAuthConsentSchemaMigrations } from "./support/ucp-support/oauth";
 import { authUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectAuthSeedState, seedAuthDatabase } from "./support/runtime-support/seed";
 import type { AuthHostPorts, AuthServices } from "./support/runtime-support/services";
@@ -36,6 +37,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
     ...authUnloggedProjectionSchemaMigrations,
     ...authRetentionSchemaMigrations,
     ...connectorOAuthSchemaMigrations,
+    ...authUcpOAuthConsentSchemaMigrations,
   ],
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],

@@ -565,6 +565,61 @@ describe("platform api app wiring", () => {
     }
   });
 
+  it("OAuth authorize requires interactive consent on the mounted platform API", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("FROM identity_ucp_oauth_clients")
+          ? [
+              {
+                client_id: "synthetic-client",
+                client_name: "Synthetic Agent",
+                platform_profile_url: "https://agent.example",
+                redirect_uris: ["https://agent.example/callback"],
+                scopes: ["payouts:request"],
+                grant_types: ["authorization_code"],
+                response_types: ["code"],
+                token_endpoint_auth_method: "none",
+              },
+            ]
+          : [],
+        rowCount: 1,
+      })),
+    };
+    const resolveActor = vi.fn(async () => ({ ...platformActor([]), sessionId: "synthetic-session" }));
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({
+        auth: {
+          db,
+          auth: {
+            issueOpaqueToken: () => "ucp_consent_synthetic",
+            hashSecret: () => "synthetic-hash",
+          },
+        },
+        identity: { linkedPlatformAuthorizations: {} },
+      }),
+      { resolveActor },
+    );
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: "synthetic-client",
+      redirect_uri: "https://agent.example/callback",
+      scope: "payouts:request",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+    });
+    const response = await app.request(`https://marketplace.chasesets.test/ucp/oauth/authorize?${query}`, {
+      headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/account/agents/consent?consent_token=ucp_consent_synthetic");
+    expect(db.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO identity_ucp_oauth_consent_requests"))).toBe(
+      true,
+    );
+    expect(
+      db.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO identity_ucp_oauth_authorization_codes")),
+    ).toBe(false);
+  });
+
   it("stock-client discovery chain registers", async () => {
     const authDb = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
     const app = buildPlatformApiApp(createEmptyRuntime({ auth: { db: authDb } }));

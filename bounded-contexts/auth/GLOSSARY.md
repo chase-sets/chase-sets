@@ -131,6 +131,10 @@ Notes:
 - Auth owns authorization, account selection, token-facing actor resolution, and safe return paths.
 - Identity owns the durable Linked Platform Authorization consent and revocation facts.
 
+## OAuth Consent
+
+**OAuth Consent** is the interactive approve or deny step of an OAuth Authorization. Every request requires a decision from the bound browser session for its active account and exact requested scopes. Auth stores only the hash of a ten-minute, single-use consent token. Approve issues the authorization code; deny consumes the request without issuing one. Agent-bearer and guest-checkout actors cannot give OAuth Consent.
+
 ## Dynamic Client Registration
 
 **Dynamic Client Registration** is the Auth-owned OAuth endpoint that lets an agent platform register a public PKCE client for UCP access.
