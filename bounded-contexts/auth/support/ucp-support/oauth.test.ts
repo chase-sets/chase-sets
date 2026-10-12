@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes, UCP_OAUTH_SUPPORTED_SCOPES } from "./oauth";
+import {
+  authUcpOAuthSchemaSql,
+  authUcpOAuthConsentSchemaMigrations,
+  createUcpOAuthMetadataRoutes,
+  createUcpOAuthRoutes,
+  UCP_OAUTH_SUPPORTED_SCOPES,
+} from "./oauth";
+import { authRetentionSweeps } from "../runtime-support/retention-policy";
 
 const actor = {
   sessionId: "sess_1",
@@ -14,6 +21,194 @@ const actor = {
 };
 
 describe("UCP OAuth routes", () => {
+  it("authorize GET never issues a code, including a one-click cross-site navigation (F4)", async () => {
+    const fixture = await consentFixture();
+    const response = await fixture.app.request(fixture.authorizePath, {
+      headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" },
+    });
+    expect(response.status).toBe(302);
+    const destination = new URL(response.headers.get("location")!, "http://localhost");
+    expect(destination.pathname).toBe("/account/agents/consent");
+    expect(destination.searchParams.has("code")).toBe(false);
+    expect(fixture.db.codes.size).toBe(0);
+    expect(fixture.db.consents.size).toBe(1);
+    const raw = destination.searchParams.get("consent_token")!;
+    const stored = [...fixture.db.consents.values()][0]!;
+    expect(stored.token_hash).toBe(fixture.options.auth.auth.hashSecret(raw));
+    expect(JSON.stringify(stored)).not.toContain(raw);
+    expect(new Date(String(stored.expires_at)).getTime() - Date.now()).toBeGreaterThan(599_000);
+  });
+
+  it("consent approve issues exactly one bound code and ignores injected authorization parameters", async () => {
+    const fixture = await consentFixture();
+    const token = await fixture.start();
+    const display = await fixture.app.request(`/ucp/oauth/consent?consent_token=${token}`);
+    expect(display.status).toBe(200);
+    await expect(display.json()).resolves.toMatchObject({
+      consent: {
+        clientName: "Synthetic Agent",
+        redirectOrigin: "https://agent.example",
+        accountId: actor.accountId,
+        scopes: ["account:manage", "payouts:request"],
+      },
+    });
+    const response = await fixture.decide(
+      token,
+      "approve",
+      {},
+      {
+        redirect_uri: "https://attacker.example/callback",
+        scope: "catalog:read",
+        account_id: "other-account",
+        client_id: "other-client",
+        state: "injected",
+        code_challenge: "injected",
+      },
+    );
+    expect(response.status).toBe(302);
+    const destination = new URL(response.headers.get("location")!);
+    expect(destination.origin).toBe("https://agent.example");
+    expect(destination.searchParams.get("state")).toBe("synthetic-state");
+    expect(fixture.db.codes.size).toBe(1);
+    expect([...fixture.db.codes.values()][0]).toMatchObject({
+      client_id: fixture.clientId,
+      user_id: actor.userId,
+      account_id: actor.accountId,
+      redirect_uri: "https://agent.example/callback",
+      scopes: ["account:manage", "payouts:request"],
+      code_challenge: pkceChallenge("synthetic-verifier"),
+      code_challenge_method: "S256",
+    });
+    const replay = await fixture.decide(token);
+    expect(replay.status).toBe(400);
+    expect(replay.headers.has("location")).toBe(false);
+    expect(fixture.db.codes.size).toBe(1);
+  });
+
+  it.each([
+    "session",
+    "user",
+    "account",
+    "redirect",
+    "scopes",
+    "expired",
+    "missing",
+    "unknown",
+    "origin",
+    "missing-origin",
+    "fetch-site",
+  ])("consent rejects only the governing %s mismatch without consuming or redirecting", async (governing) => {
+    const fixture = await consentFixture();
+    let token = await fixture.start();
+    const row = [...fixture.db.consents.values()][0]!;
+    const client = fixture.db.clients.get(fixture.clientId)!;
+    const headers: Record<string, string> = {};
+    if (governing === "session") fixture.setActor({ ...actor, sessionId: "other-session" });
+    if (governing === "user") fixture.setActor({ ...actor, userId: "other-user" });
+    if (governing === "account") fixture.setActor({ ...actor, accountId: "other-account" });
+    if (governing === "redirect") client.redirect_uris = ["https://other.example/callback"];
+    if (governing === "scopes") client.scopes = ["account:manage"];
+    if (governing === "expired") row.expires_at = new Date(Date.now() - 1_000).toISOString();
+    if (governing === "missing") token = "";
+    if (governing === "unknown") token = "synthetic-unknown";
+    if (governing === "origin") headers.Origin = "https://attacker.example";
+    if (governing === "missing-origin") headers.Origin = "";
+    if (governing === "fetch-site") headers["Sec-Fetch-Site"] = "cross-site";
+    const response = await fixture.decide(token, "approve", headers);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.headers.has("location")).toBe(false);
+    expect(fixture.db.codes.size).toBe(0);
+    expect(row.consumed_at).toBeNull();
+  });
+
+  it("concurrent consent approve has one winner", async () => {
+    const fixture = await consentFixture();
+    const token = await fixture.start();
+    const responses = await Promise.all([fixture.decide(token), fixture.decide(token)]);
+    expect(responses.map((response) => response.status).sort()).toEqual([302, 400]);
+    expect(fixture.db.codes.size).toBe(1);
+  });
+
+  it("consent deny preserves state, consumes the request, and prevents later approve", async () => {
+    const fixture = await consentFixture();
+    const token = await fixture.start();
+    const response = await fixture.decide(token, "deny");
+    expect(response.status).toBe(302);
+    const destination = new URL(response.headers.get("location")!);
+    expect(destination.searchParams.get("error")).toBe("access_denied");
+    expect(destination.searchParams.get("state")).toBe("synthetic-state");
+    expect(destination.searchParams.has("code")).toBe(false);
+    expect((await fixture.decide(token)).status).toBe(400);
+    expect(fixture.db.codes.size).toBe(0);
+  });
+
+  it("consent deny never echoes a code embedded in a registered callback query", async () => {
+    const fixture = await consentFixture("https://agent.example/callback?code=synthetic-old-code");
+    const token = await fixture.start();
+    const response = await fixture.decide(token, "deny");
+    const destination = new URL(response.headers.get("location")!);
+    expect(destination.searchParams.get("error")).toBe("access_denied");
+    expect(destination.searchParams.has("code")).toBe(false);
+    expect(fixture.db.codes.size).toBe(0);
+  });
+
+  it("signed-out authorize returns through sign-in and account switch binds fresh consent", async () => {
+    const fixture = await consentFixture();
+    fixture.setActor(null);
+    const response = await fixture.app.request(fixture.authorizePath);
+    const signIn = new URL(response.headers.get("location")!, "http://localhost");
+    expect(signIn.pathname).toBe("/sign-in");
+    expect(signIn.searchParams.get("returnTo")).toBe(fixture.authorizePath);
+    expect(fixture.db.consents.size).toBe(0);
+    fixture.setActor(actor);
+    const first = await fixture.start();
+    fixture.setActor({ ...actor, accountId: "other-account" });
+    expect((await fixture.decide(first)).status).toBe(400);
+    const second = await fixture.start();
+    expect((await fixture.decide(second)).status).toBe(302);
+    expect([...fixture.db.codes.values()][0]).toMatchObject({ account_id: "other-account" });
+  });
+
+  it.each(["bearer", "guest"])(
+    "consent refuses %s actors on GET, read and otherwise valid approve (F7)",
+    async (kind) => {
+      const fixture = await consentFixture();
+      const token = await fixture.start();
+      const grant = {
+        grantId: "synthetic-grant",
+        scopes: ["catalog:read"] as const,
+        rolePermissions: actor.permissions,
+      };
+      fixture.setActor(kind === "bearer" ? { ...actor, agentGrant: grant } : { ...actor, roleKey: "guest-buyer" });
+      const response = await fixture.app.request(fixture.authorizePath, {
+        headers: kind === "bearer" ? { Authorization: "Bearer ucp_synthetic" } : { Cookie: "guest_checkout=synthetic" },
+      });
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toMatch(/^\/sign-in\?/);
+      expect(fixture.db.consents.size).toBe(1);
+      expect((await fixture.app.request(`/ucp/oauth/consent?consent_token=${token}`)).status).toBe(401);
+      const approve = await fixture.decide(token);
+      expect(approve.status).toBe(401);
+      expect(approve.headers.has("location")).toBe(false);
+      expect(fixture.db.codes.size).toBe(0);
+    },
+  );
+
+  it("consent schema and indexed expiry sweep cover the stored single-use requests", () => {
+    expect(authUcpOAuthSchemaSql).toContain("CREATE TABLE IF NOT EXISTS identity_ucp_oauth_consent_requests");
+    expect(authUcpOAuthSchemaSql).toContain("token_hash text PRIMARY KEY");
+    expect(authUcpOAuthSchemaSql).toContain("ON identity_ucp_oauth_consent_requests (expires_at)");
+    expect(authRetentionSweeps).toContainEqual(
+      expect.objectContaining({ tableName: "identity_ucp_oauth_consent_requests", batchLimit: 500 }),
+    );
+    expect(authUcpOAuthConsentSchemaMigrations).toHaveLength(1);
+    expect(
+      authUcpOAuthConsentSchemaMigrations[0]!.statements.every((statement) =>
+        authUcpOAuthSchemaSql.includes(statement),
+      ),
+    ).toBe(true);
+  });
+
   it("advertises Authorization Code with PKCE, refresh, introspection, and revocation support", async () => {
     const app = new Hono().route("/.well-known", createUcpOAuthMetadataRoutes());
 
@@ -390,7 +585,8 @@ describe("UCP OAuth routes", () => {
         challenge,
       }),
     );
-    const authorize = await app.request(
+    const authorize = await authorizeWithConsent(
+      app,
       authorizeUrl({
         clientId: registrationBody.client_id,
         redirectUri: "https://agent.example/callback",
@@ -481,7 +677,8 @@ describe("UCP OAuth routes", () => {
     const wrongVerifier = "zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210-._~";
     const challenge = pkceChallenge(verifier);
 
-    const authorize = await app.request(
+    const authorize = await authorizeWithConsent(
+      app,
       authorizeUrl({
         clientId: registrationBody.client_id,
         redirectUri: "https://agent.example/callback",
@@ -542,7 +739,8 @@ describe("UCP OAuth routes", () => {
     const verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     const challenge = pkceChallenge(verifier);
 
-    const authorize = await app.request(
+    const authorize = await authorizeWithConsent(
+      app,
       authorizeUrl({
         clientId: "https://agent.example/oauth-client.json",
         redirectUri: "https://agent.example/callback",
@@ -884,8 +1082,46 @@ function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthR
 function createAuthorizationCodeDb() {
   const codes = new Map<string, Record<string, unknown>>();
   const clients = new Map<string, Record<string, unknown>>();
+  const consents = new Map<string, Record<string, unknown>>();
   return {
+    codes,
+    clients,
+    consents,
     async query<Row = Record<string, unknown>>(text: string, values: readonly unknown[] = []) {
+      if (text.includes("FROM auth_identity_user_memberships")) {
+        return { rows: [{ accountId: actor.accountId, accountName: "Synthetic Account" }] as Row[], rowCount: 1 };
+      }
+      if (text.includes("INSERT INTO identity_ucp_oauth_consent_requests")) {
+        const row = {
+          token_hash: values[0],
+          session_id: values[1],
+          user_id: values[2],
+          account_id: values[3],
+          client_id: values[4],
+          redirect_uri: values[5],
+          scopes: JSON.parse(String(values[6])),
+          state: values[7],
+          code_challenge: values[8],
+          code_challenge_method: values[9],
+          expires_at: values[10],
+          consumed_at: null,
+        };
+        consents.set(String(row.token_hash), row);
+        return { rows: [], rowCount: 1 };
+      }
+      if (text.includes("identity_ucp_oauth_consent_requests")) {
+        const row = text.includes("token_hash = $1") ? consents.get(String(values[0])) : [...consents.values()][0];
+        const matches =
+          row &&
+          (!text.includes("session_id = $2") || row.session_id === values[1]) &&
+          (!text.includes("user_id = $3") || row.user_id === values[2]) &&
+          (!text.includes("account_id = $4") || row.account_id === values[3]) &&
+          (!text.includes("consumed_at IS NULL") || row.consumed_at === null) &&
+          (!text.includes("expires_at > now()") || new Date(String(row.expires_at)).getTime() > Date.now());
+        if (!matches) return { rows: [], rowCount: 0 };
+        if (text.includes("UPDATE")) row.consumed_at = new Date().toISOString();
+        return { rows: [{ ...row } as Row], rowCount: 1 };
+      }
       if (text.includes("INSERT INTO identity_ucp_oauth_clients")) {
         const row = {
           client_id: values[0],
@@ -1070,11 +1306,74 @@ function pkceChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
+async function consentFixture(redirectUri = "https://agent.example/callback") {
+  const db = createAuthorizationCodeDb();
+  const base = createOAuthOptions();
+  let currentActor: Awaited<ReturnType<typeof base.resolveActor>> = actor;
+  const options = createOAuthOptions({
+    auth: {
+      ...base.auth,
+      db,
+      auth: { ...base.auth.auth, hashSecret: (value) => createHash("sha256").update(value).digest("hex") },
+    },
+    resolveActor: async () => currentActor,
+  });
+  const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+  const registration = await registerClient(app, {
+    client_name: "Synthetic Agent",
+    redirect_uris: [redirectUri],
+    scope: "account:manage payouts:request",
+  });
+  const { client_id: clientId } = (await registration.json()) as { client_id: string };
+  const authorizePath = authorizeUrl({
+    clientId,
+    redirectUri,
+    scope: "account:manage payouts:request",
+    challenge: pkceChallenge("synthetic-verifier"),
+    state: "synthetic-state",
+  });
+  return {
+    db,
+    options,
+    app,
+    clientId,
+    authorizePath,
+    setActor: (value: typeof currentActor) => {
+      currentActor = value;
+    },
+    start: async () => {
+      const response = await app.request(authorizePath);
+      return new URL(response.headers.get("location")!, "http://localhost").searchParams.get("consent_token")!;
+    },
+    decide: (
+      token: string,
+      decision = "approve",
+      headers: Record<string, string> = {},
+      extra: Record<string, string> = {},
+    ) =>
+      app.request("/ucp/oauth/authorize", {
+        method: "POST",
+        body: new URLSearchParams({ consent_token: token, decision, ...extra }),
+        headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin", ...headers },
+      }),
+  };
+}
+
 function registerClient(app: Hono, metadata: Readonly<Record<string, unknown>>) {
   return app.request("/ucp/oauth/register", {
     method: "POST",
     body: JSON.stringify(metadata),
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function authorizeWithConsent(app: Hono, path: string) {
+  const response = await app.request(path);
+  const token = new URL(response.headers.get("location")!, "http://localhost").searchParams.get("consent_token")!;
+  return app.request("/ucp/oauth/authorize", {
+    method: "POST",
+    body: new URLSearchParams({ consent_token: token, decision: "approve" }),
+    headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
   });
 }
 

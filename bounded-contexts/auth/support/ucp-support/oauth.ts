@@ -20,10 +20,39 @@ import type { AgentGrantActivityDirectory } from "@chase-sets/platform-runtime/m
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
+import { isGuestCheckoutActor } from "../runtime-support/runtime";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import type { AuthServices } from "../runtime-support/services";
 import type { AgentWebhookOutbox } from "./agent-webhooks/agent-webhook-outbox";
 import { generateAgentWebhookSigningSecret, previewAgentWebhookSigningSecret } from "./agent-webhooks/webhook-signing";
 import { parseWebhookConfiguration, parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
+
+const consentSchemaStatements = [
+  `CREATE TABLE IF NOT EXISTS identity_ucp_oauth_consent_requests (
+    token_hash text PRIMARY KEY,
+    session_id text NOT NULL,
+    user_id text NOT NULL,
+    account_id text NOT NULL,
+    client_id text NOT NULL,
+    redirect_uri text NOT NULL,
+    scopes jsonb NOT NULL,
+    state text NULL,
+    code_challenge text NOT NULL,
+    code_challenge_method text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS identity_ucp_oauth_consent_requests_expires_at_idx
+    ON identity_ucp_oauth_consent_requests (expires_at);`,
+] as const;
+
+export const authUcpOAuthConsentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261012_auth_ucp_oauth_consent",
+    description: "Store session-bound single-use OAuth consent requests before code issuance.",
+    statements: consentSchemaStatements,
+  },
+];
 
 export const authUcpOAuthSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_ucp_oauth_clients (
@@ -65,6 +94,8 @@ ALTER TABLE identity_ucp_oauth_authorization_codes
 
 CREATE INDEX IF NOT EXISTS identity_ucp_oauth_authorization_codes_expires_at_idx
   ON identity_ucp_oauth_authorization_codes (expires_at);
+
+${consentSchemaStatements.join("\n")}
 `;
 
 export type UcpOAuthRoutesOptions = Readonly<{
@@ -212,6 +243,57 @@ type OAuthClientRow = Readonly<{
   response_types: readonly string[];
   token_endpoint_auth_method: string;
 }>;
+
+type ConsentRequestRow = Readonly<{
+  token_hash: string;
+  session_id: string;
+  user_id: string;
+  account_id: string;
+  client_id: string;
+  redirect_uri: string;
+  scopes: readonly string[];
+  state: string | null;
+  code_challenge: string;
+  code_challenge_method: string;
+}>;
+
+function isInteractiveSessionActor(actor: ResolvedActor | null): actor is ResolvedActor {
+  return Boolean(actor?.sessionId && !actor.agentGrant && !isGuestCheckoutActor(actor));
+}
+
+async function readConsentRequest(auth: AuthServices, token: string, actor: ResolvedActor) {
+  if (!token) return null;
+  const result = await auth.db.query<ConsentRequestRow>(
+    `SELECT * FROM identity_ucp_oauth_consent_requests
+     WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
+       AND consumed_at IS NULL AND expires_at > now()`,
+    [auth.auth.hashSecret(token), actor.sessionId, actor.userId, actor.accountId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function resolveConsentClient(options: UcpOAuthRoutesOptions, consent: ConsentRequestRow) {
+  const client = await resolveOAuthClientMetadata(options, consent.client_id);
+  return client?.responseTypes.includes("code") &&
+    client.grantTypes.includes("authorization_code") &&
+    client.redirectUris.includes(consent.redirect_uri) &&
+    isScopeSubset(consent.scopes, client.scopes)
+    ? client
+    : null;
+}
+
+function consentAuthorizePath(consent: ConsentRequestRow) {
+  const query = new URLSearchParams({
+    response_type: "code",
+    client_id: consent.client_id,
+    redirect_uri: consent.redirect_uri,
+    scope: consent.scopes.join(" "),
+    code_challenge: consent.code_challenge,
+    code_challenge_method: consent.code_challenge_method,
+  });
+  if (consent.state !== null) query.set("state", consent.state);
+  return `/ucp/oauth/authorize?${query}`;
+}
 
 export function resolveUcpScopedPermissions(
   scopes: readonly string[],
@@ -396,16 +478,103 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const actor = await options.resolveActor(c.req.raw);
-    if (!actor) {
-      return c.json(
-        {
-          error: "login_required",
-          error_description: "Sign in before linking this platform to a marketplace account.",
-        },
-        401,
-      );
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    if (!isInteractiveSessionActor(actor)) {
+      return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
     }
 
+    const token = options.auth.auth.issueOpaqueToken("ucp_consent");
+    await options.auth.db.query(
+      `INSERT INTO identity_ucp_oauth_consent_requests (
+        token_hash, session_id, user_id, account_id, client_id, redirect_uri, scopes, state,
+        code_challenge, code_challenge_method, expires_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::timestamptz)`,
+      [
+        options.auth.auth.hashSecret(token),
+        actor.sessionId,
+        actor.userId,
+        actor.accountId,
+        clientId,
+        redirectUri,
+        JSON.stringify(scopes),
+        state,
+        codeChallenge,
+        codeChallengeMethod,
+        new Date(Date.now() + 10 * 60 * 1_000).toISOString(),
+      ],
+    );
+    return c.redirect(`/account/agents/consent?${new URLSearchParams({ consent_token: token })}`, 302);
+  });
+
+  app.get("/consent", async (c) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    const actor = await options.resolveActor(c.req.raw);
+    if (!isInteractiveSessionActor(actor)) return c.json({ error: "login_required" }, 401);
+    const consent = await readConsentRequest(options.auth, c.req.query("consent_token") ?? "", actor);
+    if (!consent) return c.json({ error: "invalid_request" }, 400);
+    const client = await resolveConsentClient(options, consent);
+    if (!client) return c.json({ error: "invalid_request" }, 400);
+    const memberships = await options.auth.db.query<{ accountId: string; accountName: string }>(
+      `SELECT accounts.account_id AS "accountId", accounts.display_name AS "accountName"
+       FROM auth_identity_user_memberships AS memberships
+       JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+       WHERE memberships.user_id = $1 AND memberships.status = 'active' AND accounts.status = 'active'
+       ORDER BY accounts.display_name, accounts.account_id`,
+      [actor.userId],
+    );
+    return c.json({
+      consent: {
+        clientName: client.clientName ?? client.clientId,
+        redirectOrigin: new URL(consent.redirect_uri).origin,
+        sessionId: actor.sessionId,
+        accountId: actor.accountId,
+        accountName:
+          memberships.rows.find((membership) => membership.accountId === actor.accountId)?.accountName ??
+          actor.accountId,
+        scopes: consent.scopes,
+        memberships: memberships.rows,
+        authorizePath: consentAuthorizePath(consent),
+      },
+    });
+  });
+
+  app.post("/authorize", async (c) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    if (
+      c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
+      c.req.header("sec-fetch-site") === "cross-site"
+    ) {
+      return c.json({ error: "invalid_request" }, 403);
+    }
+    const actor = await options.resolveActor(c.req.raw);
+    if (!isInteractiveSessionActor(actor)) return c.json({ error: "login_required" }, 401);
+    const body = await readFormOrJson(c.req.raw);
+    const decision = readString(body.decision);
+    if (decision !== "approve" && decision !== "deny") return c.json({ error: "invalid_request" }, 400);
+    const consent = await readConsentRequest(options.auth, readString(body.consent_token) ?? "", actor);
+    if (!consent) return c.json({ error: "invalid_request" }, 400);
+    const client = await resolveConsentClient(options, consent);
+    if (!client) return c.json({ error: "invalid_request" }, 400);
+    const consumed = await options.auth.db.query<ConsentRequestRow>(
+      `UPDATE identity_ucp_oauth_consent_requests SET consumed_at = now()
+       WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
+         AND consumed_at IS NULL AND expires_at > now()
+       RETURNING *`,
+      [consent.token_hash, actor.sessionId, actor.userId, actor.accountId],
+    );
+    const bound = consumed.rows[0];
+    if (!bound) return c.json({ error: "invalid_request" }, 400);
+    const redirect = new URL(bound.redirect_uri);
+    redirect.searchParams.delete("code");
+    redirect.searchParams.delete("error");
+    if (bound.state !== null) redirect.searchParams.set("state", bound.state);
+    if (decision === "deny") {
+      redirect.searchParams.set("error", "access_denied");
+      return c.redirect(redirect.toString(), 302);
+    }
     const code = options.auth.auth.issueOpaqueToken("ucp_code");
     const expiresAt = new Date(
       Date.now() + authSecurityLifetimesOf(options.auth).ucpAuthorizationCodeTtlMs,
@@ -428,24 +597,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       [
         createId("cmd"),
         options.auth.auth.hashSecret(code),
-        clientId,
+        bound.client_id,
         client.platformProfileUrl,
-        redirectUri,
-        actor.userId,
-        actor.accountId,
-        JSON.stringify(scopes),
-        state,
-        codeChallenge,
-        codeChallengeMethod,
+        bound.redirect_uri,
+        bound.user_id,
+        bound.account_id,
+        JSON.stringify(bound.scopes),
+        bound.state,
+        bound.code_challenge,
+        bound.code_challenge_method,
         expiresAt,
       ],
     );
 
-    const redirect = new URL(redirectUri);
     redirect.searchParams.set("code", code);
-    if (state) {
-      redirect.searchParams.set("state", state);
-    }
     return c.redirect(redirect.toString(), 302);
   });
 
