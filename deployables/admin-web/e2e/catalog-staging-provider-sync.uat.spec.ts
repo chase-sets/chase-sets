@@ -7226,6 +7226,9 @@ async function wholeGameStart(
   await expect(form.locator('input[name="selectionMode"]')).toHaveValue("matching-scope");
   await expect(form.locator('input[name="scopeKind"]')).toHaveValue("set");
   await chooseDesignSystemSelect(page, form, "Product domain", "productDomain", input.productDomain);
+  if (input.productDomain === "pokemon") {
+    await chooseDesignSystemSelect(page, form, "Scope kind", "scopeKind", "expansion");
+  }
   await form.getByLabel("Language", { exact: true }).fill(input.languageCode ?? "");
   const budgetFields: readonly (readonly [string, number])[] = [
     ["Scopes per worker turn", input.budget.maxScopesPerTurn],
@@ -7669,8 +7672,14 @@ function fixtureNewBatchForm(): string {
     <button type="button" id="f-domain" onclick="document.getElementById('f-domain-options').hidden = false">pokemon</button>
     <div id="f-domain-options" role="listbox" hidden>
       <div role="option" onclick="document.querySelector('[name=productDomain]').value = 'one-piece'; this.parentElement.hidden = true">one-piece</div>
+      <div role="option" onclick="document.querySelector('[name=productDomain]').value = 'pokemon'; this.parentElement.hidden = true">pokemon</div>
     </div>
     <input type="hidden" name="scopeKind" value="set">
+    <label for="f-kind">Scope kind</label>
+    <button type="button" id="f-kind" onclick="document.getElementById('f-kind-options').hidden = false">set</button>
+    <div id="f-kind-options" role="listbox" hidden>
+      <div role="option" onclick="document.querySelector('[name=scopeKind]').value = 'expansion'; this.parentElement.hidden = true">expansion</div>
+    </div>
     ${fixtureField("Language", "languageCode", "en")}
     ${fixtureField("Scopes per worker turn", "maxScopesPerTurn", "1")}
     ${fixtureField("TCGdex request limit", "tcgdexRequestLimit", "1000")}
@@ -8236,6 +8245,25 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     ]) {
       expect(previewCall).toContain(field);
     }
+  });
+
+  test("AC1 Pokemon start selects canonical expansion scopes before preview", async ({ page }) => {
+    const calls = await serveWholeGameFixture(page, (request) => {
+      if (request.path === "/catalog/scopes/sync-batches") {
+        return {
+          html: request.method === "GET" ? fixtureNewBatchForm() : fixturePreview([["scrydex", 1, 1]]),
+        };
+      }
+      return undefined;
+    });
+    await expect(
+      wholeGameStart(page, parseWholeGameStartInput({ CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: "pokemon" }), fixtureRun),
+    ).rejects.toMatchObject({ code: "scrydex-credit-limit-zero" });
+    const previews = calls.filter((call) => call.includes("intent=preview"));
+    expect(previews).toHaveLength(1);
+    expect(previews[0]).toContain("productDomain=pokemon");
+    expect(previews[0]).toContain("scopeKind=expansion");
+    expect(calls.filter((call) => call.includes("intent=confirm"))).toEqual([]);
   });
 
   test("AC2 settle retries only the requested batch's failed unit and refuses a different batch_id", async ({
