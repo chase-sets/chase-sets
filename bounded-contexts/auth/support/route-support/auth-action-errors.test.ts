@@ -1,13 +1,83 @@
 import { readFileSync } from "node:fs";
 import ts from "@chase-sets/typescript-compiler-api";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import type { ActionFunctionArgs } from "react-router";
+import { t } from "@chase-sets/localization";
 import { AuthApiError } from "../../client";
-import { authApiActionError } from "./auth-action-errors";
+import { AUTH_ACTION_INTENTS, authApiActionError, type AuthActionIntent } from "./auth-action-errors";
+import { defineAuthHost, toAuthActionError } from "./auth-host";
 import { SOCIAL_LOGIN_ERROR_MESSAGES, socialLoginErrorMessage } from "./social-login-errors";
 import { loader as signInLoader } from "../../routes/marketplace/sign-in";
 import { loader as registerLoader } from "../../routes/marketplace/register";
 
 const marker = "Bearer synthetic-source-partition-marker";
+afterEach(() => vi.unstubAllGlobals());
+
+const unauthorizedCopy = {
+  password: "auth.support.apiSupport.passwordRoutes.invalid.email.or.password",
+  "phone-code-consume": "auth.support.apiSupport.phoneCodeRoutes.phone.code.is.invalid.or.has",
+  "magic-link-consume": "auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has",
+  "account-selection": "auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has",
+} as const;
+
+function expectedUnauthorizedCopy(intent: AuthActionIntent) {
+  return t(
+    unauthorizedCopy[intent as keyof typeof unauthorizedCopy] ?? "auth.support.routeSupport.authHost.request.failed",
+  );
+}
+
+it.each(AUTH_ACTION_INTENTS)("uses safe intent-specific FORM copy for a legacy 401: %s", (intent) => {
+  const result = authApiActionError(new AuthApiError(401, { error: marker }), intent);
+  expect(result).toEqual({
+    error: expectedUnauthorizedCopy(intent),
+    intent,
+    classification: "FORM",
+    errors: { fieldErrors: {}, formErrors: [expectedUnauthorizedCopy(intent)] },
+  });
+  if (intent !== "password") expect(result.error).not.toBe(t(unauthorizedCopy.password));
+  expect(JSON.stringify(result)).not.toContain(marker);
+});
+
+it.each([
+  ["phone-code-consume", "Phone code is invalid or has expired."],
+  ["magic-link-consume", "Magic link is invalid or has expired."],
+  ["passkey-sign-in", "Passkey challenge is invalid or expired."],
+  ["invitation-accept", "Invitation acceptance token is invalid or expired."],
+  ["account-selection", "Account selection is invalid or has expired."],
+] as const)("regresses the reviewer's legacy 401 probe: %s", async (intent, message) => {
+  const error = { error: message };
+  const host = defineAuthHost({
+    signInPath: "/sign-in",
+    fallbackPath: "/account",
+    defaultSuccessPath: "/account",
+    accountSelectionPath: "/account/select",
+    signedOutReturnTo: "/sign-in",
+    allowManualMagicLinkTokenEntry: true,
+  });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(error, { status: 401 })));
+  const request = new Request("https://marketplace.test/sign-in", {
+    method: "POST",
+    body: new URLSearchParams({ intent, phone: "+13125550101", code: "000000", tokenId: "t", token: "t" }),
+  });
+  const args: ActionFunctionArgs = {
+    request,
+    params: {},
+    context: {},
+    url: new URL(request.url),
+    pattern: "/sign-in",
+  };
+  const result =
+    intent === "invitation-accept" || intent === "account-selection"
+      ? toAuthActionError(new AuthApiError(401, error), intent)
+      : await host.createSignInAction()(args);
+  expect(result).toMatchObject({
+    error: expectedUnauthorizedCopy(intent),
+    intent,
+    classification: "FORM",
+    errors: { fieldErrors: {}, formErrors: [expectedUnauthorizedCopy(intent)] },
+  });
+  expect(result).not.toMatchObject({ error: t(unauthorizedCopy.password) });
+});
 function source(relative: string) {
   return ts.createSourceFile(
     relative,
@@ -31,7 +101,15 @@ it("keeps browser-facing error adapters free of server runtime imports", () => {
 
 it("derives the legacy producer partition from source with an unknown fail-closed default", () => {
   const outcomes: { producer: string; status: number }[] = [];
-  for (const producer of ["phone-code", "magic-link", "password", "register", "invitation", "passkey"]) {
+  for (const producer of [
+    "phone-code",
+    "magic-link",
+    "password",
+    "register",
+    "invitation",
+    "passkey",
+    "account-selection",
+  ]) {
     const file = source(`../api-support/${producer}-routes.ts`);
     function visit(node: ts.Node) {
       if (
@@ -53,7 +131,7 @@ it("derives the legacy producer partition from source with an unknown fail-close
     visit(file);
   }
   expect(new Set(outcomes.map((row) => row.producer))).toEqual(
-    new Set(["phone-code", "magic-link", "password", "register", "invitation", "passkey"]),
+    new Set(["phone-code", "magic-link", "password", "register", "invitation", "passkey", "account-selection"]),
   );
   for (const { status } of outcomes) {
     const result = authApiActionError(new AuthApiError(status, { error: marker }), "password");

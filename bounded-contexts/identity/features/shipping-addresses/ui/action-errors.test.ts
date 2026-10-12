@@ -82,6 +82,18 @@ it("partitions real routed failures", async () => {
       expect(JSON.stringify(result)).not.toContain(marker);
     }
   }
+  stub({ error: { code: "validation_failed", message: marker, details: [detail] } }, 422);
+  const mismatchedStatus = await action(args("create"));
+  expect(mismatchedStatus).toMatchObject({
+    data: {
+      failure: {
+        intent: "create",
+        classification: "INDETERMINATE",
+        errors: { fieldErrors: {}, formErrors: [expect.any(String)] },
+      },
+    },
+  });
+  expect(JSON.stringify(mismatchedStatus)).not.toContain(marker);
   expect(JSON.stringify(logs.map((log) => log.mock.calls))).not.toContain(marker);
 });
 

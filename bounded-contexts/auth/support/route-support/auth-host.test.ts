@@ -56,6 +56,18 @@ describe("auth host", () => {
         intent: "password",
         classification: "INDETERMINATE",
       },
+      ...["password", "magic-link-request"].map((intent) => ({
+        status: 400,
+        body: { error: { code: "validation_failed", message: "secret", details: [detail] } },
+        intent,
+        classification: "INDETERMINATE",
+      })),
+      {
+        status: 422,
+        body: { error: { code: "validation_failed", message: "secret", details: [detail] } },
+        intent: "phone-code-request",
+        classification: "INDETERMINATE",
+      },
       {
         status: 403,
         body: { error: { code: "registration_admission_required", message: "secret" } },

@@ -117,7 +117,21 @@ export function authApiActionError(error: AuthApiError, intent: AuthActionIntent
   }
   if (error.status === 401) {
     if (rejection && rejection.code !== "authentication_required") return fallback();
-    return authFormFailure(t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password"), intent);
+    switch (intent) {
+      case "password":
+        return authFormFailure(t("auth.support.apiSupport.passwordRoutes.invalid.email.or.password"), intent);
+      case "phone-code-consume":
+        return authFormFailure(t("auth.support.apiSupport.phoneCodeRoutes.phone.code.is.invalid.or.has"), intent);
+      case "magic-link-consume":
+        return authFormFailure(t("auth.support.apiSupport.magicLinkRoutes.magic.link.is.invalid.or.has"), intent);
+      case "account-selection":
+        return authFormFailure(
+          t("auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has"),
+          intent,
+        );
+      default:
+        return authFormFailure(t("auth.support.routeSupport.authHost.request.failed"), intent);
+    }
   }
   if (
     error.status === 403 &&
