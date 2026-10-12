@@ -279,6 +279,17 @@ const providerColumns: DataColumn<CatalogPrimaryWorkbenchHealthTriageProvider>[]
             value: row.payloadAcquisition,
           },
           ...usageBudgetItems(row.usageBudget),
+          {
+            key: t("catalog.features.scopeSyncBatches.count.spend"),
+            value: row.countSpend?.length
+              ? row.countSpend
+                  .map(
+                    (spend) =>
+                      `${spend.kind}: ${spend.credits} / ${spend.outcome} / ${spend.observedAt ?? t("catalog.features.scopeSyncBatches.count.unobserved")} / ${spend.expiresAt ?? "-"}`,
+                  )
+                  .join("; ")
+              : t("catalog.features.scopeSyncBatches.count.unobserved"),
+          },
         ]}
       />
     ),
