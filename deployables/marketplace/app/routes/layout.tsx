@@ -5,15 +5,11 @@ import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } 
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { resolveLegacyNotificationCenterHref } from "@chase-sets/notifications/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";
-
-type MarketplaceActor = {
-  permissions?: readonly string[];
-  roleKey?: string | null;
-} | null;
 
 // Retired notification-sheet links (`?notifications=feed|settings`) on any page in this
 // layout now resolve to the Notifications-owned account route.
@@ -107,20 +103,18 @@ function displayRole(value: string) {
 
 export default function MarketplaceLayoutRoute() {
   const location = useLocation();
-  const rootData = useRouteLoaderData("root") as
-    | {
-        actor?: MarketplaceActor;
-        actorDisplay?: CurrentActorDisplay | null;
-        cartCount?: number;
+  const rootData = useRouteLoaderData<{
+    actor?: ResolvedActor | null;
+    actorDisplay?: CurrentActorDisplay | null;
+    cartCount?: number;
+    colorMode?: ColorMode;
+    viewer?: {
+      preferences?: {
         colorMode?: ColorMode;
-        viewer?: {
-          preferences?: {
-            colorMode?: ColorMode;
-            reducedMotion?: "user" | "always" | "never";
-          } | null;
-        } | null;
-      }
-    | undefined;
+        reducedMotion?: "user" | "always" | "never";
+      } | null;
+    } | null;
+  }>("root");
   const { colorMode, preferences } = useUserPreferencesAccountMenu(
     rootData?.viewer?.preferences?.colorMode ?? rootData?.colorMode,
     rootData?.actor?.userId ?? null,

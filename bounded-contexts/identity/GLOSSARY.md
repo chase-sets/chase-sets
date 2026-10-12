@@ -14,10 +14,6 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
-### User Preference Write Attempt
-
-A **User Preference Write Attempt** is one User-scoped try to change canonical User Preferences, represented durably by a hashed opaque key and a one-event private receipt committed atomically with the User Preferences version guard. It is distinct from client lifecycle state and Notifications preferences. An exact replay returns the immutable first receipt separately from current authoritative User Preferences and never reapplies the earlier choice.
-
 ### Consent Activation
 
 **Consent Activation** is the authenticated operator act that makes a published policy version required through its Consent Activation Authority. Registration only declares a consent-capable key; a policy document revision alone does not activate it. Deactivation removes the active requirement without deleting authority history or Consent facts.
@@ -172,6 +168,10 @@ Notes:
 - Viewer presentation preferences live in Identity because they describe the signed-in user's cross-device presentation choices.
 - Behavior-coupled settings stay with the context that owns the behavior, such as Notifications-owned delivery settings.
 - Device ephemera and anonymous visitor fallbacks stay client-local and are not Identity facts.
+
+### User Preference Write Attempt
+
+A **User Preference Write Attempt** is one User-scoped try to change canonical User Preferences, represented durably by a hashed opaque key and a one-event private receipt committed atomically with the User Preferences version guard. It is distinct from client lifecycle state and Notifications preferences. An exact replay returns the immutable first receipt separately from current authoritative User Preferences and never reapplies the earlier choice.
 
 ## Permission Model
 
