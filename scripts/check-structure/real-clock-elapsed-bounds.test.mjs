@@ -270,7 +270,37 @@ it("after JSX text", () => {
   render(<a>http://example.test</a>); expect(performance.now() - startedAt).toBeLessThan(5);
 });`,
   },
+  "escaped-after-jsx-text.test.jsx": {
+    id: "test:escaped clock after JSX URL text::1::1",
+    source: `
+it("escaped clock after JSX URL text", () => {
+  render(<a>http://example.test</a>); expect(\\u0070erformance.now() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "escaped-after-if-regex.test.ts": {
+    id: "test:escaped clock after a regular expression following if::1::1",
+    source: `
+it("escaped clock after a regular expression following if", () => {
+  if (enabled) /[//]/.test(value); expect(\\u0044ate.now() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "escaped-after-block-regex.test.ts": {
+    id: "test:escaped clock after a regular expression following a block::1::1",
+    source: `
+it("escaped clock after a regular expression following a block", () => {
+  if (enabled) {} /[//]/.test(value); expect(proce\\u{73}s.hrtime() - startedAt).toBeLessThan(5);
+});`,
+  },
 };
+
+const escapedTextControls = `
+it("escapes outside code", () => {
+  // expect(\\u0070erformance.now() - startedAt).toBeLessThan(5);
+  const quoted = "expect(\\u0044ate.now() - startedAt).toBeLessThan(5)";
+  const pattern = /proce\\u0073s\\.hrtime\\(\\) - startedAt/;
+  render(<a>expect(\\u0070erformance.now() - startedAt).toBeLessThan(5)</a>);
+  expect(quoted.length - pattern.source.length).toBeLessThan(500);
+});`;
 
 const cleanControls = `
 import assert from "node:assert/strict";
@@ -394,13 +424,14 @@ expect(Date.now() - startedAt).toBeLessThan(5);`,
     expect({ scanned: result.scanned, total: result.total }).toEqual({ scanned: 1, total: 2 });
   });
 
-  it("ignores lower bounds, timestamp ordering, constants, logs and liveness races", async () => {
+  it("ignores lower bounds, timestamp ordering, constants, logs, liveness races and escapes outside code", async () => {
     const root = await fixtureRepo({
       [`${base}/controls.test.ts`]: cleanControls,
       [`${base}/controls.spec.mjs`]: cleanControls.replace(/: number/g, ""),
+      [`${base}/escaped-text.test.jsx`]: escapedTextControls,
     });
     const result = await validateRealClockElapsedBounds({ repoRoot: root, allowlistPath });
-    expect(result).toMatchObject({ violations: [], rows: [], scanned: 2, total: 2 });
+    expect(result).toMatchObject({ violations: [], rows: [], scanned: 3, total: 3 });
   });
 
   it("rejects stale, duplicate and unjustified allowlist entries", async () => {

@@ -121,9 +121,12 @@ function scriptKind(file) {
 // Pre-filter: every clock read names performance, Date or process. Scanner
 // tokens skip comments and decode escaped identifiers, so neither formatting nor
 // spelling hides a read. Template and regular-expression tokens are rescanned
-// as the parser would. Without the parser, JSX text can still mis-tokenize, so
-// a scan error or a bare name anywhere in the text admits the file too.
+// as the parser would. Without the parser, regex and JSX context can still
+// mis-tokenize and swallow later code, so a scan error or a bare name anywhere
+// in the text admits the file too. A name the bare-name check misses must be
+// spelled with a \u escape, so any escape admits the file without scanning.
 function mayReadClock(file, text) {
+  if (text.includes("\\u")) return true;
   let scanError = false;
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.getLanguageVariant(scriptKind(file)), text, () => {
     scanError = true;
