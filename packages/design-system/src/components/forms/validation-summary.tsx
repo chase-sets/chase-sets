@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import { cx } from "../../utils/cx";
 
 export interface ValidationSummaryError {
@@ -8,6 +8,7 @@ export interface ValidationSummaryError {
 }
 
 export interface ValidationSummaryProps {
+  ref?: Ref<HTMLElement>;
   id?: string;
   title?: ReactNode;
   description?: ReactNode;
@@ -53,6 +54,7 @@ function focusValidationTarget(fieldId: string) {
 }
 
 export function ValidationSummary({
+  ref,
   id,
   title = "Check the form",
   description,
@@ -79,7 +81,9 @@ export function ValidationSummary({
 
   return (
     <section
+      ref={ref}
       id={id}
+      tabIndex={-1}
       role="alert"
       aria-live="assertive"
       className={cx("rounded-tokenMd border border-danger bg-surface-2 p-4 text-sm shadow-tokenSm", className)}
