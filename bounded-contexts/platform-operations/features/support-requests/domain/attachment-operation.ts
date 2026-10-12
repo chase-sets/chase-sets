@@ -123,6 +123,7 @@ export function deriveSupportEvidenceAttachmentId(
     !Number.isSafeInteger(input.index) ||
     input.index < 0 ||
     input.index >= SUPPORT_EVIDENCE_ATTACHMENT_MAX_COUNT ||
+    typeof input.canonicalSha256 !== "string" ||
     !sha256.test(input.canonicalSha256)
   )
     invalid();
@@ -175,6 +176,7 @@ export function createAttachmentManifest(
   const items = input.images.map((image, index) => {
     object(image, ["canonicalSha256", "contentType", "byteSize"]);
     if (
+      typeof image.canonicalSha256 !== "string" ||
       !sha256.test(image.canonicalSha256) ||
       !isSupportEvidenceAttachmentContentType(image.contentType) ||
       !Number.isSafeInteger(image.byteSize) ||

@@ -49,6 +49,19 @@ const cleanup: AttachmentOperationEvent = {
 };
 
 describe("Support Attachment Operation", () => {
+  it("rejects array-coerced canonical hashes rather than replaying poisoned manifest authority", () => {
+    expect(() =>
+      createAttachmentManifest({
+        owner,
+        profile: fingerprint.profile,
+        encoderFingerprint: fingerprint,
+        images: [{ ...images[0], canonicalSha256: [images[0].canonicalSha256] as never }],
+      }),
+    ).toThrow();
+    expect(() =>
+      deriveSupportEvidenceAttachmentId({ ...owner, index: 0, canonicalSha256: [images[0].canonicalSha256] as never }),
+    ).toThrow();
+  });
   it("malformed settlement cannot become a no-op because the attempt is missing", () => {
     expect(() =>
       decideAttachmentOperation(replayAttachmentOperation([stage()]), {
