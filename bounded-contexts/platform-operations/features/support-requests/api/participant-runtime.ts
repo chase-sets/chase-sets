@@ -316,13 +316,17 @@ export function createParticipantRuntime(deps: Deps) {
       const attempt = parseParticipantAttempt(input.attempt);
       const lookupInput = { ...input, attempt, tenantId: context.tenantId };
       const id = target(lookupInput);
-      const loaded = await load(id, lookupInput);
       const hasAttachments =
         input.actionKind === "submit-evidence" &&
         input.body !== null &&
         typeof input.body === "object" &&
         Array.isArray((input.body as Record<string, unknown>).attachments) &&
         ((input.body as Record<string, unknown>).attachments as unknown[]).length > 0;
+      const loaded = await load(id, lookupInput).catch(async (error: unknown) => {
+        if (hasAttachments && error instanceof ParticipantAttemptError && error.status === 403)
+          await deps.authorizeEvidence?.(id, input.actor ?? null);
+        throw error;
+      });
       const ownsReceipt = loaded.receipts.some(({ receipt }) => sameOwner(receipt, lookupInput, id));
       if (hasAttachments && !ownsReceipt) await deps.authorizeEvidence?.(id, input.actor ?? null);
       authorize(loaded, lookupInput);
