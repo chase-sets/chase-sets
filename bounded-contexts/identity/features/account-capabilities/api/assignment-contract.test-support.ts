@@ -41,7 +41,7 @@ const registry = [
     key: input.capabilityKey,
     kind: "boolean",
     defaultValue: false,
-    description: "Synthetic",
+    description: "synthetic",
     owningContext: "platform-operations",
   },
 ] as const;

@@ -1484,6 +1484,7 @@ export function createHost(runtimeProfile: PlatformApiRuntimeProfile = "public")
     runtimeProfile,
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },

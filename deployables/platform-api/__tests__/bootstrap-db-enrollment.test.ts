@@ -2750,7 +2750,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(actual).toEqual(expected);
     expect(deriveBootstrapDbCaseIdentities("catalog-before-split.ts", sources.join("\n"))).toEqual(expected);
     const support = readFileSync(join(testDirectory, "catalog-seed-test-support.ts"), "utf8");
-    // AST digests captured from f8b1c5eb3a1efb51703ff9df61c0aa6554cf6ef7, excluding only export plumbing.
+    // Historical AST digests exclude export plumbing; the deny-all host adaptation is pinned and stripped below.
     const expectedHelpers = {
       CatalogServices: "a8e89b7f2c21b03bc9f44258e94d22397bd36823e944e9c8a3a7c8a5743e6872",
       InterruptionSite: "c4dadca6244573816136cb34ca52f186a2b47b8e32dcf3d6302940783a75d4b2",
@@ -2758,7 +2758,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       profileShapes: "3ac53db3762c52cfff690dc427bea3cdaa82f4b585095736995aab43c1ac00f6",
       databaseUrls: "14168e4de456370321f00dbba9697c134df3470f0fa860257723d60bd2282ff1",
       pools: "5260c751c5ee88b848ffa1899726fad225c3283d06d00721d9c04f5cc43de6f9",
-      createCatalogSeedHost: "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+      createCatalogSeedHost: "595a21d28805159ba5dccd4f756f478b16780895bc545bd73adab76cf89fbf70",
       prepareCatalog: "7fb847531b8b855767631e51c953bfdb3c1b1afae463f6d63a0c62b6fe22a140",
       catalogServices: "d46e45a440d6e719db7d53d9a6e9e6368733a6e6472b68f11d185ce25e5a4b1a",
       bootstrapOptions: "d24074c11b027484bafc2bac41825f4c71637fc61fe323b4be46a3115e6a3356",
@@ -2778,6 +2778,27 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     const { assignCatalogSeedState, ...helpers } = catalogDeclarationDigests(support);
     expect(helpers).toEqual(expectedHelpers);
+    const tree = sourceFileOf(support);
+    const removals: { start: number; end: number }[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isPropertyAssignment(node) && node.name.getText(tree) === "capabilityAdministrationAuthority") {
+        expect(node.initializer.getText(tree)).toBe('{ kind: "deny-all", diagnostic: "authority_absent" }');
+        let end = node.end;
+        while (/\s/.test(support[end] ?? "") && end < support.length) end++;
+        if (support[end] === ",") end++;
+        removals.push({ start: node.getStart(tree), end });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    expect(removals).toHaveLength(1);
+    let historicalShape = support;
+    for (const removal of removals.sort((a, b) => b.start - a.start)) {
+      historicalShape = historicalShape.slice(0, removal.start) + historicalShape.slice(removal.end);
+    }
+    expect(catalogDeclarationDigests(historicalShape).createCatalogSeedHost).toBe(
+      "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+    );
     expect(assignCatalogSeedState).toBeTruthy();
     for (const [index, source] of sources.entries()) {
       const suffix = index === 0 ? "aggregate_state" : "interruption_resume";

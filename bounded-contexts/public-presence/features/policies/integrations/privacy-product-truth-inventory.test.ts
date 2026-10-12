@@ -363,11 +363,11 @@ describe("privacy product-truth derivation over the real repository", () => {
       "providerName",
       "providerSubject",
     ]);
-    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:210-213"]);
+    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:215-218"]);
 
     const facebook = factFor("social-provider-profile", "facebook");
     expect(facebook.detail.mappedProfileFields).not.toContain("hostedDomain");
-    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:218-221"]);
+    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:223-226"]);
   });
 
   it("resolves every derived evidence reference to real cited source lines", () => {

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
@@ -2290,6 +2291,48 @@ const PRODUCTION_HOST_FILES = [
   "deployables/platform-api/src/representative-commerce-state.ts",
   "scripts/replay-projection.ts",
 ];
+
+it("supplies capability administration authority in every production platform API host", () => {
+  const root = repositoryRootFromTests();
+  for (const file of PRODUCTION_HOST_FILES) {
+    const source = readFileSync(join(root, file), "utf8");
+    const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    const hostPorts: ts.ObjectLiteralExpression[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isCallExpression(node) && node.expression.getText(tree) === "createPlatformApiHost") {
+        const options = node.arguments[0];
+        expect(options && ts.isObjectLiteralExpression(options), file).toBe(true);
+        if (options && ts.isObjectLiteralExpression(options)) {
+          const ports = options.properties.find(
+            (property) => ts.isPropertyAssignment(property) && property.name.getText(tree) === "hostPorts",
+          );
+          expect(ports && ts.isPropertyAssignment(ports) && ts.isObjectLiteralExpression(ports.initializer), file).toBe(
+            true,
+          );
+          if (ports && ts.isPropertyAssignment(ports) && ts.isObjectLiteralExpression(ports.initializer)) {
+            hostPorts.push(ports.initializer);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    expect(hostPorts, file).toHaveLength(1);
+    for (const ports of hostPorts) {
+      expect(
+        ports.properties.some(
+          (property) =>
+            (ts.isPropertyAssignment(property) &&
+              property.name.getText(tree) === "capabilityAdministrationAuthority") ||
+            (file.endsWith("/main.ts") &&
+              ts.isSpreadAssignment(property) &&
+              property.expression.getText(tree) === "capabilityAdministrationPorts"),
+        ),
+        `${file} must supply capabilityAdministrationAuthority`,
+      ).toBe(true);
+    }
+  }
+});
 
 function verifyHostConstructionCensus(root: string, files = collectRepositorySourceFiles(root)) {
   const callSites = countConstructionCallSites(

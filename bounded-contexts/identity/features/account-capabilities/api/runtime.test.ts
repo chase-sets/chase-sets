@@ -123,6 +123,11 @@ describe("Account Capability assignment runtime", () => {
     ["another declared boolean key", { capabilityKey: "authenticity.seller-included" }, /support\.evidence\.any-case/],
     ["a missing admission", { admission: undefined }, /requires an administration admission/],
     [
+      "a structurally matching forged admission with a valid registry",
+      { admission: { ...admission } },
+      /requires an administration admission/,
+    ],
+    [
       "an admission for another tenant",
       { admission: { ...admission, tenantId: "tnt_other" } },
       /does not match the request's tenant and administrator/,
