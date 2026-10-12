@@ -393,6 +393,42 @@ describeDb("projection operations Postgres integration", () => {
       Promise.all(tables.map(async (table) => (await pools.target.query(`SELECT id FROM ${table} ORDER BY id`)).rows));
     const before = await readRows();
     expect(before).toEqual(tables.map(() => [{ id: "scope-one" }]));
+    const live = mount();
+    const liveRoot = live.projectionGroups.find((group) => group.projectionName === definitions[0].projectionName)!;
+    await expect(resetProjectionGroup({ ...liveRoot, getResetGroups: () => [liveRoot] })).rejects.toThrow(
+      "cannot reset FK-dependent table",
+    );
+    expect(await readRows()).toEqual(before);
+    let leaseLost = false;
+    const rollbackRoot = {
+      ...liveRoot,
+      subscriptionRunners: liveRoot.subscriptionRunners.map((runner) => ({
+        ...runner,
+        reset: async (...args: Parameters<typeof runner.reset>) => {
+          await runner.reset(...args);
+          leaseLost = true;
+        },
+      })),
+    };
+    await expect(
+      resetProjectionGroup(rollbackRoot, {
+        throwIfLeaseLost: () => {
+          if (leaseLost) throw new Error("synthetic initiating lease lost");
+        },
+      }),
+    ).rejects.toThrow("synthetic initiating lease lost");
+    expect(await readRows()).toEqual(before);
+    for (const runner of live.subscriptionRunners) {
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toMatchObject({
+        checkpoint: "1",
+        recoveryMarker: "1",
+      });
+      expect(await countSubscriptionApplicationRows(runner.checkpointKey)).toBe(1);
+    }
+    await pools.target.query(
+      "UPDATE event_subscription_checkpoints SET lease_fencing_token = 99 WHERE projection_name <> $1",
+      [definitions[0].projectionName],
+    );
     await pools.target.query(`TRUNCATE ${tables.join(", ")}, event_projection_recovery_markers`);
     const runtime = mount();
     for (const runner of runtime.subscriptionRunners) {
@@ -400,18 +436,31 @@ describeDb("projection operations Postgres integration", () => {
     }
     const root = runtime.projectionGroups.find((group) => group.projectionName === definitions[0].projectionName)!;
     // The production worker must commit every affected checkpoint reset before any replay.
-    await resetProjectionGroup(root);
+    await resetProjectionGroup(root, createProjectionRunContext({ fencingToken: "1" }));
     for (const runner of runtime.subscriptionRunners) {
       expect((await readCheckpointState(pools.target, runner.checkpointKey)).checkpoint).toBeNull();
       expect(await countSubscriptionApplicationRows(runner.checkpointKey)).toBe(0);
     }
+    // Simulate an old dependent pass saving its pre-reset position after commit.
+    // Durable group invalidation must still require a reset, not trust this marker.
+    for (const { projectionName } of definitions.slice(1)) {
+      await savePersistedSubscriptionCheckpoint(
+        pools.target,
+        { projectionName, sourceContextName: "source", subscriptionVersion: 1 },
+        parseGlobalPosition("1"),
+      );
+    }
     const restarted = mount();
     for (const group of restarted.projectionGroups) {
+      if (group.projectionName !== root.projectionName) {
+        expect(await group.refreshStatus()).toMatchObject({ recoveryRequired: true, caughtUp: false });
+      }
       const worker = createProjectionGroupWorkerRunner(group);
       while ((await worker.runOnce()).processed > 0) {
         /* drain to revision completion */
       }
-      expect((await group.refreshStatus()).caughtUp).toBe(true);
+      await group.refreshStatus();
+      expect(group.getStatus()).toMatchObject({ recoveryRequired: false, caughtUp: true });
     }
     expect(await readRows()).toEqual(before);
   });

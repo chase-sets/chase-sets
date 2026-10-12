@@ -13,7 +13,7 @@ import type {
   MountedContextRuntimeEntry,
   SubscriptionReplayState,
 } from "./subscriptions";
-import { drainContextProcesses, sortSubscriptionRunners } from "./subscriptions";
+import { drainContextProcesses, resolveModuleSubscriptions, sortSubscriptionRunners } from "./subscriptions";
 
 // Status-refresh fan-out is nested (groups x each group's subscription runners),
 // so this bound squares: at 4 it demanded up to 4 x 4 = 16 concurrent status
@@ -140,6 +140,7 @@ export type ContextProjectionGroup = Readonly<{
   requiredDuringBootstrap: boolean;
   subscriptionRunners: readonly ContextSubscriptionRunner[];
   targetPool?: PgTransactionalPool;
+  getResetGroups?: () => readonly ContextProjectionGroup[];
   reset: (context?: ProjectionRunContext, options?: ProjectionResetOptions) => Promise<void>;
   getStatus: () => ContextProjectionGroupStatus;
   refreshStatus: (options?: ProjectionGroupStatusRefreshOptions) => Promise<RefreshedContextProjectionGroupStatus>;
@@ -161,6 +162,7 @@ export type ContextProjectionGroup = Readonly<{
 
 type ProjectionResetOptions = Readonly<{
   db?: PgQueryable;
+  ownedTablesAlreadyTruncated?: boolean;
 }>;
 
 function assertSqlIdentifier(identifier: string): string {
@@ -190,6 +192,7 @@ async function loadProjectionGroupRevision(
   Readonly<{
     revision: number | null;
     revisionSyncToken: ProjectionGroupRevisionSyncCapture;
+    resetRequired: boolean;
   }>
 > {
   const result = captureRevisionSyncToken
@@ -219,7 +222,7 @@ async function loadProjectionGroupRevision(
   const row = result.rows[0];
   const revision = row?.projection_revision == null ? null : assertProjectionRevision(Number(row.projection_revision));
   if (!captureRevisionSyncToken || !row) {
-    return { revision, revisionSyncToken: undefined };
+    return { revision, revisionSyncToken: undefined, resetRequired: false };
   }
 
   const generationRow = row as ProjectionGroupRevisionAndGenerationRow;
@@ -231,6 +234,7 @@ async function loadProjectionGroupRevision(
 
   return {
     revision,
+    resetRequired: generation?.state === "failed",
     revisionSyncToken:
       generationRow.generation_active_generation === null &&
       generationRow.generation_rebuilding_generation === null &&
@@ -640,7 +644,7 @@ function createDefaultProjectionGroupReset(
     return async (context, options) => {
       context?.throwIfLeaseLost?.();
       const truncateOwnedTables = async (db: PgQueryable) => {
-        if (ownedTables.length === 0) return;
+        if (ownedTables.length === 0 || options?.ownedTablesAlreadyTruncated) return;
         context?.throwIfLeaseLost?.();
         await db.query(`TRUNCATE TABLE ${ownedTables.map(assertSqlIdentifier).join(", ")}`);
       };
@@ -711,9 +715,11 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
     const revisionState: {
       storedProjectionRevision: number | null;
       updatedAt: string;
+      recoveryRequired: boolean;
     } = {
       storedProjectionRevision: null,
       updatedAt: new Date(0).toISOString(),
+      recoveryRequired: false,
     };
     const revisionStale = () =>
       revisionState.storedProjectionRevision !== null && revisionState.storedProjectionRevision !== projectionRevision;
@@ -755,7 +761,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
         projectionRevision,
         storedProjectionRevision: revisionState.storedProjectionRevision,
         revisionStale: revisionStale(),
-        recoveryRequired: false,
+        recoveryRequired: revisionState.recoveryRequired,
         targetContextName: entry.contextName,
         sourceContextNames,
         ownedTables,
@@ -775,9 +781,10 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           entry.pool,
           entry.contextName,
           group.projectionName,
-          options?.captureRevisionSyncToken === true,
+          options?.captureRevisionSyncToken === true || group.resetStrategy === "truncate-owned-tables",
         );
         revisionState.storedProjectionRevision = revision.revision;
+        revisionState.recoveryRequired = group.resetStrategy === "truncate-owned-tables" && revision.resetRequired;
         revisionState.updatedAt = new Date().toISOString();
         const status: RefreshedContextProjectionGroupStatus = {
           projectionName: group.projectionName,
@@ -785,7 +792,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           projectionRevision,
           storedProjectionRevision: revisionState.storedProjectionRevision,
           revisionStale: revisionStale(),
-          recoveryRequired: false,
+          recoveryRequired: revisionState.recoveryRequired,
           targetContextName: entry.contextName,
           sourceContextNames,
           ownedTables,
@@ -819,6 +826,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           context,
         );
         revisionState.storedProjectionRevision = projectionRevision;
+        revisionState.recoveryRequired = false;
         revisionState.updatedAt = new Date().toISOString();
       },
       failGenerationRebuild: (expectedToken, context) =>
@@ -837,6 +845,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           context,
         );
         revisionState.storedProjectionRevision = projectionRevision;
+        revisionState.recoveryRequired = false;
         revisionState.updatedAt = new Date().toISOString();
       },
     };
@@ -950,8 +959,11 @@ export function resolveModuleProjectionGroups(
           const baseStatus = group.getStatus();
           const subscriptions = groupRunners.map((runner) => runner.getStatus());
           const initialized =
-            subscriptions.length > 0 && subscriptions.every((subscription) => subscription.initialized);
+            !baseStatus.recoveryRequired &&
+            subscriptions.length > 0 &&
+            subscriptions.every((subscription) => subscription.initialized);
           const caughtUp =
+            !baseStatus.recoveryRequired &&
             subscriptions.length > 0 &&
             subscriptions.every(
               (subscription) =>
@@ -959,7 +971,8 @@ export function resolveModuleProjectionGroups(
                 subscription.lastGlobalPosition === subscription.sourceHeadGlobalPosition &&
                 subscription.blockedStreamCount === 0,
             );
-          const recoveryRequired = subscriptions.some((subscription) => subscription.recoveryRequired);
+          const recoveryRequired =
+            baseStatus.recoveryRequired || subscriptions.some((subscription) => subscription.recoveryRequired);
           const blockedStreamCount = subscriptions.reduce(
             (total, subscription) => total + subscription.blockedStreamCount,
             0,
@@ -1029,7 +1042,11 @@ export function resolveModuleProjectionGroups(
     );
   }
 
-  return sortProjectionGroups(groups);
+  const resolvedGroups: readonly ContextProjectionGroup[] = sortProjectionGroups(groups).map((group) => ({
+    ...group,
+    getResetGroups: () => resolvedGroups.filter((candidate) => candidate.targetContextName === group.targetContextName),
+  }));
+  return resolvedGroups;
 }
 
 function validateInlineApplyEligibility(
@@ -1101,12 +1118,38 @@ export async function resetProjectionGroup(
   context?.throwIfLeaseLost?.();
   const resetContext = resetContextWithoutStatementTimeout(context);
   const reset = async (db?: PgQueryable): Promise<ProjectionGroupRevisionSyncToken | null> => {
+    const resetGroups = db ? await resolveTruncateResetGroups(db, group) : [group];
     const revisionSyncToken = db ? await markProjectionGroupRebuilding(db, group, resetContext, expectedToken) : null;
-    await group.reset(resetContext, { db });
+    const truncateTogether = resetGroups.length > 1;
+    if (truncateTogether) {
+      await db!.query(
+        `TRUNCATE TABLE ${resetGroups
+          .flatMap((candidate) => candidate.ownedTables)
+          .map(assertSqlIdentifier)
+          .join(", ")}`,
+      );
+    }
+    await group.reset(resetContext, { db, ownedTablesAlreadyTruncated: truncateTogether });
 
     for (const runner of sortSubscriptionRunners(group.subscriptionRunners)) {
       resetContext?.throwIfLeaseLost?.();
       await runner.reset(resetContext, { db });
+    }
+    for (const dependent of resetGroups.filter((candidate) => candidate.projectionName !== group.projectionName)) {
+      // Fencing tokens are scoped to a group's lease, not comparable across groups.
+      // The initiating lease still guards the entire committed reset.
+      const { ownerId, fencingToken, ...dependentContext } = resetContext ?? {};
+      void ownerId;
+      void fencingToken;
+      const dependentToken = await markProjectionGroupRebuilding(db!, dependent, dependentContext);
+      await dependent.reset(dependentContext, { db, ownedTablesAlreadyTruncated: true });
+      for (const runner of sortSubscriptionRunners(dependent.subscriptionRunners)) {
+        await runner.reset(dependentContext, { db });
+      }
+      // An in-flight dependent worker may have read its old checkpoint before
+      // the truncate. A durable failed generation forces its own leased reset,
+      // even if that stale pass manages to re-arm a recovery marker afterward.
+      await failProjectionGroupGenerationRebuild(db!, dependent, dependentToken, dependentContext);
     }
     return revisionSyncToken ?? expectedToken ?? null;
   };
@@ -1116,6 +1159,61 @@ export async function resetProjectionGroup(
   }
 
   return reset();
+}
+
+async function resolveTruncateResetGroups(
+  db: PgQueryable,
+  group: ContextProjectionGroup,
+): Promise<readonly ContextProjectionGroup[]> {
+  if (group.resetStrategy !== "truncate-owned-tables" || group.ownedTables.length === 0) return [group];
+  const dependencies = await db.query<Readonly<{ referenced_table: string; dependent_table: string }>>(
+    `SELECT confrelid::regclass::text AS referenced_table, conrelid::regclass::text AS dependent_table
+     FROM pg_constraint WHERE contype = 'f'`,
+  );
+  const peers = group.getResetGroups?.() ?? [group];
+  const selected = new Map([[group.projectionName, group]]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const tables = new Set([...selected.values()].flatMap((candidate) => candidate.ownedTables));
+    for (const { referenced_table, dependent_table } of dependencies.rows) {
+      if (!tables.has(referenced_table) || tables.has(dependent_table)) continue;
+      const owner = peers.find((candidate) => candidate.ownedTables.includes(dependent_table));
+      if (!owner || owner.resetStrategy !== "truncate-owned-tables") {
+        throw new Error(
+          `Projection group '${group.targetContextName}.${group.projectionName}' cannot reset FK-dependent table '${dependent_table}' without a truncate-owned-tables projection group owner.`,
+        );
+      }
+      if (!selected.has(owner.projectionName)) {
+        selected.set(owner.projectionName, owner);
+        changed = true;
+      }
+    }
+  }
+  return sortProjectionGroups([...selected.values()]);
+}
+
+export async function syncLocalProjectionGroups(
+  entry: MountedContextRuntimeEntry,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  const localNames = new Set(entry.projectionHandlerSets.map((set) => set.projectionName));
+  const declaredGroups = entry.module.buildProjectionGroups?.(entry.services) ?? entry.module.projectionGroups ?? [];
+  const localEntry: MountedContextRuntimeEntry = {
+    ...entry,
+    mountRole: "active",
+    module: {
+      ...entry.module,
+      eventSubscriptions: [],
+      eventReactions: [],
+      buildSubscriptions: () => [],
+      buildProjectionGroups: () => declaredGroups.filter((group) => localNames.has(group.projectionName)),
+    },
+  };
+  const runners = resolveModuleSubscriptions([localEntry]);
+  for (const group of resolveModuleProjectionGroups([localEntry], runners)) {
+    await syncProjectionGroup(group, context);
+  }
 }
 
 export async function rebuildProjectionGroup(
