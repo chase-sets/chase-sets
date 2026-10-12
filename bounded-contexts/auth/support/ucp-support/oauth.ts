@@ -261,11 +261,6 @@ function isInteractiveSessionActor(actor: ResolvedActor | null): actor is Resolv
   return Boolean(actor?.sessionId && !actor.agentGrant && !isGuestCheckoutActor(actor));
 }
 
-async function resolveInteractiveSessionActor(options: UcpOAuthRoutesOptions, request: Request) {
-  const actor = await options.resolveActor(request);
-  return isInteractiveSessionActor(actor) ? actor : null;
-}
-
 async function readConsentRequest(auth: AuthServices, token: string, actor: ResolvedActor) {
   if (!token) return null;
   const result = await auth.db.query<ConsentRequestRow>(
@@ -769,6 +764,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
+
     if (!options.agentGrantActivity) {
       return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
     }
@@ -927,6 +923,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
+
     if (!options.agentGrantConsent) {
       return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
     }
@@ -953,6 +950,11 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   return app;
+}
+
+async function resolveInteractiveSessionActor(options: UcpOAuthRoutesOptions, request: Request) {
+  const actor = await options.resolveActor(request);
+  return isInteractiveSessionActor(actor) ? actor : null;
 }
 
 async function resolveAccountAuthorization(options: UcpOAuthRoutesOptions, accountId: string, authorizationId: string) {
