@@ -8,18 +8,26 @@ import {
   type HeldSetResolution,
 } from "../../../features/scope-sync-batches/domain/held-set-export";
 import { readHeldSetExportAdminUpload } from "../../../features/scope-sync-batches/api/held-set-upload";
+import type { CountQuote } from "../../../features/scope-sync-batches/domain/count-acquisition";
 
 export type ScopeSyncBatchRouteActionData = Readonly<{
   preview: ScopeSyncBatchPreview | null;
   heldSetResolution: HeldSetResolution | null;
   error: string | null;
+  countQuote?: CountQuote | null;
 }>;
 
-export async function loader({ request }: LoaderFunctionArgs): Promise<{ batch: ScopeSyncBatchSnapshot | null }> {
+export async function loader({
+  request,
+}: LoaderFunctionArgs): Promise<{ batch: ScopeSyncBatchSnapshot | null; countQuote: CountQuote | null }> {
   const batchId = new URL(request.url).searchParams.get("batchId")?.trim();
-  if (!batchId) return { batch: null };
+  const quoteId = new URL(request.url).searchParams.get("quoteId")?.trim();
+  if (!batchId && !quoteId) return { batch: null, countQuote: null };
   const api = createCatalogRequestApiClient(request);
-  return { batch: await api.getScopeSyncBatch<ScopeSyncBatchSnapshot>(batchId) };
+  return {
+    batch: batchId ? await api.getScopeSyncBatch<ScopeSyncBatchSnapshot>(batchId) : null,
+    countQuote: quoteId ? await api.getScopeSyncCountQuote<CountQuote>(quoteId) : null,
+  };
 }
 
 export async function action({ request }: ActionFunctionArgs): Promise<ScopeSyncBatchRouteActionData | Response> {
@@ -31,6 +39,26 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
     }
     const formData = await request.formData();
     const intent = stringValue(formData.get("intent"));
+    if (intent === "count-quote")
+      return {
+        preview: null,
+        heldSetResolution: null,
+        error: null,
+        countQuote: await api.quoteScopeSyncCounts<CountQuote>({
+          selection: previewRequest(formData).selection,
+          cap: numberValue(formData.get("countCap"), 0),
+        }),
+      };
+    if (intent === "count-acquire")
+      return {
+        preview: null,
+        heldSetResolution: null,
+        error: null,
+        countQuote: await api.acquireScopeSyncCounts<CountQuote>({
+          quoteId: requiredString(formData.get("quoteId"), "Count quote is required."),
+          fingerprint: requiredString(formData.get("countFingerprint"), "Count fingerprint is required."),
+        }),
+      };
     if (intent === "preview") {
       return {
         preview: await api.previewScopeSyncBatch<ScopeSyncBatchPreview>(previewRequest(formData)),

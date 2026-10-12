@@ -2083,6 +2083,19 @@ export function createCatalogApiClient({
     async previewScopeSyncBatch<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/preview", input);
     },
+    async quoteScopeSyncCounts<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/quote", input);
+    },
+    async acquireScopeSyncCounts<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/acquire", input);
+    },
+    async getScopeSyncCountQuote<T>(quoteId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/counts/quote/${encodeURIComponent(quoteId)}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async resolveHeldSetExport<T>(file: File): Promise<T> {
       const formData = new FormData();
       formData.set("file", file);

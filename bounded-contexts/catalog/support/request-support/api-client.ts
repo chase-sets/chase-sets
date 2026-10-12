@@ -37,6 +37,10 @@ import { createCatalogApiClient } from "../shell-support/api/client";
 
 export function createCatalogRequestApiClient(request: Request) {
   return createCatalogApiClient({
+    headers: {
+      ...(request.headers.has("origin") ? { origin: request.headers.get("origin")! } : {}),
+      ...(request.headers.has("sec-fetch-site") ? { "sec-fetch-site": request.headers.get("sec-fetch-site")! } : {}),
+    },
     baseUrl: resolveRequestApiBaseUrl(request, "/api/catalog"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "catalog" }),
   });
