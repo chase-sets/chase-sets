@@ -514,13 +514,17 @@ async function readBoundedStream(stream: Readable, maxBytes: number, deadline: D
   stream.on("error", () => undefined);
   try {
     for (;;) {
-      // A source can refill synchronously inside read(), so the clock is consulted before every read, not only on waits.
+      // A source can refill synchronously inside read(), so the clock is consulted around every read, not only on waits:
+      // a chunk that comes back after expiry settles nothing, however complete or oversized it looks.
       if (deadline.isExpired()) {
         return unavailable("deadline-exceeded");
       }
       // Take only buffered bytes within the remaining maxBytes + 1 budget, however large the provider's chunks are;
       // read(0) never returns data and only asks the stream to fill or to announce its end.
       const chunk: unknown = stream.read(Math.min(maxBytes + 1 - byteSize, stream.readableLength));
+      if (deadline.isExpired()) {
+        return unavailable("deadline-exceeded");
+      }
       if (chunk !== null) {
         if (!(chunk instanceof Uint8Array)) {
           return unavailable("invalid-response");

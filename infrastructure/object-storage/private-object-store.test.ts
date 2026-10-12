@@ -577,6 +577,51 @@ describe("private object store: readPrivate (AC-C2)", () => {
     ).resolves.toEqual({ status: "unavailable", code: "deadline-exceeded" });
   });
 
+  it("returns unavailable with an aborted signal when a buffered chunk comes back from a read that starved the clock past the deadline, for read and verify (kills read-then-accept)", async () => {
+    const settle = async (refillMs: number, deadlineMs: number) => {
+      const read = lateRefillBody(refillMs);
+      const verify = lateRefillBody(refillMs);
+      const readClient = recordingClient(async () => ({
+        $metadata: { httpStatusCode: 200 },
+        Body: read.body,
+        ContentType: "image/png",
+      }));
+      const verifyClient = recordingClient(async () => ({
+        $metadata: { httpStatusCode: 200 },
+        Body: verify.body,
+        ContentType: "image/png",
+      }));
+      const results = {
+        read: await createS3PrivateObjectStore({ bucket: BUCKET, client: readClient.client }).readPrivate(
+          "support-evidence/a.png",
+          { maxBytes: 0, deadlineMs },
+        ),
+        verify: await createS3PrivateObjectStore({ bucket: BUCKET, client: verifyClient.client }).verifyPrivate(
+          "support-evidence/a.png",
+          { sha256: sha256Hex(new Uint8Array(0)), byteSize: 0, contentType: "image/png", deadlineMs },
+        ),
+      };
+      for (const body of [read, verify]) {
+        expect(body.consumed()).toBeLessThanOrEqual(1);
+        expect(body.stream.destroyed).toBe(true);
+      }
+      return { results, aborted: [readClient, verifyClient].map((sent) => sent.sent[0]?.abortSignal?.aborted) };
+    };
+
+    await expect(settle(SHORT_DEADLINE_MS + 20, SHORT_DEADLINE_MS)).resolves.toEqual({
+      results: {
+        read: { status: "unavailable", code: "deadline-exceeded" },
+        verify: { status: "unavailable", code: "deadline-exceeded" },
+      },
+      aborted: [true, true],
+    });
+    // In-time control: the same over-cap chunk inside the deadline keeps its size outcome and leaves the request alone.
+    await expect(settle(0, DEADLINE_MS)).resolves.toEqual({
+      results: { read: { status: "too-large" }, verify: { status: "conflict", difference: "byte-size" } },
+      aborted: [false, false],
+    });
+  });
+
   it("returns unavailable at the deadline when response headers never arrive", async () => {
     const { client, sent } = recordingClient(() => new Promise<never>(() => undefined));
     const store = createS3PrivateObjectStore({ bucket: BUCKET, client });
@@ -1560,6 +1605,27 @@ function endlessTrickleBody() {
     },
   });
   return sdkBody(stream);
+}
+
+function lateRefillBody(refillMs: number) {
+  // One byte is already buffered; taking it makes read() refill synchronously, holding the thread for refillMs.
+  let consumed = 0;
+  const stream = new Readable({
+    read() {
+      busyWait(refillMs);
+      this.push(Buffer.from([2]));
+    },
+  });
+  stream.push(Buffer.from([1]));
+  const read = stream.read.bind(stream);
+  stream.read = (size?: number) => {
+    const chunk: unknown = read(size);
+    if (chunk instanceof Uint8Array) {
+      consumed += chunk.byteLength;
+    }
+    return chunk;
+  };
+  return { body: sdkBody(stream), stream, consumed: () => consumed };
 }
 
 function busyWait(milliseconds: number): void {
