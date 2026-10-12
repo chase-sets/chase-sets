@@ -781,7 +781,10 @@ describeDb("Channel Reconciliation guarded production path", () => {
       const at = new Date();
       let interleaved = false;
       let newer: unknown;
+      let protectedWriteAttempts = 0;
       const db = interceptTransactions(pools.channels, async (sql, phase) => {
+        if (interleaved && phase === "before" && sql.includes("INSERT INTO channel_reconciliation_findings"))
+          protectedWriteAttempts += 1;
         if (interleaved || phase !== "after" || !sql.includes("FROM channel_order_observations")) return;
         interleaved = true;
         const policy = { ...CHANNEL_RECONCILIATION_POLICY_FALLBACK, cadenceMs: 60_000 };
@@ -805,8 +808,9 @@ describeDb("Channel Reconciliation guarded production path", () => {
       const losing = (await installedChannelsModule()).createServices(db, {
         channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
       });
-      await expect(
-        losing.reconciliation.reconcileConnection(
+      let refusal: unknown;
+      try {
+        await losing.reconciliation.reconcileConnection(
           {
             connectionId: "connection-1",
             registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
@@ -814,13 +818,19 @@ describeDb("Channel Reconciliation guarded production path", () => {
             healthAuthority: null,
           },
           context,
-        ),
-        "F5-run-fence: the first claimed write must refuse the lost owner",
-      ).rejects.toThrow(
-        activeBypass
+        );
+      } catch (error) {
+        refusal = error;
+      }
+      expect(
+        protectedWriteAttempts,
+        "F5-run-fence: a lost owner must refuse before attempting a protected finding write",
+      ).toBe(0);
+      expect(refusal).toMatchObject({
+        message: activeBypass
           ? "Claimed reconciliation write lost its run fence."
           : "Channel Reconciliation completion lost its generation fence.",
-      );
+      });
       expect(interleaved).toBe(true);
       expect(
         (await pools.channels.query("SELECT * FROM channel_reconciliation_findings ORDER BY finding_id")).rows,
