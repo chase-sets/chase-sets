@@ -12,6 +12,7 @@ export const savedListCommandReceiptSchemaVersion = "collections.saved-list-comm
 export type SavedListCommandReceiptSchemaVersion = typeof savedListCommandReceiptSchemaVersion;
 
 export const savedListLimits = {
+  maximumHistoryEvents: 50_000,
   maximumLines: 10_000,
   maximumBatchOperations: 100,
   maximumTrackedQuantity: 1_000_000,

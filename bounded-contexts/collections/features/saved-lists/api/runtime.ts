@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { EventStreamTooLongError } from "@chase-sets/event-core/complete-stream";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
@@ -165,6 +166,15 @@ export class SavedListIdempotencyConflictError extends Error {
   }
 }
 
+export class SavedListHistoryLimitReachedError extends Error {
+  readonly code = "saved-list-history-limit-reached";
+
+  constructor() {
+    super(`Saved List history reached its ${savedListLimits.maximumHistoryEvents} event limit.`);
+    this.name = "SavedListHistoryLimitReachedError";
+  }
+}
+
 type StoredCommandReceipt = Readonly<{
   schemaVersion: typeof savedListCommandReceiptSchemaVersion;
   commandId: SavedListCommandId;
@@ -182,7 +192,14 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
   const now = deps.clock ?? (() => new Date().toISOString());
 
   async function load(listId: SavedListId) {
-    return repository.load(savedListStreamId(listId));
+    try {
+      return await repository.load(savedListStreamId(listId));
+    } catch (error) {
+      if (error instanceof EventStreamTooLongError) {
+        throw new SavedListHistoryLimitReachedError();
+      }
+      throw error;
+    }
   }
 
   async function reloadOwnerSnapshot(listId: SavedListId, ownerAccountId: AccountId, context: EventStoreContext) {
@@ -257,6 +274,9 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
       const version = storedEvents.at(-1)?.streamVersion ?? loaded.version;
       return commandResult(state, version, input.listId, storedReceipt, false);
     } catch (error) {
+      if (error instanceof EventStreamTooLongError) {
+        throw new SavedListHistoryLimitReachedError();
+      }
       if (isConcurrencyConflict(error)) {
         throw new SavedListConcurrencyConflictError(
           input.expectedVersion === "no_stream" ? 0 : input.expectedVersion,
@@ -468,6 +488,7 @@ function createRepository(eventStore: EventStore) {
     codec: createSavedListEventCodec(),
     initialState: () => initialSavedListState,
     evolve: evolveSavedList,
+    maxEvents: savedListLimits.maximumHistoryEvents,
     decide: decideSavedList,
   }).repository;
 }
