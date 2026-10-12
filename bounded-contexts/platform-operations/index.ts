@@ -153,3 +153,8 @@ export const module = defineBoundedContextModule<
   seed: seedPlatformOperationsDatabase,
   inspectSeedState: (pool) => inspectPlatformOperationsSeedState(pool),
 });
+
+export {
+  openSupportEvidenceCanonicalizer,
+  createSupportEvidenceCanonicalizationQueue,
+} from "./features/support-requests/api/evidence-canonicalization";
