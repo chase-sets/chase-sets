@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,6 +12,35 @@ import {
 describe("MappingExpressionEditor", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it("summary callers preserve Catalog validation and preview message-only alerts without automatic focus", () => {
+    const onChange = vi.fn();
+    const view = (value: MappingExpressionValue) => (
+      <MappingExpressionEditor label="Mapping expression" value={value} onChange={onChange} previewPayload={{}} />
+    );
+    const { rerender } = render(view(expression({ kind: "constant", value: "valid" })));
+    expect(screen.queryByRole("alert")).toBeNull();
+    const control = screen.getByRole("combobox", { name: "Selector kind" });
+    control.focus();
+    rerender(
+      view({ ...expression({ kind: "path", path: "missing", required: true, nullPolicy: "diagnostic" }), uses: [] }),
+    );
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(2);
+    expect(alerts[0].textContent).toContain("Evidence uses must include at least one use.");
+    expect(alerts[1].textContent).toContain("Preview path 'missing' was not found.");
+    expect(within(alerts[0]).getByRole("heading").textContent).toBe("Mapping expression");
+    expect(within(alerts[1]).getByRole("heading").textContent).toBe("Fixture Preview");
+    for (const alert of alerts) {
+      expect(alert.getAttribute("aria-live")).toBe("assertive");
+      expect(alert.getAttribute("tabindex")).toBe("-1");
+      expect(within(alert).queryByRole("link")).toBeNull();
+    }
+    expect(document.activeElement).toBe(control);
+    expect(onChange).not.toHaveBeenCalled();
+    rerender(view(expression({ kind: "constant", value: "valid" })));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("validates every selector and transform variant", () => {

@@ -3,7 +3,7 @@
 import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider, type ActionFunctionArgs } from "react-router";
 import type { SettlementWalletAdjustment, SettlementWalletAdjustmentPreview } from "../../../client";
@@ -92,6 +92,36 @@ function renderWithAction(element: React.ReactNode) {
 
 describe("wallet adjustment action forms", () => {
   afterEach(cleanup);
+
+  it("summary callers preserve Settlement field links and alert behavior without automatic focus", async () => {
+    const user = userEvent.setup();
+    renderWithAction(
+      <WalletAdjustmentGuidedFlowForm
+        targetAccountId="acc_test"
+        targetAccountLabel="Test Account"
+        currencyCode="usd"
+        preview={null}
+        flowError={{
+          kind: "validation",
+          message: "Review the adjustment.",
+          fieldErrors: [{ fieldId: "wallet-adjustment-amount", fieldName: "Amount", message: "Enter an amount." }],
+        }}
+      />,
+    );
+    const summary = document.getElementById("wallet-adjustment-validation-summary");
+    expect(summary?.getAttribute("role")).toBe("alert");
+    expect(summary?.getAttribute("aria-live")).toBe("assertive");
+    expect(summary?.getAttribute("tabindex")).toBe("-1");
+    expect(document.querySelectorAll("#wallet-adjustment-validation-summary")).toHaveLength(1);
+    expect(document.activeElement).not.toBe(summary);
+    const link = screen.getByRole("link", { name: "Amount: Enter an amount." });
+    expect(link.getAttribute("href")).toBe("#wallet-adjustment-amount");
+    fireEvent.click(link);
+    expect(document.activeElement).toBe(screen.getByRole("spinbutton", { name: "Amount" }));
+    link.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(screen.getByRole("spinbutton", { name: "Amount" }));
+  });
 
   it("submits the guided flow with tinted form furniture and an elevated preview entity", async () => {
     const user = userEvent.setup();

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type FormEvent } from "react";
+import { createRef, useState, type FormEvent } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { RouterForm } from "../components/forms/router-form";
@@ -12,7 +12,9 @@ import {
   Combobox,
   CurrencyInput,
   Form,
+  NativeSelect,
   NumberField,
+  PasswordInput,
   RadioGroup,
   Select,
   Slider,
@@ -574,6 +576,128 @@ describe("form system", () => {
     );
     expect(screen.getByText("Separate tags with commas.").getAttribute("id")).toBe("listing-tags-description");
     expect(screen.getByText("Used for account notices.").getAttribute("id")).toBe("marketing-opt-in-description");
+  });
+
+  it("lets a consuming ref focus the natural summary root after commit without stealing focus on rerender", async () => {
+    const user = userEvent.setup();
+    const ref = createRef<HTMLElement>();
+    const view = (message?: string) => (
+      <>
+        <Button type="button">Keep focus</Button>
+        <ValidationSummary
+          ref={ref}
+          id="caller-errors"
+          errors={message ? [{ fieldId: "caller-email", message }] : []}
+        />
+        <TextInput id="caller-email" label="Email" />
+      </>
+    );
+    const { rerender, unmount } = render(view());
+    expect(ref.current).toBeNull();
+    const button = screen.getByRole("button", { name: "Keep focus" });
+    button.focus();
+
+    rerender(view("Enter an email."));
+    const summary = screen.getByRole("alert");
+    expect(ref.current).toBe(summary);
+    expect(summary.tagName).toBe("SECTION");
+    expect(summary.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(button);
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("link"));
+
+    ref.current?.focus();
+    expect(document.activeElement).toBe(summary);
+    button.focus();
+    rerender(view("Use a valid email."));
+    expect(ref.current).toBe(summary);
+    expect(document.activeElement).toBe(button);
+    ref.current?.focus();
+    expect(document.activeElement).toBe(summary);
+
+    rerender(view());
+    expect(ref.current).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(view("Try again."));
+    unmount();
+    expect(ref.current).toBeNull();
+  });
+
+  it("summary links focus natural TextInput, PasswordInput and NativeSelect controls by pointer and Enter", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <TextInput id="summary-email" label="Email" />
+        <PasswordInput id="summary-password" label="Password" />
+        <NativeSelect id="summary-condition" label="Condition" items={[{ value: "new", label: "New" }]} />
+        <ValidationSummary
+          errors={[
+            { fieldId: "summary-email", message: "Fix email." },
+            { fieldId: "summary-password", message: "Fix password." },
+            { fieldId: "summary-condition", message: "Fix condition." },
+            { fieldId: "absent-field", message: "Missing target." },
+          ]}
+        />
+      </>,
+    );
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert").getAttribute("aria-live")).toBe("assertive");
+    expect(screen.getByRole("alert").getAttribute("tabindex")).toBe("-1");
+    for (const [message, label] of [
+      ["Fix email.", "Email"],
+      ["Fix password.", "Password"],
+      ["Fix condition.", "Condition"],
+    ]) {
+      const link = screen.getByRole("link", { name: message });
+      const control = screen.getByLabelText(label, { exact: true });
+      expect(link.getAttribute("href")).toBe(`#${control.id}`);
+      await user.click(link);
+      expect(document.activeElement).toBe(control);
+      link.focus();
+      await user.keyboard("{Enter}");
+      expect(document.activeElement).toBe(control);
+    }
+    const missingLink = screen.getByRole("link", { name: "Missing target." });
+    missingLink.focus();
+    fireEvent.click(missingLink);
+    expect(document.activeElement).toBe(missingLink);
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(missingLink);
+  });
+
+  it("preserves summary consumer behavior without a ref across error and empty rerenders", () => {
+    const view = (errors: { message: string }[]) => (
+      <>
+        <TextInput label="Continue editing" />
+        <ValidationSummary
+          id="legacy-errors"
+          title="Existing title"
+          description="Existing description"
+          errors={errors}
+        />
+      </>
+    );
+    const { rerender } = render(view([]));
+    const input = screen.getByLabelText("Continue editing");
+    input.focus();
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(view([{ message: "Existing message." }]));
+    const summary = screen.getByRole("alert");
+    expect(summary.getAttribute("id")).toBe("legacy-errors");
+    expect(summary.getAttribute("aria-live")).toBe("assertive");
+    expect(summary.getAttribute("tabindex")).toBe("-1");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Existing title" })).toBeTruthy();
+    expect(screen.getByText("Existing description")).toBeTruthy();
+    expect(screen.getByText("Existing message.")).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(document.activeElement).toBe(input);
+    rerender(view([{ message: "Updated message." }]));
+    expect(screen.getByRole("alert")).toBe(summary);
+    expect(document.activeElement).toBe(input);
+    rerender(view([]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(input);
   });
 
   it("renders validation summaries that link to invalid fields", () => {
