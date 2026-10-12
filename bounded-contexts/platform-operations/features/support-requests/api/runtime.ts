@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+import {
+  createParticipantRuntime,
+  type ParticipantCommandInput,
+  type ParticipantLookupInput,
+} from "./participant-runtime";
+import type { ParticipantLookup, ParticipantResult } from "../domain/participant-attempt";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -183,6 +189,8 @@ function deterministicSupportId(prefix: "sup" | "sev", sourceReference: string):
 }
 
 export type SupportRequestServices = Readonly<{
+  executeParticipantAttempt: (input: ParticipantCommandInput, context: EventStoreContext) => Promise<ParticipantResult>;
+  getParticipantAttempt: (input: ParticipantLookupInput) => Promise<ParticipantLookup>;
   commandHandler: CommandHandler<SupportRequestCommand, SupportRequestState, SupportRequestEvent>;
   /**
    * The flow catalog with each flow's `sellerResponseHours`/
@@ -777,7 +785,89 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     };
   }
 
+  const participantRuntime = createParticipantRuntime({
+    eventStore: deps.eventStore,
+    now: deps.now,
+    authorizeEvidence: (targetId, actor) => authorizeEvidenceAccess(targetId, actor, "submit-participant"),
+    prepareOpen: async (body, accountId, supportRequestId) => {
+      const order = await getOrderSource(deps.db, normalizeOrderId(body.orderId));
+      if (!order) throw new SupportDomainError("Order not found for support.");
+      const openedByRole = participantRoleForOrder(order, accountId);
+      const flowType = normalizeFlowType(body.flowType);
+      getSupportFlowDefinition(flowType);
+      const existing = await findOpenSupportRequestForOrder(deps.db, { orderId: order.order_id });
+      if (existing) throw new SupportDomainError("A support case is already open for this order.");
+      const affectedLineItems = selectAffectedLineItems(order, body.affectedLineIds);
+      const deadlineHours = deps.policies
+        ? resolveSupportFlowDeadlineHours(flowType, (await deps.policies.resolvePolicy(supportDeadlinePolicy)).value)
+        : null;
+      return {
+        type: "OpenSupportRequest",
+        supportRequestId,
+        orderId: order.order_id as OrderId,
+        orderTotalAmount: order.total_amount,
+        buyerAccountId: order.buyer_account_id as AccountId,
+        sellerAccountId: order.seller_account_id as AccountId,
+        openedByAccountId: accountId as AccountId,
+        openedByRole,
+        flowType,
+        openedAt: deps.now?.() ?? new Date().toISOString(),
+        deliveredAt: order.delivered_at,
+        orderReturnContext: order.return_context,
+        ...(affectedLineItems.length ? { affectedLineItems } : {}),
+        ...(deadlineHours
+          ? {
+              sellerResponseHours: deadlineHours.sellerResponseHours,
+              supportReviewHours: deadlineHours.supportReviewHours,
+            }
+          : {}),
+      };
+    },
+    isReflected: async (facts) => {
+      const first = facts[0];
+      const row = await getAccountSupportRequest(deps.db, String(first.payload.supportRequestId), first.forAccountId);
+      if (!row) return false;
+      return facts.every((fact) => {
+        const event = createPassthroughDomainEventCodec<SupportRequestEvent>().decode(fact);
+        switch (event.type) {
+          case "support.support-request.opened":
+            return row.opened_at === event.data.openedAt && row.order_id === event.data.orderId;
+          case "support.support-request.evidence-submitted":
+            return row.evidence.some((entry) => entry.evidenceId === event.data.evidence.evidenceId);
+          case "support.support-request.response-recorded":
+            return row.responses.some((entry) => entry.responseId === event.data.response.responseId);
+          case "support.support-request.offer-accepted":
+            return row.offers.some(
+              (entry) => entry.offerId === event.data.offer.offerId && entry.status === "accepted",
+            );
+          case "support.support-request.offer-declined":
+            return row.offers.some(
+              (entry) => entry.offerId === event.data.offer.offerId && entry.status === "declined",
+            );
+          case "support.support-request.escalated":
+            return row.escalated_at === event.data.escalatedAt;
+          case "support.support-request.cancelled":
+            return row.status === "cancelled" && row.cancellation_reason === event.data.reason;
+          case "support.support-request.closed":
+            return row.closed_at === event.data.closedAt;
+          case "support.support-request.resolved":
+            return row.resolution?.resolvedAt === event.data.resolution.resolvedAt;
+          case "support.support-request.affected-line-items-recorded":
+            return true;
+          case "support.support-request.return-condition-disputed":
+            return row.return_condition_disputed_at === event.data.disputedAt;
+          case "platform-operations.csat-outcome-fact.v1":
+            return event.data.subject.entityId === row.support_request_id;
+          default:
+            return false;
+        }
+      });
+    },
+  });
+
   return {
+    executeParticipantAttempt: participantRuntime.execute,
+    getParticipantAttempt: participantRuntime.lookup,
     commandHandler,
     listFlowDefinitions: async () => {
       if (!deps.policies) {

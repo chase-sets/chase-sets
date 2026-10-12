@@ -1,4 +1,10 @@
 export const platformOperationsEnglishTranslations = {
+  "support.participantAttempt.checkBeforeRetry": "Check status before retrying this support action.",
+  "support.participantAttempt.ambiguous":
+    "We could not confirm whether your support action completed. Do not submit it again yet.",
+  "support.participantAttempt.checkStatus": "Check status",
+  "support.participantAttempt.accountChanged": "Support account changed. Reload before submitting.",
+  "support.participantAttempt.statusUnavailable": "Support status could not be checked. Reload before submitting.",
   "platformOperations.providerConnections.title": "Provider connections",
   "platformOperations.providerConnections.metaTitle": "Provider Connections | Chase Sets Admin",
   "platformOperations.providerConnections.description":

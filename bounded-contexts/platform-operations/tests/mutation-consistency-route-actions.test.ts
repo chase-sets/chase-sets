@@ -115,7 +115,7 @@ describe("platform operations mutation consistency route actions", () => {
     mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
     const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) =>
       String(input).endsWith("/attachments")
-        ? jsonResponse({ attachments: [{ reference: "att_1" }] })
+        ? jsonResponse({ attachments: [{ reference: `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg` }] })
         : jsonResponse({ id: "sup_1" }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -191,10 +191,13 @@ describe("platform operations mutation consistency route actions", () => {
   });
 
   it("keeps the operation id after a staged conflict and retries the same batch", async () => {
+    mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", tenantId: "tnt_identity" });
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ error: { message: "Staged conflict" } }, 409))
-      .mockResolvedValueOnce(jsonResponse({ attachments: [{ reference: "att_1" }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ attachments: [{ reference: `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg` }] }),
+      )
       .mockResolvedValueOnce(jsonResponse({ id: "sup_1" }));
     vi.stubGlobal("fetch", fetchMock);
     const form = await openingPhotoForm(1);

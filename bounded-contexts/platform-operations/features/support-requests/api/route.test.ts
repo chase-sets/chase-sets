@@ -21,6 +21,9 @@ import {
   streamedIntakeRequest,
 } from "../tests/attachment-intake.test-support";
 import { SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES, SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS } from "./attachment-intake";
+import { canonicalParticipantRequest } from "../domain/participant-attempt";
+
+const participantReference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
 
 function buildApp(
   services: SupportRequestServices,
@@ -358,7 +361,7 @@ describe("support attachment capability x role x participation", () => {
             submittedByRole: "buyer",
             evidenceType: "support-note",
             summary: "",
-            attachments: ["att_1"],
+            attachments: [participantReference],
           }),
         },
       );
@@ -391,7 +394,7 @@ describe("support attachment capability x role x participation", () => {
           submittedByRole: "buyer",
           evidenceType: "support-note",
           summary: "Case evidence",
-          attachments: ["att_1"],
+          attachments: [participantReference],
         }),
       });
       expect(response.status).toBe(503);
@@ -427,7 +430,7 @@ describe("support attachment capability x role x participation", () => {
                 body: JSON.stringify({
                   evidenceType: "support-note",
                   summary: "Case evidence",
-                  attachments: ["att_1"],
+                  attachments: [participantReference],
                 }),
               },
             );
@@ -626,6 +629,17 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
         tenantId: actor.tenantId,
         audit: { performedByUserId: actor.userId, forAccountId: actor.accountId },
       } as never);
+    if (c.req.method === "POST" && /\/support-requests\/[^/]+\/evidence$/.test(new URL(c.req.url).pathname)) {
+      const body = await c.req.raw.clone().json();
+      c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
+      let hash = "a".repeat(64);
+      try {
+        hash = createHash("sha256").update(canonicalParticipantRequest("submit-evidence", body)).digest("hex");
+      } catch {
+        /* invalid input still exercises authorization first */
+      }
+      c.req.raw.headers.set("X-Support-Request-Hash", hash);
+    }
     await next();
   });
   app.route("/support-requests", createAccountSupportRequestRoutes(runtime));
@@ -661,6 +675,7 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
         {
           eventType: "support.support-request.evidence-submitted",
           payload: {
+            supportRequestId: "sup_case",
             evidence: { attachments: [reference], submittedAt: "2026-10-12T00:00:00.000Z" },
             updatedChecklist: [],
           },
@@ -716,6 +731,8 @@ function supportRequestDetail() {
 
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
+    executeParticipantAttempt: vi.fn(),
+    getParticipantAttempt: vi.fn(),
     commandHandler: vi.fn(),
     listFlowDefinitions: vi.fn(async () => []),
     getSupportOrderContext: vi.fn(),
@@ -953,15 +970,23 @@ describe("support request routes", () => {
       { id: "sup_1", version: 7, status: "cancelled" },
     ],
   ] as const)("returns a command-owned snapshot for %s", async (methodName, path, body, expected) => {
-    const command = vi.fn(async () => ({
-      supportRequestId: expected.id,
-      version: expected.version,
-    }));
-    const services = createServices({ [methodName]: command } as Partial<SupportRequestServices>);
+    const participant = methodName !== "resolveSupportRequest";
+    const command = vi.fn(async () =>
+      participant ? expected : { supportRequestId: expected.id, version: expected.version },
+    );
+    const services = createServices(
+      participant
+        ? { executeParticipantAttempt: command as SupportRequestServices["executeParticipantAttempt"] }
+        : { resolveSupportRequest: command as SupportRequestServices["resolveSupportRequest"] },
+    );
 
     const response = await buildApp(services).request(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "7163_snapshot_test_0123456789",
+        "X-Support-Request-Hash": "a".repeat(64),
+      },
       body: JSON.stringify(body),
     });
 

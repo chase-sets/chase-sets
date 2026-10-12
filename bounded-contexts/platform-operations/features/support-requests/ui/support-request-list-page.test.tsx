@@ -9,7 +9,7 @@ import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/
 import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
-  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer" })),
+  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer", tenantId: "tnt_identity" })),
 }));
 const BrowserFile = File;
 
@@ -108,8 +108,9 @@ describe("SupportRequestListPage", () => {
                 { error: { message: failure } },
                 failure === "denied" ? 403 : failure === "rejected" ? 413 : 409,
               );
-            return json({ attachments: [{ reference: "att_original" }] });
+            return json({ attachments: [{ reference: `support-attachment:v1:sea_original:${"a".repeat(64)}:jpg` }] });
           }
+          if (url.includes("/participant-attempts/")) return json({ outcome: "not-recorded" });
           if (url.endsWith("/evidence"))
             return failing ? json({ error: { message: "Submit conflict" } }, 409) : json({ id: "sup_1" });
           throw new Error(`Unexpected fixture URL ${url}`);
@@ -183,21 +184,32 @@ describe("SupportRequestListPage", () => {
         expect(field().value).toBe(originalId);
         expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
         expect(screen.queryByText("You already have an open case for this order")).toBeNull();
+        if (failure === "submit-conflict") {
+          const status = await screen.findByText("Check status before retrying this support action.", {
+            selector: '[role="status"][tabindex="-1"]',
+          });
+          expect(status.textContent).toContain("Check status before retrying");
+          expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+          expect(screen.getByRole("button", { name: "Start a new photo batch" }).matches(":disabled")).toBe(true);
+          await user.click(screen.getByRole("button", { name: "Check status" }));
+          await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+          expect(uploadIds).toEqual([originalId]);
+          expect(
+            screen
+              .getByText("Check status before retrying this support action.", {
+                selector: '[role="status"][tabindex="-1"]',
+              })
+              .getAttribute("role"),
+          ).toBe("status");
+          return;
+        }
         // Re-selection and retry preserve the id. Ambiguity never dispatches again.
-        if (failure !== "submit-conflict") await user.upload(screen.getByLabelText("Add evidence photos"), photo);
+        await user.upload(screen.getByLabelText("Add evidence photos"), photo);
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
         await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
         await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
         expect(field().value).toBe(originalId);
-        expect(uploadIds).toEqual(
-          failure === "ambiguous" || failure === "submit-conflict" ? [originalId] : [originalId, originalId],
-        );
-        if (failure === "submit-conflict") {
-          expect(document.querySelector<HTMLInputElement>('input[name="uploadedAttachmentReferences"]')?.value).toBe(
-            "att_original",
-          );
-          expect(screen.queryByLabelText("Add evidence photos")).toBeNull();
-        }
+        expect(uploadIds).toEqual(failure === "ambiguous" ? [originalId] : [originalId, originalId]);
         await user.click(screen.getByRole("button", { name: "Start a new photo batch" }));
         const freshId = field().value;
         expect(freshId).not.toBe(originalId);

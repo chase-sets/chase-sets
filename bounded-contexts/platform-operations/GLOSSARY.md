@@ -16,6 +16,10 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
 
+## Support Request Participant Attempt
+
+A **Support Request Participant Attempt** is one account's intended mutation of one Support Request within its authenticated tenant. Its opaque attempt id locates a private receipt; action and canonical request hash are immutable comparisons, not identity partitions. An exact retry returns the first result without another command. Another authorized owner may independently use the same opaque id. Attachment Operations remain separate staging identities.
+
 ## Any-case Evidence Access
 
 **Any-case Evidence Access** requires the current Identity `support.evidence.any-case` assignment on the Auth-resolved actor and the independent Support base permission. A role or capability declaration grants no access. Without that assignment, attachment access is limited to buyer or seller participation in the authoritative Support Request stream. Audit reads and operations submissions with attachments require the assignment; participant submissions with attachments remain participant-only.
