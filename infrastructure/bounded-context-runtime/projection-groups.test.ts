@@ -225,6 +225,56 @@ describe("bounded context projection groups", () => {
     );
   });
 
+  it("preserves a custom truncate-strategy reset guard without pre-truncating its owned tables", async () => {
+    const pool = createMockPool();
+    const query = pool.query;
+    pool.query = async (sql, params) =>
+      sql.includes("FROM pg_constraint")
+        ? { rows: [{ referenced_table: "guarded_rows", dependent_table: "child_rows" }] }
+        : query(sql, params);
+    const runner = createSubscriptionRunner("target", pool as never, pool as never, {
+      subscriptionName: "target.guarded",
+      sourceContextName: "target",
+      projectionName: "guarded",
+      subscriptionVersion: 1,
+      eventTypes: ["target.recorded"],
+      handlers: { "target.recorded": async () => undefined },
+    });
+    const child = createSubscriptionRunner("target", pool as never, pool as never, {
+      subscriptionName: "target.child",
+      sourceContextName: "target",
+      projectionName: "child",
+      subscriptionVersion: 1,
+      eventTypes: ["target.recorded"],
+      handlers: { "target.recorded": async () => undefined },
+    });
+    const groups = createProjectionGroupRuntime(
+      "target",
+      pool,
+      [
+        {
+          projectionName: "guarded",
+          sourceContextNames: ["target"],
+          ownedTables: ["guarded_rows"],
+          resetStrategy: "truncate-owned-tables",
+          reset: defineBcProjectionGroupReset(async () => {
+            throw new Error("custom dependent guard");
+          }),
+        },
+        {
+          projectionName: "child",
+          sourceContextNames: ["target"],
+          ownedTables: ["child_rows"],
+          resetStrategy: "truncate-owned-tables",
+        },
+      ],
+      [runner, child],
+    );
+    const group = groups.find((candidate) => candidate.projectionName === "guarded")!;
+    await expect(resetProjectionGroup(group)).rejects.toThrow("custom dependent guard");
+    expect(getTruncateLog(pool)).toEqual([]);
+  });
+
   it("truncates the complete validated owned-table closure in one statement without cascade", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();

@@ -137,6 +137,7 @@ export type ContextProjectionGroup = Readonly<{
   ownedTables: readonly string[];
   sideEffectOnly?: boolean;
   resetStrategy?: BcProjectionGroupResetStrategy;
+  hasCustomReset?: boolean;
   requiredDuringBootstrap: boolean;
   subscriptionRunners: readonly ContextSubscriptionRunner[];
   targetPool?: PgTransactionalPool;
@@ -736,6 +737,7 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
       ownedTables,
       sideEffectOnly: group.sideEffectOnly ?? false,
       resetStrategy: group.resetStrategy,
+      hasCustomReset: Boolean(customReset),
       requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
       subscriptionRunners: [],
       targetPool: entry.pool,
@@ -1165,7 +1167,8 @@ async function resolveTruncateResetGroups(
   db: PgQueryable,
   group: ContextProjectionGroup,
 ): Promise<readonly ContextProjectionGroup[]> {
-  if (group.resetStrategy !== "truncate-owned-tables" || group.ownedTables.length === 0) return [group];
+  if (group.resetStrategy !== "truncate-owned-tables" || group.hasCustomReset || group.ownedTables.length === 0)
+    return [group];
   const dependencies = await db.query<Readonly<{ referenced_table: string; dependent_table: string }>>(
     `SELECT confrelid::regclass::text AS referenced_table, conrelid::regclass::text AS dependent_table
      FROM pg_constraint WHERE contype = 'f'`,
@@ -1179,9 +1182,9 @@ async function resolveTruncateResetGroups(
     for (const { referenced_table, dependent_table } of dependencies.rows) {
       if (!tables.has(referenced_table) || tables.has(dependent_table)) continue;
       const owner = peers.find((candidate) => candidate.ownedTables.includes(dependent_table));
-      if (!owner || owner.resetStrategy !== "truncate-owned-tables") {
+      if (!owner || owner.resetStrategy !== "truncate-owned-tables" || owner.hasCustomReset) {
         throw new Error(
-          `Projection group '${group.targetContextName}.${group.projectionName}' cannot reset FK-dependent table '${dependent_table}' without a truncate-owned-tables projection group owner.`,
+          `Projection group '${group.targetContextName}.${group.projectionName}' cannot reset FK-dependent table '${dependent_table}': a foreign key constraint requires a default truncate-owned-tables projection group owner.`,
         );
       }
       if (!selected.has(owner.projectionName)) {
