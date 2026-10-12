@@ -63,7 +63,9 @@ END $$;`,
       "tcgplayer-operator-session-readiness",
     ]) {
       const path = `features/operator-session/tests/${name}.db.test.ts`;
-      expect(manifest.scripts["test:db"]).toContain(path);
+      expect(
+        [1, 2, 3].flatMap((n) => manifest.scripts[`test:db:${n}`].split(/\s+/)).filter((t) => t === path),
+      ).toHaveLength(1);
       expect(manifest.scripts["test:unit"]).toContain(`--exclude ${path}`);
       expect(manifest.scripts["test:fast"]).toContain(`--exclude ${path}`);
     }
