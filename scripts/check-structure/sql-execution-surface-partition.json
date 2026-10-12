@@ -135,6 +135,7 @@
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/projection.ts",
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/queries.ts",
     "bounded-contexts/channels/features/tcgplayer-orders/api/runtime.ts",
+    "bounded-contexts/channels/features/tcgplayer-orders/read-model/recorded-facts.ts",
     "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts",
     "bounded-contexts/checkout/features/cart/api/runtime.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts",
