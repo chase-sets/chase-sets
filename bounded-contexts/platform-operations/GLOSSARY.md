@@ -122,6 +122,14 @@ terminally failed, or waived. Financial truth cannot be created by a Support ove
 
 A **Support Evidence Basis** is the structured indication of how Support established responsibility: `party-accepted-resolution`, `deterministic-policy`, `operator-finding`, `insufficient-evidence`, or `legacy`. It includes a stable reference to the accepted offer, policy rule, adjudication workflow, insufficiency finding, or compatibility rule without exposing private evidence contents or internal notes.
 
+## Support Evidence Raster Profile
+
+The **Support Evidence Raster Profile** (`support-evidence-raster/v1`) is Support's versioned raster canonicalization for evidence images. It accepts only JPEG, PNG, and WebP whose declared media type matches their signature, at most 10 MiB encoded and 24,000,000 pixels, with exactly one frame and no decoder warning. It applies orientation, strips all metadata, converts to sRGB, and re-encodes only the decoded pixels in the matching format: baseline 4:4:4 JPEG at quality 90 with alpha flattened onto white, non-paletted truecolor PNG at compression 9, or lossless WebP at effort 6, keeping PNG and WebP alpha. Canonical output above 10 MiB is rejected. It is raster canonicalization, not malware detection: no caller metadata, trailing data, or encoding choice survives, but it judges nothing about what an image depicts or whether the original file was malicious.
+
+## Encoder Fingerprint
+
+An **Encoder Fingerprint** identifies the encoder that produced canonical evidence bytes: the profile, resolved Sharp version, libvips version, platform, architecture, and libc family. One fingerprint yields one byte sequence for a given input. Golden canonical hashes are recorded per fingerprint; opened for a production-like host, the canonicalizer is certified only when that host's fingerprint has goldens its startup self-test reproduces exactly, and otherwise reports itself unavailable. Opened for development or test, it canonicalizes under its own uncertified fingerprint and never certifies goldens. Evidence upload intake does not use the canonicalizer yet; #9390 composes it.
+
 ## Responsibility Reason Code
 
 A **Responsibility Reason Code** is the stable, machine-readable, flow-prefixed cause supporting a Support Responsibility finding. The selected support flow defines which reason codes and responsibility values are consistent; for example, `product-not-received.carrier-loss` supports carrier responsibility while `product-not-as-described.seller-misdescription` supports seller responsibility.
