@@ -1610,7 +1610,7 @@ async function fetchScrydexPagedJson<TItem>(
     pages.push({ items, sourceUrl });
     const totalCountValue = recordValue(body, "total_count") ?? recordValue(body, "totalCount");
     if (totalCountValue !== undefined || countPagination !== null) {
-      const validated = validateScrydexCountPage(body, page);
+      const validated = validateScrydexPaginationPage(body, page);
       const total = validated.totalCount;
       const size = validated.pageSize;
       if (countPagination !== null && (total !== countPagination.total || size !== countPagination.size)) {
@@ -1666,6 +1666,19 @@ async function fetchScrydexPagedJson<TItem>(
 }
 
 export function validateScrydexCountPage(body: unknown, page: number) {
+  const validated = validateScrydexPaginationPage(body, page);
+  const value = isJsonRecord(body) ? body : {};
+  if (
+    validated.totalCount > 2147483647 ||
+    validated.pageSize > 2147483647 ||
+    (value.total_count !== undefined && value.totalCount !== undefined && value.total_count !== value.totalCount) ||
+    (value.page_size !== undefined && value.pageSize !== undefined && value.page_size !== value.pageSize)
+  )
+    throw new Error("Scrydex pagination metadata is inconsistent or incomplete.");
+  return validated;
+}
+
+function validateScrydexPaginationPage(body: unknown, page: number) {
   const value = isJsonRecord(body) ? body : {};
   const total = value.total_count ?? value.totalCount;
   const size = value.page_size ?? value.pageSize;
@@ -1675,14 +1688,10 @@ export function validateScrydexCountPage(body: unknown, page: number) {
     typeof total !== "number" ||
     !Number.isSafeInteger(total) ||
     total < 0 ||
-    total > 2147483647 ||
     typeof size !== "number" ||
     !Number.isSafeInteger(size) ||
     size < 1 ||
-    size > 2147483647 ||
     value.page !== page ||
-    (value.total_count !== undefined && value.totalCount !== undefined && value.total_count !== value.totalCount) ||
-    (value.page_size !== undefined && value.pageSize !== undefined && value.page_size !== value.pageSize) ||
     (value.count !== undefined && value.count !== items.length) ||
     items.length !== Math.min(size, Math.max(0, total - (page - 1) * size))
   )

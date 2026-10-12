@@ -1,4 +1,4 @@
-export const catalogCountHistorySchemaSql = `CREATE TABLE IF NOT EXISTS catalog_scope_sync_count_history (
+export const catalogCountHistoryTableSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_scope_sync_count_history (
   position bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   event_id text NOT NULL UNIQUE,
   account_slot text NOT NULL,
@@ -10,7 +10,10 @@ export const catalogCountHistorySchemaSql = `CREATE TABLE IF NOT EXISTS catalog_
   count_kind text NULL CHECK (count_kind IN ('cards', 'sealed')),
   payload jsonb NOT NULL,
   recorded_at timestamptz NOT NULL DEFAULT now()
-);
+);`;
+
+// The new table's indexes are installed by boot before any count writes; no populated-table index migration is needed.
+export const catalogCountHistorySchemaSql = `${catalogCountHistoryTableSchemaSql}
 CREATE INDEX IF NOT EXISTS catalog_count_history_slot_kind_idx
   ON catalog_scope_sync_count_history (account_slot, event_kind, position DESC);
 CREATE INDEX IF NOT EXISTS catalog_count_history_query_idx
@@ -28,6 +31,6 @@ export const catalogCountHistorySchemaMigrations = [
   {
     migrationId: "catalog-scope-sync-count-history-v1",
     description: "Retain append-only count quotes, approvals, debits, results and usage authority.",
-    statements: [catalogCountHistorySchemaSql],
+    statements: [catalogCountHistoryTableSchemaSql],
   },
 ];
