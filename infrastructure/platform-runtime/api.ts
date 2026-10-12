@@ -3,7 +3,7 @@ import {
   countEventsWithPrefix,
   createProjectionAwarePool,
   drainContextRuntime,
-  drainLocalProjectionHandlerSets,
+  syncLocalProjectionGroups,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -478,9 +478,9 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         seedApiModuleForHostBootstrap(context, options, lockAcquisition),
       );
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
-        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await syncLocalProjectionGroups(context);
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
-        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await syncLocalProjectionGroups(context);
       });
       continue;
     }
@@ -563,7 +563,7 @@ async function seedApiModuleForHostBootstrap(
     console.log(
       `${context.contextName} events already exist after queued bootstrap. Draining existing events without general seed re-entry.`,
     );
-    await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+    await syncLocalProjectionGroups(context);
     return;
   }
 
@@ -585,7 +585,7 @@ async function reconcileRequiredBootstrapState(context: MountedContextRuntimeEnt
     return;
   }
 
-  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await syncLocalProjectionGroups(context);
   await reconcile(context.pool, context.services, options);
-  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await syncLocalProjectionGroups(context);
 }
