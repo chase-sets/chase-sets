@@ -248,19 +248,20 @@ describe("bounded context projection groups", () => {
       eventTypes: ["target.recorded"],
       handlers: { "target.recorded": async () => undefined },
     });
+    const guardedGroup: BcProjectionGroup = {
+      projectionName: "guarded",
+      sourceContextNames: ["target"],
+      ownedTables: ["guarded_rows"],
+      resetStrategy: "truncate-owned-tables",
+      reset: defineBcProjectionGroupReset(async (_database: unknown) => {
+        throw new Error("custom dependent guard");
+      }),
+    };
     const groups = createProjectionGroupRuntime(
       "target",
       pool,
       [
-        {
-          projectionName: "guarded",
-          sourceContextNames: ["target"],
-          ownedTables: ["guarded_rows"],
-          resetStrategy: "truncate-owned-tables",
-          reset: defineBcProjectionGroupReset(async () => {
-            throw new Error("custom dependent guard");
-          }),
-        },
+        guardedGroup,
         {
           projectionName: "child",
           sourceContextNames: ["target"],
