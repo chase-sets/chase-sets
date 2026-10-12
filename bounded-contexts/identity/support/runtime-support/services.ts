@@ -7,6 +7,9 @@ import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createIdentitySecretAdapters } from "../../features/api-keys/api/secret-adapters";
 import { createAccountCapabilityRuntime } from "../../features/account-capabilities/api/runtime";
+import type { AccountCapabilityCatalog } from "../../features/account-capabilities/api/runtime";
+import type { CapabilityAdministrationAuthority } from "../../features/account-capabilities/api/authority";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createAccessHubRuntime } from "../../features/access-hub/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
@@ -42,10 +45,18 @@ export type IdentityServices = Readonly<{
 }>;
 
 export type IdentityHostPorts = Readonly<{
+  capabilityAdministrationAuthority: CapabilityAdministrationAuthority;
+  accountCapabilityRegistry?: AccountCapabilityCatalog;
   addressVerificationProvider?: PostageLabelProvider | null;
 }>;
 
-export function createIdentityServices(pool: PgTransactionalPool, ports: IdentityHostPorts = {}): IdentityServices {
+export function createIdentityServices(pool: PgTransactionalPool, ports: IdentityHostPorts): IdentityServices {
+  if (
+    !ports?.capabilityAdministrationAuthority ||
+    !["configured", "deny-all"].includes(ports.capabilityAdministrationAuthority.kind)
+  ) {
+    throw new Error("Identity requires capabilityAdministrationAuthority host capability.");
+  }
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
@@ -62,7 +73,17 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   } as const;
 
   const accounts = createAccountRuntime(deps);
-  const accountCapabilities = createAccountCapabilityRuntime(deps);
+  const accountCapabilities = createAccountCapabilityRuntime(deps, {
+    authority: ports.capabilityAdministrationAuthority,
+    registry: ports.accountCapabilityRegistry ?? [],
+    targetAccountInTenant: async (accountId, tenantId) => {
+      const events = await readCompleteStream(eventStore, {
+        streamId: `identity.account-${accountId}`,
+        maxEvents: 10000,
+      });
+      return events.length > 0 && events.every((event) => event.tenantId === tenantId);
+    },
+  });
   const accessHub = createAccessHubRuntime(deps);
   const users = createUserRuntime(deps);
   const memberships = createMembershipRuntime(deps);

@@ -89,7 +89,9 @@ describe("admin-qa actor fixtures Capability Grant boundary", () => {
   it("provisions and reports no any-case Capability Grant from the platform-api fixture runner", () => {
     const sourceRoot = join(import.meta.dirname, "..", "src");
     const assignmentCallers = listSources(sourceRoot).filter((file) =>
-      /(grant|revoke)AccountCapability|accountCapabilities\./.test(readFileSync(file, "utf8")),
+      /\b(grant|revoke)AccountCapability\b|accountCapabilities\.(?!initializeAdministrationAuthority\b)/.test(
+        readFileSync(file, "utf8"),
+      ),
     );
 
     expect(assignmentCallers).toEqual([]);

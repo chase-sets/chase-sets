@@ -3,6 +3,13 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import { consumeAccountCapabilityAssignmentAdmission, type AccountCapabilityAssignmentAdmission } from "./admission";
+import {
+  createCapabilityAdministration,
+  type CapabilityAdministrationOptions,
+  type CapabilityAssignmentInput,
+} from "./administration";
 import type { IdentityRuntimeDeps } from "../../../support/runtime-support";
 import { assert } from "../../../support/runtime-support/common";
 import {
@@ -18,19 +25,7 @@ import {
   type AssignableAccountCapabilityKey,
 } from "../domain/domain";
 
-declare const accountCapabilityAssignmentAdmissionBrand: unique symbol;
-
-/**
- * The result of admitting one grant or revoke attempt. Only the dedicated
- * Capability Administration Authority produces it; that authority is not yet
- * shipped and nothing else (route, seed, fixture) produces one, so nothing can
- * assign before it lands.
- */
-export type AccountCapabilityAssignmentAdmission = Readonly<{
-  [accountCapabilityAssignmentAdmissionBrand]: true;
-  tenantId: string;
-  administratorUserId: string;
-}>;
+export type { AccountCapabilityAssignmentAdmission } from "./admission";
 
 /** Structural view of the host's complete Account Capability Registry. */
 export type AccountCapabilityCatalog = readonly Readonly<BcAccountCapabilityDeclaration & { owningContext: string }>[];
@@ -49,8 +44,11 @@ export type AccountCapabilityAssignmentResult = Readonly<{
   appended: boolean;
 }>;
 
-export function createAccountCapabilityRuntime(deps: IdentityRuntimeDeps) {
-  const { commandHandler, repository } = createAggregateCommandHandler<
+export function createAccountCapabilityRuntime(
+  deps: IdentityRuntimeDeps,
+  administrationOptions?: CapabilityAdministrationOptions,
+) {
+  const { repository } = createAggregateCommandHandler<
     AccountCapabilityAssignmentState,
     AccountCapabilityAssignmentCommand,
     AccountCapabilityAssignmentEvent
@@ -62,7 +60,22 @@ export function createAccountCapabilityRuntime(deps: IdentityRuntimeDeps) {
     decide: decideAccountCapabilityAssignment,
   });
 
-  return {
+  const administration = createCapabilityAdministration(deps.eventStore, administrationOptions);
+  const runtime = {
+    initializeAdministrationAuthority: administration.initialize,
+    attemptAccountCapabilityAssignment: (
+      action: "grant" | "revoke",
+      actor: ResolvedActor | null,
+      input: CapabilityAssignmentInput | null,
+      context: EventStoreContext,
+    ) =>
+      administration.attempt(action, actor, input, context, (admission) => {
+        assert(input !== null, "Invalid assignment input.");
+        return (action === "grant" ? runtime.grantAccountCapability : runtime.revokeAccountCapability)(
+          { ...input, admission, accountCapabilityRegistry: administrationOptions?.registry ?? [] },
+          context,
+        );
+      }),
     grantAccountCapability: (request: AccountCapabilityAssignmentRequest, context: EventStoreContext) =>
       assign(request, context, (target) => ({
         type: "GrantAccountCapability",
@@ -79,6 +92,7 @@ export function createAccountCapabilityRuntime(deps: IdentityRuntimeDeps) {
     loadAccountCapabilityAssignment: async (target: AccountCapabilityAssignmentTarget) =>
       (await repository.load(toAccountCapabilityAssignmentStreamId(target))).state,
   };
+  return runtime;
 
   async function assign(
     request: AccountCapabilityAssignmentRequest,
@@ -91,12 +105,31 @@ export function createAccountCapabilityRuntime(deps: IdentityRuntimeDeps) {
       accountId: request.accountId,
       capabilityKey: requireDeclaredBooleanDefaultOff(request.accountCapabilityRegistry, request.capabilityKey),
     };
-    const result = await commandHandler({
-      streamId: toAccountCapabilityAssignmentStreamId(target),
-      command: toCommand(target),
-      context,
-    });
-    return { state: result.state, version: result.version, appended: result.storedEvents.length > 0 };
+    const participants = consumeAccountCapabilityAssignmentAdmission(request.admission);
+    const streamId = toAccountCapabilityAssignmentStreamId(target);
+    const loaded = await repository.load(streamId);
+    const events = decideAccountCapabilityAssignment(loaded.state, toCommand(target));
+    const state = events.reduce(evolveAccountCapabilityAssignment, loaded.state);
+    const audit = participants[1];
+    const auditWithVersion = {
+      ...audit,
+      events: audit.events.map((event) => ({
+        ...event,
+        payload: { ...event.payload, assignmentVersion: state.version },
+      })),
+    };
+    assert(deps.eventStore.appendToStreams !== undefined, "Account Capability assignment requires atomic append.");
+    await deps.eventStore.appendToStreams([
+      participants[0],
+      auditWithVersion,
+      {
+        streamId,
+        expectedVersion: loaded.version,
+        context,
+        events: events.map(createPassthroughDomainEventCodec<AccountCapabilityAssignmentEvent>().encode),
+      },
+    ]);
+    return { state, version: state.version, appended: events.length > 0 };
   }
 }
 

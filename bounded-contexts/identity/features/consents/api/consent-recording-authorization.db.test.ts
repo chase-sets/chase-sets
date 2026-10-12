@@ -16,6 +16,7 @@ import { CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX } from "@chase-sets/platform
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
 import { module as identityModule } from "../../../index";
 import { createIdentityServices } from "../../../support/runtime-support/services";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../account-capabilities/api/authority";
 import {
   authorizeConsentForActor,
   type ConsentRecordingAuthorization,
@@ -285,7 +286,9 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
         await drainLocalProjectionHandlerSets(
           "identity",
           pools.identity,
-          createIdentityServices(pools.identity).projectors,
+          createIdentityServices(pools.identity, {
+            capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+          }).projectors,
         );
       };
       const authorityBefore = await eventStore.readStream({ streamId: authorityStreamId });

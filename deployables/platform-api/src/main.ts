@@ -92,6 +92,11 @@ import {
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "@chase-sets/auth/server";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
+import {
+  DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  type IdentityHostPorts,
+  type IdentityServices,
+} from "@chase-sets/identity/server";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
   loadConfig,
@@ -307,11 +312,22 @@ logger.info("Stripe go-live checks resolved.", {
   ...config.stripeGoLive,
 });
 
+const capabilityAdministrationPorts: Pick<IdentityHostPorts, "capabilityAdministrationAuthority"> = {
+  capabilityAdministrationAuthority:
+    config.capabilityAdministrationAuthority ?? DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+};
+if (capabilityAdministrationPorts.capabilityAdministrationAuthority.kind === "deny-all") {
+  console.info({
+    type: "identity.capability-administration-authority",
+    reason: capabilityAdministrationPorts.capabilityAdministrationAuthority.diagnostic,
+  });
+}
 const runtime = createPlatformApiHost({
   runtimeProfile: config.runtimeProfile,
   pools,
   runtimeLifecycle,
   hostPorts: {
+    ...capabilityAdministrationPorts,
     deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
     ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
@@ -352,6 +368,12 @@ const runtime = createPlatformApiHost({
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
 });
+// Refuse to serve routes until the process's authority receipt has settled.
+try {
+  await (runtime.services.identity as IdentityServices).accountCapabilities.initializeAdministrationAuthority();
+} catch {
+  throw new Error("Identity capability administration authority receipt refused boot.");
+}
 const realtimeStores = runtime.mountedContexts
   .filter(
     (entry) =>

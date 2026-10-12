@@ -92,6 +92,7 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
       pools,
       runtimeProfile: config.runtimeProfile,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: paymentProcessorGateway,
         paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
         moneyMovementGateway: createFakeMoneyMovementGateway(),

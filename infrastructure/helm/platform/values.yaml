@@ -281,6 +281,12 @@ components:
       instanceCountExpression: "local.api_instances"
     command: "pnpm --filter @chase-sets/app-platform-api run start:production"
     env:
+      - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
+        value: ""
+      - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON"
+        value: ""
       - name: "CHASE_SETS_CHECKOUT_CLOSED"
         value: "false"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"

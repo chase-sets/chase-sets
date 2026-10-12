@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { module as orderingModule } from "@chase-sets/ordering";
+import type { IdentityServices } from "@chase-sets/identity/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
@@ -66,7 +67,10 @@ function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
 function createHost(hostPorts: Readonly<Record<string, unknown>>) {
   return createWorkerHost(workerContextRegistry, "platform-worker", {
     pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, createUnusedPool()])),
-    hostPorts,
+    hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+      ...hostPorts,
+    },
     runtimeProfile: "public",
   });
 }
@@ -76,6 +80,36 @@ function readWorkerSource(relativePath: string): string {
 }
 
 describe("cleanup-authority-inventory-host-capability", () => {
+  it("mounts Identity with explicit deny-all, never starts a receipt and refuses omitted administration port", async () => {
+    const runtime = createHost(workerHostPorts({ inventoryCleanupAuthority: { kind: "not-mounted" } }));
+    const identity = runtime.services.identity as IdentityServices;
+    await expect(identity.accountCapabilities.initializeAdministrationAuthority()).resolves.toBeNull();
+    await expect(
+      identity.accountCapabilities.grantAccountCapability(
+        {
+          admission: { tenantId: "tnt_synthetic", administratorUserId: "usr_synthetic" } as never,
+          accountCapabilityRegistry: [],
+          accountId: "acc_synthetic",
+          capabilityKey: "support.evidence.any-case",
+          expectedVersion: 0,
+        },
+        {
+          tenantId: "tnt_synthetic" as never,
+          audit: { performedByUserId: "usr_synthetic" as never, forAccountId: "acc_synthetic" as never },
+        },
+      ),
+    ).rejects.toThrow();
+    expect(() =>
+      createHost(
+        workerHostPorts({
+          capabilityAdministrationAuthority: undefined,
+          inventoryCleanupAuthority: { kind: "not-mounted" },
+        }),
+      ),
+    ).toThrow(/capabilityAdministrationAuthority host capability/);
+    expect(readWorkerSource("main.ts")).toContain("...identityHostPorts");
+    expect(readWorkerSource("main.ts")).toContain('kind: "deny-all"');
+  });
   it("constructs Ordering with an explicit not-mounted capability from the real worker registry", () => {
     const runtime = createHost(workerHostPorts({ inventoryCleanupAuthority: { kind: "not-mounted" } }));
     const ordering = orderingServicesOf(runtime.services);

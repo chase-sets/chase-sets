@@ -136,7 +136,13 @@ async function withUninstrumentedPlatformApiRuntime(
     port: 6182,
   });
   try {
-    await action(createPlatformApiHost({ runtimeProfile: "public", pools, hostPorts: {} }));
+    await action(
+      createPlatformApiHost({
+        runtimeProfile: "public",
+        pools,
+        hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+      }),
+    );
   } finally {
     await closePlatformApiPools(pools);
   }

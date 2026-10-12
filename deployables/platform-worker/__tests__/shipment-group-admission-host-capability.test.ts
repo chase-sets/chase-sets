@@ -38,7 +38,10 @@ describe("Shipment Group admission worker host capability", () => {
     expect(hostPorts).not.toHaveProperty("shipmentGroupAdmissionAuthority");
     const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
       pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, pool])),
-      hostPorts,
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+        ...hostPorts,
+      },
       runtimeProfile: "public",
     });
     const fulfillment = runtime.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices>;

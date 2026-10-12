@@ -121,7 +121,11 @@ describe("connector-mount-gate-isolation / connector-redirect-pin", () => {
     });
     const runtime = createPlatformApiHost({
       pools,
-      hostPorts: { processorGateway: createFakePaymentProcessorGateway(), listingPhotoStorage },
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
     });
     app = buildPlatformApiApp(runtime, { resolveActor: (request) => resolveActorFromRequest(auth, request) });
     accountId = createId("acc");

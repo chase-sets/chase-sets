@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createInMemoryEventStore } from "../../../tests/in-memory-event-store";
+import { mintAccountCapabilityAssignmentAdmission } from "./admission";
 import { SUPPORT_EVIDENCE_ANY_CASE_CAPABILITY_KEY, toAccountCapabilityAssignmentStreamId } from "../domain/domain";
 import {
   createAccountCapabilityRuntime,
@@ -15,7 +16,7 @@ const context = {
   tenantId: TENANT,
   audit: { performedByUserId: ADMINISTRATOR, forAccountId: ACCOUNT },
 } as unknown as EventStoreContext;
-// Test-only stand-in for the admission #9385's administration authority will mint.
+// Synthetic low-level admission; route and DB suites exercise the authority producer.
 const admission = { tenantId: TENANT, administratorUserId: ADMINISTRATOR } as AccountCapabilityAssignmentAdmission;
 const supportDeclaration = {
   owningContext: "platform-operations",
@@ -44,7 +45,15 @@ function setup() {
   const eventStore = createInMemoryEventStore();
   const runtime = createAccountCapabilityRuntime({ eventStore, checkpointStore: {} as never, db: {} as never });
   const request = (expectedVersion: number, overrides: Record<string, unknown> = {}) => ({
-    admission,
+    admission: mintAccountCapabilityAssignmentAdmission(TENANT, ADMINISTRATOR, [
+      { streamId: "identity.capability-administration-authority", expectedVersion: 0, context, events: [] },
+      {
+        streamId: `identity.capability-assignment-attempt-${crypto.randomUUID()}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [{ eventType: "identity.account-capability.assignment-attempted", payload: {} }],
+      },
+    ]),
     accountCapabilityRegistry: registry,
     accountId: ACCOUNT,
     capabilityKey: SUPPORT_EVIDENCE_ANY_CASE_CAPABILITY_KEY,
