@@ -1131,7 +1131,6 @@ describe("UCP OAuth routes", () => {
 
 async function managementFixture(configured = true) {
   const db = createAuthorizationCodeDb();
-  const linked = createLinkedStore();
   const consent = createInMemoryConsentDirectory();
   const activity = { listForGrant: vi.fn(async () => ({ items: [], total: 0 })) };
   const outbox = {
@@ -1148,7 +1147,6 @@ async function managementFixture(configured = true) {
   let currentActor: Awaited<ReturnType<typeof base.resolveActor>> = actor;
   const options = createOAuthOptions({
     auth: { ...base.auth, db },
-    linkedPlatformAuthorizations: linked,
     resolveActor: async () => currentActor,
     revokeStoredPaymentMethodsForAgentGrant: revokePayments,
     ...(configured
@@ -1159,6 +1157,7 @@ async function managementFixture(configured = true) {
         }
       : {}),
   });
+  const linked = options.linkedPlatformAuthorizations;
   const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
   const registration = await registerClient(app, {
     redirect_uris: ["https://agent.example/callback"],
