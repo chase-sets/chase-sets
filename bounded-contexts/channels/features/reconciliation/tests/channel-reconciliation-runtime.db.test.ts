@@ -57,6 +57,17 @@ import { syntheticLiveRow, syntheticClaimedSource } from "./fixtures/material.te
 import { tcgplayerExternalListingId } from "../../tcgplayer-csv/domain/composition";
 import { observedMaterialFingerprint, CHANNEL_OBSERVED_MATERIAL_SCHEME } from "../read-model/source";
 import type { ClaimedChannelStateRead } from "../domain/contracts";
+import type {
+  ChannelInventorySnapshotRow,
+  ChannelSyncRunAlreadySatisfiedMember,
+} from "../../tcgplayer-csv/domain/contracts";
+import { digestChannelSyncRunMembers } from "../../tcgplayer-csv/domain/digest";
+import { readPersistedClaimedState } from "../read-model/claimed";
+import { composeTcgplayerOrderObservation } from "../../tcgplayer-orders/domain/detail";
+import { tcgplayerSaleKey } from "../../tcgplayer-orders/domain/contracts";
+import { channelSaleFingerprint } from "../api/sale-recorder";
+import { hashChannelDesiredState } from "../../listing-composition/domain/canonical";
+import { readRecordedTcgplayerSaleFacts } from "../../tcgplayer-orders/read-model/recorded-facts";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -84,6 +95,365 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("claimed-reconcile-fallback-b production matching, old-clean, held, restarted and day-after never clean or sales-held", async () => {
+    const fixture = await materialRuntime();
+    await seedConnectionLifecycle(new Date());
+    const rows = fixture.source.rows.map((row) => ({ ...row, priceAmountMinor: 1000 }));
+    const now = new Date();
+    await persistMaterialCapture(rows, 1, new Date(now.getTime() - 2000).toISOString());
+    await persistAppliedMembership(rows);
+    const recorder = vi.fn(createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context));
+    let services = channelsModule.createServices(pools.channels, { channelSaleRecorder: recorder });
+    const input = {
+      connectionId: "connection-1",
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+      sourceAttempt: 1,
+      healthAuthority: (
+        await services.connectionHealth.readConnectionHealth({ accountId: "account-1", connectionId: "connection-1" })
+      ).health,
+    };
+    for (let run = 0; run < 6; run += 1) {
+      await expect(services.reconciliation.reconcileConnection(input, context)).resolves.toMatchObject({
+        clean: false,
+        counts: { inSync: 3, sourceUnavailable: 0, missedSaleGaps: 0 },
+      });
+      expect(await services.reconciliation.readChannelDriftAttentionContribution(input)).toBeNull();
+      await services.reconciliation.deliverHealthObservations(services.connectionHealth, () => context);
+      const health = await services.connectionHealth.readConnectionHealth({
+        accountId: "account-1",
+        connectionId: "connection-1",
+      });
+      expect(health.health.state).not.toBe("failing");
+      expect(health.systemPaused).toBe(false);
+    }
+    expect(
+      (
+        await pools.channels.query<{ outcome: string }>(
+          "SELECT observation->>'outcome' AS outcome FROM channel_health_observations ORDER BY occurred_at",
+        )
+      ).rows.map((row) => row.outcome),
+    ).toEqual(Array(6).fill("success"));
+    await pools.channels.query("UPDATE channel_reconciliation_state SET last_clean_run_at=now()");
+    await pools.channels.query("UPDATE channel_connections SET status='paused'");
+    services = channelsModule.createServices(pools.channels, { channelSaleRecorder: recorder });
+    await expect(services.reconciliation.reconcileConnection(input, context)).resolves.toMatchObject({
+      state: "held",
+      clean: false,
+    });
+    expect((await pools.channels.query("SELECT last_clean_run_at FROM channel_reconciliation_state")).rows).toEqual([
+      { last_clean_run_at: null },
+    ]);
+    expect((await pools.channels.query("SELECT DISTINCT clean FROM channel_reconciliation_metrics")).rows).toEqual([
+      { clean: false },
+    ]);
+    expect(recorder).not.toHaveBeenCalled();
+    expect((await pools.inventory.query("SELECT 1 FROM event_store_events")).rows).toEqual([]);
+    expect((await pools.channels.query("SELECT 1 FROM channel_order_observations")).rows).toEqual([]);
+    expect(
+      await services.reconciliation.readChannelDriftDetail({ accountId: "account-1", connectionId: "connection-1" }),
+    ).toMatchObject({ kind: "loaded", salesCoverage: "unverified" });
+    const omitted = s5Runtime({ clock: { now: () => new Date() } });
+    const withoutReader = await omitted.reconcileConnection({ ...input, healthAuthority: null }, context);
+    expect(withoutReader.counts).toMatchObject({ inSync: 0, sourceUnavailable: 3 });
+  });
+
+  it("claimed-reconcile-production-day-after installed readers retain absence and consent, then settle health without sales authority", async () => {
+    const fixture = await materialRuntime();
+    await seedConnectionLifecycle(new Date());
+    const rows = fixture.source.rows;
+    await persistAppliedMembership(rows);
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+    });
+    const input = {
+      connectionId: "connection-1",
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+      sourceAttempt: 1,
+      healthAuthority: (
+        await services.connectionHealth.readConnectionHealth({ accountId: "account-1", connectionId: "connection-1" })
+      ).health,
+    };
+    let generation = 0;
+    const capture = async (material: readonly ChannelInventorySnapshotRow[]) => {
+      generation += 1;
+      await persistMaterialCapture(
+        material,
+        generation,
+        new Date(Date.now() - 10_000 + generation * 100).toISOString(),
+      );
+      const result = await services.reconciliation.reconcileConnection(input, context);
+      await services.reconciliation.deliverHealthObservations(services.connectionHealth, () => context);
+      return result;
+    };
+    await expect(capture(rows)).resolves.toMatchObject({ clean: false, counts: { foreignEdit: 1, inSync: 2 } });
+    const open = (await services.reconciliation.readChannelDriftAttentionContribution(input))!;
+    expect(open.members.some((member) => member.identity === "source:sales")).toBe(false);
+    const original = (
+      await pools.channels.query(
+        "SELECT * FROM channel_reconciliation_items WHERE channel_listing_id='channel-foreign'",
+      )
+    ).rows;
+    await expect(capture([rows[0]!, rows[2]!])).resolves.toMatchObject({
+      counts: { sourceUnavailable: 1, structural: 0 },
+    });
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT * FROM channel_reconciliation_items WHERE channel_listing_id='channel-foreign'",
+        )
+      ).rows,
+    ).toEqual(original);
+    await capture(rows);
+    expect(
+      (await services.connectionHealth.readConnectionHealth({ accountId: "account-1", connectionId: "connection-1" }))
+        .systemPaused,
+    ).toBe(true);
+    await services.reconciliation.acceptChannelDrift(
+      {
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+        observedFingerprint: observedMaterialFingerprint(rows[1]!),
+        expectedMaterialFingerprint: fingerprint("2"),
+        expectedDecisionRevision: 0,
+        operationId: "SYN-production-accept",
+      },
+      context,
+    );
+    await expect(capture(rows)).resolves.toMatchObject({ clean: false, counts: { inSync: 3, foreignEdit: 0 } });
+    expect((await services.reconciliation.readChannelDriftAttentionContribution(input))!.resolution).toBe(
+      "handled-on-channel",
+    );
+    expect(
+      (await services.connectionHealth.readConnectionHealth({ accountId: "account-1", connectionId: "connection-1" }))
+        .systemPaused,
+    ).toBe(false);
+    await moveExpectedForeignMaterial(pools.channels);
+    await expect(capture(rows)).resolves.toMatchObject({ counts: { foreignEdit: 1 } });
+    expect(
+      (
+        await pools.channels.query<{ outcome: string }>(
+          "SELECT observation->>'outcome' AS outcome FROM channel_health_observations ORDER BY occurred_at",
+        )
+      ).rows.map((row) => row.outcome),
+    ).toEqual(["failure", "failure", "failure", "success", "failure"]);
+    const snapshots = await readLatestLiveSnapshotMetadata(pools.channels, "connection-1");
+    const persisted = await readPersistedClaimedState(pools.channels, {
+      connectionId: "connection-1",
+      snapshots,
+      freshness: "current",
+      maxListings: 10,
+    });
+    expect(persisted.appliedChannelListingIds).toHaveLength(3);
+    await pools.channels.query("UPDATE channel_sync_runs SET member_digest=$1", [fingerprint("0")]);
+    expect(
+      (
+        await readPersistedClaimedState(pools.channels, {
+          connectionId: "connection-1",
+          snapshots,
+          freshness: "current",
+          maxListings: 10,
+        })
+      ).sourceAuthority.kind,
+    ).toBe("declared-incomplete");
+  });
+
+  it("claimed-reconcile-missed-sale PostgreSQL joins original facts once after late commit and rejects missing/tail facts", async () => {
+    await seedConnectionAndListings(pools.channels, "tcgplayer");
+    const order = composeTcgplayerOrderObservation("SYN-pair-pull", {
+      orderNumber: "SYN-pair-order",
+      createdAt: "2026-09-10T12:00:00Z",
+      status: "ReadyToShip",
+      products: [{ productId: 90000002, skuId: 90000001, quantity: 5, unitPrice: 10 }],
+    });
+    const line = order.lines[0]!;
+    const key = channelSaleFingerprint(tcgplayerSaleKey("account-1", "connection-1", order.orderNumber, line));
+    const factsFingerprint = hashChannelDesiredState({
+      ...line,
+      soldAt: new Date(order.soldAt).toISOString(),
+      currencyCode: "USD",
+    });
+    const read = (maxLines = 10) =>
+      readRecordedTcgplayerSaleFacts(pools.channels, {
+        connectionId: "connection-1",
+        accountId: "account-1",
+        from: "2026-09-09T00:00:00Z",
+        to: "2026-09-11T00:00:00Z",
+        maxLines,
+      });
+    await pools.channels.query(
+      `INSERT INTO channel_order_observations
+      (provider_event_id,connection_id,account_id,sequence,order_reference,record,state,received_at)
+      VALUES ('SYN-order-1','connection-1','account-1',1,$1,$2::jsonb,'completed','2026-09-20')`,
+      [order.orderNumber, JSON.stringify(order)],
+    );
+    expect(await read()).toEqual({ kind: "known", quantities: [] });
+    await pools.channels.query(
+      `INSERT INTO channel_order_lines
+      (connection_id,sale_key_fingerprint,facts_fingerprint,committed_sale,backdated)
+      VALUES ('connection-1',$1,$2,$3::jsonb,true)`,
+      [key, factsFingerprint, JSON.stringify({ requestedQuantity: 5, appliedQuantity: 2, refusedQuantity: 3 })],
+    );
+    expect(await read()).toEqual({ kind: "known", quantities: [{ skuId: "90000001", quantity: 5 }] });
+    await pools.channels.query(
+      `INSERT INTO channel_order_observations
+      (provider_event_id,connection_id,account_id,sequence,order_reference,record,state,received_at)
+      VALUES ('SYN-order-replay','connection-1','account-1',2,$1,$2::jsonb,'completed','2026-09-21')`,
+      [order.orderNumber, JSON.stringify(order)],
+    );
+    expect(await read()).toEqual({ kind: "known", quantities: [{ skuId: "90000001", quantity: 5 }] });
+    expect(await read(1)).toEqual({ kind: "unknown" });
+    await pools.channels.query("UPDATE channel_order_observations SET record=NULL");
+    expect(await read()).toEqual({ kind: "unknown" });
+  });
+
+  it("claimed-reconcile-staleness installed reader fresh-stale-fresh resolves age and failing drift health without clean", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
+      const fixture = await materialRuntime();
+      await seedConnectionLifecycle(new Date());
+      const rows = fixture.source.rows.map((row) => ({ ...row, priceAmountMinor: 1000 }));
+      await persistAppliedMembership(rows);
+      await persistMaterialCapture(rows, 1, "2026-10-12T11:00:00Z");
+      let services = channelsModule.createServices(pools.channels, {
+        channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+      });
+      const connection = { accountId: "account-1", connectionId: "connection-1" };
+      const input = {
+        connectionId: connection.connectionId,
+        registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+        sourceAttempt: 1,
+        healthAuthority: (await services.connectionHealth.readConnectionHealth(connection)).health,
+      };
+      const run = async () => {
+        const result = await services.reconciliation.reconcileConnection(input, context);
+        expect(result.clean).toBe(false);
+        await services.reconciliation.deliverHealthObservations(services.connectionHealth, () => context);
+        vi.setSystemTime(new Date(Date.now() + 1000));
+        return result;
+      };
+      expect((await run()).counts.inSync).toBe(3);
+      vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
+      for (let repeat = 0; repeat < 3; repeat += 1) expect((await run()).counts.sourceUnavailable).toBe(3);
+      expect((await services.connectionHealth.readConnectionHealth(connection)).systemPaused).toBe(true);
+      const stale = (await services.reconciliation.readChannelDriftAttentionContribution(input))!;
+      expect(stale.members.some((member) => member.identity === "finding:snapshot-age")).toBe(true);
+      await persistMaterialCapture(rows, 2, new Date(Date.now() - 1000).toISOString());
+      services = channelsModule.createServices(pools.channels, {
+        channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+      });
+      expect((await run()).counts.inSync).toBe(3);
+      expect((await services.connectionHealth.readConnectionHealth(connection)).systemPaused).toBe(false);
+      expect((await services.reconciliation.readChannelDriftAttentionContribution(input))!.resolution).toBe(
+        "recovered-automatically",
+      );
+      expect((await pools.channels.query("SELECT last_clean_run_at FROM channel_reconciliation_state")).rows).toEqual([
+        { last_clean_run_at: null },
+      ]);
+      expect((await run()).clean).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("claimed-reconcile-production-day-after pair writes cannot borrow newer snapshots or overwrite a newer writer", async () => {
+    const fixture = await materialRuntime();
+    const at = new Date();
+    const rows = fixture.source.rows.map((row) => ({ ...row, priceAmountMinor: 1000 }));
+    await persistAppliedMembership(rows);
+    await persistMaterialCapture(rows, 1, new Date(at.getTime() - 2000).toISOString());
+    await persistMaterialCapture(rows, 2, new Date(at.getTime() - 1000).toISOString());
+    const input = {
+      connectionId: "connection-1",
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+      sourceAttempt: 1,
+      healthAuthority: null,
+    };
+    const runtime = (db: PgTransactionalPool, clock: Date) =>
+      s5Runtime({
+        db,
+        clock: { now: () => clock },
+        readClaimedChannelState: (read) => readPersistedClaimedState(db, read),
+        resolveKillSwitch: async () => ({ heldProviderKeys: [], heldConnectionIds: [] }),
+      });
+    let interleaved = false;
+    let newer: unknown;
+    const db = interceptTransactions(pools.channels, async (sql, phase) => {
+      if (interleaved || phase !== "after" || !sql.includes("FROM channel_order_lines")) return;
+      interleaved = true;
+      const later = new Date(at.getTime() + 1_860_000);
+      await ageSnapshot(
+        3,
+        new Date(later.getTime() - 1000).toISOString(),
+        later,
+        "operator-declared",
+        "live",
+        "connection-1",
+        rows.length,
+      );
+      const snapshotId = "synthetic-age-connection-1-live-3";
+      await pools.channels.query(
+        `INSERT INTO channel_inventory_snapshot_rows
+        (snapshot_id,snapshot_generation,connection_id,provider_key,surface,external_key,condition_text,total_quantity,
+         pending_quantity_delta,price_amount_text,price_amount_minor,currency,reference_columns,row_number,ingested_at,captured_at,captured_at_source)
+        SELECT $1,3,connection_id,provider_key,surface,external_key,condition_text,total_quantity,
+          pending_quantity_delta,price_amount_text,price_amount_minor,currency,reference_columns,row_number,$2,$3,captured_at_source
+        FROM channel_inventory_snapshot_rows WHERE snapshot_id='synthetic-age-connection-1-live-2'`,
+        [snapshotId, later.toISOString(), new Date(later.getTime() - 1000).toISOString()],
+      );
+      await runtime(pools.channels, later).reconcileConnection(input, context);
+      newer = (await pools.channels.query("SELECT * FROM channel_reconciliation_items ORDER BY channel_listing_id"))
+        .rows;
+    });
+    await expect(runtime(db, at).reconcileConnection(input, context)).rejects.toThrow(/generation fence/);
+    expect(interleaved).toBe(true);
+    expect(
+      (await pools.channels.query("SELECT * FROM channel_reconciliation_items ORDER BY channel_listing_id")).rows,
+    ).toEqual(newer);
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT 1 FROM channel_reconciliation_findings WHERE safe_reason='snapshot-quantity-drop-unaccounted'",
+        )
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it("claimed-reconcile-production-day-after missing desired projection facts are unavailable, not an unlinked structural row", async () => {
+    const fixture = await materialRuntime();
+    await seedConnectionLifecycle(new Date());
+    await persistAppliedMembership(fixture.source.rows);
+    await persistMaterialCapture(fixture.source.rows, 1, new Date(Date.now() - 2000).toISOString());
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, context),
+    });
+    const input = {
+      connectionId: "connection-1",
+      registry: createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]),
+      sourceAttempt: 1,
+      healthAuthority: null,
+    };
+    await services.reconciliation.reconcileConnection(input, context);
+    const original = (
+      await pools.channels.query(
+        "SELECT * FROM channel_reconciliation_items WHERE channel_listing_id='channel-foreign'",
+      )
+    ).rows;
+    await pools.channels.query("DELETE FROM channels_listing_publication_facts WHERE listing_id='listing-foreign'");
+    await expect(services.reconciliation.reconcileConnection(input, context)).resolves.toMatchObject({
+      state: "bounded-unknown",
+      clean: false,
+      counts: { sourceUnavailable: 1, structural: 0, listingsReconciled: 0 },
+    });
+    expect(
+      (
+        await pools.channels.query(
+          "SELECT * FROM channel_reconciliation_items WHERE channel_listing_id='channel-foreign'",
+        )
+      ).rows,
+    ).toEqual(original);
+  });
 
   it("claimed-snapshot-age-matrix reads the immediate Live generation pair for exactly one connection", async () => {
     const at = new Date("2026-09-16T12:00:00Z");
@@ -644,8 +1014,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
         counts: { inSync: 3, sourceUnavailable: 0, repairsEnqueued: 0 },
       });
       const attention = await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
-      expect(attention).toMatchObject({ resolution: null });
-      expect(attention!.members).toEqual([expect.objectContaining({ identity: "source:sales", settlement: "open" })]);
+      expect(attention).toBeNull();
       fixture.advanceDay();
     }
     expect((await pools.channels.query("SELECT last_clean_run_at FROM channel_reconciliation_state")).rows).toEqual([
@@ -4241,8 +4610,103 @@ async function ageSnapshot(
   );
 }
 
+async function persistMaterialCapture(
+  rows: readonly ChannelInventorySnapshotRow[],
+  generation: number,
+  capturedAt: string,
+) {
+  await ageSnapshot(generation, capturedAt, new Date(), "operator-declared", "live", "connection-1", rows.length);
+  const snapshotId = `synthetic-age-connection-1-live-${generation}`;
+  for (const [index, row] of rows.entries()) {
+    await pools.channels.query(
+      `INSERT INTO channel_inventory_snapshot_rows
+      (snapshot_id,snapshot_generation,connection_id,provider_key,surface,external_key,condition_text,total_quantity,
+       pending_quantity_delta,price_amount_text,price_amount_minor,currency,reference_columns,row_number,ingested_at,captured_at,captured_at_source)
+      VALUES ($1,$2,'connection-1','tcgplayer','live',$3,$4,$5,$6,$7,$8,'USD',$9::jsonb,$10,now(),$11,'operator-declared')`,
+      [
+        snapshotId,
+        generation,
+        row.externalKey,
+        row.conditionText,
+        row.totalQuantity,
+        row.pendingQuantityDelta,
+        row.priceAmountText,
+        row.priceAmountMinor,
+        JSON.stringify(row.referenceColumns),
+        index + 2,
+        capturedAt,
+      ],
+    );
+  }
+}
+
+async function persistAppliedMembership(rows: readonly ChannelInventorySnapshotRow[]) {
+  const members = rows.map(
+    (row, ordinal): ChannelSyncRunAlreadySatisfiedMember => ({
+      operationId: `SYN-applied-${ordinal}`,
+      attemptId: `SYN-attempt-${ordinal}`,
+      claimGeneration: 1,
+      reservationId: "SYN-reservation",
+      channelListingId: ["channel-repairable", "channel-foreign", "channel-structural"][ordinal]!,
+      listingId: ["listing-repairable", "listing-foreign", "listing-structural"][ordinal]!,
+      desiredStateSequence: 1,
+      listingRevision: 1,
+      payloadDigest: fingerprint("1"),
+      ordinal,
+      memberKind: "already-satisfied",
+      externalKey: row.externalKey,
+      conditionText: row.conditionText,
+      basisSnapshotId: "SYN-basis",
+      basisSnapshotGeneration: 1,
+      basisTotalQuantity: row.totalQuantity,
+      basisPriceAmountMinor: row.priceAmountMinor!,
+      targetQuantity: row.totalQuantity,
+      targetPriceAmountMinor: row.priceAmountMinor!,
+      csvRow: null,
+      refusalReason: null,
+      mappingDimension: null,
+      mappingSourceKey: null,
+      providerAction: "not-attempted-already-satisfied",
+    }),
+  );
+  await pools.channels.query(
+    `INSERT INTO channel_sync_runs
+    (run_id,revision,sequence,connection_id,provider_key,reservation_id,claimant_kind,claimant_id,lease_expires_at,
+     state,basis_snapshot_id,basis_snapshot_generation,csv_header,member_count,member_digest,created_at,updated_at,last_stream_version)
+    VALUES ('SYN-applied',1,1,'connection-1','tcgplayer','SYN-reservation','connector','SYN-connector',now(),
+      'applied','SYN-basis',1,'[]', $1,$2,now(),now(),1)`,
+    [members.length, digestChannelSyncRunMembers(members)],
+  );
+  for (const member of members) {
+    await pools.channels.query(
+      `INSERT INTO channel_sync_run_rows
+      (run_id,operation_id,ordinal,reservation_id,attempt_id,claim_generation,channel_listing_id,listing_id,
+       desired_state_sequence,listing_revision,payload_digest,member_kind,external_key,condition_text,basis_snapshot_id,
+       basis_snapshot_generation,basis_total_quantity,basis_price_amount_minor,target_quantity,target_price_amount_minor,provider_action)
+      VALUES ('SYN-applied',$1,$2,'SYN-reservation',$3,1,$4,$5,1,1,$6,'already-satisfied',$7,$8,'SYN-basis',1,$9,$10,$9,$10,
+        'not-attempted-already-satisfied')`,
+      [
+        member.operationId,
+        member.ordinal,
+        member.attemptId,
+        member.channelListingId,
+        member.listingId,
+        member.payloadDigest,
+        member.externalKey,
+        member.conditionText,
+        member.targetQuantity,
+        member.targetPriceAmountMinor,
+      ],
+    );
+  }
+}
+
 async function seedAgeConnection(at: Date) {
   await seedConnectionAndListings(pools.channels, "tcgplayer");
+  await seedConnectionLifecycle(at);
+}
+
+async function seedConnectionLifecycle(at: Date) {
   await createPostgresEventStore({ pool: pools.channels }).appendToStream({
     streamId: "channels.connection-connection-1",
     expectedVersion: "no_stream",

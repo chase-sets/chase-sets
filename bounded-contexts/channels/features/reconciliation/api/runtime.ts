@@ -60,6 +60,11 @@ import { deriveOutboundRepushOperationId } from "../../outbound-sync/api/store";
 import { payloadDigest } from "../../outbound-sync/api/payload-digest";
 import { readLatestLiveSnapshotMetadata } from "../../tcgplayer-csv/read-model/queries";
 import { evaluateSnapshotAge, SNAPSHOT_AGE_FINDING_ID, SNAPSHOT_AGE_MEMBER_ID } from "../domain/snapshot-age";
+import type { SnapshotAgeMetadata } from "../domain/snapshot-age";
+import type { ClaimedChannelStateRead } from "../domain/contracts";
+import { accountSnapshotPair } from "../domain/pair-accounting";
+import { reconciliationIsClean } from "../domain/settlement";
+import { readRecordedTcgplayerSaleFacts } from "../../tcgplayer-orders/read-model/recorded-facts";
 
 const zeroCounts = (): MutableCounts => ({
   listingsReconciled: 0,
@@ -111,10 +116,22 @@ export function createChannelReconciliationRuntime(
     const startedAt = now();
     const claim = await claimRun(dependencies, connection, resolvedPolicy.revision, startedAt, context);
     const counts = zeroCounts();
+    let listingOnly = false;
+    const withRunFence = (write: (db: PgQueryable) => Promise<void>) =>
+      withPgTransaction(dependencies.db, async (db) => {
+        const owner = await db.query(
+          `SELECT 1 FROM channel_reconciliation_state
+         WHERE connection_id=$1 AND generation=$2 AND revision=$3 AND state='running' FOR UPDATE`,
+          [connection.connectionId, claim.generation, claim.revision],
+        );
+        if (owner.rows.length !== 1) throw new Error("Claimed reconciliation write lost its run fence.");
+        await write(db);
+      });
     try {
       const provider = input.registry.get({ providerKey: connection.providerKey, environment: connection.environment });
       const publication = provider?.publication ?? null;
       const snapshotAgeScope = publication?.execution === "claimed" && connection.providerKey === "tcgplayer";
+      listingOnly = snapshotAgeScope;
       const heldInline = hold.held && publication?.execution === "inline";
       // Outbound holds must not prevent recovery from locally persisted capture evidence.
       if (hold.held && !snapshotAgeScope && !heldInline) {
@@ -127,9 +144,12 @@ export function createChannelReconciliationRuntime(
             connectionId: connection.connectionId,
             limit: policy.maxListingsPerRun,
           });
+      let snapshots: readonly SnapshotAgeMetadata[] = [];
+      let freshness: ClaimedChannelStateRead["freshness"] = "unknown";
       if (snapshotAgeScope) {
-        const snapshots = await readLatestLiveSnapshotMetadata(dependencies.db, connection.connectionId);
+        snapshots = await readLatestLiveSnapshotMetadata(dependencies.db, connection.connectionId);
         const age = evaluateSnapshotAge(snapshots, startedAt, policy.snapshotMaxAgeMs);
+        freshness = age.kind === "fresh" ? "current" : age.kind === "stale" ? "stale" : "unknown";
         await withPgTransaction(dependencies.db, async (db) => {
           const owner = await db.query(
             `SELECT 1 FROM channel_reconciliation_state
@@ -156,6 +176,7 @@ export function createChannelReconciliationRuntime(
       }
       let stateResult: ChannelStateFetchResult = { kind: "bounded-unknown", reason: "source-error" };
       if (expected.bounded) {
+        if (expected.items.length === 0) counts.sourceUnavailable += 1;
         stateResult = { kind: "bounded-unknown", reason: "hard-cap" };
       } else if (publication?.execution === "inline" && !heldInline) {
         try {
@@ -169,13 +190,17 @@ export function createChannelReconciliationRuntime(
           ? dependencies.readClaimedChannelState
           : undefined;
       let claimedMaterial: ReturnType<typeof indexClaimedMaterial> = null;
+      let claimedSource: ClaimedChannelStateRead | null = null;
       if (!expected.bounded && readClaimedState) {
         try {
           const source = await readClaimedState({
             connectionId: connection.connectionId,
             observedAt: startedAt,
             maxListings: policy.maxListingsPerRun,
+            snapshots,
+            freshness,
           });
+          claimedSource = source;
           claimedMaterial = indexClaimedMaterial(connection.connectionId, source, policy.maxListingsPerRun);
         } catch {
           claimedMaterial = null;
@@ -220,6 +245,21 @@ export function createChannelReconciliationRuntime(
       }
       const members: DriftGenerationMember[] = [];
       const priorMembers = new Map(claim.driftGeneration?.members.map((member) => [member.identity, member]));
+      let pairAccountingAvailable = true;
+      const drops = new Map<string, number>();
+      if (claimedSource?.pair && claimedMaterial) {
+        const sales = await readRecordedTcgplayerSaleFacts(dependencies.db, {
+          connectionId: connection.connectionId,
+          accountId: connection.accountId,
+          from: claimedSource.pair.from,
+          to: claimedSource.pair.to,
+          maxLines: policy.maxSaleLinesPerRun,
+        });
+        const accounting = accountSnapshotPair(claimedSource.pair.previousRows, claimedSource.rows, sales);
+        pairAccountingAvailable = accounting.kind === "known";
+        if (accounting.kind === "known") for (const drop of accounting.drops) drops.set(drop.identity, drop.quantity);
+        else counts.sourceUnavailable += 1;
+      }
 
       await closeTransientFindings(
         dependencies.db,
@@ -286,6 +326,44 @@ export function createChannelReconciliationRuntime(
           ...resolved,
         };
         const classification = classifyChannelDrift(observation);
+        if (
+          resolved.observed.present &&
+          "materialIdentity" in resolved.observed &&
+          claimedSource?.pair &&
+          pairAccountingAvailable
+        ) {
+          const identity = resolved.observed.materialIdentity;
+          const accepted =
+            decision.accepted?.observedFingerprint === resolved.observed.fingerprint &&
+            decision.accepted.expectedMaterialFingerprint === listing.expectedMaterialFingerprint;
+          await withRunFence(async (db) => {
+            await assertDecisionProjection(db, listing.connectionId, listing.channelListingId, decisionHistory);
+            if (pairAccountingAvailable && !accepted && drops.has(identity)) {
+              counts.missedSaleGaps += 1;
+              await writeFinding(
+                db,
+                connection.connectionId,
+                `pair-${digest(identity)}`,
+                claim.generation,
+                "persistent-sale-gap",
+                listing.channelListingId,
+                digest(
+                  JSON.stringify([
+                    snapshots.map((snapshot) => snapshot.snapshotId),
+                    claimedSource?.pair?.from,
+                    claimedSource?.pair?.to,
+                    identity,
+                    drops.get(identity),
+                  ]),
+                ),
+                "snapshot-quantity-drop-unaccounted",
+                startedAt,
+              );
+            } else if (pairAccountingAvailable && claimedSource?.pair) {
+              await closeFinding(db, connection.connectionId, `pair-${digest(identity)}`, startedAt, claim.generation);
+            }
+          });
+        }
         if (classification !== "source-unavailable")
           members.push({
             identity: `listing:${listing.channelListingId}`,
@@ -353,18 +431,18 @@ export function createChannelReconciliationRuntime(
         }
 
         if (classification !== "source-unavailable") {
-          await writeReconciliationItem(
-            dependencies.db,
-            listing,
-            claim.generation,
-            classification,
-            observed,
-            startedAt,
-            {
+          const persistItem = async (db: PgQueryable) => {
+            await writeReconciliationItem(db, listing, claim.generation, classification, observed, startedAt, {
               repairOperationId,
               repairSucceededGeneration,
-            },
-          );
+            });
+          };
+          if (listingOnly)
+            await withRunFence(async (db) => {
+              await assertDecisionProjection(db, listing.connectionId, listing.channelListingId, decisionHistory);
+              await persistItem(db);
+            });
+          else await persistItem(dependencies.db);
         }
       }
 
@@ -396,16 +474,18 @@ export function createChannelReconciliationRuntime(
             continue;
           }
           counts.structural += 1;
-          await writeFinding(
-            dependencies.db,
-            connection.connectionId,
-            `state-${digest(identity)}`,
-            claim.generation,
-            "unmapped-channel-state",
-            null,
-            item.fingerprint,
-            "channel-state-link-not-found",
-            startedAt,
+          await withRunFence(async (db) =>
+            writeFinding(
+              db,
+              connection.connectionId,
+              `state-${digest(identity)}`,
+              claim.generation,
+              "unmapped-channel-state",
+              null,
+              item.fingerprint,
+              "channel-state-link-not-found",
+              startedAt,
+            ),
           );
         }
       }
@@ -479,24 +559,31 @@ export function createChannelReconciliationRuntime(
       }
 
       const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
-      let clean =
+      let listingSettled =
         !heldInline &&
         stateComparisonAvailable &&
-        saleAuthorityComplete &&
         saleComplete &&
         counts.repairable === 0 &&
         counts.foreignEdit === 0 &&
         counts.structural === 0 &&
         counts.sourceUnavailable === 0 &&
         openFindingCount === 0;
+      let clean = reconciliationIsClean({ listingOnly, listingSettled, salesAuthorityComplete: saleAuthorityComplete });
+      const findingLimit = policy.maxListingsPerRun + policy.maxSaleLinesPerRun + 2;
       const findings = await dependencies.db.query<{
         finding_id: string;
         fingerprint: string;
         open: boolean;
         kind: string;
-      }>("SELECT finding_id,fingerprint,open,kind FROM channel_reconciliation_findings WHERE connection_id=$1", [
-        connection.connectionId,
-      ]);
+      }>(
+        "SELECT finding_id,fingerprint,open,kind FROM channel_reconciliation_findings WHERE connection_id=$1 ORDER BY finding_id LIMIT $2",
+        [connection.connectionId, findingLimit + 1],
+      );
+      if (findings.rows.length > findingLimit) {
+        counts.sourceUnavailable += 1;
+        listingSettled = false;
+        clean = false;
+      }
       members.push(
         ...findings.rows.map(
           (finding): DriftGenerationMember => ({
@@ -514,6 +601,7 @@ export function createChannelReconciliationRuntime(
         ["source:state", stateComparisonAvailable],
         ["source:sales", saleAuthorityComplete],
       ] as const) {
+        if (listingOnly && identity === "source:sales") continue;
         if (heldInline && identity === "source:state") continue;
         if (
           heldInline ||
@@ -553,14 +641,15 @@ export function createChannelReconciliationRuntime(
       const driftGeneration =
         absentByDesign && !snapshotAgeAttention
           ? claim.driftGeneration
-          : retainDriftGeneration(claim.driftGeneration, members, clean);
+          : retainDriftGeneration(claim.driftGeneration, members, listingOnly ? listingSettled : clean, listingOnly);
+      listingSettled = listingSettled && (!driftGeneration || driftGeneration.resolution !== null);
       clean = clean && (!driftGeneration || driftGeneration.resolution !== null);
       const health =
         input.healthAuthority &&
         (!absentByDesign || snapshotAgeAttention) &&
         (heldInline
           ? counts.structural + counts.sourceUnavailable > 0 || persistentGaps.length > 0
-          : clean ||
+          : (listingOnly ? listingSettled : clean) ||
             counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
             !stateComparisonAvailable ||
             persistentGaps.length > 0 ||
@@ -571,7 +660,8 @@ export function createChannelReconciliationRuntime(
               sourceAttempt: input.sourceAttempt,
               resultOrdinal: 1,
               ...input.healthAuthority,
-              classification: clean ? "in-sync" : "source-unavailable",
+              classification: !listingOnly && clean ? "in-sync" : "source-unavailable",
+              listingSettled: listingOnly && listingSettled,
               sourceAuthority: heldInline ? saleSourceAuthority : sourceAuthority,
               materialFingerprint: driftGeneration?.fingerprint ?? digest(`connection:${connection.connectionId}`),
               occurredAt: startedAt,
@@ -598,6 +688,7 @@ export function createChannelReconciliationRuntime(
         context,
         driftGeneration,
         health,
+        listingOnly,
       );
     } catch {
       return finishRun(
@@ -610,6 +701,9 @@ export function createChannelReconciliationRuntime(
         policy.cadenceMs,
         startedAt,
         context,
+        claim.driftGeneration,
+        null,
+        listingOnly,
       );
     }
   }
@@ -871,11 +965,12 @@ async function finishRun(
   context: EventStoreContext,
   driftGeneration: RetainedDriftGeneration | null = claim.driftGeneration,
   health: ChannelHealthObservationV1 | null = null,
+  listingOnly = false,
 ): Promise<ChannelReconciliationRunResult> {
   await withPgTransaction(dependencies.db, async (db) => {
     const result = await db.query(
       `UPDATE channel_reconciliation_state SET state=$3,revision=revision+1,counts=$4::jsonb,lease_expires_at=NULL,
-         next_due_at=$5,last_clean_run_at=CASE WHEN $6 THEN $7 ELSE last_clean_run_at END,updated_at=$7,
+         next_due_at=$5,last_clean_run_at=CASE WHEN $11 THEN NULL WHEN $6 THEN $7 ELSE last_clean_run_at END,updated_at=$7,
          drift_generation=$10::jsonb
        WHERE connection_id=$1 AND generation=$2 AND revision=$8 AND state='running' AND run_fingerprint=$9`,
       [
@@ -889,6 +984,7 @@ async function finishRun(
         claim.revision,
         claim.runFingerprint,
         JSON.stringify(driftGeneration),
+        listingOnly,
       ],
     );
     if (Number(result.rowCount ?? 0) !== 1)
@@ -1189,7 +1285,9 @@ async function writeReconciliationItem(
     `INSERT INTO channel_reconciliation_items
        (connection_id,channel_listing_id,listing_id,run_generation,classification,observed_fingerprint,
         expected_material_fingerprint,repair_operation_id,repair_succeeded_generation,settled,updated_at,revision)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1)
+     SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1
+     WHERE EXISTS (SELECT 1 FROM channel_reconciliation_state
+       WHERE connection_id=$1 AND generation=$4 AND state='running')
      ON CONFLICT (connection_id,channel_listing_id) DO UPDATE SET listing_id=EXCLUDED.listing_id,
        run_generation=CASE
          WHEN channel_reconciliation_items.classification=EXCLUDED.classification
@@ -1499,11 +1597,17 @@ async function closeTransientFindings(
   );
 }
 
-async function closeFinding(db: PgQueryable, connectionId: string, findingId: string, now: string) {
+async function closeFinding(
+  db: PgQueryable,
+  connectionId: string,
+  findingId: string,
+  now: string,
+  generation?: number,
+) {
   const current = await db.query<{ revision: string | number }>(
     `SELECT revision FROM channel_reconciliation_findings
-     WHERE connection_id=$1 AND finding_id=$2 AND open=true`,
-    [connectionId, findingId],
+     WHERE connection_id=$1 AND finding_id=$2 AND open=true AND ($3::bigint IS NULL OR run_generation<=$3)`,
+    [connectionId, findingId, generation ?? null],
   );
   if (!current.rows[0]) return;
   await db.query(
