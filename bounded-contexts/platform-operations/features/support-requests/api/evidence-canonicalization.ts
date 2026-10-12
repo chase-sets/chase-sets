@@ -76,6 +76,12 @@ const COMMITTED_GOLDENS: SupportEvidenceGoldens = goldensJson;
 const GOLDEN_FIXTURES = new URL("./__fixtures__/evidence/", import.meta.url);
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const WEBP_ANIMATION_FLAG = 0x02;
+const JPEG_START_OF_SCAN = 0xda;
+const JPEG_APP2 = 0xe2;
+const MPF_NUMBER_OF_IMAGES = 0xb001;
+const MPF_ENTRY = 0xb002;
+const MPF_ENTRY_BYTES = 16;
+const TIFF_LONG = 4;
 
 const SIGNATURES: Readonly<Record<SupportEvidenceAttachmentContentType, (body: Uint8Array) => boolean>> = {
   "image/jpeg": (body) => startsWith(body, [0xff, 0xd8, 0xff]),
@@ -83,11 +89,16 @@ const SIGNATURES: Readonly<Record<SupportEvidenceAttachmentContentType, (body: U
   "image/webp": (body) => ascii(body, 0, 4) === "RIFF" && ascii(body, 8, 12) === "WEBP",
 };
 
-// Animation lives in the container (APNG acTL, WebP VP8X flag); libvips would silently decode only the first frame.
-const DECLARES_ANIMATION: Readonly<Record<SupportEvidenceAttachmentContentType, (body: Uint8Array) => boolean>> = {
-  "image/jpeg": () => false,
-  "image/png": (body) => pngDeclaresAnimation(body),
-  "image/webp": (body) => webpDeclaresAnimation(body),
+type ContainerRejection = Extract<SupportEvidenceCanonicalizationRejection, "animated" | "undecodable">;
+
+// Extra frames and images live in the container (APNG acTL, WebP VP8X flag, JPEG MPF index); libvips would silently
+// decode only the first.
+const CONTAINER_REJECTION: Readonly<
+  Record<SupportEvidenceAttachmentContentType, (body: Uint8Array) => ContainerRejection | undefined>
+> = {
+  "image/jpeg": (body) => jpegIndexRejection(body),
+  "image/png": (body) => (pngDeclaresAnimation(body) ? "animated" : undefined),
+  "image/webp": (body) => (webpDeclaresAnimation(body) ? "animated" : undefined),
 };
 
 const DECODER_FORMATS: Readonly<Record<SupportEvidenceAttachmentContentType, string>> = {
@@ -137,7 +148,8 @@ export async function canonicalizeSupportEvidenceImage(
   if (body.byteLength === 0) return rejected("empty");
   if (body.byteLength > SUPPORT_EVIDENCE_ATTACHMENT_MAX_BYTES) return rejected("encoded-too-large");
   if (!SIGNATURES[contentType](body)) return rejected("signature-mismatch");
-  if (DECLARES_ANIMATION[contentType](body)) return rejected("animated");
+  const containerRejection = CONTAINER_REJECTION[contentType](body);
+  if (containerRejection) return rejected(containerRejection);
 
   const raster = await decodeRaster(body, contentType);
   if ("code" in raster) return raster;
@@ -271,6 +283,55 @@ function pngDeclaresAnimation(body: Uint8Array): boolean {
     if (type === "IDAT") return false;
   }
   return false;
+}
+
+// A JPEG indexes further images (MPO, gain map, preview) only in an APP2 "MPF\0" segment before its first scan
+// (CIPA DC-007). A header this walk cannot read is ambiguous about that index, so it is undecodable, never decoded.
+function jpegIndexRejection(body: Uint8Array): ContainerRejection | undefined {
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  let indexedImages: number | undefined;
+  for (let offset = 2; ; ) {
+    while (body[offset] === 0xff && body[offset + 1] === 0xff) offset += 1;
+    if (body[offset] !== 0xff || offset + 4 > body.byteLength) return "undecodable";
+    if (body[offset + 1] === JPEG_START_OF_SCAN) return (indexedImages ?? 1) > 1 ? "animated" : undefined;
+    const end = offset + 2 + view.getUint16(offset + 2);
+    if (end < offset + 4 || end > body.byteLength) return "undecodable";
+    if (body[offset + 1] === JPEG_APP2 && ascii(body, offset + 4, Math.min(end, offset + 8)) === "MPF\0") {
+      if (indexedImages !== undefined) return "undecodable";
+      indexedImages = mpfIndexedImages(body.subarray(offset + 8, end));
+      if (indexedImages === undefined) return "undecodable";
+    }
+    offset = end;
+  }
+}
+
+// The MP header is a TIFF header whose offsets count from its byte-order mark. Its index IFD must state NumberOfImages
+// once, as one LONG, and hold exactly one 16-byte MPEntry record per image inside the segment.
+function mpfIndexedImages(header: Uint8Array): number | undefined {
+  const order = ascii(header, 0, 2);
+  if (header.byteLength < 8 || (order !== "II" && order !== "MM")) return undefined;
+  const little = order === "II";
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  const ifd = view.getUint32(4, little);
+  if (view.getUint16(2, little) !== 42 || ifd + 2 > header.byteLength) return undefined;
+  const entriesEnd = ifd + 2 + 12 * view.getUint16(ifd, little);
+  if (entriesEnd > header.byteLength) return undefined;
+
+  const tags = new Map<number, Readonly<{ type: number; count: number; value: number }>>();
+  for (let entry = ifd + 2; entry < entriesEnd; entry += 12) {
+    const tag = view.getUint16(entry, little);
+    if (tags.has(tag)) return undefined;
+    tags.set(tag, {
+      type: view.getUint16(entry + 2, little),
+      count: view.getUint32(entry + 4, little),
+      value: view.getUint32(entry + 8, little),
+    });
+  }
+  const images = tags.get(MPF_NUMBER_OF_IMAGES);
+  const records = tags.get(MPF_ENTRY);
+  if (!images || images.type !== TIFF_LONG || images.count !== 1 || images.value < 1) return undefined;
+  if (!records || records.count !== MPF_ENTRY_BYTES * images.value) return undefined;
+  return records.value + records.count <= header.byteLength ? images.value : undefined;
 }
 
 function sameFingerprint(left: SupportEvidenceEncoderFingerprint, right: SupportEvidenceEncoderFingerprint): boolean {

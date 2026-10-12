@@ -209,6 +209,31 @@ function padJpegWithComments(jpeg: Uint8Array, totalBytes: number): Uint8Array {
   return new Uint8Array(padded.buffer, padded.byteOffset, padded.byteLength);
 }
 
+function mpfHeaderOffset(body: Uint8Array): number {
+  return Buffer.from(body.buffer, body.byteOffset, body.byteLength).indexOf("MPF\0", 0, "latin1") + 4;
+}
+
+// Both MPF fixtures' MP headers: IFD at 8 holding MPFVersion @10, NumberOfImages @22, MPEntry @34, next-IFD @46, records @50.
+function patchedMpfIndex(patch: (header: DataView) => void, name = "multi-image-mpf.jpg"): Uint8Array {
+  const body = fixture(name);
+  patch(new DataView(body.buffer, body.byteOffset + mpfHeaderOffset(body)));
+  return body;
+}
+
+function withMpfSegmentLength(length: number): Uint8Array {
+  const body = fixture("multi-image-mpf.jpg");
+  new DataView(body.buffer, body.byteOffset).setUint16(mpfHeaderOffset(body) - 6, length);
+  return body;
+}
+
+// `bytes` receives the fixture's MPF APP2 segment so a case can duplicate it.
+function withBytesBeforeMpfSegment(name: string, bytes: (segment: Uint8Array) => Uint8Array): Uint8Array {
+  const body = Buffer.from(fixture(name));
+  const start = mpfHeaderOffset(body) - 8;
+  const segment = body.subarray(start, start + 2 + body.readUInt16BE(start + 2));
+  return new Uint8Array(Buffer.concat([body.subarray(0, start), bytes(segment), body.subarray(start)]));
+}
+
 const GOLDEN_INPUTS: readonly SupportEvidenceCanonicalizationInput[] = goldens.fixtures.map((entry) => ({
   body: fixture(entry.file),
   declaredContentType: entry.declaredContentType,
@@ -493,6 +518,100 @@ const REJECTIONS: readonly RejectionCase[] = [
     reach: "no decoder",
   },
   {
+    name: "a JPEG whose MPF index declares two images",
+    input: () => ({ body: fixture("multi-image-mpf.jpg"), declaredContentType: "image/jpeg" }),
+    code: "animated",
+    governs: "MPF NumberOfImages before the first scan",
+    mutant: "treat indexed images as trailing data",
+    reach: "no decoder",
+  },
+  {
+    name: "a two-image MPF index behind JPEG fill bytes",
+    input: () => ({
+      body: withBytesBeforeMpfSegment("multi-image-mpf.jpg", () => new Uint8Array([0xff, 0xff, 0xff])),
+      declaredContentType: "image/jpeg",
+    }),
+    code: "animated",
+    governs: "fill bytes before a marker",
+    mutant: "stop the marker walk at fill bytes",
+    reach: "no decoder",
+  },
+  {
+    name: "an MPF segment too short for its TIFF header",
+    input: () => ({ body: withMpfSegmentLength(10), declaredContentType: "image/jpeg" }),
+    code: "undecodable",
+    governs: "bounds-checked MPF index",
+    mutant: "read the TIFF header past the segment",
+    reach: "no decoder",
+  },
+  {
+    name: "an otherwise valid big-endian single-image MPF index whose byte order reads XX",
+    input: () => ({
+      body: patchedMpfIndex((header) => header.setUint16(0, 0x5858), "single-image-mpf-big-endian.jpg"),
+      declaredContentType: "image/jpeg",
+    }),
+    code: "undecodable",
+    governs: "TIFF byte order is II or MM",
+    mutant: "read any byte order other than II as big-endian",
+    reach: "no decoder",
+  },
+  ...(
+    [
+      ["a TIFF magic other than 42", (header) => header.setUint16(2, 43, true)],
+      ["an IFD offset past its segment", (header) => header.setUint32(4, 0xffff, true)],
+      [
+        // Seven entries end 12 bytes past the segment; a distinct next-IFD word keeps a duplicate tag from masking that.
+        "an IFD entry count overrunning its segment",
+        (header) => {
+          header.setUint16(8, 7, true);
+          header.setUint32(46, 0xffff, true);
+        },
+      ],
+      ["no NumberOfImages", (header) => header.setUint16(22, 0xb0ff, true)],
+      ["NumberOfImages stated twice", (header) => header.setUint16(10, 0xb001, true)],
+      ["NumberOfImages that is not a LONG", (header) => header.setUint16(24, 3, true)],
+      ["NumberOfImages counting two values", (header) => header.setUint32(26, 2, true)],
+      [
+        "zero images and zero MPEntry bytes",
+        (header) => {
+          header.setUint32(30, 0, true);
+          header.setUint32(38, 0, true);
+        },
+      ],
+      ["one image but two MPEntry records", (header) => header.setUint32(30, 1, true)],
+      ["no MPEntry", (header) => header.setUint16(34, 0xb0ff, true)],
+      ["MPEntry records past its segment", (header) => header.setUint32(42, 0xffff, true)],
+    ] as const satisfies readonly (readonly [string, (header: DataView) => void])[]
+  ).map(
+    ([fault, patch]): RejectionCase => ({
+      name: `an MPF index with ${fault}`,
+      input: () => ({ body: patchedMpfIndex(patch), declaredContentType: "image/jpeg" }),
+      code: "undecodable",
+      governs: "bounds-checked MPF index",
+      mutant: "trust or throw on a malformed MPF index",
+      reach: "no decoder",
+    }),
+  ),
+  {
+    name: "a JPEG with two MPF indexes",
+    input: () => ({
+      body: withBytesBeforeMpfSegment("single-image-mpf-big-endian.jpg", (segment) => segment),
+      declaredContentType: "image/jpeg",
+    }),
+    code: "undecodable",
+    governs: "exactly one MPF index",
+    mutant: "read only the first MPF index",
+    reach: "no decoder",
+  },
+  {
+    name: "a JPEG header segment whose length runs past the input",
+    input: () => ({ body: withMpfSegmentLength(0xffff), declaredContentType: "image/jpeg" }),
+    code: "undecodable",
+    governs: "bounded JPEG marker walk",
+    mutant: "walk past the input or leave it to the decoder",
+    reach: "no decoder",
+  },
+  {
     name: "24,000,002 pixels",
     input: () => ({ body: fixture("bilevel-24000002-pixels.png"), declaredContentType: "image/png" }),
     code: "too-many-pixels",
@@ -596,6 +715,35 @@ describe("AC-B2 rejections carry a bounded code and no bytes", () => {
 
     expectNoCallerMetadata(image.body);
     expect(includesAscii(image.body, "PK\u0003\u0004")).toBe(false);
+    const clean = canonical(
+      await canonicalizeSupportEvidenceImage({
+        body: fixture("photo-orientation-6-p3-xmp.jpg"),
+        declaredContentType: "image/jpeg",
+      }),
+    );
+    expect(Buffer.from(image.body).equals(Buffer.from(clean.body))).toBe(true);
+  });
+
+  it("multi-image-mpf.jpg indexes a second JPEG that decodes on its own", async () => {
+    const body = fixture("multi-image-mpf.jpg");
+    const header = new DataView(body.buffer, body.byteOffset + mpfHeaderOffset(body));
+    const [size, offset] = [header.getUint32(70, true), header.getUint32(74, true)];
+    const second = body.subarray(mpfHeaderOffset(body) + offset, mpfHeaderOffset(body) + offset + size);
+
+    expect(header.getUint32(30, true)).toBe(2);
+    expect(mpfHeaderOffset(body) + offset + size).toBe(body.byteLength);
+    const metadata = await sharp(second).metadata();
+    expect([metadata.format, metadata.width, metadata.height]).toEqual(["jpeg", 16, 16]);
+  });
+
+  it("accepts a single-image MPF index: canonical bytes equal the unindexed image's", async () => {
+    const indexed = fixture("single-image-mpf-big-endian.jpg");
+    expect(includesAscii(indexed, "MPF\0MM")).toBe(true);
+
+    const image = canonical(
+      await canonicalizeSupportEvidenceImage({ body: indexed, declaredContentType: "image/jpeg" }),
+    );
+
     const clean = canonical(
       await canonicalizeSupportEvidenceImage({
         body: fixture("photo-orientation-6-p3-xmp.jpg"),
