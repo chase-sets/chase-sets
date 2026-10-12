@@ -3,7 +3,7 @@ import { matchRoutes } from "react-router";
 import { resolveWebHostRouteRecords } from "@chase-sets/platform-runtime/web";
 import type { WebNotificationChannel } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import marketplaceManifest from "../../../../context.json";
+import { contextManifest as marketplaceManifest } from "../../../../index";
 import {
   mapReviewOpportunityToNotification,
   mapReviewReminderToNotification,
