@@ -218,13 +218,16 @@ describe("aggregate command handler factory", () => {
       },
     );
 
-    it.each([[], [event]])("rejects any-bypass including an empty append (%j)", async (events) => {
-      const { repository, appendToStream } = setupBound();
-      await expect(repository.append({ streamId: "counter", expectedVersion: "any", context, events })).rejects.toThrow(
-        'expectedVersion="any"',
-      );
-      expect(appendToStream).not.toHaveBeenCalled();
-    });
+    it.each([{ events: [] }, { events: [event] }])(
+      "rejects any-bypass including an empty append (%j)",
+      async ({ events }) => {
+        const { repository, appendToStream } = setupBound();
+        await expect(
+          repository.append({ streamId: "counter", expectedVersion: "any", context, events }),
+        ).rejects.toThrow('expectedVersion="any"');
+        expect(appendToStream).not.toHaveBeenCalled();
+      },
+    );
 
     it("rejects snapshots at construction without reading a snapshot", () => {
       const { config } = setupBound();
