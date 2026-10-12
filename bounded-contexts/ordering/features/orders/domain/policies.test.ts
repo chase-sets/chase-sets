@@ -1,10 +1,40 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateOrderFulfillmentEconomics,
+  defaultShippingQuotePolicy,
   quoteMarketplaceSalesFeeFromSnapshot,
   resolveOrderPaymentDeadline,
   resolveTerminalPaymentFailureDeadline,
 } from "./policies";
+
+describe("shipping quote subtotal validation", () => {
+  it.each(["abc", "10000000000.00"])(
+    "keeps subtotal validation after removing the unused binding: %s",
+    (itemSubtotalAmount) => {
+      expect(() =>
+        defaultShippingQuotePolicy.quote({
+          sellerAccountId: "acc_seller",
+          shippingOption: "standard",
+          itemSubtotalAmount,
+          quantity: 1,
+          listingCount: 1,
+        }),
+      ).toThrow();
+    },
+  );
+
+  it("keeps zero-subtotal shipping arithmetic unchanged", () => {
+    expect(
+      defaultShippingQuotePolicy.quote({
+        sellerAccountId: "acc_seller",
+        shippingOption: "standard",
+        itemSubtotalAmount: "0.00",
+        quantity: 1,
+        listingCount: 1,
+      }),
+    ).toEqual({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" });
+  });
+});
 
 describe("ordering Order Protection economics (#4098)", () => {
   it.each([
