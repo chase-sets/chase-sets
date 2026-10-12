@@ -11,7 +11,7 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
-import { mintEvidenceActorThroughIdentity } from "./evidence-access-identity.test-support";
+import { mintEvidenceActorThroughIdentity } from "./__tests__/evidence-access-identity";
 
 function buildApp(
   services: SupportRequestServices,
