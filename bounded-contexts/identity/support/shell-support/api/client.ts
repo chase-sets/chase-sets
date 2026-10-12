@@ -3,7 +3,7 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildIdentityApi } from "../../../api";
 import type { PreferenceWriteResponse, UserPreferences } from "../../../features/preferences/api/contracts";
-import { canonicalPreferenceChanges } from "../../../features/preferences/domain/domain";
+import { canonicalPreferenceChanges } from "../../../features/preferences/api/presentation";
 import type {
   CloseAccountRequest,
   ReactivateAccountRequest,

@@ -18,7 +18,7 @@ import {
 } from "../api/client";
 import type { UserPreferences } from "../../../features/preferences/api/contracts";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
-import { canonicalPreferences } from "../../../features/preferences/domain/domain";
+import { canonicalPreferences } from "../../../features/preferences/api/presentation";
 
 export type PreferenceWritePhase =
   | "editing"

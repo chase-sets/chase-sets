@@ -4,7 +4,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
-import { defaultUserPresentationPreferences } from "../../../features/preferences/domain/domain";
+import { defaultUserPresentationPreferences } from "../../../features/preferences/api/presentation";
 import { createIdentityApiClient, type IdentityApiClient } from "../api/client";
 import { useUserPreferencesAccountMenu } from "./user-preferences-account-menu";
 
