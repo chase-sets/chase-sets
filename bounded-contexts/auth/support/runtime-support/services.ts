@@ -28,8 +28,8 @@ import {
   getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
   listActiveAuthAccountIds,
-  listGrantedAuthAccountCapabilities,
   listActiveAuthMembershipsForUser,
+  listGrantedAuthAccountCapabilities,
   normalizeAuthEmail,
 } from "../auth-support/identity-projection";
 import {
