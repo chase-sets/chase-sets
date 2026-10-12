@@ -7,6 +7,12 @@ import { platformRemedyCapabilities, type PlatformRemedyCapability } from "../do
 import { SupportEvidenceAttachmentError } from "./attachments";
 import { EvidenceAccessError } from "./evidence-access-audit";
 import { SupportDomainError } from "../domain/common";
+import {
+  readSupportAttachmentFormData,
+  SupportAttachmentIntakeError,
+  SUPPORT_ATTACHMENT_OPERATION_HEADER,
+  validateSupportAttachmentOperationId,
+} from "./attachment-intake";
 
 function evidenceAccessResponse(error: EvidenceAccessError) {
   const code =
@@ -797,7 +803,9 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
         supportRequestId: c.req.param("id"),
         actor: c.get("actor"),
         uploads: async () => {
-          const formData = await c.req.formData();
+          const operationId = c.req.header(SUPPORT_ATTACHMENT_OPERATION_HEADER);
+          if (operationId !== undefined) validateSupportAttachmentOperationId(operationId);
+          const formData = await readSupportAttachmentFormData(c.req.raw);
           const files = formData.getAll("attachments").filter(isUploadedFile);
           return Promise.all(
             files.map(async (file) => ({
@@ -811,6 +819,13 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       return c.json({ attachments }, 201);
     } catch (error) {
       if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
+      if (error instanceof SupportAttachmentIntakeError)
+        return c.json(
+          {
+            error: { code: error.code, message: t("support.features.support_requests.api.route.evidence.unavailable") },
+          },
+          error.status,
+        );
       const code = error instanceof SupportEvidenceAttachmentError ? error.code : "attachment_upload_failed";
       return c.json(
         { error: { code, message: t("support.features.support_requests.api.route.evidence.unavailable") } },

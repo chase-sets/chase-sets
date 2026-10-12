@@ -158,7 +158,11 @@ describe("platform operations request API clients", () => {
       }),
     ).resolves.toEqual({ id: "sup_1", version: 1, status: "opened" });
     await expect(
-      client.uploadSupportEvidenceAttachments("sup_1", [new File(["photo"], "card.jpg", { type: "image/jpeg" })]),
+      client.uploadSupportEvidenceAttachments(
+        "sup_1",
+        [new File(["photo"], "card.jpg", { type: "image/jpeg" })],
+        "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      ),
     ).resolves.toMatchObject({ attachments: [{ attachmentId: "sea_photo" }] });
     await expect(
       client.submitSupportEvidence("sup_1", {
@@ -273,6 +277,10 @@ describe("platform operations request API clients", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/sup_1/attachments",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+    const uploadCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/sup_1/attachments"))!;
+    expect(new Headers(uploadCall[1]?.headers).get("x-support-attachment-operation-id")).toBe(
+      "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/sup_1/responses",
