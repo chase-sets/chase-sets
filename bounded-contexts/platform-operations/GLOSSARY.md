@@ -24,6 +24,10 @@ A **Support Request** is the Platform Operations-owned case through which an acc
 
 An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. Malformed case identifiers return the same non-disclosing 404 without an event.
 
+## Support Attachment Operation
+
+A **Support Attachment Operation** identifies one opening-photo batch with `sao_` plus a canonical ULID, created by the form before dispatch and retained through recovery and retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account, and Support Request together; the id alone is never access authority. Intake accepts the additive header when valid but does not yet persist operations or guarantee same-id convergence.
+
 ## Platform Remedy Policy
 
 The **Platform Remedy Policy** is the versioned Platform Operations policy that determines which support reasons are eligible for platform funding, capability-based amount and percentage limits, split funding, return requirements, refund triggers, dual control, reservation expiry, and exception or escalation reasons.

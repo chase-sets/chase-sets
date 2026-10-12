@@ -1,9 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
+import { File as NodeFile } from "node:buffer";
+import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
+import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
+
+vi.mock("@chase-sets/platform-runtime/auth", () => ({
+  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer" })),
+}));
+const BrowserFile = File;
 
 function renderPage(
   supportOrder: Parameters<typeof SupportRequestListPage>[0]["supportOrder"] = null,
@@ -58,7 +66,159 @@ const buyerOrder = {
 describe("SupportRequestListPage", () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
+
+  for (const failure of ["ambiguous", "denied", "rejected", "conflict", "submit-conflict"] as const) {
+    it(`actual action-loader-form renders ${failure}, retains one batch and changes it only explicitly`, async () => {
+      vi.stubGlobal("File", NodeFile);
+      const user = userEvent.setup();
+      const uploadIds: string[] = [];
+      let opened = false;
+      let failing = true;
+      let releaseUpload: (() => void) | undefined;
+      const pause = new Promise<void>((resolve) => {
+        releaseUpload = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          const json = (body: unknown, status = 200) =>
+            new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+          if (url.endsWith("/flows")) return json({ items: supportFlowCatalog });
+          if (url.endsWith("/purchases") || url.endsWith("/sales")) return json({ items: [] });
+          if (url.endsWith("/orders/ord_1"))
+            return json({
+              ...buyerOrder,
+              existingOpenRequest: opened
+                ? { supportRequestId: "sup_1", flowType: "product-damaged", status: "awaiting-evidence" }
+                : null,
+            });
+          if (url.endsWith("/support-requests")) {
+            opened = true;
+            return json({ id: "sup_1" }, 201);
+          }
+          if (url.endsWith("/attachments")) {
+            uploadIds.push(new Headers(init?.headers).get("x-support-attachment-operation-id")!);
+            if (uploadIds.length === 1) await pause;
+            if (failing && failure === "ambiguous") throw new Error("Connection lost after upload");
+            if (failing && failure !== "submit-conflict")
+              return json(
+                { error: { message: failure } },
+                failure === "denied" ? 403 : failure === "rejected" ? 413 : 409,
+              );
+            return json({ attachments: [{ reference: "att_original" }] });
+          }
+          if (url.endsWith("/evidence"))
+            return failing ? json({ error: { message: "Submit conflict" } }, 409) : json({ id: "sup_1" });
+          throw new Error(`Unexpected fixture URL ${url}`);
+        }),
+      );
+      const snapshot: { form: FormData | null } = { form: null };
+      const capture = (event: Event) => {
+        const form = event.target as HTMLFormElement;
+        snapshot.form = new FormData(form);
+        // userEvent's FileList is visible on the input, but not in jsdom's internal form encoder.
+        const input = form.querySelector<HTMLInputElement>('input[type="file"]');
+        snapshot.form.delete("attachments");
+        for (const file of input?.files ?? []) snapshot.form.append(input!.name, file);
+      };
+      document.addEventListener("submit", capture, true);
+      const router = createMemoryRouter(
+        [
+          {
+            path: "/account/support",
+            element: <MarketplaceAccountSupportRoute />,
+            loader,
+            action: async (args) => {
+              // Adapt jsdom's browser form to native HTTP ingress, retaining every actual form field.
+              const native = await nativeFormData();
+              for (const [key, value] of snapshot.form!.entries()) {
+                if (typeof value === "string") native.append(key, value);
+                else {
+                  const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as ArrayBuffer);
+                    reader.onerror = reject;
+                    reader.readAsArrayBuffer(value);
+                  });
+                  native.append(key, new NodeFile([bytes], value.name, { type: value.type }) as File);
+                }
+              }
+              return action({ ...args, request: await multipartRequest(args.request.url, native) });
+            },
+          },
+        ],
+        { initialEntries: ["/account/support?orderId=ord_1"] },
+      );
+      try {
+        render(<RouterProvider router={router} />);
+        await screen.findByRole("heading", { name: "Support" });
+        await user.click(screen.getByRole("checkbox", { name: /Charizard/ }));
+        await user.click(screen.getByRole("button", { name: "Continue" }));
+        await user.click(screen.getByRole("radio", { name: /Product arrived damaged/ }));
+        await user.click(screen.getByRole("button", { name: "Continue" }));
+        const field = () => document.querySelector<HTMLInputElement>('input[name="attachmentOperationId"]')!;
+        const originalId = field().value;
+        expect(originalId).toMatch(/^sao_[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+        const photo = new BrowserFile(["original"], "photo.jpg", { type: "image/jpeg" });
+        await user.upload(screen.getByLabelText("Add evidence photos"), photo);
+        expect((screen.getByLabelText("Add evidence photos") as HTMLInputElement).files?.length).toBe(1);
+        expect(screen.getByLabelText("Add evidence photos").hasAttribute("required")).toBe(true);
+        // jsdom does not recognize userEvent's FileList for native required-file validation.
+        fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
+        expect(snapshot.form?.get("attachments")).toMatchObject({ name: "photo.jpg" });
+        expect(router.state.errors).toBeNull();
+        await waitFor(() => expect(uploadIds).toEqual([originalId]));
+        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true"));
+        expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+        await act(async () => {
+          releaseUpload!();
+        });
+        await screen.findByText(
+          "Retry the same photos (re-select the same files if needed), or start a new photo batch.",
+        );
+        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
+        expect(field().value).toBe(originalId);
+        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
+        expect(screen.queryByText("You already have an open case for this order")).toBeNull();
+        // Re-selection and retry preserve the id. Ambiguity never dispatches again.
+        if (failure !== "submit-conflict") await user.upload(screen.getByLabelText("Add evidence photos"), photo);
+        fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
+        await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
+        expect(field().value).toBe(originalId);
+        expect(uploadIds).toEqual(
+          failure === "ambiguous" || failure === "submit-conflict" ? [originalId] : [originalId, originalId],
+        );
+        if (failure === "submit-conflict") {
+          expect(document.querySelector<HTMLInputElement>('input[name="uploadedAttachmentReferences"]')?.value).toBe(
+            "att_original",
+          );
+          expect(screen.queryByLabelText("Add evidence photos")).toBeNull();
+        }
+        await user.click(screen.getByRole("button", { name: "Start a new photo batch" }));
+        const freshId = field().value;
+        expect(freshId).not.toBe(originalId);
+        expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
+        expect(document.querySelector('input[name="uploadedAttachmentReferences"]')).toBeNull();
+        expect(document.querySelector<HTMLInputElement>('input[name="uploadUncertain"]')?.value).toBe("false");
+        failing = false;
+        await user.upload(
+          screen.getByLabelText("Add evidence photos"),
+          new BrowserFile(["changed"], "changed.jpg", { type: "image/jpeg" }),
+        );
+        fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
+        await waitFor(() => expect(router.state.location.search).toBe("?opened=sup_1"));
+        expect(uploadIds.at(-1)).toBe(freshId);
+        expect(await screen.findByText(/Support request .* is open/)).toBeTruthy();
+      } finally {
+        document.removeEventListener("submit", capture, true);
+        router.dispose();
+      }
+    });
+  }
 
   it("removes raw order and role lookup from marketplace support", () => {
     renderPage();

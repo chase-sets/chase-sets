@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { SupportApiEnv } from "./http";
@@ -10,8 +11,16 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { File as NodeFile } from "node:buffer";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
 import { guestCheckoutActorThroughAuth, mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
+import {
+  multipartRequest,
+  nativeFormData,
+  openingPhotoForm,
+  streamedIntakeRequest,
+} from "../tests/attachment-intake.test-support";
+import { SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES, SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS } from "./attachment-intake";
 
 function buildApp(
   services: SupportRequestServices,
@@ -42,6 +51,146 @@ function buildApp(
 }
 
 describe("support attachment capability x role x participation", () => {
+  it("accepts five real file parts and ordinary hidden/text fields with a valid operation header", async () => {
+    const fixture = await attachmentRouteFixture();
+    const form = await openingPhotoForm(0);
+    // A text field that looks like file metadata is still not a file part.
+    form.append('note; filename="not-a-file"', "ordinary text");
+    const photo = readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg");
+    for (let index = 0; index < 5; index++)
+      form.append("attachments", new NodeFile([photo], `${index}.jpg`, { type: "image/jpeg" }) as File);
+    const request = await multipartRequest("http://localhost/support-requests/sup_case/attachments", form, {
+      "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request(request);
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect((await response.json()).attachments).toHaveLength(5);
+    expect(fixture.storage.putObject).toHaveBeenCalledTimes(5);
+  });
+  for (const scenario of ["declared-over", "stream-over", "cap", "stalled"] as const) {
+    it(`bounds API intake ${scenario} with zero storage calls`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const cap = SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES;
+      const request = streamedIntakeRequest(
+        "http://localhost/support-requests/sup_case/attachments",
+        scenario === "stream-over" ? cap + 1 : cap,
+        scenario === "declared-over" ? cap + 1 : cap,
+        scenario === "stalled",
+      );
+      const parse = vi.spyOn(Response.prototype, "formData");
+      if (scenario === "stalled") vi.useFakeTimers();
+      try {
+        const pending = attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+        ).request(request);
+        if (scenario === "stalled") await vi.advanceTimersByTimeAsync(SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS);
+        const response = await pending;
+        expect(response.status).toBe(scenario === "stalled" ? 408 : scenario === "cap" ? 400 : 413);
+        expect(parse).toHaveBeenCalledTimes(scenario === "cap" ? 1 : 0);
+        expect(fixture.storage.putObject).not.toHaveBeenCalled();
+        expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it("rejects file six at its streamed part headers, without reading its body", async () => {
+    const fixture = await attachmentRouteFixture();
+    const encoded = await multipartRequest(
+      "http://localhost/support-requests/sup_case/attachments",
+      await openingPhotoForm(6),
+    );
+    const bytes = new Uint8Array(await encoded.arrayBuffer());
+    const text = new TextDecoder().decode(bytes);
+    const end = text.indexOf("\r\n\r\n", text.indexOf('filename="5.jpg"')) + 4;
+    let cancelled = false;
+    const request = new Request(encoded.url, {
+      method: "POST",
+      headers: encoded.headers,
+      duplex: "half",
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(bytes.slice(0, end));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    } as RequestInit);
+    const parse = vi.spyOn(Response.prototype, "formData");
+    const decode = vi.spyOn(File.prototype, "arrayBuffer");
+    try {
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+      ).request(request);
+      expect(response.status).toBe(413);
+      expect(cancelled).toBe(true);
+      expect(parse).not.toHaveBeenCalled();
+      expect(decode).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+      decode.mockRestore();
+    }
+  });
+
+  for (const header of [
+    undefined,
+    "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "sao_bad",
+    "sao_81ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "",
+  ] as const) {
+    it(`validates optional operation header ${String(header)} after authorization, before parsing`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const request = await multipartRequest(
+        "http://localhost/support-requests/sup_case/attachments",
+        await openingPhotoForm(0),
+        header === undefined ? {} : { "x-support-attachment-operation-id": header },
+      );
+      const parse = vi.spyOn(Response.prototype, "formData");
+      try {
+        const response = await attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+        ).request(request);
+        expect(response.status).toBe(400);
+        expect(parse).toHaveBeenCalledTimes(
+          header === undefined || header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" ? 1 : 0,
+        );
+        expect((await response.json()).error.code).toBe(
+          header === undefined || header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            ? "invalid-content"
+            : "invalid-operation-id",
+        );
+        expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+      }
+    });
+  }
+  it("rejects missing Content-Length before parsing or storage; kills after-parser bound mutant", async () => {
+    const fixture = await attachmentRouteFixture();
+    const request = new Request("http://localhost/support-requests/sup_case/attachments", {
+      method: "POST",
+      body: new URLSearchParams({ attachments: "photo" }),
+    });
+    const parse = vi.spyOn(request, "formData");
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request(request);
+    expect(response.status).toBe(411);
+    expect(parse).not.toHaveBeenCalled();
+    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+  });
   for (const role of ["owner", "manager", "fulfillment", "viewer", "platform-admin"]) {
     for (const permitted of [false, true]) {
       for (const granted of [false, true]) {
@@ -75,17 +224,18 @@ describe("support attachment capability x role x participation", () => {
                     : {}),
                 },
               );
-              const form = new FormData();
+              const form = await nativeFormData();
               form.append(
                 "attachments",
-                new File(
+                new NodeFile(
                   [readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg")],
                   "photo.jpg",
                   { type: "image/jpeg" },
-                ),
+                ) as File,
               );
-              const parse = vi.spyOn(request, "formData").mockResolvedValue(form);
-              const response = await app.request(request);
+              const intakeRequest = action === "upload" ? await multipartRequest(request.url, form) : request;
+              const parse = vi.spyOn(intakeRequest, "formData");
+              const response = await app.request(intakeRequest);
               const status = !permitted
                 ? 403
                 : participation === "missing"
