@@ -96,7 +96,10 @@ describe("OAuth consent marketplace route", () => {
           new Request(request(), {
             method: "POST",
             body: fields,
-            headers: { Origin: origin, "Sec-Fetch-Site": governing === "cross-site" ? "cross-site" : "same-origin" },
+            headers: {
+              ...(governing === "missing-origin" ? {} : { Origin: origin }),
+              "Sec-Fetch-Site": governing === "cross-site" ? "cross-site" : "same-origin",
+            },
           }),
         ),
       );

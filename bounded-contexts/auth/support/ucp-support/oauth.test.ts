@@ -127,6 +127,21 @@ describe("UCP OAuth routes", () => {
     const responses = await Promise.all([fixture.decide(token), fixture.decide(token)]);
     expect(responses.map((response) => response.status).sort()).toEqual([302, 400]);
     expect(fixture.db.codes.size).toBe(1);
+    expect(responses.find((response) => response.status === 400)!.headers.has("location")).toBe(false);
+  });
+
+  it("consent refuses expiry between validation and atomic consumption", async () => {
+    const fixture = await consentFixture();
+    const token = await fixture.start();
+    const row = [...fixture.db.consents.values()][0]!;
+    fixture.db.beforeConsume(() => {
+      row.expires_at = new Date(Date.now() - 1_000).toISOString();
+    });
+    const response = await fixture.decide(token);
+    expect(response.status).toBe(400);
+    expect(response.headers.has("location")).toBe(false);
+    expect(fixture.db.codes.size).toBe(0);
+    expect(row.consumed_at).toBeNull();
   });
 
   it("consent deny preserves state, consumes the request, and prevents later approve", async () => {
@@ -1083,10 +1098,14 @@ function createAuthorizationCodeDb() {
   const codes = new Map<string, Record<string, unknown>>();
   const clients = new Map<string, Record<string, unknown>>();
   const consents = new Map<string, Record<string, unknown>>();
+  let consumeHook: (() => void) | undefined;
   return {
     codes,
     clients,
     consents,
+    beforeConsume: (hook: () => void) => {
+      consumeHook = hook;
+    },
     async query<Row = Record<string, unknown>>(text: string, values: readonly unknown[] = []) {
       if (text.includes("FROM auth_identity_user_memberships")) {
         return { rows: [{ accountId: actor.accountId, accountName: "Synthetic Account" }] as Row[], rowCount: 1 };
@@ -1110,6 +1129,7 @@ function createAuthorizationCodeDb() {
         return { rows: [], rowCount: 1 };
       }
       if (text.includes("identity_ucp_oauth_consent_requests")) {
+        if (text.includes("UPDATE")) consumeHook?.();
         const row = text.includes("token_hash = $1") ? consents.get(String(values[0])) : [...consents.values()][0];
         const matches =
           row &&
@@ -1350,12 +1370,20 @@ async function consentFixture(redirectUri = "https://agent.example/callback") {
       decision = "approve",
       headers: Record<string, string> = {},
       extra: Record<string, string> = {},
-    ) =>
-      app.request("/ucp/oauth/authorize", {
+    ) => {
+      const body = new URLSearchParams({ consent_token: token, decision, ...extra });
+      if (!token) body.delete("consent_token");
+      const requestHeaders = new Headers({ Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" });
+      for (const [name, value] of Object.entries(headers)) {
+        if (value === "") requestHeaders.delete(name);
+        else requestHeaders.set(name, value);
+      }
+      return app.request("/ucp/oauth/authorize", {
         method: "POST",
-        body: new URLSearchParams({ consent_token: token, decision, ...extra }),
-        headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin", ...headers },
-      }),
+        body,
+        headers: requestHeaders,
+      });
+    },
   };
 }
 
