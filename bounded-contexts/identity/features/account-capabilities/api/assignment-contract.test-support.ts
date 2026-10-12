@@ -107,6 +107,35 @@ export function defineAssignmentContract(getStore: () => Promise<EventStore>) {
       expect(await receipts(store)).toHaveLength(1);
       expect(await assignments(store)).toHaveLength(0);
     });
+    it("poisoned receipt history refuses initialization and assignment without echoing planted fields", async () => {
+      const store = await getStore();
+      await store.appendToStream({
+        streamId: AUTHORITY_RECEIPT_STREAM,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "identity.capability-administration-authority.recorded",
+            payload: {
+              authorityId: "support-admin",
+              revision: 1,
+              configDigest: `sha256:${"a".repeat(64)}`,
+              implementationSha: scope.implementationSha,
+              unexpected: "PLANTED_SECRET",
+            },
+          },
+        ],
+      });
+      const services = runtime(store);
+      await expect(services.initializeAdministrationAuthority()).rejects.toMatchObject({
+        code: "authority_history_invalid",
+      });
+      await expect(services.attemptAccountCapabilityAssignment("grant", actor, input, context)).rejects.toMatchObject({
+        code: "authority_unavailable",
+      });
+      expect(await assignments(store)).toHaveLength(0);
+      expect(JSON.stringify(await audits(store))).not.toContain("PLANTED_SECRET");
+    });
     it("higher empty-list retirement fences old and lower-revision processes but keeps existing grants", async () => {
       const store = await getStore();
       const old = runtime(store);
