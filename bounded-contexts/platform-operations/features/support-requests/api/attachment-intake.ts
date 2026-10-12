@@ -26,12 +26,20 @@ export function validateSupportAttachmentOperationId(value: string): string {
   }
 }
 
+const MULTIPART_BOUNDARY = /^[0-9A-Za-z'()+_,\-./:=? ]{0,69}[0-9A-Za-z'()+_,\-./:=?]$/;
+
+// Inspection and native decoding receive the same validated ASCII boundary.
+function boundedContentType(contentType: string) {
+  if (contentType.split(";")[0]!.trim().toLowerCase() !== "multipart/form-data") return { contentType, boundary: null };
+  const boundary = /;\s*boundary=(?:"([^"]*)"|([^;\s]*))\s*$/i.exec(contentType);
+  const value = boundary?.[1] ?? boundary?.[2] ?? "";
+  if (!MULTIPART_BOUNDARY.test(value)) throw new SupportAttachmentIntakeError("invalid-multipart", 400);
+  return { contentType: `multipart/form-data; boundary="${value}"`, boundary: value };
+}
+
 // This inspects only multipart framing. The native parser still owns FormData decoding.
-function filePartGuard(contentType: string) {
-  if (!/^multipart\/form-data(?:;|$)/i.test(contentType)) return () => {};
-  const boundary = /;\s*boundary=(?:"([^"\r\n]+)"|([^;\s]+))/i.exec(contentType);
-  const value = boundary?.[1] ?? boundary?.[2];
-  if (!value || value.length > 70) throw new SupportAttachmentIntakeError("invalid-multipart", 400);
+function filePartGuard(value: string | null) {
+  if (value === null) return () => {};
   const delimiter = `\r\n--${value}`;
   let pending = "\r\n";
   let phase: "boundary" | "headers" | "body" | "done" = "boundary";
@@ -50,7 +58,7 @@ function filePartGuard(contentType: string) {
         const headers = pending.slice(0, end);
         const dispositions = [...headers.matchAll(/^content-disposition\s*:([^\r\n]*)/gim)];
         const isFile = dispositions.some((disposition) =>
-          [...disposition[1]!.matchAll(/;\s*([^=;\s]+)\s*=\s*(?:"(?:[^"\\]|\\.)*"|[^;]*)/g)].some((parameter) =>
+          [...disposition[1]!.matchAll(/;\s*([^=;\s]+)\s*=\s*(?:"[^"]*"|[^;]*)/g)].some((parameter) =>
             /^filename\*?$/i.test(parameter[1]!),
           ),
         );
@@ -90,7 +98,8 @@ export async function readSupportAttachmentFormData(request: Request): Promise<F
   if (!/^\d+$/.test(length)) throw new SupportAttachmentIntakeError("invalid-content-length", 400);
   if (Number(length) > SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES)
     throw new SupportAttachmentIntakeError("intake-too-large", 413);
-  const inspect = filePartGuard(request.headers.get("content-type") ?? "");
+  const bounded = boundedContentType(request.headers.get("content-type") ?? "");
+  const inspect = filePartGuard(bounded.boundary);
   const reader = request.body?.getReader();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -115,14 +124,16 @@ export async function readSupportAttachmentFormData(request: Request): Promise<F
       }
     }
     if (size !== body.byteLength) throw new SupportAttachmentIntakeError("invalid-content-length", 400);
-    const bounded = new Response(body, { headers: { "content-type": request.headers.get("content-type") ?? "" } });
-    return await Promise.race([bounded.formData(), deadline]);
+    const parsed = new Response(body, { headers: { "content-type": bounded.contentType } });
+    const formData = parsed.formData().catch(() => {
+      throw new SupportAttachmentIntakeError("invalid-multipart", 400);
+    });
+    return await Promise.race([formData, deadline]);
   } catch (error) {
     // Cancellation is best effort: an unresponsive producer must not hold the rejection open.
     void reader?.cancel().catch(() => {});
     throw error;
   } finally {
     clearTimeout(timer);
-    reader?.releaseLock();
   }
 }

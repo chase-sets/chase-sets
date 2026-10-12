@@ -179,6 +179,7 @@ describe("SupportRequestListPage", () => {
         await screen.findByText(
           "Retry the same photos (re-select the same files if needed), or start a new photo batch.",
         );
+        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
         expect(field().value).toBe(originalId);
         expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
         expect(screen.queryByText("You already have an open case for this order")).toBeNull();
@@ -186,6 +187,7 @@ describe("SupportRequestListPage", () => {
         if (failure !== "submit-conflict") await user.upload(screen.getByLabelText("Add evidence photos"), photo);
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
         await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
         expect(field().value).toBe(originalId);
         expect(uploadIds).toEqual(
           failure === "ambiguous" || failure === "submit-conflict" ? [originalId] : [originalId, originalId],
@@ -210,7 +212,7 @@ describe("SupportRequestListPage", () => {
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
         await waitFor(() => expect(router.state.location.search).toBe("?opened=sup_1"));
         expect(uploadIds.at(-1)).toBe(freshId);
-        expect(screen.getByText(/Support request .* is open/)).toBeTruthy();
+        expect(await screen.findByText(/Support request .* is open/)).toBeTruthy();
       } finally {
         document.removeEventListener("submit", capture, true);
         router.dispose();

@@ -31,6 +31,91 @@ describe("Support attachment intake", () => {
     expect(form.get("attachmentOperationId")).toBe("sao_01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
 
+  for (const { label, contentType, boundary, name, code, status } of [
+    {
+      label: "P1 space before the parameter separator",
+      contentType: "multipart/form-data ; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "too-many-files",
+      status: 413,
+    },
+    {
+      label: "P2 quoted decoy boundary parameter",
+      contentType: 'multipart/form-data; x="; boundary=DECOY"; boundary=SYNB',
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "too-many-files",
+      status: 413,
+    },
+    {
+      label: "P3 backslash before the closing name quote",
+      contentType: "multipart/form-data; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"a\\"',
+      code: "too-many-files",
+      status: 413,
+    },
+    {
+      label: "P4 non-ASCII boundary",
+      contentType: "multipart/form-data; boundary=SYN\u00e9B",
+      boundary: "SYN\u00e9B",
+      name: '"attachments"',
+      code: "invalid-multipart",
+      status: 400,
+    },
+    {
+      label: "P5 tab before the parameter separator",
+      contentType: "multipart/form-data\t; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "too-many-files",
+      status: 413,
+    },
+  ]) {
+    it(`rejects synthetic parser differential ${label} before native materialization`, async () => {
+      const bytes = new TextEncoder().encode(
+        Array.from(
+          { length: 6 },
+          (_, index) =>
+            `--${boundary}\r\nContent-Disposition: form-data; name=${name}; filename="synthetic-${index}.jpg"\r\nContent-Type: image/jpeg\r\n\r\nSYNTHETIC${index}\r\n`,
+        ).join("") + `--${boundary}--\r\n`,
+      );
+      const request = new Request("http://synthetic.invalid/", {
+        method: "POST",
+        headers: { "content-type": contentType, "content-length": String(bytes.byteLength) },
+        body: bytes,
+      });
+      const parse = vi.spyOn(Response.prototype, "formData");
+      try {
+        await expect(readSupportAttachmentFormData(request)).rejects.toMatchObject({ code, status });
+        expect(parse).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+      }
+    });
+  }
+
+  it("maps post-bound native parse failure to invalid-multipart", async () => {
+    const bytes = new TextEncoder().encode("--SYNB\r\nmalformed synthetic part");
+    const request = new Request("http://synthetic.invalid/", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=SYNB", "content-length": String(bytes.byteLength) },
+      body: bytes,
+    });
+    const parse = vi.spyOn(Response.prototype, "formData");
+    try {
+      await expect(readSupportAttachmentFormData(request)).rejects.toMatchObject({
+        code: "invalid-multipart",
+        status: 400,
+      });
+      expect(parse).toHaveBeenCalledOnce();
+      expect(request.bodyUsed).toBe(true);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
   for (const count of [5, 6]) {
     it(`inspects ${count} file parts across single-byte boundary/header chunks`, async () => {
       const encoded = await multipartRequest("http://localhost", await openingPhotoForm(count));
