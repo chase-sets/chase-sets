@@ -16,6 +16,14 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
 
+## Any-case Evidence Access
+
+**Any-case Evidence Access** requires the current Identity `support.evidence.any-case` assignment on the Auth-resolved actor and the independent Support base permission. A role or capability declaration grants no access. Without that assignment, attachment access is limited to buyer or seller participation in the authoritative Support Request stream. Audit reads and operations submissions with attachments require the assignment; participant submissions with attachments remain participant-only.
+
+## Evidence Access Attempt
+
+An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. Malformed case identifiers return the same non-disclosing 404 without an event.
+
 ## Platform Remedy Policy
 
 The **Platform Remedy Policy** is the versioned Platform Operations policy that determines which support reasons are eligible for platform funding, capability-based amount and percentage limits, split funding, return requirements, refund triggers, dual control, reservation expiry, and exception or escalation reasons.
