@@ -59,6 +59,20 @@ function setup(db: PgQueryable = emptyDb()) {
 }
 
 describe("Saved List discovery application", () => {
+  it("anonymous-owner-mixed-version-compatibility alternate-raw-interface mutant", async () => {
+    const memory = createIntentDb();
+    const { discovery } = setup(memory.db);
+    const intent = await discovery.createAnonymousIntent({
+      anonymousOwnerId: "anon_device",
+      sourcePath: "/search",
+      sourceSurface: "search",
+      product: product(),
+    });
+    expect(intent).not.toHaveProperty("anonymousOwnerId");
+    expect(intent).toHaveProperty("anonymousOwnerFingerprint", expect.stringMatching(/^sha256:v1:[a-f0-9]{64}$/));
+    expect(JSON.stringify(intent)).not.toContain("anon_device");
+    expect(memory.intents.get(intent.intentId)?.anonymous_owner_id).toBe("anon_device");
+  });
   it("creates a private List, returns command snapshots, and merges duplicate Product identity", async () => {
     const { discovery } = setup();
     const firstTokens = createSavedListAdditionTokens();
@@ -196,6 +210,8 @@ function createIntentDb() {
     intents.set(input.intentId, {
       intent_id: input.intentId,
       anonymous_owner_id: "anon_device",
+      anonymous_owner_fingerprint: null,
+      owner_revision: 0,
       source_path: "/search",
       source_surface: "search",
       catalog_catalog_item_id: "cat_card",
@@ -220,10 +236,25 @@ function createIntentDb() {
   };
   const query = vi.fn(async (sqlValue: string, values: readonly unknown[] = []) => {
     const sql = sqlValue.replace(/\s+/g, " ").trim();
+    if (sql.startsWith("SELECT intent_id, owner_revision")) {
+      return {
+        rows: [...intents.values()].filter(
+          (intent) => intent.anonymous_owner_id === values[0] && intent.anonymous_owner_fingerprint === null,
+        ),
+      };
+    }
+    if (sql.startsWith("UPDATE collections_anonymous_saved_list_intents SET anonymous_owner_fingerprint")) {
+      const intent = intents.get(String(values[0]));
+      if (intent && intent.owner_revision === values[1] && intent.anonymous_owner_fingerprint === null) {
+        intent.anonymous_owner_fingerprint = values[2];
+        intent.owner_revision = Number(intent.owner_revision) + 1;
+      }
+      return { rows: [] };
+    }
     if (sql.startsWith("UPDATE collections_anonymous_saved_list_intents SET status = 'expired'")) {
       for (const intent of intents.values()) {
         if (
-          intent.anonymous_owner_id === values[0] &&
+          intent.anonymous_owner_fingerprint === values[0] &&
           intent.status === "active" &&
           new Date(intent.expires_at).getTime() <= new Date(now).getTime()
         )
@@ -231,14 +262,17 @@ function createIntentDb() {
       }
       return { rows: [] };
     }
-    if (sql.startsWith("SELECT * FROM collections_anonymous_saved_list_intents WHERE intent_id")) {
+    if (sql.startsWith("SELECT intent_id, anonymous_owner_fingerprint") && sql.includes("WHERE intent_id")) {
       const intent = intents.get(String(values[0]));
-      return { rows: intent && intent.anonymous_owner_id === values[1] ? [intent] : [] };
+      return { rows: intent && intent.anonymous_owner_fingerprint === values[1] ? [intent] : [] };
     }
-    if (sql.startsWith("SELECT * FROM collections_anonymous_saved_list_intents WHERE anonymous_owner_id")) {
+    if (
+      sql.startsWith("SELECT intent_id, anonymous_owner_fingerprint") &&
+      sql.includes("WHERE anonymous_owner_fingerprint")
+    ) {
       const match = [...intents.values()].find(
         (intent) =>
-          intent.anonymous_owner_id === values[0] &&
+          intent.anonymous_owner_fingerprint === values[0] &&
           intent.status === "active" &&
           intent.product_id === values[2] &&
           JSON.stringify(intent.selected_options) === values[3],
@@ -247,14 +281,16 @@ function createIntentDb() {
     }
     if (sql.startsWith("SELECT count(*)::text AS count")) {
       const count = [...intents.values()].filter(
-        (intent) => intent.anonymous_owner_id === values[0] && intent.status === "active",
+        (intent) => intent.anonymous_owner_fingerprint === values[0] && intent.status === "active",
       ).length;
       return { rows: [{ count: String(count) }] };
     }
     if (sql.startsWith("INSERT INTO collections_anonymous_saved_list_intents")) {
       const record: IntentRecord = {
         intent_id: String(values[0]),
-        anonymous_owner_id: String(values[1]),
+        anonymous_owner_id: String(values[11]),
+        anonymous_owner_fingerprint: String(values[1]),
+        owner_revision: 0,
         source_path: values[2],
         source_surface: values[3],
         catalog_catalog_item_id: values[4],
@@ -281,7 +317,7 @@ function createIntentDb() {
     }
     if (sql.includes("SET status = 'claiming'")) {
       const intent = intents.get(String(values[0]));
-      if (!intent || intent.status !== "active") return { rows: [] };
+      if (!intent || intent.status !== "active" || intent.owner_revision !== values[7]) return { rows: [] };
       Object.assign(intent, {
         status: "claiming",
         claimed_account_id: values[2],
@@ -289,20 +325,25 @@ function createIntentDb() {
         claimed_create_command_id: values[4],
         claimed_list_title: values[5],
         claimed_tracked_quantity: values[6],
+        owner_revision: Number(intent.owner_revision) + 1,
       });
       return { rows: [intent] };
     }
     if (sql.includes("SET claimed_expected_version")) {
       const intent = intents.get(String(values[0]));
-      if (intent) intent.claimed_expected_version = values[4];
-      return { rows: [] };
+      if (!intent || intent.owner_revision !== values[5]) return { rows: [] };
+      intent.claimed_expected_version = values[4];
+      intent.owner_revision = Number(intent.owner_revision) + 1;
+      return { rows: [{ owner_revision: intent.owner_revision }] };
     }
     if (sql.includes("SET status = 'claimed'")) {
       const intent = intents.get(String(values[0]));
-      if (intent) {
+      if (intent && intent.owner_revision === values[5]) {
         intent.status = "claimed";
         intent.claimed_response = JSON.parse(String(values[4]));
         intent.claimed_at = intent.claimed_at ?? now;
+        intent.owner_revision = Number(intent.owner_revision) + 1;
+        return { rows: [{ owner_revision: intent.owner_revision }] };
       }
       return { rows: [] };
     }
