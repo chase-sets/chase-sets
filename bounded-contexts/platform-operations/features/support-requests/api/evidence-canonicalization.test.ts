@@ -220,6 +220,18 @@ function patchedMpfIndex(patch: (header: DataView) => void, name = "multi-image-
   return body;
 }
 
+// Rewrites the big-endian single-image MP header (66 bytes) with its MPEntry record at 8, ahead of its index IFD moved
+// to `ifd`; at 26 only half of that IFD's next-IFD word still fits in the segment.
+function relocateMpfIndex(header: DataView, ifd: number): void {
+  const bytes = new Uint8Array(header.buffer, header.byteOffset, 66);
+  const [table, record] = [bytes.slice(8, 50), bytes.slice(50, 66)];
+  bytes.fill(0, 8);
+  bytes.set(record, 8);
+  bytes.set(table.subarray(0, 66 - ifd), ifd);
+  header.setUint32(4, ifd);
+  header.setUint32(ifd + 34, 8);
+}
+
 function withMpfSegmentLength(length: number): Uint8Array {
   const body = fixture("multi-image-mpf.jpg");
   new DataView(body.buffer, body.byteOffset).setUint16(mpfHeaderOffset(body) - 6, length);
@@ -555,6 +567,36 @@ const REJECTIONS: readonly RejectionCase[] = [
     mutant: "read any byte order other than II as big-endian",
     reach: "no decoder",
   },
+  // Faults in the otherwise valid big-endian single-image index; a LONG MPEntry's 16 values would need 64 bytes.
+  ...(
+    [
+      ["an MPEntry typed LONG", (header) => header.setUint16(36, 4)],
+      ["an MPEntry of TIFF type zero", (header) => header.setUint16(36, 0)],
+      ["MPEntry records over the TIFF header", (header) => header.setUint32(42, 0)],
+      [
+        // Ending before an IFD at 24, these records overlap only the TIFF header.
+        "MPEntry over the TIFF header only",
+        (header) => {
+          relocateMpfIndex(header, 24);
+          header.setUint32(58, 2);
+        },
+      ],
+      ["MPEntry records over the next-IFD word", (header) => header.setUint32(42, 48)],
+      ["an MPF next-IFD word past its segment", (header) => relocateMpfIndex(header, 26)],
+    ] as const satisfies readonly (readonly [string, (header: DataView) => void])[]
+  ).map(
+    ([fault, patch]): RejectionCase => ({
+      name: fault,
+      input: () => ({
+        body: patchedMpfIndex(patch, "single-image-mpf-big-endian.jpg"),
+        declaredContentType: "image/jpeg",
+      }),
+      code: "undecodable",
+      governs: "UNDEFINED MPEntry bytes clear of the TIFF header and index IFD",
+      mutant: "read MPEntry bytes of any type from any in-segment offset",
+      reach: "no decoder",
+    }),
+  ),
   ...(
     [
       ["a TIFF magic other than 42", (header) => header.setUint16(2, 43, true)],
@@ -742,6 +784,21 @@ describe("AC-B2 rejections carry a bounded code and no bytes", () => {
 
     const image = canonical(
       await canonicalizeSupportEvidenceImage({ body: indexed, declaredContentType: "image/jpeg" }),
+    );
+
+    const clean = canonical(
+      await canonicalizeSupportEvidenceImage({
+        body: fixture("photo-orientation-6-p3-xmp.jpg"),
+        declaredContentType: "image/jpeg",
+      }),
+    );
+    expect(Buffer.from(image.body).equals(Buffer.from(clean.body))).toBe(true);
+  });
+
+  it("accepts a single-image MPF index whose MPEntry record precedes its index IFD", async () => {
+    const reordered = patchedMpfIndex((header) => relocateMpfIndex(header, 24), "single-image-mpf-big-endian.jpg");
+    const image = canonical(
+      await canonicalizeSupportEvidenceImage({ body: reordered, declaredContentType: "image/jpeg" }),
     );
 
     const clean = canonical(

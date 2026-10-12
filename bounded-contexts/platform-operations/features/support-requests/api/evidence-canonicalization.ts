@@ -81,7 +81,9 @@ const JPEG_APP2 = 0xe2;
 const MPF_NUMBER_OF_IMAGES = 0xb001;
 const MPF_ENTRY = 0xb002;
 const MPF_ENTRY_BYTES = 16;
+const TIFF_HEADER_BYTES = 8;
 const TIFF_LONG = 4;
+const TIFF_UNDEFINED = 7;
 
 const SIGNATURES: Readonly<Record<SupportEvidenceAttachmentContentType, (body: Uint8Array) => boolean>> = {
   "image/jpeg": (body) => startsWith(body, [0xff, 0xd8, 0xff]),
@@ -305,17 +307,19 @@ function jpegIndexRejection(body: Uint8Array): ContainerRejection | undefined {
   }
 }
 
-// The MP header is a TIFF header whose offsets count from its byte-order mark. Its index IFD must state NumberOfImages
-// once, as one LONG, and hold exactly one 16-byte MPEntry record per image inside the segment.
+// The MP header is a TIFF header whose offsets count from its byte-order mark. Its index IFD, through its next-IFD word,
+// must fit the segment and state NumberOfImages once, as one LONG. Its MPEntry is UNDEFINED bytes holding exactly one
+// 16-byte record per image inside the segment, clear of the TIFF header and of the index IFD.
 function mpfIndexedImages(header: Uint8Array): number | undefined {
   const order = ascii(header, 0, 2);
-  if (header.byteLength < 8 || (order !== "II" && order !== "MM")) return undefined;
+  if (header.byteLength < TIFF_HEADER_BYTES || (order !== "II" && order !== "MM")) return undefined;
   const little = order === "II";
   const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
   const ifd = view.getUint32(4, little);
   if (view.getUint16(2, little) !== 42 || ifd + 2 > header.byteLength) return undefined;
   const entriesEnd = ifd + 2 + 12 * view.getUint16(ifd, little);
-  if (entriesEnd > header.byteLength) return undefined;
+  const ifdEnd = entriesEnd + 4;
+  if (ifdEnd > header.byteLength) return undefined;
 
   const tags = new Map<number, Readonly<{ type: number; count: number; value: number }>>();
   for (let entry = ifd + 2; entry < entriesEnd; entry += 12) {
@@ -330,8 +334,10 @@ function mpfIndexedImages(header: Uint8Array): number | undefined {
   const images = tags.get(MPF_NUMBER_OF_IMAGES);
   const records = tags.get(MPF_ENTRY);
   if (!images || images.type !== TIFF_LONG || images.count !== 1 || images.value < 1) return undefined;
-  if (!records || records.count !== MPF_ENTRY_BYTES * images.value) return undefined;
-  return records.value + records.count <= header.byteLength ? images.value : undefined;
+  if (!records || records.type !== TIFF_UNDEFINED || records.count !== MPF_ENTRY_BYTES * images.value) return undefined;
+  const [start, end] = [records.value, records.value + records.count];
+  const clear = start >= TIFF_HEADER_BYTES && (end <= ifd || start >= ifdEnd);
+  return clear && end <= header.byteLength ? images.value : undefined;
 }
 
 function sameFingerprint(left: SupportEvidenceEncoderFingerprint, right: SupportEvidenceEncoderFingerprint): boolean {
