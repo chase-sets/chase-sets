@@ -459,6 +459,35 @@
           "bounded-contexts/platform-operations/features/support-requests/ui/participant-router.test.tsx"
         ]
       }
+    },
+    {
+      "id": "platform-operations.support-request-list-fresh-read",
+      "owner": "platform-operations",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-support",
+        "actions": ["Open support request", "Submit opening evidence", "Check participant attempt status"],
+        "command": "Participant support request commands",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "account-support",
+        "apiContextName": "platform-operations",
+        "apiRoutePath": "/support-requests/purchases",
+        "readModelTables": ["support_request_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Opening redirects carry the original command receipt so the list loader waits for Support projection visibility; recovered status can navigate to the existing receipt-aware detail route."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/platform-operations/tests/mutation-consistency-route-actions.test.ts"]
+      }
     }
   ],
   "hostPorts": [

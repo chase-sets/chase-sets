@@ -131,7 +131,7 @@ describe("support participant mutation inventory", () => {
   });
   it("real resolve route/runtime/domain refuses participant adjudication with zero append", async () => {
     const f = participantFixture();
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     f.db.query.mockResolvedValue({
       rows: [
         {

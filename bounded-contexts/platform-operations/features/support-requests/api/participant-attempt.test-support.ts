@@ -62,7 +62,13 @@ export function participantFixture(store?: EventStore) {
     await next();
   });
   app.route("/", buildSupportApi(runtime));
-  const execute = (actionKind: ParticipantAction, body: unknown, targetId?: string, key = attemptId, asActor = buyer) =>
+  const executeParticipant = (
+    actionKind: ParticipantAction,
+    body: unknown,
+    targetId?: string,
+    key = attemptId,
+    asActor = buyer,
+  ) =>
     runtime.executeParticipantAttempt(
       {
         actionKind,
@@ -87,7 +93,7 @@ export function participantFixture(store?: EventStore) {
     eventStore,
     runtime,
     app,
-    execute,
+    executeParticipant,
     lookup,
     storage,
     db,

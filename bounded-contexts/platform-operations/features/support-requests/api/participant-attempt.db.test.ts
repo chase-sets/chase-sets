@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  eventCorePostgresSchemaSql,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import {
   closeMultiContextTestPools,
@@ -26,6 +30,7 @@ describeDb("PostgreSQL runtime/version matrix and barrier race/history 500/501",
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
+    await pools["platform-operations"].query(eventCorePostgresSchemaSql);
     store = createPostgresEventStore({ pool: pools["platform-operations"] });
   });
   afterAll(async () => {

@@ -11,42 +11,49 @@ import { validateParticipantHistory } from "./participant-runtime";
 describe("scoped-attempt matrix", () => {
   it("same owner/id changed action conflicts with valid domain prerequisites", async () => {
     const f = participantFixture();
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     const key = `${attemptId}_action`;
-    await f.execute("submit-evidence", { evidenceType: "support-note", summary: "Valid note" }, opened.id, key);
+    await f.executeParticipant(
+      "submit-evidence",
+      { evidenceType: "support-note", summary: "Valid note" },
+      opened.id,
+      key,
+    );
     const count = f.allEvents.length;
-    await expect(f.execute("escalate", { reason: "Valid review" }, opened.id, key)).rejects.toMatchObject({
+    await expect(f.executeParticipant("escalate", { reason: "Valid review" }, opened.id, key)).rejects.toMatchObject({
       status: 409,
     });
     expect(f.allEvents).toHaveLength(count);
   });
   it("buyer/seller same case owner binding prevents replay then permits independent same-id writes", async () => {
     const f = participantFixture();
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     const seller = evidenceActor("viewer", ["support.view", "support.manage"], false, "acc_seller");
     const key = `${attemptId}_shared`;
     const body = { evidenceType: "support-note", summary: "Same valid input" };
-    const first = await f.execute("submit-evidence", body, opened.id, key, buyer);
+    const first = await f.executeParticipant("submit-evidence", body, opened.id, key, buyer);
     expect(await f.lookup("submit-evidence", body, opened.id, key, seller)).toEqual({ outcome: "not-recorded" });
-    const second = await f.execute("submit-evidence", body, opened.id, key, seller);
+    const second = await f.executeParticipant("submit-evidence", body, opened.id, key, seller);
     expect(second.evidenceId).not.toBe(first.evidenceId);
-    expect(await f.execute("submit-evidence", body, opened.id, key, buyer)).toEqual(first);
-    expect(await f.execute("submit-evidence", body, opened.id, key, seller)).toEqual(second);
+    expect(await f.executeParticipant("submit-evidence", body, opened.id, key, buyer)).toEqual(first);
+    expect(await f.executeParticipant("submit-evidence", body, opened.id, key, seller)).toEqual(second);
   });
   it("same owner/id changed hash conflicts before append (action-hash-partition control)", async () => {
     const f = participantFixture();
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     const before = f.allEvents.length;
-    await expect(f.execute("open-support-request", { ...openBody, affectedLineIds: ["line_a"] })).rejects.toMatchObject(
-      { status: 409 },
-    );
+    await expect(
+      f.executeParticipant("open-support-request", { ...openBody, affectedLineIds: ["line_a"] }),
+    ).rejects.toMatchObject({ status: 409 });
     expect(f.allEvents).toHaveLength(before);
     const body = { submittedByRole: "buyer", evidenceType: "buyer-attestation", summary: "Order not received." };
-    const first = await f.execute("submit-evidence", body, opened.id, "7163_evidence_0123456789abcdef");
+    const first = await f.executeParticipant("submit-evidence", body, opened.id, "7163_evidence_0123456789abcdef");
     const count = f.allEvents.length;
-    expect(await f.execute("submit-evidence", body, opened.id, "7163_evidence_0123456789abcdef")).toEqual(first);
+    expect(await f.executeParticipant("submit-evidence", body, opened.id, "7163_evidence_0123456789abcdef")).toEqual(
+      first,
+    );
     await expect(
-      f.execute(
+      f.executeParticipant(
         "submit-evidence",
         { ...body, summary: "Different valid evidence." },
         opened.id,
@@ -54,22 +61,22 @@ describe("scoped-attempt matrix", () => {
       ),
     ).rejects.toMatchObject({ status: 409 });
     await expect(
-      f.execute("escalate", { reason: "Needs review." }, opened.id, "7163_evidence_0123456789abcdef"),
+      f.executeParticipant("escalate", { reason: "Needs review." }, opened.id, "7163_evidence_0123456789abcdef"),
     ).rejects.toMatchObject({ status: 409 });
     expect(f.allEvents).toHaveLength(count);
   });
   it("authorized targets/accounts/tenants independently use one opaque id, never cross-owner replay/disclosure", async () => {
     const f = participantFixture();
-    const first = await f.execute("open-support-request", openBody, undefined, `${attemptId}_open`);
-    const second = await f.execute("open-support-request", openBody, undefined, `${attemptId}_other`);
+    const first = await f.executeParticipant("open-support-request", openBody, undefined, `${attemptId}_open`);
+    const second = await f.executeParticipant("open-support-request", openBody, undefined, `${attemptId}_other`);
     const seller = evidenceActor("viewer", ["support.view", "support.manage"], false, "acc_seller");
     const body = { reason: "Needs review." };
-    await f.execute("escalate", body, first.id, attemptId, buyer);
-    await f.execute("escalate", body, second.id, attemptId, buyer);
+    await f.executeParticipant("escalate", body, first.id, attemptId, buyer);
+    await f.executeParticipant("escalate", body, second.id, attemptId, buyer);
     const sellerLookup = await f.lookup("escalate", body, first.id, attemptId, seller);
     expect(sellerLookup).toEqual({ outcome: "not-recorded" });
     const other = { ...buyer, tenantId: "tnt_other" };
-    const otherOpen = await f.execute("open-support-request", openBody, undefined, attemptId, other);
+    const otherOpen = await f.executeParticipant("open-support-request", openBody, undefined, attemptId, other);
     expect(otherOpen.id).not.toBe(first.id);
     expect(await f.lookup("open-support-request", openBody, undefined, attemptId, other)).toMatchObject({
       outcome: "confirming",
@@ -90,7 +97,7 @@ describe("history matrix", () => {
       throw createEventStoreError("concurrency_conflict", "forced absent winner");
     });
     const f = participantFixture({ ...memory.eventStore, readStream, appendToStream });
-    await expect(f.execute("open-support-request", openBody)).rejects.toMatchObject({
+    await expect(f.executeParticipant("open-support-request", openBody)).rejects.toMatchObject({
       code: "participant-concurrency-unknown",
     });
     expect(readStream).toHaveBeenCalledTimes(2);
@@ -99,7 +106,7 @@ describe("history matrix", () => {
   });
   it("matching receipt/facts and reflected read qualify committed; projection presence without receipt does not", async () => {
     const f = participantFixture();
-    const first = await f.execute("open-support-request", openBody);
+    const first = await f.executeParticipant("open-support-request", openBody);
     f.db.query.mockResolvedValue({
       rows: [
         {
@@ -120,7 +127,7 @@ describe("history matrix", () => {
   });
   it("poison remains undisclosed to another actor and unknown outcomes never receive receipt metadata", async () => {
     const f = participantFixture();
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     await f.eventStore.appendToStream({
       streamId: `support.support-request-${opened.id}`,
       expectedVersion: opened.version,
@@ -150,7 +157,7 @@ describe("history matrix", () => {
   });
   it("receipt-only, business-only, changed duplicate, unexpected, wrong-target and post-terminal history never qualify", async () => {
     const f = participantFixture();
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     const events = await readCompleteStream(f.eventStore, { streamId: `support.support-request-${opened.id}` });
     expect(validateParticipantHistory(events, opened.id).receipts).toHaveLength(1);
     for (const history of [
@@ -167,8 +174,8 @@ describe("history matrix", () => {
   it("same scoped barrier race converges with one winner, zero recursive retry", async () => {
     const f = participantFixture();
     const results = await Promise.all([
-      f.execute("open-support-request", openBody),
-      f.execute("open-support-request", openBody),
+      f.executeParticipant("open-support-request", openBody),
+      f.executeParticipant("open-support-request", openBody),
     ]);
     expect(results[0]).toEqual(results[1]);
     expect(f.allEvents.filter((event) => event.eventType.endsWith(".opened"))).toHaveLength(1);
@@ -178,7 +185,7 @@ describe("history matrix", () => {
     const query = `requestHash=${requestHash("open-support-request", openBody)}`;
     const url = `/support-requests/participant-attempts/${attemptId}?${query}`;
     expect(await (await f.app.request(url)).json()).toEqual({ outcome: "not-recorded" });
-    const opened = await f.execute("open-support-request", openBody);
+    const opened = await f.executeParticipant("open-support-request", openBody);
     const before = f.allEvents.length;
     expect(await (await f.app.request(url)).json()).toMatchObject({ outcome: "confirming", result: { id: opened.id } });
     expect((await f.app.request(`${url}&${query}`)).status).toBe(400);

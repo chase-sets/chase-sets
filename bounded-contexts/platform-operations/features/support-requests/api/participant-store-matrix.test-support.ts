@@ -76,7 +76,7 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
     it(`real-store poisoned history: ${kind} cannot qualify`, async () => {
       const store = makeStore();
       const f = participantFixture(store);
-      const first = await f.execute("open-support-request", openBody);
+      const first = await f.executeParticipant("open-support-request", openBody);
       const history = await readCompleteStream(store, { streamId: `support.support-request-${first.id}` });
       const id = first.id;
       let poison = codec.encode({
@@ -99,7 +99,7 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
         poison = { eventType: "support.support-request.unexpected", payload: { supportRequestId: id } };
       if (kind === "wrong-target") poison = { ...poison, payload: { ...poison.payload, targetId: "sup_other" } };
       if (kind === "post-terminal") {
-        await f.execute("cancel", { reason: "Closed by requester" }, id, `${attemptId}_cancel`);
+        await f.executeParticipant("cancel", { reason: "Closed by requester" }, id, `${attemptId}_cancel`);
         poison = {
           eventType: "support.support-request.evidence-submitted",
           payload: { supportRequestId: id },
@@ -125,7 +125,9 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
         reason: "history-invalid",
       });
       const before = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
-      await expect(f.execute("open-support-request", openBody)).rejects.toMatchObject({ code: "history-invalid" });
+      await expect(f.executeParticipant("open-support-request", openBody)).rejects.toMatchObject({
+        code: "history-invalid",
+      });
       expect(await readCompleteStream(store, { streamId: `support.support-request-${id}` })).toEqual(before);
     });
   }
@@ -177,7 +179,7 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
         default:
           body = { reason: "Review needed" };
       }
-      const first = await f.execute(
+      const first = await f.executeParticipant(
         actionKind,
         body,
         actionKind === "open-support-request" ? undefined : id,
@@ -185,7 +187,7 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
         actor,
       );
       const before = await readCompleteStream(store, { streamId: `support.support-request-${first.id}` });
-      const replay = await participantFixture(store).execute(
+      const replay = await participantFixture(store).executeParticipant(
         actionKind,
         body,
         actionKind === "open-support-request" ? undefined : id,
@@ -221,8 +223,8 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
     const sameBarrier = barrierFixture();
     const f = sameBarrier.fixture;
     const same = await Promise.all([
-      f.execute("open-support-request", openBody),
-      f.execute("open-support-request", openBody),
+      f.executeParticipant("open-support-request", openBody),
+      f.executeParticipant("open-support-request", openBody),
     ]);
     expect(same[0]).toEqual(same[1]);
     expect(sameBarrier.readStream).toHaveBeenCalledTimes(3);
@@ -230,8 +232,8 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
     const changedKey = `${attemptId}_race`;
     const differentBarrier = barrierFixture();
     const raced = await Promise.allSettled([
-      differentBarrier.fixture.execute("open-support-request", openBody, undefined, changedKey),
-      differentBarrier.fixture.execute(
+      differentBarrier.fixture.executeParticipant("open-support-request", openBody, undefined, changedKey),
+      differentBarrier.fixture.executeParticipant(
         "open-support-request",
         { ...openBody, affectedLineIds: ["line_a"] },
         undefined,
@@ -271,7 +273,7 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
     });
     const f = participantFixture(store);
     const body = { submittedByRole: "buyer", evidenceType: "buyer-attestation", summary: "Late evidence" };
-    const first = await f.execute("submit-evidence", body, id);
+    const first = await f.executeParticipant("submit-evidence", body, id);
     expect(first.version).toBe(502);
     expect(await f.lookup("submit-evidence", body, id)).toMatchObject({ outcome: "confirming", result: first });
     const events = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
