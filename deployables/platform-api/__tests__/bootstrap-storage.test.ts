@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Readable } from "node:stream";
 import { createHash } from "node:crypto";
-import { openSupportEvidenceCanonicalizer } from "@chase-sets/platform-operations";
+import { openSupportEvidenceCanonicalizer } from "@chase-sets/platform-operations/server";
 
 import {
   createPlatformBootstrapStoragePorts,
@@ -13,8 +13,8 @@ import {
   openPlatformSupportEvidenceCanonicalizer,
 } from "../src/bootstrap-storage";
 
-vi.mock("@chase-sets/platform-operations", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@chase-sets/platform-operations")>();
+vi.mock("@chase-sets/platform-operations/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/platform-operations/server")>();
   return { ...actual, openSupportEvidenceCanonicalizer: vi.fn(actual.openSupportEvidenceCanonicalizer) };
 });
 

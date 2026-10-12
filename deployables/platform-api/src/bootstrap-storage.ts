@@ -9,7 +9,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import {
   openSupportEvidenceCanonicalizer,
   createSupportEvidenceCanonicalizationQueue,
-} from "@chase-sets/platform-operations";
+} from "@chase-sets/platform-operations/server";
 
 import type { PlatformApiBootstrapConfig } from "./config";
 

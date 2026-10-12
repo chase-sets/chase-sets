@@ -17,7 +17,6 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as platformOperationsModule } from "../../../index";
-import { seedPlatformOperationsDatabase } from "../../../support/runtime-support/seed";
 import {
   attachmentOperationStreamId,
   createAttachmentManifest,
@@ -443,8 +442,9 @@ describeDb("durable canonical Support Attachment Operation on PostgreSQL and fil
 
   it("fresh, upgraded, replayed and boot-twice databases converge; seeds author no operation", async () => {
     await bootstrapContextDatabase(platformOperationsModule, pool);
-    await seedPlatformOperationsDatabase(pool);
-    await seedPlatformOperationsDatabase(pool);
+    expect(platformOperationsModule.seed).toBeDefined();
+    await platformOperationsModule.seed!(pool);
+    await platformOperationsModule.seed!(pool);
     expect(
       (
         await pool.query<{ count: string }>(
