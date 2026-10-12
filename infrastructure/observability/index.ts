@@ -261,7 +261,7 @@ export type DiscoverySearchQuerySignal = Readonly<{
   resultSetKey: string;
   filterState: string;
   sortOrder: string;
-  cursorState: "cursor" | "fresh";
+  cursorState: "fresh" | "cursor" | "restarted";
   resultCount: number | null;
   total: number | null;
   zeroResults: boolean | null;

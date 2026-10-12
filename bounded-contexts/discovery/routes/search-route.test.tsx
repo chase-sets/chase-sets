@@ -820,6 +820,110 @@ describe("marketplace search back-navigation restoration", () => {
     cleanup();
     window.sessionStorage.clear();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("replaces a restored old-order page and its metadata when a load-more cursor restarts, and stored copies cannot revive it", async () => {
+    mockUseLocation.mockReturnValue({
+      pathname: "/search",
+      search: "?q=charizard+ex",
+      hash: "",
+      state: null,
+      key: "restart",
+    });
+    const loaderCacheKey = searchLoaderCacheKey("/search?q=charizard+ex");
+    const staleFacet = {
+      id: "condition",
+      kind: "dimension" as const,
+      label: "Stale condition",
+      values: [{ id: "mint", label: "Stale mint", count: 40, selected: false }],
+    };
+    // Restored pre-deploy state: non-exact first, stale facets/total, rescue mode and notice.
+    const oldLoaderData = {
+      ...searchData("charizard ex"),
+      data: {
+        ...resultPage([["cat_box", "charizard-ex-box", "Charizard ex Box"]], "legacy-cursor-1"),
+        facets: [staleFacet],
+        category_counts: [{ slug: "cards", count: 40 }],
+        total: 40,
+        retrievalMode: "rescue" as const,
+        lexicalCount: 1,
+      },
+    };
+    cacheSearchLoaderData(window.sessionStorage, loaderCacheKey, oldLoaderData);
+    persistSearchRestoration(
+      window.sessionStorage,
+      resultSetKey(oldLoaderData),
+      [resultPage([["cat_old", "old-lizardon", "Old Lizardon"]], "legacy-cursor-2")],
+      0,
+    );
+    const restarted = {
+      ...resultPage(
+        [
+          ["cat_exact", "charizard-ex", "Charizard ex"],
+          ["cat_box", "charizard-ex-box", "Charizard ex Box"],
+        ],
+        "v2-cursor",
+      ),
+      facets: [{ ...staleFacet, label: "Fresh condition" }],
+      category_counts: [{ slug: "cards", count: 3 }],
+      total: 3,
+      cursorRestarted: true as const,
+    };
+    const continuation = resultPage([["cat_vmax", "charizard-vmax", "Charizard VMAX"]], null);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      jsonResponse(String(input).includes("cursor=v2-cursor") ? continuation : restarted),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const navigateBack = () =>
+      clientLoader({
+        request: new Request("http://localhost/search?q=charizard+ex"),
+        params: {},
+        context: {},
+        serverLoader: vi.fn(async () => {
+          throw new Error("A fresh cached Result Set must not refetch.");
+        }),
+      } as unknown as Parameters<typeof clientLoader>[0]);
+    mockUseLoaderData.mockReturnValue(await navigateBack());
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=charizard+ex"), vi.fn()]);
+
+    const restoredVisit = render(<SearchRoute />);
+    expect(renderedItemSlugs()).toEqual(["charizard-ex-box", "old-lizardon"]);
+    expect(screen.getByText("Closest matches")).toBeTruthy();
+    expect(screen.getAllByText("Stale condition").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+    await waitFor(() => expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box"]));
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("cursor=legacy-cursor-2");
+    expect(screen.queryByText("Closest matches")).toBeNull();
+    expect(screen.queryAllByText("Stale condition")).toHaveLength(0);
+    expect(screen.getAllByText("Fresh condition").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/of 3 results/).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/40 results/)).toHaveLength(0);
+
+    // Valid v2 pages append after the replacement.
+    fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+    await waitFor(() => expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box", "charizard-vmax"]));
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=v2-cursor");
+    expect(readCachedSearchLoaderData(window.sessionStorage, loaderCacheKey)).toMatchObject({
+      data: { total: 3, retrievalMode: "lexical", nextCursor: "v2-cursor" },
+    });
+    expect(readCachedSearchLoaderData(window.sessionStorage, loaderCacheKey)).not.toMatchObject({
+      data: { cursorRestarted: true },
+    });
+
+    // Back navigation replays both stored copies: neither revives the old page, metadata, or notice.
+    restoredVisit.unmount();
+    mockUseLoaderData.mockReturnValue(await navigateBack());
+    render(<SearchRoute />);
+
+    expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box", "charizard-vmax"]);
+    expect(screen.queryByText("Closest matches")).toBeNull();
+    expect(screen.queryAllByText("Stale condition")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
   });
 
   it("serves a cached Result Set on back navigation without a server refetch", async () => {
@@ -895,6 +999,41 @@ function resultSetKey(data: {
     sort: data.sort,
     dynamicFilters: [],
   });
+}
+
+function resultPage(
+  items: ReadonlyArray<readonly [catalogItemId: string, slug: string, title: string]>,
+  nextCursor: string | null,
+): DiscoverySearchResponse {
+  const template = persistedSearchPage("template", "template", "Template");
+  const [item] = template.items;
+  if (!item) {
+    throw new Error("Expected a search result fixture.");
+  }
+
+  return {
+    ...template,
+    items: items.map(([catalogItemId, slug, title]) => ({
+      ...item,
+      catalog_item_id: catalogItemId,
+      slug,
+      title,
+      subtitle: null,
+    })),
+    count: items.length,
+    nextCursor,
+  };
+}
+
+function renderedItemSlugs(): string[] {
+  const slugs = [...document.querySelectorAll<HTMLAnchorElement>('a[href^="/items/"]')].map(
+    (anchor) => new URL(anchor.getAttribute("href") ?? "", "http://localhost").pathname.split("/")[2] ?? "",
+  );
+  return [...new Set(slugs)];
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 function persistedSearchPage(catalogItemId: string, slug: string, title: string): DiscoverySearchResponse {

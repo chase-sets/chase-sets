@@ -80,6 +80,13 @@ type DynamicSearchFilterSelection = Readonly<{
   value: string;
 }>;
 type MarketActivityFilter = "" | "any" | "listings" | "offers";
+type SearchResultPageState = Readonly<{
+  key: string;
+  // A cursor-restart replacement for the loader's first page. It applies only while the
+  // loader still serves the page it replaced; a revalidated or re-cached payload wins.
+  firstPage: Readonly<{ replaces: DiscoverySearchResponse | null; page: DiscoverySearchResponse }> | null;
+  pages: DiscoverySearchResponse[];
+}>;
 
 function buildSearchQuery({
   search,
@@ -573,12 +580,13 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     scrollY: number;
   } | null>(null);
   const lastObservedScrollYRef = useRef(0);
-  const [extraPageState, setExtraPageState] = useState<{
-    key: string;
-    pages: DiscoverySearchResponse[];
-  }>({ key: resultSetKey, pages: [] });
-  const extraPageStateRef = useRef(extraPageState);
-  extraPageStateRef.current = extraPageState;
+  const [resultPageState, setResultPageState] = useState<SearchResultPageState>({
+    key: resultSetKey,
+    firstPage: null,
+    pages: [],
+  });
+  const resultPageStateRef = useRef(resultPageState);
+  resultPageStateRef.current = resultPageState;
   const [loadMoreState, setLoadMoreState] = useState<{
     loading: boolean;
     error: string | null;
@@ -601,17 +609,25 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   let draftSearch = draftSearchState.value;
   let draftPriceMin = draftPriceState.min;
   let draftPriceMax = draftPriceState.max;
-  const activeExtraPages = extraPageState.key === resultSetKey ? extraPageState.pages : EMPTY_EXTRA_PAGES;
+  const activeResultPages = resultPageState.key === resultSetKey ? resultPageState : null;
+  const activeExtraPages = activeResultPages?.pages ?? EMPTY_EXTRA_PAGES;
+  const restartedFirstPage =
+    activeResultPages?.firstPage && activeResultPages.firstPage.replaces === data.data
+      ? activeResultPages.firstPage.page
+      : null;
+  const activeFirstPage = restartedFirstPage ?? data.data;
   const accumulatedData = useMemo(
-    () => mergeDiscoverySearchResponses(data.data, activeExtraPages),
-    [activeExtraPages, data.data],
+    () => mergeDiscoverySearchResponses(activeFirstPage, activeExtraPages),
+    [activeExtraPages, activeFirstPage],
   );
   const accumulatedSnapshotKey = JSON.stringify([
     resultSetKey,
-    data.data?.nextCursor,
+    restartedFirstPage !== null,
+    activeFirstPage?.nextCursor,
     activeExtraPages.length,
     activeExtraPages.at(-1)?.nextCursor,
   ]);
+  const loaderCacheKey = searchLoaderCacheKey(`${location.pathname}${location.search}`);
   const visibleData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
     initialSnapshot: accumulatedData,
     snapshotKey: accumulatedSnapshotKey,
@@ -628,7 +644,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       restoration.scrollY === null
         ? null
         : { key: resultSetKey, pageCount: restoration.pages.length, scrollY: restoration.scrollY };
-    setExtraPageState({ key: resultSetKey, pages: restoration.pages });
+    setResultPageState({ key: resultSetKey, firstPage: null, pages: restoration.pages });
     setLoadMoreState({ loading: false, error: null });
     bulkAddRequestIdRef.current += 1;
     activeBulkRequestRef.current = null;
@@ -661,8 +677,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     if (
       !pending ||
       pending.key !== resultSetKey ||
-      extraPageState.key !== pending.key ||
-      extraPageState.pages.length !== pending.pageCount
+      resultPageState.key !== pending.key ||
+      resultPageState.pages.length !== pending.pageCount
     ) {
       return;
     }
@@ -670,7 +686,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     pendingScrollRestorationRef.current = null;
     lastObservedScrollYRef.current = pending.scrollY;
     window.scrollTo({ top: pending.scrollY, left: 0, behavior: "instant" });
-  }, [extraPageState, resultSetKey]);
+  }, [resultPageState, resultSetKey]);
 
   useEffect(() => {
     lastObservedScrollYRef.current = window.scrollY;
@@ -678,7 +694,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       lastObservedScrollYRef.current = window.scrollY;
     };
     const persistCurrentRestoration = () => {
-      const current = extraPageStateRef.current;
+      const current = resultPageStateRef.current;
       const currentKey = resultSetKeyRef.current;
       if (current.key !== currentKey) {
         return;
@@ -708,12 +724,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     if (!("canonicalUrl" in data)) {
       return;
     }
-    cacheSearchLoaderData(
-      getSearchSessionStorage(),
-      searchLoaderCacheKey(`${location.pathname}${location.search}`),
-      data,
-    );
-  }, [data, location.pathname, location.search]);
+    cacheSearchLoaderData(getSearchSessionStorage(), loaderCacheKey, data);
+  }, [data, loaderCacheKey]);
 
   if (
     draftSearchState.committedSearch !== data.search &&
@@ -1070,14 +1082,31 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         return;
       }
 
-      setExtraPageState((current) => {
-        if (current.key !== requestKey) {
-          return current;
+      if (nextPage.cursorRestarted) {
+        // The cursor was rejected, so this is a fresh first page with fresh metadata. Replace
+        // the shown first page and discard every extra page; both stored copies are rewritten
+        // so back navigation cannot replay the old order, metadata, or notice.
+        const { cursorRestarted: _cursorRestarted, ...firstPage } = nextPage;
+        setResultPageState((current) => {
+          if (current.key !== requestKey) {
+            return current;
+          }
+          persistSearchRestoration(getSearchSessionStorage(), requestKey, [], window.scrollY);
+          return { key: current.key, firstPage: { replaces: data.data, page: firstPage }, pages: [] };
+        });
+        if ("canonicalUrl" in data) {
+          cacheSearchLoaderData(getSearchSessionStorage(), loaderCacheKey, { ...data, data: firstPage });
         }
-        const pages = [...current.pages, nextPage];
-        persistSearchRestoration(getSearchSessionStorage(), requestKey, pages, window.scrollY);
-        return { key: current.key, pages };
-      });
+      } else {
+        setResultPageState((current) => {
+          if (current.key !== requestKey) {
+            return current;
+          }
+          const pages = [...current.pages, nextPage];
+          persistSearchRestoration(getSearchSessionStorage(), requestKey, pages, window.scrollY);
+          return { ...current, pages };
+        });
+      }
       setLoadMoreState({ loading: false, error: null });
     } catch {
       if (resultSetKeyRef.current === requestKey) {
@@ -1091,19 +1120,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         loadMoreInFlightRef.current = false;
       }
     }
-  }, [
-    data.category,
-    data.language,
-    data.marketActivity,
-    data.priceMin,
-    data.priceMax,
-    data.inStock,
-    data.search,
-    data.tag,
-    data.sort,
-    dynamicFilters,
-    visibleData?.nextCursor,
-  ]);
+  }, [data, dynamicFilters, loaderCacheKey, visibleData?.nextCursor]);
 
   const submitBulkAddIntent = useCallback(
     async (intent: "preview-bulk-add" | "commit-bulk-add") => {
@@ -1153,7 +1170,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       sort={data.sort}
       dynamicFilters={dynamicFilters}
       data={visibleData}
-      resultSetKey={data.data?.resultSetKey}
+      resultSetKey={activeFirstPage?.resultSetKey}
       categories={[...data.categories]}
       homeMerchandising={data.homeMerchandising}
       loading={navigation.state !== "idle"}
