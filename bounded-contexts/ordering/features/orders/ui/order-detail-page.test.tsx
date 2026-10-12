@@ -163,6 +163,35 @@ function expectSurfaceChrome(
 }
 
 describe("ordering order detail page", () => {
+  it.each([
+    ["0.01", true],
+    ["0.00", false],
+    ["-1.00", false],
+    ["abc", false],
+    ["12abc", false],
+    ["1e3", false],
+    ["10000000000.00", false],
+  ])("shows the money timeline only for a positive refunded amount: %s", (refundedAmount, visible) => {
+    const markup = renderToString(
+      <OrderingOrderDetailPage
+        role="buyer"
+        backHref="/account/purchases"
+        order={
+          {
+            ...order,
+            money_timeline: {
+              ...order.money_timeline,
+              refunds: [],
+              support_cases: [],
+              refunded_amount: refundedAmount,
+            },
+          } as never
+        }
+      />,
+    );
+    expect(markup.includes("Money timeline")).toBe(visible);
+  });
+
   const latestDelivery = "2026-04-09T17:42:00.000Z";
   const packedOrder = {
     ...order,
