@@ -17,6 +17,78 @@ import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 
 afterEach(() => vi.unstubAllGlobals());
 
+it.each([
+  ["12.34", "1234"],
+  ["0.10", "10"],
+])("converts charge and refund amounts through the money primitive: %s", async (amount, expectedMinorUnits) => {
+  const calls: Array<{ url: string; amount: string | null }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const fields = new URLSearchParams(String(init?.body));
+      calls.push({ url, amount: fields.get("amount") ?? fields.get("line_items[0][price_data][unit_amount]") });
+      return Response.json({
+        id: url.endsWith("/refunds") ? "re_SYNTHETIC" : url.endsWith("/sessions") ? "cs_SYNTHETIC" : "pi_SYNTHETIC",
+        status: "succeeded",
+      });
+    }),
+  );
+  const gateway = createStripePaymentProcessorGateway({
+    secretKey: "sk_test_SYNTHETIC",
+    publishableKey: "pk_test_SYNTHETIC",
+    webhookSecret: "whsec_SYNTHETIC",
+    apiBaseUrl: "https://stripe.test",
+  });
+  const input: CreateProcessorPaymentInput = {
+    paymentId: "pay_SYNTHETIC" as PaymentId,
+    buyerAccountId: "acc_SYNTHETIC" as AccountId,
+    orderIds: [],
+    amount,
+    currencyCode: "usd",
+    paymentMethodCategory: "card",
+    description: "Synthetic payment",
+    providerCustomerReference: "cus_SYNTHETIC",
+    returnUrl: "https://marketplace.test/account/payments/pay_SYNTHETIC",
+  };
+
+  await gateway.createPaymentSession(input);
+  await gateway.createPaymentSession({
+    ...input,
+    savedCheckoutInstrument: {
+      instrumentId: "sci_SYNTHETIC",
+      providerReference: "pm_SYNTHETIC",
+      confirmationExperience: "off-session-token",
+    },
+  });
+  await gateway.createAgenticPaymentSession!({
+    ...input,
+    agenticPayment: {
+      kind: "stripe-shared-payment-token",
+      sharedPaymentGrantedToken: "spt_SYNTHETIC",
+      ap2CheckoutMandateId: "ap2_checkout_SYNTHETIC",
+      ap2PaymentMandateId: "ap2_payment_SYNTHETIC",
+    },
+  });
+  await gateway.createRefund({
+    refundId: "rfd_SYNTHETIC",
+    paymentId: input.paymentId,
+    processorPaymentReference: "pi_SYNTHETIC",
+    orderIds: [],
+    amount,
+    currencyCode: "usd",
+    reason: "Synthetic refund",
+  });
+
+  expect(calls).toEqual([
+    { url: "https://stripe.test/v1/checkout/sessions", amount: expectedMinorUnits },
+    { url: "https://stripe.test/v1/payment_intents", amount: expectedMinorUnits },
+    { url: "https://stripe.test/v1/payment_intents", amount: expectedMinorUnits },
+    { url: "https://stripe.test/v1/refunds", amount: expectedMinorUnits },
+  ]);
+  expect(readFileSync(new URL("./index.ts", import.meta.url), "utf8").match(/parseFloat/g)).toBeNull();
+});
+
 // Stateful journal honoring the store's full-key + expected-version CAS semantics.
 function casJournal() {
   let row: ProviderWriteRow | null = null;

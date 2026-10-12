@@ -29,7 +29,7 @@ import {
   providerFailureCategoryFromText,
   ProviderWebhookError,
 } from "@chase-sets/http/provider-errors";
-import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import {
   executeGovernedProviderWrite,
@@ -262,7 +262,7 @@ function normalizeMoneyAmount(value: string, fieldName: string) {
 }
 
 function moneyToMinorUnits(amount: string) {
-  return Math.round(Number.parseFloat(amount) * 100);
+  return Number(moneyToCents(amount));
 }
 
 function normalizeOptionalText(value?: string | null) {

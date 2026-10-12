@@ -2,6 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { mapProductAlertMatchToNotification } from "./notification-intents";
 
 export const DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION = "discovery-product-alert-notification-projection";
@@ -71,10 +72,10 @@ function thresholdMatches(
     return false;
   }
 
-  const threshold = Number.parseFloat(alert.threshold_amount);
-  const price = Number.parseFloat(activity.price_amount);
+  const threshold = tryMoneyToCents(alert.threshold_amount);
+  const price = tryMoneyToCents(activity.price_amount);
 
-  if (!Number.isFinite(threshold) || !Number.isFinite(price)) {
+  if (threshold === null || price === null) {
     return false;
   }
 

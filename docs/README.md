@@ -228,6 +228,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
 - [ADR 0032: Order Groups And Shipment Groups](./adr/0032-order-groups-and-shipment-groups.md)
 - [ADR 0033: Capability-First Provider Integrations](./adr/0033-capability-first-provider-integrations.md)
+- [ADR 0034: Money Representation And Arithmetic](./adr/0034-money-representation-and-arithmetic.md)
 
 ## Generated Markdown
 

@@ -1,6 +1,73 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { getProtectionCoverageMetrics } from "./protection-coverage-queries";
+import { getProtectionCoverageAvailability, getProtectionCoverageMetrics } from "./protection-coverage-queries";
+
+describe("protection coverage availability", () => {
+  function availabilityDb(
+    overrides: Partial<Record<"funded" | "outstanding_reserved" | "consumed" | "recovered_net", string>> = {},
+  ) {
+    const { funded = "100.00", ...amounts } = overrides;
+    return {
+      query: async (sql: string) => ({
+        rows: sql.includes("settlement_protection_reserve_facts")
+          ? [{ funded_amount: funded }]
+          : [
+              {
+                outstanding_reserved: "12.30",
+                consumed: "150.00",
+                released: "0.00",
+                recovered_gross: "0.00",
+                recovery_cost: "0.00",
+                recovered_net: "0",
+                ...amounts,
+              },
+            ],
+      }),
+    } as unknown as PgQueryable;
+  }
+
+  it.each([
+    { recovered_net: "0", expected: "-62.30" },
+    { recovered_net: "20.00", expected: "-42.30" },
+  ])(
+    "returns base-identical amounts through the money primitive: $recovered_net",
+    async ({ recovered_net, expected }) => {
+      const result = await getProtectionCoverageAvailability(availabilityDb({ recovered_net }));
+      expect(result).toEqual({
+        fundedAmount: "100.00",
+        outstandingReservedAmount: "12.30",
+        consumedAmount: "150.00",
+        releasedAmount: "0.00",
+        recoveredGrossAmount: "0.00",
+        recoveryCostAmount: "0.00",
+        recoveredNetAmount: recovered_net,
+        availableAmount: expected,
+      });
+    },
+  );
+
+  describe.each(["funded", "outstanding_reserved", "consumed", "recovered_net"] as const)("%s operand", (operand) => {
+    it.each(["12abc", "1e3", "", "10000000000.00"])(
+      "rejects non-canonical or out-of-range amounts instead of coercing them: %s",
+      async (amount) => {
+        await expect(getProtectionCoverageAvailability(availabilityDb({ [operand]: amount }))).rejects.toThrow(Error);
+      },
+    );
+  });
+
+  it("rejects non-canonical or out-of-range amounts instead of coercing them: result overflow", async () => {
+    await expect(
+      getProtectionCoverageAvailability(
+        availabilityDb({
+          funded: "9999999999.99",
+          outstanding_reserved: "0",
+          consumed: "0",
+          recovered_net: "9999999999.99",
+        }),
+      ),
+    ).rejects.toThrow(Error);
+  });
+});
 
 describe("protection coverage recovery metrics", () => {
   it("exposes protection loss and recovery grouped by reason and recovery type", async () => {
