@@ -159,11 +159,13 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         userId,
         roleKey,
       }),
-    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash }) =>
+    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash, operation }) =>
       postJson(`invitations/${invitationId}/accept`, {
         userId,
         acceptanceTokenHash,
+        ...(operation ? { operation } : {}),
       }),
+    readInvitationAcceptanceAuthority: ({ invitationId, ...params }) => postJson(`invitations/${invitationId}/acceptance-authority`, params),
     issueInvitationAcceptanceToken: ({ invitationId, tokenHash, expiresAt }) =>
       postJson(`invitations/${invitationId}/acceptance-token`, {
         tokenHash,

@@ -170,6 +170,25 @@ function createIdentityMutations() {
 useMockReset();
 
 describe("invitation auth routes", () => {
+  it("invitation-acceptance-attempt-binding: refuses disagreement before any owner or Session command", async () => {
+    const services = createServices();
+    const mutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mutations);
+    const response = await buildApp(services).request("https://marketplace.test/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "fe477381-15cc-4ca8-9a40-a004a01ee107" },
+      body: JSON.stringify({
+        attemptId: "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea",
+        invitationId: "ivt_1", token: "invitation-secret", password: "password-secret",
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(mutations.verifyInvitationAcceptanceToken).not.toHaveBeenCalled();
+    expect(mutations.createPersonalIdentity).not.toHaveBeenCalled();
+    expect(mutations.acceptInvitationForUser).not.toHaveBeenCalled();
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    expect(await response.text()).not.toMatch(/invitation-secret|password-secret/);
+  });
   it("emails an invitation acceptance token without returning the bearer token", async () => {
     const services = createServices();
     const identityMutations = createIdentityMutations();

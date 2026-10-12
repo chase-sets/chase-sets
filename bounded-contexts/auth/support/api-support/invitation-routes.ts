@@ -9,6 +9,7 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import { mapInvitationAcceptanceLinkRequestedToNotification } from "../../features/invitation-acceptance/integrations/notifications/notification-intents";
+import { hasInvitationAttempt, readInvitationAttemptId } from "../../features/invitation-acceptance/api/attempt-request";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
@@ -226,6 +227,13 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
 
   app.post("/invitations/accept", async (c) => {
     const body = await c.req.json();
+    const idempotencyKey = c.req.header("Idempotency-Key");
+    if (hasInvitationAttempt(body, idempotencyKey)) {
+      if (!readInvitationAttemptId(body, idempotencyKey)) {
+        return c.json({ error: { code: "invitation_attempt_invalid", message: "Invitation acceptance attempt is invalid." } }, 400);
+      }
+      return c.json({ error: { code: "invitation_attempts_not_active", message: "Invitation acceptance attempts are not active." } }, 409);
+    }
     const identityMutations = createIdentityMutations(c);
     const invitationId = String(body.invitationId ?? "");
     const token = String(body.token ?? "");

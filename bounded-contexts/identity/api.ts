@@ -32,6 +32,7 @@ import { userRoutes } from "./features/users/api/route";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
+import { acceptInvitationOperation, parseInvitationAcceptanceOperation, readInvitationAcceptanceAuthority } from "./features/invitations/api/acceptance-operation";
 import {
   decideAccount,
   evolveAccount,
@@ -1759,6 +1760,15 @@ export function buildIdentityApi(
   app.post("/internal/auth/invitations/:id/accept", async (c) => {
     const body = await c.req.json();
     try {
+      if (body.operation !== undefined) {
+        const operation = parseInvitationAcceptanceOperation(body.operation);
+        if (!services.eventStore || operation.invitationId !== c.req.param("id") || operation.userId !== body.userId) {
+          throw new IdentityDomainError("Invitation acceptance authority is unavailable.");
+        }
+        return c.json(await acceptInvitationOperation(services.eventStore, {
+          operation, acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""), context: getBootstrapContext(c),
+        }));
+      }
       const membership = await acceptInvitationForUserFromAuth(services, {
         invitationId: c.req.param("id"),
         userId: String(body.userId ?? ""),
@@ -1774,6 +1784,32 @@ export function buildIdentityApi(
         return c.json({ error: { code: "authorization_forbidden", message: error.message } }, 403);
       }
 
+      throw error;
+    }
+  });
+
+  app.post("/internal/auth/invitations/:id/acceptance-authority", async (c) => {
+    const body = await c.req.json();
+    try {
+      if (!services.eventStore) throw new Error("Invitation authority requires the event store.");
+      const authority = await readInvitationAcceptanceAuthority(services.eventStore, {
+        invitationId: c.req.param("id"), acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
+        operation: body.operation === undefined ? undefined : parseInvitationAcceptanceOperation(body.operation),
+        context: getBootstrapContext(c),
+      });
+      return c.json({
+        invitationId: authority.invitation.id!, accountId: authority.invitation.accountId!,
+        email: authority.invitation.email!, roleKey: authority.invitation.roleKey!, expiresAt: authority.invitation.expiresAt!,
+        accepted: authority.receiptHistory.length === 1,
+        user: authority.user ? {
+          userId: authority.user.id!, passwordCredentialId: authority.user.passwordCredentialId,
+          passkeyCredentialIds: authority.user.passkeyCredentialIds,
+          authMethods: authority.user.authMethods,
+          emailVerified: authority.user.contactMethods.some((contact) => contact.type === "email" && contact.verifiedAt !== null),
+        } : null,
+      });
+    } catch (error) {
+      if (error instanceof IdentityDomainError) return c.json({ error: { code: "invitation_authority_unavailable", message: "Invitation acceptance authority is unavailable." } }, 403);
       throw error;
     }
   });
