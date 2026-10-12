@@ -7864,6 +7864,7 @@ async function serveWholeGameApplicationFixture(
 }
 
 test.describe("catalog whole-game rehearsal journeys", () => {
+  test.use({ offline: true, serviceWorkers: "block" });
   for (const target of [
     "https://production.invalid",
     "http://admin.staging.chasesets.com",
@@ -7878,14 +7879,25 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
   }
   test("AC7 cross-origin sign-in redirect fills zero credentials and submits zero mutations", async ({ page }) => {
-    const posts: string[] = [];
+    const mutations: string[] = [];
+    const navigations: string[] = [];
+    await page.addInitScript(() => {
+      (window as unknown as { credentialFills: number }).credentialFills = 0;
+      document.addEventListener("input", () => {
+        (window as unknown as { credentialFills: number }).credentialFills += 1;
+      });
+    });
+    page.on("request", (request) => {
+      if (request.isNavigationRequest()) navigations.push(request.url());
+      if (!["GET", "HEAD"].includes(request.method())) mutations.push(`${request.method()} ${request.url()}`);
+    });
     await page.route("**/*", async (route) => {
       const request = route.request();
-      if (request.method() === "POST") posts.push(request.url());
       if (new URL(request.url()).origin === wholeGameStagingOrigin) {
         return route.fulfill({
-          status: 302,
-          headers: { location: "https://synthetic-redirect.invalid/access/sign-in" },
+          contentType: "text/html",
+          // HTTP redirect chains are not re-intercepted by Playwright routing.
+          body: `<script>location.replace("https://synthetic-redirect.invalid/access/sign-in")</script>`,
         });
       }
       return route.fulfill({
@@ -7896,8 +7908,12 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     await expect(signInWholeGame(page, wholeGameStagingOrigin)).rejects.toMatchObject({
       code: "staging-origin-required",
     });
+    expect(navigations).toEqual([
+      `${wholeGameStagingOrigin}/access/sign-in?returnTo=%2Fcatalog%2Fintegrations`,
+      "https://synthetic-redirect.invalid/access/sign-in",
+    ]);
     expect(await page.evaluate(() => (window as unknown as { credentialFills?: number }).credentialFills ?? 0)).toBe(0);
-    expect(posts).toEqual([]);
+    expect(mutations).toEqual([]);
   });
   for (const action of ["confirm", "retry", "resume", "promote", "publish"] as const) {
     test(`AC7 effective-origin drift before ${action} makes zero mutations`, async ({ page }) => {
