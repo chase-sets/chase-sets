@@ -305,6 +305,44 @@ describeDb("Saved List read-model SQL boundary", () => {
     expect(captured.lineId).toBe("sll_sli_options");
   });
 
+  it.each([{ writer: "old" }, { writer: "new" }])(
+    "anonymous-owner-mixed-version-compatibility fences refresh against a $writer claimant",
+    async ({ writer }) => {
+      const db = pools.collections;
+      await insertLegacyIntent(db, "sli_refresh", "anon_refresh");
+      let interleaved = false;
+      const guarded: PgQueryable = {
+        query: async <Row>(sql: string, values?: readonly unknown[]) => {
+          if (!interleaved && sql.includes("SET source_path")) {
+            interleaved = true;
+            await db.query(
+              `UPDATE collections_anonymous_saved_list_intents SET status = 'claiming',
+          claimed_account_id = $1, source_path = '/newer',
+          owner_revision = owner_revision + $2
+          WHERE intent_id = 'sli_refresh' AND status = 'active'`,
+              [ownerAccountId, writer === "new" ? 1 : 0],
+            );
+          }
+          return db.query<Row>(sql, values);
+        },
+      };
+      await expect(
+        anonymousDiscovery(guarded).createAnonymousIntent({
+          anonymousOwnerId: "anon_refresh",
+          sourcePath: "/stale",
+          sourceSurface: "search",
+          product: anonymousProduct,
+        }),
+      ).rejects.toMatchObject({ code: "intent-already-claimed" });
+      expect(
+        (
+          await db.query(`SELECT status, source_path, anonymous_owner_id FROM collections_anonymous_saved_list_intents
+      WHERE intent_id = 'sli_refresh'`)
+        ).rows,
+      ).toEqual([{ status: "claiming", source_path: "/newer", anonymous_owner_id: "anon_refresh" }]);
+    },
+  );
+
   it("converges to the same enriched summary and line order when Catalog and Saved List replay order reverses", async () => {
     const db = pools.collections;
     const savedListHandlers = buildSavedListProjectionHandlers(db);
