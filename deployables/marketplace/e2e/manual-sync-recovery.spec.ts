@@ -46,13 +46,26 @@ test.describe("manual TCGplayer clamp recovery", () => {
 
       await page.getByRole("button", { name: /^Release before submission$/i }).click();
       await expect(page.getByText(/^Abandoned$/i)).toBeVisible();
+      claimed = false;
+      const panel = page.getByTestId("manual-sync-panel");
+      await expect(panel.getByRole("button", { name: /^Compose Staged batch$/i })).toBeVisible();
+      await expect(panel.getByRole("button", { name: /^Ingest Live export$/i })).toBeVisible();
+      await expect(panel.getByRole("button", { name: /^Ingest Staged export$/i })).toBeVisible();
+      await expect(panel.getByLabel("TCGplayer Live export", { exact: true })).toBeAttached();
+      await expect(panel.getByLabel("TCGplayer Staged export", { exact: true })).toBeAttached();
+      await expect(panel.getByTestId("manual-sync-lease-facts")).toContainText("Lease expires");
+      await expect(panel.getByText(/^Lease remaining$/i)).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^Clamp and download CSV$/i })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^Release before submission$/i })).toHaveCount(0);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         "the released panel must fit the 390px account viewport",
       ).toBe(true);
-      claimed = false;
+      const panelBox = await panel.boundingBox();
+      expect(panelBox, "the released panel must render a measurable box").not.toBeNull();
+      expect(panelBox!.x).toBeGreaterThanOrEqual(0);
+      expect(panelBox!.x + panelBox!.width, "the released panel must end inside 390px").toBeLessThanOrEqual(390);
+      await panel.screenshot({ path: testInfo.outputPath("manual-sync-abandoned-390.png") });
     } finally {
       if (claimed) {
         await page.goto(routePath, { waitUntil: "domcontentloaded" }).catch(() => undefined);
