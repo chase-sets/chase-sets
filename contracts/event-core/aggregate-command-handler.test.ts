@@ -4,6 +4,7 @@ import { createPassthroughDomainEventCodec } from "./codec";
 import type { EventStore } from "./event-store";
 import type { DomainEvent } from "./domain";
 import type { StoredEvent } from "./storage";
+import { createInMemoryEventStore } from "./test-support";
 
 type CounterEvent = DomainEvent<"counter.incremented", { by: number }>;
 type CounterCommand = Readonly<{ type: "Increment"; by: number }>;
@@ -176,5 +177,122 @@ describe("aggregate command handler factory", () => {
       }),
     ).rejects.toThrow("inclusive read expected 501");
     expect(appendToStream).not.toHaveBeenCalled();
+  });
+
+  describe("aggregate-max-events-append-preconditions", () => {
+    const event: CounterEvent = { type: "counter.incremented", data: { by: 1 } };
+
+    function setupBound(maxEvents: number | undefined = 2) {
+      const store = createInMemoryEventStore();
+      const appendToStream = vi.spyOn(store.eventStore, "appendToStream");
+      const config = {
+        eventStore: store.eventStore,
+        codec: createPassthroughDomainEventCodec<CounterEvent>(),
+        initialState: () => 0,
+        evolve: (state: number, event: CounterEvent) => state + event.data.by,
+        decide: (_state: number, command: CounterCommand) => [
+          { type: "counter.incremented" as const, data: { by: command.by } },
+        ],
+        maxEvents,
+      };
+      return { ...store, appendToStream, config, ...createAggregateCommandHandler(config) };
+    }
+
+    it.each([0, "no_stream"] as const)(
+      "accepts exact-bound predecessor %s and rejects cap+1 before delegation",
+      async (expectedVersion) => {
+        const { repository, appendToStream, allEvents } = setupBound();
+        await expect(
+          repository.append({ streamId: "over", expectedVersion, context, events: [event, event, event] }),
+        ).rejects.toMatchObject({ name: "EventStreamTooLongError", maxEvents: 2 });
+        expect(appendToStream).not.toHaveBeenCalled();
+        await expect(
+          repository.append({ streamId: "exact", expectedVersion, context, events: [event, event] }),
+        ).resolves.toHaveLength(2);
+        await expect(repository.load("exact")).resolves.toMatchObject({ state: 2, version: 2 });
+        await expect(
+          repository.append({ streamId: "exact", expectedVersion: 2, context, events: [event] }),
+        ).rejects.toMatchObject({ name: "EventStreamTooLongError" });
+        expect(appendToStream).toHaveBeenCalledTimes(1);
+        expect(allEvents).toHaveLength(2);
+      },
+    );
+
+    it.each([[], [event]])("rejects any-bypass including an empty append (%j)", async (events) => {
+      const { repository, appendToStream } = setupBound();
+      await expect(repository.append({ streamId: "counter", expectedVersion: "any", context, events })).rejects.toThrow(
+        'expectedVersion="any"',
+      );
+      expect(appendToStream).not.toHaveBeenCalled();
+    });
+
+    it("rejects snapshots at construction without reading a snapshot", () => {
+      const { config } = setupBound();
+      const store = { loadLatest: vi.fn(async () => null), save: vi.fn(async () => {}) };
+      expect(() =>
+        createAggregateCommandHandler({
+          ...config,
+          snapshots: { store, schemaVersion: 1, everyNEvents: 1 },
+        }),
+      ).toThrow("maxEvents cannot be combined with snapshots");
+      expect(store.loadLatest).not.toHaveBeenCalled();
+    });
+
+    it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+      "rejects invalid maxEvents %s at construction",
+      (maxEvents) => {
+        expect(() => setupBound(maxEvents)).toThrow("maxEvents must be a positive safe integer");
+      },
+    );
+
+    it("forwards the complete-read cap and preserves unconfigured any/snapshots", async () => {
+      const { config, repository, eventStore } = setupBound();
+      await eventStore.appendToStream({
+        streamId: "over",
+        expectedVersion: 0,
+        context,
+        events: Array.from({ length: 3 }, () => ({
+          eventType: event.type,
+          payload: event.data,
+        })),
+      });
+      await expect(repository.load("over")).rejects.toMatchObject({ name: "EventStreamTooLongError" });
+      const unconfigured = createAggregateCommandHandler({ ...config, maxEvents: undefined });
+      await expect(unconfigured.repository.load("over")).resolves.toMatchObject({ version: 3 });
+      await expect(
+        unconfigured.repository.append({ streamId: "over", expectedVersion: "any", context, events: [event] }),
+      ).resolves.toHaveLength(1);
+      await expect(
+        unconfigured.repository.append({ streamId: "over", expectedVersion: "any", context, events: [] }),
+      ).resolves.toEqual([]);
+      const withSnapshots = createAggregateCommandHandler({
+        ...config,
+        maxEvents: undefined,
+        snapshots: { store: { loadLatest: async () => null, save: async () => {} }, schemaVersion: 1, everyNEvents: 1 },
+      });
+      await expect(withSnapshots.repository.load("over")).resolves.toMatchObject({ version: 4 });
+      expect(withSnapshots.repository.scheduleSnapshot).toBeTypeOf("function");
+    });
+
+    it("keeps a concurrent append conflict from bypassing the cap", async () => {
+      const { repository, allEvents } = setupBound();
+      await repository.append({ streamId: "counter", expectedVersion: "no_stream", context, events: [event] });
+      const results = await Promise.allSettled(
+        [1, 2].map(() =>
+          repository.append({
+            streamId: "counter",
+            expectedVersion: 1,
+            context,
+            events: [event],
+          }),
+        ),
+      );
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.find((result) => result.status === "rejected")).toMatchObject({
+        status: "rejected",
+        reason: { code: "concurrency_conflict" },
+      });
+      expect(allEvents).toHaveLength(2);
+    });
   });
 });
