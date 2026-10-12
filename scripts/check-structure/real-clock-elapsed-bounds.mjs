@@ -12,7 +12,39 @@ import ts from "@chase-sets/typescript-compiler-api";
 // a stated limit: they are not followed.
 
 const testFileExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
-const clockTokenPattern = /\b(?:performance|Date)\s*\.\s*now\b|\bprocess\s*\.\s*hrtime\b|\.\s*(?:getTime|valueOf)\s*\(/;
+const clockGlobalNames = new Set(["performance", "Date", "process"]);
+const clockNamePattern = /\b(?:performance|Date|process)\b/;
+const regexPrecedingKeywords = new Set([
+  ts.SyntaxKind.ReturnKeyword,
+  ts.SyntaxKind.TypeOfKeyword,
+  ts.SyntaxKind.InstanceOfKeyword,
+  ts.SyntaxKind.InKeyword,
+  ts.SyntaxKind.OfKeyword,
+  ts.SyntaxKind.NewKeyword,
+  ts.SyntaxKind.DeleteKeyword,
+  ts.SyntaxKind.VoidKeyword,
+  ts.SyntaxKind.ThrowKeyword,
+  ts.SyntaxKind.CaseKeyword,
+  ts.SyntaxKind.DoKeyword,
+  ts.SyntaxKind.ElseKeyword,
+  ts.SyntaxKind.YieldKeyword,
+  ts.SyntaxKind.AwaitKeyword,
+]);
+const divisionPrecedingTokens = new Set([
+  ts.SyntaxKind.NumericLiteral,
+  ts.SyntaxKind.BigIntLiteral,
+  ts.SyntaxKind.StringLiteral,
+  ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+  ts.SyntaxKind.TemplateTail,
+  ts.SyntaxKind.RegularExpressionLiteral,
+  ts.SyntaxKind.PrivateIdentifier,
+  ts.SyntaxKind.CloseParenToken,
+  ts.SyntaxKind.CloseBracketToken,
+  ts.SyntaxKind.CloseBraceToken,
+  ts.SyntaxKind.PlusPlusToken,
+  ts.SyntaxKind.MinusMinusToken,
+  ts.SyntaxKind.LessThanToken,
+]);
 const globalObjectNames = new Set(["globalThis", "window", "self", "global"]);
 const lessThanMatchers = new Set(["toBeLessThan", "toBeLessThanOrEqual"]);
 const greaterThanMatchers = new Set(["toBeGreaterThan", "toBeGreaterThanOrEqual"]);
@@ -38,7 +70,7 @@ export async function validateRealClockElapsedBounds({
       if (error?.code === "ENOENT") continue;
       throw error;
     }
-    if (!clockTokenPattern.test(source)) continue;
+    if (!mayReadClock(file, source)) continue;
     scanned += 1;
     for (const site of findElapsedUpperBounds(file, source)) {
       rows.push({ ...site, classification: allowed.has(site.id) ? "allowlisted" : "violation" });
@@ -84,6 +116,51 @@ function scriptKind(file) {
   if (extension === ".jsx") return ts.ScriptKind.JSX;
   if ([".js", ".mjs", ".cjs"].includes(extension)) return ts.ScriptKind.JS;
   return ts.ScriptKind.TS;
+}
+
+// Pre-filter: every clock read names performance, Date or process. Scanner
+// tokens skip comments and decode escaped identifiers, so neither formatting nor
+// spelling hides a read. Template and regular-expression tokens are rescanned
+// as the parser would. Without the parser, JSX text can still mis-tokenize, so
+// a scan error or a bare name anywhere in the text admits the file too.
+function mayReadClock(file, text) {
+  let scanError = false;
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.getLanguageVariant(scriptKind(file)), text, () => {
+    scanError = true;
+  });
+  const templateBraces = [];
+  let previous = ts.SyntaxKind.Unknown;
+  let beforePrevious = ts.SyntaxKind.Unknown;
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    const depth = templateBraces.length - 1;
+    if (token === ts.SyntaxKind.TemplateHead) templateBraces.push(0);
+    else if (token === ts.SyntaxKind.OpenBraceToken && depth >= 0) templateBraces[depth] += 1;
+    else if (token === ts.SyntaxKind.CloseBraceToken && depth >= 0) {
+      if (templateBraces[depth] > 0) templateBraces[depth] -= 1;
+      else {
+        token = scanner.reScanTemplateToken(false);
+        if (token === ts.SyntaxKind.TemplateTail) templateBraces.pop();
+      }
+    } else if (
+      (token === ts.SyntaxKind.SlashToken || token === ts.SyntaxKind.SlashEqualsToken) &&
+      startsRegularExpression(previous, beforePrevious)
+    )
+      token = scanner.reScanSlashToken();
+    if (scanError || (token === ts.SyntaxKind.Identifier && clockGlobalNames.has(scanner.getTokenValue()))) return true;
+    beforePrevious = previous;
+    previous = token;
+  }
+  return scanError || clockNamePattern.test(text);
+}
+
+function startsRegularExpression(previous, beforePrevious) {
+  if (divisionPrecedingTokens.has(previous)) return false;
+  if (!ts.tokenIsIdentifierOrKeyword(previous)) return true;
+  return (
+    regexPrecedingKeywords.has(previous) &&
+    beforePrevious !== ts.SyntaxKind.DotToken &&
+    beforePrevious !== ts.SyntaxKind.QuestionDotToken
+  );
 }
 
 function findElapsedUpperBounds(file, text) {
@@ -144,9 +221,10 @@ function findElapsedUpperBounds(file, text) {
           negated = true;
           target = target.expression;
         }
-        if (!isExpectCall(target)) return false;
-        const boundsSubject = lessThanMatchers.has(matcher) !== negated;
-        const elapsed = boundsSubject ? target.arguments[0] : call.arguments[0];
+        // Only the listed forms: expect(Q).toBeLessThan*, expect(Q).not.toBeGreaterThan*
+        // and expect(X).toBeGreaterThan*(Q).
+        if (!isExpectCall(target) || (negated && lessThanMatchers.has(matcher))) return false;
+        const elapsed = negated || lessThanMatchers.has(matcher) ? target.arguments[0] : call.arguments[0];
         return elapsed !== undefined && isElapsed(elapsed);
       }
     }

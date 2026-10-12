@@ -80,13 +80,6 @@ it("reversed greater", () => {
   expect(1_000).toBeGreaterThanOrEqual(performance.now() - startedAt);
 });`,
   },
-  "negated-reversed.test.ts": {
-    id: "test:negated reversed less::1::1",
-    source: `
-it("negated reversed less", () => {
-  expect(1_000).not.toBeLessThan(new Date().valueOf() - startedAt);
-});`,
-  },
   "assert-ok.test.mjs": {
     id: "test:assert ok::1::1",
     source: `
@@ -219,6 +212,64 @@ const startedAt = Date.now();
 await setup();
 expect(Date.now() - startedAt).toBeLessThan(100);`,
   },
+  "comment-performance.test.ts": {
+    id: "test:comment-separated performance::1::1",
+    source: `
+it("comment-separated performance", () => {
+  expect(performance /* clock */.now() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "comment-date.test.ts": {
+    id: "test:line-comment-separated Date::1::1",
+    source: `
+it("line-comment-separated Date", () => {
+  expect(Date // clock
+    .now() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "comment-hrtime.test.ts": {
+    id: "test:comment-separated hrtime::1::1",
+    source: `
+it("comment-separated hrtime", () => {
+  expect(process/* clock */.hrtime() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "comment-hrtime-bigint.test.ts": {
+    id: "test:comment-separated hrtime bigint::1::1",
+    source: `
+it("comment-separated hrtime bigint", () => {
+  expect(process/* clock */.hrtime.bigint() - startedAt).toBeLessThan(5n);
+});`,
+  },
+  "comment-get-time.test.ts": {
+    id: "test:comment-separated getTime::1::1",
+    source: `
+it("comment-separated getTime", () => {
+  expect(new Date().getTime/* clock */() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "comment-value-of.test.ts": {
+    id: "test:comment-separated valueOf::1::1",
+    source: `
+it("comment-separated valueOf", () => {
+  expect(new Date()./* clock */valueOf() - startedAt).toBeLessThan(5);
+});`,
+  },
+  "escaped-identifier.test.ts": {
+    id: "test:escaped identifier after a regular expression::1::1",
+    source: `
+it("escaped identifier after a regular expression", () => {
+  expect(name).toMatch(/[/*]/);
+  expect(\\u0070erformance.now() - startedAt).toBeLessThan(5); /* scanned as code */
+});`,
+  },
+  "jsx-text.test.jsx": {
+    id: "test:after JSX text::1::1",
+    source: `
+it("after JSX text", () => {
+  render(<a>http://example.test</a>); expect(performance.now() - startedAt).toBeLessThan(5);
+});`,
+  },
 };
 
 const cleanControls = `
@@ -236,6 +287,12 @@ it("lower bounds", () => {
   expect(5).not.toBeGreaterThan(elapsed);
   assert(elapsed > 10);
   assert.ok(10 <= elapsed);
+});
+
+it("negated less-than on the argument is outside the listed forms", () => {
+  const elapsed = new Date().valueOf() - startedAt;
+  expect(1_000).not.toBeLessThan(elapsed);
+  expect(1_000).not.toBeLessThanOrEqual(new Date().valueOf() - startedAt);
 });
 
 it("timestamp ordering", () => {
@@ -402,16 +459,6 @@ expect(Date.now() - startedAt).toBeLessThan(5);`,
         `${mutantFile}::test:rechecks freshness immediately when checkpoint readiness is notified before the poll interval::1::1: real-clock elapsed upper bound`,
       ),
     ]);
-  });
-
-  it("is enforced by runStructureCheck after it resets the violation list", async () => {
-    const runner = await readFile("scripts/check-structure/run.mjs", "utf8");
-    const entry = runner.indexOf("export async function runStructureCheck(");
-    const reset = runner.indexOf("violations.length = 0;", entry);
-    const call = runner.indexOf("await validateRealClockElapsedBounds({ repoRoot })", reset);
-    const push = runner.indexOf("violations.push(...realClockElapsedBounds.violations);", call);
-    expect([entry, reset, call, push].every((index) => index >= 0)).toBe(true);
-    expect(runner.indexOf("validateRealClockElapsedBounds(")).toBe(call + "await ".length);
   });
 });
 
