@@ -34,7 +34,11 @@ describe("staging-proof-credit-environment config to composed route", () => {
       const runtime = createPlatformApiHost({
         runtimeProfile: "public",
         pools,
-        hostPorts: { deploymentEnvironment: "staging", processorGateway: createFakePaymentProcessorGateway() },
+        hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+          deploymentEnvironment: "staging",
+          processorGateway: createFakePaymentProcessorGateway(),
+        },
       });
       const actor = {
         sessionId: "ses_synthetic",
@@ -110,7 +114,11 @@ describe("staging-proof-credit-environment config to composed route", () => {
         const runtime = createPlatformApiHost({
           runtimeProfile: "public",
           pools,
-          hostPorts: { deploymentEnvironment, processorGateway: createFakePaymentProcessorGateway() },
+          hostPorts: {
+            capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+            deploymentEnvironment,
+            processorGateway: createFakePaymentProcessorGateway(),
+          },
         });
         const settlement = runtime.services.settlement as SettlementServices;
         expect(settlement.stagingProofCredits.deploymentEnvironment).toBe(deploymentEnvironment);

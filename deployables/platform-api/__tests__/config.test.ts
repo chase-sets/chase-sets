@@ -249,6 +249,41 @@ function resetConfigEnv() {
 beforeEach(resetConfigEnv);
 afterEach(resetConfigEnv);
 
+describe("release-scoped Capability Administration Authority configuration", () => {
+  afterEach(() => {
+    delete process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON;
+    delete process.env.CHASE_SETS_DEPLOYMENT_INSTANCE;
+    delete process.env.CHASE_SETS_IMPLEMENTATION_SHA;
+  });
+  it("loads effective configuration independently from its declaration scope; malformed values deny all", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/synthetic";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = '["support-deployment-instance/v1","preview-9385","release-a"]';
+    process.env.CHASE_SETS_IMPLEMENTATION_SHA = "a".repeat(40);
+    const declaration = {
+      version: 1,
+      environment: "preview",
+      deploymentInstance: process.env.CHASE_SETS_DEPLOYMENT_INSTANCE,
+      authorityId: "support-admin",
+      revision: 1,
+      adminUserIds: ["usr_synthetic"],
+    };
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({ kind: "deny-all" });
+    process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON = JSON.stringify(declaration);
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({
+      kind: "configured",
+      adminUserIds: ["usr_synthetic"],
+    });
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = '["support-deployment-instance/v1","preview-9385","release-b"]';
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({ kind: "deny-all" });
+    process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON = "PLANTED_SECRET";
+    expect(loadConfig().capabilityAdministrationAuthority).toEqual({
+      kind: "deny-all",
+      diagnostic: "authority_invalid",
+    });
+  });
+});
+
 describe("platform api config", () => {
   it("keeps the online query embedding deadline separate from batch policy", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";

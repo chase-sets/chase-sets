@@ -32,6 +32,7 @@ describe("platform api bootstrap scenario", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -134,6 +135,7 @@ describe("platform api bootstrap scenario", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },

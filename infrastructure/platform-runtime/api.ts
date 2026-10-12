@@ -124,7 +124,11 @@ export function getApiHostContextNames<TRegistry extends ApiContextRegistry>(
   );
 }
 
-function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonly<Record<string, unknown>>) {
+function getHostPortsForContext(
+  manifest: ApiContextManifest,
+  hostPorts: Readonly<Record<string, unknown>>,
+  accountCapabilityRegistry: AccountCapabilityRegistry,
+) {
   const entries = manifest.hostPorts ?? [];
   if (entries.length === 0) {
     return undefined;
@@ -134,6 +138,8 @@ function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonl
   for (const hostPort of entries) {
     resolvedPorts[hostPort.portName] = hostPorts[hostPort.portName];
   }
+  if (entries.some((port) => port.portName === "capabilityAdministrationAuthority"))
+    resolvedPorts.accountCapabilityRegistry = accountCapabilityRegistry;
 
   return resolvedPorts;
 }
@@ -190,7 +196,11 @@ export function createApiHost(
         entry.contextName,
         entry.module.createServices(
           servicePool,
-          getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
+          getHostPortsForContext(
+            entry.manifest as ApiContextManifest,
+            options.hostPorts ?? {},
+            accountCapabilityRegistry,
+          ) as never,
           { notificationWaiterPool: serviceNotificationWaiterPool },
         ),
       ];

@@ -60,6 +60,7 @@ export function createCatalogSeedHost() {
     runtimeProfile: "public",
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },

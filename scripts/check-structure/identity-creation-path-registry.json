@@ -135,8 +135,8 @@
       "disposition": "exempt-permanent",
       "reason": "Seeds pre-existing aggregate state directly through the command handlers so the bootstrap reconciliation it exercises has something to reconcile; no transport and no shipping surface.",
       "sites": [
-        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 184 },
-        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 1027 }
+        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 185 },
+        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 1035 }
       ]
     },
     {
@@ -173,24 +173,24 @@
       "reason": "Non-production seed identities with no human registration moment; seeding records no Consent (#6120 removed the synthetic writes), so the exemption stands until the consent bundle defines how seeded identities are bound.",
       "owningIssue": 5684,
       "sites": [
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 388 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 398 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 408 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 418 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 437 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 494 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 525 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 537 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 559 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 571 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 585 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 595 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 605 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 618 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 629 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 798 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 849 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 898 }
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 389 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 399 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 409 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 419 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 438 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 495 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 526 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 538 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 560 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 572 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 586 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 596 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 606 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 619 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 630 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 803 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 854 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 903 }
       ]
     }
   ],

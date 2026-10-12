@@ -21,6 +21,7 @@ describe("ebay-account-deletion-composition", () => {
       pools: Object.fromEntries(apiContextRegistry.map((entry) => [entry.contextName, pool])),
       runtimeProfile: "public",
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         ebayAccountDeletionConfiguration: enabled
           ? parseEbayAccountDeletionConfiguration(

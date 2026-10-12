@@ -76,7 +76,12 @@ describe("platform-api Account Capability registry composition guard", () => {
     expect(shipped).toMatch(/inert declarations without grants, resolution, enforcement, pricing, or UI behavior/);
     expect(readme).toMatch(/inert metadata.*no grants, resolution, enforcement, pricing, or UI behavior/s);
     expect(shipped).toMatch(/ships for `support\.evidence\.any-case` only/);
-    expect(shipped).toMatch(/planned in #9385 and not yet shipped/);
+    expect(shipped).toMatch(/^### Capability Administration Authority$/m);
+    expect(readme).toContain("release-scoped Capability Administration Authority admission");
+    expect(shipped).toMatch(
+      /Grant and revoke routes require the Capability Administration Authority and audit every attempt/,
+    );
+    expect(shipped).not.toMatch(/planned in #9385 and not yet shipped/);
 
     for (const plannedTerm of [
       "Capability Restriction",

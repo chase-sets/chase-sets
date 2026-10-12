@@ -12,6 +12,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import { isDeepStrictEqual } from "node:util";
 import { createIdentityServices } from "./services";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../features/account-capabilities/api/authority";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import { provisionAdminQaActorFixtures } from "./admin-qa-actor-fixtures";
 import type {
@@ -731,7 +732,9 @@ export async function inspectIdentitySeedState(
   if (!profileEnabled(options, "scenario-seed")) {
     return [];
   }
-  const services = createIdentityServices(pool);
+  const services = createIdentityServices(pool, {
+    capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  });
   return reconcileSeedAggregates(buildScenarioIdentityReconcilers(services, createIdentityBootstrapContext()), false);
 }
 
@@ -741,7 +744,9 @@ export async function inspectIdentitySeedState(
  * authors no synthetic Consent fact.
  */
 export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
-  const services = createIdentityServices(pool);
+  const services = createIdentityServices(pool, {
+    capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  });
   const context = createIdentityBootstrapContext();
   const shouldSeedScenario = profileEnabled(options, "scenario-seed");
   const shouldSeedRepresentative = profileEnabled(options, "representative-commerce-state");

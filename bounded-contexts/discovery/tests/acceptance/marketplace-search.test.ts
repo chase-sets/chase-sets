@@ -123,7 +123,9 @@ describe("marketplace search", () => {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
     const collectionsServices = collectionsModule.createServices(pools.collections, {});
-    const identityServices = identityModule.createServices(pools.identity, {});
+    const identityServices = identityModule.createServices(pools.identity, {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+    });
     const inventoryServices = inventoryModule.createServices(pools.inventory, {});
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),

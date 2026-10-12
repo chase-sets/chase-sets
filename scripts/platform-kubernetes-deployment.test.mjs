@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { YAMLParseError, parse as parseYaml, parseDocument } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -84,6 +87,113 @@ const productionIndex = {
     },
   ],
 };
+
+describe("release-tuple support deployment instance", () => {
+  const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
+  function render(release, namespace, extra = [], chart = "infrastructure/helm/platform") {
+    const env = ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].map((name) => ({
+      name,
+      secret: true,
+      value: "PLANTED_OVERRIDE",
+    }));
+    const args = [
+      "template",
+      release,
+      chart,
+      "--namespace",
+      namespace,
+      "--show-only",
+      "templates/deployment.yaml",
+      "--set-string",
+      "global.fullnameOverride=shared",
+      "--set-string",
+      `global.image.tag=${"a".repeat(40)}`,
+      "--set-json",
+      `components.platform-api.env=${JSON.stringify(env)}`,
+      "--set-json",
+      'global.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      "--set-json",
+      'components.platform-api.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      ...extra,
+    ];
+    // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
+    const output = execFileSync(
+      nativeHelm ? "helm" : "docker",
+      nativeHelm
+        ? args
+        : [
+            "run",
+            "--rm",
+            "-v",
+            `${process.cwd()}:/repo`,
+            "-v",
+            `${tmpdir()}:${tmpdir()}`,
+            "-w",
+            "/repo",
+            "alpine/helm:3.15.4",
+            ...args,
+          ],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    const deployments = output
+      .split(/^---\s*$/m)
+      .map((part) => parseYaml(part))
+      .filter(Boolean);
+    const api = deployments.find((item) => item.metadata.labels["app.kubernetes.io/component"] === "platform-api");
+    return api.spec.template.spec.containers[0].env;
+  }
+  it("kills the fullname-derived and override/secret bypass mutants through actual Helm rendering", () => {
+    const a = render("release-a", "preview-a");
+    const instance = (env) => env.find((item) => item.name === "CHASE_SETS_DEPLOYMENT_INSTANCE");
+    expect(instance(a)).toEqual({
+      name: "CHASE_SETS_DEPLOYMENT_INSTANCE",
+      value: '["support-deployment-instance/v1","preview-a","release-a"]',
+    });
+    expect(instance(render("release-b", "preview-a"))).not.toEqual(instance(a));
+    expect(instance(render("release-a", "preview-b"))).not.toEqual(instance(a));
+    expect(instance(render("release-a", "preview-a", ["--set-string", "global.nameOverride=another"]))).toEqual(
+      instance(a),
+    );
+    const longRelease = `release-${"a".repeat(45)}`;
+    expect(instance(render(longRelease, "preview-a")).value).toBe(
+      JSON.stringify(["support-deployment-instance/v1", "preview-a", longRelease]),
+    );
+    expect(a.find((item) => item.name === "CHASE_SETS_IMPLEMENTATION_SHA")).toEqual({
+      name: "CHASE_SETS_IMPLEMENTATION_SHA",
+      value: "a".repeat(40),
+    });
+    const helper = readFileSync("infrastructure/helm/platform/templates/_helpers.tpl", "utf8");
+    expect(helper).toContain(
+      'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
+    );
+  });
+  it("executes a fullname-derived mutant and observes the release-isolation assertion fail", () => {
+    const temp = mkdtempSync(join(tmpdir(), "support-instance-mutant-"));
+    try {
+      const chart = join(temp, "chart");
+      cpSync("infrastructure/helm/platform", chart, { recursive: true });
+      const helper = join(chart, "templates", "_helpers.tpl");
+      const original = readFileSync(helper, "utf8");
+      const canonical = 'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson';
+      expect(original).toContain(canonical);
+      writeFileSync(
+        helper,
+        original.replace(
+          canonical,
+          'list "support-deployment-instance/v1" $root.Release.Namespace (include "chase-sets-platform.fullname" $root) | toJson',
+        ),
+      );
+      const instance = (release) =>
+        render(release, "preview-a", [], chart).find((item) => item.name === "CHASE_SETS_DEPLOYMENT_INSTANCE").value;
+      const a = instance("release-a");
+      const b = instance("release-b");
+      expect(() => expect(a).not.toEqual(b)).toThrow();
+      expect(a).toEqual(b);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+});
 
 function withManagedPostgresCa(options) {
   return {

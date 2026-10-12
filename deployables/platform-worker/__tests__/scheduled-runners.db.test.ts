@@ -137,6 +137,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       pools,
       runtimeProfile,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         moneyMovementGateway: createFakeMoneyMovementGateway(),
         operationsRecorder: { record: () => undefined },

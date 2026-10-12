@@ -26,6 +26,7 @@ import {
 } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
+import { accountCapabilityRoutes } from "./features/account-capabilities/api/route";
 import { accessHubRoutes } from "./features/access-hub/api/route";
 import { userRoutes } from "./features/users/api/route";
 import { membershipRoutes } from "./features/memberships/api/route";
@@ -1882,6 +1883,7 @@ export function buildIdentityApi(
   );
   app.route("/consents", consentRoutes(services.consents));
   app.route("/admin/consents", consentActivationRoutes(services.policies, consentActivationOptions));
+  app.route("/account-capabilities", accountCapabilityRoutes(services.accountCapabilities));
   app.route(
     "/consents/terms-of-service",
     termsOfServiceConsentRoutes({

@@ -6,6 +6,10 @@ import {
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
 import {
+  parseCapabilityAdministrationAuthority,
+  type CapabilityAdministrationAuthority,
+} from "@chase-sets/identity/server";
+import {
   getBooleanEnv,
   getBoundedDurationEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
@@ -153,6 +157,7 @@ export type PlatformApiBaseConfig = Readonly<{
   readConsistency?: PlatformApiReadConsistencyConfig;
   projectionInlineApplyEnabled?: boolean;
   deploymentEnvironment?: DeploymentEnvironment;
+  capabilityAdministrationAuthority?: CapabilityAdministrationAuthority;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
   registrationAdmission?: PlatformApiRegistrationAdmissionConfig;
@@ -730,6 +735,14 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     },
     projectionInlineApplyEnabled: getBooleanEnv("PROJECTION_INLINE_APPLY_ENABLED", false),
     deploymentEnvironment,
+    capabilityAdministrationAuthority: parseCapabilityAdministrationAuthority(
+      process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON,
+      {
+        environment: deploymentEnvironment,
+        deploymentInstance: process.env.CHASE_SETS_DEPLOYMENT_INSTANCE,
+        implementationSha: process.env.CHASE_SETS_IMPLEMENTATION_SHA,
+      },
+    ),
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
     registrationAdmission: {

@@ -71,6 +71,15 @@ const expectedInventory = [
     null,
   ],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
+  // The existing corpus includes slice-local .test-support.ts history assertions.
+  [
+    "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#1",
+    null,
+  ],
+  [
+    "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#2",
+    null,
+  ],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1", "pageLimit"],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#2", "batchSize"],
 ].sort(([left], [right]) => left.localeCompare(right));
@@ -88,7 +97,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twelve-call production census and eight pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact fourteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });

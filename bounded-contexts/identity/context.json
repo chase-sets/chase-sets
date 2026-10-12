@@ -150,6 +150,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "capabilityAdministrationAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Admits support.evidence.any-case grant and revoke from a release-scoped deployment allow-list; worker and bootstrap explicitly deny all."
+    },
+    {
       "portName": "addressVerificationProvider",
       "providedBy": "platform-api",
       "purpose": "Verifies buyer-saved shipping addresses through the configured postage provider before Identity commits address snapshots."

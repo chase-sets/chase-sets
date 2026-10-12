@@ -18,6 +18,7 @@ import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as identityModule } from "@chase-sets/identity";
+import { parseCapabilityAdministrationAuthority } from "@chase-sets/identity/server";
 import { module as authModule } from "../../index";
 import { toSessionStreamId } from "../../features/sessions/domain/auth-flow";
 import { AUTH_BOOTSTRAP_TENANT_ID } from "../auth-support/constants";
@@ -58,6 +59,7 @@ describeDb("Auth projection of Identity Capability Grants", () => {
   let pools: Readonly<Record<"identity" | "auth", PgTransactionalPool>>;
   let auth: AuthServices;
   let identity: ReturnType<typeof identityModule.createServices>;
+  let administrator: ResolvedActor;
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["identity", "auth"], "auth_capability_grants");
@@ -70,13 +72,46 @@ describeDb("Auth projection of Identity Capability Grants", () => {
     await bootstrapContextDatabase(authModule, pools.auth);
     await syncContextProjectionGroups(mountedRuntime(), "auth", { requiredOnly: true });
     auth = createAuthServices(pools.auth);
-    identity = identityModule.createServices(pools.identity, {});
+    const deploymentInstance = '["support-deployment-instance/v1","synthetic","auth-capability"]';
+    identity = identityModule.createServices(pools.identity, {
+      capabilityAdministrationAuthority: parseCapabilityAdministrationAuthority(
+        JSON.stringify({
+          version: 1,
+          environment: "test",
+          deploymentInstance,
+          authorityId: "synthetic-auth-projection",
+          revision: 1,
+          adminUserIds: [ADMINISTRATOR],
+        }),
+        { environment: "test", deploymentInstance, implementationSha: "0".repeat(40) },
+      ),
+      accountCapabilityRegistry: registry,
+    });
+    await identity.accountCapabilities.initializeAdministrationAuthority();
+    await projectUser(ADMINISTRATOR, true);
     await projectUser(USER, true);
     await projectUser(UNVERIFIED_USER, false);
-    for (const accountId of [ACCOUNT, OTHER]) await projectAccount(accountId);
+    for (const accountId of [ACCOUNT, OTHER]) {
+      await projectAccount(accountId);
+      await identity.eventStore!.appendToStream({
+        streamId: `identity.account-${accountId}`,
+        expectedVersion: "no_stream",
+        context: authContext,
+        events: [
+          {
+            eventType: "identity.account.created",
+            payload: { accountId, name: accountId, displayName: accountId, accountType: "business" },
+          },
+        ],
+      });
+    }
     await projectMembership(MEMBERSHIP, USER, ACCOUNT);
     await projectMembership("mbr_synthetic_capability_other", USER, OTHER);
     await projectMembership("mbr_synthetic_capability_unverified", UNVERIFIED_USER, ACCOUNT);
+    await projectMembership("mbr_synthetic_capability_admin", ADMINISTRATOR, ACCOUNT);
+    const resolved = await resolve(await signIn(ADMINISTRATOR, ACCOUNT));
+    if (!resolved) throw new Error("Synthetic administrator must resolve an active human Session.");
+    administrator = resolved;
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
@@ -140,9 +175,18 @@ describeDb("Auth projection of Identity Capability Grants", () => {
   it("does not surface a grant recorded under another tenant", async () => {
     // Bypass mutant: dropping tenant_id from the grant lookup would surface this grant.
     const otherTenant = "tnt_synthetic_other";
-    await identity.accountCapabilities.grantAccountCapability(
-      { ...request(0), admission: { tenantId: otherTenant, administratorUserId: ADMINISTRATOR } as never },
-      { ...identityContext(), tenantId: otherTenant } as never,
+    await buildAuthIdentityAccountCapabilityProjectionHandlers(pools.auth)["identity.account-capability.granted"]!(
+      buildTransportEvent(
+        "identity.account-capability.granted",
+        {
+          tenantId: otherTenant,
+          accountId: ACCOUNT,
+          capabilityKey: KEY,
+          assignmentId: "acap_synthetic_other_tenant",
+          version: 1,
+        },
+        { tenantId: otherTenant },
+      ),
     );
     await drain();
 
@@ -245,7 +289,13 @@ describeDb("Auth projection of Identity Capability Grants", () => {
 
   function mountedRuntime() {
     return createMountedContextTestRuntime([
-      { contextName: "identity", mountRole: "source-only", module: identityModule, pool: pools.identity, ports: {} },
+      {
+        contextName: "identity",
+        mountRole: "source-only",
+        module: identityModule,
+        pool: pools.identity,
+        ports: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+      },
       { contextName: "auth", module: authModule, pool: pools.auth, ports: {} },
     ]);
   }
@@ -259,17 +309,16 @@ describeDb("Auth projection of Identity Capability Grants", () => {
     } as unknown as EventStoreContext;
   }
   function request(expectedVersion: number) {
-    // Test-only stand-in for the admission the Capability Administration Authority (#9385) will mint.
     return {
-      admission: { tenantId: AUTH_BOOTSTRAP_TENANT_ID, administratorUserId: ADMINISTRATOR } as never,
-      accountCapabilityRegistry: registry,
       accountId: ACCOUNT,
       capabilityKey: KEY,
       expectedVersion,
     };
   }
   async function grant(expectedVersion: number) {
-    const result = await identity.accountCapabilities.grantAccountCapability(
+    const result = await identity.accountCapabilities.attemptAccountCapabilityAssignment(
+      "grant",
+      administrator,
       request(expectedVersion),
       identityContext(),
     );
@@ -277,7 +326,12 @@ describeDb("Auth projection of Identity Capability Grants", () => {
     return result.state;
   }
   async function revoke(expectedVersion: number) {
-    await identity.accountCapabilities.revokeAccountCapability(request(expectedVersion), identityContext());
+    await identity.accountCapabilities.attemptAccountCapabilityAssignment(
+      "revoke",
+      administrator,
+      request(expectedVersion),
+      identityContext(),
+    );
   }
   async function signIn(userId: string, accountId: string) {
     const result = await startInteractiveAuth(auth, {

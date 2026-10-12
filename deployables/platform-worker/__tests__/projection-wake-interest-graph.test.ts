@@ -553,6 +553,7 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
   return createWorkerHost(workerContextRegistry, "platform-worker", {
     pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, createUnusedPool()])),
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
