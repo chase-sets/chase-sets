@@ -86,6 +86,45 @@ describe("REVIEW-PROBE-9471", () => {
         (error: { code?: string }) => ({ err: error.code }),
       );
     expect(outcome).toEqual({ ok: "sli_existing" });
+    expect(memory.intents.get("sli_existing")).toMatchObject({
+      status: "active",
+      owner_revision: 2,
+      anonymous_owner_id: "anon_device",
+    });
+  });
+
+  it.each([
+    { interleave: "claiming", code: "intent-already-claimed" },
+    { interleave: "claimed", code: "intent-already-claimed" },
+    { interleave: "expiry", code: "intent-expired" },
+    { interleave: "deletion", code: "intent-not-found" },
+    { interleave: "different owner", code: "intent-not-found" },
+  ])("rejects $interleave on the owner-scoped refresh re-read", async ({ interleave, code }) => {
+    const memory = createIntentDb();
+    memory.insertIntent({ intentId: "sli_existing" });
+    let interleaved = false;
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        if (!interleaved && sql.includes("SET source_path")) {
+          interleaved = true;
+          const row = memory.intents.get("sli_existing")!;
+          row.owner_revision = Number(row.owner_revision) + 1;
+          if (interleave === "claiming" || interleave === "claimed") row.status = interleave;
+          if (interleave === "expiry") row.expires_at = now;
+          if (interleave === "deletion") memory.intents.delete("sli_existing");
+          if (interleave === "different owner") row.anonymous_owner_fingerprint = "other-owner";
+        }
+        return memory.db.query<Row>(sql, values);
+      },
+    };
+    await expect(
+      setup(db).discovery.createAnonymousIntent({
+        anonymousOwnerId: "anon_device",
+        sourcePath: "/search",
+        sourceSurface: "search",
+        product: product(),
+      }),
+    ).rejects.toMatchObject({ code });
   });
 });
 

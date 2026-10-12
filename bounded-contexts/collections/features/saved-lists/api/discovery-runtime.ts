@@ -362,9 +362,24 @@ export function createSavedListDiscoveryRuntime(
             existing.rows[0].owner_revision,
           ],
         );
-        if (!updated.rows[0])
+        if (updated.rows[0]) return toIntent(updated.rows[0]);
+        const reread = await deps.db.query<AnonymousIntentRow>(
+          `SELECT ${anonymousIntentColumns}
+           FROM collections_anonymous_saved_list_intents
+           WHERE intent_id = $1 AND anonymous_owner_fingerprint = $2`,
+          [existing.rows[0].intent_id, anonymousOwnerId],
+        );
+        const current = reread.rows[0];
+        if (!current) {
+          throw new SavedListDiscoveryError("intent-not-found", "Saved List addition was not found.");
+        }
+        if (current.status !== "active") {
           throw new SavedListDiscoveryError("intent-already-claimed", "Saved List addition is no longer available.");
-        return toIntent(updated.rows[0]);
+        }
+        if (new Date(current.expires_at).getTime() <= now().getTime()) {
+          throw new SavedListDiscoveryError("intent-expired", "Saved List addition expired. Save the Product again.");
+        }
+        return toIntent(current);
       }
 
       const count = await deps.db.query<{ count: string }>(

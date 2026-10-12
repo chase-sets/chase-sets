@@ -53,12 +53,12 @@ describe("saved-list-canonical-fingerprint-vectors", () => {
       "item_test",
       "product_test",
       [
-        ["z", "ø"],
+        ["B", "ø"],
         ["a", "雪"],
       ],
     ];
     expect(savedListCanonicalPreimage(tuple)).toBe(
-      '["collections.addition.v1","account_test","op_test",["new","list_test","create_test","Café | []"],["item_test","product_test",[["a","雪"],["z","ø"]]],1,"search","cmd_test","line_test"]',
+      '["collections.addition.v1","account_test","op_test",["new","list_test","create_test","Café | []"],["item_test","product_test",[["B","ø"],["a","雪"]]],1,"search","cmd_test","line_test"]',
     );
     expect(savedListFingerprint(tuple)).not.toBe(
       savedListFingerprint([

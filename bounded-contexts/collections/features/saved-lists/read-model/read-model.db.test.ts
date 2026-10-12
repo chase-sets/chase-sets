@@ -305,8 +305,8 @@ describeDb("Saved List read-model SQL boundary", () => {
     expect(captured.lineId).toBe("sll_sli_options");
   });
 
-  it.each([{ writer: "old" }, { writer: "new" }])(
-    "anonymous-owner-mixed-version-compatibility fences refresh against a $writer claimant",
+  it.each([{ writer: "old" }, { writer: "new" }, { writer: "same-owner refresh" }])(
+    "anonymous-owner-mixed-version-compatibility handles a $writer interleaving during refresh",
     async ({ writer }) => {
       const db = pools.collections;
       await insertLegacyIntent(db, "sli_refresh", "anon_refresh");
@@ -315,31 +315,53 @@ describeDb("Saved List read-model SQL boundary", () => {
         query: async <Row>(sql: string, values?: readonly unknown[]) => {
           if (!interleaved && sql.includes("SET source_path")) {
             interleaved = true;
-            await db.query(
-              `UPDATE collections_anonymous_saved_list_intents SET status = 'claiming',
+            if (writer === "same-owner refresh") {
+              await db.query(
+                `UPDATE collections_anonymous_saved_list_intents
+                 SET owner_revision = owner_revision + 1, source_path = '/newer'
+                 WHERE intent_id = 'sli_refresh' AND status = 'active'`,
+              );
+            } else {
+              await db.query(
+                `UPDATE collections_anonymous_saved_list_intents SET status = 'claiming',
           claimed_account_id = $1, source_path = '/newer',
           owner_revision = owner_revision + $2
           WHERE intent_id = 'sli_refresh' AND status = 'active'`,
-              [ownerAccountId, writer === "new" ? 1 : 0],
-            );
+                [ownerAccountId, writer === "new" ? 1 : 0],
+              );
+            }
           }
           return db.query<Row>(sql, values);
         },
       };
-      await expect(
-        anonymousDiscovery(guarded).createAnonymousIntent({
-          anonymousOwnerId: "anon_refresh",
-          sourcePath: "/stale",
-          sourceSurface: "search",
-          product: anonymousProduct,
-        }),
-      ).rejects.toMatchObject({ code: "intent-already-claimed" });
+      const capture = anonymousDiscovery(guarded).createAnonymousIntent({
+        anonymousOwnerId: "anon_refresh",
+        sourcePath: "/stale",
+        sourceSurface: "search",
+        product: anonymousProduct,
+      });
+      if (writer === "same-owner refresh") {
+        await expect(capture).resolves.toMatchObject({
+          intentId: "sli_refresh",
+          addCommandId: "slc_sli_refresh",
+          lineId: "sll_sli_refresh",
+        });
+      } else {
+        await expect(capture).rejects.toMatchObject({ code: "intent-already-claimed" });
+      }
       expect(
         (
-          await db.query(`SELECT status, source_path, anonymous_owner_id FROM collections_anonymous_saved_list_intents
+          await db.query(`SELECT status, source_path, owner_revision, anonymous_owner_id FROM collections_anonymous_saved_list_intents
       WHERE intent_id = 'sli_refresh'`)
         ).rows,
-      ).toEqual([{ status: "claiming", source_path: "/newer", anonymous_owner_id: "anon_refresh" }]);
+      ).toEqual([
+        {
+          status: writer === "same-owner refresh" ? "active" : "claiming",
+          source_path: "/newer",
+          owner_revision: writer === "old" ? 1 : 2,
+          anonymous_owner_id: "anon_refresh",
+        },
+      ]);
     },
   );
 
