@@ -1,19 +1,16 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
-import {
-  decideUserPreferences,
-  defaultUserPresentationPreferences,
-  evolveUserPreferences,
-  initialUserPreferencesState,
-  type UserPreferencesState,
-} from "../domain/domain";
+import { defaultUserPresentationPreferences } from "../domain/domain";
 import { USER_PREFERENCES_COLOR_MODE_COOKIE_NAME } from "./color-mode-cookie";
 import { userPreferencesRoutes } from "./route";
 import type { UserPreferencesServices } from "./runtime";
+import { createUserPreferencesRuntime } from "./runtime";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -50,28 +47,16 @@ function buildApp(services: UserPreferencesServices, currentActor: ResolvedActor
 }
 
 function buildServices() {
-  let state: UserPreferencesState = initialUserPreferencesState;
-  let version = 0;
-
+  const services = createUserPreferencesRuntime({
+    eventStore: createInMemoryEventStore().eventStore,
+    db: { query: async <Row>() => ({ rows: [] as Row[], rowCount: 0 }) },
+    checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => undefined },
+  });
   return {
-    commandHandler: vi.fn(async (input) => {
-      const events = decideUserPreferences(state, input.command);
-      state = events.reduce(evolveUserPreferences, state);
-      version += events.length;
-
-      return {
-        state,
-        version,
-        newEvents: events,
-        storedEvents: [],
-      };
-    }),
-    getUserPreferences: vi.fn(async (userId: string) => ({
-      userId: userId as UserId,
-      ...defaultUserPresentationPreferences,
-    })),
-    projectors: [],
-  } satisfies UserPreferencesServices;
+    ...services,
+    writeUserPreferences: vi.fn(services.writeUserPreferences),
+    getUserPreferences: vi.fn(services.getUserPreferences),
+  };
 }
 
 async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: RequestInit = {}) {
@@ -79,6 +64,7 @@ async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: Reques
     ...init,
     headers: {
       "Content-Type": "application/json",
+      "Idempotency-Key": crypto.randomUUID(),
       ...init.headers,
     },
   });
@@ -87,6 +73,68 @@ async function requestJson(app: Hono<IdentityApiEnv>, path: string, init: Reques
 }
 
 describe("user preferences API route", () => {
+  it("preference-write-closed-request-contract", async () => {
+    const services = buildServices();
+    const app = buildApp(services);
+    for (const body of [
+      "{",
+      "null",
+      "1",
+      '"dark"',
+      "[]",
+      "{}",
+      '{"userId":"usr_1"}',
+      '{"colorMode":{"value":"dark"}}',
+      '{"colorMode":"dark","other":true}',
+    ]) {
+      const response = await app.request("/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": "attempt-1" },
+        body,
+      });
+      expect(response.status, body).toBe(400);
+      expect(await response.json()).toEqual({
+        error: { code: "validation_failed", message: "User preferences are invalid." },
+      });
+    }
+    for (const key of [undefined, "", "x".repeat(129), "non-ascii-é"]) {
+      const response = await app.request("/preferences", {
+        method: "PUT",
+        headers: key === undefined ? {} : { "Idempotency-Key": key },
+        body: '{"colorMode":"dark"}',
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(services.writeUserPreferences).not.toHaveBeenCalled();
+    expect(services.getUserPreferences).not.toHaveBeenCalled();
+    for (const field of Object.keys(defaultUserPresentationPreferences)) {
+      for (const scalar of [null, true, 1, [], {}, "", "x".repeat(129)]) {
+        const response = await app.request("/preferences", {
+          method: "PUT",
+          headers: { "Idempotency-Key": "attempt" },
+          body: JSON.stringify({ [field]: scalar }),
+        });
+        expect(response.status, `${field}/${JSON.stringify(scalar)}`).toBe(400);
+        expect(await response.json()).toEqual({
+          error: { code: "validation_failed", message: "User preferences are invalid." },
+        });
+      }
+    }
+    expect(services.writeUserPreferences).not.toHaveBeenCalled();
+    for (const field of Object.keys(defaultUserPresentationPreferences)) {
+      const response = await app.request("/preferences", {
+        method: "PUT",
+        headers: { "Idempotency-Key": `${field}-valid` },
+        body: JSON.stringify({
+          [field]: defaultUserPresentationPreferences[field as keyof typeof defaultUserPresentationPreferences],
+        }),
+      });
+      expect(response.status, field).toBe(200);
+      expect((await response.json()).receipt.changes).toEqual({
+        [field]: defaultUserPresentationPreferences[field as keyof typeof defaultUserPresentationPreferences],
+      });
+    }
+  });
   it("reads the authenticated user's resolved preferences with defaults when unset", async () => {
     const services = buildServices();
 
@@ -138,14 +186,10 @@ describe("user preferences API route", () => {
       locale: "en-US",
       timeZone: "America/Chicago",
     });
-    expect(services.commandHandler).toHaveBeenLastCalledWith(
+    expect(services.writeUserPreferences).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        streamId: `identity.user-preferences-${actor.userId}`,
-        command: {
-          type: "SetUserPreferences",
-          userId: actor.userId,
-          density: "compact",
-        },
+        userId: actor.userId,
+        changes: { density: "compact" },
       }),
     );
   });
@@ -158,9 +202,9 @@ describe("user preferences API route", () => {
       body: JSON.stringify({ userId: "usr_2", colorMode: "light" }),
     });
 
-    expect(response.status).toBe(403);
-    expect(body.error.code).toBe("authorization_forbidden");
-    expect(services.commandHandler).not.toHaveBeenCalled();
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("validation_failed");
+    expect(services.writeUserPreferences).not.toHaveBeenCalled();
   });
 
   it("rejects invalid preference values with a validation error", async () => {
@@ -174,7 +218,7 @@ describe("user preferences API route", () => {
     expect(response.status).toBe(400);
     expect(body.error).toEqual({
       code: "validation_failed",
-      message: "Color mode must be system, light, or dark.",
+      message: "User preferences are invalid.",
     });
   });
 
@@ -189,7 +233,33 @@ describe("user preferences API route", () => {
 
     expect(read.response.status).toBe(401);
     expect(write.response.status).toBe(401);
-    expect(services.commandHandler).not.toHaveBeenCalled();
+    expect(services.writeUserPreferences).not.toHaveBeenCalled();
     expect(services.getUserPreferences).not.toHaveBeenCalled();
+  });
+  it("preference-write-user-isolation payload-log secret scan", async () => {
+    const services = buildServices();
+    const app = buildApp(services);
+    const secret = "private-opaque-key-never-disclosed";
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const first = await requestJson(app, "/preferences", {
+        method: "PUT",
+        headers: { "Idempotency-Key": secret },
+        body: '{"colorMode":"dark"}',
+      });
+      const conflict = await requestJson(app, "/preferences", {
+        method: "PUT",
+        headers: { "Idempotency-Key": secret },
+        body: '{"colorMode":"light"}',
+      });
+      expect(conflict.response.status).toBe(409);
+      expect(conflict.body.preferences.userId).toBe(actor.userId);
+      expect(JSON.stringify({ first: first.body, conflict: conflict.body, logs: log.mock.calls })).not.toContain(
+        secret,
+      );
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
   });
 });

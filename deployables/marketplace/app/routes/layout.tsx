@@ -123,6 +123,7 @@ export default function MarketplaceLayoutRoute() {
     | undefined;
   const { colorMode, preferences } = useUserPreferencesAccountMenu(
     rootData?.viewer?.preferences?.colorMode ?? rootData?.colorMode,
+    rootData?.actor?.userId ?? null,
   );
   const actor = rootData?.actor ?? null;
   const isGuestCheckoutActor = actor?.roleKey === "guest-buyer";

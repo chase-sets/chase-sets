@@ -22,7 +22,10 @@ export function AdminRootShell({
   viewer?: IdentityShellViewer | null;
 }>) {
   const resolvedActor = viewer?.actor ?? actor ?? null;
-  const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
+  const { colorMode, preferences } = useUserPreferencesAccountMenu(
+    viewer?.preferences?.colorMode,
+    resolvedActor?.userId ?? null,
+  );
 
   return (
     <ChaseRoot

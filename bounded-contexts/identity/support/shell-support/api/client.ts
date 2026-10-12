@@ -2,6 +2,8 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildIdentityApi } from "../../../api";
+import type { PreferenceWriteResponse, UserPreferences } from "../../../features/preferences/api/contracts";
+import { canonicalPreferenceChanges } from "../../../features/preferences/domain/domain";
 import type {
   CloseAccountRequest,
   ReactivateAccountRequest,
@@ -31,6 +33,14 @@ export interface IdentityApiClientOptions {
   headers?: HeadersInit | (() => HeadersInit);
   credentials?: RequestCredentials;
 }
+
+export class PreferenceWriteNotDispatchedError extends Error {
+  constructor() {
+    super("User preferences were not sent.");
+  }
+}
+
+export type IdentityApiClient = ReturnType<typeof createIdentityApiClient>;
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
@@ -179,11 +189,23 @@ export function createIdentityApiClient({
     async getCurrentActorDisplay<T>(): Promise<T> {
       return parseJsonResponse<T>(await client["current-actor-display"].$get({ header: headers }));
     },
-    async getUserPreferences<T>(): Promise<T> {
+    async getUserPreferences<T = UserPreferences>(): Promise<T> {
       return parseJsonResponse<T>(await client.preferences.$get({ header: headers }));
     },
-    async updateUserPreferences<T>(body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(await client.preferences.$put({ json: body, header: headers }));
+    async updateUserPreferences(body: unknown): Promise<PreferenceWriteResponse> {
+      let changes;
+      let key;
+      try {
+        changes = canonicalPreferenceChanges(body);
+        key = globalThis.crypto.randomUUID();
+      } catch {
+        throw new PreferenceWriteNotDispatchedError();
+      }
+      const requestHeaders = new Headers(headers);
+      requestHeaders.set("Idempotency-Key", key);
+      return parseJsonResponse<PreferenceWriteResponse>(
+        await client.preferences.$put({ json: changes, header: Object.fromEntries(requestHeaders) }),
+      );
     },
     async listUsers<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
