@@ -971,14 +971,16 @@ describe("support request routes", () => {
     ],
   ] as const)("returns a command-owned snapshot for %s", async (methodName, path, body, expected) => {
     const participant = methodName !== "resolveSupportRequest";
-    const command = vi.fn(async () =>
-      participant ? expected : { supportRequestId: expected.id, version: expected.version },
-    );
-    const services = createServices(
-      participant
-        ? { executeParticipantAttempt: command as SupportRequestServices["executeParticipantAttempt"] }
-        : { resolveSupportRequest: command as SupportRequestServices["resolveSupportRequest"] },
-    );
+    const executeParticipantAttempt = vi.fn<SupportRequestServices["executeParticipantAttempt"]>(async () => {
+      if (expected.status === "resolved") throw new Error("Adjudication is not a participant command");
+      return { ...expected, evidenceId: null, responseId: null, offerId: null };
+    });
+    const resolveSupportRequest = vi.fn<SupportRequestServices["resolveSupportRequest"]>(async () => ({
+      supportRequestId: expected.id,
+      version: expected.version,
+    }));
+    const command = participant ? executeParticipantAttempt : resolveSupportRequest;
+    const services = createServices({ executeParticipantAttempt, resolveSupportRequest });
 
     const response = await buildApp(services).request(path, {
       method: "POST",
@@ -991,7 +993,9 @@ describe("support request routes", () => {
     });
 
     expect(response.status).toBe(methodName === "openSupportRequest" ? 201 : 200);
-    await expect(response.json()).resolves.toEqual(expected);
+    await expect(response.json()).resolves.toEqual(
+      participant ? { ...expected, evidenceId: null, responseId: null, offerId: null } : expected,
+    );
     expect(command).toHaveBeenCalledTimes(1);
   });
 

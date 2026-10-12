@@ -129,6 +129,17 @@ describe("support participant mutation inventory", () => {
       partition(route.replace('executeParticipantCommand("submit-evidence", c)', "oldUnprotectedCommand(c)")),
     ).toThrow("INDETERMINATE");
   });
+  it("receipt-aware list redirects declare freshness for both account lists", () => {
+    const routes = context.apiMounts.find(
+      (mount: { mountPath: string }) => mount.mountPath === "/api/marketplace",
+    ).readFreshnessRoutes;
+    for (const routePath of ["/support-requests/purchases", "/support-requests/sales"])
+      expect(routes).toContainEqual({
+        routePath,
+        methods: ["GET", "HEAD"],
+        dependencies: [{ readModelTable: "support_request_pages" }],
+      });
+  });
   it("real resolve route/runtime/domain refuses participant adjudication with zero append", async () => {
     const f = participantFixture();
     const opened = await f.executeParticipant("open-support-request", openBody);

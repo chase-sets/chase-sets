@@ -572,6 +572,24 @@
               "readModelTable": "support_request_pages"
             }
           ]
+        },
+        {
+          "routePath": "/support-requests/purchases",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "support_request_pages"
+            }
+          ]
+        },
+        {
+          "routePath": "/support-requests/sales",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "support_request_pages"
+            }
+          ]
         }
       ]
     }
