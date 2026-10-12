@@ -221,6 +221,59 @@ describe("Product Alert notification projector", () => {
     },
   );
 
+  it.each([
+    ["listing", "10.00", "10.00", 1],
+    ["listing", "10.01", "10.00", 0],
+    ["offer", "10.00", "10.00", 1],
+    ["offer", "9.99", "10.00", 0],
+    ["listing", "12abc", "12.00", 0],
+    ["offer", "12abc", "12.00", 0],
+    ["listing", "12.00", "12abc", 0],
+    ["offer", "12.00", "12abc", 0],
+  ] as const)(
+    "matches price thresholds in exact cents: %s %s against %s",
+    async (marketSide, priceAmount, thresholdAmount, count) => {
+      const db = new ProductAlertProjectionDb();
+      const outbox = { enqueueNotification: vi.fn(async (_input: { message: { title: string } }) => undefined) };
+      db.alerts.set("pal_1", {
+        alert_id: "pal_1",
+        account_id: "acc_watcher",
+        market_side: marketSide,
+        catalog_catalog_item_id: "cat_1",
+        product_id: "cat_1::raw",
+        threshold_amount: thresholdAmount,
+        threshold_currency_code: "USD",
+        status: "active",
+      });
+      await projectMarketplaceEventToProductAlertNotifications(
+        db,
+        outbox,
+        marketplaceEvent(marketSide === "listing" ? "marketplace.listing.created" : "marketplace.offer.submitted", {
+          listingId: "lst_1",
+          offerId: "off_1",
+          accountId: "acc_seller",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_1",
+          productId: "cat_1::raw",
+          selectedOptions: [],
+          itemTitle: "Charizard",
+          priceAmount,
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+          quantityRequested: 1,
+        }),
+      );
+      if (marketSide === "listing") {
+        await projectMarketplaceEventToProductAlertNotifications(
+          db,
+          outbox,
+          marketplaceEvent("marketplace.listing.published", {}),
+        );
+      }
+      expect(outbox.enqueueNotification).toHaveBeenCalledTimes(count);
+    },
+  );
+
   it("notifies a listing subscriber when a draft listing becomes active below threshold", async () => {
     const db = new ProductAlertProjectionDb();
     const outbox = { enqueueNotification: vi.fn(async (_input: { message: { title: string } }) => undefined) };

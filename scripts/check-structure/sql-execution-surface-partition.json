@@ -61,6 +61,7 @@
     "bounded-contexts/catalog/features/scope-registry/read-model/queries.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/planner.ts",
+    "bounded-contexts/catalog/features/scope-sync-batches/read-model/count-store.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
     "bounded-contexts/catalog/features/scope-sync-state/read-model/queries.ts",
     "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-control-plane-readiness.ts",
@@ -135,6 +136,7 @@
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/projection.ts",
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/queries.ts",
     "bounded-contexts/channels/features/tcgplayer-orders/api/runtime.ts",
+    "bounded-contexts/channels/features/tcgplayer-orders/read-model/recorded-facts.ts",
     "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts",
     "bounded-contexts/checkout/features/cart/api/runtime.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts",
@@ -498,7 +500,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 290,
+    "count": 291,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -515,6 +517,7 @@
       "bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts": 7,
       "bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts": 2,
       "bounded-contexts/catalog/features/reference-data/api/route.ts": 2,
+      "bounded-contexts/catalog/features/scope-sync-batches/api/route.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts": 14,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 17,

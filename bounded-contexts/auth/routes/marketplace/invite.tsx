@@ -10,6 +10,7 @@ import {
 import type { InteractiveAuthResult } from "../../support/runtime-support/services";
 import { createAuthRequestApiClient } from "../../support/request-support/api-client";
 import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
+import { toAuthActionError } from "../../support/route-support/auth-host";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: t("auth.routes.marketplace.invite.meta.title") });
 
@@ -41,12 +42,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       freshWriteSource: result,
     });
   } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed.fallback"),
-    };
+    return toAuthActionError(error, "invitation-accept");
   }
 }
 

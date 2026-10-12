@@ -2523,6 +2523,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../stripe-config

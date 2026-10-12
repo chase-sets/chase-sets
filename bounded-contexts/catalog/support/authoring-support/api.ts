@@ -97,7 +97,9 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/product-contents", productContentRoutes(services.productContents));
   app.route(
     "/source-observations",
-    sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles),
+    sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles, () =>
+      services.scopeSyncBatches.countSpend({}),
+    ),
   );
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));
   app.route("/attention-queue", catalogAttentionQueueRoutes(services.attentionQueue));

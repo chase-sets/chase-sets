@@ -1,4 +1,5 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -208,7 +209,9 @@ function normalizeOptionalMoney(value: string | null | undefined) {
     return null;
   }
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Price threshold must be a valid decimal.");
-  return Number.parseFloat(normalized).toFixed(2);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Price threshold must be a valid decimal.");
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeSelectedOptions(selectedOptions: readonly ProductAlertSelectedOption[]) {

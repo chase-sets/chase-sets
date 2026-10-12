@@ -14,8 +14,81 @@ import { providerWriterShape } from "@chase-sets/evidence-window-provider-write/
 import type { ProviderWriteRow } from "@chase-sets/evidence-window-provider-write";
 import type { CreateProcessorPaymentInput, CreateProcessorSetupSessionInput } from "@chase-sets/payment-processing";
 import type { PaymentId } from "@chase-sets/primitives/typed-ids";
+import { executeGovernedProviderWrite } from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
 
 afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+  ["12.34", "1234"],
+  ["0.10", "10"],
+])("converts charge and refund amounts through the money primitive: %s", async (amount, expectedMinorUnits) => {
+  const calls: Array<{ url: string; amount: string | null }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const fields = new URLSearchParams(String(init?.body));
+      calls.push({ url, amount: fields.get("amount") ?? fields.get("line_items[0][price_data][unit_amount]") });
+      return Response.json({
+        id: url.endsWith("/refunds") ? "re_SYNTHETIC" : url.endsWith("/sessions") ? "cs_SYNTHETIC" : "pi_SYNTHETIC",
+        status: "succeeded",
+      });
+    }),
+  );
+  const gateway = createStripePaymentProcessorGateway({
+    secretKey: "sk_test_SYNTHETIC",
+    publishableKey: "pk_test_SYNTHETIC",
+    webhookSecret: "whsec_SYNTHETIC",
+    apiBaseUrl: "https://stripe.test",
+  });
+  const input: CreateProcessorPaymentInput = {
+    paymentId: "pay_SYNTHETIC" as PaymentId,
+    buyerAccountId: "acc_SYNTHETIC" as AccountId,
+    orderIds: [],
+    amount,
+    currencyCode: "usd",
+    paymentMethodCategory: "card",
+    description: "Synthetic payment",
+    providerCustomerReference: "cus_SYNTHETIC",
+    returnUrl: "https://marketplace.test/account/payments/pay_SYNTHETIC",
+  };
+
+  await gateway.createPaymentSession(input);
+  await gateway.createPaymentSession({
+    ...input,
+    savedCheckoutInstrument: {
+      instrumentId: "sci_SYNTHETIC",
+      providerReference: "pm_SYNTHETIC",
+      confirmationExperience: "off-session-token",
+    },
+  });
+  await gateway.createAgenticPaymentSession!({
+    ...input,
+    agenticPayment: {
+      kind: "stripe-shared-payment-token",
+      sharedPaymentGrantedToken: "spt_SYNTHETIC",
+      ap2CheckoutMandateId: "ap2_checkout_SYNTHETIC",
+      ap2PaymentMandateId: "ap2_payment_SYNTHETIC",
+    },
+  });
+  await gateway.createRefund({
+    refundId: "rfd_SYNTHETIC",
+    paymentId: input.paymentId,
+    processorPaymentReference: "pi_SYNTHETIC",
+    orderIds: [],
+    amount,
+    currencyCode: "usd",
+    reason: "Synthetic refund",
+  });
+
+  expect(calls).toEqual([
+    { url: "https://stripe.test/v1/checkout/sessions", amount: expectedMinorUnits },
+    { url: "https://stripe.test/v1/payment_intents", amount: expectedMinorUnits },
+    { url: "https://stripe.test/v1/payment_intents", amount: expectedMinorUnits },
+    { url: "https://stripe.test/v1/refunds", amount: expectedMinorUnits },
+  ]);
+  expect(readFileSync(new URL("./index.ts", import.meta.url), "utf8").match(/parseFloat/g)).toBeNull();
+});
 
 // Stateful journal honoring the store's full-key + expected-version CAS semantics.
 function casJournal() {
@@ -214,6 +287,103 @@ function recordingJournal() {
 }
 
 describe("governed provider writes", () => {
+  it.each<{ variant: string; options: readonly (readonly [string, string])[]; accepted: boolean }>([
+    {
+      variant: "top-level",
+      options: [["payment_method_options[card][request_three_d_secure]", "any"]],
+      accepted: true,
+    },
+    {
+      variant: "nested",
+      options: [["payment_intent_data[payment_method_options][card][request_three_d_secure]", "any"]],
+      accepted: false,
+    },
+    {
+      variant: "both forms",
+      options: [
+        ["payment_method_options[card][request_three_d_secure]", "any"],
+        ["payment_intent_data[payment_method_options][card][request_three_d_secure]", "any"],
+      ],
+      accepted: false,
+    },
+    ...["automatic", "challenge", ""].map((value) => ({
+      variant: `non-any ${JSON.stringify(value)}`,
+      options: [["payment_method_options[card][request_three_d_secure]", value]] as const,
+      accepted: false,
+    })),
+    {
+      variant: "other ancestry",
+      options: [["payment_method_options[request_three_d_secure]", "any"]],
+      accepted: false,
+    },
+    {
+      variant: "duplicate top-level",
+      options: [
+        ["payment_method_options[card][request_three_d_secure]", "any"],
+        ["payment_method_options[card][request_three_d_secure]", "any"],
+      ],
+      accepted: false,
+    },
+  ])("governed Checkout admission accepts only top-level 3DS placement: $variant", async ({ options, accepted }) => {
+    const journal = recordingJournal();
+    const fetch = vi.fn(async () => Response.json({ id: "cs_SYNTHETIC", status: "open" }));
+    vi.stubGlobal("fetch", fetch);
+    const governance = {
+      evidenceWindowCorrelation: {
+        currentOpenWindow: async () => ({ windowId: "a".repeat(32), expiresAt: "2099-01-01T00:00:00Z" }),
+      },
+      evidenceWindowProviderWrite: journal.port,
+    };
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test_SYNTHETIC",
+      publishableKey: "pk_test_SYNTHETIC",
+      webhookSecret: "whsec_SYNTHETIC",
+      ...governance,
+    });
+    await gateway.createPaymentSession({
+      paymentId: "pay_SYNTHETIC" as PaymentId,
+      buyerAccountId: "acc_SYNTHETIC" as AccountId,
+      orderIds: [],
+      amount: "250.00",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Synthetic Checkout admission",
+      returnUrl: `${GOVERNED_RETURN_ORIGIN}/checkout/payments/pay_SYNTHETIC`,
+    });
+    const row = journal.current()!;
+    expect(row.binding.writerKind).toBe("payment-checkout");
+    const fields = new URLSearchParams(row.envelope!.bodyText!);
+    expect([...fields.keys()].some((name) => name.includes("request_three_d_secure"))).toBe(false);
+    for (const [name, value] of options) fields.append(name, value);
+    const envelope = { ...row.envelope!, bodyText: fields.toString() };
+    const nextJournal = recordingJournal();
+    const send = vi.fn(async () => ({ id: "cs_SYNTHETIC" }));
+    const execute = () =>
+      executeGovernedProviderWrite(
+        { ...governance, evidenceWindowProviderWrite: nextJournal.port },
+        {
+          binding: row.binding,
+          envelope,
+          send,
+          retrieve: vi.fn(),
+          response: (result) => ({ reference: result.id }),
+          definitiveFailure: () => false,
+        },
+      );
+    if (accepted) {
+      expect(() => validateProviderMaterial(row.binding, envelope)).not.toThrow();
+      await expect(execute()).resolves.toEqual({ id: "cs_SYNTHETIC" });
+      expect(nextJournal.port.reserveOrResolve).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith(envelope, providerWriteIdempotencyKey(nextJournal.current()!.key));
+    } else {
+      expect(() => validateProviderMaterial(row.binding, envelope)).toThrow("unsafe-material");
+      await expect(execute()).rejects.toMatchObject({ code: "unsafe-material" });
+      expect(nextJournal.port.reserveOrResolve).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["embedded", "hosted"] as const)(
     "J1/J3 the %s setup mapper commits consent and sends stored wire bytes",
     async (uiMode) => {

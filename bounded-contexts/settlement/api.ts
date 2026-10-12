@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
+import { compareMoneyAmounts } from "@chase-sets/primitives/money";
 import type { SettlementServices } from "./support/runtime-support/services";
 import { createWalletRoutes } from "./features/wallets/api/route";
 import { createWalletAdjustmentRoutes } from "./features/wallets/api/wallet-adjustment-route";
@@ -45,7 +46,7 @@ export function buildSettlementApi(services: SettlementServices) {
       services.wallets.getWallet(actor.accountId),
       services.payoutReadiness.getPayoutReadiness(actor.accountId),
     ]);
-    const availableAmount = Number.parseFloat(wallet.available_balance_amount);
+    const hasAvailableBalance = compareMoneyAmounts(wallet.available_balance_amount, "0.00") > 0;
     const setupReady = payoutReadiness.status === "ready";
     const setupStale =
       !payoutReadiness.updated_at || Date.now() - Date.parse(payoutReadiness.updated_at) > 24 * 60 * 60 * 1000;
@@ -53,7 +54,7 @@ export function buildSettlementApi(services: SettlementServices) {
       ...(setupReady ? [] : ["payout-setup-incomplete"]),
       ...(setupReady && setupStale ? ["payout-setup-refresh-required"] : []),
       ...(payoutReadiness.missing_requirements.length > 0 ? ["provider-requirements-open"] : []),
-      ...(availableAmount > 0 ? [] : ["no-available-wallet-balance"]),
+      ...(hasAvailableBalance ? [] : ["no-available-wallet-balance"]),
     ];
     const payoutSetupProgress = buildPayoutSetupProgress(payoutReadiness);
 
@@ -63,7 +64,7 @@ export function buildSettlementApi(services: SettlementServices) {
         currency_code: wallet.currency_code,
         pending_balance_amount: wallet.pending_balance_amount,
         available_balance_amount: wallet.available_balance_amount,
-        can_use_balance_credit: availableAmount > 0,
+        can_use_balance_credit: hasAvailableBalance,
       },
       payout_setup: {
         status: payoutReadiness.status,
@@ -80,7 +81,7 @@ export function buildSettlementApi(services: SettlementServices) {
         steps: payoutSetupProgress.steps,
       },
       payouts: {
-        can_request: setupReady && !setupStale && availableAmount > 0,
+        can_request: setupReady && !setupStale && hasAvailableBalance,
         unavailable_reasons: restrictions,
         unavailable_reason_details: restrictions.map((code) => ({
           code,
@@ -90,7 +91,7 @@ export function buildSettlementApi(services: SettlementServices) {
       restrictions,
       next_actions: [
         ...(!setupReady ? ["finish-payout-setup"] : []),
-        ...(setupReady && availableAmount > 0 ? ["request-payout"] : []),
+        ...(setupReady && hasAvailableBalance ? ["request-payout"] : []),
       ],
     });
   });

@@ -1,5 +1,18 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
+import {
+  SUPPORT_ATTACHMENT_OPERATION_HEADER,
+  validateSupportAttachmentOperationId,
+} from "../../features/support-requests/api/attachment-intake";
+
+export class SupportEvidenceUploadError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
 import type {
   SupportFlowSummary,
   PlatformRemedyProposalPreview,
@@ -102,9 +115,21 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           body: JSON.stringify(body),
         }),
       ),
-    uploadSupportEvidenceAttachments: async (supportRequestId: string, files: readonly File[]) => {
+    uploadSupportEvidenceAttachments: async (supportRequestId: string, files: readonly File[], operationId: string) => {
+      validateSupportAttachmentOperationId(operationId);
       const formData = new FormData();
       files.forEach((file) => formData.append("attachments", file));
+      const headers = new Headers(resolveHeaders(options.headers));
+      headers.set(SUPPORT_ATTACHMENT_OPERATION_HEADER, operationId);
+      const response = await clientFetch(`${baseUrl}/support-requests/${supportRequestId}/attachments`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+        throw new SupportEvidenceUploadError(body?.error?.message ?? `API error ${response.status}`, response.status);
+      }
       return parseJsonResponse<{
         attachments: readonly Readonly<{
           attachmentId: string;
@@ -112,13 +137,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           contentType: string;
           byteSize: number;
         }>[];
-      }>(
-        await clientFetch(`${baseUrl}/support-requests/${supportRequestId}/attachments`, {
-          method: "POST",
-          headers: resolveHeaders(options.headers),
-          body: formData,
-        }),
-      );
+      }>(response);
     },
     submitSupportEvidence: async (
       supportRequestId: string,

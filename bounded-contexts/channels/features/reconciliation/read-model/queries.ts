@@ -114,7 +114,9 @@ export async function readChannelReconciliationMetrics(
        COALESCE(SUM((counts->>'repairsEnqueued')::integer),0)::integer AS repairs_enqueued,
        COALESCE(SUM((counts->>'repairsSucceeded')::integer),0)::integer AS repairs_succeeded,
        COALESCE(SUM((counts->>'missedSaleGaps')::integer),0)::integer AS missed_sale_gaps,
-       MAX(completed_at) FILTER (WHERE clean) AS last_clean_run_at
+       CASE WHEN EXISTS (SELECT 1 FROM channel_reconciliation_state
+         WHERE connection_id=$2 AND provider_key='tcgplayer' AND last_clean_run_at IS NULL)
+         THEN NULL ELSE MAX(completed_at) FILTER (WHERE clean) END AS last_clean_run_at
      FROM channel_reconciliation_metrics
      WHERE account_id=$1 AND connection_id=$2 AND completed_at >= $3::timestamptz AND completed_at < $4::timestamptz`,
     [input.accountId, input.connectionId, input.window.from, input.window.to],

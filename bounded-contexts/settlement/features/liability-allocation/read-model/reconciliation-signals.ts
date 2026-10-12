@@ -1,4 +1,4 @@
-import { moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
+import { centsToSignedMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
 
 /**
  * Platform-covered resolution reconciliation signals (ADR 0022, Wave 3 go-live evidence).
@@ -273,7 +273,7 @@ export function computeDailyReconciliationByCurrency(
     );
     const driftCents =
       moneyToCents(reconciledRefundTotal) - (moneyToCents(sellerPostedTotal) + moneyToCents(platformSettledTotal));
-    const drift = (Number(driftCents) / 100).toFixed(2);
+    const drift = centsToSignedMoneyAmount(driftCents);
     return {
       currencyCode,
       reconciledRefundTotal,

@@ -1,4 +1,5 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   Button,
   CurrencyInput,
@@ -28,7 +29,8 @@ function unavailableReasons(wallet: SettlementWalletRow, readiness: SettlementPa
   if (readiness.missing_requirements.length > 0) {
     reasons.push(payoutUnavailableReasonLabel("provider-requirements-open"));
   }
-  if (Number.parseFloat(wallet.available_balance_amount) <= 0) {
+  const availableCents = trySignedMoneyToCents(wallet.available_balance_amount);
+  if (availableCents === null || availableCents <= 0n) {
     reasons.push(payoutUnavailableReasonLabel("no-available-wallet-balance"));
   }
   return reasons;
@@ -60,11 +62,13 @@ export function SettlementPayoutRequestPanel({
   draft?: Readonly<{ amount: string; note: string | null }> | null;
   confirmation?: Readonly<{ amount: string; note: string | null; preview: SettlementPayoutPreview }> | null;
 }) {
+  const availableCents = trySignedMoneyToCents(wallet.available_balance_amount);
   const canRequest =
     canRequestPayouts &&
     payoutReadiness.status === "ready" &&
     Boolean(payoutReadiness.updated_at) &&
-    Number.parseFloat(wallet.available_balance_amount) > 0;
+    availableCents !== null &&
+    availableCents > 0n;
   const reasons = canRequest ? [] : unavailableReasons(wallet, payoutReadiness);
 
   if (confirmation) {

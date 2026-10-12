@@ -97,6 +97,9 @@ The current implementation also uses four supporting authoring concepts:
 - `Scope Coverage` — the read model answer showing which provider units can cover a Catalog Scope Record and which mappings or provider capabilities are missing
 - `Scope Sync` — the workflow that starts from a Catalog Scope Record, applies approved Provider Scope Mappings, and then plans provider pulls
 - `Scope Sync Batch` — a durable, bounded Catalog workflow that previews and executes Scope Sync across explicit or server-resolved matching Catalog Scope Records while preserving per-scope planning, provider budgets, stale-evidence checks, and settled work
+- `Count quote` — an expiring, fingerprinted display of selected sets, missing Scrydex card/sealed counts, per-kind credits, reuse and a server-bounded cap. Approval authorizes counts, not a Scope Sync Batch.
+- `Count spend` — append-only credits debited before a possible count request, with its retained result or uncertainty. Separate from account usage and batch reservations; uncertainty never refunds or re-arms a query.
+- `page-1-count` — validated total, observed page size and page-1 length retained on count spend without option items or any claim of all-page completion.
 - `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL

@@ -38,7 +38,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; a verified phone code for an unknown number creates a personal identity.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/phone-code-routes.ts", "line": 143 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/phone-code-routes.ts", "line": 145 }]
     },
     {
       "id": "social-login-first-use",
@@ -46,7 +46,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; a provider callback for an unknown verified email creates a personal identity.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/social-login-routes.ts", "line": 391 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/social-login-routes.ts", "line": 389 }]
     },
     {
       "id": "marketplace-register-route-action",
@@ -54,7 +54,7 @@
       "kind": "direct-register-client",
       "disposition": "bound",
       "reason": "The product register form posts through this server-side route action, making it the only non-synthetic HTTP client of the register route; it resolves a registration consent resolution and submits the value it was handed.",
-      "sites": [{ "file": "bounded-contexts/auth/support/route-support/auth-host.ts", "line": 628 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/route-support/auth-host.ts", "line": 627 }]
     },
     {
       "id": "marketplace-e2e-auth-helper",

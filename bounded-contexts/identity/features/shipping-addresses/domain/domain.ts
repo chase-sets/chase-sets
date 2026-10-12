@@ -2,6 +2,7 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type { AddressVerificationSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ShippingAddressId } from "@chase-sets/primitives/typed-ids";
 import { assert, assertNever, ensureIsoTimestamp, normalizeLabel } from "../../../support/runtime-support/common";
+import { ShippingAddressFieldError, type ShippingAddressField } from "./errors";
 
 export type ShippingAddressSnapshot = Readonly<{
   name: string;
@@ -128,22 +129,23 @@ function normalizeOptionalText(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeRequiredText(value: string, fieldName: string) {
+function normalizeRequiredText(value: string, fieldName: string, field?: ShippingAddressField) {
   const normalized = normalizeLabel(value);
+  if (!normalized.length && field) throw new ShippingAddressFieldError(field);
   assert(normalized.length > 0, `${fieldName} is required.`);
   return normalized;
 }
 
 export function normalizeShippingAddressSnapshot(address: ShippingAddressSnapshot): ShippingAddressSnapshot {
   return {
-    name: normalizeRequiredText(address.name, "Recipient name"),
+    name: normalizeRequiredText(address.name, "Recipient name", "name"),
     company: normalizeOptionalText(address.company),
-    line1: normalizeRequiredText(address.line1, "Address line 1"),
+    line1: normalizeRequiredText(address.line1, "Address line 1", "line1"),
     line2: normalizeOptionalText(address.line2),
-    city: normalizeRequiredText(address.city, "City"),
-    state: normalizeRequiredText(address.state, "State").toUpperCase(),
-    postalCode: normalizeRequiredText(address.postalCode, "Postal code"),
-    country: normalizeRequiredText(address.country, "Country").toUpperCase(),
+    city: normalizeRequiredText(address.city, "City", "city"),
+    state: normalizeRequiredText(address.state, "State", "state").toUpperCase(),
+    postalCode: normalizeRequiredText(address.postalCode, "Postal code", "postalCode"),
+    country: normalizeRequiredText(address.country, "Country", "country").toUpperCase(),
     phone: normalizeOptionalText(address.phone),
     email: normalizeOptionalText(address.email),
     verification: normalizeAddressVerification(address.verification),

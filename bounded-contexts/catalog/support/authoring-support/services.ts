@@ -24,6 +24,10 @@ import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import { createScopeSyncBatchRuntime } from "../../features/scope-sync-batches/api/runtime";
+import { createScopeSyncCountRuntime } from "../../features/scope-sync-batches/api/count-runtime";
+import { createCountStore, countAccountSlot } from "../../features/scope-sync-batches/read-model/count-store";
+import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/source-observations/api/providers/provider-option-query-cache";
+import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observations/api/providers/provider-option-queries";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
@@ -77,7 +81,11 @@ export function createCatalogServices(
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const countEnvironment = process.env.DEPLOYMENT_ENVIRONMENT?.trim() || process.env.NODE_ENV?.trim() || "runtime";
+  const countAccountRevision = "runtime";
+  const countStore = createCountStore(pool, countAccountSlot(countEnvironment, countAccountRevision));
   const deps = {
+    scopeSyncCountState: { store: countStore, environment: countEnvironment, accountRevision: countAccountRevision },
     providerSendRuntime: createCatalogProviderSendRuntime(pool),
     eventStore,
     promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
@@ -118,6 +126,20 @@ export function createCatalogServices(
   );
   const scopeSyncBatches = createScopeSyncBatchRuntime({
     db,
+    counts: createScopeSyncCountRuntime({
+      pool,
+      store: countStore,
+      environment: countEnvironment,
+      accountRevision: countAccountRevision,
+      profiles: providerIntegrationProfiles,
+      providerSendRuntime: deps.providerSendRuntime,
+      adapterOptions: {
+        credentials: scrydexOnePieceCredentialsFromEnv(),
+        profileVersions: providerIntegrationProfiles,
+        cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
+        countReader: countStore,
+      },
+    }),
     previewCatalogSyncScope: sourceObservationRuntime.previewCatalogSyncScope,
     enqueueCatalogSyncRun: sourceObservationRuntime.enqueueCatalogSyncRun,
     getCatalogSyncRun: sourceObservationRuntime.getCatalogSyncRun,
