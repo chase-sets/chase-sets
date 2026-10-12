@@ -1,6 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Request, type Route } from "@playwright/test";
+import {
+  startWholeGameCredentialProbe,
+  wholeGameProbeCredentials,
+  wholeGameProbeSessionMarker,
+} from "./support/whole-game-credential-probe";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildScopeSyncBatchPreviewProbeReceipt,
@@ -3492,8 +3497,26 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number, retry: 
   expect(receipt.members.every((member) => !["failed", "unreached"].includes(member.state))).toBe(true);
 }
 
-async function signInThroughVisibleForm(page: Page, assertOrigin?: (url: string) => void): Promise<void> {
-  await page.goto("/access/sign-in?returnTo=%2Fcatalog%2Fintegrations", {
+type SignInCredentials = Readonly<{ email: string; password: string }>;
+
+async function signInThroughVisibleForm(
+  page: Page,
+  assertOrigin?: (url: string) => void,
+  credentials: SignInCredentials = { email: catalogAdminEmail, password: catalogAdminPassword },
+  fixtureOrigin = "",
+): Promise<void> {
+  const fillCredential = async (input: Locator, value: string) => {
+    if (!fixtureOrigin) return input.fill(value);
+    // Even trace-off HTML reports retain fill() values in API step titles.
+    // The native loopback form needs input events, not a credential-bearing step title.
+    await input.evaluate((element, value) => {
+      if (!(element instanceof HTMLInputElement)) throw new Error("Expected a fixture credential input.");
+      element.value = value;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    }, value);
+  };
+  await page.goto(`${fixtureOrigin}/access/sign-in?returnTo=%2Fcatalog%2Fintegrations`, {
     waitUntil: "domcontentloaded",
     timeout: pageReadyTimeoutMs,
   });
@@ -3508,10 +3531,11 @@ async function signInThroughVisibleForm(page: Page, assertOrigin?: (url: string)
     const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
     if (await passwordInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
       assertOrigin?.(page.url());
-      await passwordInput.fill(catalogAdminPassword);
+      await fillCredential(passwordInput, credentials.password);
       assertOrigin?.(page.url());
       await page.getByRole("button", { name: /^sign in$/i }).click();
-      await openCatalogImporter(page);
+      assertOrigin?.(page.url());
+      await openCatalogImporter(page, assertOrigin);
       return;
     }
 
@@ -3527,7 +3551,7 @@ async function signInThroughVisibleForm(page: Page, assertOrigin?: (url: string)
     const emailInput = page.getByRole("textbox", { name: /email|phone/i });
     if (await emailInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
       assertOrigin?.(page.url());
-      await emailInput.fill(catalogAdminEmail);
+      await fillCredential(emailInput, credentials.email);
       assertOrigin?.(page.url());
       await page.getByRole("button", { name: /^continue$/i }).click();
     }
@@ -3538,11 +3562,12 @@ async function signInThroughVisibleForm(page: Page, assertOrigin?: (url: string)
   throw new Error("The staging admin sign-in form did not reach the password step or importer before the timeout.");
 }
 
-async function openCatalogImporter(page: Page): Promise<void> {
+async function openCatalogImporter(page: Page, assertOrigin?: (url: string) => void): Promise<void> {
   const deadline = Date.now() + pageReadyTimeoutMs;
   let nextNavigationAt = Date.now();
 
   while (Date.now() < deadline) {
+    assertOrigin?.(page.url());
     if (await isImporterVisible(page, 2_000)) {
       await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
       return;
@@ -3551,6 +3576,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
     await recoverImporterFromAdminError(page);
 
     if (Date.now() >= nextNavigationAt) {
+      assertOrigin?.(page.url());
       await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
       nextNavigationAt = Date.now() + 10_000;
       continue;
@@ -3560,6 +3586,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
   }
 
   await recoverImporterFromAdminError(page);
+  assertOrigin?.(page.url());
   if (!(await isImporterVisible(page, 1_000))) {
     await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
   }
@@ -5943,7 +5970,7 @@ type PreviewProbeOptions = Readonly<{
   identity: Readonly<{ sha: string; runId: string; runAttempt: string; retry: number }>;
   artifactPath: string;
   deadline: number;
-  signIn: (page: Page) => Promise<void>;
+  signIn: typeof signInThroughVisibleForm;
   refreshNavigationTimeoutMs?: number;
   refreshSettleTimeoutMs?: number;
   refreshPollMs?: number;
@@ -7078,28 +7105,67 @@ async function runWholeGameJourney(
     : wholeGameSettle(page, parseWholeGameSettleInput(env), run, { deadlineAt, pollMs: wholeGamePollMs });
 }
 
-async function signInWholeGame(page: Page, target: string): Promise<void> {
+async function signInWholeGame(
+  page: Page,
+  target: string,
+  fixture?: Readonly<{ origin: string; credentials: SignInCredentials }>,
+): Promise<void> {
   if (target !== wholeGameStagingOrigin) throw new WholeGameRehearsalRefusal("staging-origin-required");
+  if (fixture) {
+    try {
+      const origin = new URL(fixture.origin);
+      if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || origin.origin !== fixture.origin) {
+        throw new WholeGameRehearsalRefusal("staging-origin-required");
+      }
+    } catch {
+      throw new WholeGameRehearsalRefusal("staging-origin-required");
+    }
+  }
+  const assertOrigin = fixture
+    ? (url: string) => {
+        if (new URL(url).origin !== fixture.origin) throw new WholeGameRehearsalRefusal("staging-origin-required");
+      }
+    : assertWholeGameOrigin;
   let originRefused = false;
-  // A 307 can forward a legitimate form body before the next page check.
-  // Fence the request too, so a redirect cannot carry credentials off staging.
-  await page.route("**/*", async (route) => {
+  const assertAttemptOrigin = (url: string) => {
+    if (originRefused) throw new WholeGameRehearsalRefusal("staging-origin-required");
+    assertOrigin(url);
+  };
+  // Routes block intercepted requests, but HTTP redirect hops bypass routing.
+  // The request-event ancestry audit detects drift and refuses the journey;
+  // it cannot prevent a 307 from forwarding the credential body before refusal.
+  const observeRequest = (request: Request) => {
+    if (request.isNavigationRequest() || request.method() !== "GET") {
+      try {
+        for (let hop: Request | null = request; hop; hop = hop.redirectedFrom()) assertOrigin(hop.url());
+      } catch {
+        originRefused = true;
+      }
+    }
+  };
+  const fenceRequest = async (route: Route) => {
     const request = route.request();
     if (request.isNavigationRequest() || request.method() !== "GET") {
       try {
-        assertWholeGameOrigin(request.url());
+        assertAttemptOrigin(request.url());
       } catch {
         originRefused = true;
         return route.abort("blockedbyclient");
       }
     }
     return route.fallback();
-  });
+  };
+  page.on("request", observeRequest);
   try {
-    await signInThroughVisibleForm(page, assertWholeGameOrigin);
+    await page.route("**/*", fenceRequest);
+    await signInThroughVisibleForm(page, assertAttemptOrigin, fixture?.credentials, fixture?.origin);
+    assertAttemptOrigin(page.url());
   } catch (error) {
     if (originRefused) throw new WholeGameRehearsalRefusal("staging-origin-required");
     throw error;
+  } finally {
+    page.off("request", observeRequest);
+    await page.unroute("**/*", fenceRequest);
   }
 }
 
@@ -7871,6 +7937,112 @@ async function serveWholeGameApplicationFixture(
   });
   return { calls, applicationComplete: () => applicationComplete, terminalComplete: () => terminalComplete };
 }
+
+const credentialProbeTest = test.extend({ trace: "off", video: "off", screenshot: "off" });
+credentialProbeTest.describe("catalog whole-game credential transport", () => {
+  credentialProbeTest.describe.configure({ retries: 0 });
+
+  credentialProbeTest("whole-game credential HTTP 307 probe", async ({ browser }, testInfo) => {
+    const probe = await startWholeGameCredentialProbe(browser);
+    try {
+      const fixture = { origin: probe.origin, credentials: wholeGameProbeCredentials };
+      const assertFixtureOrigin = (url: string) => {
+        if (new URL(url).origin !== fixture.origin) throw new WholeGameRehearsalRefusal("staging-origin-required");
+      };
+      const listenerCount = probe.requestListenerCount();
+      const control = await probe.attempt((page) => signInWholeGame(page, wholeGameStagingOrigin, fixture), false);
+      const withoutFence = await probe.attempt(
+        (page) => signInThroughVisibleForm(page, assertFixtureOrigin, fixture.credentials, fixture.origin),
+        true,
+      );
+      const fenced = await probe.attempt(async (page) => {
+        await signInWholeGame(page, wholeGameStagingOrigin, fixture);
+        for (const intent of ["confirm", "retry", "resume", "promote", "publish"]) {
+          await page.evaluate(async (intent) => {
+            await fetch("/catalog/forbidden-after-sign-in", { method: "POST", body: new URLSearchParams({ intent }) });
+          }, intent);
+        }
+      }, true);
+      const repeated = await probe.attempt((page) => signInWholeGame(page, wholeGameStagingOrigin, fixture), false);
+      const receipt = {
+        schemaVersion: 1,
+        playwright: (
+          JSON.parse(readFileSync("node_modules/@playwright/test/package.json", "utf8")) as { version: string }
+        ).version,
+        chromium: browser.version(),
+        retries: testInfo.retry,
+        moduleCredentialsPresent: Boolean(catalogAdminEmail && catalogAdminPassword),
+        trace: "off",
+        video: "off",
+        control,
+        withoutFence,
+        fenced,
+        repeated,
+      };
+      const serialized = `${JSON.stringify(receipt, null, 2)}\n`;
+      const hasMarkers = (text: string) =>
+        [
+          fixture.credentials.email,
+          fixture.credentials.password,
+          wholeGameProbeSessionMarker,
+          catalogAdminEmail,
+          catalogAdminPassword,
+        ].some((marker) => Boolean(marker) && text.includes(marker));
+      // Negative controls prove inspection covers credential AND session bytes.
+      for (const marker of [fixture.credentials.email, fixture.credentials.password, wholeGameProbeSessionMarker]) {
+        expect(hasMarkers(JSON.stringify({ leaked: marker }))).toBe(true);
+      }
+      expect(hasMarkers(serialized)).toBe(false);
+      expect(serialized).not.toContain(probe.origin);
+      const receiptPath = testInfo.outputPath("credential-307-receipt.json");
+      writeFileSync(receiptPath, serialized);
+      await testInfo.attach("credential-307-receipt", { path: receiptPath, contentType: "application/json" });
+
+      expect(control.outcome).toBe("signed-in");
+      expect(control.sourcePosts).toEqual([{ method: "POST", bodyPresent: true, onlySyntheticCredentials: true }]);
+      expect(control.sinkPosts).toEqual([]);
+      expect(control.responses).toContainEqual({ origin: "source", method: "POST", status: 200 });
+      expect(withoutFence.outcome).toBe("signed-in");
+      for (const attempt of [withoutFence, fenced]) {
+        expect(attempt.sourcePosts).toEqual(control.sourcePosts);
+        expect(attempt.sinkPosts).toEqual(control.sourcePosts);
+        expect(attempt.requests).toContainEqual({
+          origin: "sink",
+          method: "POST",
+          parent: { origin: "source", method: "POST" },
+        });
+        expect(attempt.requests).toContainEqual({
+          origin: "source",
+          method: "GET",
+          parent: { origin: "sink", method: "POST" },
+        });
+        expect(attempt.routes.some((request) => request.origin === "sink")).toBe(false);
+        expect(attempt.routes).toContainEqual({ origin: "source", method: "POST", parent: null });
+        expect(attempt.responses).toContainEqual({ origin: "source", method: "POST", status: 307 });
+        expect(attempt.responses).toContainEqual({ origin: "sink", method: "POST", status: 303 });
+        expect(attempt.laterSubmissions).toEqual([]);
+        expect(attempt.serverErrors).toEqual([]);
+      }
+      expect(fenced.outcome).toBe("staging-origin-required");
+      expect(repeated.outcome).toBe("signed-in");
+      expect(repeated.sinkPosts).toEqual([]);
+      expect(probe.requestListenerCount()).toBe(listenerCount);
+      for (const origin of [wholeGameStagingOrigin, "http://localhost:1", `${fixture.origin}/unsafe`, "not-a-url"]) {
+        await expect(signInWholeGame(probe.page, wholeGameStagingOrigin, { ...fixture, origin })).rejects.toMatchObject(
+          {
+            code: "staging-origin-required",
+          },
+        );
+      }
+      await expect(signInWholeGame(probe.page, fixture.origin)).rejects.toMatchObject({
+        code: "staging-origin-required",
+      });
+      expect(await probe.checkRouteCleanup()).toBe(true);
+    } finally {
+      await probe.close();
+    }
+  });
+});
 
 test.describe("catalog whole-game rehearsal journeys", () => {
   test.use({ offline: true, serviceWorkers: "block" });
