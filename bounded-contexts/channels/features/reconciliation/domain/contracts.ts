@@ -34,6 +34,7 @@ export type ChannelObservedListing =
 
 export type ChannelSourceAuthority =
   | Readonly<{ kind: "complete"; collectedCount: number; authorityTotal: number }>
+  | Readonly<{ kind: "present-rows"; collectedCount: number; snapshotRowTotal: number }>
   | Readonly<{ kind: "declared-incomplete"; reason: string }>
   | Readonly<{
       kind: "absent-by-design";
@@ -74,7 +75,7 @@ export type ChannelDriftObservation = Omit<ChannelDriftObservationV1, "observed"
     observed: ChannelObservedListing | ChannelObservedMaterial;
   }>;
 
-/** The installed evidence reader owns census, freshness and applied-membership proof, independently of CSV rows. */
+/** The evidence reader owns freshness and applied membership. Local snapshot totals never prove provider census. */
 export type ClaimedChannelStateRead = Readonly<{
   sourceAuthority: ChannelSourceAuthority;
   freshness: "current" | "stale" | "unknown";

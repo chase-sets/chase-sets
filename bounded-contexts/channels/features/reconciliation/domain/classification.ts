@@ -1,19 +1,22 @@
 import type { ChannelDriftClassification, ChannelDriftObservation } from "./contracts";
 
 export function classifyChannelDrift(observation: ChannelDriftObservation): ChannelDriftClassification {
-  if (observation.sourceAuthority.kind !== "complete") return "source-unavailable";
-  if (!observation.observed.present) return "structural";
+  const authority = observation.sourceAuthority;
+  if (authority.kind !== "complete" && authority.kind !== "present-rows") return "source-unavailable";
+  if (!observation.observed.present) return authority.kind === "complete" ? "structural" : "source-unavailable";
 
   const revisionUnavailable = observation.observed.revision === null;
+  if (authority.kind === "present-rows" && !revisionUnavailable) return "source-unavailable";
+  const materialRowTotal = authority.kind === "complete" ? authority.authorityTotal : authority.snapshotRowTotal;
   if (
     revisionUnavailable &&
     (!observation.expectedMaterialIdentity ||
       observation.observed.materialIdentity !== observation.expectedMaterialIdentity ||
       observation.expectedPrice.currency !== "USD" ||
       observation.observed.price.currency !== "USD" ||
-      !Number.isSafeInteger(observation.sourceAuthority.authorityTotal) ||
-      observation.sourceAuthority.authorityTotal < 1 ||
-      observation.sourceAuthority.collectedCount !== observation.sourceAuthority.authorityTotal ||
+      !Number.isSafeInteger(materialRowTotal) ||
+      materialRowTotal < 1 ||
+      authority.collectedCount !== materialRowTotal ||
       !Number.isSafeInteger(observation.observed.price.amountMinor) ||
       observation.observed.price.amountMinor < 0 ||
       !Number.isSafeInteger(observation.observed.quantity) ||

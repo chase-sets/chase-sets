@@ -539,9 +539,127 @@ describeDb("Channel Reconciliation guarded production path", () => {
     ).toEqual(ledger);
   });
 
-  it("drift-material-accepted-retained and digest-roundtrip retain the exact observed/full-expected pair", async () => {
+  it("claimed-row-authority-retained-runtime preserves absent members and findings without sales authority", async () => {
     const fixture = await materialRuntime();
-    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairsEnqueued: 0 } });
+    const run = async () => {
+      await fixture.captureCurrent();
+      return fixture.run(true);
+    };
+    const extra = { ...syntheticLiveRow(), externalKey: "product:90000099" };
+    const present = [...fixture.source.rows, extra];
+    fixture.source = {
+      ...fixture.source,
+      rows: present,
+      sourceAuthority: { kind: "present-rows", collectedCount: 4, snapshotRowTotal: 4 },
+    };
+    await expect(run()).resolves.toMatchObject({
+      clean: false,
+      counts: { inSync: 2, foreignEdit: 1, structural: 1, sourceUnavailable: 0, repairsEnqueued: 0 },
+    });
+    const attention = () => fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
+    const opening = (await attention())!;
+    const foreign = opening.members.find((member) => member.identity === "listing:channel-foreign")!;
+    const unmapped = opening.members.find((member) => member.identity.startsWith("finding:state-"))!;
+    expect(foreign.settlement).toBe("open");
+    expect(unmapped.settlement).toBe("open");
+    const item = async () =>
+      (
+        await pools.channels.query(
+          "SELECT classification,run_generation,observed_fingerprint FROM channel_reconciliation_items WHERE channel_listing_id='channel-foreign'",
+        )
+      ).rows;
+    const originalItem = await item();
+    fixture.source = {
+      ...fixture.source,
+      rows: [present[0]!, present[2]!],
+      sourceAuthority: { kind: "present-rows", collectedCount: 2, snapshotRowTotal: 2 },
+    };
+    fixture.advanceDay();
+    await expect(run()).resolves.toMatchObject({
+      state: "bounded-unknown",
+      clean: false,
+      counts: { inSync: 2, sourceUnavailable: 1, structural: 0, repairable: 0, repairsEnqueued: 0 },
+    });
+    expect(await item()).toEqual(originalItem);
+    expect((await attention())!.members).toEqual(expect.arrayContaining([foreign, unmapped]));
+    const detail = await fixture.runtime.readChannelDriftDetail({
+      accountId: "account-1",
+      connectionId: "connection-1",
+    });
+    expect(detail).toMatchObject({ kind: "loaded", runState: "bounded-unknown" });
+    if (detail.kind !== "loaded") throw new Error("loaded retained detail required");
+    expect(detail.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rowKind: "listing", channelListingId: "channel-foreign", runGeneration: 1 }),
+        expect.objectContaining({ rowKind: "finding", flag: "unmapped" }),
+      ]),
+    );
+    fixture.source = {
+      ...fixture.source,
+      rows: present,
+      sourceAuthority: { kind: "present-rows", collectedCount: 4, snapshotRowTotal: 4 },
+    };
+    fixture.advanceDay();
+    await expect(run()).resolves.toMatchObject({
+      counts: { inSync: 2, foreignEdit: 1, structural: 1, repairsEnqueued: 0 },
+    });
+    expect((await attention())!.members).toEqual(expect.arrayContaining([foreign, unmapped]));
+    fixture.source = {
+      ...fixture.source,
+      rows: present.slice(0, 3).map((row) => ({ ...row, priceAmountMinor: 1000 })),
+      sourceAuthority: { kind: "present-rows", collectedCount: 3, snapshotRowTotal: 3 },
+    };
+    for (let day = 0; day < 2; day += 1) {
+      fixture.advanceDay();
+      await expect(run()).resolves.toMatchObject({
+        clean: false,
+        counts: { inSync: 3, foreignEdit: 0, structural: 0, repairable: 0, repairsEnqueued: 0 },
+      });
+      expect((await attention())!.resolution).toBeNull();
+      expect((await attention())!.members).toContainEqual(unmapped);
+    }
+    expect((await pools.channels.query("SELECT last_clean_run_at FROM channel_reconciliation_state")).rows).toEqual([
+      { last_clean_run_at: null },
+    ]);
+    expect((await pools.channels.query("SELECT 1 FROM channel_reconciliation_attention_resolutions")).rows).toEqual([]);
+    expect((await fixture.runtime.readPendingHealthObservations({ limit: 10 })).map((row) => row.outcome)).toEqual([
+      "failure",
+      "failure",
+      "failure",
+      "failure",
+      "failure",
+    ]);
+  });
+
+  it("claimed-row-authority-retained-runtime all equal rows still lack claimed sales authority", async () => {
+    const fixture = await materialRuntime();
+    fixture.source = {
+      ...fixture.source,
+      rows: fixture.source.rows.map((row) => ({ ...row, priceAmountMinor: 1000 })),
+    };
+    for (let day = 0; day < 2; day += 1) {
+      await fixture.captureCurrent();
+      await expect(fixture.run(true)).resolves.toMatchObject({
+        clean: false,
+        counts: { inSync: 3, sourceUnavailable: 0, repairsEnqueued: 0 },
+      });
+      const attention = await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
+      expect(attention).toMatchObject({ resolution: null });
+      expect(attention!.members).toEqual([expect.objectContaining({ identity: "source:sales", settlement: "open" })]);
+      fixture.advanceDay();
+    }
+    expect((await pools.channels.query("SELECT last_clean_run_at FROM channel_reconciliation_state")).rows).toEqual([
+      { last_clean_run_at: null },
+    ]);
+  });
+
+  it("claimed-row-authority-accepted-successor and digest-roundtrip retain the exact observed/full-expected pair", async () => {
+    const fixture = await materialRuntime();
+    const run = async () => {
+      await fixture.captureCurrent();
+      return fixture.run();
+    };
+    await expect(run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairsEnqueued: 0 } });
     const observedFingerprint = observedMaterialFingerprint(fixture.source.rows[1]!);
     const command = {
       connectionId: "connection-1",
@@ -558,7 +676,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
     await expect(fixture.runtime.acceptChannelDrift(command, context)).resolves.toEqual(accepted);
     for (let day = 1; day <= 2; day += 1) {
       fixture.advanceDay();
-      await expect(fixture.run()).resolves.toMatchObject({
+      await expect(run()).resolves.toMatchObject({
         clean: false,
         counts: { inSync: 3, foreignEdit: 0, repairable: 0, repairsEnqueued: 0 },
       });
@@ -580,14 +698,14 @@ describeDb("Channel Reconciliation guarded production path", () => {
       ...fixture.source,
       rows: fixture.source.rows.map((row, index) => (index === 1 ? { ...row, priceAmountMinor: 1300 } : row)),
     };
-    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairable: 0 } });
+    await expect(run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairable: 0 } });
     fixture.source = {
       ...fixture.source,
       rows: fixture.source.rows.map((row, index) => (index === 1 ? { ...row, priceAmountMinor: 1200 } : row)),
     };
-    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 3 } });
+    await expect(run()).resolves.toMatchObject({ counts: { inSync: 3 } });
     await moveExpectedForeignMaterial(pools.channels);
-    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairable: 0 } });
+    await expect(run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairable: 0 } });
   });
 
   it("drift-material-repair-authority preserves F6 and never copies the applied revision", async () => {
@@ -4104,11 +4222,12 @@ async function ageSnapshot(
   source: "operator-declared" | "ingest" = "operator-declared",
   surface: "live" | "staged" = "live",
   connectionId = "connection-1",
+  parsedRowCount = 1,
 ) {
   await pools.channels.query(
     `INSERT INTO channel_inventory_snapshots
     (snapshot_id,snapshot_generation,connection_id,provider_key,surface,parsed_row_count,completeness,ingested_at,captured_at,captured_at_source)
-    VALUES ($1,$2,$3,'tcgplayer',$4,1,'unverified',$5,$6,$7)`,
+    VALUES ($1,$2,$3,'tcgplayer',$4,$8,'unverified',$5,$6,$7)`,
     [
       `synthetic-age-${connectionId}-${surface}-${generation}`,
       generation,
@@ -4117,6 +4236,7 @@ async function ageSnapshot(
       at.toISOString(),
       capturedAt,
       source,
+      parsedRowCount,
     ],
   );
 }
@@ -4167,10 +4287,11 @@ async function materialRuntime(maxListingsPerRun = CHANNEL_RECONCILIATION_POLICY
   let source: ClaimedChannelStateRead = {
     ...syntheticClaimedSource(),
     rows,
-    sourceAuthority: { kind: "complete", collectedCount: 3, authorityTotal: 3 },
+    sourceAuthority: { kind: "present-rows", collectedCount: 3, snapshotRowTotal: 3 },
     appliedChannelListingIds: names.map((name) => `channel-${name}`),
   };
   let at = new Date("2026-09-12T06:00:00.000Z");
+  let snapshotGeneration = 0;
   const runtime = s5Runtime({
     readClaimedChannelState: async () => source,
     resolvePolicy: async () => ({
@@ -4192,9 +4313,40 @@ async function materialRuntime(maxListingsPerRun = CHANNEL_RECONCILIATION_POLICY
     advanceDay() {
       at = new Date(at.getTime() + 86_400_000);
     },
-    run: () =>
+    async captureCurrent() {
+      at = new Date(at.getTime() + 1000);
+      snapshotGeneration += 1;
+      const capturedAt = new Date(at.getTime() - 3_600_000).toISOString();
+      await ageSnapshot(
+        snapshotGeneration,
+        capturedAt,
+        at,
+        "operator-declared",
+        "live",
+        "connection-1",
+        source.rows.length,
+      );
+      const snapshotId = `synthetic-age-connection-1-live-${snapshotGeneration}`;
+      source = {
+        ...source,
+        snapshotId,
+        rows: source.rows.map((row) => ({
+          ...row,
+          snapshotId,
+          snapshotGeneration,
+          capturedAt,
+          ingestedAt: at.toISOString(),
+        })),
+      };
+    },
+    run: (observeHealth = false) =>
       runtime.reconcileConnection(
-        { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
+        {
+          connectionId: "connection-1",
+          registry,
+          sourceAttempt: 1,
+          healthAuthority: observeHealth ? { policyRevision: fingerprint("1"), evaluationGeneration: 1 } : null,
+        },
         context,
       ),
   };

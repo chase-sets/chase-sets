@@ -28,15 +28,23 @@ export function observedMaterialFingerprint(row: ChannelInventorySnapshotRow): s
 export function indexClaimedMaterial(
   connectionId: string,
   source: ClaimedChannelStateRead,
+  maxListings: number,
 ): ClaimedMaterialIndex | null {
+  const authority = source.sourceAuthority;
+  if (authority.kind !== "complete" && authority.kind !== "present-rows") return null;
+  const localRowTotal = authority.kind === "complete" ? authority.authorityTotal : authority.snapshotRowTotal;
   if (
-    source.sourceAuthority.kind !== "complete" ||
+    !Number.isSafeInteger(maxListings) ||
+    maxListings < 1 ||
+    source.rows.length > maxListings ||
+    source.appliedChannelListingIds.length > maxListings ||
     source.freshness !== "current" ||
+    !connectionId ||
     !source.snapshotId ||
-    !Number.isSafeInteger(source.sourceAuthority.authorityTotal) ||
-    source.sourceAuthority.authorityTotal < 0 ||
-    source.sourceAuthority.collectedCount !== source.sourceAuthority.authorityTotal ||
-    source.rows.length !== source.sourceAuthority.authorityTotal ||
+    !Number.isSafeInteger(localRowTotal) ||
+    localRowTotal < 0 ||
+    authority.collectedCount !== localRowTotal ||
+    source.rows.length !== localRowTotal ||
     source.rows.some(
       (row) =>
         row.connectionId !== connectionId ||
@@ -70,14 +78,14 @@ export function indexClaimedMaterial(
     );
   }
   return {
-    sourceAuthority: source.sourceAuthority,
+    sourceAuthority: authority,
     items,
     appliedChannelListingIds: new Set(source.appliedChannelListingIds),
   };
 }
 
-type ClaimedMaterialIndex = Readonly<{
-  sourceAuthority: ClaimedChannelStateRead["sourceAuthority"];
+export type ClaimedMaterialIndex = Readonly<{
+  sourceAuthority: Extract<ClaimedChannelStateRead["sourceAuthority"], { kind: "complete" | "present-rows" }>;
   items: ReadonlyMap<string, ChannelObservedMaterial | null>;
   appliedChannelListingIds: ReadonlySet<string>;
 }>;
@@ -102,9 +110,9 @@ export function resolveClaimedMaterial(
   )
     return unavailable;
   const observed = source.items.get(listing.externalListingId);
-  if (observed === null) return unavailable;
+  if (!observed) return unavailable;
   return {
-    observed: observed ?? { present: false },
+    observed,
     sourceAuthority: source.sourceAuthority,
     expectedMaterialIdentity: listing.externalListingId,
   };

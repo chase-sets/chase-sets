@@ -176,17 +176,18 @@ export function createChannelReconciliationRuntime(
             observedAt: startedAt,
             maxListings: policy.maxListingsPerRun,
           });
-          if (source.rows.length <= policy.maxListingsPerRun) {
-            claimedMaterial = indexClaimedMaterial(connection.connectionId, source);
-          }
+          claimedMaterial = indexClaimedMaterial(connection.connectionId, source, policy.maxListingsPerRun);
         } catch {
           claimedMaterial = null;
         }
       }
       const absentByDesign = publication?.execution !== "inline" && !readClaimedState;
-      const stateComplete =
+      let stateComparisonAvailable =
         stateResult.kind === "complete" ||
         (claimedMaterial !== null && [...claimedMaterial.items.values()].every((item) => item !== null));
+      const stateCensusComplete =
+        stateResult.kind === "complete" ||
+        (stateComparisonAvailable && claimedMaterial?.sourceAuthority.kind === "complete");
       const sourceAuthority: ChannelDriftObservation["sourceAuthority"] =
         claimedMaterial?.sourceAuthority ??
         (absentByDesign
@@ -224,7 +225,7 @@ export function createChannelReconciliationRuntime(
         dependencies.db,
         connection.connectionId,
         claim.generation,
-        stateComplete,
+        stateCensusComplete,
         false,
         startedAt,
       );
@@ -409,6 +410,8 @@ export function createChannelReconciliationRuntime(
         }
       }
 
+      if (readClaimedState) stateComparisonAvailable = stateComparisonAvailable && counts.sourceUnavailable === 0;
+
       let saleComplete = true;
       let saleAuthorityComplete = false;
       let saleSourceAuthority: ChannelDriftObservation["sourceAuthority"] = {
@@ -478,7 +481,7 @@ export function createChannelReconciliationRuntime(
       const openFindingCount = await countOpenFindings(dependencies.db, connection.connectionId);
       let clean =
         !heldInline &&
-        stateComplete &&
+        stateComparisonAvailable &&
         saleAuthorityComplete &&
         saleComplete &&
         counts.repairable === 0 &&
@@ -508,7 +511,7 @@ export function createChannelReconciliationRuntime(
         ),
       );
       for (const [identity, complete] of [
-        ["source:state", stateComplete],
+        ["source:state", stateComparisonAvailable],
         ["source:sales", saleAuthorityComplete],
       ] as const) {
         if (heldInline && identity === "source:state") continue;
@@ -559,7 +562,7 @@ export function createChannelReconciliationRuntime(
           ? counts.structural + counts.sourceUnavailable > 0 || persistentGaps.length > 0
           : clean ||
             counts.repairable + counts.foreignEdit + counts.structural + counts.sourceUnavailable > 0 ||
-            !stateComplete ||
+            !stateComparisonAvailable ||
             persistentGaps.length > 0 ||
             driftGeneration?.resolution === null)
           ? mapChannelDriftToHealthObservation({
@@ -580,7 +583,7 @@ export function createChannelReconciliationRuntime(
           ? "bounded-unknown"
           : hold.held
             ? "held"
-            : stateComplete && saleComplete
+            : stateComparisonAvailable && saleComplete
               ? "completed"
               : "bounded-unknown";
       return finishRun(
