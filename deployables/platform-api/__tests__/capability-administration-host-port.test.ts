@@ -87,6 +87,9 @@ describe("Capability Administration Authority actual platform-api host port", ()
       );
       const services = runtime.services.identity as IdentityServices;
       await services.accountCapabilities.initializeAdministrationAuthority();
+      expect(
+        (await stores.identity!.readAll()).filter((event) => event.streamId.startsWith("identity.account-capability-")),
+      ).toEqual([]);
       const actor = {
         sessionId: "ses_synthetic",
         membershipId: "mbr_synthetic",
@@ -126,6 +129,22 @@ describe("Capability Administration Authority actual platform-api host port", ()
         }),
       });
       expect(response.status).toBe(authority.kind === "configured" ? 200 : 403);
+      await stores.identity!.appendToStream({
+        streamId: "identity.account-acc_foreign",
+        expectedVersion: "no_stream",
+        context: { ...context, tenantId: "tnt_foreign" as never },
+        events: [{ eventType: "identity.account.created", payload: {} }],
+      });
+      const foreign = await app.request("/api/identity/account-capabilities/grant", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accountId: "acc_foreign",
+          capabilityKey: "support.evidence.any-case",
+          expectedVersion: 0,
+        }),
+      });
+      expect(foreign.status).toBe(403);
       expect(
         (await stores.identity!.readAll()).filter((event) => event.streamId.startsWith("identity.account-capability-")),
       ).toHaveLength(authority.kind === "configured" ? 1 : 0);

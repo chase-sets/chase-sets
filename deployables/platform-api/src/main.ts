@@ -317,7 +317,7 @@ const capabilityAdministrationPorts: Pick<IdentityHostPorts, "capabilityAdminist
     config.capabilityAdministrationAuthority ?? DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
 };
 if (capabilityAdministrationPorts.capabilityAdministrationAuthority.kind === "deny-all") {
-  console.info({
+  logger.info("Capability administration is disabled.", {
     type: "identity.capability-administration-authority",
     reason: capabilityAdministrationPorts.capabilityAdministrationAuthority.diagnostic,
   });

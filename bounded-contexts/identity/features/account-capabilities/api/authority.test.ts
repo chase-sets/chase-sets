@@ -29,6 +29,27 @@ describe("Capability Administration Authority closed configuration", () => {
       ),
     ).toEqual(authority);
   });
+  it("fingerprints each effective override, not a file/default-value digest", () => {
+    const original = parseCapabilityAdministrationAuthority(JSON.stringify(declaration), scope);
+    if (original.kind !== "configured") throw new Error("Synthetic authority was invalid");
+    const overrides = [
+      { authorityId: "replacement-admin" },
+      { revision: 2 },
+      { adminUserIds: [] },
+      { environment: "staging" },
+      { deploymentInstance: '["support-deployment-instance/v1","preview-9385","release-b"]' },
+    ];
+    for (const override of overrides) {
+      const effective = { ...declaration, ...override };
+      const result = parseCapabilityAdministrationAuthority(JSON.stringify(effective), {
+        ...scope,
+        environment: effective.environment,
+        deploymentInstance: effective.deploymentInstance,
+      });
+      expect(result.kind).toBe("configured");
+      if (result.kind === "configured") expect(result.configDigest).not.toBe(original.configDigest);
+    }
+  });
   it.each([
     undefined,
     "",
@@ -49,6 +70,11 @@ describe("Capability Administration Authority closed configuration", () => {
     JSON.stringify({ ...declaration, revision: 2147483648 }),
     JSON.stringify({ ...declaration, adminUserIds: ["usr_x", "usr_x"] }),
     JSON.stringify({ ...declaration, adminUserIds: ["*"] }),
+    JSON.stringify({ ...declaration, adminUserIds: ["admin@example.invalid"] }),
+    JSON.stringify({
+      ...declaration,
+      deploymentInstance: JSON.stringify(["support-deployment-instance/v1", "a".repeat(64), "release-a"]),
+    }),
     JSON.stringify({ ...declaration, adminUserIds: Array.from({ length: 17 }, (_, i) => `usr_${i}`) }),
     " ".repeat(4097),
   ])("rejects closed-schema/scope bypass mutant: %s", (raw) => {

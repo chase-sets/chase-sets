@@ -174,6 +174,7 @@ export function createCapabilityAdministration(
     if (!input) return deny("invalid_assignment_input");
     if (!actor) return deny("authentication_required");
     if (
+      !context?.audit ||
       actor.tenantId !== context.tenantId ||
       actor.userId !== context.audit.performedByUserId ||
       actor.accountId !== context.audit.forAccountId
