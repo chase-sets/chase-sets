@@ -20,7 +20,70 @@ const actor = {
   permissions: ["orders.view"],
 };
 
+const managementRoutes = [
+  { method: "GET", path: "/authorizations" },
+  { method: "GET", path: "/authorizations/lpa_managed" },
+  { method: "GET", path: "/authorizations/lpa_managed/activity" },
+  { method: "GET", path: "/authorizations/lpa_managed/webhook" },
+  {
+    method: "PUT",
+    path: "/authorizations/lpa_managed/webhook",
+    body: { callback_url: "https://agent.example/replacement" },
+  },
+  { method: "GET", path: "/authorizations/lpa_managed/webhook-deliveries" },
+  { method: "POST", path: "/authorizations/lpa_managed/revoke" },
+  {
+    method: "PUT",
+    path: "/authorizations/lpa_managed/mandate",
+    body: { human_present_required: false, allowed_rails: ["handoff-only"], max_per_order_cents: 5000 },
+  },
+] as const;
+
 describe("UCP OAuth routes", () => {
+  describe.each([
+    [
+      "agent bearer",
+      {
+        ...actor,
+        agentGrant: {
+          grantId: "lpa_sibling",
+          scopes: ["account:manage"] as const,
+          rolePermissions: actor.permissions,
+        },
+      },
+    ],
+    ["guest checkout", { ...actor, roleKey: "guest-buyer" }],
+    ["signed-out", null],
+    ["sessionless", { ...actor, sessionId: "" }],
+  ])("management routes refuse %s actors", (_kind, refusedActor) => {
+    it.each(managementRoutes)("$method $path", async (route) => {
+      const fixture = await managementFixture();
+      const before = await fixture.snapshot();
+      fixture.setActor(refusedActor);
+      const response = await fixture.request(route);
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({ error: "login_required" });
+      for (const port of fixture.dataPorts) expect(port).not.toHaveBeenCalled();
+      expect(await fixture.snapshot()).toEqual(before);
+    });
+
+    it.each(managementRoutes)("$method $path refuses before optional-service availability", async (route) => {
+      const fixture = await managementFixture(false);
+      fixture.setActor(refusedActor);
+      const response = await fixture.request(route);
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({ error: "login_required" });
+      for (const port of fixture.dataPorts) expect(port).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(managementRoutes)("management routes retain session access: $method $path", async (route) => {
+    const fixture = await managementFixture();
+    const response = await fixture.request(route);
+    expect(response.status).toBe(200);
+    expect(fixture.dataPorts.some((port) => port.mock.calls.length > 0)).toBe(true);
+  });
+
   it("authorize GET never issues a code, including a one-click cross-site navigation (F4)", async () => {
     const fixture = await consentFixture();
     const response = await fixture.app.request(fixture.authorizePath, {
@@ -1065,6 +1128,87 @@ describe("UCP OAuth routes", () => {
     expect(notConfigured.status).toBe(404);
   });
 });
+
+async function managementFixture(configured = true) {
+  const db = createAuthorizationCodeDb();
+  const consent = createInMemoryConsentDirectory();
+  const activity = { listForGrant: vi.fn(async () => ({ items: [], total: 0 })) };
+  const outbox = {
+    enqueueDelivery: vi.fn(async () => {}),
+    claimPendingDeliveries: vi.fn(async () => []),
+    renewClaim: vi.fn(async () => true),
+    markDelivered: vi.fn(async () => {}),
+    markFailed: vi.fn(async () => {}),
+    listForClient: vi.fn(async () => []),
+    listDeadLettered: vi.fn(async () => []),
+  } satisfies NonNullable<Parameters<typeof createUcpOAuthRoutes>[0]["agentWebhookOutbox"]>;
+  const revokePayments = vi.fn(async () => ({ detached: 0, alreadyRemoved: 0, instrumentIds: [] }));
+  const base = createOAuthOptions();
+  let currentActor: Awaited<ReturnType<typeof base.resolveActor>> = actor;
+  const options = createOAuthOptions({
+    auth: { ...base.auth, db },
+    resolveActor: async () => currentActor,
+    revokeStoredPaymentMethodsForAgentGrant: revokePayments,
+    ...(configured
+      ? {
+          agentGrantConsent: consent,
+          agentGrantActivity: activity,
+          agentWebhookOutbox: outbox,
+        }
+      : {}),
+  });
+  const linked = options.linkedPlatformAuthorizations;
+  const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+  const registration = await registerClient(app, {
+    redirect_uris: ["https://agent.example/callback"],
+    scope: "account:manage",
+    webhook_callback_url: "https://agent.example/hooks",
+  });
+  const { client_id: clientId } = (await registration.json()) as { client_id: string };
+  const grants = await Promise.all(
+    ["lpa_managed", "lpa_sibling"].map((authorizationId) =>
+      linked.grant({
+        authorizationId,
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
+        clientId,
+        userId: actor.userId,
+        accountId: actor.accountId,
+        scopes: ["account:manage"],
+        accessTokenHash: `hash:${authorizationId}`,
+        accessTokenExpiresAt: "2099-01-02T00:00:00.000Z",
+        grantedAt: "2026-10-12T00:00:00.000Z",
+      }),
+    ),
+  );
+  const resolveMandate = consent.resolveMandate.bind(consent);
+  const dataPorts = [
+    vi.spyOn(db, "query"),
+    ...(
+      ["listForAccount", "grant", "resolveToken", "rotateRefreshToken", "revokeToken", "revokeAuthorization"] as const
+    ).map((name) => vi.spyOn(linked, name)),
+    vi.spyOn(consent, "resolveMandate"),
+    vi.spyOn(consent, "setMandate"),
+    vi.spyOn(consent, "getSpendSummary"),
+    activity.listForGrant,
+    ...Object.values(outbox),
+    revokePayments,
+  ];
+  return {
+    dataPorts,
+    setActor: (value: typeof currentActor) => {
+      currentActor = value;
+    },
+    snapshot: async () =>
+      structuredClone({ grants, clients: [...db.clients.values()], mandate: await resolveMandate("lpa_managed") }),
+    request: (route: (typeof managementRoutes)[number]) =>
+      app.request(`/ucp/oauth${route.path}`, {
+        method: route.method,
+        ...("body" in route
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(route.body) }
+          : {}),
+      }),
+  };
+}
 
 function createInMemoryConsentDirectory() {
   const mandates = new Map<string, unknown>();

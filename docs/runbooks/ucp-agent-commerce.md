@@ -197,7 +197,7 @@ Token support endpoints:
 - `/ucp/oauth/register`: RFC 7591 public-client registration for agent platforms
 - `/ucp/oauth/introspect`: active token, account, scope, and client/profile diagnostics
 - `/ucp/oauth/revoke`: access-token or refresh-token revocation
-- `/ucp/oauth/authorizations`: signed-in account list and consent revocation
+- `/ucp/oauth/authorizations` and its grant-management routes: interactive-session account list, detail, activity, webhook configuration/deliveries, consent revocation, and spending mandate. Agent bearer tokens and guest-checkout actors receive 401 `login_required` without management reads or writes. Token-holder revocation through `/ucp/oauth/revoke` remains available.
 
 Order reads are available through the linked account when that account is the buyer or seller on the order:
 

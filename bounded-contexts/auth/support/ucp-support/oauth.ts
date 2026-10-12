@@ -721,7 +721,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.get("/authorizations", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -741,7 +741,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Single-grant detail read, backing the connected-agents detail page. Ownership is enforced
   // the same way the mandate route enforces it: the grant must appear in the account's list.
   app.get("/authorizations/:id", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -760,13 +760,13 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Activity view: a read model over the MCP audit sink, filtered to one grant. Backs the
   // "watches tool activity accrue" acceptance criterion for the connected-agents UI.
   app.get("/authorizations/:id/activity", async (c) => {
-    if (!options.agentGrantActivity) {
-      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
-    }
-
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
+    }
+
+    if (!options.agentGrantActivity) {
+      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
     }
 
     const authorizationId = c.req.param("id");
@@ -804,7 +804,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // surface addresses it through a grant so account ownership is checked before
   // the client registration is read or replaced.
   app.get("/authorizations/:id/webhook", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -822,7 +822,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.put("/authorizations/:id/webhook", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -864,7 +864,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.get("/authorizations/:id/webhook-deliveries", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -889,7 +889,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.post("/authorizations/:id/revoke", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -919,13 +919,13 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Configure the spending mandate for a linked agent grant. This is the opt-in a person
   // makes (during consent or the connected-agents UI) to move off the conservative default.
   app.put("/authorizations/:id/mandate", async (c) => {
-    if (!options.agentGrantConsent) {
-      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
-    }
-
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
+    }
+
+    if (!options.agentGrantConsent) {
+      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
     }
 
     const authorizationId = c.req.param("id");
@@ -950,6 +950,11 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   return app;
+}
+
+async function resolveInteractiveSessionActor(options: UcpOAuthRoutesOptions, request: Request) {
+  const actor = await options.resolveActor(request);
+  return isInteractiveSessionActor(actor) ? actor : null;
 }
 
 async function resolveAccountAuthorization(options: UcpOAuthRoutesOptions, accountId: string, authorizationId: string) {

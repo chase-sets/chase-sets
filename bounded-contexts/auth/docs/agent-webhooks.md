@@ -10,7 +10,7 @@ The connected-agents API addresses webhook configuration through an owned author
 - `PUT /ucp/oauth/authorizations/:id/webhook` accepts `{ "callback_url": "https://agent.example/hooks" }` to replace the endpoint and rotate the secret, or `{ "callback_url": null }` to disable it. A replacement response returns the new secret exactly once.
 - `GET /ucp/oauth/authorizations/:id/webhook-deliveries` returns account-owned delivery summaries. Add `status=dead-letter` to limit the result to terminal failures.
 
-Every management request first verifies that the grant belongs to the signed-in account. A client registration is shared by its grants, so replacing a callback changes delivery for every active grant using that OAuth client.
+Every management request requires an interactive session actor, then verifies that the grant belongs to the signed-in account. Agent bearer tokens and guest-checkout actors are refused with 401 `login_required` before any management read or write. A client registration is shared by its grants, so replacing a callback changes delivery for every active grant using that OAuth client.
 
 ## Signature verification
 
