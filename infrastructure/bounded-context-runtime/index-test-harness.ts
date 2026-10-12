@@ -357,6 +357,10 @@ export function createMockPool(): MockPool {
         };
       }
 
+      if (sql.includes("FROM pg_constraint") && sql.includes("contype = 'f'")) {
+        return { rows: [] };
+      }
+
       if (sql.includes("FROM event_projection_group_generations AS generation") && sql.includes("SELECT")) {
         const key = `${params[0]}:${params[1]}`;
         const generation = getProjectionGroupGenerationStore(pool).get(key);
