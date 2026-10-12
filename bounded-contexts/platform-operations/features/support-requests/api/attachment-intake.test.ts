@@ -72,6 +72,46 @@ describe("Support attachment intake", () => {
       code: "too-many-files",
       status: 413,
     },
+    {
+      label: "P6/C1 comma-joined Content-Type list ending in multipart",
+      contentType: "text/plain, multipart/form-data; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "invalid-multipart",
+      status: 400,
+    },
+    {
+      label: "P6/C2 urlencoded essence followed by multipart",
+      contentType: "application/x-www-form-urlencoded, multipart/form-data; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "invalid-multipart",
+      status: 400,
+    },
+    {
+      label: "P6/C3 appended Content-Type values ending in multipart",
+      contentType: ["text/plain", "multipart/form-data; boundary=SYNB"],
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "invalid-multipart",
+      status: 400,
+    },
+    {
+      label: "P6/C4 wildcard essence followed by multipart",
+      contentType: "*/*, multipart/form-data; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "invalid-multipart",
+      status: 400,
+    },
+    {
+      label: "P6/C9 garbage essence followed by multipart",
+      contentType: "x, multipart/form-data; boundary=SYNB",
+      boundary: "SYNB",
+      name: '"attachments"',
+      code: "invalid-multipart",
+      status: 400,
+    },
   ]) {
     it(`rejects synthetic parser differential ${label} before native materialization`, async () => {
       const bytes = new TextEncoder().encode(
@@ -81,9 +121,12 @@ describe("Support attachment intake", () => {
             `--${boundary}\r\nContent-Disposition: form-data; name=${name}; filename="synthetic-${index}.jpg"\r\nContent-Type: image/jpeg\r\n\r\nSYNTHETIC${index}\r\n`,
         ).join("") + `--${boundary}--\r\n`,
       );
+      const headers = new Headers({ "content-length": String(bytes.byteLength) });
+      for (const value of Array.isArray(contentType) ? contentType : [contentType])
+        headers.append("content-type", value);
       const request = new Request("http://synthetic.invalid/", {
         method: "POST",
-        headers: { "content-type": contentType, "content-length": String(bytes.byteLength) },
+        headers,
         body: bytes,
       });
       const parse = vi.spyOn(Response.prototype, "formData");

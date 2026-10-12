@@ -28,9 +28,11 @@ export function validateSupportAttachmentOperationId(value: string): string {
 
 const MULTIPART_BOUNDARY = /^[0-9A-Za-z'()+_,\-./:=? ]{0,69}[0-9A-Za-z'()+_,\-./:=?]$/;
 
-// Inspection and native decoding receive the same validated ASCII boundary.
+// Native decoding receives only a canonical form type and the inspected ASCII boundary.
 function boundedContentType(contentType: string) {
-  if (contentType.split(";")[0]!.trim().toLowerCase() !== "multipart/form-data") return { contentType, boundary: null };
+  const essence = contentType.split(";")[0]!.trim().toLowerCase();
+  if (essence === "application/x-www-form-urlencoded") return { contentType: essence, boundary: null };
+  if (essence !== "multipart/form-data") throw new SupportAttachmentIntakeError("invalid-multipart", 400);
   const boundary = /;\s*boundary=(?:"([^"]*)"|([^;\s]*))\s*$/i.exec(contentType);
   const value = boundary?.[1] ?? boundary?.[2] ?? "";
   if (!MULTIPART_BOUNDARY.test(value)) throw new SupportAttachmentIntakeError("invalid-multipart", 400);
