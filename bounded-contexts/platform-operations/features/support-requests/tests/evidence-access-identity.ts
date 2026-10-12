@@ -2,11 +2,20 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { createGuestCheckoutActor } from "../../../../auth/support/runtime-support/runtime";
 import { buildIdentityApi, createBootstrapContext } from "../../../../identity/api";
 import { createAccountRuntime } from "../../../../identity/features/accounts/api/runtime";
 import { createUserRuntime } from "../../../../identity/features/users/api/runtime";
 import { createMembershipRuntime } from "../../../../identity/features/memberships/api/runtime";
 import type { IdentityServices } from "../../../../identity/support/runtime-support/services";
+
+// Synthetic guest-checkout token record; the actor shape comes from Auth's real factory.
+export function guestCheckoutActorThroughAuth(accountId: string): ResolvedActor {
+  return createGuestCheckoutActor({ identity: { bootstrapTenantId: "tnt_identity" } } as never, {
+    token_id: "gct_synthetic_evidence",
+    account_id: accountId,
+  });
+}
 
 export async function mintEvidenceActorThroughIdentity(): Promise<ResolvedActor> {
   const { eventStore } = createInMemoryEventStore();

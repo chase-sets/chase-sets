@@ -11,7 +11,7 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
-import { mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
+import { guestCheckoutActorThroughAuth, mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
 
 function buildApp(
   services: SupportRequestServices,
@@ -142,6 +142,37 @@ describe("support attachment capability x role x participation", () => {
         tenantId: "tnt_identity",
         payload: { tenantId: null, userId: null, accountId: null, membershipId: null },
       });
+    },
+  );
+
+  it.each(["download", "upload", "audit-read"])(
+    "%s guest checkout records one denied attempt without storage I/O or body parsing",
+    async (action) => {
+      const fixture = await attachmentRouteFixture();
+      const actor = guestCheckoutActorThroughAuth("acc_buyer");
+      const request = new Request(
+        `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+        {
+          method: action === "upload" ? "POST" : "GET",
+          ...(action === "upload" ? { body: "unparsed" } : {}),
+        },
+      );
+      const parse = vi.spyOn(request, "formData");
+      const response = await attachmentApp(fixture.runtime, actor).request(request);
+      const attempts = fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+      expect.soft(response.status).toBe(403);
+      expect.soft(attempts).toHaveLength(1);
+      expect(await response.json()).toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(attempts[0]?.payload).toMatchObject({
+        decision: "denied",
+        reason: "base-permission-required",
+        membershipId: null,
+        accountId: "acc_buyer",
+        userId: "usr_guest_checkout",
+      });
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(parse).not.toHaveBeenCalled();
     },
   );
 

@@ -120,7 +120,8 @@ export function createEvidenceAccessAudit(eventStore: EventStore, now: () => str
         tenantId: actor?.tenantId ?? null,
         userId: actor?.userId ?? null,
         accountId: actor?.accountId ?? null,
-        membershipId: actor?.membershipId ?? null,
+        // Auth's guest-checkout actor carries its `guest:` session handle, not an Identity Membership.
+        membershipId: actor && !actor.membershipId.startsWith("guest:") ? actor.membershipId : null,
         participation: access.participation,
         assignmentId: access.assignment?.assignmentId ?? null,
         assignmentVersion: access.assignment?.version ?? null,
