@@ -58,6 +58,37 @@ function setup(db: PgQueryable = emptyDb()) {
   };
 }
 
+describe("REVIEW-PROBE-9471", () => {
+  it("P2 deterministic interleave: concurrent same-owner refresh before our refresh UPDATE", async () => {
+    const memory = createIntentDb();
+    memory.insertIntent({ intentId: "sli_existing" });
+    let interleaved = false;
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        if (!interleaved && sql.includes("SET source_path")) {
+          interleaved = true;
+          const row = memory.intents.get("sli_existing")!;
+          row.owner_revision = Number(row.owner_revision) + 1;
+        }
+        return memory.db.query<Row>(sql, values);
+      },
+    };
+    const { discovery } = setup(db);
+    const outcome = await discovery
+      .createAnonymousIntent({
+        anonymousOwnerId: "anon_device",
+        sourcePath: "/search",
+        sourceSurface: "search",
+        product: product(),
+      })
+      .then(
+        (intent) => ({ ok: intent.intentId }),
+        (error: { code?: string }) => ({ err: error.code }),
+      );
+    expect(outcome).toEqual({ ok: "sli_existing" });
+  });
+});
+
 describe("Saved List discovery application", () => {
   it("reuses a legacy intent with a differently ordered Option array", async () => {
     const memory = createIntentDb();
