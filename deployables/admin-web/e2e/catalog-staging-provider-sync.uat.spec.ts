@@ -5,7 +5,7 @@ import {
   startWholeGameCredentialProbe,
   wholeGameProbeCredentials,
   wholeGameProbeSessionMarker,
-} from "./support/whole-game-credential-probe";
+} from "./support/whole-game-credential-probe-test-support";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildScopeSyncBatchPreviewProbeReceipt,
