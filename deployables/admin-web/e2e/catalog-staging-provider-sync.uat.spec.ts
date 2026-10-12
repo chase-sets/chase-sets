@@ -7943,7 +7943,16 @@ credentialProbeTest.describe("catalog whole-game credential transport", () => {
   credentialProbeTest.describe.configure({ retries: 0 });
 
   credentialProbeTest("whole-game credential HTTP 307 probe", async ({ browser }, testInfo) => {
-    const probe = await startWholeGameCredentialProbe(browser);
+    const probe = await startWholeGameCredentialProbe(browser, {
+      signIn: `<!doctype html><html><body><form method="post" action="/access/password">
+        <label id="email-label">Email<input name="email"></label>
+        <button type="button" id="continue" onclick="document.getElementById('email-label').hidden=true;
+          this.hidden=true; document.getElementById('password-step').hidden=false">Continue</button>
+        <div id="password-step" hidden><label>Password<input name="password" type="password"></label>
+          <button type="submit">Sign in</button></div></form></body></html>`,
+      importer: `<!doctype html><html data-admin-web-hydrated="true"><body>
+        <h1>Pull provider data, review Source Observations, promote Catalog facts</h1></body></html>`,
+    });
     try {
       const fixture = { origin: probe.origin, credentials: wholeGameProbeCredentials };
       const assertFixtureOrigin = (url: string) => {

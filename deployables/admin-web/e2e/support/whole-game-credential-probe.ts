@@ -51,18 +51,11 @@ async function arrival(request: IncomingMessage): Promise<Arrival> {
   };
 }
 
-const importer = `<!doctype html><html data-admin-web-hydrated="true"><body>
-  <h1>Pull provider data, review Source Observations, promote Catalog facts</h1>
-  </body></html>`;
-const form = `<!doctype html><html><body><form method="post" action="/access/password">
-  <label id="email-label">Email<input name="email"></label>
-  <button type="button" id="continue" onclick="document.getElementById('email-label').hidden=true;
-    this.hidden=true; document.getElementById('password-step').hidden=false">Continue</button>
-  <div id="password-step" hidden><label>Password<input name="password" type="password"></label>
-    <button type="submit">Sign in</button></div></form></body></html>`;
-
 // Real TCP responses, not route.fulfill: Chromium owns the 307 and 303 hops.
-export async function startWholeGameCredentialProbe(browser: Browser) {
+export async function startWholeGameCredentialProbe(
+  browser: Browser,
+  documents: Readonly<{ signIn: string; importer: string }>,
+) {
   let redirect = false;
   let sourceOrigin = "";
   const sourcePosts: Arrival[] = [];
@@ -91,13 +84,13 @@ export async function startWholeGameCredentialProbe(browser: Browser) {
           ...(redirect ? { location: `${sinkOrigin}/credential-sink` } : { "content-type": "text/html" }),
           "set-cookie": `probe-session=${wholeGameProbeSessionMarker}; HttpOnly; SameSite=Lax`,
         });
-        response.end(redirect ? undefined : importer);
+        response.end(redirect ? undefined : documents.importer);
       } else if (request.method !== "GET") {
         laterSubmissions.push(request.method ?? "unknown");
         response.writeHead(403).end();
       } else {
         response.writeHead(200, { "content-type": "text/html" });
-        response.end(request.url.startsWith("/access/sign-in") ? form : importer);
+        response.end(request.url.startsWith("/access/sign-in") ? documents.signIn : documents.importer);
       }
     })().catch(() => {
       serverErrors.push("source-request-failed");
