@@ -26,6 +26,9 @@ import { createCatalogServices, type CatalogServices } from "../../../support/au
 import { seedCatalogDatabase } from "../../../support/authoring-support/seed";
 import { evolveCatalogItem, initialCatalogItemState, type CatalogItemEvent } from "../../catalog-items/domain/domain";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import { queryProductionCatalogCompletionFacts } from "../../completion-report/read-model/query";
+import { defaultScopeSyncBatchBudget } from "../../scope-sync-batches/domain/batch";
+import { createScopeSyncBatchStore } from "../../scope-sync-batches/read-model/store";
 import fixture from "../api/__fixtures__/tcgdex/normal.json";
 import { unitKeyForCatalogProviderProfileVersion } from "../api/governance/catalog-integration-impact-analysis";
 import { createCatalogIntegrationRolloutControlPolicyFromEnv } from "../api/governance/catalog-integration-rollout-controls";
@@ -812,6 +815,50 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     });
   }
 
+  async function completionFacts() {
+    const candidates = await pool.query<{ candidate_id: string }>(
+      "SELECT candidate_id FROM catalog_merge_candidates WHERE scope_record_id = $1 ORDER BY candidate_id",
+      [applicationScopeId],
+    );
+    await candidateWriter(pool, store).reproject(candidates.rows.map((row) => row.candidate_id));
+    const batchId = "batch_application_completion";
+    const batches = createScopeSyncBatchStore(pool);
+    if (!(await batches.get(batchId, context))) {
+      await batches.create({
+        batchId,
+        preview: {
+          selection: { mode: "ids", scopeRecordIds: [applicationScopeId] },
+          budget: defaultScopeSyncBatchBudget,
+          planFingerprint: "fp_application_completion",
+        } as never,
+        plans: [],
+        context,
+      });
+    }
+    const at = new Date().toISOString();
+    return queryProductionCatalogCompletionFacts(pool, {
+      batchId,
+      observedAt: at,
+      frozenManifest: {
+        manifestVersion: "production-catalog-completion-manifest-v1",
+        frozenAt: at,
+        launchCutoff: at,
+        batch: { batchId, planFingerprint: "fp_application_completion", status: "completed" },
+        providerUnits: [],
+        scopes: [{ scopeRecordId: applicationScopeId, eligible: true, acceptedMappings: [] }],
+        expectedUnits: [],
+        observedUnits: [],
+        mergeCandidates: [],
+        promotions: { create: 0, update: 0, ignore: 0, defer: 0 },
+        catalogItems: { draft: 0, published: 0 },
+        sourceObservations: { total: 0, observed: 0, changed: 0, promoted: 0, rejected: 0, terminalJobFailures: 0 },
+        assetProcessing: { approvedFailures: 0, exclusions: 0 },
+        providerUsage: [],
+        exclusions: [],
+      },
+    });
+  }
+
   // The same composition as production, with a worker that dies right after
   // (or, for d, right before) one durable effect: its claim is released, so the
   // next worker resumes the unit from durable state.
@@ -935,12 +982,16 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
           `9${crashPoints.indexOf(point)}`,
         );
         const targetBefore = mode === "create" ? null : (await readItem(expectedTarget)).state;
+        await completionFacts();
         const job = await submit();
 
         await expect(processOne(runtimeWith({ crash: point }))).resolves.toBe(0);
         const interrupted = await candidateEvents(candidateId);
         const itemLengthAtCrash = (await readItem(expectedTarget)).history.length;
         expect(interrupted.applied).toBe(point === "e" ? 1 : 0);
+        const incompleteReport = await completionFacts();
+        expect(incompleteReport.manifest.promotions).toEqual({ create: 0, update: 0, ignore: 0, defer: 0 });
+        expect(incompleteReport.unknownFacts).toContain(`merge-candidate-application:${candidateId}`);
 
         await drainWorker(services.sourceObservations);
         const completed = await requireJob(services.sourceObservations, job.jobId);
@@ -952,6 +1003,14 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
           appliedCatalogItemId: expectedTarget,
           appliedMode: mode,
         });
+        const appliedReport = await completionFacts();
+        expect(appliedReport.manifest.promotions).toEqual({
+          create: mode === "create" ? 1 : 0,
+          update: mode === "create" ? 0 : 1,
+          ignore: 0,
+          defer: 0,
+        });
+        expect(appliedReport.unknownFacts).toEqual([]);
         const after = await candidateEvents(candidateId);
         expect(after).toMatchObject({ approved: 1, planned: 1, applied: 1 });
         if (point === "e") {
@@ -985,6 +1044,7 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
         });
         expect(await itemCreations()).toBe(mode === "create" ? 1 : creationsBefore);
         expect((await candidateEvents(candidateId)).applied).toBe(1);
+        expect((await completionFacts()).manifest.promotions).toEqual(appliedReport.manifest.promotions);
       },
     );
   });
@@ -1273,6 +1333,7 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
   });
 
   it("AC5: legacy bytes stay unchanged, legacy approvals catch up once, malformed version-1 jobs fail closed, asset failures are classified", async () => {
+    await completionFacts();
     const legacyJobs = createPostgresDurableJobStore<
       { scopeRecordId: string; reason: string },
       ReturnType<typeof queuedProgress>,
@@ -1320,6 +1381,9 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     const legacy = await requireJob(services.sourceObservations, "job_legacy_retained");
     expect(legacy).toMatchObject({ kind: "merge-candidate-promote", promotionApplicationVersion: null });
     expect(reconcileCatalogMergeCandidateApplications([legacy]).approvalOnly).toEqual(new Set([candidateId]));
+    const approvalReport = await completionFacts();
+    expect(approvalReport.manifest.promotions.create).toBe(0);
+    expect(approvalReport.unknownFacts).toContain(`merge-candidate-application:${candidateId}`);
 
     const catchUp = await submit();
     await drainWorker(services.sourceObservations);
@@ -1339,10 +1403,13 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     const mixed = reconcileCatalogMergeCandidateApplications([legacy, caughtUp]);
     expect([...mixed.applied.keys()]).toEqual([candidateId]);
     expect(mixed.approvalOnly.size).toBe(0);
+    expect((await completionFacts()).manifest.promotions.create).toBe(1);
     const again = await submit();
     await drainWorker(services.sourceObservations);
     expect((await requireJob(services.sourceObservations, again.jobId)).result).toMatchObject({ promoted: 0 });
     expect(await itemCreations()).toBe(1);
+
+    expect((await completionFacts()).manifest.promotions.create).toBe(1);
 
     const recordedResult = (
       await pool.query<{ result: string }>(
@@ -1359,6 +1426,7 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     await expect(services.sourceObservations.getCatalogMergeCandidateBulkJob(catchUp.jobId, context)).rejects.toThrow(
       CatalogMergeCandidateBulkJobMalformedError,
     );
+    await expect(completionFacts()).rejects.toThrow(CatalogMergeCandidateBulkJobMalformedError);
     await expect(
       services.sourceObservations.listCompletedCatalogMergeCandidateBulkJobs({
         context,
@@ -1406,6 +1474,9 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     expect(assetOutcome).toMatchObject({ status: "failed", diagnosticCode: "asset-processing-failed" });
     expect(await itemCreations()).toBe(creations);
     expect((await candidateWriter(pool, store).load(assetCandidate)).status).toBe("ready");
+    const assetReport = await completionFacts();
+    expect(assetReport.manifest.promotions.create).toBe(1);
+    expect(assetReport.manifest.assetProcessing.approvedFailures).toBe(1);
   });
 
   it("AC6: a pre-application worker cannot claim a version-1 job, and a queued legacy job never reports approval as success", async () => {

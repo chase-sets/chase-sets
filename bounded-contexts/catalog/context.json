@@ -687,6 +687,7 @@
         "blueprints",
         "catalog-items",
         "categories",
+        "completion-report",
         "components",
         "dimensions",
         "display-templates",
