@@ -94,6 +94,24 @@ describe("claimed-reconcile-missed-sale owned facts and pair accounting", () => 
       drops: [{ identity: "tcgplayer:16:product:90000001:9:Near Mint", quantity: 5 }],
     });
   });
+  it("uncommitted order errors are not reconciliation facts or connection failures", async () => {
+    const read = (db: PgQueryable) =>
+      readRecordedTcgplayerSaleFacts(db, {
+        connectionId: "connection-1",
+        accountId: "account-1",
+        from,
+        to,
+        maxLines: 10,
+      });
+    expect(await read(database([], [{ record: { kind: "invalid-order" } }]))).toEqual({
+      kind: "known",
+      quantities: [],
+    });
+    expect(await read(database([committed], [{ record: order }, { record: { kind: "invalid-order" } }]))).toEqual({
+      kind: "known",
+      quantities: [{ skuId: "90000001", quantity: 5 }],
+    });
+  });
   it("no first/absent drop; surplus quantities and ambiguous SKU conditions do not invent drift", () => {
     expect(accountSnapshotPair([], [current], { kind: "known", quantities: [] })).toEqual({ kind: "known", drops: [] });
     expect(accountSnapshotPair([previous], [], { kind: "known", quantities: [] })).toEqual({

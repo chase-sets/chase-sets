@@ -377,9 +377,13 @@ describeDb("Channel Reconciliation guarded production path", () => {
   it("claimed-reconcile-production-day-after pair writes cannot borrow newer snapshots or overwrite a newer writer", async () => {
     const fixture = await materialRuntime();
     const at = new Date();
-    const rows = fixture.source.rows.map((row) => ({ ...row, priceAmountMinor: 1000 }));
+    const rows = fixture.source.rows.map((row) => ({ ...row, priceAmountMinor: 1000, totalQuantity: 2 }));
     await persistAppliedMembership(rows);
-    await persistMaterialCapture(rows, 1, new Date(at.getTime() - 2000).toISOString());
+    await persistMaterialCapture(
+      rows.map((row) => ({ ...row, totalQuantity: 3 })),
+      1,
+      new Date(at.getTime() - 2000).toISOString(),
+    );
     await persistMaterialCapture(rows, 2, new Date(at.getTime() - 1000).toISOString());
     const input = {
       connectionId: "connection-1",

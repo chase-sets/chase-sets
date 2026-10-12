@@ -248,13 +248,20 @@ export function createChannelReconciliationRuntime(
       let pairAccountingAvailable = true;
       const drops = new Map<string, number>();
       if (claimedSource?.pair && claimedMaterial) {
-        const sales = await readRecordedTcgplayerSaleFacts(dependencies.db, {
-          connectionId: connection.connectionId,
-          accountId: connection.accountId,
-          from: claimedSource.pair.from,
-          to: claimedSource.pair.to,
-          maxLines: policy.maxSaleLinesPerRun,
+        const raw = accountSnapshotPair(claimedSource.pair.previousRows, claimedSource.rows, {
+          kind: "known",
+          quantities: [],
         });
+        const needsAccounting = raw.kind === "unknown" || raw.drops.length > 0;
+        const sales = needsAccounting
+          ? await readRecordedTcgplayerSaleFacts(dependencies.db, {
+              connectionId: connection.connectionId,
+              accountId: connection.accountId,
+              from: claimedSource.pair.from,
+              to: claimedSource.pair.to,
+              maxLines: policy.maxSaleLinesPerRun,
+            })
+          : { kind: "known" as const, quantities: [] };
         const accounting = accountSnapshotPair(claimedSource.pair.previousRows, claimedSource.rows, sales);
         pairAccountingAvailable = accounting.kind === "known";
         if (accounting.kind === "known") for (const drop of accounting.drops) drops.set(drop.identity, drop.quantity);
