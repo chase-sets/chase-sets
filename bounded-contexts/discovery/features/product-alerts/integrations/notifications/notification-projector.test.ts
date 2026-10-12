@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import { projectMarketplaceEventToProductAlertNotifications } from "./notification-projector";
+import {
+  buildProductAlertNotificationProjectionHandlers,
+  projectMarketplaceEventToProductAlertNotifications,
+} from "./notification-projector";
 
 type Row = Record<string, unknown>;
 
@@ -48,6 +51,7 @@ class ProductAlertProjectionDb implements PgQueryable {
     if (sql.includes("UPDATE discovery_product_alert_market_activity")) {
       const current = this.activities.get(String(values[0])) ?? {};
       if (sql.includes("price_amount = $2")) {
+        if (Number(current.source_stream_version) >= Number(values[3])) return { rows: [], rowCount: 0 };
         this.activities.set(String(values[0]), {
           ...current,
           price_amount: values[1],
@@ -65,6 +69,12 @@ class ProductAlertProjectionDb implements PgQueryable {
         this.activities.set(String(values[0]), {
           ...current,
           status: "active",
+          updated_at: values[1],
+        });
+      } else if (sql.includes("status = 'paused'") || sql.includes("status = 'withdrawn'")) {
+        this.activities.set(String(values[0]), {
+          ...current,
+          status: sql.includes("status = 'paused'") ? "paused" : "withdrawn",
           updated_at: values[1],
         });
       }
@@ -91,19 +101,126 @@ class ProductAlertProjectionDb implements PgQueryable {
   }
 }
 
-function marketplaceEvent(type: string, data: Record<string, unknown>): TransportEvent {
+function marketplaceEvent(
+  type: string,
+  data: Record<string, unknown>,
+  streamVersion = 1,
+  recordedAt = "2026-05-09T00:00:00.000Z",
+): TransportEvent {
   return buildTransportEvent(type, data, {
     id: `evt_${type}`,
     streamId: "marketplace.listing-lst_1",
     globalPosition: "1",
+    streamVersion,
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
     trace: { traceId: "trace_1" },
-    timing: { occurredAt: "2026-05-09T00:00:00.000Z", recordedAt: "2026-05-09T00:00:00.000Z" },
+    timing: { occurredAt: recordedAt, recordedAt },
   });
 }
 
 describe("Product Alert notification projector", () => {
+  const removal = {
+    reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    reportCount: 3,
+    threshold: 3,
+    autoUnlistedAt: "2026-05-09T00:00:00.000Z",
+  };
+  const enforcement = {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    source: "automatic-report-threshold",
+    sourceActionId: removal.reportId,
+    occurredAt: removal.autoUnlistedAt,
+  };
+  const activity = {
+    activity_id: "lst_1",
+    market_side: "listing",
+    owner_account_id: enforcement.accountId,
+    catalog_catalog_item_id: "cat_1",
+    product_id: "prd_1",
+    selected_options: [],
+    price_amount: "18.00",
+    price_currency_code: "EUR",
+    source_stream_version: 1,
+    quantity: 1,
+    status: "active",
+    updated_at: "before",
+  };
+
+  it("legacy-modern parity", async () => {
+    // Immutable-base 43d1c261 pauses activity and emits no notification for both shapes.
+    for (const data of [removal, { ...removal, listingEnforcement: enforcement }]) {
+      const db = new ProductAlertProjectionDb();
+      const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+      db.activities.set("lst_1", { ...activity });
+      const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox);
+      await handlers["marketplace.listing.auto-unlisted"]!(marketplaceEvent("marketplace.listing.auto-unlisted", data));
+      expect(db.activities.get("lst_1")).toEqual({
+        ...activity,
+        status: "paused",
+        updated_at: "2026-05-09T00:00:00.000Z",
+      });
+      expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["active", "paused", "withdrawn"])(
+    "operator removal matches automatic visibility: %s and day-after",
+    async (status) => {
+      const db = new ProductAlertProjectionDb();
+      const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+      const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox);
+      db.activities.set("lst_1", { ...activity, status });
+      const other = { ...activity, activity_id: "lst_2", owner_account_id: "acc_other" };
+      db.activities.set("lst_2", { ...other });
+      db.alerts.set("pal_1", {
+        alert_id: "pal_1",
+        account_id: "acc_watcher",
+        market_side: "listing",
+        product_id: "prd_1",
+        threshold_amount: "16.00",
+        threshold_currency_code: "EUR",
+        status: "active",
+      });
+      expect(db.activities.get("lst_1")?.status).toBe(status);
+      await handlers["marketplace.listing.operator-unlisted"]!(
+        marketplaceEvent("marketplace.listing.operator-unlisted", {
+          listingEnforcement: {
+            ...enforcement,
+            source: "operator-unlist",
+            sourceActionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          },
+        }),
+      );
+      expect(db.activities.get("lst_1")).toEqual({
+        ...activity,
+        status: "paused",
+        updated_at: "2026-05-09T00:00:00.000Z",
+      });
+      await handlers["marketplace.listing.price-updated"]!(
+        marketplaceEvent(
+          "marketplace.listing.price-updated",
+          { priceAmount: "15.00", priceCurrencyCode: "EUR" },
+          5,
+          "2026-05-10T00:00:00.000Z",
+        ),
+      );
+      await handlers["marketplace.listing.quantity-cap-updated"]!(
+        marketplaceEvent("marketplace.listing.quantity-cap-updated", { quantityCap: 2 }, 6, "2026-05-10T00:01:00.000Z"),
+      );
+      expect(db.activities.get("lst_1")?.status).toBe("paused");
+      await handlers["marketplace.listing.price-updated"]!(
+        marketplaceEvent("marketplace.listing.price-updated", { priceAmount: "1.00", priceCurrencyCode: "EUR" }, 4),
+      );
+      expect(db.activities.get("lst_1")?.price_amount).toBe("15.00");
+      expect(db.activities.get("lst_2")).toEqual(other);
+      expect(db.notifications.size).toBe(0);
+      expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+    },
+  );
+
   it("notifies a listing subscriber when a draft listing becomes active below threshold", async () => {
     const db = new ProductAlertProjectionDb();
     const outbox = { enqueueNotification: vi.fn(async (_input: { message: { title: string } }) => undefined) };
