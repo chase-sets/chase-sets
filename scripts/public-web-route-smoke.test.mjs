@@ -191,7 +191,7 @@ async function closeAndAssertClean(fixture, result) {
   openServers.splice(openServers.indexOf(fixture), 1);
 }
 
-async function startNeverEndingBodyFixture() {
+async function startNeverEndingBodyFixture({ holdFirstRequest = false } = {}) {
   let signalBodyStarted;
   const bodyStarted = new Promise((resolve) => {
     signalBodyStarted = resolve;
@@ -204,15 +204,21 @@ async function startNeverEndingBodyFixture() {
       signalBodyStarted(performance.now());
       return;
     }
+    if (holdFirstRequest && fixture.requests.length === 1) return;
     defaultHealthyHandler(request, response);
   });
   return { bodyStarted, fixture };
 }
 
 async function assertRealCliDeadlineProof({ bodyStarted, fixture, running }) {
-  const bodyStartedAt = await bodyStarted;
   let proofTimer;
   try {
+    const bodyStartedAt = await Promise.race([
+      bodyStarted,
+      running.result.then((result) => {
+        throw new Error(`real CLI exited before requesting /faq: ${cliExitDiagnostics(result)}`);
+      }),
+    ]);
     const failureObservedAt = await Promise.race([
       running.waitForStderr(deadlineFailure),
       new Promise((_, reject) => {
@@ -237,7 +243,12 @@ async function assertRealCliDeadlineProof({ bodyStarted, fixture, running }) {
     return result;
   } catch (error) {
     if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
-    const result = await running.result;
+    const result = await running.result.catch(async () => {
+      if (running.child.exitCode === null && running.child.signalCode === null) {
+        await new Promise((resolve) => running.child.once("close", resolve));
+      }
+      return { code: running.child.exitCode, signal: running.child.signalCode };
+    });
     await closeAndAssertClean(fixture, result);
     throw error;
   } finally {
@@ -375,9 +386,34 @@ describe("public web route smoke real CLI", () => {
     for (const memberId of STRICT_PUBLIC_ROUTE_MEMBER_IDS) expect(result.stdout).toContain(memberId);
   });
 
+  it("rejects promptly when the real CLI exits before requesting /faq", async () => {
+    const { bodyStarted, fixture } = await startNeverEndingBodyFixture({ holdFirstRequest: true });
+    const firstRoute = inventory.members.find((member) => member.kind !== "INDETERMINATE");
+    expect(firstRoute.path).not.toBe("/faq");
+    const startedAt = performance.now();
+    const running = startCli(fixture.baseUrl, "healthy", ["--timeout-ms", "120"]);
+    const error = await assertRealCliDeadlineProof({ bodyStarted, fixture, running }).catch((error) => error);
+    const elapsedMs = performance.now() - startedAt;
+    const result = await running.result;
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("real CLI exited before requesting /faq");
+    expect(error.message).toContain(cliExitDiagnostics(result));
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.deadlineExceeded}] ${firstRoute.memberId} (${firstRoute.path})`,
+    );
+    expect(elapsedMs).toBeLessThan(processExitCeilingMs);
+    expect(fixture.requests).toEqual([firstRoute.path]);
+    expect(fixture.sockets.size).toBe(0);
+    expect(fixture.server.listening).toBe(false);
+    expect(fixture.server.eventNames()).toEqual([]);
+    console.info(`early-exit deadline proof: elapsedMs=${elapsedMs}, ceilingMs=${processExitCeilingMs}`);
+  });
+
   it("keeps the deadline active through a partial body that never ends after several successful routes", async () => {
     const { bodyStarted, fixture } = await startNeverEndingBodyFixture();
-    const running = startCli(fixture.baseUrl, "healthy", ["--timeout-ms", "120", "--gate-timeout-ms", "1200"]);
+    const running = startCli(fixture.baseUrl, "healthy");
 
     await assertRealCliDeadlineProof({ bodyStarted, fixture, running });
   });
@@ -386,12 +422,7 @@ describe("public web route smoke real CLI", () => {
     const mutant = await createDeadlineScopeMutant();
     try {
       const { bodyStarted, fixture } = await startNeverEndingBodyFixture();
-      const running = startCli(
-        fixture.baseUrl,
-        "healthy",
-        ["--timeout-ms", "120", "--gate-timeout-ms", "1200"],
-        mutant.mutantPath,
-      );
+      const running = startCli(fixture.baseUrl, "healthy", [], mutant.mutantPath);
 
       await expect(assertRealCliDeadlineProof({ bodyStarted, fixture, running })).rejects.toThrow(
         `real CLI did not emit '${deadlineFailure}' within ${deadlineProofCeilingMs}ms`,
