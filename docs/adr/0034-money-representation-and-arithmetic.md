@@ -131,8 +131,11 @@ the last order. These are the recorded exceptions preserved by the
 open at the status inspection; their schedule already exists at the inspected
 commit, even though its cent-math hardening has not landed there. Replacing the
 schedule with largest remainder would desynchronize refund caps already persisted
-in events. Preserve the schedule, not the existing float implementation, when
-hardening its arithmetic.
+in events. Keep both schedules' existing floor arithmetic as well as their shape:
+an exact bigint floor gives different cents for large in-range totals (the #7112
+vector yields cap `9733533401.24` today and `9733533401.23` under bigint), which
+would also desynchronize persisted caps. #8695 routes inputs and outputs through
+the primitive and keeps both floors unchanged.
 
 ### 6. Currency Revisit Trigger
 
