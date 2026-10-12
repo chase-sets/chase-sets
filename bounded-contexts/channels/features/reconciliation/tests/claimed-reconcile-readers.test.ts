@@ -29,11 +29,65 @@ const committed = {
   facts_fingerprint: hashChannelDesiredState({ ...line, soldAt: to, currencyCode: "USD" }),
 };
 function database(commits: unknown[] = [committed], records: unknown[] = [{ record: order }]) {
-  const query = vi.fn(async (sql: string) => ({ rows: sql.includes("channel_order_lines") ? commits : records }));
+  const query = vi.fn(async (sql: string) => ({
+    rows: sql.includes("channel_order_lines")
+      ? commits
+      : records.map((row) => ({
+          state: "completed",
+          order_reference: null,
+          ...(row as object),
+        })),
+  }));
   return { query } as unknown as PgQueryable;
 }
 
+function intervalDatabase(
+  commits: (typeof committed)[],
+  records: Array<{ record: typeof order; received_at: string; sequence: number }>,
+) {
+  return {
+    query: vi.fn(async (sql: string, values: unknown[]) => ({
+      rows: sql.includes("channel_order_lines")
+        ? commits
+            .filter((row) => !Array.isArray(values[1]) || (values[1] as string[]).includes(row.sale_key_fingerprint))
+            .slice(0, Number(values.at(-1)))
+        : records
+            .filter((row) => typeof values[1] !== "string" || Date.parse(row.received_at) > Date.parse(values[1]))
+            .sort((a, b) => a.received_at.localeCompare(b.received_at) || a.sequence - b.sequence)
+            .slice(0, Number(values.at(-1))),
+    })),
+  } as unknown as PgQueryable;
+}
+
 describe("claimed-reconcile-missed-sale owned facts and pair accounting", () => {
+  it.each(["replays", "commits", "conflict"])("F1 ignores pre-interval lifetime %s", async (history) => {
+    const oldOrder = { ...order, soldAt: "2026-01-01T00:00:00Z" };
+    const oldRecords = Array.from({ length: history === "replays" ? 5001 : 2 }, (_, sequence) => ({
+      record: sequence === 1 && history === "conflict" ? { ...oldOrder, soldAt: "2026-01-02T00:00:00Z" } : oldOrder,
+      received_at: "2026-01-03T00:00:00Z",
+      sequence,
+    }));
+    const oldCommits =
+      history === "commits"
+        ? Array.from({ length: 5000 }, (_, index) => ({ ...committed, sale_key_fingerprint: `SYN-old-${index}` }))
+        : [];
+    const facts = await readRecordedTcgplayerSaleFacts(
+      intervalDatabase([...oldCommits, committed], [...oldRecords, { record: order, received_at: to, sequence: 6000 }]),
+      { connectionId: "connection-1", accountId: "account-1", from, to, maxLines: 5000 },
+    );
+    expect(facts).toEqual({ kind: "known", quantities: [{ skuId: "90000001", quantity: 5 }] });
+    expect(accountSnapshotPair([previous], [current], facts)).toEqual({ kind: "known", drops: [] });
+  });
+  it("F1 still refuses capped in-window replays", async () => {
+    const facts = await readRecordedTcgplayerSaleFacts(
+      intervalDatabase(
+        [committed],
+        Array.from({ length: 5001 }, (_, sequence) => ({ record: order, received_at: to, sequence })),
+      ),
+      { connectionId: "connection-1", accountId: "account-1", from, to, maxLines: 5000 },
+    );
+    expect(facts).toEqual({ kind: "unknown" });
+  });
   it("uses original soldAt and requested quantities, deduplicated across replay, not receipt/applied quantities", async () => {
     const facts = await readRecordedTcgplayerSaleFacts(database([committed], [{ record: order }, { record: order }]), {
       connectionId: "connection-1",
@@ -62,11 +116,11 @@ describe("claimed-reconcile-missed-sale owned facts and pair accounting", () => 
     async (failure) => {
       const records =
         failure === "missing"
-          ? []
+          ? [{ record: null, order_reference: order.orderNumber }]
           : failure === "expired"
-            ? [{ record: null }]
+            ? [{ record: null, state: "expired", order_reference: order.orderNumber }]
             : failure === "conflicting"
-              ? [{ record: order }, { record: { ...order, soldAt: from } }]
+              ? [{ record: order }, { record: { ...order, lines: [{ ...line, quantity: 6 }] } }]
               : [{ record: order }];
       const facts = await readRecordedTcgplayerSaleFacts(
         database(failure === "cap" ? [committed, committed] : [committed], records),

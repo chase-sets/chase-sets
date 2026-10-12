@@ -65,6 +65,7 @@ import type { ClaimedChannelStateRead } from "../domain/contracts";
 import { accountSnapshotPair } from "../domain/pair-accounting";
 import { reconciliationIsClean } from "../domain/settlement";
 import { readRecordedTcgplayerSaleFacts } from "../../tcgplayer-orders/read-model/recorded-facts";
+import { tcgplayerExternalListingId } from "../../tcgplayer-csv/domain/composition";
 
 const zeroCounts = (): MutableCounts => ({
   listingsReconciled: 0,
@@ -247,6 +248,7 @@ export function createChannelReconciliationRuntime(
       const priorMembers = new Map(claim.driftGeneration?.members.map((member) => [member.identity, member]));
       let pairAccountingAvailable = true;
       const drops = new Map<string, number>();
+      const resolvedClaimedIdentities = new Set<string>();
       if (claimedSource?.pair && claimedMaterial) {
         const raw = accountSnapshotPair(claimedSource.pair.previousRows, claimedSource.rows, {
           kind: "known",
@@ -264,8 +266,20 @@ export function createChannelReconciliationRuntime(
           : { kind: "known" as const, quantities: [] };
         const accounting = accountSnapshotPair(claimedSource.pair.previousRows, claimedSource.rows, sales);
         pairAccountingAvailable = accounting.kind === "known";
-        if (accounting.kind === "known") for (const drop of accounting.drops) drops.set(drop.identity, drop.quantity);
-        else counts.sourceUnavailable += 1;
+        if (accounting.kind === "known") {
+          for (const drop of accounting.drops) drops.set(drop.identity, drop.quantity);
+          const previousIdentities = new Set(
+            claimedSource.pair.previousRows.map((row) =>
+              tcgplayerExternalListingId(row.externalKey, row.conditionText),
+            ),
+          );
+          for (const [identity, item] of claimedMaterial.items) {
+            if (!item || !previousIdentities.has(identity) || drops.has(identity)) continue;
+            await withRunFence((db) =>
+              closeFinding(db, connection.connectionId, `pair-${digest(identity)}`, startedAt, claim.generation),
+            );
+          }
+        } else counts.sourceUnavailable += 1;
       }
 
       await closeTransientFindings(
@@ -318,6 +332,8 @@ export function createChannelReconciliationRuntime(
             )
           : { observed: resolveObserved(listing, observedByIdentity), sourceAuthority };
         const { observed } = resolved;
+        if (observed.present && "materialIdentity" in observed)
+          resolvedClaimedIdentities.add(observed.materialIdentity);
         if (listing.externalListingId) {
           observedByIdentity.delete(externalIdentity(listing.externalListingId, listing.externalOfferId));
         }
@@ -474,7 +490,13 @@ export function createChannelReconciliationRuntime(
       if (claimedMaterial) {
         const linked = new Set(expected.items.map((listing) => listing.externalListingId));
         for (const [identity, item] of claimedMaterial.items) {
-          if (linked.has(identity)) continue;
+          if (linked.has(identity)) {
+            if (resolvedClaimedIdentities.has(identity))
+              await withRunFence((db) =>
+                closeFinding(db, connection.connectionId, `state-${digest(identity)}`, startedAt, claim.generation),
+              );
+            continue;
+          }
           counts.listingsReconciled += 1;
           if (!item) {
             counts.sourceUnavailable += 1;
@@ -583,8 +605,15 @@ export function createChannelReconciliationRuntime(
         open: boolean;
         kind: string;
       }>(
-        "SELECT finding_id,fingerprint,open,kind FROM channel_reconciliation_findings WHERE connection_id=$1 ORDER BY finding_id LIMIT $2",
-        [connection.connectionId, findingLimit + 1],
+        `SELECT finding_id,fingerprint,open,kind FROM channel_reconciliation_findings
+         WHERE connection_id=$1 AND (open OR finding_id=ANY($3::text[])) ORDER BY finding_id LIMIT $2`,
+        [
+          connection.connectionId,
+          findingLimit + 1,
+          (claim.driftGeneration?.members ?? [])
+            .filter((member) => member.identity.startsWith("finding:"))
+            .map((member) => member.identity.slice("finding:".length)),
+        ],
       );
       if (findings.rows.length > findingLimit) {
         counts.sourceUnavailable += 1;
@@ -670,7 +699,12 @@ export function createChannelReconciliationRuntime(
               classification: !listingOnly && clean ? "in-sync" : "source-unavailable",
               listingSettled: listingOnly && listingSettled,
               sourceAuthority: heldInline ? saleSourceAuthority : sourceAuthority,
-              materialFingerprint: driftGeneration?.fingerprint ?? digest(`connection:${connection.connectionId}`),
+              // Removing recovered snapshot-age membership changes the drift digest.
+              // A closing success must still identify the failure it settles.
+              materialFingerprint:
+                listingOnly && listingSettled && claim.driftGeneration?.resolution === null
+                  ? claim.driftGeneration.fingerprint
+                  : (driftGeneration?.fingerprint ?? digest(`connection:${connection.connectionId}`)),
               occurredAt: startedAt,
               snapshotAgeAttention,
             })

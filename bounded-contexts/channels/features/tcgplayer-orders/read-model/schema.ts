@@ -41,7 +41,7 @@ const tables = [
   )`,
 ] as const;
 const indexes = [
-  `CREATE INDEX IF NOT EXISTS channel_order_facts_scan_idx ON channel_order_observations (connection_id,sequence)
+  `CREATE INDEX IF NOT EXISTS channel_order_facts_interval_idx ON channel_order_observations (connection_id,received_at,sequence)
     WHERE record->>'kind'='order' OR order_reference IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS channel_tcgplayer_sku_idx ON channels_channel_listing_links
     (connection_id,channel_tcgplayer_listing_sku(external_listing_id))
@@ -76,6 +76,15 @@ export const tcgplayerOrdersSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_facts_scan_idx
       ON channel_order_observations (connection_id,sequence)
+      WHERE record->>'kind'='order' OR order_reference IS NOT NULL`,
+    ],
+  },
+  {
+    migrationId: "20261012_channels_recorded_order_interval",
+    description: "Index interval-bounded receipt scans for snapshot pair accounting.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_order_facts_interval_idx
+      ON channel_order_observations (connection_id,received_at,sequence)
       WHERE record->>'kind'='order' OR order_reference IS NOT NULL`,
     ],
   },
