@@ -86,7 +86,7 @@ function scriptKind(file) {
   return ts.ScriptKind.TS;
 }
 
-export function findElapsedUpperBounds(file, text) {
+function findElapsedUpperBounds(file, text) {
   const sourceFile = ts.createSourceFile(
     file,
     text,

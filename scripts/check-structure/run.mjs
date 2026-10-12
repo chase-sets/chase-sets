@@ -275,8 +275,6 @@ const violations = [];
 const warnings = [];
 const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
-const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
-violations.push(...realClockElapsedBounds.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
 const clientSurfaceConsumers = new Map();
@@ -1907,6 +1905,8 @@ export async function runStructureCheck(options = {}) {
 
   const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
   violations.push(...sqlExecutionSurface.violations);
+  const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
+  violations.push(...realClockElapsedBounds.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);

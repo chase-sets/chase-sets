@@ -403,6 +403,16 @@ expect(Date.now() - startedAt).toBeLessThan(5);`,
       ),
     ]);
   });
+
+  it("is enforced by runStructureCheck after it resets the violation list", async () => {
+    const runner = await readFile("scripts/check-structure/run.mjs", "utf8");
+    const entry = runner.indexOf("export async function runStructureCheck(");
+    const reset = runner.indexOf("violations.length = 0;", entry);
+    const call = runner.indexOf("await validateRealClockElapsedBounds({ repoRoot })", reset);
+    const push = runner.indexOf("violations.push(...realClockElapsedBounds.violations);", call);
+    expect([entry, reset, call, push].every((index) => index >= 0)).toBe(true);
+    expect(runner.indexOf("validateRealClockElapsedBounds(")).toBe(call + "await ".length);
+  });
 });
 
 async function fixtureRepo(files, allowlist = []) {
