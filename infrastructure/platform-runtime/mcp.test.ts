@@ -15,6 +15,9 @@ import {
 import {
   MCP_EXTENSION_TASKS,
   MCP_EXTENSION_UI,
+  MCP_CLIENT_CAPABILITIES_HEADER,
+  MCP_CLIENT_NAME_HEADER,
+  MCP_CLIENT_VERSION_HEADER,
   MCP_META_CLIENT_CAPABILITIES_KEY,
   MCP_META_CLIENT_INFO_KEY,
   MCP_META_PROTOCOL_VERSION_KEY,
@@ -192,6 +195,188 @@ const availableModuleGuardServices: readonly McpServiceDescriptor[] = [
 ];
 
 describe("MCP runtime routes", () => {
+  describe("native MCP protocol equivalence", () => {
+    const meta = statelessMcpMeta();
+    const modernHeaders = statelessHeaders("tools/list");
+    const error = (code: number, message: string, data?: unknown) => ({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: { code, message, ...(data === undefined ? {} : { data }) },
+    });
+    const emptyTools = { jsonrpc: "2.0", id: "request_1", result: { tools: [] } };
+    const mismatch = (message: string) => error(-32001, message);
+    const invalid = (message: string) => error(-32602, message);
+    const cases = [
+      { name: "no header", headers: {}, params: {}, status: 200, body: emptyTools },
+      ...[MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_2025_11_25].map((version) => ({
+        name: `legacy ${version}`,
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: version },
+        params: {},
+        status: 200,
+        body: emptyTools,
+      })),
+      { name: "full modern", headers: modernHeaders, params: { _meta: meta }, status: 200, body: emptyTools },
+      {
+        name: "header/meta mismatch",
+        headers: modernHeaders,
+        params: { _meta: { ...meta, [MCP_META_PROTOCOL_VERSION_KEY]: MCP_PROTOCOL_VERSION } },
+        status: 400,
+        body: mismatch(`${MCP_PROTOCOL_VERSION_HEADER} must match params._meta.${MCP_META_PROTOCOL_VERSION_KEY}.`),
+      },
+      {
+        name: "missing stateless header",
+        headers: {},
+        params: { _meta: meta },
+        status: 400,
+        body: mismatch(`${MCP_PROTOCOL_VERSION_HEADER} is required for MCP protocol version 2026-07-28.`),
+      },
+      {
+        name: "missing version metadata",
+        headers: modernHeaders,
+        params: {},
+        status: 400,
+        body: invalid(`MCP protocol version 2026-07-28 requires params._meta.${MCP_META_PROTOCOL_VERSION_KEY}.`),
+      },
+      {
+        name: "missing client info",
+        headers: modernHeaders,
+        params: { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28", [MCP_META_CLIENT_CAPABILITIES_KEY]: {} } },
+        status: 400,
+        body: invalid(
+          `MCP protocol version 2026-07-28 requires client info in params._meta.${MCP_META_CLIENT_INFO_KEY} or ${MCP_CLIENT_NAME_HEADER}/${MCP_CLIENT_VERSION_HEADER}.`,
+        ),
+      },
+      {
+        name: "missing capabilities",
+        headers: modernHeaders,
+        params: {
+          _meta: {
+            [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28",
+            [MCP_META_CLIENT_INFO_KEY]: meta[MCP_META_CLIENT_INFO_KEY],
+          },
+        },
+        status: 400,
+        body: invalid(
+          `MCP protocol version 2026-07-28 requires client capabilities in params._meta.${MCP_META_CLIENT_CAPABILITIES_KEY} or ${MCP_CLIENT_CAPABILITIES_HEADER}.`,
+        ),
+      },
+      {
+        name: "client header fallback",
+        headers: {
+          ...modernHeaders,
+          [MCP_CLIENT_NAME_HEADER]: "header-client",
+          [MCP_CLIENT_VERSION_HEADER]: "1",
+          [MCP_CLIENT_CAPABILITIES_HEADER]: "{}",
+        },
+        params: { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28" } },
+        status: 200,
+        body: emptyTools,
+      },
+      {
+        name: "unsupported header",
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: "1900-01-01" },
+        params: {},
+        status: 400,
+        body: error(-32004, "Unsupported MCP protocol version '1900-01-01'.", {
+          requestedVersion: "1900-01-01",
+          supportedVersions: ["2025-06-18", "2025-11-25", "2026-07-28"],
+        }),
+      },
+      {
+        name: "unsupported metadata",
+        headers: {},
+        params: { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "1900-01-01" } },
+        status: 400,
+        body: error(-32004, "Unsupported MCP protocol version '1900-01-01'.", {
+          requestedVersion: "1900-01-01",
+          supportedVersions: ["2025-06-18", "2025-11-25", "2026-07-28"],
+        }),
+      },
+      {
+        name: "missing method header",
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: "2026-07-28" },
+        params: { _meta: meta },
+        status: 400,
+        body: mismatch("Mcp-Method is required for this MCP request."),
+      },
+      {
+        name: "mismatched method header",
+        headers: statelessHeaders("resources/list"),
+        params: { _meta: meta },
+        status: 400,
+        body: mismatch("Mcp-Method must match the JSON-RPC method."),
+      },
+      {
+        name: "legacy routing mismatch",
+        headers: { [MCP_METHOD_HEADER]: "resources/list" },
+        params: {},
+        status: 400,
+        body: mismatch("Mcp-Method must match the JSON-RPC method."),
+      },
+      ...[
+        {
+          name: "missing name",
+          headers: statelessHeaders("tools/call"),
+          message: "Mcp-Name is required for tools/call.",
+        },
+        {
+          name: "mismatched name",
+          headers: statelessHeaders("tools/call", "other"),
+          message: "Mcp-Name must match the MCP request target.",
+        },
+        {
+          name: "encoded name stays raw",
+          headers: statelessHeaders("tools/call", "=?base64?dGFyZ2V0?="),
+          message: "Mcp-Name must match the MCP request target.",
+        },
+      ].map((row) => ({
+        ...row,
+        method: "tools/call",
+        params: { name: "target", _meta: meta },
+        status: 400,
+        body: mismatch(row.message),
+      })),
+      {
+        name: "initialize naming modern",
+        method: "initialize",
+        headers: {},
+        params: { protocolVersion: "2026-07-28" },
+        status: 200,
+        body: error(
+          -32601,
+          "initialize is not supported for MCP protocol version 2026-07-28. Use server/discover and per-request metadata.",
+        ),
+      },
+      {
+        name: "native discover shape",
+        method: "server/discover",
+        headers: statelessHeaders("server/discover"),
+        params: { _meta: meta },
+        status: 200,
+        body: {
+          jsonrpc: "2.0",
+          id: "request_1",
+          result: {
+            protocolVersions: ["2025-06-18", "2025-11-25", "2026-07-28"],
+            serverInfo: { name: "chase-sets-platform", version: "0.1.0" },
+            capabilities: { tools: {}, resources: {}, extensions: {} },
+          },
+        },
+      },
+    ];
+
+    it.each(cases)("$name", async (row) => {
+      const app = createMcpRoutes({ services: [] });
+      const response = await app.request("/", {
+        method: "POST",
+        headers: row.headers,
+        body: JSON.stringify(createRequest("method" in row ? row.method : "tools/list", row.params)),
+      });
+      expect(response.status).toBe(row.status);
+      expect(await response.text()).toBe(JSON.stringify(row.body));
+    });
+  });
+
   it("requires a durable idempotency store outside the test runtime", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("VITEST", "false");

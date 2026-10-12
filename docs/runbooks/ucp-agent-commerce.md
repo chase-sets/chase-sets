@@ -51,7 +51,7 @@ $body = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolV
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $body
 ```
 
-Verify the MCP protocol matrix. Native `/mcp` supports legacy `initialize` for `2025-06-18` and `2025-11-25`, plus handshakeless stateless requests for `2026-07-28`. UCP `/ucp/mcp` remains the UCP commerce facade and currently negotiates only the legacy initialize revisions.
+Verify the MCP protocol matrix. Both native `/mcp` and UCP `/ucp/mcp` support legacy `initialize` for `2025-06-18` and `2025-11-25`, plus handshakeless stateless requests for `2026-07-28`. Their request policies share `infrastructure/platform-runtime/mcp-protocol.ts`; native response contracts remain unchanged.
 
 ```powershell
 $authHeaders = @{ Authorization = "Bearer <session-token>" }
@@ -81,9 +81,12 @@ $statelessBody = @{
   params = @{ _meta = $meta20260728 }
 } | ConvertTo-Json -Depth 8
 Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Headers $statelessHeaders -Body $statelessBody
+Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Headers $statelessHeaders -Body $statelessBody
 ```
 
-Expected result: native `/mcp` initialize returns the requested legacy revision for `2025-06-18` and `2025-11-25`; UCP `/ucp/mcp` does the same for its legacy facade. Native `2026-07-28` requests must not call `initialize`; each request includes `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` for tool/resource targets, and client info/capabilities in `_meta` or the supported client headers. The platform must not require or return `Mcp-Session-Id`.
+Expected result: both endpoints' `initialize` returns the requested legacy revision for `2025-06-18` and `2025-11-25`. Stateless `2026-07-28` requests must not call `initialize`; each request includes `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` for tool/resource targets. Native `/mcp` requires client info/capabilities in `_meta` or its supported client headers. Modern `/ucp/mcp` requires protocol version and client capabilities in `_meta`, ignores the capability header, and makes client info optional. Every modern UCP result includes `_meta["io.modelcontextprotocol/serverInfo"]`; `server/discover` returns `supportedVersions` (`2026-07-28`, `2025-11-25`, `2025-06-18`) and tools/resources capabilities. The platform must not require or return `Mcp-Session-Id`.
+
+On `/ucp/mcp`, only per-request `_meta` protocol version selects modern semantics; a header alone never does. Header-only `2026-07-28` and unknown revisions keep the legacy HTTP 400 / `-32004` response, and legacy `initialize` naming `2026-07-28` still downgrades to `2025-06-18`. Keep legacy `initialize` for deployed ChatGPT and Claude connectors. **Re-open trigger:** drop it once #9459 and #9456 record that no target host uses it. The pinned MCP SDK is legacy evidence; test modern UCP with a scripted HTTP client using raw JSON-RPC.
 
 Verify ChatGPT-compatible tool metadata:
 
@@ -92,7 +95,7 @@ $tools = Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentTy
 $tools.result.tools | Select-Object name,securitySchemes,annotations
 ```
 
-MCP `2025-11-25` browser transport requirements are enforced on both MCP facades. Browser calls with a hostile `Origin` return HTTP 403; no-`Origin` server-to-server calls remain valid. Allowed Chase Sets browser origins receive explicit CORS headers for JSON-RPC, authorization, idempotency, signature, and MCP protocol/routing headers. Clients that send `MCP-Protocol-Version` after initialization must use a supported revision; native `/mcp` accepts `2025-06-18`, `2025-11-25`, and stateless `2026-07-28`, while UCP `/ucp/mcp` accepts the legacy initialize revisions only.
+MCP `2025-11-25` browser transport requirements are enforced on both MCP facades. Browser calls with a hostile `Origin` return HTTP 403; no-`Origin` server-to-server calls remain valid. Allowed Chase Sets browser origins receive explicit CORS headers for JSON-RPC, authorization, idempotency, signature, and MCP protocol/routing headers. Both endpoints accept the legacy revisions after initialization and `2026-07-28` with per-request metadata. Modern UCP decodes `=?base64?...?=` UTF-8 `Mcp-Name` values before comparing them with the tool name or resource URI; malformed encoding fails closed. Native `/mcp` retains its raw header comparison.
 
 Native and UCP tool listings include MCP standard annotations. Read-only tools set `readOnlyHint`; destructive tools set `destructiveHint`; write tools protected by platform idempotency set `idempotentHint`. The richer Chase Sets guardrail metadata remains in `annotations` for operator review and packaging.
 
@@ -102,7 +105,7 @@ Verify a public catalog call returns `structuredContent`:
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"search","method":"tools/call","params":{"name":"search_catalog","arguments":{"query":"charizard","limit":3}}}'
 ```
 
-JSON-RPC MCP transport status convention: `/ucp/mcp` and native `/mcp` return HTTP 200 with an in-band JSON-RPC `error` object for application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, authentication failures that prevent discovery, unsupported protocol revision headers, and stateless routing/header metadata failures. Native `2026-07-28` header mismatches use JSON-RPC code `-32001`; invalid stateless params and unknown tools/resources use `-32602`.
+JSON-RPC MCP transport status convention: legacy `/ucp/mcp` and native `/mcp` return HTTP 200 with an in-band JSON-RPC `error` object for application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Modern `/ucp/mcp` returns HTTP 404 / `-32601` for unknown methods, HTTP 400 / `-32022` with `{supported, requested}` for unsupported metadata versions, HTTP 400 / `-32020` for missing or mismatched routing/protocol headers, and HTTP 400 / `-32602` for invalid per-request metadata. Native `2026-07-28` header mismatches retain `-32001`. Other application-error behavior, signed-write, OAuth, and idempotency checks are unchanged across UCP eras.
 
 MCP protocol revision decision, 2026-07-07: native `/mcp` advertises `2025-06-18`, `2025-11-25`, and `2026-07-28`. The first two revisions keep the legacy handshake path; `2026-07-28` is request-scoped and must not rely on session affinity. Extension negotiation is scaffolded through `capabilities.extensions`, but Tasks (`io.modelcontextprotocol/tasks`) and MCP Apps (`io.modelcontextprotocol/ui`) are advertised only when the owning slices provide real handlers/resources. Operator review remains required when the public final `2026-07-28` specification page is published; as of 2026-07-07, the public Model Context Protocol specification site still exposes `2025-11-25` as the latest stable revision, so this implementation follows issue #3767 and the finalized stateless/header/error-code SEPs.
 
