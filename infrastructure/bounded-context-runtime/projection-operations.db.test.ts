@@ -340,6 +340,7 @@ describeDb("projection operations Postgres integration", () => {
           sourceContextName: "source",
           projectionName,
           subscriptionVersion: 1,
+          projectionHandlerSetNames: [projectionName],
           eventTypes: ["source.scope-recorded"],
         })),
         projectionGroups: definitions.map(({ projectionName, tables }) => ({
@@ -447,7 +448,11 @@ describeDb("projection operations Postgres integration", () => {
       {
         contextName: "target",
         packageName: "@chase-sets/synthetic-target",
-        manifest: { contextName: "target", sourceRuntimeDeployables: ["platform-api"] },
+        manifest: {
+          contextName: "target",
+          sourceRuntimeDeployables: ["platform-api"],
+          sourceRuntimeProfiles: ["proof"],
+        },
         module,
       },
     ];
