@@ -115,7 +115,7 @@ export async function readSupportAttachmentFormData(request: Request): Promise<F
       }
     }
     if (size !== body.byteLength) throw new SupportAttachmentIntakeError("invalid-content-length", 400);
-    const bounded = new Request(request.url, { method: "POST", headers: request.headers, body });
+    const bounded = new Response(body, { headers: { "content-type": request.headers.get("content-type") ?? "" } });
     return await Promise.race([bounded.formData(), deadline]);
   } catch (error) {
     // Cancellation is best effort: an unresponsive producer must not hold the rejection open.

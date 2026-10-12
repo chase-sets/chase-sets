@@ -1,9 +1,29 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readSupportAttachmentFormData } from "./attachment-intake";
-import { multipartRequest, openingPhotoForm } from "./attachment-intake.test-support";
+import { multipartRequest, openingPhotoForm } from "../tests/attachment-intake.test-support";
 
 describe("Support attachment intake", () => {
+  for (const length of ["invalid", "1", "100"]) {
+    it(`rejects malformed or mismatched declared length ${length} without parsing`, async () => {
+      const request = new Request("http://localhost", {
+        method: "POST",
+        body: "a=123",
+        headers: { "content-type": "application/x-www-form-urlencoded", "content-length": length },
+      });
+      const parse = vi.spyOn(Response.prototype, "formData");
+      try {
+        await expect(readSupportAttachmentFormData(request)).rejects.toMatchObject({
+          code: "invalid-content-length",
+          status: 400,
+        });
+        expect(parse).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+      }
+    });
+  }
+
   it("materializes five files and ordinary fields after bounded reading", async () => {
     const request = await multipartRequest("http://localhost", await openingPhotoForm());
     const form = await readSupportAttachmentFormData(request);

@@ -6,7 +6,7 @@ import { supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
 import { File as NodeFile } from "node:buffer";
 import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
-import { multipartRequest, nativeFormData } from "../api/attachment-intake.test-support";
+import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer" })),

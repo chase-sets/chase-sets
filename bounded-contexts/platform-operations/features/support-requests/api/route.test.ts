@@ -19,7 +19,7 @@ import {
   nativeFormData,
   openingPhotoForm,
   streamedIntakeRequest,
-} from "./attachment-intake.test-support";
+} from "../tests/attachment-intake.test-support";
 import { SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES, SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS } from "./attachment-intake";
 
 function buildApp(
@@ -80,7 +80,7 @@ describe("support attachment capability x role x participation", () => {
         scenario === "declared-over" ? cap + 1 : cap,
         scenario === "stalled",
       );
-      const parse = vi.spyOn(Request.prototype, "formData");
+      const parse = vi.spyOn(Response.prototype, "formData");
       if (scenario === "stalled") vi.useFakeTimers();
       try {
         const pending = attachmentApp(
@@ -123,7 +123,7 @@ describe("support attachment capability x role x participation", () => {
         },
       }),
     } as RequestInit);
-    const parse = vi.spyOn(Request.prototype, "formData");
+    const parse = vi.spyOn(Response.prototype, "formData");
     const decode = vi.spyOn(File.prototype, "arrayBuffer");
     try {
       const response = await attachmentApp(
@@ -155,7 +155,7 @@ describe("support attachment capability x role x participation", () => {
         await openingPhotoForm(0),
         header === undefined ? {} : { "x-support-attachment-operation-id": header },
       );
-      const parse = vi.spyOn(Request.prototype, "formData");
+      const parse = vi.spyOn(Response.prototype, "formData");
       try {
         const response = await attachmentApp(
           fixture.runtime,

@@ -22,7 +22,7 @@ import {
   multipartRequest,
   openingPhotoForm,
   streamedIntakeRequest,
-} from "../features/support-requests/api/attachment-intake.test-support";
+} from "../features/support-requests/tests/attachment-intake.test-support";
 import {
   SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES,
   SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS,
@@ -96,7 +96,7 @@ describe("platform operations mutation consistency route actions", () => {
         scenario === "declared-over" ? cap + 1 : cap,
         scenario === "stalled",
       );
-      const parse = vi.spyOn(Request.prototype, "formData");
+      const parse = vi.spyOn(Response.prototype, "formData");
       if (scenario === "stalled") vi.useFakeTimers();
       try {
         const pending = accountSupportAction({ request, params: {}, context: undefined } as never);
@@ -122,7 +122,7 @@ describe("platform operations mutation consistency route actions", () => {
     for (const count of [5, 6]) {
       fetchMock.mockClear();
       const request = await multipartRequest("http://localhost/account/support", await openingPhotoForm(count));
-      const parse = vi.spyOn(Request.prototype, "formData");
+      const parse = vi.spyOn(Response.prototype, "formData");
       const decode = vi.spyOn(File.prototype, "arrayBuffer");
       try {
         const result = await accountSupportAction({ request, params: {}, context: undefined } as never);
