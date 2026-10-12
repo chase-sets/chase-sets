@@ -233,7 +233,7 @@ describe("marketplace offer runtime", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-        expect(response.status).toBe(400);
+      expect(response.status).toBe(400);
       expect(await response.json()).toMatchObject({ error: { code: "offer_daily_submission_cap_reached" } });
     } else {
       const handler = createMarketplaceOfferMcpHandlers(services).toolHandlers["marketplace.submit-offer"]!;
