@@ -31,6 +31,7 @@ const expectedHitsByFile = {
   "features/users/ui/user-detail-page.tsx": 5,
   "features/users/ui/user-list-page.tsx": 10,
   "routes/marketplace/account.tsx": 3,
+  "routes/marketplace/account-shipping-addresses.tsx": 3,
 } as const;
 
 const machineOnlyFiles = new Set(["routes/marketplace/account.tsx"]);
@@ -72,6 +73,15 @@ function census(): CensusHit[] {
 
 function classify(hit: CensusHit): Disposition {
   if (!(hit.file in expectedHitsByFile)) {
+    throw new Error(`Unclassified Identity raw-value hit: ${hit.file}:${hit.line}`);
+  }
+  if (hit.file === "routes/marketplace/account-shipping-addresses.tsx") {
+    if (
+      hit.source === '(error.status === 400 && code === "shipping_address_undeliverable"' ||
+      hit.source === ': error.status === 409 && code === "address_standardization_suggested"' ||
+      hit.source === "{ status: failure.status },"
+    )
+      return "MACHINE_ONLY";
     throw new Error(`Unclassified Identity raw-value hit: ${hit.file}:${hit.line}`);
   }
   if (machineOnlyFiles.has(hit.file)) {
@@ -142,7 +152,7 @@ describe("Identity human-readable values", () => {
     );
     const partition = hits.map((hit) => ({ ...hit, disposition: classify(hit) }));
 
-    expect(hits).toHaveLength(145);
+    expect(hits).toHaveLength(148);
     expect(counts).toEqual(expectedHitsByFile);
     expect(partition).toHaveLength(hits.length);
     expect(
@@ -150,6 +160,13 @@ describe("Identity human-readable values", () => {
     ).toBe(true);
     expect(() =>
       classify({ file: "features/accounts/ui/account-list-page.tsx", line: 999, source: "row.status" }),
+    ).toThrow(/Unclassified Identity raw-value hit/);
+    expect(() =>
+      classify({
+        file: "routes/marketplace/account-shipping-addresses.tsx",
+        line: 999,
+        source: "<Text>{failure.status}</Text>",
+      }),
     ).toThrow(/Unclassified Identity raw-value hit/);
   });
 

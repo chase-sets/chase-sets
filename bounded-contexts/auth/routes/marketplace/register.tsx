@@ -7,6 +7,7 @@ import { marketplaceAuthHost } from "../../support/route-support/auth-host.serve
 import { RegisterPage } from "../../features/registration/ui/register-page";
 import { marketplaceAccountGateContextMessage } from "../../support/route-support/marketplace-account-gate-context";
 import { authFormActionFromRequest } from "../../support/route-support/auth-form-action";
+import { socialLoginErrorMessage } from "../../support/route-support/social-login-errors";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.register! });
 
@@ -19,7 +20,7 @@ export function loader({ request }: LoaderFunctionArgs) {
     returnTo,
     formAction: authFormActionFromRequest(request),
     contextMessage: marketplaceAccountGateContextMessage(returnTo),
-    socialLoginError: url.searchParams.get("socialLoginError"),
+    socialLoginError: socialLoginErrorMessage(url.searchParams.get("socialLoginError")),
   };
 }
 
