@@ -22,8 +22,9 @@ declare const accountCapabilityAssignmentAdmissionBrand: unique symbol;
 
 /**
  * The result of admitting one grant or revoke attempt. Only the dedicated
- * Capability Administration Authority (#9385) produces it; this slice ships no
- * route, seed, fixture or other producer, so nothing can assign before then.
+ * Capability Administration Authority produces it; that authority is not yet
+ * shipped and nothing else (route, seed, fixture) produces one, so nothing can
+ * assign before it lands.
  */
 export type AccountCapabilityAssignmentAdmission = Readonly<{
   [accountCapabilityAssignmentAdmissionBrand]: true;
