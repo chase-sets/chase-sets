@@ -12,6 +12,7 @@ import {
   catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
   catalogProviderProfileVersionProductDomain,
+  type CatalogProviderIntegrationProfileVersionRecord,
 } from "../provider-integration-profiles";
 import { defineCatalogProviderIngestionUnitIdentityContract } from "../providers/provider-integration-mapping-contract";
 
@@ -82,10 +83,11 @@ describe("Catalog integration rollout controls", () => {
   });
 
   it("derives future Scrydex Pokemon and Yu-Gi-Oh! units from the registry without provider-wide authority", async () => {
-    const scrydex = catalogProviderIntegrationProfileVersions.find(
-      (version) =>
-        version.providerKey === "scrydex" && catalogProviderProfileVersionProductDomain(version) === "lorcana",
-    );
+    const scrydex: CatalogProviderIntegrationProfileVersionRecord | undefined =
+      catalogProviderIntegrationProfileVersions.find(
+        (version) =>
+          version.providerKey === "scrydex" && catalogProviderProfileVersionProductDomain(version) === "lorcana",
+      );
     if (!scrydex?.ingestionUnitIdentity) throw new Error("Expected an identified Scrydex Lorcana registry unit.");
     const identity = scrydex.ingestionUnitIdentity;
     const syntheticVersions = (["pokemon", "yugioh"] as const).map((productDomain) => ({

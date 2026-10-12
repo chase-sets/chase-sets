@@ -3181,7 +3181,7 @@ jobs:
             ].filter((name) => Object.hasOwn(variables, name) &&
               ["", "false", "none", "open"].includes(String(variables[name]).trim().toLowerCase()));
             if (invalid.length) {
-              console.error(`Invalid production Catalog integration signoff reference: ${invalid.join(" ")}`);
+              console.error("Invalid production Catalog integration signoff reference: " + invalid.join(" "));
               process.exit(1);
             }
           '
