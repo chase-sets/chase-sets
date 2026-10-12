@@ -1,5 +1,5 @@
 import { foldEvents, type DomainEvent } from "./domain";
-import { readCompleteStream } from "./complete-stream";
+import { EventStreamTooLongError, readCompleteStream } from "./complete-stream";
 import type {
   AggregateRepository,
   AggregateRepositoryConfig,
@@ -10,6 +10,15 @@ export function createAggregateRepository<State, Event extends DomainEvent>(
   config: AggregateRepositoryConfig<State, Event>,
 ): AggregateRepository<State, Event> {
   const snapshots = config.snapshots;
+  const maxEvents = config.maxEvents;
+  if (maxEvents !== undefined) {
+    if (!Number.isSafeInteger(maxEvents) || maxEvents <= 0) {
+      throw new Error("AggregateRepositoryConfig.maxEvents must be a positive safe integer.");
+    }
+    if (snapshots) {
+      throw new Error("AggregateRepositoryConfig.maxEvents cannot be combined with snapshots.");
+    }
+  }
   if (snapshots) {
     assertPositiveInteger(snapshots.schemaVersion, "snapshots.schemaVersion");
     assertPositiveInteger(snapshots.everyNEvents, "snapshots.everyNEvents");
@@ -21,6 +30,7 @@ export function createAggregateRepository<State, Event extends DomainEvent>(
 
       const storedEvents = await readCompleteStream(config.eventStore, {
         streamId,
+        maxEvents,
         ...(snapshotBase ? { fromVersion: snapshotBase.streamVersion + 1 } : {}),
       });
       const domainEvents = storedEvents.map((storedEvent) =>
@@ -45,6 +55,15 @@ export function createAggregateRepository<State, Event extends DomainEvent>(
     },
 
     append: async (input) => {
+      if (maxEvents !== undefined) {
+        if (input.expectedVersion === "any") {
+          throw new Error('Bounded aggregate repositories cannot append with expectedVersion="any".');
+        }
+        const predecessor = input.expectedVersion === "no_stream" ? 0 : input.expectedVersion;
+        if (predecessor + input.events.length > maxEvents) {
+          throw new EventStreamTooLongError(input.streamId, maxEvents);
+        }
+      }
       const encodedEvents = input.events.map((event, index) => {
         const encoded = config.codec.encode(event);
         const metadata = typeof input.metadata === "function" ? input.metadata(event, index) : input.metadata;
