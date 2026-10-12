@@ -78,7 +78,7 @@ describe("platform operations request API clients", () => {
   });
 
   it("returns support request snapshots from mutating calls", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/orders/ord_1")) {
         return jsonResponse({

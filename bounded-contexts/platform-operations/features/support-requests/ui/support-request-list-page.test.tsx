@@ -115,14 +115,14 @@ describe("SupportRequestListPage", () => {
           throw new Error(`Unexpected fixture URL ${url}`);
         }),
       );
-      let snapshot: FormData | null = null;
+      const snapshot: { form: FormData | null } = { form: null };
       const capture = (event: Event) => {
         const form = event.target as HTMLFormElement;
-        snapshot = new FormData(form);
+        snapshot.form = new FormData(form);
         // userEvent's FileList is visible on the input, but not in jsdom's internal form encoder.
         const input = form.querySelector<HTMLInputElement>('input[type="file"]');
-        snapshot.delete("attachments");
-        for (const file of input?.files ?? []) snapshot.append(input!.name, file);
+        snapshot.form.delete("attachments");
+        for (const file of input?.files ?? []) snapshot.form.append(input!.name, file);
       };
       document.addEventListener("submit", capture, true);
       const router = createMemoryRouter(
@@ -134,7 +134,7 @@ describe("SupportRequestListPage", () => {
             action: async (args) => {
               // Adapt jsdom's browser form to native HTTP ingress, retaining every actual form field.
               const native = await nativeFormData();
-              for (const [key, value] of snapshot!.entries()) {
+              for (const [key, value] of snapshot.form!.entries()) {
                 if (typeof value === "string") native.append(key, value);
                 else {
                   const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
@@ -168,7 +168,7 @@ describe("SupportRequestListPage", () => {
         expect(screen.getByLabelText("Add evidence photos").hasAttribute("required")).toBe(true);
         // jsdom does not recognize userEvent's FileList for native required-file validation.
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
-        expect(snapshot?.get("attachments")).toMatchObject({ name: "photo.jpg" });
+        expect(snapshot.form?.get("attachments")).toMatchObject({ name: "photo.jpg" });
         expect(router.state.errors).toBeNull();
         await waitFor(() => expect(uploadIds).toEqual([originalId]));
         await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true"));

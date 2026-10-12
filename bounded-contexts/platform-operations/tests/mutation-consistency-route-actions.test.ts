@@ -113,7 +113,7 @@ describe("platform operations mutation consistency route actions", () => {
 
   it("accepts five opening files plus hidden fields, but rejects file six before parsing", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer" });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) =>
       String(input).endsWith("/attachments")
         ? jsonResponse({ attachments: [{ reference: "att_1" }] })
         : jsonResponse({ id: "sup_1" }),
