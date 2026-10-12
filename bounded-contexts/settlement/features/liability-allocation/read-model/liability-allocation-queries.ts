@@ -2,10 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 /**
  * Operator/metrics read queries for the liability-allocation slice. The repair queue
- * surfaces every quarantined refund (fail-closed states awaiting operator action); the
- * metrics reconcile provider refund totals to the seller-funded plus platform-funded
- * postings Settlement recorded, so a drift between what the provider refunded and what
- * Settlement allocated is countable rather than silent.
+ * surfaces every quarantined refund (fail-closed states awaiting operator action).
  */
 
 export type RefundLiabilityRepairRow = Readonly<{
@@ -43,56 +40,4 @@ export async function listRefundLiabilityRepairQueue(
     [limit, offset],
   );
   return result.rows;
-}
-
-export type RefundLiabilityMetrics = Readonly<{
-  authorized: number;
-  reconciled: number;
-  quarantined: number;
-  /** Total completed refund amount across reconciled rows (should equal seller + platform postings). */
-  reconciledRefundTotal: string;
-  sellerPostedTotal: string;
-  platformSettledTotal: string;
-  /** reconciledRefundTotal − (sellerPostedTotal + platformSettledTotal); non-zero means drift. */
-  reconciliationDrift: string;
-}>;
-
-export async function getRefundLiabilityMetrics(db: PgQueryable): Promise<RefundLiabilityMetrics> {
-  const result = await db.query<{
-    authorized: string;
-    reconciled: string;
-    quarantined: string;
-    reconciled_refund_total: string;
-    seller_posted_total: string;
-    platform_settled_total: string;
-  }>(
-    `SELECT
-       COUNT(*) FILTER (WHERE reconciliation_status = 'authorized')::text AS authorized,
-       COUNT(*) FILTER (WHERE reconciliation_status = 'reconciled')::text AS reconciled,
-       COUNT(*) FILTER (WHERE reconciliation_status = 'quarantined')::text AS quarantined,
-       COALESCE(SUM(completed_refund_amount) FILTER (WHERE reconciliation_status = 'reconciled'), 0)::text AS reconciled_refund_total,
-       COALESCE(SUM(seller_posted_amount) FILTER (WHERE reconciliation_status = 'reconciled'), 0)::text AS seller_posted_total,
-       COALESCE(SUM(platform_settled_amount) FILTER (WHERE reconciliation_status = 'reconciled'), 0)::text AS platform_settled_total
-     FROM settlement_refund_liability_allocations`,
-  );
-  const row = result.rows[0] ?? {
-    authorized: "0",
-    reconciled: "0",
-    quarantined: "0",
-    reconciled_refund_total: "0.00",
-    seller_posted_total: "0.00",
-    platform_settled_total: "0.00",
-  };
-  const reconciledRefundCents = Math.round(Number(row.reconciled_refund_total) * 100);
-  const postedCents =
-    Math.round(Number(row.seller_posted_total) * 100) + Math.round(Number(row.platform_settled_total) * 100);
-  return {
-    authorized: Number(row.authorized),
-    reconciled: Number(row.reconciled),
-    quarantined: Number(row.quarantined),
-    reconciledRefundTotal: row.reconciled_refund_total,
-    sellerPostedTotal: row.seller_posted_total,
-    platformSettledTotal: row.platform_settled_total,
-    reconciliationDrift: ((reconciledRefundCents - postedCents) / 100).toFixed(2),
-  };
 }
