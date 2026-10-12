@@ -14,6 +14,7 @@ export function mapChannelDriftToHealthObservation(
     materialFingerprint: string;
     occurredAt: string;
     snapshotAgeAttention?: boolean;
+    listingSettled?: boolean;
   }>,
 ): ChannelHealthObservationV1 | null {
   if (
@@ -23,7 +24,7 @@ export function mapChannelDriftToHealthObservation(
       input.classification === "in-sync")
   )
     return null;
-  const outcome = input.classification === "in-sync" ? "success" : "failure";
+  const outcome = input.classification === "in-sync" || input.listingSettled === true ? "success" : "failure";
   return Object.freeze({
     schemaVersion: "ChannelHealthObservation/v1",
     sourceKind: "channel-reconciliation",

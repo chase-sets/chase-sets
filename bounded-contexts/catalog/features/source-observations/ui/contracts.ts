@@ -331,6 +331,7 @@ export interface CatalogIntegrationProviderReadiness {
   rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
   payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
   usageBudget: CatalogIntegrationProviderUsageBudget | null;
+  countSpend?: import("../api/admin/admin-control-plane-overview").CatalogIntegrationProviderReadiness["countSpend"];
   diagnostics: CatalogIntegrationControlPlaneDiagnostic[];
 }
 

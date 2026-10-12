@@ -10,11 +10,72 @@ import {
 import type { ScopeSyncBatchServices } from "./runtime";
 import { HeldSetExportError } from "../domain/held-set-export";
 import { readHeldSetExportUpload } from "./held-set-upload";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
+import { CountAcquisitionRefused } from "../domain/count-acquisition";
+import { z } from "zod";
 
-type Env = { Variables: { context: EventStoreContext } };
+type Env = { Variables: { context: EventStoreContext; actor: ResolvedActor | null } };
 
 export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
   const app = new Hono<Env>();
+  app.use("/counts/*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: { code: "unauthenticated" } }, 401);
+    if (
+      actor.roleKey !== "platform-admin" ||
+      !actor.permissions.includes(c.req.method === "GET" ? "catalog.view" : "catalog.manage")
+    )
+      return c.json({ error: { code: "forbidden" } }, 403);
+    if (
+      c.req.method !== "GET" &&
+      (c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
+        c.req.header("sec-fetch-site") === "cross-site")
+    )
+      return c.json({ error: { code: "forbidden" } }, 403);
+    await next();
+  });
+  app.onError((error, c) => {
+    if (error instanceof CountAcquisitionRefused)
+      return c.json({ error: { code: error.code, message: error.message } }, 409);
+    if (error instanceof z.ZodError) return c.json({ error: { code: "invalid-count-request" } }, 400);
+    throw error;
+  });
+  app.post("/counts/quote", async (c) => {
+    const body = z
+      .object({ selection: z.unknown(), cap: z.number().int().min(0).max(10_000).optional() })
+      .strict()
+      .parse(await c.req.json());
+    return c.json(
+      await services.quoteCounts({
+        selection: parseSelection(body.selection),
+        cap: body.cap,
+        context: c.get("context"),
+      }),
+    );
+  });
+  app.post("/counts/acquire", async (c) => {
+    const body = z
+      .object({ quoteId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) })
+      .strict()
+      .parse(await c.req.json());
+    return c.json(await services.acquireCounts({ ...body, context: c.get("context") }));
+  });
+  app.get("/counts/spend", async (c) => {
+    const input = z
+      .object({
+        before: z.iso.datetime({ offset: true }).optional(),
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+      })
+      .strict()
+      .parse(c.req.query());
+    return c.json(await services.countSpend(input));
+  });
+  app.get("/counts/quote/:quoteId", async (c) => {
+    const quoteId = z.uuid().parse(c.req.param("quoteId"));
+    return c.json(await services.getCountQuote({ quoteId, context: c.get("context") }));
+  });
 
   app.post("/resolve-held-sets", async (c) => {
     try {

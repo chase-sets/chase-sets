@@ -29,7 +29,10 @@ function budget(overrides: Partial<CatalogIntegrationProviderUsageBudget>): Cata
   };
 }
 
-function renderHealth(providers: ReadonlyArray<readonly [string, CatalogIntegrationProviderUsageBudget | null]>) {
+function renderHealth(
+  providers: ReadonlyArray<readonly [string, CatalogIntegrationProviderUsageBudget | null]>,
+  countSpend?: readonly import("../../../../scope-sync-batches/domain/count-acquisition").CountSpend[],
+) {
   const base = controlPlaneOverview();
   const baseProvider = base.providerReadiness.providers[0]!;
   const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
@@ -44,6 +47,7 @@ function renderHealth(providers: ReadonlyArray<readonly [string, CatalogIntegrat
           providerKey,
           adapterKey: providerKey,
           usageBudget,
+          countSpend,
         })),
       },
     }),
@@ -62,6 +66,25 @@ function providerRow(providerKey: string): HTMLElement {
 }
 
 describe("Integration health usage budget", () => {
+  it("AC6 shows retained failed/uncertain count spend beside usage without subtracting twice", () => {
+    renderHealth(
+      [["scrydex", budget({})]],
+      [
+        {
+          debitId: "synthetic",
+          quoteId: "synthetic",
+          kind: "cards",
+          credits: 1,
+          outcome: "uncertain",
+          debitedAt: observedAt,
+          observedAt: null,
+          expiresAt: null,
+        },
+      ],
+    );
+    expect(within(providerRow("scrydex")).getByText(/cards: 1 \/ uncertain \/ Unobserved/)).toBeTruthy();
+    expect(within(providerRow("scrydex")).getByText(/41,234|41234/)).toBeTruthy();
+  });
   it("renders the validated fresh projection with balance, allowance, freshness, and lag", () => {
     renderHealth([["scrydex", budget({})]]);
     const row = within(providerRow("scrydex"));

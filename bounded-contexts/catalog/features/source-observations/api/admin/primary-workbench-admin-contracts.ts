@@ -714,6 +714,7 @@ export type CatalogPrimaryWorkbenchHealthTriageProvider = Readonly<{
   rateLimitStatus: string;
   payloadAcquisition: string;
   usageBudget: CatalogIntegrationProviderUsageBudget | null;
+  countSpend?: readonly import("../../../scope-sync-batches/domain/count-acquisition").CountSpend[];
   diagnosticCodes: readonly string[];
   latestDiagnosticText: string | null;
   ownerMetricKey: string;

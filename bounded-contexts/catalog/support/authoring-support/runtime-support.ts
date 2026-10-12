@@ -8,6 +8,11 @@ import type { SourceObservationTelemetry } from "../../features/source-observati
 import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
 
 export type CatalogRuntimeDeps = Readonly<{
+  scopeSyncCountState?: Readonly<{
+    store: import("../../features/scope-sync-batches/read-model/count-store").CountStore;
+    environment: string;
+    accountRevision: string;
+  }>;
   providerSendRuntime?: CatalogProviderSendRuntime | null;
   eventStore: EventStore;
   promotionTargetExclusion?: PromotionTargetExclusion;

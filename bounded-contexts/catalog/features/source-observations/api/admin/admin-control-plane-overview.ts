@@ -13,6 +13,7 @@ import type {
 } from "../runtime";
 import type { CatalogProviderProfileVersionReview } from "../providers/provider-profile-review";
 import type { ProviderUsageSnapshot } from "../provider-adapters/provider-adapter";
+import { projectCountSpend, type CountSpend } from "../../../scope-sync-batches/domain/count-acquisition";
 
 export type CatalogIntegrationControlPlaneOverview = Readonly<{
   generatedAt: string;
@@ -91,6 +92,7 @@ export type CatalogIntegrationProviderReadiness = Readonly<{
   rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
   payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
   usageBudget: CatalogIntegrationProviderUsageBudget | null;
+  countSpend?: readonly CountSpend[];
   diagnostics: readonly CatalogIntegrationControlPlaneDiagnostic[];
 }>;
 
@@ -170,6 +172,7 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
   activeJobs: readonly SourceObservationIntegrationJob[];
   generatedAt?: string;
   audience?: CatalogIntegrationControlPlaneOverviewAudience;
+  countSpend?: unknown;
 }): CatalogIntegrationControlPlaneOverview {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const audience = input.audience ?? "full";
@@ -183,7 +186,11 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
     },
     providerReadiness: {
       generatedAt,
-      providers: buildProviderReadiness(input.readiness),
+      providers: buildProviderReadiness(input.readiness).map((provider) =>
+        provider.providerKey === "scrydex"
+          ? { ...provider, countSpend: projectCountSpend(input.countSpend, generatedAt) }
+          : provider,
+      ),
     },
     auditLifecycle:
       audience === "daily"

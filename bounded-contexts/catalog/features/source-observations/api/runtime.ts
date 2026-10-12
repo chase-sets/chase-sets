@@ -371,6 +371,10 @@ export function createSourceObservationRuntime(
       credentials: scrydexOnePieceCredentialsFromEnv(),
       profileVersions,
       cacheStore: createPgCatalogProviderOptionQueryCacheStore(deps.db),
+      countReader: deps.scopeSyncCountState?.store,
+      countEnvironment: deps.scopeSyncCountState?.environment,
+      countAccountRevision: deps.scopeSyncCountState?.accountRevision,
+      onUsageObserved: deps.scopeSyncCountState?.store.retainUsage,
     }),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();

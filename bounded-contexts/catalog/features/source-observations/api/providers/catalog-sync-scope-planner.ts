@@ -138,6 +138,7 @@ export type CatalogSyncProviderParticipationUnit = Readonly<{
     }>[];
   }>;
   estimate: Readonly<{
+    countSource?: ProviderUsageEstimate["countSource"];
     enforcedAdmissionMaximum?: ProviderUsageEstimate["enforcedAdmissionMaximum"];
     targetCount: number | null;
     requestStrategy: ProviderUsageEstimate["requestStrategy"] | null;
@@ -460,6 +461,7 @@ async function planEstimate(
       targetCount: plan.estimatedPayloads ?? null,
       requestStrategy: plan.usageEstimate?.requestStrategy ?? null,
       estimatedRequestCount: plan.usageEstimate?.estimatedRequestCount ?? null,
+      countSource: plan.usageEstimate?.countSource ?? null,
       enforcedAdmissionMaximum: plan.usageEstimate?.enforcedAdmissionMaximum ?? null,
       estimateState: plan.usageEstimate?.estimateState ?? "unavailable",
       estimateReason: plan.usageEstimate?.estimateReason ?? null,
