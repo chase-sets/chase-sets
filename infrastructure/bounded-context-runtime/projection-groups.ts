@@ -428,7 +428,7 @@ async function completeProjectionGroupGenerationRebuild(
 }
 
 async function failProjectionGroupGenerationRebuild(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
   expectedToken: ProjectionGroupRevisionSyncToken,
   context?: ProjectionRunContext,
