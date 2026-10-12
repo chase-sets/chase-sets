@@ -26,6 +26,7 @@ export function createAggregateCommandHandler<State, Command, Event extends Doma
     codec: config.codec,
     initialState: config.initialState,
     evolve: config.evolve,
+    maxEvents: config.maxEvents,
     snapshots: config.snapshots,
   });
   const commandHandler = createCommandHandler({

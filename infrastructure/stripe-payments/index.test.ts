@@ -425,7 +425,7 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
-  it("requests 3DS on Checkout Session PaymentIntents only for risk-based step-up", async () => {
+  it("Checkout Session step-up uses Stripe's top-level 3DS option", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -461,12 +461,33 @@ describe("Stripe payment processor gateway", () => {
       },
     });
 
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(formSnapshot(init.body)).toMatchObject({
-      "payment_intent_data[payment_method_options][card][request_three_d_secure]": "any",
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://stripe.test/v1/checkout/sessions");
+    expect(new Headers(init.headers).get("Stripe-Version")).toBe(STRIPE_API_VERSION);
+    expect(requestIdempotencyKey(init)).toBe("payments:payment:pay_3ds:create");
+    const snapshot = formSnapshot(init.body);
+    expect(
+      Object.keys(snapshot).filter((key) => key.startsWith("payment_intent_data[payment_method_options]")),
+    ).toEqual([]);
+    expect(
+      Object.keys(snapshot)
+        .filter((key) => key.includes("three_d_secure"))
+        .sort(),
+    ).toMatchInlineSnapshot(`
+      [
+        "metadata[three_d_secure_reason_codes]",
+        "metadata[three_d_secure_requested]",
+        "payment_intent_data[metadata][three_d_secure_reason_codes]",
+        "payment_intent_data[metadata][three_d_secure_requested]",
+        "payment_method_options[card][request_three_d_secure]",
+      ]
+    `);
+    expect(snapshot).toMatchObject({
+      "payment_method_options[card][request_three_d_secure]": "any",
       "payment_intent_data[metadata][three_d_secure_requested]": "any",
       "payment_intent_data[metadata][three_d_secure_reason_codes]": "high-payment-amount",
       "metadata[three_d_secure_requested]": "any",
+      "metadata[three_d_secure_reason_codes]": "high-payment-amount",
     });
 
     vi.unstubAllGlobals();

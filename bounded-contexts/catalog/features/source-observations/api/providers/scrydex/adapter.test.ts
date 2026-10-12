@@ -254,3 +254,107 @@ describe("Scrydex usage snapshot boundary", () => {
     expect(first.fetch).toHaveBeenCalledTimes(3);
   });
 });
+import { acquireScrydexPageOneCount, scrydexCountQuery, validateScrydexCountPage } from "./adapter";
+import { createServer } from "node:http";
+import { once } from "node:events";
+
+// Derived from #9431 receipt c6127099375. Items are synthetic; envelope keys/values are captured.
+const cards = { count: 100, data: Array.from({ length: 100 }, () => ({})), page: 1, page_size: 100, total_count: 121 };
+const sealed = { count: 7, data: Array.from({ length: 7 }, () => ({})), page: 1, page_size: 100, total_count: 7 };
+
+describe("AC3 Scrydex page-1 count authority", () => {
+  it.each([302, 429, 404, 200])(
+    "AC2 actual loopback HTTP %s sends once with no redirects/retries/discovery/page 2",
+    async (status) => {
+      const requests: string[] = [];
+      const server = createServer((request, response) => {
+        requests.push(request.url ?? "");
+        response.writeHead(status, { "content-type": "application/json", location: "/hidden-next" });
+        response.end(JSON.stringify(status === 200 ? cards : { error: "synthetic" }));
+      });
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      try {
+        const address = server.address();
+        if (!address || typeof address === "string") throw new Error("Loopback unavailable.");
+        const query = scrydexCountQuery({
+          environment: "test",
+          accountRevision: "runtime",
+          productDomain: "one-piece",
+          profileKey: "synthetic",
+          profileVersion: "1",
+          unitKey: "scrydex:one-piece:single-card:source-observation-import",
+          kind: "cards",
+          languageCode: "en",
+          parentValue: "OP01",
+        });
+        const send = acquireScrydexPageOneCount(query, {
+          baseUrl: `http://127.0.0.1:${address.port}/onepiece/v1`,
+          credentials: { apiKey: "synthetic", teamId: "synthetic" },
+        });
+        if (status === 200) expect((await send).totalCount).toBe(121);
+        else await expect(send).rejects.toThrow();
+        expect(requests).toHaveLength(1);
+        expect(requests[0]).toContain("/cards?page=1&page_size=250");
+        expect(requests[0]).not.toContain("usage");
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    },
+  );
+  it.each([cards, sealed])("accepts the receipt-derived snake_case envelope", (body) => {
+    expect(Object.keys(body).sort()).toEqual(["count", "data", "page", "page_size", "total_count"]);
+    expect(validateScrydexCountPage(body, 1)).toEqual({
+      totalCount: body.total_count,
+      pageSize: 100,
+      returnedPage: 1,
+      returnedItemCount: body.count,
+    });
+  });
+  it.each([0, 1, 121])("accepts zero/single/multiple pages in camel case: %s", (totalCount) => {
+    expect(
+      validateScrydexCountPage(
+        { data: Array.from({ length: Math.min(100, totalCount) }, () => ({})), page: 1, pageSize: 100, totalCount },
+        1,
+      )?.totalCount,
+    ).toBe(totalCount);
+  });
+  it.each([
+    { ...cards, total_count: undefined },
+    { ...cards, page_size: undefined },
+    { ...cards, page: 2 },
+    { ...cards, count: 99 },
+    { ...cards, data: [] },
+    { ...cards, total_count: 2147483648 },
+    { ...cards, total_count: 1.5 },
+    { ...cards, page_size: 0 },
+    { ...cards, page_size: 2147483648 },
+    { data: [], next_page: "/page2" },
+    { ...cards, totalCount: 122 },
+  ])("refuses missing, capped, next-only, unsafe and conflicting authority", (body) => {
+    expect(() => validateScrydexCountPage(body, 1)).toThrow();
+  });
+  it("one count attempt uses observed size and never requests page 2 or usage", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(cards));
+    const query = scrydexCountQuery({
+      environment: "test",
+      accountRevision: "runtime",
+      productDomain: "one-piece",
+      profileKey: "synthetic",
+      profileVersion: "1",
+      unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      kind: "cards",
+      languageCode: "en",
+      parentValue: "OP01",
+    });
+    const result = await acquireScrydexPageOneCount(query, {
+      fetch,
+      credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      baseUrl: "http://127.0.0.1/onepiece/v1",
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toContain("page_size=250");
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+    expect(result.pageSize).toBe(100);
+  });
+});

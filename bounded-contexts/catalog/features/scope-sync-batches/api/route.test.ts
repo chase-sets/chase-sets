@@ -4,17 +4,30 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { scopeSyncBatchRoutes } from "./route";
 import { ScopeSyncBatchStalePreviewError } from "../domain/batch";
 import { heldSetExportContract } from "../domain/held-set-export";
+import type { ResolvedActor } from "@chase-sets/auth-context";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
   audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
 };
+function countActor(roleKey: string): ResolvedActor {
+  return {
+    roleKey,
+    permissions: ["catalog.manage", "catalog.view"],
+    sessionId: "synthetic-session",
+    tenantId: "tnt_test",
+    userId: "usr_test",
+    accountId: "acc_test",
+    membershipId: "synthetic-membership",
+  };
+}
 
-function app(services: Record<string, unknown>) {
+function app(services: Record<string, unknown>, actor?: ResolvedActor) {
   const routes = scopeSyncBatchRoutes(services as never);
-  const root = new Hono<{ Variables: { context: EventStoreContext } }>();
+  const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();
   root.use("*", async (c, next) => {
     c.set("context", context);
+    c.set("actor", actor ?? null);
     await next();
   });
   root.route("/", routes);
@@ -22,6 +35,41 @@ function app(services: Record<string, unknown>) {
 }
 
 describe("Scope Sync Batch routes", () => {
+  it("AC1 refuses missing Admin authority and cross-origin count approval without a send", async () => {
+    const acquireCounts = vi.fn();
+    const body = JSON.stringify({ quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) });
+    const missing = await app({ acquireCounts }).request("/counts/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body,
+    });
+    expect(missing.status).toBe(401);
+    const unauthorized = await app({ acquireCounts }, countActor("seller")).request("/counts/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body,
+    });
+    expect(unauthorized.status).toBe(403);
+    const admin = countActor("platform-admin");
+    const foreign = await app({ acquireCounts }, admin).request("/counts/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://foreign.invalid" },
+      body,
+    });
+    expect(foreign.status).toBe(403);
+    expect(acquireCounts).not.toHaveBeenCalled();
+  });
+  it("AC1 only a same-origin Admin can execute an exact count approval", async () => {
+    const acquireCounts = vi.fn(async () => ({ state: "complete" }));
+    const body = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const response = await app({ acquireCounts }, countActor("platform-admin")).request("/counts/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(200);
+    expect(acquireCounts).toHaveBeenCalledWith({ ...body, context });
+  });
   it("resolves one closed multipart file without logging or retaining its body", async () => {
     const resolveHeldSets = vi.fn().mockResolvedValue({ resolved: [], unresolved: [], totals: {} });
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);

@@ -22,6 +22,7 @@ export type ScopeSyncBatchServices = ReturnType<typeof createScopeSyncBatchRunti
 
 export function createScopeSyncBatchRuntime(deps: {
   db: PgQueryable;
+  counts?: ReturnType<typeof import("./count-runtime").createScopeSyncCountRuntime>;
   previewCatalogSyncScope: (input: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
@@ -66,7 +67,7 @@ export function createScopeSyncBatchRuntime(deps: {
     assertScopeSyncBatchPreviewCurrent(input.planFingerprint, current.preview);
     const settled = await store.findCompletedByFingerprint(current.preview.planFingerprint, input.context);
     if (settled && (await remainsSettled(settled, input.context))) return settled;
-    return store.create({
+    return (deps.counts?.reserveBatch ?? store.create)({
       batchId: createId("job"),
       preview: current.preview,
       plans: current.plans,
@@ -107,6 +108,20 @@ export function createScopeSyncBatchRuntime(deps: {
   }
 
   return {
+    quoteCounts: (input: Parameters<NonNullable<typeof deps.counts>["quoteCounts"]>[0]) => {
+      if (!deps.counts) throw new Error("Count acquisition is unavailable.");
+      return deps.counts.quoteCounts(input);
+    },
+    getCountQuote: (input: Parameters<NonNullable<typeof deps.counts>["getCountQuote"]>[0]) => {
+      if (!deps.counts) throw new Error("Count acquisition is unavailable.");
+      return deps.counts.getCountQuote(input);
+    },
+    acquireCounts: (input: Parameters<NonNullable<typeof deps.counts>["acquireCounts"]>[0]) => {
+      if (!deps.counts) throw new Error("Count acquisition is unavailable.");
+      return deps.counts.acquireCounts(input);
+    },
+    countSpend: (input: Parameters<NonNullable<typeof deps.counts>["countSpend"]>[0]) =>
+      deps.counts?.countSpend(input) ?? Promise.resolve([]),
     resolveHeldSets: (input: { bytes: Uint8Array; context: EventStoreContext }) =>
       resolveHeldSetExport(deps.db, input.bytes),
     preview,

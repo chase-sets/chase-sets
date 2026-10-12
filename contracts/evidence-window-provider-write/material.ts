@@ -199,7 +199,7 @@ export function validateProviderMaterial(binding: ProviderWriteBinding, envelope
         "payment_intent_data[transfer_group]",
         "payment_intent_data[statement_descriptor_suffix]",
         "payment_intent_data[setup_future_usage]",
-        "payment_intent_data[payment_method_options][card][request_three_d_secure]",
+        "payment_method_options[card][request_three_d_secure]",
         ...metadata([
           ...baseMetadata,
           ...riskMetadata,

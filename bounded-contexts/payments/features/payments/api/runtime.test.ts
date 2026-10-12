@@ -18,6 +18,7 @@ import {
 import { createPaymentWebhookRunner } from "./webhook-transaction";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 
 function createPaymentRuntime(
   deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
@@ -178,6 +179,7 @@ function createOrderInputDb(
   options: Readonly<{
     savedCheckoutInstrumentRows?: readonly Record<string, unknown>[];
     accountRiskRows?: readonly Record<string, unknown>[];
+    orderInputOverrides?: Readonly<Record<string, unknown>>;
   }> = {},
 ) {
   const reservations = new Map<string, Record<string, unknown>>();
@@ -475,6 +477,7 @@ function createOrderInputDb(
               terms_agreement_id: null,
               terms_resolved_at: "2026-04-29T00:00:00.000Z",
               status: "pending-payment",
+              ...options.orderInputOverrides,
             },
           ],
         };
@@ -1221,6 +1224,154 @@ describe("payment runtime", () => {
     releaseProviderSession.resolve();
     await first;
     expect(processorGateway.createPaymentSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { name: "processor amount at threshold", amount: "250.00", reasonCodes: ["high-payment-amount"] },
+    { name: "processor amount above threshold", amount: "250.01", reasonCodes: ["high-payment-amount"] },
+    {
+      name: "seller exposure at threshold",
+      amount: "300.00",
+      balance: "275.00",
+      sellerPayout: "250.00",
+      reasonCodes: ["high-dollar-seller-exposure"],
+    },
+    { name: "fraud flag", risk: { stripe_fraud_flag: true }, reasonCodes: ["stripe-fraud-flag"] },
+    { name: "open fraud review", risk: { stripe_review_open_count: 1 }, reasonCodes: ["stripe-fraud-review-open"] },
+    { name: "manual payout review", risk: { manual_payout_review: true }, reasonCodes: ["manual-payout-review"] },
+    { name: "automatic below threshold", amount: "249.99", reasonCodes: [] },
+    { name: "direct saved intent", risk: { stripe_fraud_flag: true }, saved: true, reasonCodes: ["stripe-fraud-flag"] },
+  ])("existing 3DS assessments reach a schema-valid Checkout Session: $name", async (scenario) => {
+    const requests: { url: string; form: URLSearchParams }[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const form = new URLSearchParams(String(init?.body));
+      requests.push({ url, form });
+      if (url.endsWith("/v1/customers")) {
+        return Response.json({ id: "cus_SYNTHETIC_6708" });
+      }
+      if ([...form.keys()].some((key) => key.startsWith("payment_intent_data[payment_method_options]"))) {
+        return Response.json(
+          { error: { message: "Received unknown parameter: payment_intent_data[payment_method_options]" } },
+          { status: 400 },
+        );
+      }
+      return url.endsWith("/v1/payment_intents")
+        ? Response.json({ id: "pi_SYNTHETIC_6708", status: "succeeded" })
+        : Response.json({ id: "cs_SYNTHETIC_6708", status: "open", payment_status: "unpaid" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { eventStore } = createInMemoryEventStore();
+      const amount = scenario.amount ?? "24.99";
+      const balance = scenario.balance ?? "0.00";
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createOrderInputDb({
+          orderInputOverrides: { total_amount: amount, seller_payout_amount: scenario.sellerPayout ?? "24.49" },
+          accountRiskRows: [
+            {
+              account_id: "acc_buyer",
+              manual_payout_review: false,
+              stripe_fraud_flag: false,
+              stripe_review_open_count: 0,
+              ...scenario.risk,
+            },
+          ],
+          savedCheckoutInstrumentRows: scenario.saved
+            ? [
+                {
+                  instrument_id: "sci_SYNTHETIC_6708",
+                  account_id: "acc_buyer",
+                  payment_method_category: "card",
+                  provider: "stripe",
+                  provider_customer_reference: "cus_SYNTHETIC_6708",
+                  provider_reference: "pm_SYNTHETIC_6708",
+                  display_label: "Synthetic card",
+                  confirmation_experience: "off-session-token",
+                  readiness: "ready",
+                  allow_redisplay: "always",
+                  consent_id: "consent_SYNTHETIC_6708",
+                  consent_text: "Save for future checkout.",
+                  removed_at: null,
+                  is_default: true,
+                },
+              ]
+            : [],
+        }) as never,
+        processorGateway: createStripePaymentProcessorGateway({
+          secretKey: "sk_test_SYNTHETIC_6708",
+          publishableKey: "pk_test_SYNTHETIC_6708",
+          webhookSecret: "whsec_SYNTHETIC_6708",
+          apiBaseUrl: "https://stripe.synthetic.test",
+        }),
+        checkoutProcessingFeePolicyResolver: {
+          resolveCheckoutProcessingFeePolicy: async () => ({
+            value: {
+              enabledJurisdictions: ["US"],
+              base: { percentageBps: 0, fixedAmount: "0.00" },
+              methodAdjustments: [],
+            },
+            source: "policy" as const,
+            documentId: "pol_SYNTHETIC_6708",
+            effectiveFrom: "2026-01-01T00:00:00.000Z",
+            resolvedAt: "2026-01-01T00:00:00.000Z",
+          }),
+        },
+        ...(scenario.balance
+          ? {
+              balanceCreditResolver: {
+                resolveBalanceCredit: async () => ({
+                  requestedAmount: balance,
+                  appliedAmount: balance,
+                  remainingExternalAmount: "25.00",
+                }),
+                placeSpendHold: async () => ({ heldAmount: balance }),
+                releaseSpendHold: async () => undefined,
+              },
+            }
+          : {}),
+      });
+      const input = {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card" as const,
+        requestedBalanceCreditAmount: balance,
+      };
+      const status = await services.getCheckoutStatus(input);
+      const payment = await services.createAccountPayment(
+        {
+          ...input,
+          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+          ...(scenario.saved ? { savedCheckoutInstrumentId: "sci_SYNTHETIC_6708" } : {}),
+        },
+        context,
+      );
+      const request = requests.find(({ url }) =>
+        url.endsWith(scenario.saved ? "/v1/payment_intents" : "/v1/checkout/sessions"),
+      );
+      expect(request).toBeDefined();
+      const form = request!.form;
+      const stepUp = scenario.reasonCodes.length > 0;
+      expect(form.get("payment_method_options[card][request_three_d_secure]")).toBe(stepUp ? "any" : null);
+      expect(form.get("metadata[three_d_secure_requested]")).toBe(stepUp ? "any" : "automatic");
+      expect(form.get("metadata[three_d_secure_reason_codes]")).toBe(stepUp ? scenario.reasonCodes.join(",") : null);
+      expect([...form.keys()].filter((key) => key.startsWith("payment_intent_data[payment_method_options]"))).toEqual(
+        [],
+      );
+      if (!scenario.saved) {
+        expect(form.get("payment_intent_data[metadata][three_d_secure_reason_codes]")).toBe(
+          stepUp ? scenario.reasonCodes.join(",") : null,
+        );
+        expect(form.get("line_items[0][price_data][unit_amount]")).toBe(
+          scenario.balance ? "2500" : amount.replace(".", ""),
+        );
+      }
+      expect(payment.processor_payment_kind).toBe(scenario.saved ? "payment-intent" : "checkout-session");
+      expect(payment.three_d_secure_reason_codes).toEqual(scenario.reasonCodes);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("requests 3DS step-up for card payments when account risk warrants it", async () => {

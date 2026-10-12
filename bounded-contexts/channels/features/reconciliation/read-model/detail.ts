@@ -13,6 +13,7 @@ export async function readChannelDriftDetail(
     const cursor = input.cursor === undefined ? null : decodeCursor(input.cursor);
     const source = await pool.query<{
       state: Extract<ChannelDriftDetail, { kind: "loaded" }>["runState"] | null;
+      provider_key: string;
       generation: string | null;
       revision: string | null;
       updated_at: Date | string | null;
@@ -20,6 +21,7 @@ export async function readChannelDriftDetail(
       fingerprint: string | null;
       detail_rows: Array<{
         row_kind: "listing" | "finding";
+        finding_kind: string | null;
         row_identity: string;
         channel_listing_id: string | null;
         classification: Extract<ChannelDriftDetailRow, { rowKind: "listing" }>["classification"];
@@ -36,7 +38,7 @@ export async function readChannelDriftDetail(
       }>;
     }>(
       `WITH source AS (
-          SELECT run.state,run.generation,run.revision,run.updated_at,
+          SELECT connection.provider_key,run.state,run.generation,run.revision,run.updated_at,
                  run.drift_generation->>'generation' AS drift_generation,
                  run.drift_generation->>'fingerprint' AS fingerprint,
                  run.drift_generation->'members' AS members
@@ -49,7 +51,7 @@ export async function readChannelDriftDetail(
             SELECT 'listing'::text AS row_kind,
                    channel_drift_detail_identity(item.channel_listing_id) AS row_identity,
                    item.channel_listing_id,item.classification,item.run_generation,
-                   item.observed_fingerprint,item.expected_material_fingerprint
+                   item.observed_fingerprint,item.expected_material_fingerprint,NULL::text AS finding_kind
             FROM channel_reconciliation_items AS item
             WHERE item.connection_id=$2 AND EXISTS (SELECT 1 FROM source)
               AND channel_drift_detail_identity(item.channel_listing_id) > $3
@@ -57,7 +59,7 @@ export async function readChannelDriftDetail(
           )
             UNION ALL
           (
-            SELECT 'finding',channel_drift_detail_identity(finding_id),NULL,NULL,run_generation,NULL,NULL
+            SELECT 'finding',channel_drift_detail_identity(finding_id),NULL,NULL,run_generation,NULL,NULL,kind
             FROM channel_reconciliation_findings
             WHERE connection_id=$2 AND open AND $4::boolean AND EXISTS (SELECT 1 FROM source)
               AND channel_drift_detail_identity(finding_id) > $5
@@ -107,7 +109,10 @@ export async function readChannelDriftDetail(
         return {
           rowKind: "finding",
           rowIdentity: row.row_identity,
-          flag: "unmapped",
+          flag:
+            row.finding_kind === "stale-snapshot" || row.finding_kind === "persistent-sale-gap"
+              ? row.finding_kind
+              : "unmapped",
           runGeneration: Number(row.run_generation),
         };
       return {
@@ -140,6 +145,7 @@ export async function readChannelDriftDetail(
     const last = rows.at(-1);
     return {
       kind: "loaded",
+      salesCoverage: run.provider_key === "tcgplayer" ? "unverified" : "complete",
       basis,
       runState: run.state,
       observedAt,
