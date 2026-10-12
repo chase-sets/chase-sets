@@ -220,6 +220,14 @@ describeDb("Channel Reconciliation guarded production path", () => {
     ).toEqual(original);
     await capture(rows);
     await capture(rows);
+    await capture(rows);
+    const failureSeries = (
+      await pools.channels.query<{ fingerprint: string }>(
+        "SELECT observation->>'fingerprint' AS fingerprint FROM channel_health_observations ORDER BY occurred_at",
+      )
+    ).rows;
+    expect(failureSeries).toHaveLength(5);
+    expect(failureSeries.slice(-3)).toEqual(Array(3).fill(failureSeries.at(-1)));
     expect(
       (await services.connectionHealth.readConnectionHealth({ accountId: "account-1", connectionId: "connection-1" }))
         .systemPaused,
@@ -237,11 +245,10 @@ describeDb("Channel Reconciliation guarded production path", () => {
     );
     await expect(capture(rows)).resolves.toMatchObject({ clean: false, counts: { inSync: 3, foreignEdit: 0 } });
     expect((await services.reconciliation.readChannelDriftAttentionContribution(input))!.resolution).toBe(
-      "recovered-automatically",
+      "handled-on-channel",
     );
     expect((await services.reconciliation.readChannelDriftAttentionContribution(input))!.members).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ identity: "source:state", settlement: "recovered" }),
         expect.objectContaining({ identity: "listing:channel-foreign", settlement: "accepted" }),
       ]),
     );
@@ -257,7 +264,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
           "SELECT observation->>'outcome' AS outcome FROM channel_health_observations ORDER BY occurred_at",
         )
       ).rows.map((row) => row.outcome),
-    ).toEqual(["failure", "failure", "failure", "failure", "success", "failure"]);
+    ).toEqual(["failure", "failure", "failure", "failure", "failure", "success", "failure"]);
     const snapshots = await readLatestLiveSnapshotMetadata(pools.channels, "connection-1");
     const persisted = await readPersistedClaimedState(pools.channels, {
       connectionId: "connection-1",
