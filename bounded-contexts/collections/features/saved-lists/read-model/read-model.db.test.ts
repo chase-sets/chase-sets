@@ -20,7 +20,6 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createSavedListRuntime } from "../api/runtime";
 import { createSavedListDiscoveryRuntime } from "../api/discovery-runtime";
-import { createAnonymousOwnerCompatibility } from "../api/anonymous-owner-compatibility";
 import { savedListFingerprint } from "../api/anonymous-owner";
 import type { SavedListProductSelection } from "../domain/contracts";
 
@@ -232,7 +231,11 @@ describeDb("Saved List read-model SQL boundary", () => {
         return db.query<Row>(sql, values);
       },
     };
-    await createAnonymousOwnerCompatibility(guarded).resolve("anon_race", "sli_race");
+    await anonymousDiscovery(guarded).prepareAnonymousClaim({
+      anonymousOwnerId: "anon_race",
+      intentId: "sli_race",
+      accountId: ownerAccountId,
+    });
     expect(
       (
         await db.query(`SELECT owner_revision, source_path, anonymous_owner_id FROM collections_anonymous_saved_list_intents
@@ -254,7 +257,11 @@ describeDb("Saved List read-model SQL boundary", () => {
         return db.query<Row>(sql, values);
       },
     };
-    await createAnonymousOwnerCompatibility(oldGuarded).resolve("anon_old_race", "sli_old_race");
+    await anonymousDiscovery(oldGuarded).prepareAnonymousClaim({
+      anonymousOwnerId: "anon_old_race",
+      intentId: "sli_old_race",
+      accountId: ownerAccountId,
+    });
     expect(
       (
         await db.query(`SELECT status, owner_revision, anonymous_owner_id FROM collections_anonymous_saved_list_intents
