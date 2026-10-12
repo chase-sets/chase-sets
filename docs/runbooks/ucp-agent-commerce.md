@@ -185,7 +185,13 @@ Check OAuth metadata:
 Invoke-RestMethod http://localhost:7712/.well-known/oauth-authorization-server
 ```
 
-OAuth identity linking requires Authorization Code with PKCE S256. Token refresh rotates the refresh token on every successful refresh. Token support endpoints:
+OAuth identity linking requires Authorization Code with PKCE S256. Token refresh rotates the refresh token on every successful refresh.
+
+Authorization GET must redirect to `/account/agents/consent` (or `/sign-in` with the authorize return path), never directly to a callback with a code. Consent displays the client-provided name, redirect origin, active account, and grouped scope labels. Approve or Deny submits a native same-origin POST; only Approve can issue a code. Deny preserves state and returns `access_denied`. A stale, used, foreign-session, or switched-account token must be rejected without a client redirect. Restart from the agent after the ten-minute expiry. Switching accounts restarts authorize and requires a new consent decision. Agent-bearer and guest-checkout actors must sign in interactively instead.
+
+Do not retain raw consent tokens, callback codes, or full token-bearing URLs in diagnostic logs. Token, refresh, introspection, and revocation behavior is unchanged.
+
+Token support endpoints:
 
 - `/ucp/oauth/token`: `authorization_code` and `refresh_token`
 - `/ucp/oauth/register`: RFC 7591 public-client registration for agent platforms

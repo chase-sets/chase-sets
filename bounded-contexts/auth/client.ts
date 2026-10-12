@@ -222,6 +222,17 @@ const DEFAULT_UCP_OAUTH_BASE_URL = "/ucp/oauth";
 // mandate, and activity routes are Auth-owned but mounted at /ucp/oauth rather than /api/auth
 // (bounded-contexts/auth/support/ucp-support/oauth.ts), so this is a distinct base URL from
 // createAuthApiClient rather than a second baseUrl on the same client instance.
+export type AgentOAuthConsent = Readonly<{
+  clientName: string;
+  redirectOrigin: string;
+  sessionId: string;
+  accountId: string;
+  accountName: string;
+  scopes: readonly string[];
+  memberships: readonly { accountId: string; accountName: string }[];
+  authorizePath: string;
+}>;
+
 export function createUcpOAuthApiClient({
   baseUrl = DEFAULT_UCP_OAUTH_BASE_URL,
   fetch = globalThis.fetch,
@@ -237,6 +248,10 @@ export function createUcpOAuthApiClient({
   const buildUrl = (path: string) => new URL(path, `${baseUrl}/`).toString();
 
   return {
+    async getAgentConsent(token: string): Promise<{ consent: AgentOAuthConsent }> {
+      const query = new URLSearchParams({ consent_token: token });
+      return parseJsonResponse(await configuredFetch(`${buildUrl("consent")}?${query}`, { headers }));
+    },
     async listAgentGrants<T>(): Promise<T> {
       return parseJsonResponse<T>(await configuredFetch(buildUrl("authorizations"), { headers }));
     },

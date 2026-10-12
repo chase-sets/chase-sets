@@ -302,6 +302,11 @@ export default {
   ],
   excludedRoutes: [
     {
+      path: "bounded-contexts/auth/routes/marketplace/account-agents-consent.tsx",
+      reason:
+        "fixture-gap: unexpired OAuth consent request bound to the seeded buyer session; authorization must start from a synthetic agent client",
+    },
+    {
       path: "bounded-contexts/auth/routes/marketplace/account-agents-detail.tsx",
       reason: "fixture-gap: agent grant for the seeded buyer to open in detail; no bootstrap seed connects an agent",
     },

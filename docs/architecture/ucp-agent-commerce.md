@@ -87,3 +87,9 @@ UCP OAuth identity linking requires PKCE S256, rotates refresh tokens, supports 
 Payments recognizes AP2 mandate attempts and can complete headless agentic checkout when a production AP2 verifier and Stripe SPT-capable processor are configured. The default runtime remains closed: missing mandate verification, missing merchant signing keys, missing Stripe SPT access, or unsupported payment data all return a trusted UI continuation instead of moving money.
 
 Remaining external gates are Stripe private-preview account enablement for shared payment tokens, AP2 SD-JWT+KB verifier/certification against real agents, and production key-rotation operations for the business signing key material.
+
+## OAuth Consent
+
+Auth stores a ten-minute, single-use consent request before showing `/account/agents/consent`. The token is stored only as a hash and binds the interactive session, user, account, client, exact scopes, redirect, state, and PKCE challenge. Authorization GET validates the request but never creates an authorization code. Bearer grants and guest-checkout actors cannot create, read, or decide consent requests.
+
+A same-origin native authorization POST revalidates the bound session and client metadata, then atomically consumes an unexpired request. Approve issues a code using only the bound values; deny returns `access_denied` and the bound state. Refusals never redirect to the client. Account switching uses the existing session switch and restarts authorization for fresh consent. The consent document sends `frame-ancestors 'none'`, `strict-origin`, and `no-store`, without `form-action` so the client callback is not blocked. The origin-only referrer preserves native POST Origin without exposing the consent token; `/ucp/oauth` API responses retain `no-referrer`. Auth's indexed retention sweep removes expired requests in bounded batches.

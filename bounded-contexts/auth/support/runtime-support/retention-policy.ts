@@ -17,6 +17,7 @@ export const authRetentionSweeps: readonly BcRetentionSweep[] = [
   expired("guest-checkout-tokens", "identity_guest_checkout_tokens"),
   expired("guest-checkout-claim-tokens", "identity_guest_checkout_claim_tokens"),
   expired("ucp-oauth-authorization-codes", "identity_ucp_oauth_authorization_codes"),
+  expired("ucp-oauth-consent-requests", "identity_ucp_oauth_consent_requests"),
 ];
 
 export const authRetentionExemptions: readonly BcRetentionExemption[] = [

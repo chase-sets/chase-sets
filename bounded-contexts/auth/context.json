@@ -591,6 +591,32 @@
           }
         },
         {
+          "routeId": "account-agents-consent",
+          "routePath": "account/agents/consent",
+          "fileExport": "./routes/marketplace/account-agents-consent",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Session-bound OAuth consent is not a public resource."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "OAuth consent requires an interactive browser session."
+          }
+        },
+        {
           "routeId": "account-agents-detail",
           "routePath": "account/agents/:id",
           "fileExport": "./routes/marketplace/account-agents-detail",
@@ -1037,6 +1063,29 @@
         "tests": [
           "bounded-contexts/auth/features/sessions/domain/domain.test.ts",
           "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "auth.oauth-consent-interaction",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /authorize",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-consent-page.tsx:H2bf092fe7eee#1",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-consent-page.tsx:Hd5e991ad8d78#1",
+        "route-action:bounded-contexts/auth/routes/marketplace/account-agents-consent.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Consent decisions redirect with a code or access_denied only after direct SQL single-use consumption. Account switching awaits the existing Session command, then restarts authorize; Auth resolves the current account from the authoritative Session stream, not the lagging session projection."
+      },
+      "proof": {
+        "authoritativeResponse": "GET creates only a hashed request. POST validates the bound actor and current client, conditionally consumes the unexpired row, and builds the callback from RETURNING values. Account-switch completion precedes authorize re-entry; getSessionForAuth reads readAuthenticatedSession before presentation-only enrichment.",
+        "tests": [
+          "bounded-contexts/auth/support/ucp-support/oauth.test.ts",
+          "bounded-contexts/auth/routes/marketplace/account-agents-consent.test.ts",
+          "bounded-contexts/auth/support/runtime-support/authoritative-session-expiry.db.test.ts"
         ]
       }
     },
