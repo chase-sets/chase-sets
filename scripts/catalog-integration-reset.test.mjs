@@ -30,6 +30,8 @@ function assertImmutableProviderUatAdmission(document) {
     EXPECTED_SHA: "${{ inputs.expected_sha }}",
     RUN_SHA: "${{ github.sha }}",
     CONFIRMATION: "${{ inputs.confirm }}",
+    JOURNEY_SCOPE: "${{ inputs.journey_scope }}",
+    ADMIN_WEB_URL: "${{ inputs.admin_web_url }}",
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
   expect(resolver.if).toBe("needs.admit-reviewed-sha.result == 'success'");
