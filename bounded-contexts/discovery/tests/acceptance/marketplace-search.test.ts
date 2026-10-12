@@ -133,7 +133,7 @@ describe("Discovery removal handler reachability", () => {
     ]) {
       const writes: { sql: string; values: readonly unknown[] }[] = [];
       const db: PgQueryable = {
-        async query(sql, values = []) {
+        async query(sql: string, values: readonly unknown[] = []) {
           if (sql.startsWith("UPDATE ")) writes.push({ sql, values });
           return { rows: [], rowCount: 0 };
         },
@@ -157,7 +157,7 @@ describe("Discovery removal handler reachability", () => {
       ["lst_2", { account_id: "acc_2", status: "active" }],
     ]);
     const db: PgQueryable = {
-      async query(sql, values = []) {
+      async query(sql: string, values: readonly unknown[] = []) {
         if (sql.startsWith("UPDATE discovery_market_listings")) {
           const row = rows.get(String(values[2]));
           if (row) row.status = String(values[0]);
