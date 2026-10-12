@@ -63,6 +63,7 @@ export function createCapabilityAdministration(
       const p = event.payload;
       if (
         event.eventType !== "identity.capability-administration-authority.recorded" ||
+        Object.keys(p).length !== 4 ||
         typeof p.authorityId !== "string" ||
         !/^[a-z0-9-]{1,64}$/.test(p.authorityId) ||
         typeof p.revision !== "number" ||
