@@ -561,14 +561,14 @@ function liabilityShiftOutcomeFromFailure(object: StripeWebhookObject): Processo
   };
 }
 
-function cardAuthenticationEntries(input: Pick<CreateProcessorPaymentInput, "cardAuthentication">, prefix = "") {
+function cardAuthenticationEntries(
+  input: Pick<CreateProcessorPaymentInput, "cardAuthentication">,
+): Record<string, string> {
   if (input.cardAuthentication?.requestThreeDSecure !== "any") {
     return {};
   }
-  const fieldPrefix = prefix ? `${prefix}[` : "";
-  const fieldSuffix = prefix ? "]" : "";
   return {
-    [`${fieldPrefix}payment_method_options${fieldSuffix}[card][request_three_d_secure]`]: "any",
+    "payment_method_options[card][request_three_d_secure]": "any",
   };
 }
 
@@ -1750,7 +1750,7 @@ export function createStripePaymentProcessorGateway(
             ...stripeCustomerEntry(
               input.providerCustomerReference ?? input.savePaymentMethod?.providerCustomerReference,
             ),
-            ...cardAuthenticationEntries(input, "payment_intent_data"),
+            ...cardAuthenticationEntries(input),
             ...paymentMetadataEntries(input, {}, "payment_intent_data[metadata]"),
             ...cardAuthenticationMetadataEntries(input, "payment_intent_data[metadata]"),
             ...(input.savedCheckoutInstrument
