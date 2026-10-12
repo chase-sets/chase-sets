@@ -82,7 +82,11 @@ function assertReceiptUploadGated(document) {
   const steps = document.jobs["staging-provider-uat"].steps;
   const runIndex = steps.findIndex((step) => step.id === "provider-uat");
   const validateIndex = steps.findIndex((step) => step.id === "preview-receipt");
-  const uploads = steps.filter((step) => String(step.uses ?? "").startsWith("actions/upload-artifact@"));
+  const uploads = steps.filter(
+    (step) =>
+      String(step.uses ?? "").startsWith("actions/upload-artifact@") &&
+      step.with?.path !== "artifacts/catalog-whole-game-rehearsal/receipt.json",
+  );
   expect(runIndex).toBeGreaterThanOrEqual(0);
   expect(validateIndex).toBeGreaterThan(runIndex);
   const validate = steps[validateIndex];
@@ -355,16 +359,22 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     expect(fence.status).toBe("pass");
     expect(fence.uploads.filter((upload) => upload.file === workflowFile).map((upload) => upload.paths)).toEqual([
       [scopeSyncBatchPreviewProbeArtifactPath],
+      ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
     ]);
 
+    const previewUpload = (document) =>
+      document.jobs["staging-provider-uat"].steps.find(
+        (step) => step.with?.path === scopeSyncBatchPreviewProbeArtifactPath,
+      );
+
     const directory = workflow();
-    directory.jobs["staging-provider-uat"].steps.at(-1).with.path = "artifacts/catalog-scale-probe";
+    previewUpload(directory).with.path = "artifacts/catalog-scale-probe";
     expect(() => assertReceiptUploadGated(directory)).toThrow();
     const ungated = workflow();
-    ungated.jobs["staging-provider-uat"].steps.at(-1).if = "${{ always() }}";
+    previewUpload(ungated).if = "${{ always() }}";
     expect(() => assertReceiptUploadGated(ungated)).toThrow();
     const ignoreMissing = workflow();
-    ignoreMissing.jobs["staging-provider-uat"].steps.at(-1).with["if-no-files-found"] = "ignore";
+    previewUpload(ignoreMissing).with["if-no-files-found"] = "ignore";
     expect(() => assertReceiptUploadGated(ignoreMissing)).toThrow();
     const corpus = Object.fromEntries(fence.census.files.map((file) => [file, readFileSync(resolve(file), "utf8")]));
     expect(inspectPlaywrightArtifactUploadCorpus(corpus).status).toBe("pass");

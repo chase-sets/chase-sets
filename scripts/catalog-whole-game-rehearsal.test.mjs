@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { parse } from "yaml";
-import ts from "typescript";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
+import { resolveAdminWebRouteConfigRecords } from "../deployables/admin-web/app/host.ts";
 import * as rehearsal from "../deployables/admin-web/e2e/support/whole-game-rehearsal.ts";
 
 import {
@@ -77,6 +78,119 @@ const applied = (candidateId, appliedCatalogItemId, overrides = {}) => ({
   approvalVersion: 2,
   planFingerprint: "sha256:approved-plan",
   ...overrides,
+});
+
+const journeySource = ts.createSourceFile(
+  "journey.ts",
+  readFileSync(
+    new URL("../deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", import.meta.url),
+    "utf8",
+  ),
+  ts.ScriptTarget.Latest,
+  true,
+);
+const journeyFunction = (name) =>
+  journeySource.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+
+describe("whole-game repair regressions", () => {
+  it("uses registered admin routes for every whole-game page", () => {
+    const routes = new Set(resolveAdminWebRouteConfigRecords().map((route) => `/${route.routePath}`));
+    const paths = [];
+    for (const name of ["wholeGameSettle", "submitPromoteAllReady", "publishThroughCatalogItems"]) {
+      const visit = (node) => {
+        if (ts.isTemplateExpression(node) && node.head.text.startsWith("/")) {
+          const path = node.head.text.split("?")[0];
+          if (path.startsWith("/catalog")) paths.push(path.endsWith("/") ? `${path}:id` : path);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(journeyFunction(name));
+    }
+    expect(paths).toEqual(["/catalog/scopes/sync-batches", "/catalog/scopes/:id", "/catalog/catalog-items"]);
+    for (const path of paths) expect(routes.has(path), path).toBe(true);
+    expect(journeyFunction("publishThroughCatalogItems").getText(journeySource)).toContain(
+      'clickWholeGameControl(page, page.getByRole("button", { name: "Actions", exact: true }).first(), runtime)',
+    );
+  });
+
+  it.each(["full-game-start", "full-game-settle"])(
+    "refuses automatic retries of %s before navigation or credentials",
+    async (scope) => {
+      let branch;
+      const visit = (node) => {
+        if (
+          ts.isIfStatement(node) &&
+          node.expression.getText(journeySource) === "isWholeGameJourneyScope(providerUatJourneyScope)"
+        )
+          branch = node.getText(journeySource);
+        ts.forEachChild(node, visit);
+      };
+      visit(journeySource);
+      expect(branch).toBeDefined();
+      for (const retry of [1, 2]) {
+        const signIn = vi.fn();
+        const journey = vi.fn();
+        const write = vi.fn();
+        const context = vm.createContext({
+          ...rehearsal,
+          isWholeGameJourneyScope: (value) => rehearsal.wholeGameJourneyScopes.includes(value),
+          page: {},
+          providerUatJourneyScope: scope,
+          testInfo: { retry, timeout: 1000 },
+          startedAt: 0,
+          wholeGameDeadlineMarginMs: 1,
+          process: { env: { ADMIN_WEB_URL: rehearsal.wholeGameStagingOrigin } },
+          signInWholeGame: signIn,
+          runWholeGameJourney: journey,
+          writeWholeGameReceipt: write,
+        });
+        vm.runInContext(
+          ts.transpile(`async function attempt() { ${branch} }`, { target: ts.ScriptTarget.ES2022 }),
+          context,
+        );
+        await expect(context.attempt()).rejects.toMatchObject({ code: "automatic-retry-refused" });
+        expect(signIn).not.toHaveBeenCalled();
+        expect(journey).not.toHaveBeenCalled();
+        expect(write).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["retry-unit", "resume"])(
+    "reports a refused HTTP-200 %s command rather than a performed command",
+    async (intent) => {
+      for (const blockedBanner of [true, false]) {
+        const form = { filter: () => form, getByRole: () => ({}) };
+        const read = vi.fn(async () =>
+          batch(blockedBanner ? "queued" : "cancelled", [unit("scope-1", blockedBanner ? "queued" : "failed")]),
+        );
+        const page = {
+          url: () => rehearsal.wholeGameStagingOrigin,
+          locator: () => form,
+          getByText: () => ({ isVisible: async () => blockedBanner }),
+          waitForResponse: async () => ({ status: () => 200 }),
+        };
+        const context = vm.createContext({
+          ...rehearsal,
+          cssString: JSON.stringify,
+          expect: () => ({ toHaveCount: async () => {} }),
+          pageReadyTimeoutMs: 1000,
+          wholeGameRemainingMs: () => 1000,
+          clickWholeGameControl: async () => {},
+          readWholeGameBatch: read,
+        });
+        vm.runInContext(
+          ts.transpile(journeyFunction("submitBatchCommand").getText(journeySource), {
+            target: ts.ScriptTarget.ES2022,
+          }),
+          context,
+        );
+        await expect(
+          context.submitBatchCommand(page, "batch-requested", { intent, scopeRecordId: "scope-1" }, "Command"),
+        ).rejects.toMatchObject({ code: "batch-command-refused" });
+      }
+    },
+  );
 });
 
 describe("amended AC3 completed application history", () => {

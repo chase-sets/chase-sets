@@ -3027,6 +3027,7 @@ test.describe("catalog staging provider sync UAT", () => {
     }
 
     if (isWholeGameJourneyScope(providerUatJourneyScope)) {
+      if (testInfo.retry > 0) throw new WholeGameRehearsalRefusal("automatic-retry-refused");
       await signInWholeGame(page, process.env.ADMIN_WEB_URL ?? "");
       const receipt = await runWholeGameJourney(
         page,
@@ -7511,6 +7512,13 @@ async function submitBatchCommand(
     clickWholeGameControl(page, form.getByRole("button", { name: label, exact: true }), runtime),
   ]);
   if (response.status() >= 400) throw new WholeGameRehearsalRefusal(`batch-command-${response.status()}`);
+  const batch = await readWholeGameBatch(page, batchId, runtime);
+  const effectObserved =
+    fields.intent === "resume"
+      ? batch.status !== "cancelled"
+      : batch.units.some((unit) => unit.scopeRecordId === fields.scopeRecordId && unit.state !== "failed");
+  if ((await page.getByText("Batch command blocked", { exact: true }).isVisible()) || !effectObserved)
+    throw new WholeGameRehearsalRefusal("batch-command-refused");
 }
 
 async function submitPromoteAllReady(
@@ -7567,8 +7575,8 @@ async function publishThroughCatalogItems(
   blueprintIds: ReadonlySet<string>,
   runtime?: WholeGameRuntime,
 ): Promise<void> {
-  await gotoWholeGamePage(page, `/catalog-items?${wholeGameQuery(filter)}`, runtime);
-  await page.getByRole("button", { name: "Actions", exact: true }).first().click();
+  await gotoWholeGamePage(page, `/catalog/catalog-items?${wholeGameQuery(filter)}`, runtime);
+  await clickWholeGameControl(page, page.getByRole("button", { name: "Actions", exact: true }).first(), runtime);
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) =>
@@ -7834,7 +7842,7 @@ async function serveWholeGameApplicationFixture(
       return { json: jobs[index] };
     }
     if (request.path === "/api/catalog/source-observations/merge-candidates") return { json: { total: 0, items: [] } };
-    if (request.path === "/catalog-items") return { html: fixtureCatalogItemsPage };
+    if (request.path === "/catalog/catalog-items") return { html: fixtureCatalogItemsPage };
     if (request.path === "/api/catalog/items") return { json: { total: drafts, items: [] } };
     if (request.path === "/api/catalog/items/bulk-publish/preview") return { json: fixturePublishPreview(drafts) };
     if (request.path === "/api/catalog/items/bulk-publish/confirm") {
@@ -7940,7 +7948,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     ["completed", false, false, false, "settled", "promote"],
   ] as const) {
     test(`AC2 UI ${status} circuit=${circuitOpen} retry=${retryFailed} resume=${resumeCancelled}`, async ({ page }) => {
-      const requested = fixtureBatch({
+      let requested = fixtureBatch({
         status,
         circuitOpenProviders: circuitOpen ? ["scrydex"] : [],
         units: [
@@ -7963,8 +7971,22 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         result: { promoted: 0, failed: 0, outcomes: [] },
       };
       const calls = await serveWholeGameFixture(page, (request) => {
-        if (request.path === "/catalog/scopes/sync-batches")
+        if (request.path === "/catalog/scopes/sync-batches") {
+          if (request.method === "POST") {
+            const fields = new URLSearchParams(request.body);
+            if (fields.get("batchId") === requested.batchId) {
+              if (fields.get("intent") === "resume") requested = { ...requested, status: "queued" };
+              if (fields.get("intent") === "retry-unit")
+                requested = {
+                  ...requested,
+                  units: requested.units.map((unit) =>
+                    unit.scopeRecordId === fields.get("scopeRecordId") ? { ...unit, state: "queued" } : unit,
+                  ),
+                };
+            }
+          }
           return { html: fixtureBatchSection(other) + fixtureBatchSection(requested) };
+        }
         if (request.path === "/api/catalog/scope-sync-batches/batch-requested") return { json: requested };
         if (request.path === "/catalog/scopes/scope-1") {
           if (request.method === "POST") submitted = true;
@@ -7986,6 +8008,10 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         fixtureRuntime(),
       );
       expect(result.state).toBe(expectedState);
+      expect(result.settle).toMatchObject({
+        retriedUnits: expectedIntent === "retry-unit" ? 1 : 0,
+        resumed: expectedIntent === "resume",
+      });
       const posts = calls.filter((call) => call.startsWith("POST "));
       expect(posts).toEqual(
         expectedIntent === null
@@ -8003,11 +8029,46 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
   }
 
+  for (const intent of ["retry-unit", "resume"] as const) {
+    test(`AC2 HTTP-200 blocked ${intent} refuses without a performed-command receipt`, async ({ page }) => {
+      const requested = fixtureBatch({
+        status: intent === "resume" ? "cancelled" : "failed",
+        units: [{ scopeRecordId: "scope-1", state: "failed", providerKeys: ["scrydex"] }],
+      });
+      const other = fixtureBatch({ batchId: "batch-other", status: "cancelled" });
+      const calls = await serveWholeGameFixture(page, (request) => {
+        if (request.path === "/catalog/scopes/sync-batches")
+          return {
+            html:
+              (request.method === "POST" ? '<div role="alert">Batch command blocked</div>' : "") +
+              fixtureBatchSection(other) +
+              fixtureBatchSection(requested),
+          };
+        if (request.path === "/api/catalog/scope-sync-batches/batch-requested") return { json: requested };
+        return undefined;
+      });
+      const receipts: WholeGameReceipt[] = [];
+      await expect(
+        wholeGameSettle(
+          page,
+          { batchId: requested.batchId, retryFailed: intent === "retry-unit", resumeCancelled: intent === "resume" },
+          fixtureRun,
+          fixtureRuntime(),
+        ).then((receipt) => receipts.push(receipt)),
+      ).rejects.toMatchObject({ code: "batch-command-refused" });
+      expect(receipts).toEqual([]);
+      expect(calls.filter((call) => call.startsWith("POST "))).toEqual([
+        `POST /catalog/scopes/sync-batches intent=${intent}${intent === "retry-unit" ? "&scopeRecordId=scope-1" : ""}&batchId=batch-requested`,
+      ]);
+    });
+  }
+
   for (const abortAt of ["active-after-application", "completed-before-publication"] as const) {
     test(`AC3 actual submission abort at ${abortAt}, recovered application publishes, next rerun is 0/0`, async ({
       page,
     }) => {
-      const admin = await serveWholeGameApplicationFixture(page, { abortAt });
+      const recoveredOutcome = fixtureAppliedOutcome("candidate-create", "recovered-item");
+      const admin = await serveWholeGameApplicationFixture(page, { abortAt, recoveredOutcome });
       const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
       await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).rejects.toThrow();
       expect(admin.applicationComplete()).toBe(true);
@@ -8021,7 +8082,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         state: "settled",
         settle: { published: 1, promotedOutcomes: 1, promotedWithoutCatalogItem: 0 },
       });
-      expect(admin.calls.some((call) => call.startsWith("GET /api/catalog/items/created-item"))).toBe(true);
+      expect(admin.calls.some((call) => call.startsWith("GET /api/catalog/items/recovered-item"))).toBe(true);
       expect(admin.calls.some((call) => call.includes("/api/catalog/items/null"))).toBe(false);
       const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
       expect(rerun).toMatchObject({ state: "settled", settle: { promotedThisDispatch: 0, published: 0 } });
@@ -8175,6 +8236,16 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     let apiBatch = requested;
     const calls = await serveWholeGameFixture(page, (request) => {
       if (request.path === "/catalog/scopes/sync-batches") {
+        if (request.method === "POST") {
+          const fields = new URLSearchParams(request.body);
+          if (fields.get("batchId") === requested.batchId && fields.get("intent") === "retry-unit")
+            apiBatch = {
+              ...apiBatch,
+              units: apiBatch.units.map((unit) =>
+                unit.scopeRecordId === fields.get("scopeRecordId") ? { ...unit, state: "queued" } : unit,
+              ),
+            };
+        }
         return { html: `${fixtureBatchSection(other)}${fixtureBatchSection(requested)}` };
       }
       if (request.path === "/api/catalog/scope-sync-batches/batch-requested") return { json: apiBatch };
@@ -8216,7 +8287,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     const calls = await serveWholeGameFixture(page, (request) => {
       const killedJob = promoteJob("job-killed", "item-1", killedJobPolls > 1 ? "completed" : "running");
       if (request.path === "/catalog/scopes/sync-batches") return { html: fixtureBatchSection(fixtureBatch({})) };
-      if (request.path === "/catalog-items") return { html: fixtureCatalogItemsPage };
+      if (request.path === "/catalog/catalog-items") return { html: fixtureCatalogItemsPage };
       if (request.path === "/catalog/scopes/scope-1") {
         if (request.method === "POST")
           zeroJobs.push({
@@ -8317,7 +8388,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     for (const [mutate, code] of cases) {
       await page.unrouteAll();
       const calls = await serveWholeGameFixture(page, (request) => {
-        if (request.path === "/catalog-items") return { html: fixtureCatalogItemsPage };
+        if (request.path === "/catalog/catalog-items") return { html: fixtureCatalogItemsPage };
         if (request.path === "/api/catalog/items/bulk-publish/preview") {
           return { json: fixturePublishPreview(25, mutate) };
         }
