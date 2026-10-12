@@ -28,6 +28,7 @@ import {
   SUPPORTED_MCP_PROTOCOL_VERSIONS,
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
 import { flattenAvailableMcpTools, type McpServiceDescriptor } from "./mcp-contracts";
 
 const actor: ResolvedActor = {
@@ -212,7 +213,7 @@ describe("MCP runtime routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       resource: "https://marketplace.example/mcp",
-      authorization_servers: ["https://marketplace.example/.well-known/oauth-authorization-server"],
+      authorization_servers: ["https://marketplace.example"],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
         "checkout:read",
@@ -224,6 +225,31 @@ describe("MCP runtime routes", () => {
       ]),
       bearer_methods_supported: ["header"],
     });
+  });
+
+  it("names the public request origin as the authorization server only through trusted forwarded headers", async () => {
+    const app = createMcpOAuthProtectedResourceMetadataRoutes();
+    const forwarded = {
+      headers: { "x-forwarded-host": "marketplace.chasesets.test", "x-forwarded-proto": "https" },
+    };
+
+    try {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "false");
+      const untrusted = await app.request("http://platform-api.internal:8080/oauth-protected-resource", forwarded);
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const trusted = await app.request("http://platform-api.internal:8080/oauth-protected-resource", forwarded);
+
+      await expect(untrusted.json()).resolves.toMatchObject({
+        resource: "https://platform-api.internal:8080/mcp",
+        authorization_servers: ["https://platform-api.internal:8080"],
+      });
+      await expect(trusted.json()).resolves.toMatchObject({
+        resource: "https://marketplace.chasesets.test/mcp",
+        authorization_servers: ["https://marketplace.chasesets.test"],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("challenges anonymous protected tool calls with protected-resource metadata", async () => {

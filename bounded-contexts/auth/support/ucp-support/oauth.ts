@@ -264,7 +264,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "invalid_client_metadata", error_description: "Client metadata is required." }, 400);
     }
 
-    const metadataResult = parseClientRegistrationMetadata(body);
+    const metadataResult = parseClientRegistrationMetadata(body, "dynamic-registration");
     if (!metadataResult.ok) {
       return c.json({ error: "invalid_client_metadata", error_description: metadataResult.error }, 400);
     }
@@ -1029,6 +1029,7 @@ function normalizeScopes(value: unknown): readonly string[] {
 
 function parseClientRegistrationMetadata(
   body: Readonly<Record<string, unknown>>,
+  source: "dynamic-registration" | "client-id-metadata-document",
 ): { ok: true; metadata: Omit<OAuthClientMetadata, "clientId"> } | { ok: false; error: string } {
   if (readString(body.client_secret) || readString(body.jwks_uri) || readObject(body.jwks)) {
     return { ok: false, error: "Confidential client credentials are not supported for agent-platform clients." };
@@ -1075,7 +1076,13 @@ function parseClientRegistrationMetadata(
   }
 
   const clientUri = readString(body.client_uri);
-  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri;
+  // Stock MCP clients register with neither client_uri nor platform_profile_url, so such a dynamic registration is
+  // attributed to the origin of its first sorted redirect_uri. A registration that sends either field, and every
+  // Client ID Metadata Document, keeps the explicit-value rules.
+  const omitsProfileUrls = body.platform_profile_url === undefined && body.client_uri === undefined;
+  const redirectOrigin =
+    source === "dynamic-registration" && omitsProfileUrls ? new URL(redirectUris[0]!).origin : undefined;
+  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri ?? redirectOrigin;
   const clientName = readString(body.client_name);
   if (clientName && clientName.length > MAX_CLIENT_NAME_LENGTH) {
     return { ok: false, error: "client_name is too long." };
@@ -1162,7 +1169,7 @@ async function readClientIdMetadataDocument(
   if (!body) {
     return null;
   }
-  const parsed = parseClientRegistrationMetadata(body);
+  const parsed = parseClientRegistrationMetadata(body, "client-id-metadata-document");
   if (!parsed.ok) {
     return null;
   }

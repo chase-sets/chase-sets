@@ -277,7 +277,9 @@ function mcpProtectedResourceMetadata(request: Request, options: McpOAuthProtect
   const origin = normalizeMcpOrigin(request);
   return {
     resource: `${origin}/mcp`,
-    authorization_servers: [`${origin}/.well-known/oauth-authorization-server`],
+    // RFC 9728 clients append the RFC 8414 well-known suffix to this issuer, so it is the exact value the UCP OAuth
+    // authorization-server metadata publishes as `issuer`: the public request origin.
+    authorization_servers: [resolvePublicRequestOrigin(request)],
     scopes_supported: options.scopesSupported ?? MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED,
     bearer_methods_supported: MCP_OAUTH_BEARER_METHODS_SUPPORTED,
   };

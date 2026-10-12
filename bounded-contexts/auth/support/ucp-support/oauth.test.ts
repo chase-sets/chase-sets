@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "./oauth";
+import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes, UCP_OAUTH_SUPPORTED_SCOPES } from "./oauth";
 
 const actor = {
   sessionId: "sess_1",
@@ -86,6 +86,83 @@ describe("UCP OAuth routes", () => {
     expect(confidential.status).toBe(400);
     expect(overScoped.status).toBe(400);
     expect(untrustedRedirect.status).toBe(400);
+  });
+
+  it("registers a client without client_uri from its redirect origin", async () => {
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(createOAuthOptions()));
+
+    // Synthetic replay of the Codex CLI 0.162.1 registration body shape captured by #9232: a public native client
+    // with one loopback redirect and neither client_uri nor platform_profile_url. Port and callback id are synthetic.
+    const codex = await registerClient(app, {
+      client_name: "Codex",
+      redirect_uris: ["http://127.0.0.1:49152/callback/synthetic-callback-id"],
+      grant_types: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_method: "none",
+      response_types: ["code"],
+      scope: UCP_OAUTH_SUPPORTED_SCOPES.join(" "),
+      application_type: "native",
+    });
+    const twoRedirects = await registerClient(app, {
+      redirect_uris: ["http://localhost:49153/callback", "http://127.0.0.1:49154/callback"],
+    });
+    const codexBody = (await codex.json()) as Record<string, unknown>;
+
+    expect(codex.status).toBe(201);
+    expect(codexBody).toMatchObject({
+      platform_profile_url: "http://127.0.0.1:49152",
+      scope: [...UCP_OAUTH_SUPPORTED_SCOPES].sort().join(" "),
+      token_endpoint_auth_method: "none",
+    });
+    expect(codexBody).not.toHaveProperty("client_uri");
+    expect(twoRedirects.status).toBe(201);
+    await expect(twoRedirects.json()).resolves.toMatchObject({ platform_profile_url: "http://127.0.0.1:49154" });
+  });
+
+  it("keeps explicit profile URLs and untrusted redirects on their existing registration rules", async () => {
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(createOAuthOptions()));
+    const redirect_uris = ["http://127.0.0.1:49155/callback"];
+
+    const explicitProfile = await registerClient(app, {
+      redirect_uris,
+      platform_profile_url: "https://agent.example/.well-known/ucp",
+      client_uri: "https://agent.example",
+    });
+    const explicitClientUri = await registerClient(app, {
+      redirect_uris,
+      client_uri: "https://agent.example/.well-known/ucp",
+    });
+    const untrustedProfile = await registerClient(app, {
+      redirect_uris,
+      platform_profile_url: "http://agent.example/.well-known/ucp",
+    });
+    const untrustedClientUri = await registerClient(app, {
+      redirect_uris,
+      client_uri: "http://agent.example/.well-known/ucp",
+    });
+    const blankProfile = await registerClient(app, { redirect_uris, platform_profile_url: " " });
+    const nullClientUri = await registerClient(app, { redirect_uris, client_uri: null });
+    const untrustedRedirect = await registerClient(app, { redirect_uris: ["http://agent.example/callback"] });
+
+    expect(explicitProfile.status).toBe(201);
+    await expect(explicitProfile.json()).resolves.toMatchObject({
+      client_uri: "https://agent.example",
+      platform_profile_url: "https://agent.example/.well-known/ucp",
+    });
+    expect(explicitClientUri.status).toBe(201);
+    await expect(explicitClientUri.json()).resolves.toMatchObject({
+      client_uri: "https://agent.example/.well-known/ucp",
+      platform_profile_url: "https://agent.example/.well-known/ucp",
+    });
+    for (const [response, error_description] of [
+      [untrustedProfile, "A trusted platform_profile_url or client_uri is required."],
+      [untrustedClientUri, "A trusted platform_profile_url or client_uri is required."],
+      [blankProfile, "A trusted platform_profile_url or client_uri is required."],
+      [nullClientUri, "A trusted platform_profile_url or client_uri is required."],
+      [untrustedRedirect, "redirect_uris must be HTTPS URLs or localhost HTTP URLs."],
+    ] as const) {
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "invalid_client_metadata", error_description });
+    }
   });
 
   it("registers a webhook callback and returns a signing secret exactly once", async () => {
@@ -502,6 +579,32 @@ describe("UCP OAuth routes", () => {
       client_id: "https://agent.example/oauth-client.json",
       platform_profile_url: "https://agent.example/.well-known/ucp",
     });
+  });
+
+  it("CIMD without a profile URL stays refused", async () => {
+    const fetchClientIdMetadata = vi.fn(async (url: string) => ({
+      client_id: url,
+      client_name: "Synthetic Metadata Client",
+      redirect_uris: ["https://agent.example/callback"],
+      scope: "catalog:read",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    }));
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(createOAuthOptions({ fetchClientIdMetadata })));
+
+    const authorize = await app.request(
+      authorizeUrl({
+        clientId: "https://agent.example/oauth-client.json",
+        redirectUri: "https://agent.example/callback",
+        scope: "catalog:read",
+        challenge: pkceChallenge("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"),
+      }),
+    );
+
+    expect(fetchClientIdMetadata).toHaveBeenCalledWith("https://agent.example/oauth-client.json");
+    expect(authorize.status).toBe(400);
+    await expect(authorize.json()).resolves.toMatchObject({ error: "invalid_client" });
   });
 
   it("lists and revokes linked platform authorizations for the current account", async () => {
@@ -965,6 +1068,14 @@ function createLinkedStore() {
 
 function pkceChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url");
+}
+
+function registerClient(app: Hono, metadata: Readonly<Record<string, unknown>>) {
+  return app.request("/ucp/oauth/register", {
+    method: "POST",
+    body: JSON.stringify(metadata),
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function authorizeUrl(input: {
