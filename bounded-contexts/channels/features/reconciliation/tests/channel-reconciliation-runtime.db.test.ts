@@ -738,6 +738,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
       await fixture.captureDrop();
       await fixture.run();
       const prior = (await pools.channels.query("SELECT * FROM channel_reconciliation_findings")).rows;
+      const priorRun = (await pools.channels.query("SELECT generation FROM channel_reconciliation_state")).rows;
       await publishReconciliationPolicy({ ...CHANNEL_RECONCILIATION_POLICY_FALLBACK, cadenceMs: 60_000 });
       // Production invalidates its cache through onPolicyRevised. This publisher is separate,
       // so rebuild composed services rather than reuse a cache that never saw the event.
@@ -760,7 +761,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
         fingerprint: prior[0]!.fingerprint,
         open: true,
       });
-      expect(current[0]!.run_generation).not.toBe(prior[0]!.run_generation);
+      // The finding retains its opening generation while its material is unchanged.
+      expect(current[0]!.run_generation).toBe(prior[0]!.run_generation);
+      expect((await pools.channels.query("SELECT generation FROM channel_reconciliation_state")).rows).not.toEqual(
+        priorRun,
+      );
       await fixture.capture(fixture.rows);
       await expect(fixture.run(freshServices)).resolves.toMatchObject({ counts: { missedSaleGaps: 0 } });
       expect((await pairFindings())[0]!.open).toBe(false);
@@ -811,7 +816,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
           context,
         ),
         "F5-run-fence: the first claimed write must refuse the lost owner",
-      ).rejects.toThrow("Claimed reconciliation write lost its run fence.");
+      ).rejects.toThrow(
+        activeBypass
+          ? "Claimed reconciliation write lost its run fence."
+          : "Channel Reconciliation completion lost its generation fence.",
+      );
       expect(interleaved).toBe(true);
       expect(
         (await pools.channels.query("SELECT * FROM channel_reconciliation_findings ORDER BY finding_id")).rows,
@@ -5213,6 +5222,16 @@ const modulePath = (file: string) => resolve(testDirectory, file);
 // changing Vitest's shared module cache. Only that assertion's red result is accepted.
 function bypassControl(ids: readonly BypassId[], name: string, probe: () => Promise<void>) {
   it(name, probe);
+  if (ids.includes("F5-run-fence")) {
+    it("F9 run-fence candidate exposes the first owner refusal before the completion catch", async () => {
+      activeBypass = await loadBypass("F5-run-fence", false);
+      try {
+        await probe();
+      } finally {
+        activeBypass = null;
+      }
+    });
+  }
   for (const id of ids) {
     it(`F9 in-process bypass ${id} is refused by its specific assertion`, async () => {
       activeBypass = await loadBypass(id);
@@ -5271,8 +5290,21 @@ async function loadSourceModule(
   return exports;
 }
 
-async function loadBypass(id: BypassId) {
-  const edits: readonly BypassEdit[] = bypassEdits[id];
+async function loadBypass(id: BypassId, tamper = true) {
+  const edits: readonly BypassEdit[] = [
+    ...(tamper ? bypassEdits[id] : []),
+    // Both fence candidate and mutant expose the first refusal instead of replacing
+    // it with the completion error in the outer catch. The owner check is unchanged.
+    ...(id === "F5-run-fence"
+      ? [
+          {
+            file: runtimeFile,
+            before: "} catch {\n      return finishRun(",
+            after: "} catch (error) {\n      throw error;\n      return finishRun(",
+          },
+        ]
+      : []),
+  ];
   const modules = new Map<string, Record<string, unknown>>();
   for (const file of [membershipFile, claimedFile, "../read-model/source.ts", runtimeFile, compositionFile]) {
     if (file === membershipFile && !edits.some((edit) => edit.file === file)) continue;
