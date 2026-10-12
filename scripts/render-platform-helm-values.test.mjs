@@ -48,6 +48,7 @@ const catalogSignoffReferenceNames = [
   "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
   "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
   "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
 ];
 
 // The production Lorcana unit stops are derived from the active provider profile registry, never typed by hand.
@@ -1108,9 +1109,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 136,
-      "platform-bootstrap": 63,
-      "platform-worker": 133,
+      "platform-api": 137,
+      "platform-bootstrap": 64,
+      "platform-worker": 134,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

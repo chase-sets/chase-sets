@@ -27,6 +27,7 @@ import { resolveWebHostRouteConfigRecords, toRouteConfigEntry } from "./web-rout
 
 type FakeQueryResult = Readonly<{
   rows: readonly Readonly<Record<string, unknown>>[];
+  rowCount?: number;
 }>;
 
 type FakePool = Readonly<{
@@ -45,7 +46,20 @@ function createPool(): FakePool {
       ? [{ acquired: true }]
       : sql.includes("COUNT(*) AS count")
         ? [{ count: "0" }]
-        : [],
+        : sql.includes("FROM (VALUES") && sql.includes("generation_active_generation")
+          ? [
+              {
+                projection_revision: null,
+                generation_active_generation: null,
+                generation_rebuilding_generation: null,
+                generation_state: null,
+              },
+            ]
+          : [],
+    rowCount:
+      sql.includes("INSERT INTO event_projection_group_generations") || sql.includes("WITH saved_checkpoint AS")
+        ? 1
+        : undefined,
   });
   return {
     query,

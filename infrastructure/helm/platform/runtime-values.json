@@ -464,6 +464,10 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
@@ -1122,6 +1126,10 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
@@ -1721,6 +1729,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {

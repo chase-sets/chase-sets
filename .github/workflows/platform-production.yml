@@ -2827,6 +2827,7 @@ jobs:
       CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE || '' }}
       CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE || '' }}
       CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
@@ -2954,6 +2955,9 @@ jobs:
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE":') }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -3168,6 +3172,19 @@ jobs:
               fi
               ;;
           esac
+          # Per-name presence preserves absence without exposing the variable map.
+          node --input-type=module -e '
+            const invalid = [
+              "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+              "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+              "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+            ].filter((name) => process.env[name + "_PRESENT"] === "true" &&
+              ["", "false", "none", "open"].includes((process.env[name] ?? "").trim().toLowerCase()));
+            if (invalid.length) {
+              console.error("Invalid production Catalog integration signoff reference: " + invalid.join(" "));
+              process.exit(1);
+            }
+          '
 
       - uses: ./.github/actions/setup-pnpm-workspace
         env:
@@ -3919,6 +3936,7 @@ jobs:
           add_optional_runtime_env "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE:-}"
           add_optional_runtime_env "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE:-}"
           add_optional_runtime_env "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE:-}"
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
