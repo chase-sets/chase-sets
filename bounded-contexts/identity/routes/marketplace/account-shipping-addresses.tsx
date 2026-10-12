@@ -16,8 +16,6 @@ import { identityApiErrorAdapter } from "../../support/request-support/route-api
 import { classifyAccountActionError } from "../../support/route-support/account-action-errors";
 import { shippingAddressActionErrors } from "../../features/shipping-addresses/ui/action-errors";
 
-type ActionData = Readonly<{ failure: Readonly<{ message: string }> }>;
-
 function addressIdentity(value: string) {
   try {
     return parseStrictTypedUlid(value, "adr");
@@ -166,11 +164,7 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as ActionData | undefined;
-  return (
-    <ShippingAddressPage
-      addresses={data.addresses}
-      errorMessage={actionData?.failure?.message ?? data.loadError ?? null}
-    />
-  );
+  const actionData = useActionData<typeof action>();
+  const failure = actionData && "failure" in actionData ? actionData.failure : null;
+  return <ShippingAddressPage addresses={data.addresses} errorMessage={failure?.message ?? data.loadError ?? null} />;
 }
