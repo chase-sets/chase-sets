@@ -7,7 +7,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import sharp from "sharp";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
@@ -190,14 +190,6 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       await recordSyncState(db, "scope_alpha", tcgdexUnit, "completed", "run_alpha", "job_alpha_import");
     });
     await insertObservation(db, {
-      observationId: "obs_image_card",
-      syncRunId: "run_alpha",
-      normalized: {
-        ...pokemonObservation({ expansionName: "Mega Evolution", seriesName: "Mega Evolution" }),
-        imageBaseUrl: "https://assets.tcgdex.example/me01-001",
-      },
-    });
-    await insertObservation(db, {
       observationId: "obs_unmapped_kind",
       syncRunId: "run_alpha",
       providerKey: "synthetic-unknown",
@@ -214,6 +206,30 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
         },
       },
     }).sourceObservations;
+    await runtime.commandHandler({
+      streamId: "catalog.source-observation-obs_image_card",
+      command: {
+        type: "RecordSourceObservation",
+        observationId: "obs_image_card",
+        syncRunId: "run_alpha",
+        providerKey: "tcgdex",
+        externalKey: "obs_image_card",
+        sourceUrl: "https://synthetic.invalid/observation",
+        languageCode: "en",
+        sourceRecordHash: "sha256:obs_image_card",
+        observedAt: new Date().toISOString(),
+        sourceProfileKey: "pokemon-tcg",
+        sourceProfileVersion: "2026.06.03",
+        sourceMappingFingerprint: "sha256:mapping",
+        normalized: {
+          ...pokemonObservation({ expansionName: "Mega Evolution", seriesName: "Mega Evolution" }),
+          imageBaseUrl: "https://assets.tcgdex.example/me01-001",
+        },
+        sourcePayload: {},
+      },
+      context,
+    });
+    await drainLocalProjectionHandlerSets("catalog", db, runtime.projectors);
     const image = await syntheticWebpImage();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
