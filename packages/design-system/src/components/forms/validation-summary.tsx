@@ -8,6 +8,10 @@ export interface ValidationSummaryError {
 }
 
 export interface ValidationSummaryProps {
+  /**
+   * Attached to the summary root. The root has tabIndex={-1}, so a caller may focus it
+   * after committing an action failure while it stays out of the tab order; it is never focused automatically.
+   */
   ref?: Ref<HTMLElement>;
   id?: string;
   title?: ReactNode;
