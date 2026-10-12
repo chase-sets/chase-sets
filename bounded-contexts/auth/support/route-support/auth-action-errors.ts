@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { NormalizedFormErrors } from "@chase-sets/design-system";
-import { isRegistrationConsentRejectionCode } from "@chase-sets/identity/server";
+import type { RegistrationConsentRejectionCode } from "@chase-sets/identity/server";
 import { AuthApiError } from "../../client";
 import { missingPhoneDetail } from "../api-support/phone-code-errors";
 
@@ -16,6 +16,15 @@ export const AUTH_ACTION_INTENTS = [
   "account-selection",
 ] as const;
 export type AuthActionIntent = (typeof AUTH_ACTION_INTENTS)[number];
+const consentRejectionCodes = {
+  registration_consent_not_server_minted: true,
+  registration_consent_expired: true,
+  registration_consent_affirmation_required: true,
+} satisfies Record<RegistrationConsentRejectionCode, true>;
+
+function isConsentRejectionCode(value: unknown) {
+  return typeof value === "string" && Object.hasOwn(consentRejectionCodes, value);
+}
 export type AuthActionError = Readonly<{
   error: string;
   errors: NormalizedFormErrors<{ phone: string }>;
@@ -90,7 +99,7 @@ export function authApiActionError(error: AuthApiError, intent: AuthActionIntent
           ? ["code", "message", "waitlistPath", "domain", "mode"]
           : rejection.code === "rate_limited"
             ? ["code", "message", "surface", "retryAfterSeconds"]
-            : isRegistrationConsentRejectionCode(rejection.code)
+            : isConsentRejectionCode(rejection.code)
               ? ["code", "message", "reason"]
               : ["code", "message"];
     if (
@@ -132,7 +141,7 @@ export function authApiActionError(error: AuthApiError, intent: AuthActionIntent
   }
   if (
     error.status === 400 &&
-    isRegistrationConsentRejectionCode(rejection?.code) &&
+    isConsentRejectionCode(rejection?.code) &&
     ["password", "phone-code-consume", "magic-link-consume", "passkey-register", "invitation-accept"].includes(intent)
   ) {
     return authFormFailure(t("auth.support.apiSupport.socialLoginRoutes.registration.consent.unavailable"), intent);

@@ -17,6 +17,18 @@ function source(relative: string) {
   );
 }
 
+it("keeps browser-facing error adapters free of server runtime imports", () => {
+  const file = source("./auth-action-errors.ts");
+  const serverImports = file.statements.filter(
+    (node) =>
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text.endsWith("/server") &&
+      !node.importClause?.isTypeOnly,
+  );
+  expect(serverImports.map((node) => node.getText(file))).toEqual([]);
+});
+
 it("derives the legacy producer partition from source with an unknown fail-closed default", () => {
   const outcomes: { producer: string; status: number }[] = [];
   for (const producer of ["phone-code", "magic-link", "password", "register", "invitation", "passkey"]) {
