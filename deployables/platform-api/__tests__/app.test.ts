@@ -27,6 +27,7 @@ import {
   EVIDENCE_WINDOW_ADMISSION_HEADER,
   type EvidenceWindowRegistration,
 } from "@chase-sets/platform-runtime/control-plane";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import {
   createUcpEnvelope,
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
@@ -490,11 +491,16 @@ describe("platform api app wiring", () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
     const response = await app.request("https://marketplace.chasesets.test/.well-known/oauth-protected-resource");
+    const authorizationServer = await app.request(
+      "https://marketplace.chasesets.test/.well-known/oauth-authorization-server",
+    );
+    const { issuer } = (await authorizationServer.json()) as { issuer: string };
 
     expect(response.status).toBe(200);
+    expect(issuer).toBe("https://marketplace.chasesets.test");
     await expect(response.json()).resolves.toEqual({
       resource: "https://marketplace.chasesets.test/mcp",
-      authorization_servers: ["https://marketplace.chasesets.test/.well-known/oauth-authorization-server"],
+      authorization_servers: [issuer],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
         "checkout:read",
@@ -521,6 +527,102 @@ describe("platform api app wiring", () => {
       registration_endpoint: "https://marketplace.chasesets.test/ucp/oauth/register",
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
+    });
+  });
+
+  it("names the same authorization-server issuer through the trusted public-origin resolver", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+    const forwarded = {
+      headers: { "x-forwarded-host": "marketplace.chasesets.test", "x-forwarded-proto": "https" },
+    };
+
+    try {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const resourceMetadata = await app.request(
+        "http://platform-api.internal:8080/.well-known/oauth-protected-resource",
+        forwarded,
+      );
+      const authorizationServer = await app.request(
+        "http://platform-api.internal:8080/.well-known/oauth-authorization-server",
+        forwarded,
+      );
+      const { issuer } = (await authorizationServer.json()) as { issuer: string };
+
+      expect(issuer).toBe("https://marketplace.chasesets.test");
+      await expect(resourceMetadata.json()).resolves.toMatchObject({
+        resource: "https://marketplace.chasesets.test/mcp",
+        authorization_servers: [issuer],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("stock-client discovery chain registers", async () => {
+    const authDb = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+    const app = buildPlatformApiApp(createEmptyRuntime({ auth: { db: authDb } }));
+    // The configured MCP server URL is the only input; every later URL comes from a discovery document.
+    const mcpServerUrl = "https://marketplace.chasesets.test/mcp";
+
+    const challenge = await app.request(mcpServerUrl, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call_1",
+        method: "tools/call",
+        params: { name: "inventory.list-import-sources", arguments: { accountId: "acc_1" } },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(challenge.status).toBe(401);
+    const resourceMetadataUrl =
+      /resource_metadata="([^"]+)"/.exec(challenge.headers.get("WWW-Authenticate") ?? "")?.[1] ?? "";
+
+    const resourceMetadataResponse = await app.request(resourceMetadataUrl);
+    expect(resourceMetadataResponse.status).toBe(200);
+    const resourceMetadata = (await resourceMetadataResponse.json()) as {
+      resource: string;
+      authorization_servers: readonly string[];
+      scopes_supported: readonly string[];
+    };
+    expect(resourceMetadata.resource).toBe(mcpServerUrl);
+    expect(resourceMetadata.scopes_supported).toHaveLength(18);
+    const [authorizationServerIssuer = ""] = resourceMetadata.authorization_servers;
+
+    const authorizationServerResponse = await app.request(
+      `${authorizationServerIssuer}/.well-known/oauth-authorization-server`,
+    );
+    expect(authorizationServerResponse.status).toBe(200);
+    const authorizationServer = (await authorizationServerResponse.json()) as {
+      issuer: string;
+      registration_endpoint: string;
+    };
+    expect(authorizationServer.issuer).toBe(authorizationServerIssuer);
+
+    // Synthetic replay of the Claude Code 2.1.296 registration body shape captured by #9232: every advertised
+    // scope (18 at capture), a client_name, a loopback redirect, and neither client_uri nor platform_profile_url.
+    // The port and server label are synthetic.
+    const registration = await app.request(authorizationServer.registration_endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Claude Code (synthetic-server)",
+        redirect_uris: ["http://localhost:49160/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        application_type: "native",
+        scope: resourceMetadata.scopes_supported.join(" "),
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(registration.status).toBe(201);
+    await expect(registration.json()).resolves.toMatchObject({
+      client_name: "Claude Code (synthetic-server)",
+      platform_profile_url: "http://localhost:49160",
+      redirect_uris: ["http://localhost:49160/callback"],
+      scope: [...resourceMetadata.scopes_supported].sort().join(" "),
+      token_endpoint_auth_method: "none",
     });
   });
 
