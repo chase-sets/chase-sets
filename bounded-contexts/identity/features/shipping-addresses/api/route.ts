@@ -4,7 +4,12 @@ import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
-import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import { IdentityDomainError, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import {
+  SHIPPING_ADDRESS_REQUIRED_MESSAGES,
+  ShippingAddressFieldError,
+  ShippingAddressUndeliverableError,
+} from "../domain/errors";
 import type { ShippingAddressServices } from "./runtime";
 import type { ShippingAddressSnapshot } from "../domain/domain";
 
@@ -76,9 +81,26 @@ function addressVerificationChoiceResponse(
 }
 
 function shippingAddressError(error: unknown) {
-  const message = error instanceof Error ? error.message : "Request failed.";
-  const code = message.includes("deliverable address") ? "shipping_address_undeliverable" : "validation_failed";
-  return { error: { code, message } };
+  if (error instanceof ShippingAddressFieldError) {
+    const message = t(SHIPPING_ADDRESS_REQUIRED_MESSAGES[error.field]);
+    return {
+      error: { code: "validation_failed", message, details: [{ field: error.field, code: error.code, message }] },
+    };
+  }
+  if (error instanceof ShippingAddressUndeliverableError) {
+    return {
+      error: {
+        code: "shipping_address_undeliverable",
+        message: t("identity.features.shippingAddresses.errors.undeliverable"),
+      },
+    };
+  }
+  if (error instanceof IdentityDomainError) {
+    return {
+      error: { code: "validation_failed", message: t("identity.support.routeSupport.accountActionErrors.validation") },
+    };
+  }
+  throw error;
 }
 
 function canAccessAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string, write: boolean) {
