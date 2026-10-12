@@ -8,10 +8,10 @@ export function evidenceActor(
 ): ResolvedActor {
   return {
     sessionId: "ses_operator",
-    tenantId: "tnt_chase_sets",
+    tenantId: "tnt_identity",
     userId: "usr_operator",
     accountId,
-    membershipId: "mem_operator",
+    membershipId: "mbr_operator",
     roleKey: role,
     permissions,
     ...(granted

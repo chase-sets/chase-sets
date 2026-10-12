@@ -89,7 +89,7 @@ export function parseEvidenceAccessAttempt(value: unknown): EvidenceAccessAttemp
     !id("tenantId", "tnt") ||
     !id("userId", "usr") ||
     !id("accountId", "acc") ||
-    !id("membershipId", "mem") ||
+    !id("membershipId", "mbr") ||
     !id("assignmentId", "acap") ||
     (record.assignmentId === null
       ? record.assignmentVersion !== null
@@ -127,10 +127,11 @@ export function createEvidenceAccessAudit(eventStore: EventStore, now: () => str
         correlationId: randomUUID(),
         at: now(),
       });
+      // Signed-out envelopes use the same platform tenant as Auth-resolved actors and guest checkout envelopes.
       // Event-store envelopes require an audit principal even for signed-out attempts.
       // The closed payload remains explicitly anonymous, never a synthetic actor.
       const context: EventStoreContext = {
-        tenantId: parseTypedId(attempt.tenantId ?? "tnt_chase_sets", "tnt"),
+        tenantId: parseTypedId(attempt.tenantId ?? "tnt_identity", "tnt"),
         audit: {
           performedByUserId: parseTypedId(attempt.userId ?? "usr_support_evidence_anonymous", "usr"),
           forAccountId: parseTypedId(attempt.accountId ?? "acc_support_evidence_anonymous", "acc"),

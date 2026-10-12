@@ -11,6 +11,7 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
+import { mintEvidenceActorThroughIdentity } from "./evidence-access-identity.test-support";
 
 function buildApp(
   services: SupportRequestServices,
@@ -29,7 +30,7 @@ function buildApp(
   app.use("*", async (c, next) => {
     c.set("actor", evidenceActor("platform-admin", permissions, false, "acc_operator"));
     c.set("context", {
-      tenantId: "tnt_chase_sets",
+      tenantId: "tnt_identity",
       audit: { performedByUserId: "usr_operator", forAccountId: "acc_operator" },
     } as never);
     await next();
@@ -137,6 +138,91 @@ describe("support attachment capability x role x participation", () => {
       expect(fixture.storage.getObject).not.toHaveBeenCalled();
       expect(fixture.storage.putObject).not.toHaveBeenCalled();
       expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+      expect(fixture.allEvents.at(-1)).toMatchObject({
+        tenantId: "tnt_identity",
+        payload: { tenantId: null, userId: null, accountId: null, membershipId: null },
+      });
+    },
+  );
+
+  it("downloads for principals minted and persisted by the real Identity API with one allowed attempt", async () => {
+    const actor = await mintEvidenceActorThroughIdentity();
+    const fixture = await attachmentRouteFixture(true, actor.accountId);
+    const response = await attachmentApp(fixture.runtime, actor).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(200);
+    const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].payload).toMatchObject({
+      decision: "allowed",
+      membershipId: actor.membershipId,
+      userId: actor.userId,
+      accountId: actor.accountId,
+    });
+    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    "nonempty %s operations submission preserves domain validation as 400 after one allowed attempt",
+    async (operations) => {
+      const fixture = await attachmentRouteFixture();
+      const actor = evidenceActor("owner", ["support.manage"], operations);
+      const response = await attachmentApp(fixture.runtime, actor).request(
+        `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            submittedByRole: "buyer",
+            evidenceType: "support-note",
+            summary: "",
+            attachments: ["att_1"],
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
+      const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "nonempty %s operations submission bounds unexpected failures as 503 after one allowed attempt",
+    async (operations) => {
+      const fixture = await attachmentRouteFixture();
+      const append = fixture.eventStore.appendToStream.bind(fixture.eventStore);
+      vi.spyOn(fixture.eventStore, "appendToStream").mockImplementation(async (input) => {
+        if (input.streamId === "support.evidence-access-sup_case") return append(input);
+        throw new Error("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
+      });
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], operations),
+      ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          submittedByRole: "buyer",
+          evidenceType: "support-note",
+          summary: "Case evidence",
+          attachments: ["att_1"],
+        }),
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: { code: "evidence_unavailable", message: "Support evidence is unavailable." },
+      });
+      const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
+      expect(JSON.stringify(fixture.allEvents)).not.toContain("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
+      expect(fixture.storage.getObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putObject).not.toHaveBeenCalled();
     },
   );
 
@@ -300,7 +386,7 @@ describe("support attachment capability x role x participation", () => {
       streamId: "support.support-request-sup_case",
       expectedVersion: "any",
       context: {
-        tenantId: "tnt_chase_sets",
+        tenantId: "tnt_identity",
         audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
       } as never,
       events: [
@@ -365,7 +451,7 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
   return app;
 }
 
-async function attachmentRouteFixture(exists = true) {
+async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer") {
   const { eventStore, allEvents } = createInMemoryEventStore();
   const body = new Uint8Array([0xff, 0xd8, 0xff]);
   const reference = `support-attachment:v1:sea_photo:${createHash("sha256").update(body).digest("hex")}:jpg`;
@@ -374,7 +460,7 @@ async function attachmentRouteFixture(exists = true) {
       streamId: "support.support-request-sup_case",
       expectedVersion: "any",
       context: {
-        tenantId: "tnt_chase_sets",
+        tenantId: "tnt_identity",
         audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
       } as never,
       events: [
@@ -382,7 +468,7 @@ async function attachmentRouteFixture(exists = true) {
           type: "OpenSupportRequest",
           supportRequestId: "sup_case",
           orderId: "ord_case",
-          buyerAccountId: "acc_buyer",
+          buyerAccountId,
           sellerAccountId: "acc_seller",
           openedByAccountId: "acc_buyer",
           openedByRole: "buyer",
@@ -401,7 +487,7 @@ async function attachmentRouteFixture(exists = true) {
       ],
     });
   const storage = {
-    putObject: vi.fn(async (input) => ({ key: input.key })),
+    putObject: vi.fn(async (input: { key: string }) => ({ key: input.key, publicUrl: "private" })),
     getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
     deleteObjects: vi.fn(),
   };

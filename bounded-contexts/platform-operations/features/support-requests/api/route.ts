@@ -6,6 +6,7 @@ import type { SupportRequestServices } from "./runtime";
 import { platformRemedyCapabilities, type PlatformRemedyCapability } from "../domain/platform-remedy-policy";
 import { SupportEvidenceAttachmentError } from "./attachments";
 import { EvidenceAccessError } from "./evidence-access-audit";
+import { SupportDomainError } from "../domain/common";
 
 function evidenceAccessResponse(error: EvidenceAccessError) {
   const code =
@@ -286,7 +287,8 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       return c.json({ id: result.supportRequestId, version: result.version, status: "evidence-submitted" });
     } catch (error) {
       if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
-      if (attachments.length) return evidenceAccessResponse(new EvidenceAccessError(503));
+      if (attachments.length && !(error instanceof SupportDomainError))
+        return evidenceAccessResponse(new EvidenceAccessError(503));
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
@@ -962,7 +964,8 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       return c.json({ id: result.supportRequestId, version: result.version, status: "evidence-submitted" });
     } catch (error) {
       if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
-      if (attachments.length) return evidenceAccessResponse(new EvidenceAccessError(503));
+      if (attachments.length && !(error instanceof SupportDomainError))
+        return evidenceAccessResponse(new EvidenceAccessError(503));
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
   });
