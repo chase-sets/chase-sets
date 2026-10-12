@@ -3,7 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createEvidenceAccessAudit, parseEvidenceAccessAttempt } from "./evidence-access-audit";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { mintEvidenceActorThroughIdentity } from "../__tests__/evidence-access-identity";
+import { mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
 
 describe("closed Evidence Access Attempt schema", () => {
   async function record() {
