@@ -234,6 +234,8 @@ describeDb("Auth projection of Identity Capability Grants", () => {
     const group = runtime.projectionGroups.find(
       ({ projectionName }) => projectionName === "auth-identity-account-capability-projection",
     )!;
+    // The group resets replay-only (checkpoints, not rows), so simulate projection loss to prove rebuild from empty.
+    await pools.auth.query("TRUNCATE TABLE auth_identity_account_capabilities");
     const revisionSyncToken = await resetProjectionGroup(group);
     expect(await projectedRows()).toEqual([]);
     await drainContextRuntime({ subscriptionRunners: group.subscriptionRunners });
