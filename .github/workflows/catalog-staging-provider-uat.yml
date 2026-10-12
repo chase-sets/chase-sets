@@ -86,6 +86,8 @@ jobs:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           RUN_SHA: ${{ github.sha }}
           CONFIRMATION: ${{ inputs.confirm }}
+          JOURNEY_SCOPE: ${{ inputs.journey_scope }}
+          ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
         with:
           script: |
             const expected = process.env.EXPECTED_SHA ?? '';
@@ -93,6 +95,10 @@ jobs:
                 !/^[a-fA-F0-9]{40}$/.test(expected) ||
                 expected.toLowerCase() !== process.env.RUN_SHA) {
               core.setFailed('Confirmation and exact immutable expected_sha are required.');
+            }
+            if (['full-game-start', 'full-game-settle'].includes(process.env.JOURNEY_SCOPE) &&
+                process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
+              core.setFailed('Whole-game journeys require the exact staging origin.');
             }
 
   refuse-unconfirmed:

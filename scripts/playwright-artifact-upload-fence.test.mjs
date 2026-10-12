@@ -207,7 +207,10 @@ runs:
     expect(result.findings.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml")).toEqual(
       [],
     );
-    expect(uploads.map(({ paths }) => paths)).toEqual([["artifacts/catalog-whole-game-rehearsal/receipt.json"]]);
+    expect(uploads.map(({ paths }) => paths)).toEqual([
+      ["artifacts/catalog-scale-probe/preview.json"],
+      ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
+    ]);
   });
 
   it("rejects a safe-summary upload that retains a raw Playwright sibling", () => {

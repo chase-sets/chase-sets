@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { parse } from "yaml";
+import ts from "typescript";
+import { describe, expect, it, vi } from "vitest";
+import * as rehearsal from "../deployables/admin-web/e2e/support/whole-game-rehearsal.ts";
 
 import {
   WholeGameRehearsalRefusal,
@@ -61,6 +66,276 @@ const promoteJob = (jobId, outcomes, overrides = {}) => ({
   status: "completed",
   result: { promoted: outcomes.length, outcomes },
   ...overrides,
+});
+
+const applied = (candidateId, appliedCatalogItemId, overrides = {}) => ({
+  candidateId,
+  status: "promoted",
+  catalogItemId: null,
+  appliedCatalogItemId,
+  appliedMode: "create",
+  approvalVersion: 2,
+  planFingerprint: "sha256:approved-plan",
+  ...overrides,
+});
+
+describe("amended AC3 completed application history", () => {
+  it("uses applied identity for create intents and reconciles legacy approvals and repeated applications", () => {
+    const legacy = promoteJob("legacy", [
+      { candidateId: "candidate-1", status: "promoted", catalogItemId: "wrong-match" },
+    ]);
+    const current = promoteJob("current", [applied("candidate-1", "created-item")], { promotionApplicationVersion: 1 });
+    expect(promotedCatalogItems([legacy, current, { ...current, jobId: "recovered-unit" }])).toEqual({
+      catalogItemIds: ["created-item"],
+      promotedOutcomes: 1,
+      promotedWithoutCatalogItem: 0,
+    });
+    expect(promotedCatalogItems([legacy])).toEqual({
+      catalogItemIds: [],
+      promotedOutcomes: 0,
+      promotedWithoutCatalogItem: 1,
+    });
+  });
+
+  it.each([
+    { appliedCatalogItemId: null },
+    { appliedCatalogItemId: undefined },
+    { appliedMode: null },
+    { appliedMode: "invented" },
+    { approvalVersion: null },
+    { planFingerprint: null },
+  ])("refuses malformed version-1 facts %j without falling back to catalogItemId", (override) => {
+    expect(() =>
+      promotedCatalogItems([
+        promoteJob("bad", [applied("candidate-1", "created-item", { catalogItemId: "wrong-match", ...override })], {
+          promotionApplicationVersion: 1,
+        }),
+      ]),
+    ).toThrow(/promoted-catalog-item-unresolved/);
+  });
+
+  it.each([
+    { appliedCatalogItemId: "other-item" },
+    { appliedMode: "refresh" },
+    { approvalVersion: 3 },
+    { planFingerprint: "different-plan" },
+  ])("refuses conflicting application identity %j", (override) => {
+    expect(() =>
+      promotedCatalogItems([
+        promoteJob("one", [applied("candidate-1", "created-item")], { promotionApplicationVersion: 1 }),
+        promoteJob("two", [applied("candidate-1", "created-item", override)], { promotionApplicationVersion: 1 }),
+      ]),
+    ).toThrow(/promoted-catalog-item-unresolved/);
+  });
+});
+
+describe("AC7 exact staging admission", () => {
+  const workflow = parse(
+    readFileSync(new URL("../.github/workflows/catalog-staging-provider-uat.yml", import.meta.url), "utf8"),
+  );
+  const step = workflow.jobs["admit-reviewed-sha"].steps[0];
+  it.each([
+    "https://production.invalid",
+    "http://admin.staging.chasesets.com",
+    "https://user@admin.staging.chasesets.com",
+    "https://admin.staging.chasesets.com/",
+    "https://admin.staging.chasesets.com?next=evil",
+  ])("refuses %s before the credential job", (target) => {
+    const failures = [];
+    vm.runInNewContext(step.with.script, {
+      process: {
+        env: {
+          EXPECTED_SHA: "a".repeat(40),
+          RUN_SHA: "a".repeat(40),
+          CONFIRMATION: "run catalog staging provider uat",
+          JOURNEY_SCOPE: "full-game-settle",
+          ADMIN_WEB_URL: target,
+        },
+      },
+      core: { setFailed: (message) => failures.push(message) },
+    });
+    expect(failures).toHaveLength(1);
+  });
+  it("admits the exact staging origin and leaves other journeys unchanged", () => {
+    for (const [scope, target] of [
+      ["full-game-start", "https://admin.staging.chasesets.com"],
+      ["one-piece-launch", "https://synthetic.invalid"],
+    ]) {
+      const failures = [];
+      vm.runInNewContext(step.with.script, {
+        process: {
+          env: {
+            EXPECTED_SHA: "a".repeat(40),
+            RUN_SHA: "a".repeat(40),
+            CONFIRMATION: "run catalog staging provider uat",
+            JOURNEY_SCOPE: scope,
+            ADMIN_WEB_URL: target,
+          },
+        },
+        core: { setFailed: (message) => failures.push(message) },
+      });
+      expect(failures).toEqual([]);
+    }
+  });
+  it("refuses redirected effective origins without invoking the guarded action", async () => {
+    const action = vi.fn();
+    expect(() => rehearsal.assertWholeGameOrigin("https://redirect.invalid/access/sign-in")).toThrow(
+      /staging-origin-required/,
+    );
+    expect(action).not.toHaveBeenCalled();
+  });
+});
+
+describe("AC8 bounded complete reads", () => {
+  function settleProbe({ delay = 0, stall = false } = {}) {
+    const file = readFileSync(
+      new URL("../deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", import.meta.url),
+      "utf8",
+    );
+    const source = ts.createSourceFile("journey.ts", file, ts.ScriptTarget.Latest, true);
+    const names = new Set(["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "draftItemsPath"]);
+    const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
+    expect(functions).toHaveLength(4);
+    const declarations = functions.map((node) => node.getText(source)).join("\n");
+    const jobs = [
+      promoteJob(
+        "history",
+        Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+        { promotionApplicationVersion: 1 },
+      ),
+    ];
+    const zeroJob = promoteJob("zero", [], { promotionApplicationVersion: 1 });
+    const reads = [];
+    const publish = vi.fn();
+    let deadline;
+    const read = async (_page, path) =>
+      rehearsal.readBeforeWholeGameDeadline(deadline, async () => {
+        reads.push(path);
+        if (path.includes("bulk-jobs/active")) {
+          if (stall) return new Promise(() => {});
+          return { items: jobs };
+        }
+        if (path.startsWith("/api/catalog/items/")) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          return { catalog_item_id: path.split("/").at(-1), blueprint_id: "blueprint-1", language_code: "en" };
+        }
+        throw new Error(`unexpected fixture read ${path}`);
+      });
+    const context = vm.createContext({
+      ...rehearsal,
+      Date,
+      Set,
+      URLSearchParams,
+      gotoWholeGamePage: async () => {},
+      readWholeGameBatch: async () => ({
+        ...batch("completed", [unit("scope-1", "completed")]),
+        planFingerprint: "sha256:fixture-plan",
+      }),
+      readActivePromoteJobs: async () => [],
+      submitPromoteAllReady: async () => "zero",
+      waitForPromoteJob: async () => zeroJob,
+      readWholeGameJson: read,
+      readReadyCandidateCount: async () => 0,
+      readWholeGameTotal: async () => 0,
+      publishThroughCatalogItems: publish,
+    });
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    return {
+      reads,
+      publish,
+      run: (budget) => {
+        deadline = Date.now() + budget;
+        return context.wholeGameSettle(
+          {},
+          settleInput(),
+          { sha: "a".repeat(40), runId: "123", runAttempt: "1" },
+          { deadlineAt: deadline, pollMs: 1 },
+        );
+      },
+    };
+  }
+  it.each([
+    [100, false, 250, 3],
+    [0, true, 75, 0],
+  ])("actual settle stops slow/stalled reads (%s, %s) within budget", async (delay, stall, budget, itemReads) => {
+    vi.useFakeTimers();
+    try {
+      const probe = settleProbe({ delay, stall });
+      const start = Date.now();
+      const pending = probe.run(budget);
+      await vi.advanceTimersByTimeAsync(budget);
+      const result = await pending;
+      expect(result.state).toBe("running");
+      expect(Date.now() - start).toBe(budget);
+      expect(probe.reads.filter((path) => path.startsWith("/api/catalog/items/"))).toHaveLength(itemReads);
+      expect(probe.publish).not.toHaveBeenCalled();
+      const count = probe.reads.length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(probe.reads).toHaveLength(count);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("actual settle with complete within-budget history reaches settled", async () => {
+    vi.useFakeTimers();
+    try {
+      const probe = settleProbe();
+      const pending = probe.run(1000);
+      await vi.runAllTimersAsync();
+      expect(await pending).toMatchObject({ state: "settled", settle: { promotedOutcomes: 10, draftsRemaining: 0 } });
+      expect(probe.reads.filter((path) => path.startsWith("/api/catalog/items/"))).toHaveLength(10);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("stops slow paginated reads at the deadline, never runs the publication continuation", async () => {
+    vi.useFakeTimers();
+    try {
+      const read = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return { items: [], cursor: "next" };
+      });
+      const publish = vi.fn();
+      const deadline = Date.now() + 150;
+      const pending = readAllCompletedPromoteJobs("scope-1", () =>
+        rehearsal.readBeforeWholeGameDeadline(deadline, read),
+      ).then(publish);
+      const assertion = expect(pending).rejects.toBeInstanceOf(rehearsal.WholeGameDeadlineReached);
+      await vi.advanceTimersByTimeAsync(150);
+      await assertion;
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(publish).not.toHaveBeenCalled();
+      await expect(rehearsal.readBeforeWholeGameDeadline(deadline, read)).rejects.toBeInstanceOf(
+        rehearsal.WholeGameDeadlineReached,
+      );
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("cancels one stalled read at the remaining budget", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal;
+      const pending = rehearsal.readBeforeWholeGameDeadline(Date.now() + 75, (abort) => {
+        signal = abort;
+        return new Promise(() => {});
+      });
+      const assertion = expect(pending).rejects.toBeInstanceOf(rehearsal.WholeGameDeadlineReached);
+      await vi.advanceTimersByTimeAsync(75);
+      await assertion;
+      expect(signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("retains a within-budget complete history", async () => {
+    const job = promoteJob("complete", [applied("candidate-1", "created-item")], { promotionApplicationVersion: 1 });
+    const jobs = await readAllCompletedPromoteJobs("scope-1", () =>
+      rehearsal.readBeforeWholeGameDeadline(Date.now() + 1000, async () => ({ items: [job] })),
+    );
+    expect(promotedCatalogItems(jobs).catalogItemIds).toEqual(["created-item"]);
+  });
 });
 
 function receipt(overrides = {}) {
@@ -219,12 +494,12 @@ describe("AC2 whole-game settle per batch state", () => {
 describe("AC3 idempotent promotion and publication", () => {
   it("adopts a job a killed dispatch left running instead of submitting a second promotion", () => {
     const running = promoteJob("job-killed", [], { status: "running", result: null });
-    expect(planScopePromotion("scope-1", [running], 5)).toEqual({ kind: "adopt-active-job", jobIds: ["job-killed"] });
-    expect(planScopePromotion("scope-1", [{ ...running, kind: "merge-candidate-defer" }], 5)).toEqual({
+    expect(planScopePromotion("scope-1", [running])).toEqual({ kind: "adopt-active-job", jobIds: ["job-killed"] });
+    expect(planScopePromotion("scope-1", [{ ...running, kind: "merge-candidate-defer" }])).toEqual({
       kind: "submit-promote-all-ready",
     });
-    expect(planScopePromotion("scope-1", [{ ...running, scopeRecordId: "scope-2" }], 0)).toEqual({
-      kind: "none-ready",
+    expect(planScopePromotion("scope-1", [{ ...running, scopeRecordId: "scope-2" }])).toEqual({
+      kind: "submit-promote-all-ready",
     });
   });
 
@@ -258,20 +533,22 @@ describe("AC3 idempotent promotion and publication", () => {
     ).rejects.toMatchObject({ code: "job-cursor-repeated" });
   });
 
-  it("collects distinct promoted Catalog Items and counts promoted outcomes it cannot map", () => {
+  it("collects distinct applied Catalog Items without using historical matches", () => {
     expect(
       promotedCatalogItems([
-        promoteJob("job-1", [
-          { status: "promoted", catalogItemId: "item-2" },
-          { status: "promoted", catalogItemId: "item-1" },
-          { status: "skipped-not-eligible", catalogItemId: null },
-        ]),
-        promoteJob("job-2", [
-          { status: "promoted", catalogItemId: "item-1" },
-          { status: "promoted", catalogItemId: null },
-        ]),
+        promoteJob(
+          "job-1",
+          [
+            applied("candidate-2", "item-2"),
+            applied("candidate-1", "item-1"),
+            { status: "skipped-not-eligible", catalogItemId: null },
+          ],
+          { promotionApplicationVersion: 1 },
+        ),
+        promoteJob("job-2", [applied("candidate-1", "item-1")], { promotionApplicationVersion: 1 }),
+        promoteJob("legacy", [{ candidateId: "candidate-3", status: "promoted", catalogItemId: null }]),
       ]),
-    ).toEqual({ catalogItemIds: ["item-1", "item-2"], promotedOutcomes: 4, promotedWithoutCatalogItem: 1 });
+    ).toEqual({ catalogItemIds: ["item-1", "item-2"], promotedOutcomes: 2, promotedWithoutCatalogItem: 1 });
   });
 
   it("plans one draft filter per blueprint x batch provider source x language", () => {

@@ -3,12 +3,54 @@
 // journeys make from what the UI and its admin API reads return, so the
 // decisions stay pure and are pinned by scripts/catalog-whole-game-rehearsal.test.mjs.
 // It must not import Playwright or any bounded-context runtime.
+import type {
+  CatalogMergeCandidateBulkJob,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkUnitResult,
+} from "../../../../bounded-contexts/catalog/features/source-observations/api/source-observation-runtime-contracts";
 
 export const wholeGameJourneyScopes = ["full-game-start", "full-game-settle"] as const;
 export type WholeGameJourneyScope = (typeof wholeGameJourneyScopes)[number];
 
 export const wholeGameReceiptPath = "artifacts/catalog-whole-game-rehearsal/receipt.json";
 export const wholeGameReceiptSchemaVersion = "catalog-whole-game-rehearsal-receipt/v1";
+export const wholeGameStagingOrigin = "https://admin.staging.chasesets.com";
+
+export function assertWholeGameOrigin(url: string): void {
+  const target = new URL(url);
+  if (target.origin !== wholeGameStagingOrigin || target.username || target.password) {
+    throw new WholeGameRehearsalRefusal("staging-origin-required");
+  }
+}
+
+export class WholeGameDeadlineReached extends Error {}
+
+/** Cancellation is part of the read contract, not just a check between pages. */
+export async function readBeforeWholeGameDeadline<T>(
+  deadlineAt: number,
+  read: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) throw new WholeGameDeadlineReached();
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new WholeGameDeadlineReached());
+        }, remaining);
+      }),
+      read(controller.signal).then((result) => {
+        if (Date.now() >= deadlineAt) throw new WholeGameDeadlineReached();
+        return result;
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export class WholeGameRehearsalRefusal extends Error {
   readonly code: string;
@@ -181,35 +223,43 @@ export function planWholeGameSettle(batch: WholeGameBatchView, input: WholeGameS
 }
 
 // AC3 — promotion and publication progress is read back from the server, never remembered.
-export type WholeGamePromoteJob = Readonly<{
-  jobId: string;
-  kind: string;
-  scopeRecordId: string;
-  status: "queued" | "running" | "completed" | "failed";
-  result: Readonly<{
-    promoted: number;
-    outcomes: readonly Readonly<{ status: string; catalogItemId: string | null }>[];
-  }> | null;
-}>;
+export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "kind" | "scopeRecordId" | "status"> &
+  Readonly<{
+    // The landed API serializes an absent stored discriminator as null.
+    promotionApplicationVersion?: CatalogMergeCandidateBulkJob["promotionApplicationVersion"];
+    result:
+      | (Pick<CatalogMergeCandidateBulkJobResult, "promoted"> &
+          Readonly<{
+            failed?: CatalogMergeCandidateBulkJobResult["failed"];
+            outcomes: readonly (Pick<CatalogMergeCandidateBulkUnitResult, "status" | "catalogItemId"> &
+              Partial<
+                Pick<
+                  CatalogMergeCandidateBulkUnitResult,
+                  "candidateId" | "appliedCatalogItemId" | "appliedMode" | "approvalVersion" | "planFingerprint"
+                >
+              >)[];
+          }>)
+      | null;
+  }>;
 
 export type WholeGameJobPage = Readonly<{ items: readonly WholeGamePromoteJob[]; cursor?: string }>;
 
 export type WholeGameScopePromotionStep =
   | Readonly<{ kind: "adopt-active-job"; jobIds: readonly string[] }>
-  | Readonly<{ kind: "submit-promote-all-ready" }>
-  | Readonly<{ kind: "none-ready" }>;
+  | Readonly<{ kind: "submit-promote-all-ready" }>;
 
 /** A killed dispatch leaves its job running server-side; adopting it instead of resubmitting prevents double promotion. */
 export function planScopePromotion(
   scopeRecordId: string,
   activeJobs: readonly WholeGamePromoteJob[],
-  readyCandidates: number,
 ): WholeGameScopePromotionStep {
   const active = activeJobs.filter(
     (job) => job.scopeRecordId === scopeRecordId && job.kind === "merge-candidate-promote",
   );
   if (active.length > 0) return { kind: "adopt-active-job", jobIds: active.map((job) => job.jobId) };
-  return readyCandidates > 0 ? { kind: "submit-promote-all-ready" } : { kind: "none-ready" };
+  // The scope job also catches up approved-but-unapplied candidates, which
+  // the ready projection cannot count. Its zero result proves convergence.
+  return { kind: "submit-promote-all-ready" };
 }
 
 /** Reads every completed promote job for a scope, following `cursor` until it is absent. */
@@ -232,7 +282,7 @@ export async function readAllCompletedPromoteJobs(
     seenCursors.add(result.cursor);
     cursor = result.cursor;
   }
-  throw new WholeGameRehearsalRefusal("job-pages-exhausted");
+  throw new WholeGameDeadlineReached();
 }
 
 export type WholeGamePromotedItems = Readonly<{
@@ -242,18 +292,61 @@ export type WholeGamePromotedItems = Readonly<{
 }>;
 
 export function promotedCatalogItems(jobs: readonly WholeGamePromoteJob[]): WholeGamePromotedItems {
-  const ids = new Set<string>();
-  let promotedOutcomes = 0;
-  let promotedWithoutCatalogItem = 0;
+  const applications = new Map<
+    string,
+    Readonly<{ catalogItemId: string; mode: string; approvalVersion: number; fingerprint: string }>
+  >();
+  const legacyApprovals = new Set<string>();
   for (const job of jobs) {
+    if (
+      job.promotionApplicationVersion !== undefined &&
+      job.promotionApplicationVersion !== null &&
+      job.promotionApplicationVersion !== 1
+    ) {
+      throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
+    }
     for (const outcome of job.result?.outcomes ?? []) {
       if (outcome.status !== "promoted") continue;
-      promotedOutcomes += 1;
-      if (outcome.catalogItemId) ids.add(outcome.catalogItemId);
-      else promotedWithoutCatalogItem += 1;
+      if (typeof outcome.candidateId !== "string" || !outcome.candidateId)
+        throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
+      if (job.promotionApplicationVersion !== 1) {
+        legacyApprovals.add(outcome.candidateId);
+        continue;
+      }
+      if (
+        typeof outcome.appliedCatalogItemId !== "string" ||
+        !outcome.appliedCatalogItemId ||
+        !["create", "refresh", "link-existing"].includes(outcome.appliedMode ?? "") ||
+        !Number.isSafeInteger(outcome.approvalVersion) ||
+        (outcome.approvalVersion ?? 0) <= 0 ||
+        typeof outcome.planFingerprint !== "string" ||
+        !outcome.planFingerprint
+      ) {
+        throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
+      }
+      const identity = {
+        catalogItemId: outcome.appliedCatalogItemId,
+        mode: outcome.appliedMode!,
+        approvalVersion: outcome.approvalVersion!,
+        fingerprint: outcome.planFingerprint,
+      };
+      const previous = applications.get(outcome.candidateId);
+      if (
+        previous &&
+        (previous.catalogItemId !== identity.catalogItemId ||
+          previous.mode !== identity.mode ||
+          previous.approvalVersion !== identity.approvalVersion ||
+          previous.fingerprint !== identity.fingerprint)
+      )
+        throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
+      applications.set(outcome.candidateId, identity);
     }
   }
-  return { catalogItemIds: [...ids].sort(), promotedOutcomes, promotedWithoutCatalogItem };
+  return {
+    catalogItemIds: [...new Set([...applications.values()].map((identity) => identity.catalogItemId))].sort(),
+    promotedOutcomes: applications.size,
+    promotedWithoutCatalogItem: [...legacyApprovals].filter((candidateId) => !applications.has(candidateId)).length,
+  };
 }
 
 export type WholeGamePublishFilter = Readonly<{
