@@ -36,13 +36,7 @@ import {
   type MarketplaceOfferState,
 } from "../domain/domain";
 import { createOfferAcceptedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
-import {
-  assertOfferSubmissionAllowed,
-  DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
-  MarketplaceOfferAbuseControlError,
-  type MarketplaceOfferAbusePolicy,
-  type MarketplaceOfferListingSubmissionGuard,
-} from "../domain/offer-abuse-policy";
+import { assertOfferSubmissionAllowed, MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
 import {
   decideMarketplaceOfferSellerControl,
   evolveMarketplaceOfferSellerControl,
@@ -57,8 +51,6 @@ import {
   getSubmittedOffer,
   getOfferMatch,
   getOfferMatchForListing,
-  getOfferBuyerMute,
-  listOfferBuyerMutes,
   listSubmittedOffers,
   listOfferMatches,
 } from "../read-model/queries";
@@ -168,21 +160,6 @@ export type MarketplaceOfferServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
-  muteBuyerOffers: (
-    params: Readonly<{
-      offerId: OfferId;
-      sellerAccountId: AccountId;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ offerId: OfferId; version: number }>;
-  unmuteBuyerOffers: (
-    params: Readonly<{
-      listingId: string;
-      buyerAccountId: AccountId;
-      sellerAccountId: AccountId;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{ listingId: string; buyerAccountId: AccountId; version: number }>;
   previewOfferAcceptanceTerms: (
     params: Readonly<{
       offerId: OfferId;
@@ -195,7 +172,6 @@ export type MarketplaceOfferServices = Readonly<{
   getPublicOffer: (offerId: string) => ReturnType<typeof getPublicOffer>;
   listOfferMatches: (params: Parameters<typeof listOfferMatches>[1]) => ReturnType<typeof listOfferMatches>;
   getOfferMatch: (offerId: string, sellerAccountId: string) => ReturnType<typeof getOfferMatch>;
-  listOfferBuyerMutes: (sellerAccountId: string) => ReturnType<typeof listOfferBuyerMutes>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -264,19 +240,8 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     return result.rows[0]?.account_id ?? null;
   }
 
-  function offerAbusePolicy(): MarketplaceOfferAbusePolicy {
-    return DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY;
-  }
-
-  async function loadSubmissionGuard(
-    buyerAccountId: AccountId,
-    productId: string,
-    offerPriceAmount: string,
-    offerPriceCurrencyCode: string,
-    policy: MarketplaceOfferAbusePolicy,
-  ) {
-    const now = new Date();
-    const dailyWindowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  async function loadSubmissionGuard(buyerAccountId: AccountId) {
+    const dailyWindowStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const buyerCountResult = await deps.db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM marketplace_offer_pages
@@ -284,82 +249,8 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
          AND created_at >= $2`,
       [buyerAccountId, dailyWindowStart],
     );
-    const listingsResult = await deps.db.query<{
-      listing_id: string;
-      seller_account_id: string;
-      listing_price_amount: string;
-      listing_price_currency_code: string | null;
-      buyer_listing_daily_offer_count: string;
-      muted_at: string | null;
-      lowball_cooldown_until: string | null;
-      last_lowball_declined_amount: string | null;
-    }>(
-      `SELECT
-         listing.listing_id,
-         listing.account_id AS seller_account_id,
-         listing.price_amount::text AS listing_price_amount,
-         listing.price_currency_code AS listing_price_currency_code,
-         (
-           SELECT COUNT(DISTINCT offer_scope.offer_id)::text
-           FROM (
-             SELECT offer.offer_id
-             FROM marketplace_offer_pages AS offer
-             WHERE offer.buyer_account_id = $1
-               AND offer.product_id = $2
-               AND offer.status = 'submitted'
-               AND offer.created_at >= $3
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM marketplace_offer_seller_declines AS decline
-                 WHERE decline.seller_account_id = listing.account_id
-                   AND decline.listing_id = listing.listing_id
-                   AND decline.offer_id = offer.offer_id
-               )
-             UNION
-             SELECT decline.offer_id
-             FROM marketplace_offer_seller_declines AS decline
-             WHERE decline.buyer_account_id = $1
-               AND decline.listing_id = listing.listing_id
-               AND decline.declined_at >= $3
-           ) AS offer_scope
-         ) AS buyer_listing_daily_offer_count,
-         control.muted_at::text,
-         control.lowball_cooldown_until::text,
-         CASE
-           WHEN control.last_lowball_declined_currency_code = $4
-             THEN control.last_lowball_declined_amount::text
-           ELSE NULL
-         END AS last_lowball_declined_amount
-       FROM marketplace_listing_pages AS listing
-       LEFT JOIN marketplace_offer_seller_controls AS control
-         ON control.seller_account_id = listing.account_id
-        AND control.buyer_account_id = $1
-        AND control.listing_id = listing.listing_id
-       WHERE listing.product_id = $2
-         AND listing.status = 'active'
-         AND listing.account_id <> $1
-       ORDER BY listing.price_amount ASC, listing.updated_at DESC, listing.listing_id ASC`,
-      [buyerAccountId, productId, dailyWindowStart, offerPriceCurrencyCode.trim().toUpperCase()],
-    );
-
     assertOfferSubmissionAllowed({
-      policy,
-      now,
       buyerDailySubmissionCount: Number(buyerCountResult.rows[0]?.count ?? 0),
-      offerPriceAmount,
-      offerPriceCurrencyCode,
-      listingGuards: listingsResult.rows.map(
-        (row): MarketplaceOfferListingSubmissionGuard => ({
-          listingId: row.listing_id,
-          sellerAccountId: row.seller_account_id,
-          listingPriceAmount: row.listing_price_amount,
-          listingPriceCurrencyCode: row.listing_price_currency_code,
-          buyerListingDailyOfferCount: Number(row.buyer_listing_daily_offer_count),
-          mutedAt: row.muted_at,
-          lowballCooldownUntil: row.lowball_cooldown_until,
-          lastLowballDeclinedAmount: row.last_lowball_declined_amount,
-        }),
-      ),
     });
   }
 
@@ -531,13 +422,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       if (ownSellerAccountId) {
         throw new Error("Accounts cannot offer on their own listings.");
       }
-      await loadSubmissionGuard(
-        params.buyerAccountId,
-        catalogVersion.productId,
-        params.priceAmount,
-        priceCurrencyCode,
-        offerAbusePolicy(),
-      );
+      await loadSubmissionGuard(params.buyerAccountId);
 
       const offerId = params.offerId ?? (createId("off") as OfferId);
       const result = await commandHandler({
@@ -638,53 +523,11 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           listingPriceAmount: offer.listing_price_amount,
           listingPriceCurrencyCode: offer.listing_price_currency_code,
           declinedAt: new Date().toISOString(),
-          policy: offerAbusePolicy(),
         },
         context,
       });
 
       return { offerId: params.offerId, version: result.version };
-    },
-    muteBuyerOffers: async (params, context) => {
-      const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
-      if (!offer) {
-        throw new Error("Offer not found.");
-      }
-      const result = await sellerControlCommandHandler({
-        streamId: `marketplace.offer-seller-control-${params.sellerAccountId}-${offer.buyer_account_id}-${offer.listing_id}`,
-        command: {
-          type: "MuteBuyerOffers",
-          sellerAccountId: params.sellerAccountId,
-          buyerAccountId: offer.buyer_account_id as AccountId,
-          listingId: offer.listing_id,
-          productId: offer.product_id,
-          offerId: params.offerId,
-          mutedAt: new Date().toISOString(),
-        },
-        context,
-      });
-
-      return { offerId: params.offerId, version: result.version };
-    },
-    unmuteBuyerOffers: async (params, context) => {
-      const mute = await getOfferBuyerMute(deps.db, params);
-      if (!mute) {
-        throw new Error("Muted buyer not found.");
-      }
-      const result = await sellerControlCommandHandler({
-        streamId: `marketplace.offer-seller-control-${params.sellerAccountId}-${params.buyerAccountId}-${params.listingId}`,
-        command: {
-          type: "UnmuteBuyerOffers",
-          sellerAccountId: params.sellerAccountId,
-          buyerAccountId: params.buyerAccountId,
-          listingId: params.listingId,
-          productId: mute.product_id,
-          unmutedAt: new Date().toISOString(),
-        },
-        context,
-      });
-
-      return { listingId: params.listingId, buyerAccountId: params.buyerAccountId, version: result.version };
     },
     previewOfferAcceptanceTerms: async (params) =>
       quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId, params.listingId),
@@ -919,7 +762,6 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     getPublicOffer: (offerId) => getPublicOffer(deps.db, offerId),
     listOfferMatches: (params) => listOfferMatches(deps.db, params),
     getOfferMatch: (offerId, sellerAccountId) => getOfferMatch(deps.db, offerId, sellerAccountId),
-    listOfferBuyerMutes: (sellerAccountId) => listOfferBuyerMutes(deps.db, sellerAccountId),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "marketplace-offer-projection",

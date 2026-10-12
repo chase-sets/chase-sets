@@ -44,6 +44,12 @@ const offer: OfferMatchDetail = {
 afterEach(cleanup);
 
 describe("MarketplaceOfferMatchDetailPage", () => {
+  it("has no Mute action and retains Decline and Add to Sell List", () => {
+    const markup = renderToString(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+    expect(markup).not.toMatch(/Mute buyer|mute-offer-buyer/i);
+    expect(markup).toContain("decline-offer");
+    expect(markup).toContain('value="add-selected-offer"');
+  });
   it.each(["unavailable", "held", "refresh_required"] as const)(
     "renders safe %s terms without private DOM or hydration data",
     (managed_status) => {

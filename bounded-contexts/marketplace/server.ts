@@ -22,7 +22,6 @@ export type {
   MarketplaceListingEvidenceCoverage,
   ReportReviewRequest,
   OfferMatchListItem,
-  OfferBuyerMute,
   PublicOfferDetail,
 } from "./support/request-support/api-client";
 export {
