@@ -382,7 +382,7 @@ The **Manual Sync Panel** is the authorized Channel Connection surface for compo
 A **Channel Inbound Clamp** is the Marketplace-owned, revision-fenced pause of every active account Listing represented by a genuine Channel Sync Run while Channel Inbound Coverage is dark.
 ## Channel Drift
 
-**Channel Drift** is a divergence between a Channel Listing Link's expected material state and complete channel-reported state.
+**Channel Drift** is a divergence between a Channel Listing Link's expected material state and qualified channel-reported state. Inline comparison uses complete channel-state authority. Claimed Live comparison uses present-row source authority: a current, uniquely identified USD row from one bound snapshot, fully read within local bounds, with authoritative applied membership. Provider census remains unverified; local row counts, quantity sums and all-applied presence never establish it. An absent applied claimed row is `source-unavailable`, even at expected zero, not structural or inferred zero. Present unlinked rows retain structural attention. Revisionless rows never authorize automatic repair. Exact accepted observed/full-expected pairs can remain in-sync, but clean still requires the full expected set applied, present and in-sync, current capture, independently complete sales authority and no unresolved findings.
 
 ## Channel Drift Decision
 
