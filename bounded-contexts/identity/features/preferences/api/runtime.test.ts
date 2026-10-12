@@ -45,6 +45,30 @@ const context = {
 };
 
 describe("user preferences runtime", () => {
+  it("preference-write-closed-request-contract canonical supplied-field fingerprint", async () => {
+    const eventStore = createInMemoryEventStore().eventStore;
+    const runtime = createUserPreferencesRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createEmptyPreferencesDb(),
+    });
+    const input = {
+      userId: "usr_preferences" as UserId,
+      key: "canonical",
+      changes: { timeZone: " UTC ", locale: " en-us ", colorMode: "dark" },
+      context,
+    };
+    const first = await runtime.writeUserPreferences(input);
+    const replay = await runtime.writeUserPreferences({
+      ...input,
+      changes: { colorMode: "dark", locale: "en-US", timeZone: "UTC" },
+    });
+    expect(first.receipt.changes).toEqual({ colorMode: "dark", locale: "en-US", timeZone: "UTC" });
+    expect(first.receipt.requestFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(replay.receipt).toEqual(first.receipt);
+    expect(replay.replayed).toBe(true);
+    expect(await eventStore.readAll()).toHaveLength(2);
+  });
   it("preference-write-user-isolation", async () => {
     const eventStore = createInMemoryEventStore().eventStore;
     const runtime = createUserPreferencesRuntime({

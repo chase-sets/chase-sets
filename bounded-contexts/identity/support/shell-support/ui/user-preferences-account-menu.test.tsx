@@ -50,6 +50,29 @@ const success = () => Response.json({ preferences: preferences() });
 const phase = (value: string) => waitFor(() => expect(screen.getByTestId("phase").textContent).toBe(value));
 
 describe("User Preference Write Attempt recovery", () => {
+  it("preference-write-user-generation-day-after late confirmation and unmount are inert", async () => {
+    const confirmation = deferred<Response>();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({}, { status: 503 }))
+      .mockReturnValueOnce(confirmation.promise);
+    const client = createIdentityApiClient({ baseUrl: "https://identity.test/api/identity", fetch });
+    const view = render(<Shell client={client} />);
+    await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
+    await phase("confirming");
+    view.rerender(<Shell client={client} userId="usr_B" />);
+    await phase("editing");
+    await act(async () => {
+      confirmation.resolve(Response.json(preferences()));
+    });
+    expect(screen.getByTestId("mode").textContent).toBe("system");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("heading", { name: "Preferences saved" })).toBeNull();
+    view.unmount();
+    render(<Shell client={client} userId="usr_B" />);
+    await phase("editing");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it.each([
     [400, null, "failed-safe"],
     [401, null, "reauthentication-required"],
