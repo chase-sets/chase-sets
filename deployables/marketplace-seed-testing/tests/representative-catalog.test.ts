@@ -635,7 +635,7 @@ function useRepresentativeCatalogRuntime() {
         mountRole: "source-only",
         module: identityModule,
         pool: activePools.identity,
-        ports: undefined,
+        ports: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
       },
       {
         contextName: "inventory",

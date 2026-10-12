@@ -129,7 +129,13 @@ describeDb("auth seed reconciliation", () => {
 
   function mountedRuntime() {
     return createMountedContextTestRuntime([
-      { contextName: "identity", mountRole: "source-only", module: identityModule, pool: pools.identity, ports: {} },
+      {
+        contextName: "identity",
+        mountRole: "source-only",
+        module: identityModule,
+        pool: pools.identity,
+        ports: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+      },
       { contextName: "auth", module: authModule, pool, ports: {} },
     ]);
   }
@@ -311,11 +317,16 @@ describeDb("auth seed reconciliation", () => {
       enabledDataProfiles: ["scenario-seed", "representative-commerce-state", "admin-qa-actor-fixtures"],
       environmentName: null,
     });
-    await bootstrapPlatformAdminIdentity(identityModule.createServices(pools.identity, {}), {
-      email: "synthetic-platform-admin@chasesets.test",
-      displayName: "Synthetic Platform Admin",
-      accountName: "Synthetic Platform",
-    });
+    await bootstrapPlatformAdminIdentity(
+      identityModule.createServices(pools.identity, {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+      }),
+      {
+        email: "synthetic-platform-admin@chasesets.test",
+        displayName: "Synthetic Platform Admin",
+        accountName: "Synthetic Platform",
+      },
+    );
     await fullBootstrap();
     const fresh = await grantState();
     expect(fresh.total).toBeGreaterThan(0);
