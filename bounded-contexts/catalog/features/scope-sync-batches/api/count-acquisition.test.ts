@@ -58,6 +58,49 @@ describe("AC4/AC6 retained count evidence", () => {
       false,
     );
   });
+  it.each([-60_000, 60_000])("debit history uses the store clock despite database skew of %s ms", async (skew) => {
+    const now = evidence.observedAt;
+    const snapshot = { remainingCredits: 1, totalCredits: 1, observedAt: now, attemptState: "checked" };
+    const value = {
+      quoteId: crypto.randomUUID(),
+      membershipFingerprint: "synthetic",
+      selection: {},
+      authority: { fingerprint: countFingerprint(snapshot), headroom: 1, allowed: true },
+      targets: [{ scopeRecordId: "synthetic", query, source: null, blocked: false }],
+      plannedCredits: 1,
+      cap: 1,
+      expiresAt: evidence.expiresAt,
+      state: "quoted" as const,
+    };
+    const quote = { ...value, fingerprint: countFingerprint(value) };
+    let debit: { event_id: string; recorded_at: string } | null = null;
+    const queryDb = vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes("INSERT INTO catalog_scope_sync_count_history")) {
+        debit = {
+          event_id: String(values[0]),
+          recorded_at: sql.includes("payload, recorded_at")
+            ? String(values[9])
+            : new Date(Date.parse(now) + skew).toISOString(),
+        };
+        return { rows: [] };
+      }
+      if (sql.includes("SELECT d.event_id,d.quote_id"))
+        return { rows: debit ? [{ ...debit, quote_id: quote.quoteId, count_kind: "cards", result: null }] : [] };
+      if (sql.includes("event_kind='quoted'")) return { rows: [{ payload: { quote, owner: "synthetic" } }] };
+      if (sql.includes("event_kind='approved'")) return { rows: [{ event_id: "synthetic-approval" }] };
+      if (sql.includes("event_kind='usage'")) return { rows: [{ payload: snapshot }] };
+      if (sql.includes("AS reserved")) return { rows: [{ debits: "0", reserved: "0" }] };
+      if (sql.includes("AS aggregate")) return { rows: [{ aggregate: "0", per_set: "0", per_kind: "0" }] };
+      return { rows: [] };
+    });
+    const pool = {
+      query: queryDb,
+      connect: async () => ({ query: queryDb, release: () => undefined }),
+    } as unknown as PgTransactionalPool;
+    const store = createCountStore(pool, "synthetic", () => now);
+    const debitId = await store.claim(pool, quote, quote.targets[0]!, "synthetic", quote.authority);
+    expect(await store.history()).toMatchObject([{ debitId, debitedAt: now, outcome: "uncertain" }]);
+  });
   it("retained quotes preserve successful reuse from another quote without inventing debits", async () => {
     const value = {
       quoteId: crypto.randomUUID(),

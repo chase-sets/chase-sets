@@ -171,10 +171,6 @@ export function createScopeSyncCountRuntime(deps: {
     reserveBatch: (input: Parameters<ReturnType<typeof createScopeSyncBatchStore>["create"]>[0]) =>
       withPgTransaction(deps.pool, async (tx) => {
         await lockCountHeadroom(tx, deps.store.slot);
-        const authority = await deps.store.authority(tx);
-        const requested = input.preview.budget.creditedProviderRequestLimits.scrydex ?? 0;
-        if (input.preview.providerUnitTotals.scrydex && (!authority.allowed || requested > authority.headroom!))
-          throw new CountAcquisitionRefused();
         for (const plan of input.plans)
           for (const unit of plan.participationPreview.units.filter(
             (unit) => unit.selected && unit.providerKey === "scrydex" && unit.unitKey.includes(":single-card:"),

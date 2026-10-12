@@ -19,6 +19,8 @@ import {
   type ScrydexCountQuery,
 } from "../domain/count-acquisition";
 
+// Scrydex account usage may lag live spend by 20-30 minutes per provider policy.
+const SCRYDEX_USAGE_LAG_MS = 30 * 60 * 1000;
 const usageSchema = z
   .object({
     remainingCredits: z.number().int().min(0).max(2147483647).nullable(),
@@ -50,8 +52,8 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
   ) {
     const id = randomUUID();
     await target.query(
-      `INSERT INTO catalog_scope_sync_count_history (event_id, account_slot, event_kind, quote_id, query_key, debit_id, scope_record_id, count_kind, payload)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)`,
+      `INSERT INTO catalog_scope_sync_count_history (event_id, account_slot, event_kind, quote_id, query_key, debit_id, scope_record_id, count_kind, payload, recorded_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::timestamptz)`,
       [
         id,
         slot,
@@ -62,6 +64,7 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         extra.scopeRecordId ?? null,
         extra.kind ?? null,
         JSON.stringify(payload),
+        now(),
       ],
     );
     return id;
@@ -99,16 +102,21 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
       [slot],
     );
     const usage = usageSchema.safeParse(rows.rows[0]?.payload);
+    const snapshot = usage.success ? usage.data : null;
+    const unreflectedSince = snapshot?.observedAt
+      ? new Date(Date.parse(snapshot.observedAt) - SCRYDEX_USAGE_LAG_MS).toISOString()
+      : null;
     const totals = await target.query<{ debits: string; reserved: string }>(
       `SELECT
-      (SELECT count(*) FROM catalog_scope_sync_count_history WHERE account_slot=$1 AND event_kind='debit')::text AS debits,
+      (SELECT count(*) FROM catalog_scope_sync_count_history WHERE account_slot=$1 AND event_kind='debit'
+        AND recorded_at > $2::timestamptz)::text AS debits,
       COALESCE((SELECT sum(GREATEST(0,(budget->'creditedProviderRequestLimits'->>'scrydex')::bigint))
-        FROM catalog_scope_sync_batches),0)::text AS reserved`,
-      [slot],
+        FROM catalog_scope_sync_batches WHERE status IN ('queued','running')
+        OR updated_at > $2::timestamptz),0)::text AS reserved`,
+      [slot, unreflectedSince],
     );
     const debits = Number(totals.rows[0]?.debits),
       reserved = Number(totals.rows[0]?.reserved);
-    const snapshot = usage.success ? usage.data : null;
     const fresh =
       snapshot?.observedAt &&
       countTimeIsCurrent(
