@@ -80,6 +80,33 @@ describeDb("reported content removal SQL", () => {
       )
     ).rows;
 
+  it("operator removal alone sets manual visibility and preserves newer update time and provenance", async () => {
+    await pools["platform-operations"].query(
+      `UPDATE platform_operations_reported_content_queue_pages
+       SET updated_at = $1
+       WHERE target_type = 'listing' AND target_id = 'lst_1'`,
+      ["2026-07-07T00:05:00.000Z"],
+    );
+    const before = await snapshot();
+    expect(before[0]).toMatchObject({
+      status: "needs-review",
+      updated_at: new Date("2026-07-07T00:05:00.000Z"),
+      last_action: null,
+      last_action_at: null,
+      last_action_note: null,
+      last_action_by_user_id: null,
+      auto_unlisted_at: new Date("2026-07-07T00:00:00.000Z"),
+      auto_unlist_report_id: "rpt_previous",
+      auto_unlist_threshold: 3,
+    });
+
+    await buildMarketplaceReportedContentProjectionHandlers(pools["platform-operations"])[
+      "marketplace.listing.operator-unlisted"
+    ]!(event("marketplace.listing.operator-unlisted", { listingEnforcement }));
+
+    expect(await snapshot()).toEqual([{ ...before[0], status: "manually-unlisted" }, before[1], before[2]]);
+  });
+
   it.each(["audit-first", "removal-first"])(
     "operator removal matches automatic visibility: %s real SQL",
     async (order) => {

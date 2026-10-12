@@ -168,6 +168,48 @@ describe("reported content projection", () => {
     }
   });
 
+  it("operator removal alone sets manual visibility and preserves newer update time and provenance", async () => {
+    const db = createDb();
+    const handlers = await seed(db);
+    db.rows.set("listing:lst_1", {
+      ...db.rows.get("listing:lst_1"),
+      updated_at: "2026-07-07T00:05:00.000Z",
+      auto_unlisted_at: "2026-07-07T00:00:00.000Z",
+      auto_unlist_report_id: "rpt_previous",
+      auto_unlist_threshold: 3,
+    });
+    db.rows.set("review:lst_1", {
+      ...db.rows.get("listing:lst_2"),
+      target_type: "review",
+      target_id: "lst_1",
+      target_owner_account_id: "acc_review",
+    });
+    const before = [...db.rows.values()];
+    expect(before[0]).toMatchObject({
+      status: "needs-review",
+      last_action: null,
+      last_action_at: null,
+      last_action_note: null,
+      last_action_by_user_id: null,
+    });
+
+    await handlers["marketplace.listing.operator-unlisted"]!(
+      event(
+        "marketplace.listing.operator-unlisted",
+        {
+          listingEnforcement: {
+            ...enforcement,
+            source: "operator-unlist",
+            sourceActionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          },
+        },
+        "marketplace.listing-lst_1",
+      ),
+    );
+
+    expect([...db.rows.values()]).toEqual([{ ...before[0], status: "manually-unlisted" }, before[1], before[2]]);
+  });
+
   it.each(["audit-first", "removal-first"])("operator removal matches automatic visibility: %s", async (order) => {
     const db = createDb();
     const handlers = await seed(db);
