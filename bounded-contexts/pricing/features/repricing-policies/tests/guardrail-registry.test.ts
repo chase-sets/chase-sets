@@ -64,6 +64,17 @@ describe("guardrail registry", () => {
     marketEvidenceFloor.apply(input);
     expect(input).toEqual(before);
   });
+  it("releases to Second Ask when the canonical ask filter would remove every competing ask", () => {
+    expect(
+      marketEvidenceFloor.apply(
+        context({
+          targetCents: 300n,
+          hardAskOutlierPriceRatio: 2,
+          otherSellerHardAsks: [ask(400n), ask(450n)],
+        }),
+      ),
+    ).toEqual({ outcome: "clamp", amountCents: 450n });
+  });
   it.each([
     [ask(750n)],
     [ask(750n), ask(850n, { currencyCode: "CAD" })],
