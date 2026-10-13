@@ -47,6 +47,7 @@ describe("UCP OAuth routes", () => {
         ...actor,
         agentGrant: {
           grantId: "lpa_sibling",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["account:manage"] as const,
           rolePermissions: actor.permissions,
         },
@@ -262,6 +263,7 @@ describe("UCP OAuth routes", () => {
       const token = await fixture.start();
       const grant = {
         grantId: "synthetic-grant",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["catalog:read"] as const,
         rolePermissions: actor.permissions,
       };

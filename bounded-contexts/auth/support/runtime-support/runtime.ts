@@ -17,6 +17,7 @@ const UCP_ACCESS_TOKEN_PREFIX = "ucp_at_";
 
 export type AuthLinkedPlatformAuthorization = Readonly<{
   authorization_id: string;
+  platform_profile_url: string;
   user_id: string;
   account_id: string;
   scopes: readonly string[];
@@ -150,6 +151,7 @@ async function resolveLinkedPlatformActor(
     permissions: resolveUcpScopedPermissions(scopes, rolePermissions),
     agentGrant: {
       grantId: linked.authorization_id,
+      platformProfileUrl: linked.platform_profile_url,
       scopes,
       rolePermissions,
     },

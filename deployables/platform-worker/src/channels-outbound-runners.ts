@@ -33,6 +33,12 @@ export function createChannelsOutboundRunners(
         (scheduled) => ({ kind: "scheduled" as const, scheduled }),
         (error: unknown) => ({ kind: "failed" as const, error }),
       );
+      const liveExports = await candidate.outboundSync
+        .scheduleDueLiveExports({ registry: channelProviderRegistry })
+        .then(
+          (scheduled) => ({ kind: "scheduled" as const, scheduled }),
+          (error: unknown) => ({ kind: "failed" as const, error }),
+        );
       const processed = await candidate.outboundSync.processNextInlineOperation({
         registry: channelProviderRegistry,
         claimOwnerId: `${input.workerId}:${lane.laneName}`,
@@ -40,7 +46,11 @@ export function createChannelsOutboundRunners(
       // A scheduler failure never stalls this pass's listing work, then fails the pass so the worker's
       // existing failure observer, runner status and backoff report it.
       if (scheduling.kind === "failed") throw scheduling.error;
-      return { processed: recovered + scheduling.scheduled + processed, lastGlobalPosition: "0" as never };
+      if (liveExports.kind === "failed") throw liveExports.error;
+      return {
+        processed: recovered + scheduling.scheduled + liveExports.scheduled + processed,
+        lastGlobalPosition: "0" as never,
+      };
     },
   });
 }
