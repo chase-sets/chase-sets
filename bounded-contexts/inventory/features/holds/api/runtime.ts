@@ -15,6 +15,8 @@ import type {
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError, type InventoryHoldId } from "../../../support/runtime-support/common";
 import { loadAuthoritativeInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { foldInventoryStockHold } from "../../../support/runtime-support/stock-history";
 import {
   decideInventoryItem,
   evolveInventoryItem,
@@ -196,6 +198,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     const itemAggregate = await itemRepository.load(`inventory.item-${params.itemId}`);
     const stock = await loadAuthoritativeInventoryStockSnapshot({
       db: deps.db,
+      eventStore: deps.eventStore,
       itemRepository,
       itemId: params.itemId,
       accountId: params.accountId,
@@ -353,6 +356,14 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       if (!hasSystemHoldReleaseAuthority(context) && hold.purpose !== "manual") {
         throw new InventoryDomainError("Only manual inventory holds can be released by sellers.");
       }
+      const streamId = `inventory.hold-${params.holdId}`;
+      foldInventoryStockHold({
+        events: await readCompleteStream(deps.eventStore, { streamId }),
+        streamId,
+        accountId: params.accountId,
+        itemId: hold.item_id,
+        tenantId: context.tenantId,
+      });
 
       const result = await commandHandler({
         streamId: `inventory.hold-${params.holdId}`,

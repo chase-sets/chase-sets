@@ -4,6 +4,7 @@ import {
   inventoryHoldSchemaMigrations,
   inventoryHoldSchemaSql,
   inventoryHoldSourceIndexSchemaMigrations,
+  inventoryHoldStockHistorySchemaMigrations,
 } from "../../features/holds/read-model/schema";
 import { inventoryHoldCollisionSchemaSql } from "../../features/hold-collisions/read-model/schema";
 import {
@@ -41,6 +42,7 @@ export const inventorySchemaMigrations = [
   ...inventoryItemSchemaMigrations,
   ...inventoryHoldSchemaMigrations,
   ...inventoryHoldSourceIndexSchemaMigrations,
+  ...inventoryHoldStockHistorySchemaMigrations,
   ...inventoryCatalogItemSchemaMigrations,
   ...inventoryImportBatchSchemaMigrations,
   ...inventoryChannelStockAllocationSchemaMigrations,

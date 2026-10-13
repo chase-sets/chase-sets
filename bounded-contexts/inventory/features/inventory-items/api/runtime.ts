@@ -334,6 +334,7 @@ export function createInventoryItemRuntime(
         } else {
           const stock = await loadInventoryStockSnapshot({
             db: deps.db,
+            eventStore: deps.eventStore,
             itemRepository: repository,
             itemId: params.itemId,
             accountId: params.accountId as AccountId,
@@ -597,6 +598,7 @@ async function appendAuthoritativeNegativeAdjustment(
     const aggregate = await input.repository.load(`inventory.item-${input.params.itemId}`);
     const stock = await loadAuthoritativeInventoryStockSnapshot({
       db: input.deps.db,
+      eventStore: input.deps.eventStore,
       itemRepository: input.repository,
       itemId: input.params.itemId,
       accountId: input.params.accountId as AccountId,
