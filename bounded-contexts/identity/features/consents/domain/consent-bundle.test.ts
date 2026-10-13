@@ -14,6 +14,7 @@ import {
 } from "../../../tests/consent-activation-authority-fixtures";
 import {
   CONSENT_BUNDLE_KEYS,
+  assertResolvedMemberProvenance,
   consentBundleDeclarationFor,
   consentBundleDeclarations,
   deriveActivatedConsentMemberOutcome,
@@ -22,6 +23,7 @@ import {
   resolveConsentBundle,
   resolveConsentBundleAgainstCorpus,
   resolveConsentPolicyMember,
+  resolveConsentPolicyMemberWithProvenanceAgainstPublication,
   type ConsentActivationAuthorityReader,
   type ConsentBundleKey,
   type ConsentPolicyPublicationCorpus,
@@ -60,6 +62,63 @@ function activatable(policyKey: IdentityConsentPolicyKey, version: `v${number}`)
 function activeVersionKeyFor(policyKey: IdentityConsentPolicyKey): string {
   return identityConsentActiveVersionPolicies[policyKey].policyKey;
 }
+
+describe("resolved member provenance", () => {
+  it("narrows only an issued member for the exact expected policy and freezes its complete binding", async () => {
+    const authority = recordingAuthorityReader({
+      [activeVersionKeyFor("terms-of-service")]: () => activeSnapshot(activeVersionKeyFor("terms-of-service"), "v4"),
+    });
+    const member: unknown = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      authority,
+      "terms-of-service",
+      activatable("terms-of-service", "v4"),
+    );
+    assertResolvedMemberProvenance(member, "terms-of-service");
+    expect(member.outcome.requirement.version).toBe("v4");
+    expect(member.guard.guard.expectedVersion).toBe(2);
+    for (const value of [member, member.outcome, member.outcome.requirement, member.guard, member.guard.guard])
+      expect(Object.isFrozen(value)).toBe(true);
+    expect(() => Object.assign(member.outcome.requirement, { version: "v999" })).toThrow(TypeError);
+    expect(() => Object.assign(member.guard, { guard: { expectedVersion: 999 } })).toThrow(TypeError);
+    expect(() => assertResolvedMemberProvenance({ ...member }, "terms-of-service")).toThrow();
+    expect(authority.reads).toEqual([activeVersionKeyFor("terms-of-service")]);
+  });
+
+  it("rejects a genuinely issued unrelated member, not only a forged lookalike", async () => {
+    const key = activeVersionKeyFor("privacy-policy");
+    const member = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v4") }),
+      "privacy-policy",
+      activatable("privacy-policy", "v4"),
+    );
+    expect(() => assertResolvedMemberProvenance(member, "privacy-policy")).not.toThrow();
+    expect(() => assertResolvedMemberProvenance(member, "terms-of-service")).toThrow();
+  });
+
+  it("publication-ineligible member never reads authority and cannot narrow", async () => {
+    const key = activeVersionKeyFor("terms-of-service");
+    const authority = recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v4") });
+    const member = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      authority,
+      "terms-of-service",
+      publication("terms-of-service", { consentActivatable: false, version: "v4" }),
+    );
+    expect(() => assertResolvedMemberProvenance(member, "terms-of-service")).toThrow();
+    expect(authority.reads).toEqual([]);
+  });
+
+  it("publication version mismatch cannot narrow an issued member", async () => {
+    const key = activeVersionKeyFor("terms-of-service");
+    const authority = recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v5") });
+    const member = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      authority,
+      "terms-of-service",
+      activatable("terms-of-service", "v4"),
+    );
+    expect(() => assertResolvedMemberProvenance(member, "terms-of-service")).toThrow();
+    expect(authority.reads).toEqual([key]);
+  });
+});
 
 describe("consent bundle declarations", () => {
   it("declares exactly the two bundles, closed", () => {

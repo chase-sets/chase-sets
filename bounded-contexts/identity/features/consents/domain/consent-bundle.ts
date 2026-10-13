@@ -47,9 +47,8 @@ import { IdentityDomainError } from "../../../support/runtime-support/common";
  * declared member list or a derived requirement list to decide whether
  * resolution runs, whether a guard is retained, or whether a bundle applies.
  *
- * This slice delivers the domain and read side only. No write or admission path
- * consumes a resolved bundle yet; binding Consent recording and registration to
- * a resolved bundle is owned by the terminal replacement slice.
+ * Terms recording consumes an issued member through the provenance gate below;
+ * read-side callers retain the outcome-only API.
  */
 
 export type ConsentSubjectScope = "user" | "account";
@@ -257,6 +256,45 @@ type ResolvedMember = Readonly<{
   guard: ConsentActivationGuardBinding | null;
 }>;
 
+declare const resolvedMemberBrand: unique symbol;
+export type ResolvedMemberProvenance = Readonly<{
+  outcome: Extract<ConsentBundleMemberOutcome, { kind: "required" }>;
+  guard: ConsentActivationGuardBinding;
+  [resolvedMemberBrand]: true;
+}>;
+
+const issuedMembers = new WeakMap<object, ResolvedMember>();
+
+export function assertResolvedMemberProvenance(
+  value: unknown,
+  expectedPolicyKey: IdentityConsentPolicyKey,
+): asserts value is ResolvedMemberProvenance {
+  const member = typeof value === "object" && value !== null ? issuedMembers.get(value) : undefined;
+  if (
+    !member ||
+    member.outcome.policyKey !== expectedPolicyKey ||
+    member.outcome.kind !== "required" ||
+    !member.guard
+  ) {
+    throw new IdentityDomainError(
+      `Consent policy '${expectedPolicyKey}' requires an issued, active member at its published version.`,
+    );
+  }
+}
+
+function issueResolvedMember(
+  outcome: ConsentBundleMemberOutcome,
+  guard: ConsentActivationGuardBinding | null,
+): ResolvedMember {
+  if (outcome.kind === "required") Object.freeze(outcome.requirement);
+  const member = Object.freeze({
+    outcome: Object.freeze(outcome),
+    guard: guard === null ? null : Object.freeze(guard),
+  });
+  issuedMembers.set(member, member);
+  return member;
+}
+
 async function resolveMember(
   authority: ConsentActivationAuthorityReader,
   policyKey: IdentityConsentPolicyKey,
@@ -273,7 +311,7 @@ async function resolveMember(
   // would make an inert member indistinguishable from a live one in the read
   // trace an operator inspects.
   if (!isConsentActivatablePublication(publication)) {
-    return { outcome: { kind: "publication-ineligible", policyKey }, guard: null };
+    return issueResolvedMember({ kind: "publication-ineligible", policyKey }, null);
   }
 
   const activeVersionPolicyKey = identityConsentActiveVersionPolicyFor(policyKey).policyKey;
@@ -286,15 +324,17 @@ async function resolveMember(
     // activation fact. Anything else is a defect in this process and must not
     // be laundered into a policy answer.
     if (error instanceof ConsentActivationAuthorityError) {
-      return { outcome: { kind: "unresolved", policyKey, reason: "authority-unreadable" }, guard: null };
+      return issueResolvedMember({ kind: "unresolved", policyKey, reason: "authority-unreadable" }, null);
     }
     throw error;
   }
 
-  return {
-    outcome: deriveActivatedConsentMemberOutcome(policyKey, publication, snapshot),
-    guard: { policyKey, activeVersionPolicyKey, guard: snapshot.guard },
-  };
+  Object.freeze(snapshot.guard);
+  return issueResolvedMember(deriveActivatedConsentMemberOutcome(policyKey, publication, snapshot), {
+    policyKey,
+    activeVersionPolicyKey,
+    guard: snapshot.guard,
+  });
 }
 
 /**
@@ -371,6 +411,24 @@ export async function resolveConsentPolicyMemberAgainstPublication(
   return (await resolveMember(authority, policyKey, publication)).outcome;
 }
 
+export async function resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+  authority: ConsentActivationAuthorityReader,
+  policyKey: IdentityConsentPolicyKey,
+  publication: PublicPolicyPublicationRecord,
+): Promise<ResolvedMember> {
+  return resolveMember(authority, policyKey, publication);
+}
+
+export async function resolveConsentPolicyMemberWithProvenance(
+  authority: ConsentActivationAuthorityReader,
+  policyKey: IdentityConsentPolicyKey,
+): Promise<ResolvedMember> {
+  if (!isIdentityConsentPolicyKey(policyKey)) {
+    throw new IdentityDomainError(`Consent policy key '${policyKey}' is not a recognized Identity consent policy.`);
+  }
+  return resolveMember(authority, policyKey, identityConsentPolicyPublications[policyKey]);
+}
+
 /**
  * The production per-policy entry point, for surfaces that gate on one policy
  * rather than a whole bundle. Same derivation, same authority read, no corpus
@@ -380,12 +438,5 @@ export async function resolveConsentPolicyMember(
   authority: ConsentActivationAuthorityReader,
   policyKey: IdentityConsentPolicyKey,
 ): Promise<ConsentBundleMemberOutcome> {
-  if (!isIdentityConsentPolicyKey(policyKey)) {
-    throw new IdentityDomainError(`Consent policy key '${policyKey}' is not a recognized Identity consent policy.`);
-  }
-  return resolveConsentPolicyMemberAgainstPublication(
-    authority,
-    policyKey,
-    identityConsentPolicyPublications[policyKey],
-  );
+  return (await resolveConsentPolicyMemberWithProvenance(authority, policyKey)).outcome;
 }
