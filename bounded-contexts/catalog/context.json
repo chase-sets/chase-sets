@@ -849,6 +849,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /preview",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/pre-confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /resolve-held-sets",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /counts/quote",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /counts/acquire",
@@ -864,12 +865,14 @@
         "description": "Held-set resolution returns a read-only resolution snapshot, preview returns the server-resolved plan snapshot, and confirm and recovery commands return the directly persisted Scope Sync Batch snapshot before the route redirects to the same batch page, whose loader reads those same Catalog-owned batch tables. Count quote/acquire return their authoritative quote/outcome directly to the page; retained quote reload reads the same append-only count history."
       },
       "proof": {
-        "authoritativeResponse": "The held-set route performs no write and returns the complete batched observation/mapping resolution directly. Other API paths respond from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses those responses directly and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved. Count quote responds after persistence; acquire commits its debit before send and returns complete only after result persistence, or a failed/uncertain outcome. The count action renders that response directly; reload derives outcomes and cross-quote reuse from the same authoritative history.",
+        "authoritativeResponse": "The held-set route performs no write and returns the complete batched observation/mapping resolution directly. Other API paths respond from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses those responses directly and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved. Count quote responds after persistence; acquire commits its debit before send and returns complete only after result persistence, or a failed/uncertain outcome. The count action renders that response directly; reload derives outcomes and cross-quote reuse from the same authoritative history. Session-bound capture preview and pre-confirm return only after the actual planner observation and phase completion are durably retained; retention uncertainty refuses instead of returning an unretained result. Pre-confirm has no batch-effect capability.",
         "tests": [
           "bounded-contexts/catalog/features/scope-sync-batches/api/route.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/runtime.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/count-acquisition.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/count-acquisition.db.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-runtime.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/read-model/count-capture-store.db.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/worker.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.db.test.ts",
           "bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.test.ts",
