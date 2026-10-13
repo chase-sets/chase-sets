@@ -571,6 +571,7 @@ const nativeRemovalStages = [
   "ROLE",
   "NAME",
   "DIALOG",
+  "WINDOW",
   "BUTTON",
   "IDENTITY",
   "ACTIONS",
@@ -620,7 +621,7 @@ if not connection: raise RuntimeError()
 invoke = api(gio, 'g_dbus_connection_call_sync', ptr, [ptr, c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p, ptr, ptr, c.c_int, c.c_int, ptr, c.POINTER(ptr)])
 def call(bus, path, interface, method, arguments=None):
     global stage
-    stage = {b'ListNames':'LIST', b'GetConnectionUnixProcessID':'OWNER', b'GetChildren':'CHILDREN', b'GetRoleName':'ROLE', b'Get':'NAME', b'GetName':'ACTIONS', b'DoAction':'ACTION'}[method]
+    stage = {b'ListNames':'LIST', b'GetConnectionUnixProcessID':'OWNER', b'GetChildren':'CHILDREN', b'GetRoleName':'ROLE', b'GetState':'WINDOW', b'Get':'NAME', b'GetName':'ACTIONS', b'DoAction':'ACTION'}[method]
     error = ptr()
     remaining = int((until - time.time()) * 1000)
     if remaining <= 0: raise RuntimeError()
@@ -656,6 +657,17 @@ def children(bus, path):
         return result
     finally: unref(array); unref(reply)
 def role(bus, path): return scalar(call(bus, path, accessible, b'GetRoleName'), lambda value: string(value, None))
+def states(bus, path, *required):
+    reply = call(bus, path, accessible, b'GetState'); array = child(reply, 0)
+    try:
+        if length(array) != 2: raise RuntimeError()
+        words = []
+        for i in range(2):
+            word = child(array, i)
+            try: words.append(uint(word))
+            finally: unref(word)
+        return all(words[value // 32] & (1 << (value % 32)) for value in required)
+    finally: unref(array); unref(reply)
 def property_value(bus, path, interface, key, reader):
     reply = call(bus, path, b'org.freedesktop.DBus.Properties', b'Get', params(interface, key))
     wrapped = child(reply, 0); value = variant(wrapped)
@@ -671,15 +683,23 @@ while time.time() < until:
     for bus in names:
         if not bus.startswith(b':'): continue
         if scalar(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'GetConnectionUnixProcessID', params(bus)), uint) != pid: continue
-        try: pending = children(bus, root)
+        try: windows = children(bus, root)
         except RuntimeError: continue
+        if len(windows) > 64: raise RuntimeError()
+        # Chromium exposes top-level RootViews through the application and
+        # child-widget RootViews directly below them, not through page DOM.
+        candidates = []
+        for window in windows:
+            candidates.extend([window] + children(bus, window))
+        if len(candidates) > 1024: raise RuntimeError()
         seen = set()
-        while pending:
-            path = pending.pop()
+        for path in candidates:
             if path in seen: continue
             seen.add(path)
-            if len(seen) > 2000: raise RuntimeError()
             if role(bus, path) == b'dialog':
+                # ACTIVE, SHOWING, VISIBLE: inactive browser UI is not a prompt
+                # to act on; an unknown active native dialog still refuses.
+                if not states(bus, path, 1, 25, 30): continue
                 actual = name(bus, path); stage = 'DIALOG'
                 if actual != title: raise RuntimeError()
                 buttons, nested, visited = [], children(bus, path), set()
@@ -692,15 +712,14 @@ while time.time() < until:
                     nested.extend(children(bus, node))
                 stage = 'BUTTON'
                 if len(buttons) != 1: raise RuntimeError()
-                matches.append((bus, buttons[0]))
-            else: pending.extend(children(bus, path))
+                matches.append((bus, path, buttons[0]))
     if len(matches) > 1: raise RuntimeError()
     if matches: button = matches[0]; break
     time.sleep(.025)
 if button is None: raise RuntimeError()
 stage = 'IDENTITY'
 if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
-bus, path = button
+bus, dialog, path = button
 # GetActions returns localized names, which Chromium leaves empty for native
 # actions. GetName is the nonlocalized, stable action identity.
 action_interface = b'org.a11y.atspi.Action'
@@ -712,6 +731,10 @@ for index in range(count):
     label = scalar(call(bus, path, action_interface, b'GetName', params(index)), lambda value: string(value, None))
     if label in [b'click', b'press']: default.append(index)
 if default != [0]: raise RuntimeError()
+stage = 'WINDOW'
+if not states(bus, dialog, 1, 25, 30) or not states(bus, path, 8, 12, 24, 25, 30): raise RuntimeError()
+stage = 'IDENTITY'
+if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
 if not scalar(call(bus, path, b'org.a11y.atspi.Action', b'DoAction', params(0)), boolean): raise RuntimeError()
 print('NATIVE_REMOVE_SENT')
 `;

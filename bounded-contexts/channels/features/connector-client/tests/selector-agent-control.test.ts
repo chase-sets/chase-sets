@@ -103,6 +103,118 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
+  it("executes the native window predicate without page traversal; window, prompt, focus and uniqueness mutants fail", async () => {
+    const exposed = await mutant("const nativeRemovalScript =", "export const nativeRemovalScript =");
+    const { execFileSync: execute } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const harness = String.raw`
+import ast, json, sys, types
+input = json.load(sys.stdin)
+tree = ast.parse(input['script'])
+parts = []
+for node in tree.body:
+    if isinstance(node, ast.FunctionDef) and node.name == 'states': parts.append(node)
+    elif isinstance(node, ast.While): parts.append(node)
+    elif isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Name) and node.test.left.id == 'button': parts.append(node)
+    elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple) and [item.id for item in node.targets[0].elts] == ['bus', 'dialog', 'path']: parts.append(node)
+    elif isinstance(node, ast.If) and any(isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == 'states' for item in ast.walk(node.test)): parts.append(node)
+assert len(parts) == 5
+nodes, touched, clock = input['nodes'], [], [0]
+root, bus = b'/org/a11y/atspi/accessible/root', b':1.1'
+scope = {'stage':'PROCESS', 'pid':42, 'until':4, 'button':None, 'root':root, 'accessible':b'org.a11y.atspi.Accessible'}
+def children(owner, path):
+    touched.append(path.decode())
+    return [value.encode() for value in (input['roots'] if path == root else nodes[path.decode()]['children'])]
+def call(owner, path, interface, method, arguments=None):
+    if method == b'ListNames': return ([bus],)
+    if method == b'GetConnectionUnixProcessID': return (42,)
+    assert method == b'GetState'
+    scope['stage'] = 'WINDOW'
+    node = nodes[path.decode()]
+    words = [0, 0]
+    for state in node['states']: words[state // 32] |= 1 << (state % 32)
+    return (node.get('words', words),)
+def now():
+    clock[0] += 1
+    return clock[0]
+scope.update({'time':types.SimpleNamespace(time=now, sleep=lambda value:None), 'children':children, 'call':call,
+    'role':lambda owner,path:nodes[path.decode()]['role'].encode(), 'name':lambda owner,path:nodes[path.decode()]['name'].encode(),
+    'strings':lambda reply:reply[0], 'scalar':lambda reply,reader:reader(reply[0]), 'uint':lambda value:value,
+    'params':lambda *values:values, 'child':lambda value,index:value[index], 'length':len, 'unref':lambda value:None,
+    'title':b'Remove "Chase Sets Temporary Order Authority Capture"?'})
+try:
+    exec(compile(ast.Module(body=parts, type_ignores=[]), '<production native window predicate>', 'exec'), scope)
+    accepted = True
+except (RuntimeError, KeyError): accepted = False
+print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched}))
+`;
+    const nodes = {
+      frame: { role: "frame", name: "SYNTHETIC_BROWSER", children: ["view", "dialog", "inactive"], states: [] },
+      view: { role: "panel", name: "SYNTHETIC_VIEW", children: ["page-dialog"], states: [] },
+      "page-dialog": { role: "dialog", name: "SYNTHETIC_PAGE_PROMPT", children: [], states: [1, 25, 30] },
+      dialog: {
+        role: "dialog",
+        name: 'Remove "Chase Sets Temporary Order Authority Capture"?',
+        children: ["button"],
+        states: [1, 25, 30],
+      },
+      inactive: { role: "dialog", name: "SYNTHETIC_INACTIVE_BROWSER_UI", children: [], states: [25, 30] },
+      button: { role: "push button", name: "Remove", children: [], states: [8, 12, 24, 25, 30] },
+    };
+    const run = (
+      script: string,
+      value: Record<
+        string,
+        { role: string; name: string; children: string[]; states: number[]; words?: number[] }
+      > = nodes,
+    ) =>
+      JSON.parse(
+        execute(process.platform === "win32" ? "python" : "python3", ["-c", harness], {
+          input: JSON.stringify({ script, nodes: value, roots: ["frame"] }),
+          encoding: "utf8",
+        }),
+      ) as { accepted: boolean; stage: string; touched: string[] };
+    const source = exposed.nativeRemovalScript as string;
+    const positive = run(source);
+    expect(positive.accepted).toBe(true);
+    expect(positive.touched).not.toContain("view");
+    const broad = source.replace(
+      "for path in candidates:",
+      "for path in [node for candidate in candidates for node in [candidate] + children(bus, candidate)]:",
+    );
+    expect(run(broad).accepted).toBe(false);
+    const unguardedInactive = source.replace("if not states(bus, path, 1, 25, 30): continue", "if False: continue");
+    expect(run(unguardedInactive).accepted).toBe(false);
+    const wrong = { ...nodes, dialog: { ...nodes.dialog, name: "SYNTHETIC_UNKNOWN_ACTIVE_PROMPT" } };
+    expect(run(source, wrong).accepted).toBe(false);
+    expect(
+      run(source.replace("if actual != title: raise RuntimeError()", "if False: raise RuntimeError()"), wrong).accepted,
+    ).toBe(true);
+    const unfocused = { ...nodes, button: { ...nodes.button, states: [8, 24, 25, 30] } };
+    expect(run(source, unfocused)).toMatchObject({ accepted: false, stage: "WINDOW" });
+    expect(
+      run(source.replace("states(bus, path, 8, 12, 24, 25, 30)", "states(bus, path, 8, 24, 25, 30)"), unfocused)
+        .accepted,
+    ).toBe(true);
+    const duplicate = {
+      ...nodes,
+      frame: { ...nodes.frame, children: ["view", "dialog", "second", "inactive"] },
+      second: nodes.dialog,
+    };
+    expect(run(source, duplicate).accepted).toBe(false);
+    expect(
+      run(source.replace("if len(matches) > 1: raise RuntimeError()", "if False: raise RuntimeError()"), duplicate)
+        .accepted,
+    ).toBe(true);
+    for (const state of [8, 24, 25, 30])
+      expect(
+        run(source, {
+          ...nodes,
+          button: { ...nodes.button, states: nodes.button.states.filter((value) => value !== state) },
+        }).accepted,
+      ).toBe(false);
+    expect(run(source, { ...nodes, dialog: { ...nodes.dialog, states: [25, 30] } }).accepted).toBe(false);
+    expect(run(source, { ...nodes, dialog: { ...nodes.dialog, words: [0] } }).accepted).toBe(false);
+  });
   it("explicitly admits browser-local metadata; missing automation flag mutant fails", async () => {
     expect(control.hermeticChromiumArguments.filter((arg: string) => arg === "--enable-automation")).toHaveLength(1);
     const altered = await mutant('  "--enable-automation",\n', "");
@@ -169,6 +281,7 @@ describe("selector-agent-control-capability", () => {
     "retired-native-stage",
     "native-executable-unreadable-refusal",
     "native-library-refusal",
+    "native-window-refusal",
     "missing-private-bus",
     "missing-native-action-mutant",
     "profile-mismatch",
@@ -297,9 +410,13 @@ describe("selector-agent-control-capability", () => {
         throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
           stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_ALIAS\n",
         });
-      if (result === "native-executable-refusal" || result === "native-library-refusal")
+      if (
+        result === "native-executable-refusal" ||
+        result === "native-library-refusal" ||
+        result === "native-window-refusal"
+      )
         throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
-          stdout: `NATIVE_REMOVE_REFUSED:${result === "native-executable-refusal" ? "PROCESS_EXECUTABLE" : "LIBRARY"}\n`,
+          stdout: `NATIVE_REMOVE_REFUSED:${result === "native-executable-refusal" ? "PROCESS_EXECUTABLE" : result === "native-window-refusal" ? "WINDOW" : "LIBRARY"}\n`,
         });
       removed = true;
       return "NATIVE_REMOVE_SENT\n";
@@ -342,6 +459,7 @@ describe("selector-agent-control-capability", () => {
         "retired-native-stage": "UNKNOWN",
         "native-executable-unreadable-refusal": "PROCESS_EXECUTABLE_UNREADABLE",
         "native-library-refusal": "LIBRARY",
+        "native-window-refusal": "WINDOW",
         "missing-private-bus": "CAPABILITY",
         "missing-native-action-mutant": "SENT",
         "profile-mismatch": "PROCESS_PROFILE",
