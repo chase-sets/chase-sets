@@ -34,6 +34,9 @@ export default defineConfig({
   resolve: {
     alias: createWorkspaceSourceAliases(),
   },
+  ssr: {
+    noExternal: ["zod"],
+  },
   server: {
     host: true,
     port: Number(process.env.PORT ?? process.env.MARKETPLACE_WEB_PORT ?? 6173),

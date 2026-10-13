@@ -4,6 +4,10 @@ vi.mock("@react-router/dev/vite", () => ({ reactRouter: () => [] }));
 vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
 
 describe("admin web dev proxy", () => {
+  it("bundles bounded-context Zod schemas in the production server", async () => {
+    const { default: viteConfig } = await import("../vite.config");
+    expect(viteConfig.ssr?.noExternal).toContain("zod");
+  });
   it("proxies bounded-context admin API mounts used by contributed routes", async () => {
     const { default: viteConfig } = await import("../vite.config");
     const proxyPaths = Object.keys(viteConfig.server?.proxy ?? {});
