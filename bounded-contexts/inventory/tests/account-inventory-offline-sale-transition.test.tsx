@@ -273,8 +273,9 @@ describe("account inventory offline-sale router transition", () => {
     expect(await screen.findAllByText("Page item")).toHaveLength(2);
     expect(screen.queryByText("Sold item")).toBeNull();
     await waitFor(() => {
-      const result = document.querySelector('[tabindex="-1"][role]');
+      const result = screen.getByText(/Authoritative available quantity: 2/).closest('[role="status"]');
       expect(result?.textContent).toContain("Authoritative available quantity: 2");
+      expect(result?.getAttribute("tabindex")).toBe("-1");
     });
     expect(listReads).toBeGreaterThanOrEqual(2);
   });
