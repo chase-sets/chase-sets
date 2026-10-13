@@ -79,9 +79,9 @@ beforeAll(() => {
   execFileSync("git", ["add", "."], { cwd: fixtureRoot });
 });
 
-it("shipped runtime sources never import checkout-only scripts", () => {
+function findCheckoutOnlyScriptImports(repoRoot) {
   const files = execFileSync("git", ["ls-files", "-z", "infrastructure", "bounded-contexts", "contracts", "packages"], {
-    cwd: root,
+    cwd: repoRoot,
     encoding: "utf8",
   })
     .split("\0")
@@ -94,7 +94,10 @@ it("shipped runtime sources never import checkout-only scripts", () => {
     );
   const violations = [];
   for (const file of files) {
-    const ast = ts.createSourceFile(file, readFileSync(path.join(root, file), "utf8"), ts.ScriptTarget.Latest, true);
+    const source = readFileSync(path.join(repoRoot, file), "utf8");
+    // Escaped specifiers can spell scripts without that literal substring.
+    if (!source.includes("scripts") && !source.includes("\\")) continue;
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
     const visit = (node) => {
       const specifier =
         ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
@@ -107,14 +110,58 @@ it("shipped runtime sources never import checkout-only scripts", () => {
         specifier &&
         ts.isStringLiteralLike(specifier) &&
         specifier.text.startsWith(".") &&
-        path.resolve(root, path.dirname(file), specifier.text).startsWith(path.join(root, "scripts") + path.sep)
+        path.resolve(repoRoot, path.dirname(file), specifier.text).startsWith(path.join(repoRoot, "scripts") + path.sep)
       )
         violations.push(`${file}: ${specifier.text}`);
       ts.forEachChild(node, visit);
     };
     visit(ast);
   }
-  expect(violations).toEqual([]);
+  return violations;
+}
+
+it("shipped runtime sources never import checkout-only scripts", () => {
+  expect(findCheckoutOnlyScriptImports(root)).toEqual([]);
+});
+
+it("reports a Git-tracked shipped source importing checkout-only scripts", () => {
+  const file = "contracts/primitives/synthetic-checkout-import.ts";
+  const filename = path.join(fixtureRoot, file);
+  const specifier = "../../scripts/synthetic-checkout-only.mjs";
+  const sources = [
+    `import value from "${specifier}";`,
+    `export { value } from "${specifier}";`,
+    `export * from "${specifier}";`,
+    `import("${specifier}");`,
+    `require("${specifier}");`,
+    'import("../../scr\\u0069pts/synthetic-checkout-only.mjs");',
+    'require("../../scr\\ipts/synthetic-checkout-only.mjs");',
+    `import(\`${specifier}\`);`,
+  ];
+  mkdirSync(path.dirname(filename), { recursive: true });
+  writeFileSync(filename, sources[0]);
+  execFileSync("git", ["add", file], { cwd: fixtureRoot });
+  try {
+    for (const source of sources) {
+      writeFileSync(filename, source);
+      expect(findCheckoutOnlyScriptImports(fixtureRoot), source).toEqual([`${file}: ${specifier}`]);
+    }
+    writeFileSync(
+      filename,
+      [
+        '// import("../../scripts/comment-only.mjs");',
+        'const documentation = "../../scripts/string-only.mjs";',
+        'import allowed from "./scripts/not-checkout-only.mjs";',
+        'import packageName from "scripts/not-a-relative-import";',
+        'import("../../scripts/" + filename);',
+        'loader.require("../../scripts/not-a-bare-require.mjs");',
+      ].join("\n"),
+    );
+    expect(findCheckoutOnlyScriptImports(fixtureRoot)).toEqual([]);
+  } finally {
+    execFileSync("git", ["rm", "--cached", file], { cwd: fixtureRoot });
+    rmSync(filename);
+  }
 });
 
 it("runtime image inventory includes generated origins but not the host authority", () => {
