@@ -39,6 +39,42 @@ async function accept(store: EventStore, operation = acceptanceOperation) {
 }
 
 describe("invitation-acceptance-identity-atomicity", () => {
+  it("does not return stale replay authority when an Account changes between participant reads", async () => {
+    const inner = createInMemoryEventStore();
+    await seedAcceptance(inner);
+    await acceptInvitationOperation(inner, {
+      operation: acceptanceOperation,
+      acceptanceTokenHash: "existing-store-token-hash",
+      context: acceptanceContext,
+    });
+    let changed = false;
+    const store: EventStore = {
+      ...inner,
+      readStream: async (input) => {
+        if (!changed && input.streamId === "identity.user-usr_recipient") {
+          changed = true;
+          await inner.appendToStream({
+            streamId: "identity.account-acc_invited",
+            expectedVersion: 1,
+            context: acceptanceContext,
+            events: [{ eventType: "identity.account.suspended", payload: {} }],
+          });
+        }
+        return inner.readStream(input);
+      },
+    };
+    await expect(
+      readInvitationAcceptanceAuthority(store, {
+        invitationId: "ivt_invited",
+        operation: acceptanceOperation,
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await inner.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
+    ).toHaveLength(1);
+  });
   it("participant failure preserves every version and reveals independent appends", async () => {
     const inner = createInMemoryEventStore();
     await seedAcceptance(inner);

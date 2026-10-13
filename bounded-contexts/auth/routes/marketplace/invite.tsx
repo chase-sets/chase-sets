@@ -13,7 +13,7 @@ import { marketplaceAuthHost } from "../../support/route-support/auth-host.serve
 import { toAuthActionError } from "../../support/route-support/auth-host";
 import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
 import { AuthApiError } from "../../client";
-import type { InvitationAttemptResult } from "../../features/invitation-acceptance/api/journey";
+import type { InvitationAttemptResult } from "../../features/invitation-acceptance/api/result";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: t("auth.routes.marketplace.invite.meta.title") });
 

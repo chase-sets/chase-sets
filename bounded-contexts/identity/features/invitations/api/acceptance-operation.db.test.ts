@@ -8,7 +8,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { acceptInvitationOperation } from "./acceptance-operation";
+import { acceptInvitationOperation, readInvitationAcceptanceAuthority } from "./acceptance-operation";
 import { acceptanceContext, acceptanceOperation, seedAcceptance } from "./acceptance-test-support";
 
 const base = process.env.TEST_DATABASE_URL;
@@ -28,6 +28,40 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+  it("rejects replay when another database connection changes a participant between reads", async () => {
+    const store = createPostgresEventStore({ pool });
+    const concurrent = createPostgresEventStore({ pool });
+    await seedAcceptance(store);
+    const params = {
+      operation: acceptanceOperation,
+      acceptanceTokenHash: "existing-store-token-hash",
+      context: acceptanceContext,
+    };
+    await acceptInvitationOperation(store, params);
+    let changed = false;
+    const interleaved = {
+      ...store,
+      readStream: async (input: Parameters<typeof store.readStream>[0]) => {
+        if (!changed && input.streamId === "identity.user-usr_recipient") {
+          changed = true;
+          await concurrent.appendToStream({
+            streamId: "identity.account-acc_invited",
+            expectedVersion: 1,
+            context: acceptanceContext,
+            events: [{ eventType: "identity.account.suspended", payload: {} }],
+          });
+        }
+        return store.readStream(input);
+      },
+    };
+    await expect(
+      readInvitationAcceptanceAuthority(interleaved, { ...params, invitationId: "ivt_invited" }),
+    ).rejects.toThrow();
+    expect(await store.readStream({ streamId: "identity.membership-mbr_reserved" })).toHaveLength(1);
+    expect(
+      await store.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
+    ).toHaveLength(1);
   });
   it.each([
     "identity.invitation-ivt_invited",

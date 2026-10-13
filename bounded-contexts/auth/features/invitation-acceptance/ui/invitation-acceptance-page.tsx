@@ -73,19 +73,27 @@ export function InvitationAcceptancePage({
   const submissionId = useRef(attemptId ?? "");
   const submitting = useRef(false);
   const [retainedAttempt, setRetainedAttempt] = useState<string | null>(null);
-  const storageKey = `invitation-acceptance:${invitationId ?? (invitation.status === "pending" ? invitation.invitationId : "")}`;
+  const retainedInvitationId = invitationId ?? (invitation.status === "pending" ? invitation.invitationId : "");
   useEffect(() => {
-    if (!attemptsActive) return;
     try {
-      const retained = sessionStorage.getItem(storageKey);
-      if (retained && /^[0-9a-f-]{36}$/i.test(retained)) {
-        submissionId.current = retained;
-        setRetainedAttempt(retained);
+      const retained: unknown = window.history.state?.invitationAcceptanceAttempt;
+      if (
+        retained &&
+        typeof retained === "object" &&
+        Object.keys(retained).length === 2 &&
+        "invitationId" in retained &&
+        retained.invitationId === retainedInvitationId &&
+        "attemptId" in retained &&
+        typeof retained.attemptId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(retained.attemptId)
+      ) {
+        submissionId.current = retained.attemptId;
+        setRetainedAttempt(retained.attemptId);
       }
     } catch {
-      /* Storage denial does not authorize a write retry. */
+      /* History denial does not authorize a write retry. */
     }
-  }, [attemptsActive, storageKey]);
+  }, [retainedInvitationId]);
   const effectivePhase = retainedAttempt && phase === "editing" ? "confirming" : phase;
   const effectiveAttemptId = attemptId ?? retainedAttempt;
   useEffect(() => {
@@ -105,7 +113,13 @@ export function InvitationAcceptancePage({
       const field = event.currentTarget.elements.namedItem("attemptId");
       if (field instanceof HTMLInputElement) field.value = submissionId.current;
       try {
-        sessionStorage.setItem(storageKey, submissionId.current);
+        window.history.replaceState(
+          {
+            ...window.history.state,
+            invitationAcceptanceAttempt: { invitationId: retainedInvitationId, attemptId: submissionId.current },
+          },
+          "",
+        );
       } catch {
         /* The in-memory UUID still binds this submission. */
       }

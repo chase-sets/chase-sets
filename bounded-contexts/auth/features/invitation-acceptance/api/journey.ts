@@ -18,10 +18,7 @@ import { beginAttempt, checkpoint, readAttempt, withInvitationAttemptLock } from
 import { readInvitationAttemptId } from "./attempt-request";
 import { invitationAttemptRollout } from "./rollout";
 
-export type InvitationAttemptResult = Readonly<{
-  type: "accepted-reauth-required" | "confirming" | "ambiguous";
-  attemptId: string;
-}>;
+import type { InvitationAttemptResult } from "./result";
 type JourneyInput = Readonly<{
   attemptId: string;
   invitationId: string;

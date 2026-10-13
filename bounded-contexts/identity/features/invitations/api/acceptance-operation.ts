@@ -462,6 +462,16 @@ export async function readInvitationAcceptanceAuthority(
     )
       refuse();
     if (!receiptHistory.length && membershipHistory.length) refuse();
+    if (receiptHistory.length) {
+      if (!store.appendToStreams) refuse();
+      await store.appendToStreams([
+        input(`identity.invitation-${operation.invitationId}`, history, [], params.context),
+        input(`identity.account-${operation.accountId}`, accountHistory, [], params.context),
+        input(`identity.user-${operation.userId}`, userHistory, [], params.context),
+        input(`identity.membership-${operation.membershipId}`, membershipHistory, [], params.context),
+        input(`identity.invitation-acceptance-${operation.attemptId}`, receiptHistory, [], params.context),
+      ]);
+    }
     return { invitation, history, accountHistory, receiptHistory, userHistory, user, membershipHistory, membership };
   }
   if (invitation.status !== "pending") refuse();

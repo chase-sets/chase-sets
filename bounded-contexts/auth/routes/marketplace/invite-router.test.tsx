@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import MarketplaceInviteRoute, { action, loader } from "./invite";
 import { AuthApiError } from "../../client";
+import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
 
 const { api, complete } = vi.hoisted(() => ({
   api: { inspectInvitation: vi.fn(), acceptInvitation: vi.fn(), getInvitationAcceptanceStatus: vi.fn() },
@@ -27,10 +28,38 @@ const pending = {
 
 afterEach(() => {
   cleanup();
-  sessionStorage.clear();
+  window.history.replaceState(null, "");
+  Object.assign(invitationAttemptRollout, { active: true });
   vi.resetAllMocks();
 });
 describe("invitation-acceptance-real-route", () => {
+  it("restores a nonsecret retained attempt after deactivation and only reads status", async () => {
+    const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
+    window.history.replaceState(
+      { idx: 2, invitationAcceptanceAttempt: { invitationId: "ivt_invited", attemptId } },
+      "",
+    );
+    Object.assign(invitationAttemptRollout, { active: false });
+    api.inspectInvitation.mockResolvedValue({ status: "accepted" });
+    api.getInvitationAcceptanceStatus.mockResolvedValue({ type: "accepted-reauth-required", attemptId });
+    const router = createMemoryRouter(
+      [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+      { initialEntries: ["/invite/ivt_invited?token=synthetic-secret"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText("Confirming invitation acceptance");
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    await screen.findByText("Invitation accepted. Sign in to continue.");
+    expect(api.getInvitationAcceptanceStatus).toHaveBeenCalledWith({
+      invitationId: "ivt_invited",
+      token: "synthetic-secret",
+      attemptId,
+    });
+    expect(api.acceptInvitation).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(window.history.state.idx).toBe(2);
+    expect(JSON.stringify(window.history.state)).not.toMatch(/synthetic-secret|password|challenge/);
+  });
   it("renders submitting and confirming through the real action, performs lookup after possible send and never retries the write", async () => {
     api.inspectInvitation.mockResolvedValue(pending);
     let loseResponse!: () => void;
