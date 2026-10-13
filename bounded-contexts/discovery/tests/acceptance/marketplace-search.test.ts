@@ -391,7 +391,8 @@ describe("marketplace search", () => {
     const params = { search: "variant dragon", dimensionFilters: foil };
     await variantItem("semantic-variant");
     await pools.discovery.query(`UPDATE discovery_search_items
-      SET search_text = to_tsvector('english', 'azure creature'), search_text_simple = to_tsvector('simple', 'azure creature')
+      SET title = 'Azure creature', set_code = 'sv05', card_number = '1',
+        search_text = to_tsvector('english', 'azure creature'), search_text_simple = to_tsvector('simple', 'azure creature')
       WHERE catalog_item_id = 'semantic-variant'`);
     await variantListing(
       "semantic-nonfoil",
