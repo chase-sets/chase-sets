@@ -84,6 +84,18 @@ describe("Catalog integration aggregate-state seed", () => {
       productMeasuresResolved: await productMeasuresResolvedEventCount(),
     };
     expect(afterNextOrdinaryBoot).toEqual(afterCompletedStateBoot);
+    console.info(
+      "[8396-seed-delta]",
+      JSON.stringify({
+        before: afterCleanAuthoringBoot,
+        after: afterNextOrdinaryBoot,
+        productMeasureEventDelta:
+          afterNextOrdinaryBoot.productMeasuresResolved - afterCleanAuthoringBoot.productMeasuresResolved,
+        largestLegacyPayloadBytes: Math.max(
+          ...publications.rows.map(({ payload }) => Buffer.byteLength(JSON.stringify(payload), "utf8")),
+        ),
+      }),
+    );
   });
 
   it("NC-1 resumes an undrained Dimension seed without duplicate creation", async () => {

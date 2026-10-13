@@ -12,6 +12,7 @@ import { module as identityModule } from "@chase-sets/identity";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
   productionLikeDataProfiles,
+  nonProductionDataProfiles,
   representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
@@ -23,6 +24,7 @@ import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
   assembleProductMeasurePublication,
+  parseProductMeasurePublicationPart,
   productMeasurePublicationCompleted,
   productMeasurePublicationPartRecorded,
   type ProductMeasureSnapshot,
@@ -1245,7 +1247,10 @@ describe("platform api bootstrap production reconciliation", () => {
         listingPhotoStorage,
       },
     });
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, { environmentName: "test" });
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "test",
+    });
     await drainContextRuntime(runtime);
     await ensureRepresentativeProductContentsTestMeasureProfile(runtime);
     const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
@@ -1280,6 +1285,10 @@ describe("platform api bootstrap production reconciliation", () => {
     const ledger = publication.map((event) => ({
       version: event.streamVersion,
       bytes: Buffer.byteLength(JSON.stringify(event.payload), "utf8"),
+      productIds:
+        event.eventType === productMeasurePublicationPartRecorded
+          ? parseProductMeasurePublicationPart(event.payload).products.map(({ productId }) => productId)
+          : [],
     }));
     expect(
       ledger.every(({ bytes }) => bytes <= 64_512),
@@ -1290,6 +1299,7 @@ describe("platform api bootstrap production reconciliation", () => {
       parts.map((event) => ({ ...event, data: event.payload })),
     );
     expect(products).toHaveLength(85);
+    console.info("[8396-publication-ledger]", JSON.stringify(ledger));
     expect(Buffer.byteLength(JSON.stringify({ catalogItemId, products }), "utf8")).toBeGreaterThan(65_536);
     await drainContextRuntime(runtime);
     const catalog = await pools.catalog.query<{ measure_snapshot: ProductMeasureSnapshot }>(

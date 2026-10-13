@@ -53,11 +53,13 @@ export async function publishProductMeasures(
 }
 
 async function latestCompletePublication(history: readonly StoredEvent[], catalogItemId: string): Promise<unknown> {
-  const last = history.findLast((event) =>
-    [legacyResolvedEventType, productMeasurePublicationPartRecorded, productMeasurePublicationCompleted].includes(
-      event.eventType,
-    ),
-  );
+  const last = [...history]
+    .reverse()
+    .find((event) =>
+      [legacyResolvedEventType, productMeasurePublicationPartRecorded, productMeasurePublicationCompleted].includes(
+        event.eventType,
+      ),
+    );
   if (!last || last.eventType === productMeasurePublicationPartRecorded) return null;
   try {
     assertProductMeasurePublicationIdentity({ ...last, data: last.payload }, catalogItemId);

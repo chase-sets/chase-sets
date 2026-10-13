@@ -10,6 +10,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   assembleProductMeasurePublication,
+  parseProductMeasurePublicationPart,
   productMeasurePublicationCompleted,
   productMeasurePublicationPartRecorded,
   type ProductMeasureSnapshot,
@@ -307,6 +308,10 @@ describe("Catalog multipart publication", () => {
     const ledger = fixture.events.map((event) => ({
       version: event.streamVersion,
       bytes: Buffer.byteLength(JSON.stringify(event.payload), "utf8"),
+      productIds:
+        event.eventType === productMeasurePublicationPartRecorded
+          ? parseProductMeasurePublicationPart(event.payload).products.map(({ productId }) => productId)
+          : [],
     }));
     expect(
       ledger.every(({ bytes }) => bytes <= 64_512),
