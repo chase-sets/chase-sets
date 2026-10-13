@@ -15,9 +15,9 @@ const now = "2026-10-13T08:02:00.000Z";
 const origin = "https://admin.staging.chasesets.com";
 const actor: ResolvedActor = {
   sessionId: "synthetic-session",
-  tenantId: "synthetic-tenant",
-  accountId: "synthetic-account",
-  userId: "synthetic-user",
+  tenantId: "tnt_synthetic",
+  accountId: "acc_synthetic",
+  userId: "usr_synthetic",
   membershipId: "synthetic-membership",
   roleKey: "platform-admin",
   permissions: ["catalog.view", "catalog.manage"],
@@ -26,7 +26,10 @@ function fixture() {
   const session: CountCaptureSession = {
     request: new Request(`${origin}/api/catalog/scope-sync-batches/preview`, { method: "POST", headers: { origin } }),
     actor,
-    context: { tenantId: actor.tenantId, audit: { performedByUserId: actor.userId, forAccountId: actor.accountId } },
+    context: {
+      tenantId: "tnt_synthetic",
+      audit: { performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic" },
+    },
   };
   const selection = { mode: "ids" as const, scopeRecordIds: ["synthetic-op01"] };
   const budget = defaultScopeSyncBatchBudget;
@@ -39,13 +42,18 @@ function fixture() {
     stage: "acquired",
     request: null,
     sends: [],
+    plannerReads: [],
     selectionHash: countFingerprint(selection),
     budgetHash: countFingerprint(budget),
     countQueries: [],
     quoteId: "00000000-0000-4000-8000-000000000002",
     quoteFingerprint: "a".repeat(64),
   };
-  const binding = { runId: state.runId, requestId: "00000000-0000-4000-8000-000000000003", phase: "preview" as const };
+  const binding: Awaited<ReturnType<CountCaptureStore["begin"]>> = {
+    runId: state.runId,
+    requestId: "00000000-0000-4000-8000-000000000003",
+    phase: "preview",
+  };
   const store = {
     findOwner: vi.fn(async () => state as CountCaptureState | null),
     begin: vi.fn(async () => binding),

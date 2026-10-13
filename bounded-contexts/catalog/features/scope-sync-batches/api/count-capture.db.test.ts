@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -29,7 +30,7 @@ const describeDb = base ? describe : describe.skip;
 
 describeDb("pre-confirm has no effect capability", () => {
   let pools: Readonly<Record<"catalog", PgTransactionalPool>>;
-  const context = {
+  const context: EventStoreContext = {
     tenantId: "tnt_synthetic_9520",
     audit: { performedByUserId: "usr_synthetic_9520", forAccountId: "acc_synthetic_9520" },
   };

@@ -12,12 +12,15 @@ import { createScopeSyncBatchStore, type ScopeSyncBatchSnapshot } from "../read-
 import { resolveHeldSetExport } from "./held-set-resolution";
 import { createScopeSyncBatchPlanner } from "./planner";
 import { createScopeSyncBatchPlannerReads } from "./count-capture-planner";
+import { createCountCapturePlannerRuntime } from "./count-capture-runtime";
+import type { CountCaptureStore } from "../read-model/count-capture-store";
 import { createScopeSyncBatchWorker } from "./worker";
 
 export type ScopeSyncBatchServices = ReturnType<typeof createScopeSyncBatchRuntime>;
 
 export function createScopeSyncBatchRuntime(deps: {
   db: PgQueryable;
+  capture?: { environment: string; store: CountCaptureStore };
   counts?: ReturnType<typeof import("./count-runtime").createScopeSyncCountRuntime>;
   previewCatalogSyncScope: (input: {
     scope: CatalogSyncScope;
@@ -121,6 +124,14 @@ export function createScopeSyncBatchRuntime(deps: {
     resolveHeldSets: (input: { bytes: Uint8Array; context: EventStoreContext }) =>
       resolveHeldSetExport(deps.db, input.bytes),
     preview,
+    capture: deps.capture
+      ? createCountCapturePlannerRuntime({
+          ...deps.capture,
+          preview,
+          preConfirmPlannerRead: plannerReads.preConfirmPlannerRead,
+          now: deps.now,
+        })
+      : null,
     preConfirmPlannerRead: plannerReads.preConfirmPlannerRead,
     confirm,
     get: (input: { batchId: string; context: EventStoreContext }) => store.get(input.batchId, input.context),

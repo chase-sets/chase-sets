@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { type CountCaptureAuthority, validateCountCaptureAuthority } from "../domain/count-lifecycle-receipt";
-import { countFingerprint } from "../domain/count-acquisition";
+import {
+  type CountCaptureAuthority,
+  validateCountCaptureAuthority,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/domain/count-lifecycle-receipt.ts";
+import { countFingerprint } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/count-acquisition.ts";
 
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const instant = z.iso.datetime({ offset: true });

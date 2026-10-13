@@ -9,9 +9,11 @@ import {
 } from "../api/count-capture-context";
 import {
   countCaptureAuthoritySchema,
+  countCapturePlannerReadSchema,
   countCaptureUnitKeys,
   validateCountCaptureAuthority,
   type CountCaptureAuthority,
+  type CountCapturePlannerRead,
 } from "../domain/count-lifecycle-receipt";
 import { countFingerprint, countTimeIsCurrent, type CountQuote } from "../domain/count-acquisition";
 import type { ScopeSyncBatchBudget, ScopeSyncBatchSelection } from "../domain/batch";
@@ -66,6 +68,7 @@ const stateSchema = z
       .array(z.object({ kind: z.enum(["cards", "sealed"]), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).strict())
       .max(2),
     quoteId: z.uuid().nullable(),
+    plannerReads: z.array(countCapturePlannerReadSchema).max(2),
     quoteFingerprint: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
@@ -223,6 +226,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           budgetHash: countFingerprint(input.budget),
           countQueries: [],
           quoteId: null,
+          plannerReads: [],
           quoteFingerprint: null,
         };
         await append(db, state);
@@ -260,6 +264,11 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
       mutate(binding.runId, (state) => {
         bound(state, binding);
         if (
+          (binding.phase === "preview" || binding.phase === "pre-confirm") &&
+          !state.plannerReads.some((read) => read.phase === binding.phase && read.requestId === binding.requestId)
+        )
+          throw new CountCaptureStopped();
+        if (
           (binding.phase === "quote" || binding.phase === "acquisition") &&
           (!state.quoteId || !state.quoteFingerprint)
         )
@@ -276,6 +285,21 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         state.stage = next[binding.phase];
         state.request = null;
         return state;
+      }),
+    retainPlannerRead: (binding: CountCaptureBinding, input: CountCapturePlannerRead) =>
+      mutate(binding.runId, (state) => {
+        bound(state, binding);
+        const read = countCapturePlannerReadSchema.parse(input);
+        if (
+          read.phase !== binding.phase ||
+          read.requestId !== binding.requestId ||
+          state.plannerReads.some((prior) => prior.phase === read.phase) ||
+          (read.phase === "preview" && read.comparedFingerprint !== null) ||
+          (read.phase === "pre-confirm" &&
+            read.comparedFingerprint !== state.plannerReads.find((prior) => prior.phase === "preview")?.planFingerprint)
+        )
+          throw new CountCaptureStopped();
+        state.plannerReads.push(read);
       }),
     bindQuote: (binding: CountCaptureBinding, quote: CountQuote) =>
       mutate(binding.runId, (state) => {

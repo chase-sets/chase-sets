@@ -14,11 +14,20 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { CountAcquisitionRefused } from "../domain/count-acquisition";
 import { z } from "zod";
+import { CountCaptureStopped } from "./count-capture-context";
 
 type Env = { Variables: { context: EventStoreContext; actor: ResolvedActor | null } };
 
 export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
   const app = new Hono<Env>();
+  app.use("/count-capture/*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    await next();
+  });
+  app.use("/preview", async (c, next) => {
+    if (c.req.header("x-catalog-count-capture") !== undefined) c.header("Cache-Control", "no-store");
+    await next();
+  });
   app.use("/counts/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     const actor = c.get("actor");
@@ -37,6 +46,10 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
     await next();
   });
   app.onError((error, c) => {
+    if (error instanceof CountCaptureStopped) {
+      c.header("Cache-Control", "no-store");
+      return c.json({ error: { code: "capture-stopped" } }, 409);
+    }
     if (error instanceof CountAcquisitionRefused)
       return c.json({ error: { code: error.code, message: error.message } }, 409);
     if (error instanceof z.ZodError) return c.json({ error: { code: "invalid-count-request" } }, 400);
@@ -95,7 +108,36 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
   app.post("/preview", async (c) => {
     const body = await c.req.json<unknown>();
     const request = parsePreviewRequest(body);
+    if (c.req.header("x-catalog-count-capture") !== undefined) {
+      c.header("Cache-Control", "no-store");
+      if (c.req.header("x-catalog-count-capture") !== "1" || !services.capture) throw new CountCaptureStopped();
+      return c.json(
+        await services.capture.preview(
+          { request: c.req.raw, actor: c.get("actor"), context: c.get("context") },
+          request,
+        ),
+      );
+    }
     return c.json(await services.preview({ ...request, context: c.get("context") }));
+  });
+
+  app.post("/count-capture/pre-confirm", async (c) => {
+    c.header("Cache-Control", "no-store");
+    if (!services.capture) throw new CountCaptureStopped();
+    const body = z
+      .object({
+        selection: z.unknown(),
+        budget: z.unknown().optional(),
+        planFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict()
+      .parse(await c.req.json());
+    return c.json(
+      await services.capture.preConfirm(
+        { request: c.req.raw, actor: c.get("actor"), context: c.get("context") },
+        parseConfirmRequest(body),
+      ),
+    );
   });
 
   app.post("/confirm", async (c) => {

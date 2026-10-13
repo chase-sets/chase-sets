@@ -94,7 +94,10 @@ describe("captures actual winners in the same planner result", () => {
     const observation = await collectCountCapturePlannerRead(() =>
       planner.resolve({
         selection: { mode: "ids", scopeRecordIds: [] },
-        context: { tenantId: "synthetic", audit: { performedByUserId: "synthetic", forAccountId: "synthetic" } },
+        context: {
+          tenantId: "tnt_synthetic",
+          audit: { performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic" },
+        },
       }),
     );
     expect(observation.plan).toEqual(observation.value);

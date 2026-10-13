@@ -146,6 +146,63 @@ describeDb("caps actual sends across durable capture replicas", () => {
     await expect(store.finish(binding)).rejects.toThrow("capture-stopped");
     expect((await store.findOwner(run.ownerHash))?.stage).toBe("failed");
   });
+  it.each(["retained", "missing", "duplicate", "wrong-request"])(
+    "requires request-bound durable planner evidence: %s",
+    async (mode) => {
+      const store = createCountCaptureStore(pools.catalog, now);
+      const run = await store.admit(admit("a"));
+      await store.transition(run.runId, "admitted", "noticed");
+      const quoting = await store.begin(run.runId, "quote");
+      const receipt = syntheticCountLifecycleReceipt();
+      await store.bindQuote(quoting, {
+        quoteId: receipt.notices.quoteId,
+        fingerprint: receipt.notices.quoteFingerprint,
+        membershipFingerprint: receipt.notices.membershipFingerprint,
+        selection,
+        authority: { allowed: true, headroom: 100, fingerprint: receipt.notices.authorityFingerprint },
+        targets: receipt.acquisitions.map((acquired) => ({
+          scopeRecordId: "synthetic-scope",
+          query: acquired.evidence.query,
+          source: acquired.evidence,
+          blocked: false,
+        })),
+        plannedCredits: 0,
+        cap: 0,
+        expiresAt: "2026-10-13T08:15:00.000Z",
+        state: "quoted",
+      });
+      await store.finish(quoting);
+      await store.transition(run.runId, "quoted", "approved");
+      await store.finish(await store.begin(run.runId, "acquisition"));
+      const binding = await store.begin(run.runId, "preview");
+      const read = {
+        phase: "preview" as const,
+        requestId: binding.requestId,
+        planFingerprint: "a".repeat(64),
+        comparedFingerprint: null,
+        eligible: false,
+        refusal: null,
+        effectsCapability: false as const,
+        winners: [],
+      };
+      if (mode === "wrong-request") {
+        await expect(
+          store.retainPlannerRead(binding, { ...read, requestId: "00000000-0000-4000-8000-000000000099" }),
+        ).rejects.toThrow("capture-stopped");
+      } else if (mode !== "missing") {
+        await store.retainPlannerRead(binding, read);
+        if (mode === "duplicate")
+          await expect(store.retainPlannerRead(binding, read)).rejects.toThrow("capture-stopped");
+      }
+      if (mode === "retained") {
+        await store.finish(binding);
+        expect((await store.findOwner(run.ownerHash))?.plannerReads).toEqual([read]);
+      } else {
+        await expect(store.finish(binding)).rejects.toThrow("capture-stopped");
+        expect((await store.findOwner(run.ownerHash))?.stage).toBe("failed");
+      }
+    },
+  );
   it("refuses a late possible send after its request has finished", async () => {
     const store = createCountCaptureStore(pools.catalog, now);
     const run = await store.admit(admit("a"));

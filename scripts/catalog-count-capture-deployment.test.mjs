@@ -1,16 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { collectCountCaptureDeployment, readCountCaptureExecutedDeployment } from "./count-capture-deployment";
-import { syntheticCountCaptureAuthority } from "../tests/count-capture-fixture";
+import {
+  collectCountCaptureDeployment,
+  readCountCaptureExecutedDeployment,
+} from "./catalog-count-capture-deployment.ts";
+import { syntheticCountCaptureAuthority } from "../bounded-contexts/catalog/features/scope-sync-batches/tests/count-capture-fixture.ts";
 
 describe("rejects unbound deployment collector", () => {
   it("reads the unchanged FINAL packet's historical executed job and log, not a workflow conclusion", () => {
     // Exact staging job from FINAL E/deploy.jobs.json and log lines 5217-5239.
     // This is historical job parsing only, not current pod, host, or live-run proof.
     const job = JSON.parse(
-      readFileSync(new URL("../tests/fixtures/historical-staging-job.json", import.meta.url), "utf8"),
+      readFileSync(
+        new URL(
+          "../bounded-contexts/catalog/features/scope-sync-batches/tests/fixtures/historical-staging-job.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
     );
-    const log = readFileSync(new URL("../tests/fixtures/historical-staging-deployment.txt", import.meta.url), "utf8");
+    const log = readFileSync(
+      new URL(
+        "../bounded-contexts/catalog/features/scope-sync-batches/tests/fixtures/historical-staging-deployment.txt",
+        import.meta.url,
+      ),
+      "utf8",
+    );
     expect(readCountCaptureExecutedDeployment(job, log, 35)).toMatchObject({
       runId: "38349636491",
       attempt: 1,
@@ -58,7 +73,7 @@ describe("rejects unbound deployment collector", () => {
         },
       ],
     };
-    const responses = new Map<string, unknown>([
+    const responses = new Map([
       [
         "/actions/workflows?per_page=100&page=1",
         { total_count: 1, workflows: [{ id: 1, path: ".github/workflows/synthetic.yml" }] },
@@ -67,7 +82,7 @@ describe("rejects unbound deployment collector", () => {
       ["/actions/runs/100/attempts/1/jobs?per_page=100&page=1", { total_count: 1, jobs: [job] }],
     ]);
     const reader = {
-      json: vi.fn(async (path: string) => responses.get(path)),
+      json: vi.fn(async (path) => responses.get(path)),
       jobLog: vi.fn(async () =>
         JSON.stringify(
           {

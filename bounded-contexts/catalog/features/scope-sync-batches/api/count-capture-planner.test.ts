@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createScopeSyncBatchPlannerReads } from "./count-capture-planner";
 import { buildScopeSyncBatchPreview } from "../domain/batch";
 
@@ -8,7 +9,10 @@ describe("pre-confirm has no effect capability", () => {
     const preview = buildScopeSyncBatchPreview({ selection, plans: [], resolvedAt: "2026-10-13T08:00:00Z" });
     const resolve = vi.fn(async () => ({ preview, plans: [] }));
     const reads = createScopeSyncBatchPlannerReads({ resolve });
-    const context = { tenantId: "synthetic", audit: { performedByUserId: "synthetic", forAccountId: "synthetic" } };
+    const context: EventStoreContext = {
+      tenantId: "tnt_synthetic",
+      audit: { performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic" },
+    };
     const input = { selection, planFingerprint: preview.planFingerprint, context };
     const result = await reads.preConfirmPlannerRead(input);
     expect(result.eligible).toBe(false);

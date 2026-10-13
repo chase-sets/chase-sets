@@ -55,6 +55,7 @@ export function createCountCaptureSessionBoundary(deps: {
         selection: ScopeSyncBatchSelection;
         budget: ScopeSyncBatchBudget;
         quote?: Readonly<{ quoteId: string; fingerprint: string }>;
+        planFingerprint?: string;
       }>,
       work: (binding: Awaited<ReturnType<CountCaptureStore["begin"]>>) => Promise<T>,
     ): Promise<T> {
@@ -74,7 +75,11 @@ export function createCountCaptureSessionBoundary(deps: {
           (!input.quote ||
             input.quote.quoteId !== state.quoteId ||
             input.quote.fingerprint !== state.quoteFingerprint)) ||
-        (input.phase !== "acquisition" && input.quote !== undefined)
+        (input.phase !== "acquisition" && input.quote !== undefined) ||
+        (input.phase === "pre-confirm" &&
+          (!input.planFingerprint ||
+            input.planFingerprint !== state.plannerReads.find((read) => read.phase === "preview")?.planFingerprint)) ||
+        (input.phase !== "pre-confirm" && input.planFingerprint !== undefined)
       )
         throw new CountCaptureStopped();
       const binding = await deps.store.begin(state.runId, input.phase);

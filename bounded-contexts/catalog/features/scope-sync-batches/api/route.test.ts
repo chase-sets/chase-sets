@@ -5,6 +5,7 @@ import { scopeSyncBatchRoutes } from "./route";
 import { ScopeSyncBatchStalePreviewError } from "../domain/batch";
 import { heldSetExportContract } from "../domain/held-set-export";
 import type { ResolvedActor } from "@chase-sets/auth-context";
+import { CountCaptureStopped } from "./count-capture-context";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -35,6 +36,48 @@ function app(services: Record<string, unknown>, actor?: ResolvedActor) {
 }
 
 describe("Scope Sync Batch routes", () => {
+  it("routes only an explicit capture preview through the session-bound runtime with no-store", async () => {
+    const preview = vi.fn(async () => ({ normal: true }));
+    const captured = vi.fn(async () => ({ captured: true }));
+    const actor = countActor("platform-admin");
+    const root = app({ preview, capture: { preview: captured } }, actor);
+    const body = JSON.stringify({ selection: { mode: "ids", scopeRecordIds: ["synthetic"] } });
+    const response = await root.request("/preview", {
+      method: "POST",
+      headers: { "x-catalog-count-capture": "1" },
+      body,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(captured).toHaveBeenCalledWith(
+      expect.objectContaining({ actor, context }),
+      expect.objectContaining({ selection: { mode: "ids", scopeRecordIds: ["synthetic"] } }),
+    );
+    expect(preview).not.toHaveBeenCalled();
+    await root.request("/preview", { method: "POST", body });
+    expect(preview).toHaveBeenCalledOnce();
+  });
+  it("a missing capture capability or stopped pre-confirm never calls ordinary confirmation", async () => {
+    const confirm = vi.fn();
+    const body = JSON.stringify({
+      selection: { mode: "ids", scopeRecordIds: ["synthetic"] },
+      planFingerprint: "a".repeat(64),
+    });
+    for (const capture of [
+      null,
+      {
+        preConfirm: vi.fn(async () => {
+          throw new CountCaptureStopped();
+        }),
+      },
+    ]) {
+      const response = await app({ confirm, capture }).request("/count-capture/pre-confirm", { method: "POST", body });
+      expect(response.status).toBe(409);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ error: { code: "capture-stopped" } });
+    }
+    expect(confirm).not.toHaveBeenCalled();
+  });
   it("AC1 refuses missing Admin authority and cross-origin count approval without a send", async () => {
     const acquireCounts = vi.fn();
     const body = JSON.stringify({ quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) });

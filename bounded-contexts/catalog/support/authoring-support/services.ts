@@ -24,6 +24,7 @@ import { createCatalogScopeRegistryRuntime } from "../../features/scope-registry
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import { createScopeSyncBatchRuntime } from "../../features/scope-sync-batches/api/runtime";
+import { createCountCaptureStore } from "../../features/scope-sync-batches/read-model/count-capture-store";
 import { createScopeSyncCountRuntime } from "../../features/scope-sync-batches/api/count-runtime";
 import { createCountStore, countAccountSlot } from "../../features/scope-sync-batches/read-model/count-store";
 import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/source-observations/api/providers/provider-option-query-cache";
@@ -126,6 +127,10 @@ export function createCatalogServices(
   );
   const scopeSyncBatches = createScopeSyncBatchRuntime({
     db,
+    capture:
+      countEnvironment === "staging"
+        ? { environment: countEnvironment, store: createCountCaptureStore(pool) }
+        : undefined,
     counts: createScopeSyncCountRuntime({
       pool,
       store: countStore,

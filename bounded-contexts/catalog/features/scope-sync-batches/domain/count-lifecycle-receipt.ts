@@ -148,6 +148,21 @@ const consumptionSchema = z
     planFingerprint: hash,
   })
   .strict();
+export const countCapturePlannerReadSchema = z
+  .object({
+    phase: z.enum(["preview", "pre-confirm"]),
+    requestId: z.uuid(),
+    planFingerprint: hash,
+    comparedFingerprint: hash.nullable(),
+    eligible: z.boolean(),
+    refusal: id.nullable(),
+    effectsCapability: z.literal(false),
+    winners: z
+      .array(z.object({ query: receiptQuerySchema, source: sourceSchema.nullable(), readAt: instant }).strict())
+      .max(2),
+  })
+  .strict();
+export type CountCapturePlannerRead = z.infer<typeof countCapturePlannerReadSchema>;
 const sendSchema = z
   .object({
     phase: z.enum(["bootstrap", "acquisition", "preview", "pre-confirm"]),
