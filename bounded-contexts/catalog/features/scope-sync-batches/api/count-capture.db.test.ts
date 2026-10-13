@@ -12,7 +12,7 @@ import { createCountStore, countAccountSlot } from "../read-model/count-store";
 import { createCountAcquisition } from "./count-acquisition";
 import { createScopeSyncCountRuntime } from "./count-runtime";
 import { createScopeSyncBatchRuntime } from "./runtime";
-import { collectCountCaptureWinners } from "./count-capture-context";
+import { collectCountCapturePlannerRead } from "./count-capture-context";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../source-observations/api/providers/provider-integration-profile-store";
 import { createPgCatalogProviderOptionQueryCacheStore } from "../../source-observations/api/providers/provider-option-query-cache";
 import {
@@ -193,15 +193,19 @@ describeDb("pre-confirm has no effect capability", () => {
       counts: { ...counts, reserveBatch: reserve },
     });
     const input = { selection, budget: { creditedProviderRequestLimits: { scrydex: 10 } }, context };
-    const preview = await observed.preview(input);
+    const previewObservation = await collectCountCapturePlannerRead(() => observed.preview(input));
+    const preview = previewObservation.value;
+    expect(previewObservation.plan.preview).toEqual(preview);
+    expect(previewObservation.winners.map((winner) => winner.source?.query.kind).sort()).toEqual(["cards", "sealed"]);
     expect(preview.confirmAllowed).toBe(true);
     const queries = vi.spyOn(pools.catalog, "query");
-    const observation = await collectCountCaptureWinners(() =>
+    const observation = await collectCountCapturePlannerRead(() =>
       observed.preConfirmPlannerRead({ ...input, planFingerprint: preview.planFingerprint }),
     );
     expect(observation.value.eligible).toBe(true);
     expect(observation.value.effectsCapability).toBe(false);
     expect(observation.value.currentFingerprint).toBe(preview.planFingerprint);
+    expect(observation.plan).toEqual(observation.value.current);
     expect(observation.winners.map((winner) => winner.source?.query.kind).sort()).toEqual(["cards", "sealed"]);
     expect(reserve).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();

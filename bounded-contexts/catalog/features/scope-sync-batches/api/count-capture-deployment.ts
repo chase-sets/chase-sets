@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type CountCaptureAuthority, validateCountCaptureAuthority } from "../domain/count-lifecycle-receipt";
+import { countFingerprint } from "../domain/count-acquisition";
 
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const instant = z.iso.datetime({ offset: true });
@@ -132,16 +133,20 @@ export async function collectCountCaptureDeployment(
   });
   try {
     instant.parse(now);
+    const inventories: Array<{ path: string; fingerprint: string }> = [];
     async function pages<T extends { id: number }>(path: string, key: string, schema: z.ZodType<T>) {
       const values: T[] = [];
       const seen = new Set<number>();
       let total: number | null = null;
       for (let page = 1; page <= 2000; page++) {
         if (++pageCount > 10000) throw new Error("inventory-bound");
+        const pagePath = `${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`;
+        const pageValue = await reader.json(pagePath);
+        inventories.push({ path: pagePath, fingerprint: countFingerprint(pageValue) });
         const raw = z
           .object({ total_count: z.number().int().min(0).max(200_000) })
           .loose()
-          .parse(await reader.json(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`));
+          .parse(pageValue);
         if (total !== null && total !== raw.total_count) throw new Error("inventory-changed");
         total = raw.total_count;
         const entries = z.array(schema).max(100).parse(raw[key]);
@@ -185,7 +190,6 @@ export async function collectCountCaptureDeployment(
             throw new Error("job-binding");
           const stagingSteps = job.steps.filter((step) => /deploy.*staging|staging.*deploy/i.test(step.name));
           const stagingJob = /deploy.*staging|staging.*deploy/i.test(job.name);
-          if (!stagingJob && !stagingSteps.length) continue;
           if (String(job.id) === authority.deployment.jobId) {
             selected++;
             const expected = authority.deployment;
@@ -222,18 +226,29 @@ export async function collectCountCaptureDeployment(
           } else if (job.status !== "completed" || !job.completed_at || Date.parse(job.completed_at) >= start) {
             // Failed and earlier-started attempts can mutate the deployment.
             // Skipped jobs with no executed steps are explicit non-authority.
-            if (
-              !(
-                job.conclusion === "skipped" &&
-                job.steps.every((step) => step.status === "completed" && step.conclusion === "skipped")
-              )
-            )
+            const unexecuted =
+              job.status === "completed" &&
+              job.conclusion === "skipped" &&
+              job.steps.every((step) => step.status === "completed" && step.conclusion === "skipped");
+            if (!unexecuted) {
+              // A name can flag potential drift, but cannot prove that an
+              // unrecognized job is harmless. Missing deployment taxonomy is
+              // bounded unknown, not a silently complete inventory.
+              if (!stagingJob && !stagingSteps.length) throw new Error("deployment-capability-unknown");
               overlap = true;
+            }
           }
         }
       }
     }
     if (selected !== 1) throw new Error("selected-job-missing-or-duplicate");
+    // Revisit every retrieved page, including jobs and earlier attempts. A
+    // stable total alone misses changed jobs/reruns behind a pagination frontier.
+    for (const inventory of inventories) {
+      if (++pageCount > 10000) throw new Error("inventory-bound");
+      if (countFingerprint(await reader.json(inventory.path)) !== inventory.fingerprint)
+        throw new Error("inventory-changed");
+    }
     const collection = result(true);
     if (!validateCountCaptureAuthority({ ...authority, collection }, now)) return result(false);
     return collection;

@@ -110,6 +110,48 @@ describe("rejects unbound deployment", () => {
 });
 
 describe("rejects unsafe lifecycle receipt projections", () => {
+  it.each(['synthetic-quote-"-secret', "synthetic-newline-\n-secret", "synthetic-slash-\\-secret"])(
+    "detects JSON-escaped credential markers",
+    (marker) => {
+      const receipt = syntheticCountLifecycleReceipt();
+      receipt.authority.deployment.jobName = marker;
+      expect(validateCountLifecycleReceipt(receipt, [marker]).valid).toBe(false);
+    },
+  );
+  it("retains an early stop without inventing a run, quote, source, zero calls or deployment counts", () => {
+    expect(
+      validateCountLifecycleReceipt({
+        schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+        stoppedAt: "2026-10-13T08:00:00.000Z",
+        phase: "baseline",
+        reason: "authority-unbound",
+        evidence: {},
+      }),
+    ).toMatchObject({ valid: true, verdict: "INCOMPLETE", reasons: ["authority-unbound"] });
+  });
+  it.each(["unknown", "drift"])("classifies freeze %s as incomplete, not a fabricated product failure", (mode) => {
+    const receipt = syntheticCountLifecycleReceipt();
+    if (mode === "unknown") receipt.freezeCollection.complete = false;
+    else receipt.freezeCollection.overlap = true;
+    expect(validateCountLifecycleReceipt(receipt)).toMatchObject({
+      valid: true,
+      verdict: "INCOMPLETE",
+      reasons: ["freeze-unknown-or-drift"],
+    });
+  });
+  it("does not let an incomplete stop label hide retained effect or send failures", () => {
+    const receipt = syntheticCountLifecycleReceipt();
+    receipt.effects.enqueues = 1;
+    expect(
+      validateCountLifecycleReceipt({
+        schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+        stoppedAt: receipt.frozenAt,
+        phase: "freeze",
+        reason: "deployment-unknown",
+        evidence: { effects: receipt.effects },
+      }),
+    ).toMatchObject({ valid: true, verdict: "FAILED" });
+  });
   it("accepts the completely synthetic, source-joined lifecycle control", () => {
     expect(validateCountLifecycleReceipt(syntheticCountLifecycleReceipt())).toMatchObject({
       valid: true,

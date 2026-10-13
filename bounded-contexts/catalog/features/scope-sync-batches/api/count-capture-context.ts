@@ -1,5 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { countFingerprint, type ScrydexCountQuery, type ScrydexCountSource } from "../domain/count-acquisition";
+import {
+  countFingerprint,
+  countQueryKey,
+  type ScrydexCountQuery,
+  type ScrydexCountSource,
+} from "../domain/count-acquisition";
+import type { ScopeSyncBatchPlanner } from "./planner";
 
 export type CountCapturePhase = "baseline" | "bootstrap" | "quote" | "acquisition" | "preview" | "pre-confirm";
 export type CountCaptureBinding = Readonly<{ runId: string; requestId: string; phase: CountCapturePhase }>;
@@ -35,6 +41,8 @@ export type CountCaptureWinner = Readonly<{
   readAt: string;
 }>;
 const observers = new AsyncLocalStorage<CountCaptureWinner[]>();
+type CountCapturePlan = Awaited<ReturnType<ScopeSyncBatchPlanner["resolve"]>>;
+const planObservers = new AsyncLocalStorage<CountCapturePlan[]>();
 
 export function countCaptureRequestIsBound() {
   return requests.getStore() !== undefined;
@@ -44,6 +52,43 @@ export async function collectCountCaptureWinners<T>(work: () => Promise<T>) {
   const winners: CountCaptureWinner[] = [];
   const value = await observers.run(winners, work);
   return { value, winners };
+}
+
+export function observeCountCapturePlan(plan: CountCapturePlan) {
+  const plans = planObservers.getStore();
+  if (!plans) return;
+  if (plans.length !== 0) throw new CountCaptureStopped();
+  plans.push(structuredClone(plan));
+}
+
+export async function collectCountCapturePlannerRead<T>(work: () => Promise<T>) {
+  const plans: CountCapturePlan[] = [];
+  const result = await planObservers.run(plans, () => collectCountCaptureWinners(work));
+  if (plans.length !== 1) throw new CountCaptureStopped();
+  const plan = plans[0]!;
+  const selected = plan.plans.flatMap((scope) => scope.participationPreview.units.filter((unit) => unit.selected));
+  for (const unit of selected) {
+    const source = unit.estimate.countSource;
+    if (!source) continue;
+    const winners = result.winners.filter((winner) => winner.query.unitKey === unit.unitKey);
+    if (
+      winners.length !== 1 ||
+      countFingerprint(winners[0]!.source) !== countFingerprint(source) ||
+      countQueryKey(winners[0]!.query) !== countQueryKey(source.query)
+    )
+      throw new CountCaptureStopped();
+  }
+  // A reader call not represented by the actual plan is not evidence for this
+  // request, even when its totals happen to match a selected source.
+  for (const winner of result.winners) {
+    const units = selected.filter((unit) => unit.unitKey === winner.query.unitKey);
+    if (
+      units.length !== 1 ||
+      countFingerprint(units[0]!.estimate.countSource ?? null) !== countFingerprint(winner.source)
+    )
+      throw new CountCaptureStopped();
+  }
+  return { ...result, plan };
 }
 
 export function observeCountCaptureWinner(query: ScrydexCountQuery, source: ScrydexCountSource | null, readAt: string) {

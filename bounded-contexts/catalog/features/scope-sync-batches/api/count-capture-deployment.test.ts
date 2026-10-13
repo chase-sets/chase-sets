@@ -94,9 +94,36 @@ describe("rejects unbound deployment collector", () => {
       runCount: 1,
       attemptCount: 1,
       jobCount: 1,
-      pageCount: 3,
+      pageCount: 6,
     });
     expect(f.reader.jobLog).toHaveBeenCalledWith("200");
+  });
+  it("does not assume a renamed staging recovery is harmless", async () => {
+    const f = fixture();
+    f.responses.set("/actions/runs/100/attempts/1/jobs?per_page=100&page=1", {
+      total_count: 2,
+      jobs: [
+        f.job,
+        {
+          ...f.job,
+          id: 201,
+          name: "Recover runtime",
+          conclusion: "failure",
+          steps: [{ ...f.job.steps[0], name: "Apply release" }],
+        },
+      ],
+    });
+    expect(await collectCountCaptureDeployment(f.reader, f.authority, now)).toMatchObject({ complete: false });
+  });
+  it("refuses an inventory that changes behind the collector frontier", async () => {
+    const f = fixture();
+    let reads = 0;
+    f.reader.json.mockImplementation(async (path) => {
+      if (path === "/actions/runs?per_page=100&page=1" && ++reads > 1)
+        return { total_count: 2, workflow_runs: [f.run, { ...f.run, id: 101 }] };
+      return f.responses.get(path);
+    });
+    expect(await collectCountCaptureDeployment(f.reader, f.authority, now)).toMatchObject({ complete: false });
   });
   it.each([
     "skipped-job",

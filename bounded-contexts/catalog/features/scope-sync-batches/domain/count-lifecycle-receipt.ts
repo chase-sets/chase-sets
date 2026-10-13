@@ -267,24 +267,131 @@ export const countLifecycleReceiptSchema = z
   .strict();
 export type CountLifecycleReceipt = z.infer<typeof countLifecycleReceiptSchema>;
 
+// Early refusal cannot honestly supply the successful lifecycle's required
+// fields. Absent evidence stays absent; it never becomes a zero or a PASS.
+export const countLifecycleStopReceiptSchema = z
+  .object({
+    schemaVersion: z.literal("scope-sync-count-lifecycle-stop/v1"),
+    stoppedAt: instant,
+    phase: z.enum(["baseline", "bootstrap", "quote", "acquisition", "preview", "pre-confirm", "freeze"]),
+    reason: z.enum([
+      "authority-unbound",
+      "deployment-unknown",
+      "source-unavailable",
+      "missing-observation",
+      "run-expired",
+      "capture-stopped",
+      "send-uncertain",
+      "unexpected-effects",
+      "receipt-leak",
+    ]),
+    evidence: countLifecycleReceiptSchema.omit({ schemaVersion: true, stopReasons: true }).partial(),
+  })
+  .strict();
+export type CountLifecycleStopReceipt = z.infer<typeof countLifecycleStopReceiptSchema>;
+
+export function countCaptureContainsForbidden(serialized: string, forbiddenValues: readonly string[]) {
+  try {
+    const markers = forbiddenValues
+      .filter(Boolean)
+      .flatMap((marker) => [
+        marker,
+        JSON.stringify(marker).slice(1, -1),
+        encodeURIComponent(marker),
+        Buffer.from(marker).toString("base64"),
+      ]);
+    const unsafe = (value: string) =>
+      markers.some((marker) => value.includes(marker)) ||
+      /chase_sets_session|authorization|bearer\s|x-api-key|x-team-id|set-cookie|storageState|data:image|https?:\/\//i.test(
+        value,
+      );
+    if (unsafe(serialized)) return true;
+    const pending: unknown[] = [JSON.parse(serialized)];
+    let visited = 0;
+    while (pending.length) {
+      if (++visited > 20_000) return true;
+      const value = pending.pop();
+      if (typeof value === "string" && unsafe(value)) return true;
+      if (value && typeof value === "object")
+        for (const [key, entry] of Object.entries(value)) {
+          if (unsafe(key)) return true;
+          pending.push(entry);
+        }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: readonly string[] = []) {
   const failed = { valid: false, verdict: "FAILED" as const, reasons: ["receipt-invalid"] };
   let serialized: string;
   try {
     serialized = JSON.stringify(value);
+    if (typeof serialized !== "string") return failed;
   } catch {
     return failed;
   }
   if (
     new TextEncoder().encode(serialized).length > 128_000 ||
-    forbiddenValues.some((marker) => marker && serialized.includes(marker)) ||
-    /chase_sets_session|authorization|bearer\s|x-api-key|x-team-id|set-cookie|storageState|data:image/i.test(serialized)
+    countCaptureContainsForbidden(serialized, forbiddenValues)
   )
     return failed;
+  const stopped = countLifecycleStopReceiptSchema.safeParse(value);
+  if (stopped.success) {
+    const { evidence, stoppedAt, reason } = stopped.data;
+    if (
+      (evidence.startedAt && Date.parse(evidence.startedAt) > Date.parse(stoppedAt)) ||
+      (evidence.frozenAt && Date.parse(evidence.frozenAt) > Date.parse(stoppedAt)) ||
+      evidence.sends?.some(
+        (send, index) =>
+          send.sequence !== index + 1 ||
+          Date.parse(send.debitedAt) > Date.parse(stoppedAt) ||
+          (send.respondedAt !== null &&
+            (Date.parse(send.respondedAt) < Date.parse(send.debitedAt) ||
+              Date.parse(send.respondedAt) > Date.parse(stoppedAt))),
+      )
+    )
+      return failed;
+    const failures: string[] = [];
+    if (
+      evidence.effects &&
+      [
+        evidence.effects.batches,
+        evidence.effects.reservations,
+        evidence.effects.jobs,
+        evidence.effects.enqueues,
+        evidence.effects.imports,
+      ].some((count) => count !== 0)
+    )
+      failures.push("unexpected-effects");
+    if (
+      evidence.sends?.some(
+        (send) =>
+          send.outcome !== "response" ||
+          send.status === null ||
+          send.status < 200 ||
+          send.status >= 300 ||
+          send.respondedAt === null,
+      )
+    )
+      failures.push("send-uncertain");
+    return {
+      valid: true,
+      verdict:
+        ["capture-stopped", "send-uncertain", "unexpected-effects", "receipt-leak"].includes(reason) ||
+        failures.length > 0
+          ? ("FAILED" as const)
+          : ("INCOMPLETE" as const),
+      reasons: [...new Set([reason, ...failures])],
+    };
+  }
   const parsed = countLifecycleReceiptSchema.safeParse(value);
   if (!parsed.success) return failed;
   const receipt = parsed.data;
   const reasons: string[] = [...receipt.stopReasons];
+  const missing: string[] = [];
   if (!validateCountCaptureAuthority(receipt.authority, receipt.startedAt)) reasons.push("authority-unbound");
   const at = (value: string) => Date.parse(value);
   if (
@@ -306,7 +413,7 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
     receipt.freezeCollection.overlap ||
     at(receipt.freezeCollection.collectedAt) < at(receipt.frozenAt)
   )
-    reasons.push("freeze-unknown-or-drift");
+    missing.push("freeze-unknown-or-drift");
   if (receipt.preConfirm.comparedFingerprint !== receipt.preConfirm.currentFingerprint)
     reasons.push("fingerprint-changed");
   if (at(receipt.frozenAt) < at(receipt.startedAt) || at(receipt.frozenAt) - at(receipt.startedAt) > 900_000)
@@ -380,7 +487,6 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
     ["cards", "sealed"].some((kind) => receipt.sends.filter((send) => send.category === kind).length > 1)
   )
     reasons.push("category-cap");
-  const missing: string[] = [];
   for (const phase of ["preview", "pre-confirm"] as const) {
     const sends = receipt.sends.filter((send) => send.phase === phase);
     if (
