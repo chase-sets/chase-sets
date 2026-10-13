@@ -38,7 +38,8 @@ test.describe("@marketplace-seller issue-7169-c1-boundary-recovery AC9/10/11/13"
       attemptId = new URLSearchParams(route.request().postData() ?? "").get("inventoryMutationAttemptId") ?? "";
       expect(attemptId).toMatch(/^[a-f0-9-]{36}$/);
       const response = await route.fetch({ maxRedirects: 0 });
-      expect(response.status()).toBe(303);
+      expect(response.status()).toBe(302);
+      expect(new URL(response.headers().location, route.request().url()).pathname).toBe("/account/inventory/locations");
       await route.abort("failed");
       finish();
     });

@@ -1012,8 +1012,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
-      "expectedConsumers": ["Deployable composition for inventory"],
-      "crossCuttingRuntimeComposition": true
+      "expectedConsumers": ["Deployable composition for inventory"]
     },
     "routes": {
       "classification": "routes",
