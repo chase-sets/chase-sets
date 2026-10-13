@@ -12,6 +12,7 @@ import { countCapturePlannerReadSchema } from "../domain/count-lifecycle-receipt
 import { createCountCaptureSessionBoundary, type CountCaptureSession } from "./count-capture-session";
 
 type Input = Readonly<{ selection: ScopeSyncBatchSelection; budget?: Partial<ScopeSyncBatchBudget> | null }>;
+export type CountCapturePlannerRuntime = ReturnType<typeof createCountCapturePlannerRuntime>;
 
 // Only planner reads cross this boundary. Confirmation, reservation, batch
 // persistence, worker and enqueue capabilities are intentionally absent.

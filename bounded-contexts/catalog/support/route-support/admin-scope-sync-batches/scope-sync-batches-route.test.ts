@@ -6,6 +6,8 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
   const api = {
     resolveHeldSetExport: vi.fn(),
     previewScopeSyncBatch: vi.fn(),
+    captureScopeSyncBatchPreview: vi.fn(),
+    readScopeSyncBatchPreConfirm: vi.fn(),
     quoteScopeSyncCounts: vi.fn(),
     acquireScopeSyncCounts: vi.fn(),
     confirmScopeSyncBatch: vi.fn(),
@@ -19,6 +21,92 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
 vi.mock("../../request-support/api-client", () => ({ createCatalogRequestApiClient }));
 
 describe("Scope Sync Batch admin action callers", () => {
+  it("forwards an explicit capture preview through the ordinary Admin form without falling back", async () => {
+    api.captureScopeSyncBatchPreview.mockResolvedValue({ planFingerprint: "a".repeat(64) });
+    const response = await runRequest(
+      formRequest({
+        intent: "preview",
+        countCapture: "1",
+        selectionMode: "ids",
+        scopeRecordIds: "synthetic-op01",
+      }),
+    );
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).headers.get("cache-control")).toBe("no-store");
+    expect(await (response as Response).json()).toMatchObject({ preview: { planFingerprint: "a".repeat(64) } });
+    expect(api.captureScopeSyncBatchPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selection: { mode: "ids", scopeRecordIds: ["synthetic-op01"] },
+      }),
+    );
+    expect(api.previewScopeSyncBatch).not.toHaveBeenCalled();
+    expect(api.confirmScopeSyncBatch).not.toHaveBeenCalled();
+  });
+  it("forwards pre-confirm observation with the original fingerprint and no confirmation capability", async () => {
+    const observation = { currentFingerprint: "a".repeat(64), eligible: true, effectsCapability: false };
+    api.readScopeSyncBatchPreConfirm.mockResolvedValue(observation);
+    const response = await runRequest(
+      formRequest({
+        intent: "pre-confirm-planner-read",
+        countCapture: "1",
+        selectionMode: "ids",
+        scopeRecordIds: "synthetic-op01",
+        planFingerprint: "a".repeat(64),
+      }),
+    );
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).headers.get("cache-control")).toBe("no-store");
+    expect(await (response as Response).json()).toMatchObject({ capturePreConfirm: observation });
+    expect(api.readScopeSyncBatchPreConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planFingerprint: "a".repeat(64),
+        selection: { mode: "ids", scopeRecordIds: ["synthetic-op01"] },
+      }),
+    );
+    expect(api.confirmScopeSyncBatch).not.toHaveBeenCalled();
+    expect(api.previewScopeSyncBatch).not.toHaveBeenCalled();
+  });
+  it.each(["confirm", "cancel", "resume", "retry-unit", "count-quote", "count-acquire"])(
+    "refuses capture-marked %s until its own lifecycle boundary is composed",
+    async (intent) => {
+      const response = await runRequest(formRequest({ intent, countCapture: "1", batchId: "synthetic" }));
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(409);
+      expect((response as Response).headers.get("cache-control")).toBe("no-store");
+      expect(await (response as Response).json()).toMatchObject({ error: "capture-stopped" });
+      for (const method of Object.values(api)) expect(method).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["", "0", "true", "synthetic-run"])("refuses invalid capture marker %j without API work", async (marker) => {
+    const response = await runRequest(formRequest({ intent: "preview", countCapture: marker }));
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(409);
+    for (const method of Object.values(api)) expect(method).not.toHaveBeenCalled();
+  });
+  it("does not reflect captured API failures and never retries through ordinary preview", async () => {
+    api.captureScopeSyncBatchPreview.mockRejectedValueOnce(new Error("synthetic-private-marker"));
+    const response = await runRequest(formRequest({ intent: "preview", countCapture: "1" }));
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(409);
+    expect(await (response as Response).text()).not.toContain("synthetic-private-marker");
+    expect(api.captureScopeSyncBatchPreview).toHaveBeenCalledOnce();
+    expect(api.previewScopeSyncBatch).not.toHaveBeenCalled();
+  });
+  it("refuses an unmarked pre-confirm or duplicate marker before API work", async () => {
+    for (const body of ["intent=pre-confirm-planner-read", "intent=preview&countCapture=1&countCapture=1"]) {
+      const response = await runRequest(
+        new Request("http://admin.test/catalog/scopes/sync-batches", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(409);
+      expect((response as Response).headers.get("cache-control")).toBe("no-store");
+    }
+    for (const method of Object.values(api)) expect(method).not.toHaveBeenCalled();
+  });
   it.each(["ids", "matching-scope"])(
     "AC1 forwards %s/held-set selection to an I/O-free count quote, not confirmation",
     async (mode) => {

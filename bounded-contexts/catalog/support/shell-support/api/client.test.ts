@@ -1,6 +1,48 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
 
+describe("count capture planner client", () => {
+  it("keeps capture on the real preview endpoint with an explicit request-only selector", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => Response.json({ confirmAllowed: false }));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog",
+      fetch,
+      headers: { origin: "https://admin.staging.chasesets.com" },
+    });
+    const input = { selection: { mode: "ids" as const, scopeRecordIds: ["synthetic-op01"] } };
+    await client.captureScopeSyncBatchPreview(input);
+    await client.previewScopeSyncBatch(input);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "/api/catalog/scope-sync-batches/preview",
+      "/api/catalog/scope-sync-batches/preview",
+    ]);
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).get("x-catalog-count-capture")).toBe("1");
+    expect(new Headers(fetch.mock.calls[1]![1]?.headers).has("x-catalog-count-capture")).toBe(false);
+    for (const [, init] of fetch.mock.calls) {
+      expect(new Headers(init?.headers).get("origin")).toBe("https://admin.staging.chasesets.com");
+      expect(init?.body).toBe(JSON.stringify(input));
+      expect(init?.method).toBe("POST");
+      expect(init?.credentials).toBe("include");
+    }
+  });
+  it("uses only the no-effect pre-confirm route and does not retry an unavailable capture", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => Response.json({ error: { code: "capture-stopped" } }, { status: 409 }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    const input = {
+      selection: { mode: "ids" as const, scopeRecordIds: ["synthetic-op01"] },
+      planFingerprint: "a".repeat(64),
+    };
+    await expect(client.readScopeSyncBatchPreConfirm(input)).rejects.toBeInstanceOf(ApiError);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]![0]).toBe("/api/catalog/scope-sync-batches/count-capture/pre-confirm");
+    expect(fetch.mock.calls[0]![1]?.body).toBe(JSON.stringify(input));
+  });
+});
+
 describe("catalog API durable job client", () => {
   it.each(["merge-candidate-promote", "merge-candidate-defer"] as const)(
     "posts %s with the scope, headers and configured credentials",

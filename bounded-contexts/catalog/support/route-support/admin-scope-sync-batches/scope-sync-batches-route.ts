@@ -9,12 +9,14 @@ import {
 } from "../../../features/scope-sync-batches/domain/held-set-export";
 import { readHeldSetExportAdminUpload } from "../../../features/scope-sync-batches/api/held-set-upload";
 import type { CountQuote } from "../../../features/scope-sync-batches/domain/count-acquisition";
+import type { CountCapturePlannerRuntime } from "../../../features/scope-sync-batches/api/count-capture-runtime";
 
 export type ScopeSyncBatchRouteActionData = Readonly<{
   preview: ScopeSyncBatchPreview | null;
   heldSetResolution: HeldSetResolution | null;
   error: string | null;
   countQuote?: CountQuote | null;
+  capturePreConfirm?: Awaited<ReturnType<CountCapturePlannerRuntime["preConfirm"]>>;
 }>;
 
 export async function loader({
@@ -39,6 +41,41 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
     }
     const formData = await request.formData();
     const intent = stringValue(formData.get("intent"));
+    if (formData.has("countCapture") || intent === "pre-confirm-planner-read") {
+      const headers = { "Cache-Control": "no-store" };
+      try {
+        if (formData.getAll("countCapture").length !== 1 || formData.get("countCapture") !== "1")
+          throw new Error("capture-stopped");
+        if (intent === "preview")
+          return Response.json(
+            {
+              preview: await api.captureScopeSyncBatchPreview(previewRequest(formData)),
+              heldSetResolution: null,
+              error: null,
+            } satisfies ScopeSyncBatchRouteActionData,
+            { headers },
+          );
+        if (intent === "pre-confirm-planner-read")
+          return Response.json(
+            {
+              preview: null,
+              heldSetResolution: null,
+              error: null,
+              capturePreConfirm: await api.readScopeSyncBatchPreConfirm({
+                ...previewRequest(formData),
+                planFingerprint: requiredString(formData.get("planFingerprint"), "capture-stopped"),
+              }),
+            } satisfies ScopeSyncBatchRouteActionData,
+            { headers },
+          );
+        throw new Error("capture-stopped");
+      } catch {
+        return Response.json(
+          { preview: null, heldSetResolution: null, error: "capture-stopped" },
+          { status: 409, headers },
+        );
+      }
+    }
     if (intent === "count-quote")
       return {
         preview: null,
