@@ -1,6 +1,7 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parsePlatformOperationsListingRemovalDirectedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -59,6 +60,15 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
 
       const actionId = createId("rca");
       const recordedAt = new Date().toISOString();
+      const directive =
+        params.targetType === "listing" && params.action === "unlist"
+          ? parsePlatformOperationsListingRemovalDirectedPayload({
+              actionId,
+              listingId: params.targetId,
+              operatorUserId: params.operatorUserId,
+              directedAt: recordedAt,
+            })
+          : null;
       await deps.eventStore.appendToStream({
         streamId: `platform-operations.reported-content-${params.targetType}-${params.targetId}` as never,
         expectedVersion: "any",
@@ -75,6 +85,14 @@ export function createReportedContentRuntime(deps: ReportedContentRuntimeDeps): 
               recordedAt,
             },
           },
+          ...(directive
+            ? [
+                {
+                  eventType: "platform-operations.reported-content.listing-removal-directed",
+                  payload: directive,
+                },
+              ]
+            : []),
         ],
         context,
       });
