@@ -176,7 +176,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         productTruthRefs: [
           "bounded-contexts/settlement/GLOSSARY.md:117-125",
           "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts",
-          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
         ],
         openQuestions: [agreementSpecificGateOpenQuestion],
         assumptions: [
@@ -185,7 +185,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Chase Sets already models a payout-readiness status distinguishing account clearance, " +
               "outstanding provider requirements, and active holds, without publishing a numeric clearance SLA.",
-            evidenceRef: "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+            evidenceRef: "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
           },
         ],
       },
@@ -344,7 +344,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [5685],
         productTruthRefs: [
           "infrastructure/stripe-connect/index.ts:390-425",
-          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
         ],
         openQuestions: [],
         assumptions: [

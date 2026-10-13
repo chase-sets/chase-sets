@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
+import ts from "@chase-sets/typescript-compiler-api";
+import { deriveLinkIntentOrigins, deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
 import { deriveActionProducers, verifyActionProducers } from "./link-intent-action-producer-inventory.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -16,6 +17,18 @@ const arbitrary = {
   source:
     'import type { NotificationMessage as N } from "@chase-sets/outbound-messaging"; export const f = (): N => ({ messageType: "odd.added", criticality: "operational", title: "Synthetic notice", body: "Synthetic notice", ["actionHref"]: "/items/one", templateId: "synthetic_notice", templateVersion: 1, locale: "en", templateData: {}, channels: [{ channel: "web", recipient: {} }], idempotencyKey: "synthetic-1", correlationId: "synthetic-1", actor: { userId: null } });',
 };
+const methodSiblings = [
+  {
+    ...arbitrary,
+    source:
+      'export const mappers = { build(): NotificationMessage { return { messageType: "odd.added", actionHref: "/items/one" }; } };',
+  },
+  {
+    ...arbitrary,
+    source:
+      'export class Mapper { map(): NotificationMessage { return { messageType: "odd.added", actionHref: "/items/one" }; } }',
+  },
+];
 let rows;
 let fixtureRoot;
 
@@ -29,7 +42,13 @@ beforeAll(() => {
     .trim()
     .split(/\r?\n/);
   const files = [
-    ...new Set([...rows.map((row) => row.path), ...manifests, ...deriveOwnerLinkTypes(root).map((file) => file.path)]),
+    ...new Set([
+      ...rows.map((row) => row.path),
+      ...manifests,
+      ...deriveOwnerLinkTypes(root).map((file) => file.path),
+      "scripts/environment-hosts.json",
+      deriveLinkIntentOrigins(root).path,
+    ]),
   ];
   for (const file of files) {
     mkdirSync(path.dirname(path.join(fixtureRoot, file)), { recursive: true });
@@ -38,6 +57,77 @@ beforeAll(() => {
   execFileSync("git", ["init", "--quiet"], { cwd: fixtureRoot });
   execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: fixtureRoot });
   execFileSync("git", ["add", "."], { cwd: fixtureRoot });
+});
+
+it("shipped runtime sources never import checkout-only scripts", () => {
+  const files = execFileSync("git", ["ls-files", "-z", "infrastructure", "bounded-contexts", "contracts", "packages"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(
+      (file) =>
+        /\.[cm]?[jt]sx?$/.test(file) &&
+        !/\.(?:test|spec)\.|(?:^|\/)(?:tests?|e2e|fixtures?)\/|(?:^|\/)(?:vitest|vite|react-router)\.config\./.test(
+          file,
+        ),
+    );
+  const violations = [];
+  for (const file of files) {
+    const ast = ts.createSourceFile(file, readFileSync(path.join(root, file), "utf8"), ts.ScriptTarget.Latest, true);
+    const visit = (node) => {
+      const specifier =
+        ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+          ? node.moduleSpecifier
+          : ts.isCallExpression(node) &&
+              (node.expression.kind === ts.SyntaxKind.ImportKeyword || node.expression.getText(ast) === "require")
+            ? node.arguments[0]
+            : null;
+      if (
+        specifier &&
+        ts.isStringLiteralLike(specifier) &&
+        specifier.text.startsWith(".") &&
+        path.resolve(root, path.dirname(file), specifier.text).startsWith(path.join(root, "scripts") + path.sep)
+      )
+        violations.push(`${file}: ${specifier.text}`);
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+  }
+  expect(violations).toEqual([]);
+});
+
+it("runtime image inventory includes generated origins but not the host authority", () => {
+  const runtime = readFileSync(path.join(root, "Dockerfile"), "utf8").split(" AS runtime")[1];
+  expect(runtime).toContain("COPY --chown=node:node infrastructure ./infrastructure");
+  expect(runtime).not.toContain("COPY --chown=node:node scripts/environment-hosts.json");
+  expect(runtime).toContain("Only population assets may ship under scripts");
+  expect(readFileSync(path.join(root, deriveLinkIntentOrigins(root).path), "utf8").replaceAll("\r\n", "\n")).toBe(
+    deriveLinkIntentOrigins(root).source,
+  );
+});
+
+it("generated runtime origins fail closed on indeterminate authority and stale output", () => {
+  const authorityPath = path.join(fixtureRoot, "scripts/environment-hosts.json");
+  const authoritySource = readFileSync(authorityPath, "utf8");
+  const generatedPath = path.join(fixtureRoot, deriveLinkIntentOrigins(root).path);
+  const generatedSource = readFileSync(generatedPath, "utf8");
+  try {
+    writeFileSync(generatedPath, generatedSource + "// synthetic stale output\n");
+    expect(verifyActionProducers(rows, { registrations, repoRoot: fixtureRoot })).toContain(
+      `Stale generated link intents ${deriveLinkIntentOrigins(root).path}`,
+    );
+    const authority = JSON.parse(authoritySource);
+    const removed = authority.hosts.find(
+      (row) => row.class === "application" && row.environment === "production" && !row.templated,
+    );
+    authority.hosts = authority.hosts.filter((row) => row !== removed);
+    writeFileSync(authorityPath, JSON.stringify(authority));
+    expect(() => deriveLinkIntentOrigins(fixtureRoot)).toThrow(/Indeterminate canonical origin/);
+  } finally {
+    writeFileSync(authorityPath, authoritySource);
+    writeFileSync(generatedPath, generatedSource);
+  }
 });
 
 afterAll(() => {
@@ -76,15 +166,63 @@ export const makeNotice = () => { const result: N = { messageType: input.type, a
   expect(added.map((row) => row.fields.map((field) => field.field))).toEqual([["registrationPath"], ["actionHref"]]);
 });
 
+it("discovers accessor and constructor producer scopes without attributing nested methods to their caller", () => {
+  const source = `export class Mapper {
+    constructor() { const notice = { messageType: "odd.constructor", actionHref: "/items/one" }; }
+    get notice(): NotificationMessage { return { messageType: "odd.getter", actionHref: "/items/one" }; }
+    set notice(value: NotificationMessage) { const notice = { messageType: "odd.setter", actionHref: "/items/one" }; }
+  }
+  export function factory() { return { build(): NotificationMessage { return { messageType: "odd.method", actionHref: "/items/one" }; } }; }`;
+  const added = deriveActionProducers({ repoRoot: fixtureRoot, extraSources: [{ ...arbitrary, source }] }).filter(
+    (row) => row.path === arbitrary.path,
+  );
+  expect(added).toHaveLength(4);
+  expect(added.map((row) => row.function)).toContain("Mapper.constructor");
+  expect(added.some((row) => row.function === "factory")).toBe(false);
+  expect(added.every((row) => row.fields.length === 1)).toBe(true);
+});
+
+it("owner-builder proof follows object and class method helpers and rejects raw helper returns", () => {
+  for (const declaration of [
+    'export const mappers = { href() { return links("item-detail", { path: { id: "one" } }).href; }, build(): NotificationMessage { return { messageType: "odd.method", actionHref: mappers.href() }; } };',
+    'export class Mapper { href() { return links("item-detail", { path: { id: "one" } }).href; } map(): NotificationMessage { return { messageType: "odd.method", actionHref: this.href() }; } }',
+  ]) {
+    const source = 'import { links } from "@chase-sets/discovery/integration/link-intents";\n' + declaration;
+    const filename = path.join(fixtureRoot, arbitrary.path);
+    mkdirSync(path.dirname(filename), { recursive: true });
+    writeFileSync(filename, source);
+    const added = deriveActionProducers({ repoRoot: fixtureRoot, extraSources: [{ ...arbitrary, source }] }).filter(
+      (row) => row.path === arbitrary.path,
+    );
+    const classified = [
+      ...registrations,
+      ...added.map((row) => ({
+        ...row,
+        classification: "business-navigation",
+        reason: "Synthetic method-helper control",
+        intentIds: ["discovery.item-detail"],
+      })),
+    ];
+    try {
+      expect(verifyActionProducers([...rows, ...added], { registrations: classified, repoRoot: fixtureRoot })).toEqual(
+        [],
+      );
+      writeFileSync(filename, source.replace('links("item-detail", { path: { id: "one" } }).href', '"/items/one"'));
+      expect(
+        verifyActionProducers([...rows, ...added], { registrations: classified, repoRoot: fixtureRoot }),
+      ).toContainEqual(expect.stringContaining("Unproved owner builder"));
+    } finally {
+      rmSync(filename);
+    }
+  }
+});
+
 it("changed producer implementation fails even when inventoried fields remain unchanged", () => {
   const changed = { ...rows[0], sourceDigest: "synthetic-changed-implementation" };
   expect(verifyActionProducers([changed, ...rows.slice(1)])).toContain(`Stale producer implementation ${changed.id}`);
 });
 
 it("unclassified-producer candidate-versus-bypass mutant", async () => {
-  const withSibling = deriveActionProducers({ extraSources: [arbitrary] });
-  expect(withSibling.length).toBeGreaterThan(rows.length);
-  expect(verifyActionProducers(withSibling)).not.toEqual([]);
   const source = readFileSync(path.join(import.meta.dirname, "link-intent-action-producer-inventory.mjs"), "utf8");
   const guard =
     /if \(!registration\) \{\s*violations.push\(`Unclassified action producer \$\{row.id\}`\);\s*continue;\s*\}/;
@@ -105,16 +243,26 @@ it("unclassified-producer candidate-versus-bypass mutant", async () => {
       JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "generate-link-intents.mjs")).href),
     );
   const bypass = await import(`data:text/javascript;base64,${Buffer.from(bypassSource).toString("base64")}`);
-  expect(bypass.verifyActionProducers(withSibling), "unclassified-producer-check-bypassed").toEqual([]);
+  for (const sibling of [arbitrary, ...methodSiblings]) {
+    const withSibling = deriveActionProducers({ extraSources: [sibling] });
+    expect(withSibling.length, sibling.source).toBeGreaterThan(rows.length);
+    expect(verifyActionProducers(withSibling)).toContainEqual(expect.stringContaining("Unclassified action producer"));
+    expect(bypass.verifyActionProducers(withSibling), "unclassified-producer-check-bypassed").toEqual([]);
+  }
 });
 
 it("real Git-tracked producer partition and arbitrary sibling addition", () => {
   const positive = deriveActionProducers({ repoRoot: fixtureRoot });
   expect(positive.map((row) => row.id)).toEqual(rows.map((row) => row.id));
   expect(verifyActionProducers(positive, { registrations, repoRoot: fixtureRoot })).toEqual([]);
-  for (const siblingPath of [arbitrary.path, arbitrary.path.replace(".ts", ".db.ts")]) {
+  for (const sibling of [
+    arbitrary,
+    { ...arbitrary, path: arbitrary.path.replace(".ts", ".db.ts") },
+    ...methodSiblings,
+  ]) {
+    const siblingPath = sibling.path;
     mkdirSync(path.dirname(path.join(fixtureRoot, siblingPath)), { recursive: true });
-    writeFileSync(path.join(fixtureRoot, siblingPath), arbitrary.source);
+    writeFileSync(path.join(fixtureRoot, siblingPath), sibling.source);
     execFileSync("git", ["add", siblingPath], { cwd: fixtureRoot });
     try {
       const added = deriveActionProducers({ repoRoot: fixtureRoot });

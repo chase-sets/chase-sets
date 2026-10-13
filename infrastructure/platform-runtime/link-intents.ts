@@ -7,34 +7,17 @@ import type {
   LinkParameterRule,
   ParsedLinkIntent,
 } from "@chase-sets/bounded-context-module";
-import environmentHosts from "../../scripts/environment-hosts.json" with { type: "json" };
+import { linkIntentOrigins } from "./link-intent-origins.generated";
 import { matchRoutes } from "react-router";
 import { resolveWebHostRouteRecords, type WebContextManifest, type WebContextRegistry, type WebHostName } from "./web";
 
 export type * from "@chase-sets/bounded-context-module/link-intents";
 
 const hosts: readonly WebHostName[] = ["marketplace-web", "admin-web", "public-web"];
-const hostLabels: Readonly<Record<WebHostName, string>> = {
-  "marketplace-web": "marketplace",
-  "admin-web": "admin",
-  "public-web": "",
-};
-
 function originFor(host: WebHostName, environment: LinkEnvironment) {
-  const label = hostLabels[host];
-  const hostname = [label, environment === "staging" ? "staging" : "", environmentHosts.rootDomain]
-    .filter(Boolean)
-    .join(".");
-  const matches = environmentHosts.hosts.filter(
-    (row) =>
-      row.host === hostname &&
-      row.status === "current" &&
-      row.class === "application" &&
-      row.environment === environment &&
-      !row.templated,
-  );
-  if (matches.length !== 1) throw new Error(`Indeterminate canonical origin for ${host}/${environment}`);
-  return `https://${hostname}`;
+  const origin = linkIntentOrigins[host]?.[environment];
+  if (!origin) throw new Error(`Indeterminate canonical origin for ${host}/${environment}`);
+  return origin;
 }
 
 export function composeLinkIntents(contexts: WebContextRegistry): LinkIntentCatalog {

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { expect, it } from "vitest";
 import manifest from "../../bounded-contexts/discovery/context.json" with { type: "json" };
-import environmentHosts from "../../scripts/environment-hosts.json" with { type: "json" };
+import { linkIntentOrigins } from "./link-intent-origins.generated";
 import { resolveWebHostRouteRecords, type WebContextManifest } from "./web";
 import { matchRoutes } from "react-router";
 import { composeLinkIntents, parseCanonicalLink } from "./link-intents";
@@ -32,7 +32,7 @@ function mutant(before: string, after: string) {
   new Function("require", "exports", compiled)((specifier: string) => {
     if (specifier === "./web") return { resolveWebHostRouteRecords };
     if (specifier === "react-router") return { matchRoutes };
-    if (specifier.endsWith("environment-hosts.json")) return environmentHosts;
+    if (specifier === "./link-intent-origins.generated") return { linkIntentOrigins };
     throw new Error(`Unexpected mutant import ${specifier}`);
   }, exports);
   return exports.parseCanonicalLink!;

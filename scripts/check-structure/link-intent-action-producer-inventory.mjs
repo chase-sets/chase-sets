@@ -3,11 +3,29 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
+import { deriveLinkIntentOrigins, deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const inventoryPath = path.join(import.meta.dirname, "link-intent-action-producers.json");
 const linkField = /(?:href|url|link|path)$/i;
+
+function functionNameForNode(node, ast) {
+  if (
+    ts.isMethodDeclaration(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node) ||
+    ts.isConstructorDeclaration(node)
+  ) {
+    const container = node.parent;
+    const owner =
+      container.name?.getText(ast) ??
+      (ts.isVariableDeclaration(container.parent) ? container.parent.name.getText(ast) : `anonymous-${container.pos}`);
+    return `${owner}.${node.name?.getText(ast) ?? "constructor"}`;
+  }
+  return (
+    node.name?.text ?? (ts.isVariableDeclaration(node.parent) ? node.parent.name.getText(ast) : `anonymous-${node.pos}`)
+  );
+}
 
 function ownerBuilderViolations(source, file, producerLines) {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -28,9 +46,16 @@ function ownerBuilderViolations(source, file, producerLines) {
       for (const binding of node.importClause?.namedBindings?.elements ?? []) builders.add(binding.name.text);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
       variables.push(node);
-      if (node.initializer && ts.isArrowFunction(node.initializer)) helpers.set(node.name.text, node.initializer);
+      if (node.initializer && ts.isFunctionLike(node.initializer) && node.initializer.body)
+        helpers.set(node.name.text, node.initializer);
     }
     if (ts.isFunctionDeclaration(node) && node.name) helpers.set(node.name.text, node);
+    if (
+      ts.isFunctionLike(node) &&
+      node.body &&
+      (ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
+    )
+      helpers.set(functionNameForNode(node, ast), node);
     if (ts.isCallExpression(node)) calls.push(node);
     if (
       (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
@@ -94,8 +119,16 @@ function ownerBuilderViolations(source, file, producerLines) {
         }
       }
     }
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      const helper = helpers.get(node.expression.text);
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const name = ts.isIdentifier(callee)
+        ? callee.text
+        : ts.isPropertyAccessExpression(callee)
+          ? callee.expression.kind === ts.SyntaxKind.ThisKeyword
+            ? `${functionNameForNode(scope(node), ast).split(".")[0]}.${callee.name.text}`
+            : callee.getText(ast)
+          : null;
+      const helper = helpers.get(name);
       if (!helper?.body) return false;
       if (!ts.isBlock(helper.body)) return resolves(helper.body, next);
       const returns = helper.body.statements.filter(ts.isReturnStatement);
@@ -144,10 +177,8 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
       }
     }
     const visit = (node, functionName = "module", typed = false) => {
-      if (ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-        const ownName =
-          node.name?.text ??
-          (ts.isVariableDeclaration(node.parent) ? node.parent.name.getText(ast) : `anonymous-${node.pos}`);
+      if (ts.isFunctionLike(node) && node.body) {
+        const ownName = functionNameForNode(node, ast);
         const name = functionName === "module" ? ownName : `${functionName}/${ownName}`;
         const type = node.type?.getText(ast) ?? "";
         const isTyped = [...aliases].some((alias) =>
@@ -158,11 +189,7 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
         let constructsThroughPublicContract = false;
         let hasTypedMessageValue = false;
         const scan = (child) => {
-          if (
-            child !== node &&
-            (ts.isFunctionDeclaration(child) || ts.isArrowFunction(child) || ts.isFunctionExpression(child))
-          )
-            return;
+          if (child !== node && ts.isFunctionLike(child) && child.body) return;
           if (
             ts.isCallExpression(child) &&
             ts.isIdentifier(child.expression) &&
@@ -310,9 +337,9 @@ export function verifyActionProducers(
     }
   }
   for (const row of registrations) if (!actual.has(row.id)) violations.push(`Missing action producer ${row.id}`);
-  for (const generated of deriveOwnerLinkTypes(repoRoot)) {
+  for (const generated of [...deriveOwnerLinkTypes(repoRoot), deriveLinkIntentOrigins(repoRoot)]) {
     if (readFileSync(path.join(repoRoot, generated.path), "utf8").replaceAll("\r\n", "\n") !== generated.source)
-      violations.push(`Stale owner link types ${generated.path}`);
+      violations.push(`Stale generated link intents ${generated.path}`);
   }
   return violations;
 }
