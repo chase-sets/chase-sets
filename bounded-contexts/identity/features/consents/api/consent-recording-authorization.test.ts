@@ -110,6 +110,7 @@ describe("internally resolved Terms recording", () => {
 
   it.each([
     { name: "foreign user", change: { userId: "usr_foreign" }, code: "consent_user_not_authorized" },
+    { name: "foreign account", change: { accountId: "acc_foreign" }, code: "consent_account_not_authorized" },
     { name: "invalid subject", change: { subjectType: "account" }, code: "consent_subject_invalid" },
     { name: "empty user", change: { userId: "" }, code: "consent_subject_invalid" },
     { name: "shared principal", change: { userId: "usr_guest_checkout" }, code: "consent_shared_principal_forbidden" },

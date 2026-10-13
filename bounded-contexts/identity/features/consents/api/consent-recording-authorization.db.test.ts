@@ -464,7 +464,7 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
       recordInput(consentId, authorizeConsentForActor(authorizedContext), {
         subjectType: "user",
         userId: "usr_foreign",
-        accountId: "acc_victim",
+        accountId: "acc_authorized",
       }),
       "consent_user_not_authorized",
     );
@@ -477,7 +477,7 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
       recordInput(consentId, authorizeConsentForActor(authorizedContext), {
         subjectType: "account",
         userId: "usr_authorized",
-        accountId: "acc_foreign",
+        accountId: "acc_authorized",
       }),
       "consent_subject_invalid",
     );
