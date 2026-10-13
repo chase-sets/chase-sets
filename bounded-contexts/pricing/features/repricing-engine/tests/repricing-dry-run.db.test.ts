@@ -19,6 +19,7 @@ import { createRepricingEngineRuntime } from "../api/runtime";
 import { pricingRepricingDryRunSchemaMigrations } from "../read-model/migrations";
 import { loadRepricingRoundInputsPage } from "../read-model/queries";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "./dry-run-fixture";
+import { economicsNeverResolved, roundCapture } from "./round-capture-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -40,7 +41,11 @@ describeDb("repricing durable dry runs", () => {
   });
 
   function runtime(db = pools.pricing) {
-    return createRepricingEngineRuntime({ db, eventStore: createPostgresEventStore({ pool: pools.pricing }) });
+    return createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      db,
+      eventStore: createPostgresEventStore({ pool: pools.pricing }),
+    });
   }
   const claim = (claimOwnerId: string) => ({ claimOwnerId, claimTtlMs: 300_000 });
 
@@ -217,6 +222,7 @@ describeDb("repricing durable dry runs", () => {
     expect(gateway).not.toHaveBeenCalled();
     await expect(
       loadRepricingRoundInputsPage(pools.pricing, {
+        ...roundCapture(),
         products: Array.from({ length: 501 }, () => ({ catalogItemId: "cat", productId: "product" })),
       }),
     ).rejects.toThrow("500");

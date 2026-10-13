@@ -92,7 +92,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
   const demandCurves = createDemandCurveCloser({ pool, eventStore, policies });
-  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
+  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool, economics });
   const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
   /**
    * The Market-Value Estimate recompute RIDES the market-rollups closer job
