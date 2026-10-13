@@ -16,6 +16,7 @@ const skipFilterSql = {
   "resume-hysteresis": "outcome.trace->>'skipReason' = 'resume-hysteresis'",
   "repause-cooldown": "outcome.trace->>'skipReason' = 'repause-cooldown'",
   "command-error": "outcome.trace->>'skipReason' = 'command-error'",
+  "hopeless-forecast-hold": "outcome.trace->>'skipReason' = 'hopeless-forecast-hold'",
 } satisfies Record<RepricingEvaluationSkipReason, string>;
 
 export const activityFilterSql = {

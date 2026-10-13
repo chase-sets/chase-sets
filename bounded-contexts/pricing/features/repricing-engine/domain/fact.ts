@@ -19,7 +19,8 @@ export type RepricingEvaluationSkipReason =
   | "spiral-breaker-frozen"
   | "resume-hysteresis"
   | "repause-cooldown"
-  | "command-error";
+  | "command-error"
+  | "hopeless-forecast-hold";
 
 export type RepricingPolicyListingTrace = Readonly<{
   listingId: string;

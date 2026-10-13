@@ -49,12 +49,13 @@ export type RepricingClampTrace = Readonly<{
   floor: boolean;
   ceiling: boolean;
   maxMove: boolean;
+  evidenceFloor?: boolean;
 }>;
 
 export type RepricingAnchorTrace = Readonly<{
-  source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold";
+  source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold" | "curve-objective";
   amount: string;
-  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold";
+  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold" | "curve-objective";
   contributingListingCount: number;
 }>;
 
@@ -76,6 +77,7 @@ export type RepricingListingEvaluation = Readonly<{
     | "terminal-pause"
     | "terminal-notify-only"
     | "currency-input-incomplete-or-mismatched"
+    | "hopeless-forecast-hold"
     | null;
 }>;
 

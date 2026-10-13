@@ -1,5 +1,6 @@
 import {
   Banner,
+  Badge,
   Button,
   CheckboxGroup,
   Fieldset,
@@ -17,6 +18,7 @@ import type {
   RepricingRuleDirective,
 } from "../domain/domain";
 import { policyControls } from "./policy-controls";
+import { repricingGoalLabel } from "./policy-copy";
 
 export type PolicyCategory = Readonly<{ id: string; name: string }>;
 export const editorCopy = (key: string) => t(`pricing.features.repricingPolicies.ui.editor.${key}`);
@@ -275,12 +277,32 @@ export function PolicyDirectiveFields({
           legend={t("pricing.features.repricingPolicies.ui.editor.anchor.number", { number: index + 1 })}
         >
           <Stack gap={3}>
-            <Select
-              label={editorCopy("anchor")}
-              items={controlItems(policyControls.anchor)}
-              value={anchor.source}
-              onValueChange={(source) => changeAnchor(index, newAnchor(source))}
-            />
+            {anchor.source === "curve-objective" ? (
+              <Fieldset legend={t(policyControls.anchor[anchor.source].copyKey)}>
+                <Stack gap={2}>
+                  <Badge tone="neutral">{repricingGoalLabel(anchor)}</Badge>
+                  <Badge tone="neutral">
+                    {anchor.goalId} v{anchor.goalVersion}
+                  </Badge>
+                  {Object.entries(anchor.parameters).map(([name, value]) => (
+                    <Badge key={name} tone="neutral">
+                      {name}: {value}
+                    </Badge>
+                  ))}
+                </Stack>
+              </Fieldset>
+            ) : (
+              <Select
+                label={editorCopy("anchor")}
+                items={controlItems(
+                  Object.fromEntries(
+                    Object.entries(policyControls.anchor).filter(([, option]) => option.control !== "goal-summary"),
+                  ),
+                )}
+                value={anchor.source}
+                onValueChange={(source) => changeAnchor(index, newAnchor(source))}
+              />
+            )}
             {anchor.source === "comp-percentile" ? (
               <PolicyNumber
                 label={editorCopy("percentile")}
