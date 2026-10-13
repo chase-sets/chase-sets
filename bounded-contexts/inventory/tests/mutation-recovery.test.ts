@@ -20,6 +20,29 @@ function storage() {
   return { entries, result };
 }
 describe("issue-7169-c1-boundary-recovery: AC9/10/11/13 restore", () => {
+  it.each(["invalid-json", "oversized", "unknown-field"])(
+    "keeps %s recovery metadata ambiguous until explicit discard",
+    (kind) => {
+      const saved = storage();
+      createInventoryMutationRecovery(authority, "item-create", saved.result).begin("draft", randomUUID());
+      const slot = [...saved.entries.keys()][0];
+      const value = saved.entries.get(slot)!;
+      saved.entries.set(
+        slot,
+        kind === "invalid-json"
+          ? "{"
+          : kind === "oversized"
+            ? "x".repeat(2049)
+            : JSON.stringify({ ...JSON.parse(value), unknown: true }),
+      );
+      const restored = createInventoryMutationRecovery(authority, "item-create", saved.result);
+      expect(restored.snapshot()).toMatchObject({ state: "ambiguous", record: null, writesDisabled: true });
+      expect(() => restored.begin("draft", randomUUID())).toThrow("resolved");
+      expect(saved.entries.size).toBe(1);
+      restored.discard();
+      expect(saved.entries.size).toBe(0);
+    },
+  );
   it("restores one bounded account-operation record and only reads after a possible send", async () => {
     const saved = storage();
     const original = createInventoryMutationRecovery(authority, "item-create", saved.result);
@@ -55,15 +78,16 @@ describe("issue-7169-c1-boundary-recovery: AC9/10/11/13 restore", () => {
     const saved = storage();
     const client = createInventoryMutationRecovery(authority, "hold-create", saved.result);
     client.begin("inv_synthetic", randomUUID());
-    for (const changed of [
-      { ...authority, accountId: "acc_other" },
-      { ...authority, actorUserId: "usr_other" },
-    ]) {
-      expect(createInventoryMutationRecovery(changed, "hold-create", saved.result).snapshot()).toMatchObject({
-        state: "editing",
-        record: null,
-      });
-    }
+    expect(
+      createInventoryMutationRecovery({ ...authority, accountId: "acc_other" }, "hold-create", saved.result).snapshot(),
+    ).toMatchObject({ state: "editing", record: null });
+    expect(
+      createInventoryMutationRecovery(
+        { ...authority, actorUserId: "usr_other" },
+        "hold-create",
+        saved.result,
+      ).snapshot(),
+    ).toMatchObject({ state: "reauth-required", record: null, writesDisabled: true });
     expect(Object.keys(JSON.parse([...saved.entries.values()][0])).sort()).toEqual([
       "accountId",
       "actorUserId",

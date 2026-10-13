@@ -83,20 +83,26 @@ export function createInventoryMutationRecovery(
   }
   function restore() {
     const encoded = storage.getItem(key(authority, family));
-    if (encoded === null || encoded.length > 2048) return;
+    if (encoded === null) return;
+    if (encoded.length > 2048) {
+      state = "ambiguous";
+      return;
+    }
     let decoded: unknown;
     try {
       decoded = JSON.parse(encoded);
     } catch {
+      state = "ambiguous";
       return;
     }
-    if (
-      !validRecord(decoded) ||
-      decoded.accountId !== authority.accountId ||
-      decoded.actorUserId !== authority.actorUserId ||
-      decoded.family !== family
-    )
+    if (!validRecord(decoded) || decoded.family !== family) {
+      state = "ambiguous";
       return;
+    }
+    if (decoded.accountId !== authority.accountId || decoded.actorUserId !== authority.actorUserId) {
+      state = "reauth-required";
+      return;
+    }
     record = decoded;
     state = "confirming";
   }
