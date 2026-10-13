@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
@@ -76,7 +76,7 @@ describe("agent-grant-revocation-real-route", () => {
       revocation_available: false,
       revocation_active: true,
     });
-    await router.revalidate();
+    await act(async () => router.revalidate());
     expect(screen.queryByRole("button", { name: "Revoke access" })).toBeNull();
   });
   it("keeps dormant revoked UI free of recovery actions and receipts", async () => {
@@ -86,7 +86,7 @@ describe("agent-grant-revocation-real-route", () => {
       revocation_available: false,
       revocation_active: false,
     });
-    await router.revalidate();
+    await act(async () => router.revalidate());
     expect(screen.queryByRole("button", { name: "Revoke access" })).toBeNull();
     expect(screen.queryByText("You can revoke access or confirm interrupted cleanup.")).toBeNull();
   });
