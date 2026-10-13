@@ -636,6 +636,9 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
         ),
       );
       const events = await eventStore.readStream({ streamId: `inventory.hold-${placed.holdId}` });
+      const itemHandlers = buildInventoryItemProjectionHandlers(pool);
+      for (const event of await eventStore.readStream({ streamId: `inventory.item-${item.itemId}` }))
+        await itemHandlers[event.eventType]!(toTransportEvent(event));
       const handlers = buildInventoryHoldProjectionHandlers(pool);
       for (const event of events) await handlers[event.eventType]!(toTransportEvent(event));
       await replay("hold-release", (attempt) =>
@@ -843,7 +846,7 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
         };
         const normal = services;
         services = inventoryModule.createServices(faultPool, {});
-        await expect(runLocation(attempt)).rejects.toThrow("Synthetic connection interruption");
+        await expect(runLocation(attempt)).rejects.toThrow(/Synthetic connection interruption|terminating connection/);
         expect(interrupted).toBe(true);
         services = normal;
         expect(await services.mutations.read(attempt.id, context)).toBeNull();

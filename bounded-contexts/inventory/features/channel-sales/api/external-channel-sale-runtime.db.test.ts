@@ -495,7 +495,7 @@ describeDb("external-channel-sale real event-store authority", () => {
         query: async (sql: string, values?: readonly unknown[]) => {
           const matches =
             (kind === "claim" && sql.includes("WITH inserted AS")) ||
-            (kind === "holds" && sql.includes("WITH placed AS")) ||
+            (kind === "holds" && sql.includes("WITH candidates AS")) ||
             (kind === "complete" && sql.includes("UPDATE inventory_item_adjustment_idempotency"));
           if (armed && matches) {
             armed = false;

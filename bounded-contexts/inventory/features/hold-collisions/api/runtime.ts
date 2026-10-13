@@ -231,6 +231,9 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             }
 
             const activeHolds = await loadActiveHolds(deps, params, context);
+            const retainedHeldQuantity = activeHolds.reduce((total, hold) => total + hold.quantity, 0);
+            if (!Number.isSafeInteger(retainedHeldQuantity) || retainedHeldQuantity > item.state.totalQuantity)
+              throw new InventoryDomainError("Inventory stock history is unavailable; reconciliation is required.");
             if (mode === "honor-offline" && params.reasonCode !== undefined && params.reasonCode !== "sold-offline") {
               throw new InventoryDomainError("Honor offline requires reasonCode sold-offline.");
             }

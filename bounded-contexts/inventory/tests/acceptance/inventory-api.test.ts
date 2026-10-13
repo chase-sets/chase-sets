@@ -1476,7 +1476,7 @@ describe("inventory api", () => {
         shipFromCode: "NYC-1",
         shipFromAddress,
       },
-      otherContext,
+      withInventoryMutationAttempt(otherContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -1499,7 +1499,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,
       },
-      otherContext,
+      withInventoryMutationAttempt(otherContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,

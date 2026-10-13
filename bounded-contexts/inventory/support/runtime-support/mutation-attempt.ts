@@ -269,7 +269,7 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
             requestingAccountId,
           ],
         );
-        const result = await work();
+        const result = JSON.parse(JSON.stringify(await work())) as T;
         const completed = await db.query(
           `UPDATE inventory_mutation_attempts SET status = 'succeeded', result = $8::jsonb, result_hash = $9, completed_at = now()
           WHERE attempt_key = $1 AND tenant_id = $2 AND actor_user_id = $3 AND account_id = $4 AND family = $5 AND target_id = $6

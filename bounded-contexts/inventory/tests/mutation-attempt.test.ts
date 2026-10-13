@@ -102,6 +102,19 @@ function harness() {
 }
 
 describe("issue-7169-ac2-single-target-replay: owner transaction", () => {
+  it("retains the exact JSON result when a trusted PostgreSQL reader supplies a Date", async () => {
+    const { runtime } = harness();
+    const id = randomUUID();
+    const attempted = withInventoryMutationAttempt(context, id);
+    const work = vi.fn(async () => ({ expiresAt: new Date("2026-10-13T12:00:00Z") }));
+    const first = await runtime.execute("location-create", "draft", "acc_synthetic", location, attempted, work);
+    expect(first).toEqual({ expiresAt: "2026-10-13T12:00:00.000Z" });
+    expect(await runtime.execute("location-create", "draft", "acc_synthetic", location, attempted, work)).toEqual(
+      first,
+    );
+    expect(await runtime.read(id, context)).toMatchObject({ result: first });
+    expect(work).toHaveBeenCalledTimes(1);
+  });
   it("replays normalized intent with immutable first result and no second fact", async () => {
     const { runtime, rows, committedFacts } = harness();
     const attempted = withInventoryMutationAttempt(context, randomUUID());

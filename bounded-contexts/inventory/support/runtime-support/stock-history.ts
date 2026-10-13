@@ -227,6 +227,9 @@ export async function loadInventoryStockHolds(input: {
          WHERE tenant_id = $1 AND stream_context_name = 'inventory'
            AND stream_category = 'inventory.hold'
            AND (payload ->> 'itemId' = $3 OR
+             NOT EXISTS (SELECT 1 FROM event_store_events AS placement
+               WHERE placement.stream_id = event_store_events.stream_id
+                 AND placement.event_type = 'inventory.hold.placed') OR
              (payload ->> 'accountId' = $2 AND event_type = 'inventory.hold.placed'
                AND NOT (payload ? 'itemId')))
        ), counted AS (SELECT stream_id, COUNT(*) OVER () AS total FROM candidates)
