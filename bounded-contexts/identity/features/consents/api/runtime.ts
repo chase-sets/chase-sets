@@ -95,7 +95,10 @@ export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices
     if (requested.type !== "WithdrawConsent") {
       throw new IdentityDomainError("The generic Consent handler only admits WithdrawConsent.");
     }
-    const command: WithdrawConsentCommand = Object.freeze({ type: "WithdrawConsent", withdrawnAt: requested.withdrawnAt });
+    const command: WithdrawConsentCommand = Object.freeze({
+      type: "WithdrawConsent",
+      withdrawnAt: requested.withdrawnAt,
+    });
     const context = snapshotEventStoreContext(input.context);
     assertConsentAuthorizationForContext(input.authorization, context);
 
