@@ -76,7 +76,7 @@ describe("UCP OAuth routes", () => {
       },
     ])("requires an interactive session before reading an attempt: %j", async (refusedActor) => {
       const { options, app } = await fixture();
-      options.resolveActor = async () => refusedActor;
+      vi.spyOn(options, "resolveActor").mockResolvedValue(refusedActor);
       const read = vi.spyOn(options.agentGrantRevocations!, "read");
       const response = await app.request(path);
       expect(response.status).toBe(401);
@@ -86,7 +86,7 @@ describe("UCP OAuth routes", () => {
 
     it("denies a Grant outside the actor's Account before reading an attempt", async () => {
       const { options, app } = await fixture();
-      options.resolveActor = async () => ({ ...actor, accountId: "synthetic-foreign-account" });
+      vi.spyOn(options, "resolveActor").mockResolvedValue({ ...actor, accountId: "synthetic-foreign-account" });
       const read = vi.spyOn(options.agentGrantRevocations!, "read");
       const response = await app.request(path);
       expect(response.status).toBe(404);
@@ -130,7 +130,7 @@ describe("UCP OAuth routes", () => {
           })
         ).status,
       ).toBe(200);
-      options.resolveActor = async () => ({ ...actor, sessionId: "synthetic-other-session" });
+      vi.spyOn(options, "resolveActor").mockResolvedValue({ ...actor, sessionId: "synthetic-other-session" });
       const response = await app.request(path);
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({ state: "conflict" });
@@ -156,8 +156,8 @@ describe("UCP OAuth routes", () => {
     );
 
     it("reports an unavailable owner as ambiguous", async () => {
-      const { options, app } = await fixture();
-      options.agentGrantRevocations = undefined;
+      const { options } = await fixture();
+      const app = createUcpOAuthRoutes({ ...options, agentGrantRevocations: undefined });
       const response = await app.request(path);
       expect(response.status).toBe(503);
       expect(await response.json()).toEqual({ state: "ambiguous" });
