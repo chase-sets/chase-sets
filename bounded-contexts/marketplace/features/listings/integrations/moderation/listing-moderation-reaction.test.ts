@@ -1,11 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import manifest from "../../../../context.json" with { type: "json" };
+import type { BcContextManifest } from "@chase-sets/bounded-context-module";
 import { buildListingModerationReactionHandlers } from "./listing-moderation-reaction";
 
 const directiveType = "platform-operations.reported-content.listing-removal-directed";
 const reactionName = "marketplace-listing-moderation-reaction";
+const manifest = JSON.parse(
+  readFileSync(new URL("../../../../context.json", import.meta.url), "utf8"),
+) as BcContextManifest;
 function directive() {
   return {
     tenantId: "tnt_test",
@@ -36,7 +39,7 @@ describe("listing moderation reaction", () => {
   });
 
   it("first activation manifest accepts only new directives, not historical audits", () => {
-    const declaration = manifest.eventReactions.find(({ reactionName: name }) => name === reactionName);
+    const declaration = manifest.eventReactions?.find(({ reactionName: name }) => name === reactionName);
     expect(declaration).toEqual({
       sourceContextName: "platform-operations",
       reactionName,
@@ -49,7 +52,7 @@ describe("listing moderation reaction", () => {
       retryPolicy: "retry-from-last-checkpoint",
       failurePolicy: "surface-as-reaction-failure",
     });
-    expect(manifest.projectionGroups.find(({ projectionName }) => projectionName === reactionName)).toEqual({
+    expect(manifest.projectionGroups?.find(({ projectionName }) => projectionName === reactionName)).toEqual({
       projectionName: reactionName,
       handlerKind: "reaction",
       sourceContextNames: ["platform-operations"],
