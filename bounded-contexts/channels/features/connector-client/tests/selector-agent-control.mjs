@@ -155,16 +155,14 @@ export function inspectOrders(document, expectedRange, previous = null) {
   const observable = roots.length === 1 && ["true", "false"].includes(roots[0].getAttribute("aria-busy"));
   const token = completions.length === 1 ? completions[0].getAttribute("data-load") : null;
   const completionRange = completions.length === 1 ? completions[0].getAttribute("data-range") : null;
-  const invalidated =
-    previous !== null &&
-    (previous.documentChanged === true || previous.token !== token || loading || completionRange !== selected);
+  const invalidated = previous !== null && (previous.token !== token || loading || completionRange !== selected);
   const complete =
     observable &&
     !loading &&
     !!token &&
     completionRange === selected &&
     selected === expectedRange &&
-    (previous === null || (invalidated && previous.token !== token) || previous.documentChanged === true);
+    (previous === null || (invalidated && previous.token !== token));
   const payload = {
     rangeSemanticsValid,
     selectedRangeValid: selected === expectedRange,
@@ -674,11 +672,13 @@ export function createPlaywrightSelectorBrowser({
     const item = page.locator(`extensions-item[id="${preparation.extensionId}"]`);
     if ((await item.count()) !== 1) throw new SelectorFailure("ANCHOR_ABSENT");
     page.on("dialog", (dialog) => {
-      void dialog.accept();
+      dialogFailure = new SelectorFailure("PROTOCOL_REFUSED");
+      void dialog.dismiss();
     });
     await item.locator("#removeButton").click();
     const confirmation = page.locator("extensions-remove-dialog").locator("#remove");
     if ((await confirmation.count()) === 1) await confirmation.click();
+    if (dialogFailure) throw dialogFailure;
     await item.waitFor({ state: "detached" });
     if (page.url() !== "chrome://extensions/" || (await item.count()) !== 0)
       throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
