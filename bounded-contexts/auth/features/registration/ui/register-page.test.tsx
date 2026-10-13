@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RegisterPage } from "./register-page";
 import { createPasskeyCredential } from "../../../support/ui-support/passkey-browser";
+import MarketplaceRegisterRoute, { loader } from "../../../routes/marketplace/register";
+import { missingPhoneFailure, renderAuthRoute, safeFailure } from "../../../tests/auth-form-route-test-support";
+import { redirect } from "react-router";
+
+vi.mock("../../../support/route-support/auth-host.server", async () => {
+  const { defineAuthHost } = await import("../../../support/route-support/auth-host");
+  const { marketplaceAuthHostConfig } = await import("../../../support/route-support/host-config");
+  return { marketplaceAuthHost: defineAuthHost(marketplaceAuthHostConfig) };
+});
 
 vi.mock("../../../support/ui-support/passkey-browser", () => ({
   createPasskeyCredential: vi.fn(),
@@ -14,6 +23,95 @@ const createPasskeyCredentialMock = vi.mocked(createPasskeyCredential);
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe("routed registration errors", () => {
+  it.each(["phone-code-request", "phone-code-consume"] as const)("safe fields: %s links only its mounted phone, with ARIA before focus", async (intent) => {
+    const route = await renderAuthRoute({ path: "/register", Component: MarketplaceRegisterRoute, loader }, "/register");
+    fireEvent.click(screen.getByRole("radio", { name: "Phone Code" }));
+    const form = document.querySelector(`input[name="intent"][value="${intent}"]`)!.closest("form")!;
+    const phone = form.querySelector<HTMLInputElement>('input[name="phone"]')!;
+    let invalidAtFocus: string | null = null;
+    let descriptionAtFocus: string | null = null;
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    focus.mockImplementation(function (this: HTMLElement) {
+      if (this.tagName === "SECTION") {
+        invalidAtFocus = phone.getAttribute("aria-invalid");
+        descriptionAtFocus = phone.getAttribute("aria-describedby");
+      }
+      focus.mockRestore();
+      this.focus();
+    });
+    fireEvent.submit(form);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    await route.settle(await missingPhoneFailure(intent));
+    expect(invalidAtFocus).toBe("true");
+    expect(document.getElementById(descriptionAtFocus!)?.textContent).toBe("Phone is required.");
+    const summary = screen.getByRole("alert");
+    expect(document.activeElement).toBe(summary);
+    const link = screen.getByRole("link", { name: /Phone.*Phone is required/ });
+    expect(link.getAttribute("href")).toBe(`#${phone.id}`);
+    fireEvent.keyDown(link, { key: "Enter" });
+    expect(document.activeElement).toBe(phone);
+    const otherPhone = [...document.querySelectorAll('input[name="phone"]')].find((element) => element !== phone)!;
+    expect(otherPhone.getAttribute("aria-invalid")).toBeNull();
+    await route.revalidate();
+    expect(document.activeElement).toBe(phone);
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    route.router.dispose();
+  });
+
+  it("focus lifecycle: clears on accepted start, focuses identical results separately, then phone success and navigation", async () => {
+    const route = await renderAuthRoute({ path: "/register", Component: MarketplaceRegisterRoute, loader }, "/register");
+    fireEvent.click(screen.getByRole("radio", { name: "Phone Code" }));
+    const button = screen.getByRole("button", { name: "Text me a code" });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      button.focus();
+      fireEvent.submit(button.closest("form")!);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(attempt));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(document.activeElement).toBe(button);
+      await route.settle(await missingPhoneFailure("phone-code-request"), true);
+      expect(screen.queryByRole("alert")).toBeNull();
+      await route.finishLoading();
+      expect(document.activeElement).toBe(screen.getByRole("alert"));
+      button.focus();
+      await route.revalidate();
+      expect(document.activeElement).toBe(button);
+    }
+    fireEvent.submit(button.closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(3));
+    await route.settle({ status: "phone-code-sent", phone: "+13125550100", tokenId: "synthetic-token", expiresAt: "2099-01-01T00:00:00Z" });
+    expect(document.activeElement).toBe(screen.getByLabelText("Phone Code"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.submit(screen.getByRole("button", { name: "Create account with code" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(4));
+    await route.settle(redirect("/done"));
+    expect(screen.getByText("Authenticated destination")).toBeTruthy();
+    route.router.dispose();
+  });
+
+  it("auth parity: unknown fields and browser failures never expose markers in DOM or analytics", async () => {
+    const events: unknown[] = [];
+    const listener = (event: Event) => events.push((event as CustomEvent).detail);
+    window.addEventListener("chase-sets:registration-method", listener);
+    createPasskeyCredentialMock.mockRejectedValueOnce(new Error("RAW_PASSKEY_SECRET_MARKER"));
+    const route = await renderAuthRoute({ path: "/register", Component: MarketplaceRegisterRoute, loader }, "/register");
+    fireEvent.submit(screen.getByRole("button", { name: "Create With Passkey" }).closest("form")!);
+    expect((await screen.findByRole("alert")).textContent).toContain("Passkey registration failed.");
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.submit(screen.getByRole("button", { name: "Create account with password" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    await route.settle(safeFailure("password", 400, { error: { code: "validation_failed", message: "RAW_AUTH_MARKER", details: [{ field: "email", code: "phone_required", message: "RAW_AUTH_MARKER" }] } }));
+    expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/RAW_.*MARKER/);
+    expect(JSON.stringify(events)).not.toMatch(/RAW_.*MARKER/);
+    expect(JSON.stringify(events)).toContain("INDETERMINATE");
+    route.router.dispose();
+    window.removeEventListener("chase-sets:registration-method", listener);
+  });
 });
 
 beforeEach(() => {
@@ -123,7 +221,7 @@ describe("registration page", () => {
       <RegisterPage
         action={action}
         hiddenFields={[{ name: "returnTo", value: "/account/sell-list" }]}
-        errorMessage="The previous code expired."
+        actionError={safeFailure("phone-code-consume")}
         notice={{
           status: "phone-code-sent",
           tokenId: "synthetic-registration-token",
@@ -133,7 +231,7 @@ describe("registration page", () => {
         }}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toContain("The previous code expired.");
+    expect(screen.getByRole("alert").textContent).toContain("Phone code is invalid or has expired.");
     expect(screen.getByText("Phone code sent")).toBeTruthy();
     expect(screen.queryByText("Recommended")).toBeNull();
     expect(screen.queryByText("Fastest")).toBeNull();
@@ -250,7 +348,7 @@ describe("registration page", () => {
 
     fireEvent.submit(screen.getByRole("button", { name: "Create With Passkey" }).closest("form")!);
 
-    expect(await screen.findByText("Passkeys are not available in this browser.")).toBeTruthy();
+    expect(await screen.findByText("Passkey registration failed.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Use magic link" }));
 

@@ -11,6 +11,7 @@ import type { InteractiveAuthResult } from "../../support/runtime-support/servic
 import { createAuthRequestApiClient } from "../../support/request-support/api-client";
 import { marketplaceAuthHost } from "../../support/route-support/auth-host.server";
 import { toAuthActionError } from "../../support/route-support/auth-host";
+import { useAuthFormSubmission } from "../../support/ui-support/auth-form-feedback";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: t("auth.routes.marketplace.invite.meta.title") });
 
@@ -49,12 +50,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function MarketplaceInviteRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const submission = useAuthFormSubmission();
   return (
     <Container width="narrow" paddingX={0}>
       <InvitationAcceptancePage
         invitation={data.invitation}
         token={data.token}
-        errorMessage={actionData && "error" in actionData ? actionData.error : null}
+        {...submission}
+        actionError={actionData && "error" in actionData ? actionData : null}
       />
     </Container>
   );

@@ -6,6 +6,15 @@ import { SignInPage } from "./sign-in-page";
 import { defineAuthHost } from "../../../support/route-support/auth-host";
 import { adminAuthHostConfig, marketplaceAuthHostConfig } from "../../../support/route-support/host-config";
 import { getPasskeyCredential } from "../../../support/ui-support/passkey-browser";
+import MarketplaceSignInRoute, { loader } from "../../../routes/marketplace/sign-in";
+import { renderAuthRoute, missingPhoneFailure, safeFailure } from "../../../tests/auth-form-route-test-support";
+import { redirect } from "react-router";
+
+vi.mock("../../../support/route-support/auth-host.server", async () => {
+  const { defineAuthHost } = await import("../../../support/route-support/auth-host");
+  const { marketplaceAuthHostConfig, adminAuthHostConfig } = await import("../../../support/route-support/host-config");
+  return { marketplaceAuthHost: defineAuthHost(marketplaceAuthHostConfig), adminAuthHost: defineAuthHost(adminAuthHostConfig) };
+});
 
 vi.mock("../../../support/ui-support/passkey-browser", () => ({
   getPasskeyCredential: vi.fn(),
@@ -165,7 +174,7 @@ describe("sign-in page two-step journey", () => {
   it("rehydrates the failed method step and focuses the announced error", () => {
     render(
       <SignInPage
-        errorMessage="Invalid email or password."
+        actionError={safeFailure("password")}
         initialIdentifier="buyer@example.com"
         initialMethod="password"
       />,
@@ -408,7 +417,7 @@ describe("sign-in method presentation and native submissions", () => {
         action={action}
         hiddenFields={hiddenFields}
         signInMethods={["magic-link"]}
-        errorMessage="The previous link expired."
+        actionError={safeFailure("magic-link-consume")}
         allowManualMagicLinkTokenEntry={false}
         notice={{
           status: "magic-link-sent",
@@ -418,7 +427,7 @@ describe("sign-in method presentation and native submissions", () => {
         }}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toContain("The previous link expired.");
+    expect(screen.getByRole("alert").textContent).toContain("Magic link is invalid or has expired.");
     expect(document.activeElement).toBe(screen.getByRole("alert"));
     expect(screen.getByText("Magic link sent")).toBeTruthy();
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
@@ -496,5 +505,84 @@ describe("sign-in page magic link recovery", () => {
       errors: { fieldErrors: {}, formErrors: ["Magic link token entry is not available here."] },
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("routed sign-in errors", () => {
+  it("safe fields: source-authored phone is form-only when hidden; unknown fields never link", async () => {
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("+13125550100");
+    fireEvent.submit(screen.getByRole("button", { name: "Send Phone Code" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    await route.settle(await missingPhoneFailure("phone-code-request"));
+    expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("Phone is required.");
+    expect(screen.getByLabelText("Phone Code").getAttribute("aria-invalid")).toBeNull();
+    fireEvent.submit(screen.getByRole("button", { name: "Continue With Code" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
+    await route.settle(safeFailure("phone-code-consume", 400, { error: { code: "validation_failed", message: "RAW_AUTH_MARKER", details: [{ field: "code", code: "phone_required", message: "RAW_AUTH_MARKER" }] } }));
+    expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    expect(document.body.textContent).not.toContain("RAW_AUTH_MARKER");
+    route.router.dispose();
+  });
+
+  it("focus lifecycle: identical failures each focus once, loading clears and revalidation preserves focus", async () => {
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Passkey" }));
+    const passwordMethod = screen.getByRole("radio", { name: "Password" });
+    passwordMethod.focus();
+    fireEvent.click(passwordMethod);
+    expect(document.activeElement).toBe(passwordMethod);
+    const button = screen.getByRole("button", { name: "Sign In" });
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      button.focus();
+      fireEvent.submit(button.closest("form")!);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(attempt));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(document.activeElement).toBe(button);
+      await route.settle(safeFailure("password"), true);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(document.activeElement).toBe(button);
+      await route.finishLoading();
+      const summary = screen.getByRole("alert");
+      expect(summary.tagName).toBe("SECTION");
+      expect(document.activeElement).toBe(summary);
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      button.focus();
+      const count = focus.mock.calls.length;
+      await route.revalidate();
+      expect(document.activeElement).toBe(button);
+      expect(focus.mock.calls).toHaveLength(count);
+    }
+    expect(focus.mock.contexts.filter((element) => (element as HTMLElement).tagName === "SECTION")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("radio", { name: "Email me a sign-in link" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(passwordMethod);
+    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(3));
+    await route.settle(redirect("/done"));
+    expect(screen.getByText("Authenticated destination")).toBeTruthy();
+    focus.mockRestore();
+    route.router.dispose();
+  });
+
+  it("auth parity: browser passkey exceptions are safe, form-only and do not repeat on rerender", async () => {
+    vi.mocked(getPasskeyCredential).mockRejectedValueOnce(new Error("RAW_PASSKEY_SECRET_MARKER"));
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.submit(screen.getByRole("button", { name: "Use Passkey" }).closest("form")!);
+    const warning = await screen.findByRole("alert");
+    expect(warning.textContent).toContain("Passkey sign-in failed.");
+    expect(document.body.textContent).not.toContain("RAW_PASSKEY_SECRET_MARKER");
+    expect(document.activeElement).toBe(warning);
+    expect(route.requests).not.toHaveBeenCalled();
+    const method = screen.getByRole("radio", { name: "Password" });
+    method.focus();
+    fireEvent.click(method);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(method);
+    route.router.dispose();
   });
 });
