@@ -502,6 +502,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
   }
 
   const productFixtureFiles = new Map([
+    ["bounded-contexts/identity/features/account-management/api/owners.ts", null],
     [
       "bounded-contexts/identity/features/consents/domain/consent-recording-authorization.ts",
       `${fixtureRoot}/consent-recording-authorization.ts`,
@@ -517,7 +518,15 @@ export function deriveConsentAuthorizationEvidenceInventory({
   ]);
 
   function writeProductSurface(scratch) {
-    for (const [relative, fixture] of productFixtureFiles) writeScratchFile(scratch, relative, repoFile(fixture));
+    for (const [relative, fixture] of productFixtureFiles) {
+      writeScratchFile(
+        scratch,
+        relative,
+        fixture === null
+          ? 'import { authorizeConsentForActor } from "../../consents/domain/consent-recording-authorization";\nexport function planOwnerMutation(context: unknown) { return authorizeConsentForActor(context); }\n'
+          : repoFile(fixture),
+      );
+    }
   }
 
   function buildProductScratchRepo(prefix, extraFiles = new Map()) {
@@ -1825,12 +1834,12 @@ export function deriveConsentAuthorizationEvidenceInventory({
         '    if (false && site.classification === "provisioning" && !/#6120\\b.*permanent|permanent.*#6120\\b/i.test(site.reason)) {',
       ],
       "MUT-AC8-PARTITION-SWAP-CLASSIFICATION": [
-        '  if (JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 0 })) {',
-        '  if (false && JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 0 })) {',
+        '  if (JSON.stringify(counts) !== JSON.stringify({ actor: 3, "self-registration": 1, provisioning: 0 })) {',
+        '  if (false && JSON.stringify(counts) !== JSON.stringify({ actor: 3, "self-registration": 1, provisioning: 0 })) {',
       ],
       "MUT-AC8-REGISTRY-ADD-SEVENTH": [
-        '  if (registry.sites.length !== 3) violations.push("registry must contain exactly three sites");',
-        '  if (false && registry.sites.length !== 3) violations.push("registry must contain exactly three sites");',
+        '  if (registry.sites.length !== 4) violations.push("registry must contain exactly four sites");',
+        '  if (false && registry.sites.length !== 4) violations.push("registry must contain exactly four sites");',
       ],
       // The governing variable is the observed partition itself, not one clause
       // that reads it. Narrowing the observed consumptions to the rows the
