@@ -21,6 +21,7 @@ import { buildIdentityApi } from "../../../api";
 import { mintRegistrationConsentResolution } from "../../consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../../../support/runtime-support/registration-consent-signing";
 import { bootstrapPlatformAdminIdentity } from "../../../support/runtime-support/production-bootstrap";
+import { upsertApiKeySecret } from "../../api-keys/api/secret-store";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for issue #7168 DB proof.");
@@ -525,6 +526,68 @@ describeDb("issue-7168 PostgreSQL authority", () => {
     expect(
       await runtime.submit({ ...profile, action: "rotate-api-key", target: first.receipt.result.id, body: {} }),
     ).not.toMatchObject({ outcome: "committed" });
+  });
+
+  it("issue-7168-ac6-api-key-secret: late legacy verifier writes cannot replace a newer keyed or legacy rotation", async () => {
+    const first = await runtime.submit({
+      ...profile,
+      action: "create-api-key",
+      target: null,
+      body: { userId: actor.userId, name: "Synthetic delayed verifier" },
+    });
+    if (first.outcome !== "committed" || !first.secret) throw new Error("Expected first secret");
+    const id = parseTypedId(first.receipt.result.id, "key");
+    const legacySecret = `${first.secret.slice(0, 12)}synthetic-new-secret`;
+    const legacyHash = services.auth.hashSecret(legacySecret);
+    const legacy = await services.apiKeys.commandHandler({
+      streamId: first.receipt.owner,
+      context,
+      command: { type: "RotateApiKey", keyPrefix: legacySecret.slice(0, 12), secretHash: legacyHash },
+    });
+    expect(legacy.state.verifierHash).toBe(legacyHash);
+    await upsertApiKeySecret(pool, {
+      apiKeyId: id,
+      userId: actor.userId,
+      keyPrefix: legacySecret.slice(0, 12),
+      secretHash: legacyHash,
+      expectedVersion: legacy.version,
+    });
+    await upsertApiKeySecret(pool, {
+      apiKeyId: id,
+      userId: actor.userId,
+      keyPrefix: first.secret.slice(0, 12),
+      secretHash: services.auth.hashSecret(first.secret),
+      expectedVersion: first.receipt.committedVersion,
+    });
+    async function verifierHash() {
+      return (
+        await pool.query<{ secret_hash: string }>(
+          "SELECT secret_hash FROM identity_api_key_secrets WHERE api_key_id = $1",
+          [id],
+        )
+      ).rows[0]?.secret_hash;
+    }
+    expect(await verifierHash()).toBe(legacyHash);
+    const rotated = await runtime.submit({
+      ...profile,
+      key: "f230f01b-7871-420b-9c32-37139f80f749",
+      action: "rotate-api-key",
+      target: id,
+      body: {},
+    });
+    if (rotated.outcome !== "committed" || !rotated.secret) throw new Error("Expected rotated secret");
+    await upsertApiKeySecret(pool, {
+      apiKeyId: id,
+      userId: actor.userId,
+      keyPrefix: legacySecret.slice(0, 12),
+      secretHash: legacyHash,
+      expectedVersion: legacy.version,
+    });
+    expect(await verifierHash()).toBe(services.auth.hashSecret(rotated.secret));
+    expect(await runtime.lookup({ ...profile, action: "create-api-key", target: null })).toMatchObject({
+      outcome: "committed",
+      secretState: "committed-secret-unrecoverable",
+    });
   });
 
   it("issue-7168-ac4-concurrency: same-key loser reloads once; different-key loser does not redecide", async () => {

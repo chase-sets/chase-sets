@@ -35,11 +35,13 @@ export type CreateApiKeyCommand = Readonly<{
   userId: UserId;
   name: string;
   keyPrefix: string;
+  secretHash?: string;
 }>;
 
 export type RotateApiKeyCommand = Readonly<{
   type: "RotateApiKey";
   keyPrefix: string;
+  secretHash?: string;
 }>;
 
 export type RevokeApiKeyCommand = Readonly<{ type: "RevokeApiKey" }>;
@@ -94,6 +96,7 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
             keyPrefix: command.keyPrefix,
           },
         },
+        ...privateVerifierEvents(command.keyPrefix, command.secretHash),
       ];
     case "RotateApiKey":
       requireActiveApiKey(state);
@@ -102,6 +105,7 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
           type: "identity.api-key.rotated",
           data: { keyPrefix: command.keyPrefix },
         },
+        ...privateVerifierEvents(command.keyPrefix, command.secretHash),
       ];
     case "RevokeApiKey":
       requireActiveApiKey(state);
@@ -153,6 +157,12 @@ export const evolveApiKey: AggregateEvolver<ApiKeyState, ApiKeyEvent> = (state, 
       return assertNever(event);
   }
 };
+
+function privateVerifierEvents(keyPrefix: string, secretHash: string | undefined): ApiKeyVerifierRecordedEvent[] {
+  if (secretHash === undefined) return [];
+  assert(/^[a-f0-9]{64}$/.test(secretHash), "API key verifier must be a SHA-256 digest.");
+  return [{ type: "identity.api-key.verifier-recorded", data: { keyPrefix, secretHash } }];
+}
 
 function requireCreatedApiKey(state: ApiKeyState) {
   assert(state.id !== null, "API key must be created first.");
