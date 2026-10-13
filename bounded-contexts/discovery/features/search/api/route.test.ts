@@ -195,6 +195,14 @@ describe("discovery item search routes", () => {
     });
   });
 
+  it("forwards synonym suggestion text unchanged", async () => {
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+    const response = await app.request("/suggest?q=zard%204%2F102");
+    expect(response.status).toBe(200);
+    expect(services.suggestItems).toHaveBeenCalledWith("zard 4/102", undefined);
+  });
+
   it("returns an empty suggestion list for an empty query", async () => {
     const services = createServices();
     const app = discoveryItemSearchRoutes(services);
