@@ -21,7 +21,6 @@ import {
   TextInput,
   ValidationSummary,
   type NormalizedFormErrors,
-  hasFormErrors,
 } from "@chase-sets/design-system";
 import type { ShippingAddress } from "./contracts";
 import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../domain/errors";
@@ -294,7 +293,7 @@ export function ShippingAddressPage({
             spacing="none"
             method="post"
             onSubmit={() => setActiveFailure(null)}
-            errorAnnouncement={createFailure && hasFormErrors(createFailure.errors) ? "summary" : "inline"}
+            errorAnnouncement={createFailure ? "summary" : "inline"}
           >
             <AddressFormContent failure={createFailure} focusSummary={focusSummary} />
           </Form>
@@ -350,10 +349,7 @@ export function ShippingAddressPage({
                         method="post"
                         onSubmit={() => setActiveFailure(null)}
                         errorAnnouncement={
-                          updateFailure?.shippingAddressId === address.shipping_address_id &&
-                          hasFormErrors(updateFailure.errors)
-                            ? "summary"
-                            : "inline"
+                          updateFailure?.shippingAddressId === address.shipping_address_id ? "summary" : "inline"
                         }
                       >
                         <AddressFormContent
