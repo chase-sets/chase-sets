@@ -92,7 +92,7 @@ const states: readonly {
 describe.each(["purchase", "sale"] as const)("canonical %s outcome matrix", (transactionLabel) => {
   it.each(states)("renders $name through the typed mapper and full panel", (state) => {
     const role = transactionLabel === "purchase" ? "buyer" : "seller";
-    const directionalSlot = state.slot ? { ...state.slot, authorRole: role } : null;
+    const directionalSlot: ReviewOpportunitySlot | null = state.slot ? { ...state.slot, authorRole: role } : null;
     const fact: ReviewOpportunityChangedV1 = {
       factSchemaVersion: 1,
       orderId: "ord_1",
@@ -118,10 +118,13 @@ describe.each(["purchase", "sale"] as const)("canonical %s outcome matrix", (tra
       `acc_${role}`,
       new Date(state.now ?? "2026-04-05T00:00:00.000Z"),
     );
+    const unexpectedMetadata = outcome.opportunity
+      ? { ...outcome.opportunity, response: "Private response sentinel", scoring_disposition: "context-only" }
+      : null;
     const markup = renderToString(
       <OrderOutcomePanel
         orderStatus="ready-for-fulfillment"
-        opportunity={outcome.opportunity}
+        opportunity={unexpectedMetadata}
         reviewReadStatus={outcome.status}
         reviewHref={`/account/${transactionLabel === "purchase" ? "purchases" : "sales"}/ord_1/review`}
         supportHref={`/account/support?orderId=ord_1&role=${role}`}
@@ -145,6 +148,8 @@ describe.each(["purchase", "sale"] as const)("canonical %s outcome matrix", (tra
     expect(markup.includes('href="/account/reviews/rev_1"')).toBe(state.action === "view");
     expect(markup.includes(`/ord_1/review"`)).toBe(state.action === "leave");
     expect(markup).not.toContain("Account response");
+    expect(markup).not.toContain("Private response sentinel");
+    expect(markup).not.toContain("Published, context only");
     expect(markup).not.toContain("Reviews open only after delivery verifies");
   });
 
