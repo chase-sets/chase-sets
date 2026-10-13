@@ -1,15 +1,6 @@
 import { formatDateTime, t } from "@chase-sets/localization";
-import {
-  Badge,
-  Button,
-  Form,
-  HiddenInput,
-  Inline,
-  LiveRegion,
-  ModalDialog,
-  Stack,
-  Text,
-} from "@chase-sets/design-system";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import { Badge, Button, HiddenInput, Inline, LiveRegion, ModalDialog, Stack, Text } from "@chase-sets/design-system";
 import type { Consent } from "./contracts";
 import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages";
 import {

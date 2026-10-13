@@ -1,16 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Card, LinkButton, MarketplaceNotice, Stack, Text } from "@chase-sets/design-system";
-
-export type OrderReviewOpportunity = Readonly<{
-  author_role: string;
-  active_review_id: string | null;
-  submission_state?: "allowed" | "held" | "expired";
-  hold_reason?: "feedback-on-hold" | null;
-  window_expired?: boolean;
-  response?: string | null;
-  revealed?: boolean;
-  scoring_disposition?: "included" | "context-only" | null;
-}>;
+import type { OrderingOrderReviewOpportunity } from "./contracts";
 
 function getCounterpartyRole(authorRole: string) {
   return authorRole === "buyer" ? "seller" : "buyer";
@@ -28,7 +18,7 @@ function ReviewOutcome({
   transactionLabel,
   orderStatus,
 }: {
-  opportunity: OrderReviewOpportunity | null;
+  opportunity: OrderingOrderReviewOpportunity | null;
   reviewReadStatus: "ready" | "unavailable";
   reviewHref: string;
   transactionLabel: "purchase" | "sale";
@@ -77,7 +67,7 @@ function ReviewOutcome({
     );
   }
 
-  if (opportunity.submission_state === "expired" || opportunity.window_expired) {
+  if (!opportunity.active_review_id && (opportunity.submission_state === "expired" || opportunity.window_expired)) {
     return (
       <Stack gap={1}>
         <Badge tone="neutral">{t("ordering.features.orders.ui.orderOutcome.review.expired")}</Badge>
@@ -106,7 +96,7 @@ export function OrderOutcomePanel({
   transactionLabel,
 }: {
   orderStatus: string;
-  opportunity: OrderReviewOpportunity | null;
+  opportunity: OrderingOrderReviewOpportunity | null;
   reviewReadStatus: "ready" | "unavailable";
   reviewHref: string;
   supportHref: string;
@@ -152,12 +142,13 @@ export function OrderReviewOpportunityCallout({
   reviewHref,
   transactionLabel,
 }: {
-  opportunity: OrderReviewOpportunity;
+  opportunity: OrderingOrderReviewOpportunity;
   reviewHref: string;
   transactionLabel: "purchase" | "sale";
 }) {
   const counterpartyRole = getCounterpartyRole(opportunity.author_role);
   const href = opportunity.active_review_id ? `/account/reviews/${opportunity.active_review_id}` : reviewHref;
+  const published = opportunity.revealed && Boolean(opportunity.active_review_revealed_at);
 
   return (
     <Card elevation="tinted">
@@ -170,32 +161,21 @@ export function OrderReviewOpportunityCallout({
                 counterpartyRole,
               })}
         </Text>
-        <Text size="sm" tone="secondary">
-          {t("ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies")}
-        </Text>
         {opportunity.active_review_id ? (
-          <Badge tone={opportunity.revealed ? "success" : "neutral"}>
+          <Badge tone={published ? "success" : "neutral"}>
             {t(
-              opportunity.scoring_disposition === "context-only"
-                ? "ordering.features.orders.ui.orderReviewOpportunityCallout.context.only"
-                : opportunity.revealed
-                  ? "ordering.features.orders.ui.orderReviewOpportunityCallout.revealed"
-                  : "ordering.features.orders.ui.orderReviewOpportunityCallout.awaiting.reveal",
+              published
+                ? "ordering.features.orders.ui.orderReviewOpportunityCallout.revealed"
+                : "ordering.features.orders.ui.orderReviewOpportunityCallout.awaiting.reveal",
             )}
           </Badge>
         ) : null}
-        <LinkButton href={href}>
-          {opportunity.active_review_id
-            ? t("ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review")
-            : t("ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review")}
-        </LinkButton>
-        {opportunity.response ? (
-          <Stack gap={1}>
-            <Text size="sm" weight="semibold">
-              {t("ordering.features.orders.ui.orderReviewOpportunityCallout.account.response")}
-            </Text>
-            <Text size="sm">{opportunity.response}</Text>
-          </Stack>
+        {opportunity.active_review_id || opportunity.submission_state === "allowed" ? (
+          <LinkButton href={href}>
+            {opportunity.active_review_id
+              ? t("ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review")
+              : t("ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review")}
+          </LinkButton>
         ) : null}
       </Stack>
     </Card>

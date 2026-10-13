@@ -91,7 +91,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         decisionRefs: [4068, 6798, 7101],
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
-          "bounded-contexts/identity/api.ts:832-844",
+          "bounded-contexts/identity/api.ts:835-847",
           `${listingRuntime}:1830-1970`,
           `${feeLock}:106-180`,
         ],
@@ -101,7 +101,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         assumptions: [
           {
             assertion: "Beta access starts the 60-day window independently of badge claim.",
-            evidenceRef: "bounded-contexts/identity/api.ts:832-844; bounded-contexts/identity/GLOSSARY.md:108-120",
+            evidenceRef: "bounded-contexts/identity/api.ts:835-847; bounded-contexts/identity/GLOSSARY.md:120-132",
           },
           {
             assertion:

@@ -14,6 +14,9 @@ import type { JsonObject } from "@chase-sets/primitives/json";
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
+import { assertMutationPermission } from "./features/account-management/api/runtime";
+import { parseAttemptKey } from "./features/account-management/domain/contract";
+import { parseActionTarget } from "./features/account-management/domain/attempt";
 import {
   formatGrantableRoleKeys,
   IdentityDomainError,
@@ -1961,16 +1964,22 @@ export function buildIdentityApi(
   app.use("/access-hub/*", requirePermission("accounts.view"));
 
   app.route("/access-hub", accessHubRoutes(services.accessHub));
-  app.route("/accounts", accountRoutes(services.accounts));
-  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services.shippingAddresses));
-  app.route("/users", userRoutes(services.users));
-  app.route("/memberships", membershipRoutes(services.memberships, services.accounts));
-  app.route("/invitations", invitationRoutes(services.invitations, services.accounts));
+  app.route("/accounts", accountRoutes(services.accounts, services.accountManagement));
+  app.route(
+    "/accounts/:accountId/shipping-addresses",
+    shippingAddressRoutes(services.shippingAddresses, services.accountManagement),
+  );
+  app.route("/users", userRoutes(services.users, services.accountManagement));
+  app.route("/memberships", membershipRoutes(services.memberships, services.accounts, services.accountManagement));
+  app.route("/invitations", invitationRoutes(services.invitations, services.accounts, services.accountManagement));
   app.route(
     "/api-keys",
-    apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
+    apiKeyRoutes(
+      { ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser },
+      services.accountManagement,
+    ),
   );
-  app.route("/consents", consentRoutes(services.consents));
+  app.route("/consents", consentRoutes(services.consents, services.accountManagement));
   app.route("/admin/consents", consentActivationRoutes(services.policies, consentActivationOptions));
   app.route("/account-capabilities", accountCapabilityRoutes(services.accountCapabilities));
   app.route(
@@ -1983,6 +1992,32 @@ export function buildIdentityApi(
     }),
   );
   app.route("/preferences", userPreferencesRoutes(services.preferences));
+
+  app.get("/account-management/attempts", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const actor = c.var.actor;
+    if (!actor || !c.var.context) return c.json({ error: { code: "authentication_required" } }, 401);
+    const notRecorded = { outcome: "not-recorded", code: "not-recorded" } as const;
+    let action;
+    let key;
+    const target = c.req.query("target") || null;
+    try {
+      const query = new URL(c.req.url).searchParams;
+      if ([...query.keys()].some((name) => !["action", "target"].includes(name) || query.getAll(name).length !== 1))
+        return c.json(notRecorded);
+      action = parseActionTarget(c.req.query("action") ?? "", target);
+      key = parseAttemptKey(c.req.header("Idempotency-Key"));
+    } catch {
+      return c.json(notRecorded);
+    }
+    try {
+      assertMutationPermission(actor, action);
+    } catch {
+      return c.json(notRecorded);
+    }
+    if (!services.accountManagement) return c.json({ outcome: "indeterminate", code: "INDETERMINATE" });
+    return c.json(await services.accountManagement.lookup({ actor, context: c.var.context, key, action, target }));
+  });
 
   app.post("/api-keys/resolve", async (c) => {
     const body = await c.req.json();
@@ -2004,7 +2039,12 @@ export function buildIdentityApi(
     try {
       result = await services.apiKeys.commandHandler({
         streamId: `identity.api-key-${apiKeySecret.api_key_id}`,
-        command: { type: "RecordApiKeyUse", usedAt: new Date().toISOString() },
+        command: {
+          type: "RecordApiKeyUse",
+          usedAt: new Date().toISOString(),
+          keyPrefix: apiKeySecret.key_prefix,
+          secretHash: apiKeySecret.secret_hash,
+        },
         context: getBootstrapContext(c),
       });
     } catch (error) {

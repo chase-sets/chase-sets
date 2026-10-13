@@ -65,7 +65,7 @@
       "kind": "direct-register-client",
       "disposition": "bound",
       "reason": "Registers synthetic accounts against the real register route; omitting the submission is the shape that failed a hosted CI shard, so it resolves before it registers.",
-      "sites": [{ "file": "deployables/marketplace/e2e/support/auth.ts", "line": 148 }]
+      "sites": [{ "file": "deployables/marketplace/e2e/support/auth.ts", "line": 150 }]
     },
     {
       "id": "guest-buy-now-freshness-probe",
@@ -89,7 +89,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the account is not the consenting subject, so there is no registration moment to bind.",
-      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 112 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 114 }]
     },
     {
       "id": "protected-user-administration",
@@ -97,7 +97,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the user is not the consenting subject.",
-      "sites": [{ "file": "bounded-contexts/identity/features/users/api/route.ts", "line": 49 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/users/api/route.ts", "line": 51 }]
     },
     {
       "id": "protected-membership-administration",
@@ -105,7 +105,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Grants membership to an existing user on an existing account; creates no identity.",
-      "sites": [{ "file": "bounded-contexts/identity/features/memberships/api/route.ts", "line": 118 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/memberships/api/route.ts", "line": 124 }]
     },
     {
       "id": "identity-domain-deciders",
@@ -152,7 +152,7 @@
       "sites": [
         { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 69 },
         { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 85 },
-        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 121 }
+        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 118 }
       ]
     },
     {
