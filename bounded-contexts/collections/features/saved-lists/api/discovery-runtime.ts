@@ -13,6 +13,12 @@ import {
   type SavedListProductSelection,
 } from "../domain/contracts";
 import { listRecentSavedLists } from "../read-model/picker-queries";
+import {
+  savedListCanonicalIdentifier,
+  savedListCanonicalProduct,
+  savedListCanonicalTitle,
+  savedListFingerprint,
+} from "./anonymous-owner";
 import type {
   AddProductToSavedListRequest,
   AnonymousSavedListClaimPreparation,
@@ -26,6 +32,11 @@ import type {
 
 const ANONYMOUS_SAVED_LIST_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_ACTIVE_ANONYMOUS_SAVED_LIST_INTENTS = 20;
+const anonymousIntentColumns = `intent_id, anonymous_owner_fingerprint, owner_revision,
+  source_path, source_surface, catalog_catalog_item_id, product_id, selected_options,
+  product_summary, add_command_id, line_id, status, claimed_account_id, claimed_list_id,
+  claimed_create_command_id, claimed_list_title, claimed_tracked_quantity,
+  claimed_expected_version, claimed_response, claimed_at, expires_at, created_at, updated_at`;
 
 export type SavedListDiscoveryErrorCode =
   | "invalid-request"
@@ -52,7 +63,8 @@ export class SavedListDiscoveryError extends Error {
 
 type AnonymousIntentRow = Readonly<{
   intent_id: string;
-  anonymous_owner_id: string;
+  anonymous_owner_fingerprint: string;
+  owner_revision: number;
   source_path: string;
   source_surface: SavedListDiscoverySurface;
   catalog_catalog_item_id: string;
@@ -99,12 +111,23 @@ export function createSavedListDiscoveryRuntime(
   }>,
 ) {
   const now = deps.clock ?? (() => new Date());
+  const owners = createAnonymousOwnerCompatibility(deps.db);
+
+  async function resolveOwner(raw: string, intentId: string | null = null) {
+    try {
+      raw = savedListCanonicalIdentifier(raw);
+      if (!raw.startsWith("anon_")) throw new Error("Invalid anonymous Saved List owner.");
+    } catch {
+      throw new SavedListDiscoveryError("invalid-request", "Anonymous Saved List owner is invalid.");
+    }
+    return owners.resolve(raw, intentId);
+  }
 
   async function expireAnonymousIntents(anonymousOwnerId: string) {
     await deps.db.query(
       `UPDATE collections_anonymous_saved_list_intents
-       SET status = 'expired', updated_at = now()
-       WHERE anonymous_owner_id = $1
+       SET status = 'expired', owner_revision = owner_revision + 1, updated_at = now()
+       WHERE anonymous_owner_fingerprint = $1
          AND status = 'active'
          AND expires_at <= now()`,
       [anonymousOwnerId],
@@ -112,12 +135,12 @@ export function createSavedListDiscoveryRuntime(
   }
 
   async function getIntent(anonymousOwnerId: string, intentId: string) {
-    const ownerId = normalizeAnonymousOwnerId(anonymousOwnerId);
+    const ownerId = await resolveOwner(anonymousOwnerId, normalizeRequired(intentId, "Saved List intent is required."));
     await expireAnonymousIntents(ownerId);
     const result = await deps.db.query<AnonymousIntentRow>(
-      `SELECT *
+      `SELECT ${anonymousIntentColumns}
        FROM collections_anonymous_saved_list_intents
-       WHERE intent_id = $1 AND anonymous_owner_id = $2`,
+       WHERE intent_id = $1 AND anonymous_owner_fingerprint = $2`,
       [normalizeRequired(intentId, "Saved List intent is required."), ownerId],
     );
     const row = result.rows[0];
@@ -126,6 +149,7 @@ export function createSavedListDiscoveryRuntime(
           intent: toIntent(row),
           expectedVersion: row.claimed_expected_version === null ? null : Number(row.claimed_expected_version),
           response: parseClaimedResponse(row.claimed_response),
+          revision: Number(row.owner_revision),
         }
       : null;
   }
@@ -296,7 +320,7 @@ export function createSavedListDiscoveryRuntime(
       context: EventStoreContext,
     ) => performAddition(input, context),
     async createAnonymousIntent(input: CreateAnonymousSavedListIntentRequest & Readonly<{ anonymousOwnerId: string }>) {
-      const anonymousOwnerId = normalizeAnonymousOwnerId(input.anonymousOwnerId);
+      const anonymousOwnerId = await resolveOwner(input.anonymousOwnerId);
       const sourcePath = normalizeSourcePath(input.sourcePath);
       const sourceSurface = normalizeSurface(input.sourceSurface);
       const product = await validateProduct(input.product);
@@ -304,14 +328,14 @@ export function createSavedListDiscoveryRuntime(
       await expireAnonymousIntents(anonymousOwnerId);
 
       const existing = await deps.db.query<AnonymousIntentRow>(
-        `SELECT *
+        `SELECT ${anonymousIntentColumns}
          FROM collections_anonymous_saved_list_intents
-         WHERE anonymous_owner_id = $1
+         WHERE anonymous_owner_fingerprint = $1
            AND status = 'active'
            AND expires_at > now()
            AND catalog_catalog_item_id = $2
            AND product_id = $3
-           AND selected_options = $4::jsonb
+           AND selected_options @> $4::jsonb AND selected_options <@ $4::jsonb
          ORDER BY updated_at DESC
          LIMIT 1`,
         [anonymousOwnerId, product.catalogItemId, product.productId, JSON.stringify(product.selectedOptions)],
@@ -325,18 +349,43 @@ export function createSavedListDiscoveryRuntime(
                source_surface = $3,
                product_summary = $4,
                expires_at = $5,
+               owner_revision = owner_revision + 1,
                updated_at = now()
-           WHERE intent_id = $1
-           RETURNING *`,
-          [existing.rows[0].intent_id, sourcePath, sourceSurface, productSummary, expiresAt],
+           WHERE intent_id = $1 AND owner_revision = $6 AND status = 'active'
+           RETURNING ${anonymousIntentColumns}`,
+          [
+            existing.rows[0].intent_id,
+            sourcePath,
+            sourceSurface,
+            productSummary,
+            expiresAt,
+            existing.rows[0].owner_revision,
+          ],
         );
-        return toIntent(updated.rows[0]);
+        if (updated.rows[0]) return toIntent(updated.rows[0]);
+        const reread = await deps.db.query<AnonymousIntentRow>(
+          `SELECT ${anonymousIntentColumns}
+           FROM collections_anonymous_saved_list_intents
+           WHERE intent_id = $1 AND anonymous_owner_fingerprint = $2`,
+          [existing.rows[0].intent_id, anonymousOwnerId],
+        );
+        const current = reread.rows[0];
+        if (!current) {
+          throw new SavedListDiscoveryError("intent-not-found", "Saved List addition was not found.");
+        }
+        if (current.status !== "active") {
+          throw new SavedListDiscoveryError("intent-already-claimed", "Saved List addition is no longer available.");
+        }
+        if (new Date(current.expires_at).getTime() <= now().getTime()) {
+          throw new SavedListDiscoveryError("intent-expired", "Saved List addition expired. Save the Product again.");
+        }
+        return toIntent(current);
       }
 
       const count = await deps.db.query<{ count: string }>(
         `SELECT count(*)::text AS count
          FROM collections_anonymous_saved_list_intents
-         WHERE anonymous_owner_id = $1 AND status = 'active' AND expires_at > now()`,
+         WHERE anonymous_owner_fingerprint = $1 AND status = 'active' AND expires_at > now()`,
         [anonymousOwnerId],
       );
       if (Number(count.rows[0]?.count ?? 0) >= MAX_ACTIVE_ANONYMOUS_SAVED_LIST_INTENTS) {
@@ -347,21 +396,7 @@ export function createSavedListDiscoveryRuntime(
       }
 
       const tokens = createSavedListAdditionTokens();
-      const inserted = await deps.db.query<AnonymousIntentRow>(
-        `INSERT INTO collections_anonymous_saved_list_intents (
-           intent_id,
-           anonymous_owner_id,
-           source_path,
-           source_surface,
-           catalog_catalog_item_id,
-           product_id,
-           selected_options,
-           product_summary,
-           add_command_id,
-           line_id,
-           expires_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
-         RETURNING *`,
+      const inserted = await owners.insert(
         [
           createId("sli"),
           anonymousOwnerId,
@@ -375,6 +410,7 @@ export function createSavedListDiscoveryRuntime(
           tokens.lineId,
           expiresAt,
         ],
+        input.anonymousOwnerId,
       );
       return toIntent(inserted.rows[0]);
     },
@@ -455,6 +491,7 @@ export function createSavedListDiscoveryRuntime(
         normalizeTitle(destination.title);
       }
       await validateProduct(intent.product);
+      let revision = loaded.revision;
 
       if (intent.status === "active") {
         const reserved = await deps.db.query<AnonymousIntentRow>(
@@ -465,25 +502,29 @@ export function createSavedListDiscoveryRuntime(
                claimed_create_command_id = $5,
                claimed_list_title = $6,
                claimed_tracked_quantity = $7,
+               owner_revision = owner_revision + 1,
                updated_at = now()
            WHERE intent_id = $1
-             AND anonymous_owner_id = $2
+             AND anonymous_owner_fingerprint = $2
+             AND owner_revision = $8
              AND status = 'active'
              AND expires_at > now()
-           RETURNING *`,
+           RETURNING ${anonymousIntentColumns}`,
           [
             intent.intentId,
-            intent.anonymousOwnerId,
+            intent.anonymousOwnerFingerprint,
             input.accountId,
             destination.listId,
             destination.kind === "new" ? destination.createCommandId : null,
             destination.kind === "new" ? destination.title : null,
             trackedQuantity,
+            loaded.revision,
           ],
         );
         if (!reserved.rows[0]) {
           throw new SavedListDiscoveryError("intent-already-claimed", "Saved List addition is no longer available.");
         }
+        revision = Number(reserved.rows[0].owner_revision);
       }
 
       const { response } = await performAddition(
@@ -501,31 +542,56 @@ export function createSavedListDiscoveryRuntime(
         {
           expectedVersion: loaded.expectedVersion,
           rememberExpectedVersion: async (version) => {
-            await deps.db.query(
+            const remembered = await deps.db.query<{ owner_revision: number }>(
               `UPDATE collections_anonymous_saved_list_intents
-               SET claimed_expected_version = $5, updated_at = now()
+               SET claimed_expected_version = $5, owner_revision = owner_revision + 1, updated_at = now()
                WHERE intent_id = $1
-                 AND anonymous_owner_id = $2
+                 AND anonymous_owner_fingerprint = $2
                  AND claimed_account_id = $3
                  AND claimed_list_id = $4
-                 AND status = 'claiming'`,
-              [intent.intentId, intent.anonymousOwnerId, input.accountId, destination.listId, version],
+                 AND status = 'claiming' AND owner_revision = $6
+               RETURNING owner_revision`,
+              [
+                intent.intentId,
+                intent.anonymousOwnerFingerprint,
+                input.accountId,
+                destination.listId,
+                version,
+                revision,
+              ],
             );
+            if (!remembered.rows[0])
+              throw new SavedListDiscoveryError(
+                "intent-already-claimed",
+                "Saved List addition is no longer available.",
+              );
+            revision = Number(remembered.rows[0].owner_revision);
           },
         },
       );
-      await deps.db.query(
+      const completed = await deps.db.query<{ owner_revision: number }>(
         `UPDATE collections_anonymous_saved_list_intents
          SET status = 'claimed',
              claimed_response = $5::jsonb,
              claimed_at = COALESCE(claimed_at, now()),
+             owner_revision = owner_revision + 1,
              updated_at = now()
          WHERE intent_id = $1
-           AND anonymous_owner_id = $2
+           AND anonymous_owner_fingerprint = $2
            AND claimed_account_id = $3
-           AND claimed_list_id = $4`,
-        [intent.intentId, intent.anonymousOwnerId, input.accountId, destination.listId, JSON.stringify(response)],
+           AND claimed_list_id = $4 AND status = 'claiming' AND owner_revision = $6
+         RETURNING owner_revision`,
+        [
+          intent.intentId,
+          intent.anonymousOwnerFingerprint,
+          input.accountId,
+          destination.listId,
+          JSON.stringify(response),
+          revision,
+        ],
       );
+      if (!completed.rows[0])
+        throw new SavedListDiscoveryError("intent-already-claimed", "Saved List addition is no longer available.");
       return response;
     },
   };
@@ -600,7 +666,7 @@ function replayClaimedResponse(response: SavedListAdditionResponse): SavedListAd
 function toIntent(row: AnonymousIntentRow): AnonymousSavedListIntent {
   return {
     intentId: row.intent_id,
-    anonymousOwnerId: row.anonymous_owner_id,
+    anonymousOwnerFingerprint: row.anonymous_owner_fingerprint,
     sourcePath: row.source_path,
     sourceSurface: row.source_surface,
     product: normalizeProduct({
@@ -627,23 +693,16 @@ function toIntent(row: AnonymousIntentRow): AnonymousSavedListIntent {
 }
 
 function normalizeProduct(product: SavedListProductSelection): SavedListProductSelection {
-  return {
-    catalogItemId: normalizeRequired(
-      product.catalogItemId,
-      "Catalog Item is required.",
-    ) as SavedListProductSelection["catalogItemId"],
-    productId: normalizeRequired(product.productId, "Product is required.") as SavedListProductSelection["productId"],
-    selectedOptions: [...(product.selectedOptions ?? [])]
-      .map((option) => ({
-        dimensionId: normalizeRequired(option.dimensionId, "Product Option dimension is required."),
-        optionId: normalizeRequired(option.optionId, "Product Option is required."),
-      }))
-      .sort((left, right) =>
-        left.dimensionId === right.dimensionId
-          ? left.optionId.localeCompare(right.optionId)
-          : left.dimensionId.localeCompare(right.dimensionId),
-      ),
-  };
+  try {
+    const [catalogItemId, productId, options] = savedListCanonicalProduct(product);
+    return {
+      catalogItemId: catalogItemId as SavedListProductSelection["catalogItemId"],
+      productId: productId as SavedListProductSelection["productId"],
+      selectedOptions: options.map(([dimensionId, optionId]) => ({ dimensionId, optionId })),
+    };
+  } catch {
+    throw new SavedListDiscoveryError("invalid-product", "Saved List Product selection is invalid.");
+  }
 }
 
 function stableProductKey(product: SavedListProductSelection) {
@@ -658,11 +717,11 @@ function normalizeTrackedQuantity(value: number) {
 }
 
 function normalizeTitle(value: string) {
-  const title = normalizeRequired(value, "Saved List title is required.");
-  if (title.length > savedListLimits.maximumTitleLength) {
-    throw new SavedListDiscoveryError("invalid-request", "Saved List title is too long.");
+  try {
+    return savedListCanonicalTitle(value);
+  } catch {
+    throw new SavedListDiscoveryError("invalid-request", "Saved List title is invalid.");
   }
-  return title;
 }
 
 function normalizeSourcePath(value: string) {
@@ -680,14 +739,6 @@ function normalizeSurface(value: SavedListDiscoverySurface) {
   return value;
 }
 
-function normalizeAnonymousOwnerId(value: string) {
-  const ownerId = normalizeRequired(value, "Anonymous Saved List owner is required.");
-  if (!ownerId.startsWith("anon_")) {
-    throw new SavedListDiscoveryError("invalid-request", "Anonymous Saved List owner is invalid.");
-  }
-  return ownerId;
-}
-
 function normalizeOptional(value: string | null | undefined) {
   const normalized = value?.trim() ?? "";
   return normalized ? normalized.slice(0, 500) : null;
@@ -701,4 +752,41 @@ function normalizeRequired(value: unknown, message: string) {
 
 function toIso(value: string | null) {
   return value === null ? null : new Date(value).toISOString();
+}
+
+function createAnonymousOwnerCompatibility(db: PgQueryable) {
+  return {
+    async resolve(rawOwner: string, intentId: string | null = null): Promise<string> {
+      const raw = savedListCanonicalIdentifier(rawOwner);
+      if (!raw.startsWith("anon_")) throw new Error("Invalid anonymous Saved List owner.");
+      const fingerprint = savedListFingerprint(["collections.anonymous-owner.v1", raw]);
+      const legacy = await db.query<{ intent_id: string; owner_revision: number }>(
+        `SELECT intent_id, owner_revision FROM collections_anonymous_saved_list_intents
+         WHERE anonymous_owner_id = $1 AND anonymous_owner_fingerprint IS NULL
+           AND (intent_id = $2 OR ($2::text IS NULL AND status = 'active'))`,
+        [raw, intentId],
+      );
+      for (const row of legacy.rows) {
+        await db.query(
+          `UPDATE collections_anonymous_saved_list_intents
+           SET anonymous_owner_fingerprint = $3, owner_revision = owner_revision + 1
+           WHERE intent_id = $1 AND owner_revision = $2
+             AND anonymous_owner_id = $4 AND anonymous_owner_fingerprint IS NULL`,
+          [row.intent_id, row.owner_revision, fingerprint, raw],
+        );
+      }
+      return fingerprint;
+    },
+    async insert(values: readonly unknown[], rawOwner: string) {
+      return db.query<AnonymousIntentRow>(
+        `INSERT INTO collections_anonymous_saved_list_intents (
+           intent_id, anonymous_owner_fingerprint, source_path, source_surface,
+           catalog_catalog_item_id, product_id, selected_options, product_summary,
+           add_command_id, line_id, expires_at, anonymous_owner_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
+         RETURNING ${anonymousIntentColumns}`,
+        [...values, savedListCanonicalIdentifier(rawOwner)],
+      );
+    },
+  };
 }

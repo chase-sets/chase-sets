@@ -1,8 +1,40 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { getPublicOffer, getOfferMatch, listOfferMatches } from "./queries";
+import {
+  getPublicOffer,
+  getOfferMatch,
+  getOfferMatchForListing,
+  listOfferMatches,
+  listOfferMatchesForSellers,
+} from "./queries";
 
 describe("marketplace offer read-model queries", () => {
+  it("keeps seller-private Decline but removes controls from all four Match reads", async () => {
+    const statements: string[] = [];
+    const db: PgQueryable = {
+      async query<Row>(sql: string) {
+        statements.push(sql);
+        return { rows: (sql.includes("COUNT(*)") ? [{ count: "0" }] : []) as Row[] };
+      },
+    };
+    await listOfferMatches(db, { sellerAccountId: "acc_seller" });
+    await getOfferMatch(db, "off_one", "acc_seller");
+    await getOfferMatchForListing(db, "off_one", "acc_seller", "lst_one");
+    await listOfferMatchesForSellers(db, "off_one", ["acc_seller"]);
+    expect(statements).toHaveLength(5);
+    for (const sql of statements) {
+      expect(sql).not.toContain("marketplace_offer_seller_controls");
+      expect(sql).not.toContain("lowball_cooldown_until");
+      expect(sql).not.toContain("CEIL(");
+      expect(sql).toContain("seller_offer_decline.seller_account_id =");
+      expect(sql).toContain("seller_offer_decline.offer_id = offer.offer_id");
+      expect(sql).toContain("seller_offer_decline.offer_id IS NULL");
+      expect(sql).not.toContain("seller_offer_decline.listing_id =");
+      expect(sql).toContain("listing.price_currency_code = offer.price_currency_code");
+      expect(sql).toContain("policy.state->>'status' IS DISTINCT FROM 'active'");
+      expect(sql).toContain("marketplace_supply_items");
+    }
+  });
   it.each([null, "unavailable", "held", "refresh_required"] as const)(
     "maps the closed managed Match status %s into actionability",
     async (managed_status) => {

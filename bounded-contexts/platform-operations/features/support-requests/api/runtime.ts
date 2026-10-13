@@ -73,10 +73,11 @@ import {
   readSupportEvidenceAttachment,
   storeSupportEvidenceAttachments,
   type StoredSupportEvidenceAttachment,
-  type SupportEvidenceAttachmentSecurityScanner,
   type SupportEvidenceAttachmentStorage,
   type SupportEvidenceAttachmentUpload,
 } from "./attachments";
+import { validateSupportAttachmentOperationId } from "./attachment-intake";
+import type { SupportEvidenceCanonicalizationQueue } from "./evidence-canonicalization";
 import { parseSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
 import {
   findOpenSupportRequestForOrder,
@@ -100,7 +101,7 @@ type SupportRequestRuntimeDeps = Readonly<{
   db: PgQueryable;
   notificationOutbox?: NotificationOutbox;
   attachmentStorage?: SupportEvidenceAttachmentStorage;
-  attachmentSecurityScanner?: SupportEvidenceAttachmentSecurityScanner;
+  attachmentCanonicalizer?: SupportEvidenceCanonicalizationQueue;
   /**
    * The shared platform-policy runtime, used to resolve the support-deadline
    * policy at open time and to source `listFlowDefinitions`' response-window
@@ -217,6 +218,7 @@ export type SupportRequestServices = Readonly<{
   uploadAttachments: (
     params: Readonly<{
       supportRequestId: string;
+      operationId: string;
       actor: ResolvedActor | null;
       uploads: () => Promise<readonly SupportEvidenceAttachmentUpload[]>;
     }>,
@@ -962,11 +964,22 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     },
     uploadAttachments: async (params) => {
       await authorizeEvidenceAccess(params.supportRequestId, params.actor, "upload");
+      validateSupportAttachmentOperationId(params.operationId);
+      const actor = params.actor!;
       return storeSupportEvidenceAttachments({
         supportRequestId: params.supportRequestId,
+        operationId: params.operationId,
+        eventStore: deps.eventStore,
+        context: {
+          tenantId: actor.tenantId as EventStoreContext["tenantId"],
+          audit: {
+            performedByUserId: actor.userId as EventStoreContext["audit"]["performedByUserId"],
+            forAccountId: actor.accountId as EventStoreContext["audit"]["forAccountId"],
+          },
+        },
         uploads: await params.uploads(),
         storage: deps.attachmentStorage,
-        securityScanner: deps.attachmentSecurityScanner,
+        canonicalizer: deps.attachmentCanonicalizer,
       });
     },
     getAttachment: async (params) => {

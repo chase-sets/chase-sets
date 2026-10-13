@@ -83,14 +83,6 @@ export function MarketplaceOfferMatchDetailPage({
       </Button>
     </Form>
   ) : null;
-  const muteBuyerAction = canAcceptSubmitted ? (
-    <Form spacing="none" method="post">
-      <HiddenInput type="hidden" name="intent" value="mute-offer-buyer" />
-      <Button type="submit" tone="secondary">
-        {t("marketplace.features.offers.ui.offerMatchDetailPage.mute.buyer")}
-      </Button>
-    </Form>
-  ) : null;
   return (
     <Page>
       <PageHeader
@@ -189,12 +181,11 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                 ]}
               />
-              {acceptOfferAction || addToSellListAction || declineAction || muteBuyerAction ? (
+              {acceptOfferAction || addToSellListAction || declineAction ? (
                 <Inline gap={2}>
                   {acceptOfferAction}
                   {addToSellListAction}
                   {declineAction}
-                  {muteBuyerAction}
                 </Inline>
               ) : null}
             </Stack>

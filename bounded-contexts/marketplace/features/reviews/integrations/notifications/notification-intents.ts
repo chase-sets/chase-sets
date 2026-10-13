@@ -51,7 +51,7 @@ export type ReviewOpportunityNotificationInput = Readonly<{
 
 export function mapReviewOpportunityToNotification(input: ReviewOpportunityNotificationInput): NotificationMessage {
   const orderReference = orderReferenceOrRaw(input.orderId);
-  const actionHref = `/account/reviews/opportunities/${input.orderId}`;
+  const actionHref = `/account/${input.authorRole === "buyer" ? "purchases" : "sales"}/${input.orderId}/review`;
   const subjectLabel = input.subjectDisplayName ?? (input.authorRole === "buyer" ? "the seller" : "the buyer");
 
   return {
@@ -91,7 +91,7 @@ export type ReviewReminderNotificationInput = Readonly<{
 
 export function mapReviewReminderToNotification(input: ReviewReminderNotificationInput): NotificationMessage {
   const orderReference = orderReferenceOrRaw(input.orderId);
-  const actionHref = `/account/reviews/opportunities/${input.orderId}`;
+  const actionHref = `/account/${input.authorRole === "buyer" ? "purchases" : "sales"}/${input.orderId}/review`;
   const subjectLabel = input.subjectDisplayName ?? (input.authorRole === "buyer" ? "the seller" : "the buyer");
 
   return {
