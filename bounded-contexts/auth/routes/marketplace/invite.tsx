@@ -14,6 +14,7 @@ import { toAuthActionError } from "../../support/route-support/auth-host";
 import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
 import { AuthApiError } from "../../client";
 import type { InvitationAttemptResult } from "../../features/invitation-acceptance/api/result";
+import { useAuthFormActionData } from "../../support/ui-support/auth-form-feedback";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: t("auth.routes.marketplace.invite.meta.title") });
 
@@ -102,7 +103,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export default function MarketplaceInviteRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useAuthFormActionData(useActionData<typeof action>());
   const navigation = useNavigation();
   const submit = useSubmit();
   return (
@@ -111,7 +112,8 @@ export default function MarketplaceInviteRoute() {
         key={data.invitationId}
         invitation={data.invitation}
         token={data.token}
-        errorMessage={actionData && "error" in actionData ? actionData.error : null}
+        actionError={actionData && "error" in actionData ? actionData : null}
+        submissionPending={navigation.state !== "idle" && navigation.formMethod?.toLowerCase() === "post"}
         attemptsActive={data.attemptsActive}
         invitationId={data.invitationId}
         submit={(form) => {
@@ -121,9 +123,9 @@ export default function MarketplaceInviteRoute() {
         }}
         attemptId={actionData && "attemptId" in actionData ? actionData.attemptId : null}
         phase={
-          navigation.state === "submitting"
+          data.attemptsActive && navigation.state === "submitting"
             ? "submitting"
-            : navigation.state === "loading"
+            : data.attemptsActive && navigation.state === "loading"
               ? "confirming"
               : actionData && "state" in actionData
                 ? actionData.state

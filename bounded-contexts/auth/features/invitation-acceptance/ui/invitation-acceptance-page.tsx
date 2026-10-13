@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Banner,
@@ -11,9 +11,15 @@ import {
   SegmentedControl,
   Stack,
   Text,
+  ValidationSummary,
 } from "@chase-sets/design-system";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
+import {
+  authFormErrors,
+  useAuthFormFeedback,
+  type AuthFormFeedbackProps,
+} from "../../../support/ui-support/auth-form-feedback";
 
 export type InvitationAcceptancePresentation =
   | Readonly<{
@@ -26,26 +32,26 @@ export type InvitationAcceptancePresentation =
     }>
   | Readonly<{ status: "expired" | "revoked" | "accepted" | "unavailable" }>;
 
-type Props = Readonly<{
-  invitation: InvitationAcceptancePresentation;
-  token: string;
-  action?: string;
-  errorMessage?: string | null;
-  attemptsActive?: boolean;
-  attemptId?: string | null;
-  phase?:
-    | "editing"
-    | "submitting"
-    | "confirming"
-    | "succeeded"
-    | "accepted-reauth-required"
-    | "failed-safe"
-    | "conflict"
-    | "ambiguous"
-    | "route-denied";
-  submit?: (form: HTMLFormElement) => void;
-  invitationId?: string;
-}>;
+type Props = AuthFormFeedbackProps &
+  Readonly<{
+    invitation: InvitationAcceptancePresentation;
+    token: string;
+    action?: string;
+    attemptsActive?: boolean;
+    attemptId?: string | null;
+    phase?:
+      | "editing"
+      | "submitting"
+      | "confirming"
+      | "succeeded"
+      | "accepted-reauth-required"
+      | "failed-safe"
+      | "conflict"
+      | "ambiguous"
+      | "route-denied";
+    submit?: (form: HTMLFormElement) => void;
+    invitationId?: string;
+  }>;
 
 const terminalCopyKeys = {
   expired: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.expired",
@@ -54,22 +60,28 @@ const terminalCopyKeys = {
   unavailable: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.unavailable",
 } as const;
 
-export function InvitationAcceptancePage({
-  invitation,
-  token,
-  action,
-  errorMessage,
-  attemptsActive = false,
-  attemptId,
-  phase = "editing",
-  submit,
-  invitationId,
-}: Props) {
+export function InvitationAcceptancePage(props: Props) {
+  const {
+    invitation,
+    token,
+    action,
+    attemptsActive = false,
+    attemptId,
+    phase = "editing",
+    submit,
+    invitationId,
+  } = props;
   const [method, setMethod] = useState<"passkey" | "password">("passkey");
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyForm = useRef<HTMLFormElement | null>(null);
+  const warningId = useId();
+  const feedback = useAuthFormFeedback(props);
+  const { summary } = authFormErrors(feedback.error);
+  useEffect(() => {
+    if (passkeyError) document.getElementById(warningId)?.focus();
+  }, [passkeyError, warningId]);
   const submissionId = useRef(attemptId ?? "");
   const submitting = useRef(false);
   const [retainedAttempt, setRetainedAttempt] = useState<string | null>(null);
@@ -97,8 +109,8 @@ export function InvitationAcceptancePage({
   const effectivePhase = retainedAttempt && phase === "editing" ? "confirming" : phase;
   const effectiveAttemptId = attemptId ?? retainedAttempt;
   useEffect(() => {
-    if (phase === "editing" || phase === "failed-safe") submitting.current = false;
-  }, [phase]);
+    if (!props.submissionPending && (phase === "editing" || phase === "failed-safe")) submitting.current = false;
+  }, [phase, props.submissionPending]);
   useEffect(() => {
     if (effectivePhase !== "editing") document.getElementById("invitation-acceptance-status")?.focus();
   }, [effectivePhase]);
@@ -125,9 +137,13 @@ export function InvitationAcceptancePage({
       }
     }
     submitting.current = true;
+    feedback.begin();
+    setPasskeyError(null);
     if (submit) {
       event.preventDefault();
       submit(event.currentTarget);
+    } else {
+      props.onSubmit?.(event);
     }
   }
 
@@ -194,20 +210,25 @@ export function InvitationAcceptancePage({
     }
     event.preventDefault();
     if (passkeyLoading) return;
+    feedback.begin();
     setPasskeyError(null);
     setPasskeyLoading(true);
+    const form = event.currentTarget;
     try {
-      setPasskeyPayload(
-        await createPasskeyCredential({
-          displayName: pendingInvitation.email.split("@")[0] || pendingInvitation.email,
-          email: pendingInvitation.email,
-        }),
-      );
-      window.setTimeout(() => passkeyForm.current?.requestSubmit(), 0);
+      const payload = await createPasskeyCredential({
+        displayName: pendingInvitation.email.split("@")[0] || pendingInvitation.email,
+        email: pendingInvitation.email,
+      });
+      if (passkeyForm.current !== form) return;
+      setPasskeyPayload(payload);
+      window.setTimeout(() => {
+        if (passkeyForm.current === form) form.requestSubmit();
+      }, 0);
     } catch {
-      setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
+      if (passkeyForm.current === form)
+        setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
     } finally {
-      setPasskeyLoading(false);
+      if (passkeyForm.current === form) setPasskeyLoading(false);
     }
   }
 
@@ -233,22 +254,33 @@ export function InvitationAcceptancePage({
           })}
         </Text>
       </Stack>
-      {errorMessage || effectivePhase === "failed-safe" ? (
+      {effectivePhase === "failed-safe" ? (
         <Banner
           id="invitation-acceptance-status"
           tabIndex={-1}
           aria-live="polite"
           title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")}
-          description={errorMessage ?? t("auth.invitationAttempt.failed-safe")}
+          description={t("auth.invitationAttempt.failed-safe")}
           tone="danger"
           role="status"
         />
       ) : null}
+      <ValidationSummary
+        ref={feedback.summaryRef}
+        title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")}
+        errors={summary}
+      />
       <SegmentedControl
         fullWidth
         label={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.method")}
         value={method}
-        onValueChange={(value) => setMethod(value as "passkey" | "password")}
+        onValueChange={(value) => {
+          feedback.clear();
+          setPasskeyError(null);
+          setPasskeyPayload(null);
+          setPasskeyLoading(false);
+          setMethod(value as "passkey" | "password");
+        }}
         items={[
           {
             value: "passkey",
@@ -263,7 +295,7 @@ export function InvitationAcceptancePage({
         ]}
       />
       {method === "passkey" ? (
-        <Card elevation="elevated" glow>
+        <Card key="passkey" elevation="elevated" glow>
           <Form ref={passkeyForm} action={action} method="post" onSubmit={acceptWithPasskey}>
             <Stack gap={3}>
               {commonFields}
@@ -274,6 +306,8 @@ export function InvitationAcceptancePage({
               </Text>
               {passkeyError ? (
                 <Banner
+                  id={warningId}
+                  tabIndex={-1}
                   title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.unavailable")}
                   description={passkeyError}
                   tone="warning"
@@ -287,7 +321,7 @@ export function InvitationAcceptancePage({
           </Form>
         </Card>
       ) : (
-        <Card elevation="elevated">
+        <Card key="password" elevation="elevated">
           <Form action={action} method="post" onSubmit={submitOnce}>
             <Stack gap={3}>
               {commonFields}
