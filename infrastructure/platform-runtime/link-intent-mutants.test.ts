@@ -4,13 +4,13 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { expect, it } from "vitest";
 import manifest from "../../bounded-contexts/discovery/context.json" with { type: "json" };
 import environmentHosts from "../../scripts/environment-hosts.json" with { type: "json" };
-import { resolveWebHostRouteRecords } from "./web";
+import { resolveWebHostRouteRecords, type WebContextManifest } from "./web";
 import { matchRoutes } from "react-router";
 import { composeLinkIntents, parseCanonicalLink } from "./link-intents";
 import type { LinkIntentCatalog } from "@chase-sets/bounded-context-module";
 
 const catalog = composeLinkIntents([
-  { contextName: manifest.contextName, packageName: manifest.packageName, manifest },
+  { contextName: manifest.contextName, packageName: manifest.packageName, manifest: manifest as WebContextManifest },
 ]);
 const source = readFileSync(fileURLToPath(new URL("./link-intents.ts", import.meta.url)), "utf8");
 

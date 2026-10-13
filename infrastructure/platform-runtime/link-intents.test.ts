@@ -80,9 +80,11 @@ describe("canonical link intents", () => {
       /another contributed route/,
     );
     expect(() => buildCanonicalLink(catalog, "unknown", { path: {} })).toThrow(/intent/);
-    expect(() => buildCanonicalLink(catalog, "discovery.item-detail", { path: { id: "item-1", nested: {} } })).toThrow(
-      /parameter/,
-    );
+    const invalidParameters = { path: { id: "item-1", nested: {} } };
+    expect(() => {
+      // @ts-expect-error Deliberately exercise an untyped recursive input at the runtime boundary.
+      return buildCanonicalLink(catalog, "discovery.item-detail", invalidParameters);
+    }).toThrow(/parameter/);
     expect(() =>
       buildCanonicalLink(catalog, "discovery.item-detail", { path: { id: "item-1" }, query: { market: "invalid" } }),
     ).toThrow(/parameter/);

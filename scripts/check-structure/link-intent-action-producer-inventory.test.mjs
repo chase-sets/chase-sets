@@ -49,9 +49,36 @@ afterAll(() => {
 
 it("link-intent-action-producer-inventory", () => {
   expect(rows.length).toBeGreaterThan(30);
+  expect(rows.find((row) => row.function === "mapWaitlistAdmissionToTransactionalEmail").fields).toContainEqual(
+    expect.objectContaining({ field: "registrationPath" }),
+  );
   expect(verifyActionProducers(rows)).toEqual([]);
   expect(verifyActionProducers(rows.slice(1))).not.toEqual([]);
   expect(verifyActionProducers([...rows, { ...rows[0], id: "stale-row" }])).not.toEqual([]);
+});
+
+it("producer digests and fields are independent of checkout line endings", () => {
+  const source = arbitrary.source.replaceAll("; ", ";\n").replaceAll(", ", ",\n");
+  const lf = deriveActionProducers({ extraSources: [{ ...arbitrary, source }] });
+  const crlf = deriveActionProducers({ extraSources: [{ ...arbitrary, source: source.replaceAll("\n", "\r\n") }] });
+  expect(crlf).toEqual(lf);
+});
+
+it("discovers aliased email constructors and typed message values without literal message types", () => {
+  const source = `import { createTransactionalEmailNotificationMessage as email } from "@chase-sets/outbound-messaging";
+import type { NotificationMessage as N } from "@chase-sets/outbound-messaging";
+export const makeEmail = () => email({ messageType: input.type, templateData: { registrationPath: input.path } });
+export const makeNotice = () => { const result: N = { messageType: input.type, actionHref: input.href }; return result; };`;
+  const added = deriveActionProducers({ extraSources: [{ ...arbitrary, source }] }).filter(
+    (row) => row.path === arbitrary.path,
+  );
+  expect(added.map((row) => row.function)).toEqual(["makeEmail", "makeNotice"]);
+  expect(added.map((row) => row.fields.map((field) => field.field))).toEqual([["registrationPath"], ["actionHref"]]);
+});
+
+it("changed producer implementation fails even when inventoried fields remain unchanged", () => {
+  const changed = { ...rows[0], sourceDigest: "synthetic-changed-implementation" };
+  expect(verifyActionProducers([changed, ...rows.slice(1)])).toContain(`Stale producer implementation ${changed.id}`);
 });
 
 it("unclassified-producer candidate-versus-bypass mutant", async () => {

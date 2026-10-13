@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -6,7 +7,7 @@ import { deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const inventoryPath = path.join(import.meta.dirname, "link-intent-action-producers.json");
-const linkField = /(?:href|url|link)$/i;
+const linkField = /(?:href|url|link|path)$/i;
 
 function ownerBuilderViolations(source, file, producerLines) {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
@@ -34,6 +35,7 @@ function ownerBuilderViolations(source, file, producerLines) {
     if (
       (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
       node.name?.text &&
+      !(node.name.text === "path" && ts.isPropertyAssignment(node) && ts.isObjectLiteralExpression(node.initializer)) &&
       linkField.test(node.name.text) &&
       ts.isObjectLiteralExpression(node.parent)
     )
@@ -125,15 +127,20 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
     .filter(isProduction);
   const sources = tracked.map((file) => ({ path: file, source: readFileSync(path.join(repoRoot, file), "utf8") }));
   const rows = [];
-  for (const file of [...sources, ...extraSources]) {
+  for (const sourceFile of [...sources, ...extraSources]) {
+    const file = { ...sourceFile, source: sourceFile.source.replaceAll("\r\n", "\n") };
     if (!/\b(?:messageType|NotificationMessage)\b|@chase-sets\/outbound-messaging/.test(file.source)) continue;
     const ast = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
     const aliases = new Set(["NotificationMessage"]);
+    const messageConstructors = new Set();
     for (const statement of ast.statements) {
       if (ts.isImportDeclaration(statement) && statement.moduleSpecifier.text === "@chase-sets/outbound-messaging") {
-        for (const binding of statement.importClause?.namedBindings?.elements ?? [])
+        for (const binding of statement.importClause?.namedBindings?.elements ?? []) {
           if ((binding.propertyName?.text ?? binding.name.text) === "NotificationMessage")
             aliases.add(binding.name.text);
+          if ((binding.propertyName?.text ?? binding.name.text) === "createTransactionalEmailNotificationMessage")
+            messageConstructors.add(binding.name.text);
+        }
       }
     }
     const visit = (node, functionName = "module", typed = false) => {
@@ -148,12 +155,26 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
         );
         const sinks = [];
         const messageTypes = [];
+        let constructsThroughPublicContract = false;
+        let hasTypedMessageValue = false;
         const scan = (child) => {
           if (
             child !== node &&
             (ts.isFunctionDeclaration(child) || ts.isArrowFunction(child) || ts.isFunctionExpression(child))
           )
             return;
+          if (
+            ts.isCallExpression(child) &&
+            ts.isIdentifier(child.expression) &&
+            messageConstructors.has(child.expression.text)
+          )
+            constructsThroughPublicContract = true;
+          if (
+            (ts.isVariableDeclaration(child) || ts.isAsExpression(child) || ts.isSatisfiesExpression(child)) &&
+            child.type &&
+            aliases.has(child.type.getText(ast))
+          )
+            hasTypedMessageValue = true;
           if (
             (ts.isPropertyAssignment(child) || ts.isShorthandPropertyAssignment(child)) &&
             ts.isObjectLiteralExpression(child.parent)
@@ -164,7 +185,11 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
                 : null
               : child.name.text;
             if (key === "messageType") messageTypes.push(child.initializer?.getText(ast) ?? key);
-            if (key && linkField.test(key))
+            if (
+              key &&
+              linkField.test(key) &&
+              !(key === "path" && ts.isPropertyAssignment(child) && ts.isObjectLiteralExpression(child.initializer))
+            )
               sinks.push({
                 field: key,
                 expression: child.initializer?.getText(ast) ?? key,
@@ -175,7 +200,11 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
         };
         scan(node);
         const constructsMessageType = messageTypes.some((expression) => /^['"`]/.test(expression));
-        if (constructsMessageType || (isTyped && sinks.length))
+        if (
+          constructsMessageType ||
+          constructsThroughPublicContract ||
+          ((isTyped || hasTypedMessageValue) && sinks.length)
+        )
           rows.push({
             id: `${file.path}::${name}`,
             path: file.path,
@@ -215,7 +244,9 @@ export function deriveActionProducers({ repoRoot = root, extraSources = [] } = {
     };
     visit(ast);
   }
-  return rows.sort((a, b) => a.id.localeCompare(b.id));
+  return rows
+    .map((row) => ({ ...row, sourceDigest: createHash("sha256").update(row.source).digest("hex") }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function verifyActionProducers(
@@ -235,6 +266,7 @@ export function verifyActionProducers(
       continue;
     }
     const fields = row.fields.map(({ field, expression }) => ({ field, expression }));
+    if (row.sourceDigest !== registration.sourceDigest) violations.push(`Stale producer implementation ${row.id}`);
     if (
       JSON.stringify(fields) !== JSON.stringify(registration.fields) ||
       JSON.stringify(row.messageTypes) !== JSON.stringify(registration.messageTypes)

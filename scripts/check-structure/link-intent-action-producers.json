@@ -4,6 +4,7 @@
     "classification": "auth-single-use",
     "reason": "Auth-owned invitation, guest-order claim or magic-link security flow; never ordinary navigation.",
     "messageTypes": ["\"auth.invitation-acceptance-link.requested\""],
+    "sourceDigest": "a85d48394f66173163defadeeec5c1b3f9b0c73a7bfeb7762ef9f64bb890ab06",
     "fields": [
       {
         "field": "invitationLink",
@@ -20,6 +21,7 @@
     "classification": "auth-single-use",
     "reason": "Auth-owned invitation, guest-order claim or magic-link security flow; never ordinary navigation.",
     "messageTypes": ["\"auth.guest-checkout-claim-link.requested\""],
+    "sourceDigest": "e07953a217684aae4a3c61a19f77495147cd2601363ce3f76b9c01183fc50267",
     "fields": [
       {
         "field": "claimLink",
@@ -36,6 +38,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"auth.phone-code.requested\""],
+    "sourceDigest": "0c67a670a020e331f6819b59d8ce70b869935091f64bd148fdf02fc70a1e670f",
     "fields": []
   },
   {
@@ -43,6 +46,7 @@
     "classification": "auth-single-use",
     "reason": "Auth-owned invitation, guest-order claim or magic-link security flow; never ordinary navigation.",
     "messageTypes": ["\"auth.magic-link.requested\""],
+    "sourceDigest": "73886375083982517536658332d9d677c6131f44e7ab00afd40d7fba9aec43d2",
     "fields": [
       {
         "field": "magicLink",
@@ -55,6 +59,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["`discovery.product-alert.${input.marketSide}`"],
+    "sourceDigest": "56e6642ee778c6dd4629689972023d5b6a6195ebc3b3550c13f7472ce1518d16",
     "fields": [
       {
         "field": "actionHref",
@@ -72,6 +77,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"fulfillment.shipment.delivered\""],
+    "sourceDigest": "54c598bb4c16f4ba12f8412509f163355aa1c96b2e9eb7b0110c397cd2324f65",
     "fields": []
   },
   {
@@ -79,6 +85,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"marketplace.review.opportunity\""],
+    "sourceDigest": "7e98f82ac8a8af0f674c60bfaed0d856a4e089a36ac2bd7453433905a19b8b68",
     "fields": [
       {
         "field": "actionHref",
@@ -100,6 +107,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"marketplace.review.opportunity-reminder\""],
+    "sourceDigest": "ee7839adfa4c1277cd703bf8cce0db528113a6e674f3d05451477006193246aa",
     "fields": [
       {
         "field": "actionHref",
@@ -121,6 +129,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"marketplace.review.revealed\""],
+    "sourceDigest": "5396180595ca0e2072ca1e80c2157e52852bd647a9af3d7920117623f0cdb99d",
     "fields": [
       {
         "field": "actionHref",
@@ -142,6 +151,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": [],
+    "sourceDigest": "1f02bfd4a864831104bf9dfff870bec5cdbf1098b3f104b0e8f652218a8e1d5b",
     "fields": [
       {
         "field": "actionHref",
@@ -159,6 +169,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"customer-feedback.case.attention-digest\""],
+    "sourceDigest": "58657fc9f14f05f54f024d3a6c4f2e7f3f5f1a5ddd44ddba69309321ab97d8b7",
     "fields": [
       {
         "field": "actionHref",
@@ -176,6 +187,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"customer-feedback.case.attention-requested\""],
+    "sourceDigest": "8f638467faed133de33a56478ed30cdb622e41a2361c7552114b48e011665a36",
     "fields": [
       {
         "field": "actionHref",
@@ -197,6 +209,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"customer-feedback.case.follow-up-requested\""],
+    "sourceDigest": "30b571e36cc5e1917043c8608c6e9b646e8b818817e8e8b2b78a0339970eaeea",
     "fields": []
   },
   {
@@ -204,6 +217,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"ordering.order.cancelled\""],
+    "sourceDigest": "32f51be52605e59afe7cd6eb4d03a0b378b9a97d275fb2b1141ef8510665f18f",
     "fields": [
       {
         "field": "actionHref",
@@ -225,6 +239,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"ordering.order.created\""],
+    "sourceDigest": "abbb5c2b56a78b4c282c9c707306303bea60dbc3f6dedd1687f3b067401d4468",
     "fields": [
       {
         "field": "actionHref",
@@ -242,6 +257,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.payout-readiness.regressed\""],
+    "sourceDigest": "fc68e1055dce15c2e2b6f640ec2ab6a7f6c337bf48c3dde7f50ad1b10ee1a9a1",
     "fields": [
       {
         "field": "actionHref",
@@ -263,6 +279,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"inventory.restock-decision-pending\""],
+    "sourceDigest": "345bc124167c99ffd33271a7088235fdd9faf5c51abc7c9a5d11dca4b511d587",
     "fields": [
       {
         "field": "actionHref",
@@ -284,6 +301,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"inventory.sale-recorded\""],
+    "sourceDigest": "b718652146475afe4049a2537de7ec2f63d48896a9093f21d5445d49e373be69",
     "fields": [
       {
         "field": "actionHref",
@@ -305,6 +323,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"marketplace.seller-listing-availability.enabled\""],
+    "sourceDigest": "3898997a72405817bd4c5eb7a3c965c3fe3dc29900224690896331cf0c92846e",
     "fields": [
       {
         "field": "actionHref",
@@ -322,6 +341,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"fulfillment.shipment.delivered\""],
+    "sourceDigest": "be5b1a2f44030533ecc63f9c4a02adf6b3fd8484223111564f3c3a8e93e623dc",
     "fields": [
       {
         "field": "actionHref",
@@ -339,6 +359,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"fulfillment.shipment.dispatched\""],
+    "sourceDigest": "f00e6a2c9cdf9c39df96d2e99d73a129da2748a00632c7c830ece3e9d4892e53",
     "fields": [
       {
         "field": "actionHref",
@@ -360,6 +381,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"inventory.stock-committed\""],
+    "sourceDigest": "2dc190ae54cc6ba1546ace567072db1a494d888d580c5b8239579f0cd64fded1",
     "fields": [
       {
         "field": "actionHref",
@@ -381,6 +403,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"inventory.stock-returned\""],
+    "sourceDigest": "feca3b76586025923ad69d9b857b22541567518f24e37583d474dcb906b0b975",
     "fields": [
       {
         "field": "actionHref",
@@ -402,6 +425,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["input.messageType"],
+    "sourceDigest": "e6a94763ca60b2ae0255e20aaeb16b1ee0bff3f602c684605f42069974c5a2cf",
     "fields": [
       {
         "field": "actionHref",
@@ -419,6 +443,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"pricing.repricing-activity.digest-requested\""],
+    "sourceDigest": "f4356cf6e931756adb20ae9499368014a910da484ffa16762ea42f781df81f37",
     "fields": [
       {
         "field": "actionHref",
@@ -440,6 +465,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["input.messageType as NotificationMessage[\"messageType\"]"],
+    "sourceDigest": "160249e8d6f05b8dbd1983651c9c6345781ad25021232b78a8c814f535b44839",
     "fields": [
       {
         "field": "actionHref",
@@ -457,6 +483,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.support-hold.consumed.v1\""],
+    "sourceDigest": "dffbb3f26d08c2d9f7d68a0986fda84dfcd3c4a8e95bd0ccbfe165659f607240",
     "fields": [
       {
         "field": "actionHref",
@@ -474,6 +501,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.support-hold.placed.v1\""],
+    "sourceDigest": "0e0786f3d7be549a5528d8c1009fcb601bb9d0fce739c483f3bccfac4bd92c24",
     "fields": [
       {
         "field": "actionHref",
@@ -491,6 +519,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.support-hold.released.v1\""],
+    "sourceDigest": "e0eb0019f5941a4b346ca7563666a606d8833bccf999a682b115e9ace3f8d25b",
     "fields": [
       {
         "field": "actionHref",
@@ -508,6 +537,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.cancelled\""],
+    "sourceDigest": "3eb56e96310ed62fff10ceb606692b0458ecc2d09df1ddaeb6a382da80ecd303",
     "fields": [
       {
         "field": "actionHref",
@@ -525,6 +555,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.opened\""],
+    "sourceDigest": "298bc14104fbc583312e582851e208bb5c97ed305e5e0cc960d076b82abb6dd6",
     "fields": [
       {
         "field": "actionHref",
@@ -542,6 +573,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.opened\""],
+    "sourceDigest": "d397a9e4e3b2e96a1065aafdbdbb1b3d505aba3a3e83465253a330b58e692d57",
     "fields": [
       {
         "field": "actionHref",
@@ -559,6 +591,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.escalated\""],
+    "sourceDigest": "9f125f85f3203d1946f32344f3f0b143ef9715748867772ed93306fce0be2810",
     "fields": [
       {
         "field": "actionHref",
@@ -576,6 +609,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.offer-declined\""],
+    "sourceDigest": "910a4efccd085ee595ba49e4b3497b74e86473af82e635734badc5cb3b3d3ed4",
     "fields": [
       {
         "field": "actionHref",
@@ -593,6 +627,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.resolved\""],
+    "sourceDigest": "a56d0b53b367c610c5d873e220d287ef28c6a1219cfbb34bfc4a7a0e481beabc",
     "fields": [
       {
         "field": "actionHref",
@@ -610,6 +645,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.response-recorded\""],
+    "sourceDigest": "9b821658a6a5d252d7c2a9d3c6fd3c261be7941dffd9ab4ac30287bf345d397f",
     "fields": [
       {
         "field": "actionHref",
@@ -627,6 +663,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.response-reminder-emitted\""],
+    "sourceDigest": "94265224d1ac2051710f3b74e8c94e69dfbd422ddb7084ae9ff9bd82d9dbf4c6",
     "fields": [
       {
         "field": "actionHref",
@@ -644,6 +681,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.return-condition-disputed\""],
+    "sourceDigest": "a751721064dd4107f3dd6360a331833b4d0055cba2545151dbdc702602b3adbc",
     "fields": [
       {
         "field": "actionHref",
@@ -661,6 +699,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.return-delivered\""],
+    "sourceDigest": "ac9f2e424386af45984e09719919ab55ea4c923cd35f2eb2e6b7b9ed1dff4893",
     "fields": [
       {
         "field": "actionHref",
@@ -678,6 +717,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"support.support-request.return-refund-released\""],
+    "sourceDigest": "a63988a41a35a97eaea068f4f7526cec7f90ce11ef8946981ae0b8d29f6aed51",
     "fields": [
       {
         "field": "actionHref",
@@ -695,6 +735,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"ordering.order.created\""],
+    "sourceDigest": "03fc269b7b1e30d9c1539a126cff6526085bda56e425941969d338ce06faf61d",
     "fields": []
   },
   {
@@ -702,6 +743,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["`payments.${kind}`"],
+    "sourceDigest": "adf0b4aa1edd9a72eefaee06776c5b2c84025523c6c9487dabd29ee1f6d4f33c",
     "fields": []
   },
   {
@@ -709,6 +751,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"payments.payment-captured\""],
+    "sourceDigest": "4983f19f945669645e1ee23526076e8654112be6fd964701cb6441d509a99943",
     "fields": []
   },
   {
@@ -716,6 +759,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"payments.refund-failed\""],
+    "sourceDigest": "753a3a39407dd5fb8d14475f1bca346ec579cf0f6a72c1c1789c558d1607b3e4",
     "fields": []
   },
   {
@@ -723,6 +767,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"payments.refund-issued\""],
+    "sourceDigest": "9eab7fdbbec71660c587cc978fa3a88239ebc00ebcfc28d9aa557fba352d0169",
     "fields": []
   },
   {
@@ -730,6 +775,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"support.support-request.opened\""],
+    "sourceDigest": "7ce8fa40207d6d870e6b05eb0ef7ea452fe46c434af8c14128e191f8d5c0a0d5",
     "fields": []
   },
   {
@@ -737,6 +783,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"support.support-request.resolved\""],
+    "sourceDigest": "4109bc9b6e9e02b21469d12135f5066c88a49aa0ee1a501a64a1bebfb450b8ab",
     "fields": []
   },
   {
@@ -744,6 +791,7 @@
     "classification": "web-only-campaign",
     "reason": "Public Presence-owned waitlist, referral and UTM campaign links remain web-only.",
     "messageTypes": ["\"public-presence.waitlist-nurture.wave-admitted\""],
+    "sourceDigest": "06be84d008137d99deb95f075e1611ee1c13ab557b7e9d30c9e03c3adb93f132",
     "fields": [
       {
         "field": "detailsLink",
@@ -761,16 +809,23 @@
   },
   {
     "id": "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts::mapWaitlistAdmissionToTransactionalEmail",
-    "classification": "non-actionable",
-    "reason": "This current message has no action or transactional-email link field.",
+    "classification": "web-only-campaign",
+    "reason": "Public Presence-owned waitlist, referral and UTM campaign links remain web-only.",
     "messageTypes": ["\"public-presence.waitlist-signup.admitted\""],
-    "fields": []
+    "sourceDigest": "2433c253f09ff0146ffe9ef0c5ca53d03f68fd6d2055a1b18b0b1ad292836a9e",
+    "fields": [
+      {
+        "field": "registrationPath",
+        "expression": "\"/register\""
+      }
+    ]
   },
   {
     "id": "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts::mapWaitlistNurtureEmail",
     "classification": "web-only-campaign",
     "reason": "Public Presence-owned waitlist, referral and UTM campaign links remain web-only.",
     "messageTypes": ["`public-presence.waitlist-nurture.${step}` as const"],
+    "sourceDigest": "2b91fd1eb07b42700ff6ba54c5e910b00e509acc7dcb20eca85a3f065c0f0843",
     "fields": [
       {
         "field": "foundersTermsLink",
@@ -815,6 +870,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.payout-destination-changed\""],
+    "sourceDigest": "21f384fdd49d5a8dbb6e5817757f20a9ba26d338e37ffb6a5837eeb5c8847c8a",
     "fields": [
       {
         "field": "actionHref",
@@ -832,6 +888,7 @@
     "classification": "non-actionable",
     "reason": "This current message has no action or transactional-email link field.",
     "messageTypes": ["\"settlement.payout.completed\""],
+    "sourceDigest": "6429ad2446d676991708b522accdac91b394a359a6cc1a7a91aac52ae8230367",
     "fields": []
   },
   {
@@ -839,6 +896,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.wallet-adjustment.posted\""],
+    "sourceDigest": "e9ee45238e1df917cf48380241175191880bb95ac4e612ebbb81b2902bf6453d",
     "fields": [
       {
         "field": "actionHref",
@@ -864,6 +922,7 @@
     "classification": "business-navigation",
     "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
     "messageTypes": ["\"settlement.wallet-adjustment.reversed\""],
+    "sourceDigest": "e9208084abc0e90d02a2b93155b51af41faff28610e89f0d4b22f83c08da09ff",
     "fields": [
       {
         "field": "actionHref",
