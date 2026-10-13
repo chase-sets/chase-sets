@@ -5,6 +5,7 @@ import path from "node:path";
 import { act, cleanup, render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot } from "react-dom/client";
+import { accountManagementTestElement } from "../features/account-management/ui/test-support";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConsentHistoryPage } from "../features/consents/ui/consent-history-page";
 import { grantableRoleSelectItems } from "../features/memberships/ui/role-select-items";
@@ -113,7 +114,7 @@ const consentFixture = Object.freeze([
 ]);
 
 function consentPage() {
-  return <ConsentHistoryPage consents={consentFixture} />;
+  return accountManagementTestElement(<ConsentHistoryPage consents={consentFixture} />);
 }
 
 async function hydrateAcrossDefaultLocales() {

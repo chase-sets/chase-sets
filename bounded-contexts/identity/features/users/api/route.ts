@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import type { UserServices } from "./runtime";
@@ -37,7 +39,7 @@ function isAuthMethodKey(value: string): value is AuthMethodKey {
   );
 }
 
-export function userRoutes(services: UserServices) {
+export function userRoutes(services: UserServices, accountManagement?: AccountManagementServices) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
@@ -60,6 +62,10 @@ export function userRoutes(services: UserServices) {
 
   app.put("/:id", async (c) => {
     const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      const attempted = await submitAccountManagement(c, accountManagement, "update-user", userId, await c.req.json());
+      if (attempted) return attempted;
+    }
     if (!canManageUser(c.var.actor, userId)) {
       return c.json(forbidden(), 403);
     }

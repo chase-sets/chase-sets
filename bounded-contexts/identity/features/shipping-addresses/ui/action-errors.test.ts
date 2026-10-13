@@ -1,5 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { action } from "../../../routes/marketplace/account-shipping-addresses";
+import { syntheticMutationResult } from "../../account-management/api/test-support";
+import type { MutationAction } from "../../account-management/domain/contract";
 
 const marker = "Bearer synthetic-shipping-token-marker";
 const actor = {
@@ -23,7 +25,8 @@ function args(intent: string, shippingAddressId = addressId) {
   return {
     request: new Request("https://marketplace.test/account/shipping-addresses", {
       method: "POST",
-      body: new URLSearchParams({ intent, shippingAddressId }),
+      headers: { "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749", Accept: "text/x-script" },
+      body: new URLSearchParams({ intent, ...(intent === "create" ? {} : { shippingAddressId }) }),
     }),
     params: {},
     context: undefined,
@@ -99,8 +102,14 @@ it("partitions real routed failures", async () => {
 
 it("preserves action success and rejection authority", async () => {
   for (const intent of ["create", "update", "default", "archive"]) {
-    stub({ id: "adr_test", version: 1, status: "accepted" }, 200);
-    expect(await action(args(intent))).toMatchObject({ status: 302 });
+    stub(
+      syntheticMutationResult(intent as MutationAction, actor, { target: intent === "create" ? null : addressId }),
+      200,
+    );
+    const success = (await action(args(intent))) as Response;
+    expect(success.status).toBe(200);
+    expect(success.headers.get("Location")).toBeNull();
+    expect(await success.json()).toMatchObject({ outcome: "committed" });
     for (const status of [401, 403, 500, 503]) {
       stub({ error: { code: "validation_failed", message: marker } }, status);
       await expect(action(args(intent))).rejects.toThrow();
@@ -124,6 +133,9 @@ it("rejects raw message and token markers from row identity and unknown intents"
   }
   stub({}, 200);
   const result = await action(args(marker));
-  expect(result).toMatchObject({ failure: { intent: "unknown", classification: "INDETERMINATE" } });
-  expect(JSON.stringify(result)).not.toContain(marker);
+  if (!(result instanceof Response)) throw new Error("Expected refusal");
+  expect(result.status).toBe(400);
+  const body = await result.json();
+  expect(body).toEqual({ outcome: "not-recorded", code: "interruption-safe-client-required" });
+  expect(JSON.stringify(body)).not.toContain(marker);
 });

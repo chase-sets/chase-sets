@@ -1,4 +1,18 @@
 export const identityEnglishTranslations = {
+  "identity.accountManagement.addressChoice": "Choose which address to save in a new attempt.",
+  "identity.accountManagement.acceptSuggested": "Use suggested address",
+  "identity.accountManagement.keepOriginal": "Keep original address",
+  "identity.accountManagement.state.submitting": "Saving your change",
+  "identity.accountManagement.state.confirming": "Checking whether your change was saved",
+  "identity.accountManagement.state.succeeded": "Your change was saved",
+  "identity.accountManagement.state.failed-safe": "No change was recorded. Review and submit again.",
+  "identity.accountManagement.state.conflict": "The account changed. Review its current state before submitting again.",
+  "identity.accountManagement.state.ambiguous": "We could not confirm the result. Do not repeat this action yet.",
+  "identity.accountManagement.state.reauth-required": "Sign in again to check this action's result.",
+  "identity.accountManagement.state.route-denied": "You no longer have access to this action.",
+  "identity.accountManagement.secretUnrecoverable":
+    "The key was saved, but its secret cannot be recovered. Explicitly rotate it to create a new secret.",
+  "identity.accountManagement.acknowledgeSecret": "I have stored this secret",
   "identity.features.accessHub.ui.accessHome.account": "Account",
   "identity.features.accessHub.ui.accessHome.account.count": "{count} accounts found",
   "identity.features.accessHub.ui.accessHome.account.search": "Find an account",

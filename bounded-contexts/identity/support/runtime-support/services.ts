@@ -21,9 +21,15 @@ import { createUserPreferencesRuntime } from "../../features/preferences/api/run
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
+import { createIdentityMutationPersistence } from "../../features/account-management/api/fences";
+import {
+  createAccountManagementRuntime,
+  type AccountManagementServices,
+} from "../../features/account-management/api/runtime";
 
 export type IdentityServices = Readonly<{
   eventStore?: EventStore;
+  accountManagement?: AccountManagementServices;
   accessHub: ReturnType<typeof createAccessHubRuntime>;
   accounts: ReturnType<typeof createAccountRuntime>;
   accountCapabilities: ReturnType<typeof createAccountCapabilityRuntime>;
@@ -57,10 +63,12 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   ) {
     throw new Error("Identity requires capabilityAdministrationAuthority host capability.");
   }
-  const eventStore = createPostgresEventStore({
+  const postgresEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
   });
+  const mutationPersistence = createIdentityMutationPersistence(pool, postgresEventStore);
+  const eventStore = mutationPersistence.eventStore;
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
@@ -94,9 +102,11 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const preferences = createUserPreferencesRuntime(deps);
   const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db);
   const shippingAddresses = createShippingAddressRuntime(deps);
+  const accountManagement = createAccountManagementRuntime(mutationPersistence, { auth, shippingAddresses });
 
   return {
     eventStore,
+    accountManagement,
     accessHub,
     accounts,
     accountCapabilities,

@@ -20,6 +20,7 @@ import MarketplaceAccountTeamRoute, {
   loader as teamLoader,
 } from "../routes/marketplace/account-team";
 import { IdentityApiError } from "../client";
+import { syntheticMutationResult } from "../features/account-management/api/test-support";
 
 const marker = "Bearer synthetic-inline-error-control";
 const actor = {
@@ -93,7 +94,11 @@ function args(path: string, form: Record<string, string>): Parameters<typeof pro
     request: new Request(`https://chasesets.test${path}`, {
       method: "POST",
       body: new URLSearchParams(form),
-      headers: { authorization: marker },
+      headers: {
+        authorization: marker,
+        "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749",
+        Accept: "text/x-script",
+      },
     }),
     params: {},
     context: undefined,
@@ -238,20 +243,27 @@ describe("Identity marketplace route action errors", () => {
     },
   );
 
-  it.each(routes)("$source missing/unknown intent preserves redirect without mutations", async ({ action, path }) => {
-    const unknownForms: Record<string, string>[] = [{}, { intent: "unknown" }];
-    for (const form of unknownForms) {
-      const fetch = stubMutation(() => {
-        throw new Error("unexpected mutation");
-      });
-      const result = await action(args(path, form));
-      expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(302);
-      expect((result as Response).headers.get("Location")).toBe(path);
-      expect(fetch).toHaveBeenCalledTimes(1);
-      expect(mutationCalls(fetch)).toHaveLength(0);
-    }
-  });
+  it.each(routes)(
+    "$source missing/unknown intent refuses before authorization or mutations",
+    async ({ action, path }) => {
+      const unknownForms: Record<string, string>[] = [{}, { intent: "unknown" }];
+      for (const form of unknownForms) {
+        const fetch = stubMutation(() => {
+          throw new Error("unexpected mutation");
+        });
+        const result = await action(args(path, form));
+        expect(result).toBeInstanceOf(Response);
+        expect((result as Response).status).toBe(400);
+        expect((result as Response).headers.get("Location")).toBeNull();
+        expect(await (result as Response).json()).toEqual({
+          outcome: "not-recorded",
+          code: "interruption-safe-client-required",
+        });
+        expect(fetch).toHaveBeenCalledTimes(0);
+        expect(mutationCalls(fetch)).toHaveLength(0);
+      }
+    },
+  );
 
   it.each(routes)(
     "$source authorization and form parsing errors stay outside the classifier",
@@ -307,7 +319,7 @@ describe("Identity marketplace route action errors", () => {
         writes++;
         return failure
           ? json(errorBody(failure.code), failure.status)
-          : json({ id: "written", secret: "synthetic-one-time-secret", keyPrefix: "key_test" });
+          : json(syntheticMutationResult(route.forms[0].intent, actor));
       }
       loaderReads++;
       if (url.pathname.endsWith(`/accounts/${actor.accountId}`)) return json(account);
@@ -319,7 +331,12 @@ describe("Identity marketplace route action errors", () => {
       [
         {
           path: route.path,
-          action: route.action,
+          action: ({ request, ...args }) => {
+            const headers = new Headers(request.headers);
+            headers.set("Idempotency-Key", "9230f01b-7871-420b-9c32-37139f80f749");
+            headers.set("Accept", "text/x-script");
+            return route.action({ ...args, request: new Request(request, { headers }) });
+          },
           loader: route.loader,
           Component: route.Component,
           HydrateFallback: () => null,

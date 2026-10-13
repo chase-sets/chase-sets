@@ -3,6 +3,8 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import type { IdentityApiEnv } from "../../../api";
 import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
 import type { IdentitySecretAdapters } from "./secret-adapters";
@@ -38,11 +40,13 @@ function badRequest(message: string) {
   };
 }
 
-export function apiKeyRoutes(services: ApiKeyRouteServices) {
+export function apiKeyRoutes(services: ApiKeyRouteServices, accountManagement?: AccountManagementServices) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
     const body = await c.req.json();
+    const attempted = await submitAccountManagement(c, accountManagement, "create-api-key", null, body);
+    if (attempted) return attempted;
     const actor = c.var.actor;
     const userId = parseTypedIdBoundary(body.userId, "usr", "userId");
     if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY && actor.userId !== userId) {
@@ -91,6 +95,8 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
 
   app.post("/:id/rotate", async (c) => {
     const apiKeyId = parseTypedIdBoundary(c.req.param("id"), "key", "apiKeyId");
+    const attempted = await submitAccountManagement(c, accountManagement, "rotate-api-key", apiKeyId, {});
+    if (attempted) return attempted;
     const apiKey = await services.getApiKey(apiKeyId);
     if (!apiKey) {
       return c.json(
@@ -130,6 +136,8 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
 
   app.post("/:id/revoke", async (c) => {
     const apiKeyId = parseTypedIdBoundary(c.req.param("id"), "key", "apiKeyId");
+    const attempted = await submitAccountManagement(c, accountManagement, "revoke-api-key", apiKeyId, {});
+    if (attempted) return attempted;
     const apiKey = await services.getApiKey(apiKeyId);
     if (!apiKey) {
       return c.json(
