@@ -489,6 +489,15 @@ describeDb("agent Grant revocation separate-pool proof", () => {
     const services = await paymentsModule.createServices(pools.payments, {});
     const state = await owner.admit(binding, context);
     const terminal = await owner.advance(state!, context);
+    const foreignRemovedAt = "2020-01-01T00:00:00.000Z";
+    await pools.payments.query(
+      `INSERT INTO payments_saved_checkout_instruments (instrument_id, account_id, agent_grant_id,
+       payment_method_category, provider, provider_reference, display_label, confirmation_experience,
+       readiness, is_default, removed_at, created_at, updated_at)
+       VALUES ('instrument_foreign', 'acc_a', 'grant_a', 'card', 'stripe', 'synthetic-foreign-provider-id',
+       'Synthetic previously removed card', 'off-session-token', 'removed', false, $1, $1, $1)`,
+      [foreignRemovedAt],
+    );
     await pools.payments.query(
       `UPDATE payments_saved_checkout_instruments SET readiness = 'removed', is_default = false, removed_at = $1 WHERE instrument_id = 'instrument_a'`,
       [terminal.revokedAt],
@@ -512,6 +521,22 @@ describeDb("agent Grant revocation separate-pool proof", () => {
       context,
     );
     expect(replay.detached).toBe(0);
+    expect(replay.instrumentIds).toEqual([]);
+    const foreign = (
+      await pools.payments.query(
+        `SELECT removed_at, updated_at, is_default FROM payments_saved_checkout_instruments WHERE instrument_id = 'instrument_foreign'`,
+      )
+    ).rows[0];
+    expect(new Date(foreign.removed_at).toISOString()).toBe(foreignRemovedAt);
+    expect(new Date(foreign.updated_at).toISOString()).toBe(foreignRemovedAt);
+    expect(foreign.is_default).toBe(false);
+    expect(
+      (
+        await pools.payments.query(
+          `SELECT count(*) AS count FROM payments_saved_checkout_instrument_audit WHERE instrument_id = 'instrument_foreign'`,
+        )
+      ).rows[0].count,
+    ).toBe("0");
     expect(
       (
         await pools.payments.query(

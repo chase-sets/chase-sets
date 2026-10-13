@@ -127,6 +127,33 @@ describe("agent-grant-revocation-real-route", () => {
     expect(window.sessionStorage.length).toBe(1);
     expect(window.sessionStorage.getItem("agent-grant-revocation:acc_a:grant_a")).toBe(attemptId);
   });
+  it("discards private fields from valid receipts before retaining router action data", async () => {
+    const router = await mount();
+    api.revokeAgentGrant.mockImplementation(async (_id: string, attemptId: string) => ({
+      attempt_id: attemptId,
+      state: "failed-safe",
+      phase: "identity-terminal",
+      error: "SYNTHETIC_SECRET_ERROR",
+      token: "SYNTHETIC_PRIVATE_TOKEN",
+      provider_reference: "SYNTHETIC_PROVIDER_REFERENCE",
+    }));
+    await revoke();
+    await screen.findByText("Cleanup could not be confirmed. Resume this attempt to finish safely.");
+    const retained = router.state.actionData?.["0"]?.revocation;
+    expect(retained).toEqual({
+      attempt_id: expect.any(String),
+      state: "failed-safe",
+      phase: "identity-terminal",
+    });
+    for (const sink of [
+      JSON.stringify(router.state.actionData),
+      document.body.textContent,
+      JSON.stringify(window.sessionStorage),
+    ])
+      expect(sink).not.toMatch(/SYNTHETIC_(SECRET_ERROR|PRIVATE_TOKEN|PROVIDER_REFERENCE)/);
+    expect(api.revokeAgentGrant).toHaveBeenCalledTimes(1);
+    expect(api.getAgentGrantRevocation).not.toHaveBeenCalled();
+  });
   it("renders submitting and confirming from actual router transitions, then completion", async () => {
     const response = deferred();
     const confirmation = deferred();
