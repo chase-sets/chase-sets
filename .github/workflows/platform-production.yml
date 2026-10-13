@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      activate_agent_grant_revocation:
+        description: Activate Agent Grant revocation after support rollout with fresh serving-set proof.
+        required: false
+        default: false
+        type: boolean
       catalog_provider_send_window_enabled:
         description: Opt staging API and worker into the supervised Catalog provider-send window. Requires force_deploy.
         required: false
@@ -3887,6 +3892,16 @@ jobs:
           result="$(jq -r '.result // "failure"' artifacts/release-health/production-rollback-readiness.json)"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
 
+      - name: Enforce Agent Grant revocation compatibility floor
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
+
       - name: Deploy production Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -4309,6 +4324,26 @@ jobs:
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
           node ./scripts/production-release-marker.mjs retain-identity
 
+      - name: Activate Agent Grant revocation
+        if: env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          node ./scripts/agent-grant-revocation-release.mjs activate \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --out artifacts/release-health/agent-grant-revocation-activation.json
+
+      - name: Retain Agent Grant revocation activation proof
+        if: always() && inputs.activate_agent_grant_revocation == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-activation
+          path: artifacts/release-health/agent-grant-revocation-activation.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -4325,6 +4360,9 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
           pnpm run platform:kubernetes-deployment -- abort \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
@@ -4353,6 +4391,9 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
 
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"

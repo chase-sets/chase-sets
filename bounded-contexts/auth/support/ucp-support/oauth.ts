@@ -1,4 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type {
+  AgentGrantRevocations,
+  LinkedPlatformAuthorizationRow,
+  LinkedPlatformAuthorizationStore,
+  RevocationBinding,
+  RevocationState,
+} from "@chase-sets/identity/server";
+import { resumeAgentGrantRevocation } from "../../features/agent-grants/api/revocation";
 import { Hono, type Context } from "hono";
 import {
   AGENT_OAUTH_SCOPE_FAMILIES,
@@ -100,76 +108,8 @@ ${consentSchemaStatements.join("\n")}
 
 export type UcpOAuthRoutesOptions = Readonly<{
   auth: AuthServices;
-  linkedPlatformAuthorizations: Readonly<{
-    grant: (
-      params: Readonly<{
-        authorizationId: string;
-        platformProfileUrl: string;
-        clientId: string;
-        userId: string;
-        accountId: string;
-        scopes: readonly string[];
-        accessTokenHash: string;
-        refreshTokenHash?: string | null;
-        accessTokenExpiresAt: string;
-        refreshTokenExpiresAt?: string | null;
-        grantedAt: string;
-      }>,
-    ) => Promise<unknown>;
-    resolveToken: (tokenHash: string) => Promise<{
-      authorization_id: string;
-      platform_profile_url: string;
-      client_id: string;
-      user_id: string;
-      account_id: string;
-      scopes: readonly string[];
-      access_token_expires_at: string;
-      refresh_token_expires_at: string | null;
-    } | null>;
-    rotateRefreshToken: (
-      params: Readonly<{
-        refreshTokenHash: string;
-        newAccessTokenHash: string;
-        newRefreshTokenHash: string;
-        accessTokenExpiresAt: string;
-        refreshTokenExpiresAt: string;
-        refreshedAt: string;
-      }>,
-    ) => Promise<{
-      platform_profile_url: string;
-      client_id: string;
-      user_id: string;
-      account_id: string;
-      scopes: readonly string[];
-    } | null>;
-    revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
-    revokeAuthorization: (
-      params: Readonly<{
-        authorizationId: string;
-        accountId: string;
-        revokedAt: string;
-        reason?: string | null;
-      }>,
-    ) => Promise<boolean>;
-    listForAccount: (accountId: string) => Promise<
-      readonly {
-        authorization_id: string;
-        platform_profile_url: string;
-        client_id: string;
-        user_id: string;
-        account_id: string;
-        scopes: readonly string[];
-        status: string;
-        access_token_expires_at: string;
-        refresh_token_expires_at: string | null;
-        granted_at: string;
-        last_refreshed_at: string | null;
-        revoked_at: string | null;
-        revocation_reason: string | null;
-        updated_at: string;
-      }[]
-    >;
-  }>;
+  linkedPlatformAuthorizations: LinkedPlatformAuthorizationStore;
+  agentGrantRevocations?: AgentGrantRevocations;
   resolveActor: (request: Request) => Promise<ResolvedActor | null>;
   fetchClientIdMetadata?: (url: string) => Promise<unknown>;
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
@@ -693,6 +633,13 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
     const scopes = normalizeScopes(authorization.scopes);
     const mandate = await options.agentGrantConsent?.resolveMandate(authorization.authorization_id);
+    const current = await options.linkedPlatformAuthorizations.resolveToken(options.auth.auth.hashSecret(token));
+    if (
+      !current ||
+      current.authorization_id !== authorization.authorization_id ||
+      current.account_id !== authorization.account_id
+    )
+      return c.json({ active: false });
     return c.json({
       active: true,
       client_id: authorization.client_id,
@@ -709,15 +656,56 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   app.post("/revoke", async (c) => {
     const body = await readFormOrJson(c.req.raw);
     const token = readString(body.token);
-    if (!token) {
+    if (!Object.hasOwn(body, "token")) {
       return c.json({ error: "invalid_request", error_description: "token is required." }, 400);
     }
+    if (!token || token.length > 1024) return c.body(null, 200);
 
-    await options.linkedPlatformAuthorizations.revokeToken(
-      options.auth.auth.hashSecret(token),
-      new Date().toISOString(),
-    );
-    return c.body(null, 200);
+    const tokenHash = options.auth.auth.hashSecret(token);
+    const authorization = await options.linkedPlatformAuthorizations.resolveRevocationToken(tokenHash);
+    if (!authorization) return c.body(null, 200);
+    const withMode =
+      options.agentGrantRevocations?.withMode ?? (async <T>(work: (active: boolean) => Promise<T>) => work(false));
+    return withMode(async (activated) => {
+      if (!activated) {
+        await options.linkedPlatformAuthorizations.revokeToken(tokenHash, new Date().toISOString());
+        return c.body(null, 200);
+      }
+      try {
+        const attemptId = readRevocationAttempt(
+          c.req.raw,
+          body,
+          legacyRevocationAttempt([authorization.account_id, authorization.authorization_id, tokenHash]),
+        );
+        const context = createAgentGrantRevocationContext(authorization.account_id as AccountId);
+        const binding: RevocationBinding = {
+          attemptId,
+          tenantId: context.tenantId,
+          accountId: authorization.account_id,
+          grantId: authorization.authorization_id,
+          userId: context.audit.performedByUserId,
+          sessionId: tokenHash,
+          provenance: "token",
+          reason: "token_revocation",
+          intent: "revoke",
+          contractVersion: 1,
+        };
+        const state = await options.agentGrantRevocations!.admit(binding, context);
+        if (!state) return c.json({ error: "temporarily_unavailable" }, 503);
+        await resumeAgentGrantRevocation(
+          {
+            advance: options.agentGrantRevocations!.advance,
+            cleanup: options.revokeStoredPaymentMethodsForAgentGrant,
+            exclude: options.agentWebhookOutbox?.excludeRevokedGrant,
+          },
+          state,
+          context,
+        );
+        return c.body(null, 200);
+      } catch {
+        return c.json({ error: "temporarily_unavailable" }, 503);
+      }
+    });
   });
 
   app.get("/authorizations", async (c) => {
@@ -726,7 +714,9 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "login_required" }, 401);
     }
 
-    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
+    const authorizations = (await options.linkedPlatformAuthorizations.listForAccount(actor.accountId)).filter(
+      (authorization) => authorization.account_id === actor.accountId,
+    );
     const clientDisplay = await resolveClientDisplayMap(
       options.auth,
       authorizations.map((authorization) => authorization.client_id),
@@ -747,14 +737,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const authorizationId = c.req.param("id");
-    const authorizations = await options.linkedPlatformAuthorizations.listForAccount(actor.accountId);
-    const authorization = authorizations.find((candidate) => candidate.authorization_id === authorizationId);
+    const authorization = await resolveAccountAuthorization(options, actor.accountId, authorizationId);
     if (!authorization) {
       return c.json({ error: "not_found", error_description: "No linked agent grant matches this account." }, 404);
     }
 
     const clientDisplay = await resolveClientDisplayMap(options.auth, [authorization.client_id]);
-    return c.json({ authorization: await authorizationToJson(options, authorization, clientDisplay) });
+    const revocationActivated = (await options.agentGrantRevocations?.isActivated()) ?? false;
+    return c.json({
+      authorization: await authorizationToJson(options, authorization, clientDisplay),
+      revocation_active: revocationActivated,
+      revocation_available: revocationActivated
+        ? (await options.agentGrantRevocations?.readProgress(actor.accountId, authorizationId)) !== "completed"
+        : authorization.status === "active",
+    });
   });
 
   // Activity view: a read model over the MCP audit sink, filtered to one grant. Backs the
@@ -839,15 +835,22 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
     const updatedAt = new Date().toISOString();
     const signingSecret = parsed.configuration.callbackUrl ? generateAgentWebhookSigningSecret() : null;
-    const updated = await options.auth.db.query(
-      `UPDATE identity_ucp_oauth_clients
+    if (!options.agentGrantRevocations) return c.json({ error: "temporarily_unavailable" }, 503);
+    const updated = await options.agentGrantRevocations.withActiveGrant(
+      actor.accountId,
+      authorization.authorization_id,
+      () =>
+        options.auth.db.query(
+          `UPDATE identity_ucp_oauth_clients
        SET webhook_callback_url = $1,
            webhook_signing_secret = $2,
            webhook_signing_secret_created_at = $3::timestamptz
        WHERE client_id = $4
        RETURNING webhook_callback_url, webhook_signing_secret, webhook_signing_secret_created_at`,
-      [parsed.configuration.callbackUrl, signingSecret, signingSecret ? updatedAt : null, authorization.client_id],
+          [parsed.configuration.callbackUrl, signingSecret, signingSecret ? updatedAt : null, authorization.client_id],
+        ),
     );
+    if (!updated) return c.json({ error: "grant_revoked" }, 409);
     if (updated.rows.length === 0) {
       return c.json({ error: "not_found", error_description: "The OAuth client registration no longer exists." }, 404);
     }
@@ -894,26 +897,82 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "login_required" }, 401);
     }
 
-    const revokedAt = new Date().toISOString();
     const agentGrantId = c.req.param("id");
-    const revokingAccountId = actor.accountId as AccountId;
-    const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
-      authorizationId: agentGrantId,
-      accountId: revokingAccountId,
-      revokedAt,
-      reason: "account_consent_revoked",
-    });
-    if (revoked) {
-      await options.revokeStoredPaymentMethodsForAgentGrant?.(
-        {
-          accountId: revokingAccountId,
-          agentGrantId,
+    const withMode =
+      options.agentGrantRevocations?.withMode ?? (async <T>(work: (active: boolean) => Promise<T>) => work(false));
+    return withMode(async (activated) => {
+      if (!activated) {
+        const revokedAt = new Date().toISOString();
+        const revoked = await options.linkedPlatformAuthorizations.revokeAuthorization({
+          authorizationId: agentGrantId,
+          accountId: actor.accountId,
           revokedAt,
-        },
-        createAgentGrantRevocationContext(revokingAccountId),
+          reason: "account_consent_revoked",
+        });
+        if (revoked)
+          await options.revokeStoredPaymentMethodsForAgentGrant?.(
+            {
+              accountId: actor.accountId as AccountId,
+              agentGrantId,
+              revokedAt,
+            },
+            createAgentGrantRevocationContext(actor.accountId as AccountId),
+          );
+        return c.json({ revoked });
+      }
+      const authorization = await resolveAccountAuthorization(options, actor.accountId, agentGrantId);
+      if (!authorization) return c.json({ error: "not_found" }, 404);
+      const alreadyRevoked = authorization.status === "revoked";
+      try {
+        const attemptId = readRevocationAttempt(
+          c.req.raw,
+          await readFormOrJson(c.req.raw),
+          legacyRevocationAttempt([actor.tenantId, actor.userId, actor.sessionId, actor.accountId, agentGrantId]),
+        );
+        const binding = sessionRevocationBinding(actor, agentGrantId, attemptId);
+        const context: EventStoreContext = {
+          tenantId: actor.tenantId as EventStoreContext["tenantId"],
+          audit: {
+            performedByUserId: actor.userId as EventStoreContext["audit"]["performedByUserId"],
+            forAccountId: actor.accountId as AccountId,
+          },
+        };
+        const initial = await options.agentGrantRevocations!.admit(binding, context);
+        if (!initial) return c.json({ error: "not_found" }, 404);
+        const state = await resumeAgentGrantRevocation(
+          {
+            advance: options.agentGrantRevocations!.advance,
+            cleanup: options.revokeStoredPaymentMethodsForAgentGrant,
+            exclude: options.agentWebhookOutbox?.excludeRevokedGrant,
+          },
+          initial,
+          context,
+        );
+        return c.json({ revoked: true, ...revocationReceipt(state, attemptId, alreadyRevoked) });
+      } catch (error) {
+        const conflict =
+          error instanceof Error && ["revocation_conflict", "revocation_binding_invalid"].includes(error.message);
+        return c.json({ state: conflict ? "conflict" : "failed-safe" }, conflict ? 409 : 503);
+      }
+    });
+  });
+
+  app.get("/authorizations/:id/revocation/:attemptId", async (c) => {
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
+    if (!actor) return c.json({ state: "reauth-required" }, 401);
+    if (!(await resolveAccountAuthorization(options, actor.accountId, c.req.param("id"))))
+      return c.json({ state: "route-denied" }, 404);
+    if (!options.agentGrantRevocations) return c.json({ state: "ambiguous" }, 503);
+    try {
+      const attemptId = c.req.param("attemptId");
+      const state = await options.agentGrantRevocations.read(
+        sessionRevocationBinding(actor, c.req.param("id"), attemptId),
       );
+      if (!state) return c.json({ attempt_id: attemptId, state: "ambiguous" });
+      return c.json(revocationReceipt(state, attemptId, false));
+    } catch {
+      return c.json({ state: "conflict" }, 409);
     }
-    return c.json({ revoked });
   });
 
   // Configure the spending mandate for a linked agent grant. This is the opt-in a person
@@ -940,11 +999,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "invalid_request", error_description: parsed.error }, 400);
     }
 
-    await options.agentGrantConsent.setMandate({
-      grantId: authorizationId,
-      accountId: actor.accountId,
-      mandate: parsed.mandate,
-    });
+    if (!options.agentGrantRevocations) return c.json({ error: "temporarily_unavailable" }, 503);
+    const committed = await options.agentGrantRevocations.withActiveGrant(
+      actor.accountId,
+      authorizationId,
+      async () => {
+        await options.agentGrantConsent!.setMandate({
+          grantId: authorizationId,
+          accountId: actor.accountId,
+          mandate: parsed.mandate,
+        });
+        return true;
+      },
+    );
+    if (!committed) return c.json({ error: "grant_revoked" }, 409);
     const mandate = await options.agentGrantConsent.resolveMandate(authorizationId);
     return c.json({ spending_mandate: mandateToJson(mandate) });
   });
@@ -957,9 +1025,58 @@ async function resolveInteractiveSessionActor(options: UcpOAuthRoutesOptions, re
   return isInteractiveSessionActor(actor) ? actor : null;
 }
 
+function legacyRevocationAttempt(binding: readonly string[]): string {
+  const hex = createHash("sha256").update(JSON.stringify(binding)).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function readRevocationAttempt(
+  request: Request,
+  body: Readonly<Record<string, unknown>>,
+  fallback: string = randomUUID(),
+): string {
+  const header = request.headers.get("Idempotency-Key");
+  const field = body.attempt_id;
+  if (field !== undefined && typeof field !== "string") throw new Error("revocation_binding_invalid");
+  if (header && field && header.toLowerCase() !== field.toLowerCase()) throw new Error("revocation_conflict");
+  const attemptId = header ?? field ?? fallback;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId))
+    throw new Error("revocation_binding_invalid");
+  return attemptId.toLowerCase();
+}
+
+function sessionRevocationBinding(actor: ResolvedActor, grantId: string, attemptId: string): RevocationBinding {
+  return {
+    attemptId,
+    tenantId: actor.tenantId,
+    accountId: actor.accountId,
+    grantId,
+    userId: actor.userId,
+    sessionId: actor.sessionId,
+    provenance: "session",
+    reason: "account_consent_revoked",
+    intent: "revoke",
+    contractVersion: 1,
+  };
+}
+
+function revocationReceipt(state: RevocationState, attemptId: string, alreadyRevoked: boolean) {
+  return {
+    attempt_id: attemptId,
+    operation_id: state.operationId,
+    phase: state.phase,
+    state:
+      state.phase === "completed" ? (alreadyRevoked ? "already-revoked-cleanup-complete" : "succeeded") : "ambiguous",
+  };
+}
+
 async function resolveAccountAuthorization(options: UcpOAuthRoutesOptions, accountId: string, authorizationId: string) {
   const authorizations = await options.linkedPlatformAuthorizations.listForAccount(accountId);
-  return authorizations.find((authorization) => authorization.authorization_id === authorizationId) ?? null;
+  return (
+    authorizations.find(
+      (authorization) => authorization.authorization_id === authorizationId && authorization.account_id === accountId,
+    ) ?? null
+  );
 }
 
 type WebhookClientRow = Readonly<{
@@ -1001,26 +1118,11 @@ function mandateToJson(mandate: AgentSpendingMandate) {
   };
 }
 
-type AuthorizationSummary = Readonly<{
-  authorization_id: string;
-  platform_profile_url: string;
-  client_id: string;
-  scopes: readonly string[];
-  status: string;
-  access_token_expires_at: string;
-  refresh_token_expires_at: string | null;
-  granted_at: string;
-  last_refreshed_at: string | null;
-  revoked_at: string | null;
-  revocation_reason: string | null;
-  updated_at: string;
-}>;
-
 type ClientDisplayInfo = Readonly<{ clientName: string | null; clientUri: string | null }>;
 
 async function authorizationToJson(
   options: UcpOAuthRoutesOptions,
-  authorization: AuthorizationSummary,
+  authorization: LinkedPlatformAuthorizationRow,
   clientDisplay: ReadonlyMap<string, ClientDisplayInfo>,
 ) {
   const consent = options.agentGrantConsent;
@@ -1034,6 +1136,7 @@ async function authorizationToJson(
 
   return {
     id: authorization.authorization_id,
+    account_id: authorization.account_id,
     platform_profile_url: authorization.platform_profile_url,
     client_id: authorization.client_id,
     client_name: display?.clientName ?? null,

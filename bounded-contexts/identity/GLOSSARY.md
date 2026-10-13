@@ -601,6 +601,10 @@ A **Store Role** is the planned role assignment that scopes a Membership's autho
 
 A **Store Invitation** is the planned request for a User or email address to join a Store Team.
 
+### Agent Grant Revocation Operation
+
+An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
+
 ## Language Rules
 
 To maintain consistency:

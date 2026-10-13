@@ -181,3 +181,17 @@ export function createActorEventStoreContext(actor: ResolvedActor) {
   return createGenericActorEventStoreContext(actor);
 }
 export { identitySeedIds } from "@chase-sets/identity-seed";
+export {
+  createAgentGrantRevocations,
+  createActiveAgentGrantFence,
+  newRevocationAttemptId,
+  type AgentGrantRevocations,
+  type RevocationBinding,
+  type RevocationState,
+} from "./features/agent-grants/api/revocation";
+export {
+  AGENT_GRANT_REVOCATION_SUPPORT_VERSION,
+  assertRevocationActivationProof,
+  revocationActivationProofDigest,
+  type RevocationActivationProof,
+} from "./features/agent-grants/api/revocation-floor";

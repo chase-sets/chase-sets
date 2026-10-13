@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSubmit } from "react-router";
+import { useNavigation, useSubmit } from "react-router";
 import { t } from "@chase-sets/localization";
 import { formatDateTime, formatMoney } from "@chase-sets/localization";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
@@ -24,7 +24,7 @@ import {
   Text,
   type DataColumn,
 } from "@chase-sets/design-system";
-import type { AgentGrant, AgentGrantActivityRecord, AgentGrantWebhook } from "./contracts";
+import type { AgentGrant, AgentGrantActivityRecord, AgentGrantWebhook, AgentGrantRevocationReceipt } from "./contracts";
 import { AGENT_GRANT_PAYMENT_RAILS } from "./contracts";
 import {
   agentGrantActivityOutcomeTone,
@@ -249,13 +249,52 @@ export function AgentGrantDetailPage({
   activity,
   webhook,
   savedWebhook,
+  revocation,
+  revocationAvailable = grant.status === "active",
+  revocationActivated = false,
 }: {
   grant: AgentGrant;
   activity: readonly AgentGrantActivityRecord[];
   webhook: AgentGrantWebhook | null;
   savedWebhook?: AgentGrantWebhook | null;
+  revocation?: AgentGrantRevocationReceipt;
+  revocationAvailable?: boolean;
+  revocationActivated?: boolean;
 }) {
   const submit = useSubmit();
+  const navigation = useNavigation();
+  const [attemptId] = useState(() => {
+    if (typeof window === "undefined") return globalThis.crypto.randomUUID();
+    try {
+      const retained = window.sessionStorage.getItem(`agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`);
+      if (retained) return retained;
+      const created = globalThis.crypto.randomUUID();
+      window.sessionStorage.setItem(`agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`, created);
+      return created;
+    } catch {
+      return globalThis.crypto.randomUUID();
+    }
+  });
+  const revoking = navigation.formData?.get("intent") === "revoke";
+  const state = revoking
+    ? navigation.state === "submitting"
+      ? "submitting"
+      : "confirming"
+    : (revocation?.state ?? "editing");
+  const stateMessage = {
+    editing: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.editing"),
+    submitting: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.submitting"),
+    confirming: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.confirming"),
+    succeeded: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.succeeded"),
+    "already-revoked-cleanup-complete": t(
+      "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.already.complete",
+    ),
+    "failed-safe": t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.failed.safe"),
+    conflict: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.conflict"),
+    ambiguous: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.ambiguous"),
+    "reauth-required": t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.reauth"),
+    "route-denied": t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.denied"),
+  }[state];
   const name = clientLabel(grant);
 
   return (
@@ -267,10 +306,16 @@ export function AgentGrantDetailPage({
       title={name}
       status={agentGrantStatusLabel(grant.status)}
       actions={
-        grant.status === "active" ? (
+        revocationAvailable &&
+        (grant.status === "active" ||
+          (grant.status === "revoked" && !["succeeded", "already-revoked-cleanup-complete"].includes(state))) ? (
           <AlertDialog
             trigger={
-              <Button type="button" tone="danger">
+              <Button
+                type="button"
+                tone="danger"
+                disabled={revoking || ["conflict", "reauth-required", "route-denied"].includes(state)}
+              >
                 {t("auth.features.agentGrants.ui.agentGrantDetailPage.revoke")}
               </Button>
             }
@@ -281,11 +326,21 @@ export function AgentGrantDetailPage({
             tone="danger"
             confirmLabel={t("auth.features.agentGrants.ui.agentGrantDetailPage.revoke")}
             cancelLabel={t("auth.features.agentGrants.ui.agentGrantDetailPage.cancel")}
-            onConfirm={() => submit({ intent: "revoke" }, { method: "post" })}
+            onConfirm={() =>
+              submit({ intent: "revoke", attempt_id: revocation?.attempt_id ?? attemptId }, { method: "post" })
+            }
           />
         ) : null
       }
       sections={[
+        ...(revocationActivated
+          ? [
+              {
+                label: t("auth.features.agentGrants.ui.agentGrantDetailPage.revoke"),
+                value: <Text role="status">{stateMessage}</Text>,
+              },
+            ]
+          : []),
         {
           label: t("auth.features.agentGrants.ui.agentGrantDetailPage.agent"),
           value: (

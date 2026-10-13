@@ -12,6 +12,16 @@ The connected-agents API addresses webhook configuration through an owned author
 
 Every management request requires an interactive session actor, then verifies that the grant belongs to the signed-in account. Agent bearer tokens and guest-checkout actors are refused with 401 `login_required` before any management read or write. A client registration is shared by its grants, so replacing a callback changes delivery for every active grant using that OAuth client.
 
+## Revocation Support
+
+The support release preserves dormant token and Account revocation, including the existing Account cleanup and detach behavior. Activation is an explicit deployment-pipeline action, not application startup. Its privileged Identity command requires fresh complete API/worker evidence and a membership admission fence through the atomic activation append. Existing dormant requests must settle; an unresolved request on a serving instance refuses activation. Revoked Grants are adopted for local recovery with their recorded time and reason, not assumed complete.
+
+After activation, token and interactive Account requests share the Identity-owned [Agent Grant Revocation Operation](../../identity/GLOSSARY.md#agent-grant-revocation-operation). Auth resumes only missing effects. Payments removes agent-usable instruments and defaults locally and atomically publishes its affordance and completion marker. This owner path makes no provider call or deferred-detach promise; provider attachments can remain. Explicit Account removal and late-setup detach retain their separate behavior.
+
+Enqueued webhooks retain their Account and causal Grant IDs. Each send checks those exact Grants under Identity's exported fence. Legacy rows without causal membership fail closed. A claimed send already started may settle once after revocation; it is not resent for a revoked Grant. Pre-POST failures and active-Grant transport failures retain capped retries, without abandoning other claimed deliveries. Recovery claims advance durably across poisoned operations and worker restarts.
+
+The post-activation admission floor also applies to new pods and automatic rollback. The later same-issue removal release retires dormant routing, not the durable floor. Actor and spend-policy checks deny requests observed after terminal authority; they do not cancel an already-admitted downstream charge or make a cross-context transaction.
+
 ## Signature verification
 
 The sender posts the exact JSON body with these headers:

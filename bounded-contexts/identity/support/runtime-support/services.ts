@@ -21,6 +21,7 @@ import { createUserPreferencesRuntime } from "../../features/preferences/api/run
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
+import { createAgentGrantRevocations, type AgentGrantRevocations } from "../../features/agent-grants/api/revocation";
 
 export type IdentityServices = Readonly<{
   eventStore?: EventStore;
@@ -35,6 +36,7 @@ export type IdentityServices = Readonly<{
   consents: ReturnType<typeof createConsentRuntime>;
   preferences: ReturnType<typeof createUserPreferencesRuntime>;
   linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
+  agentGrantRevocations: AgentGrantRevocations;
   shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (Terms of Service active version). */
   policies: PolicyRuntime;
@@ -92,11 +94,12 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
   const preferences = createUserPreferencesRuntime(deps);
-  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db);
+  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool);
   const shippingAddresses = createShippingAddressRuntime(deps);
 
   return {
     eventStore,
+    agentGrantRevocations: createAgentGrantRevocations(pool, eventStore),
     accessHub,
     accounts,
     accountCapabilities,
