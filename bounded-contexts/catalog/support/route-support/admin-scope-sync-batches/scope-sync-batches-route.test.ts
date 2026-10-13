@@ -85,12 +85,29 @@ describe("Scope Sync Batch admin action callers", () => {
   });
   it("does not reflect captured API failures and never retries through ordinary preview", async () => {
     api.captureScopeSyncBatchPreview.mockRejectedValueOnce(new Error("synthetic-private-marker"));
-    const response = await runRequest(formRequest({ intent: "preview", countCapture: "1" }));
+    const response = await runRequest(
+      formRequest({
+        intent: "preview",
+        countCapture: "1",
+        selectionMode: "ids",
+        scopeRecordIds: "synthetic-op01",
+      }),
+    );
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(409);
     expect(await (response as Response).text()).not.toContain("synthetic-private-marker");
     expect(api.captureScopeSyncBatchPreview).toHaveBeenCalledOnce();
     expect(api.previewScopeSyncBatch).not.toHaveBeenCalled();
+  });
+  it.each([
+    { selectionMode: "matching-scope", scopeRecordIds: "synthetic-op01" },
+    { selectionMode: "ids", scopeRecordIds: "" },
+    { selectionMode: "ids", scopeRecordIds: "synthetic-op01,synthetic-second" },
+  ])("refuses non-single-ID capture selection $selectionMode/$scopeRecordIds", async (selection) => {
+    const response = await runRequest(formRequest({ intent: "preview", countCapture: "1", ...selection }));
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(409);
+    for (const method of Object.values(api)) expect(method).not.toHaveBeenCalled();
   });
   it("refuses an unmarked pre-confirm or duplicate marker before API work", async () => {
     for (const body of ["intent=pre-confirm-planner-read", "intent=preview&countCapture=1&countCapture=1"]) {

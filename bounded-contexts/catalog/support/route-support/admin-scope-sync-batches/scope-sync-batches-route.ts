@@ -49,7 +49,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
         if (intent === "preview")
           return Response.json(
             {
-              preview: await api.captureScopeSyncBatchPreview(previewRequest(formData)),
+              preview: await api.captureScopeSyncBatchPreview(captureRequest(formData)),
               heldSetResolution: null,
               error: null,
             } satisfies ScopeSyncBatchRouteActionData,
@@ -62,7 +62,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
               heldSetResolution: null,
               error: null,
               capturePreConfirm: await api.readScopeSyncBatchPreConfirm({
-                ...previewRequest(formData),
+                ...captureRequest(formData),
                 planFingerprint: requiredString(formData.get("planFingerprint"), "capture-stopped"),
               }),
             } satisfies ScopeSyncBatchRouteActionData,
@@ -128,6 +128,12 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
       error: error instanceof Error ? error.message : "Scope Sync Batch command failed.",
     };
   }
+}
+
+function captureRequest(formData: FormData) {
+  const input = previewRequest(formData);
+  if (input.selection.mode !== "ids" || input.selection.scopeRecordIds.length !== 1) throw new Error("capture-stopped");
+  return { ...input, selection: input.selection };
 }
 
 function previewRequest(formData: FormData) {
