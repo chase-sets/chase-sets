@@ -16,6 +16,7 @@ import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "../r
 import type { ReviewOpportunityChangedV1 } from "../review-opportunity-facts";
 import type { EmptyEventPayload } from "./event-core";
 import type {
+  PlatformOperationsListingRemovalDirectedPayload,
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
 } from "./platform-operations";
@@ -434,6 +435,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.seller-listing-availability.enabled": MarketplaceSellerListingAvailabilityPayload;
   "marketplace.report.submitted": MarketplaceReportSubmittedPayload;
   "platform-operations.reported-content.action-recorded": PlatformOperationsReportedContentActionRecordedPayload;
+  "platform-operations.reported-content.listing-removal-directed": PlatformOperationsListingRemovalDirectedPayload;
   "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;

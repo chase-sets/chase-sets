@@ -97,6 +97,12 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 
 **Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.
 
+## Listing Removal Directive
+
+A **Listing Removal Directive** is the operator's intent to unlist one Listing, recorded atomically after its Reported Content action audit. Marketplace owns the removal decision and its durable enforcement identity; the directive is not removal authority. Only newly authored directives are delivered, never historical audit actions.
+
+Disabling delivery retains the Listing aggregate reader and all visibility consumers. Stored removals remain readable and hidden, and pending directives resume when delivery is enabled again. After the first operator removal event, roll forward rather than reverting the aggregate reader; never delete events or checkpoints.
+
 ## Moderation Queue
 
 **Moderation Queue** is the Platform Operations queue that groups content reports by target and highlights auto-unlisted targets for operator review.

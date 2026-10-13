@@ -22,6 +22,15 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
+  it("includes listing directive delivery without replacing review moderation wake interest", () => {
+    const entry = requireSourceContextWakeRegistryEntry("platform-operations");
+    expect(entry.affectedProjectionNames).toContain("marketplace:marketplace-listing-moderation-reaction");
+    expect(entry.affectedProjectionNames).toContain("marketplace:marketplace-review-moderation-reaction");
+    expect(
+      entry.affectedProjectionNames.filter((name) => name === "marketplace:marketplace-listing-moderation-reaction"),
+    ).toHaveLength(1);
+  });
+
   it("covers every bounded context with the staging-enabled wake sources explicit", () => {
     expect(() =>
       validateSourceContextWakeRegistry({
