@@ -401,7 +401,7 @@ export function assertOrderPullOutcomeMatchesPayload(
 }
 
 export function isClaimedOrderPullOutcome(value: object): value is ClaimedOrderPullOutcome {
-  return Object.hasOwn(value, "operationKind");
+  return "operationKind" in value && value.operationKind === orderPullOperationKind;
 }
 
 export function sameSelector(left: OrderPullSelectorBinding, right: OrderPullSelectorBinding): boolean {
