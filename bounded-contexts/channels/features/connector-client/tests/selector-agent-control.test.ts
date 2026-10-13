@@ -127,6 +127,7 @@ describe("selector-agent-control-capability", () => {
     "native-exception",
     "native-executable-refusal",
     "native-executable-alias-refusal",
+    "native-executable-unreadable-refusal",
     "native-library-refusal",
     "missing-private-bus",
     "missing-native-action-mutant",
@@ -176,6 +177,10 @@ describe("selector-agent-control-capability", () => {
           stdout: "NATIVE_REMOVE_REFUSED:ROLE\n",
         });
       if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
+      if (result === "native-executable-unreadable-refusal")
+        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
+          stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_UNREADABLE\n",
+        });
       if (result === "native-executable-alias-refusal")
         throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
           stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_ALIAS\n",
@@ -219,6 +224,7 @@ describe("selector-agent-control-capability", () => {
         "native-exception": "ROLE",
         "native-executable-refusal": "PROCESS_EXECUTABLE",
         "native-executable-alias-refusal": "PROCESS_EXECUTABLE_ALIAS",
+        "native-executable-unreadable-refusal": "PROCESS_EXECUTABLE_UNREADABLE",
         "native-library-refusal": "LIBRARY",
         "missing-private-bus": "CAPABILITY",
         "missing-native-action-mutant": "SENT",

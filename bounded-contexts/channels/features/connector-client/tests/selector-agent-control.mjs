@@ -551,6 +551,7 @@ const nativeRemovalStages = [
   "PROCESS_PROFILE",
   "PROCESS_EXECUTABLE",
   "PROCESS_EXECUTABLE_ALIAS",
+  "PROCESS_EXECUTABLE_UNREADABLE",
   "PROCESS_DIGEST",
   "PROCESS_UNIQUE",
   "PROCESS_START",
@@ -575,7 +576,7 @@ sys.excepthook = lambda kind, value, trace: print('NATIVE_REMOVE_REFUSED:' + sta
 profile, executable, digest, address, until = sys.argv[1:]
 until = float(until)
 if not address.startswith('unix:'): raise RuntimeError()
-pids, profile_matches, executable_alias = [], 0, False
+pids, profile_matches, executable_alias, executable_unreadable = [], 0, False, False
 for entry in pathlib.Path('/proc').iterdir():
     if not entry.name.isdigit(): continue
     try:
@@ -583,7 +584,10 @@ for entry in pathlib.Path('/proc').iterdir():
         if ('--user-data-dir=' + profile).encode() not in args: continue
         if any(arg.startswith(b'--type=') for arg in args): continue
         profile_matches += 1
-        actual_executable = os.path.realpath(entry / 'exe')
+        try: actual_executable = os.path.realpath(entry / 'exe', strict=True)
+        except PermissionError:
+            executable_unreadable = True
+            continue
         if actual_executable != executable:
             if actual_executable == os.path.realpath(executable): executable_alias = True
             continue
@@ -591,7 +595,7 @@ for entry in pathlib.Path('/proc').iterdir():
         if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
         pids.append(int(entry.name))
     except (FileNotFoundError, PermissionError): pass
-stage = 'PROCESS_PROFILE' if not profile_matches else 'PROCESS_EXECUTABLE_ALIAS' if not pids and executable_alias else 'PROCESS_EXECUTABLE' if not pids else 'PROCESS_UNIQUE'
+stage = 'PROCESS_PROFILE' if not profile_matches else 'PROCESS_EXECUTABLE_UNREADABLE' if not pids and executable_unreadable else 'PROCESS_EXECUTABLE_ALIAS' if not pids and executable_alias else 'PROCESS_EXECUTABLE' if not pids else 'PROCESS_UNIQUE'
 if len(pids) != 1: raise RuntimeError()
 pid = pids[0]
 stage = 'PROCESS_START'
