@@ -219,10 +219,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives twenty-three green grammar instances across twenty-one live locations without a registry", () => {
+  it("derives twenty-five green grammar instances across twenty-three live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(23);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(21);
+    expect(green).toHaveLength(25);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(23);
     expect(green).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
