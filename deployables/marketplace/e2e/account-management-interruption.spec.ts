@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { registerSyntheticAccount, syntheticAccountFor } from "./support/auth";
@@ -8,16 +8,39 @@ const routes = ["/account", "/account/shipping-addresses", "/account/consents", 
 // These real mutations return plaintext key secrets; never record their network or DOM sinks.
 test.use({ trace: "off", video: "off", screenshot: "off" });
 
+function syntheticActor(testInfo: TestInfo) {
+  return syntheticAccountFor({
+    file: testInfo.file,
+    project: { name: testInfo.project.name },
+    titlePath: [...testInfo.titlePath, `retry:${testInfo.retry}`],
+  });
+}
+
 async function profileForm(page: Page) {
   const form = page.locator('form:has(input[name="intent"][value="update-profile"])');
   await expect(form.getByRole("button", { name: /^Update profile$/i })).toBeEnabled();
+  await form.getByLabel("Legal name", { exact: true }).fill("Synthetic legal name");
   return form;
 }
 
 test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
   test.beforeEach(async ({ page, baseURL }, testInfo) => {
     if (!baseURL) throw new Error("Marketplace base URL is required");
-    await registerSyntheticAccount(page, baseURL, syntheticAccountFor(testInfo));
+    await registerSyntheticAccount(page, baseURL, syntheticActor(testInfo));
+    await expect
+      .poll(async () => {
+        const display = await page.request.get("/api/identity/current-actor-display");
+        if (display.status() !== 200) return display.status();
+        const actorDisplay = (await display.json()) as { user: { user_id: string } };
+        const user = await page.request.get(`/api/identity/users/${encodeURIComponent(actorDisplay.user.user_id)}`);
+        return user.status();
+      })
+      .toBe(200);
+    page.on("response", (response) => {
+      const route = routes.indexOf(new URL(response.url()).pathname.replace(/\.data$/, ""));
+      if (route >= 0 && response.request().method() === "POST")
+        console.log(`issue7168-router-response route=${route} status=${response.status()}`);
+    });
     await page.goto("/account");
   });
 
@@ -232,9 +255,9 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await page.reload();
       expect((await page.textContent("body"))?.includes(secret)).toBe(false);
       await registerSyntheticAccount(page, baseURL!, {
-        ...syntheticAccountFor(testInfo),
-        email: `switch-${syntheticAccountFor(testInfo).email}`,
-        displayName: `Switch ${syntheticAccountFor(testInfo).displayName}`,
+        ...syntheticActor(testInfo),
+        email: `switch-${syntheticActor(testInfo).email}`,
+        displayName: `Switch ${syntheticActor(testInfo).displayName}`,
       });
       await page.goto("/account/security");
       expect((await page.textContent("body"))?.includes(secret)).toBe(false);
