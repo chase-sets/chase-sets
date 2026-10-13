@@ -73,6 +73,12 @@ describe("canonical link intents", () => {
     ];
     for (const input of bad) expect(parseCanonicalLink(catalog, input).kind, input).toBe("rejected");
     expect(parseCanonicalLink(catalog, good).kind).toBe("intent");
+    expect(parseCanonicalLink(catalog, "https://marketplace.chasesets.com/account/reviews/received").kind).toBe(
+      "rejected",
+    );
+    expect(() => buildCanonicalLink(catalog, "marketplace.account-review", { path: { reviewId: "received" } })).toThrow(
+      /another contributed route/,
+    );
     expect(() => buildCanonicalLink(catalog, "unknown", { path: {} })).toThrow(/intent/);
     expect(() => buildCanonicalLink(catalog, "discovery.item-detail", { path: { id: "item-1", nested: {} } })).toThrow(
       /parameter/,

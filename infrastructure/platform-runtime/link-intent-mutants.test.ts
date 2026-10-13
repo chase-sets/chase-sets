@@ -5,6 +5,7 @@ import { expect, it } from "vitest";
 import manifest from "../../bounded-contexts/discovery/context.json" with { type: "json" };
 import environmentHosts from "../../scripts/environment-hosts.json" with { type: "json" };
 import { resolveWebHostRouteRecords } from "./web";
+import { matchRoutes } from "react-router";
 import { composeLinkIntents, parseCanonicalLink } from "./link-intents";
 import type { LinkIntentCatalog } from "@chase-sets/bounded-context-module";
 
@@ -30,6 +31,7 @@ function mutant(before: string, after: string) {
   const exports: { parseCanonicalLink?: typeof parseCanonicalLink } = {};
   new Function("require", "exports", compiled)((specifier: string) => {
     if (specifier === "./web") return { resolveWebHostRouteRecords };
+    if (specifier === "react-router") return { matchRoutes };
     if (specifier.endsWith("environment-hosts.json")) return environmentHosts;
     throw new Error(`Unexpected mutant import ${specifier}`);
   }, exports);
@@ -128,5 +130,28 @@ it("link-intent-build-parse-closed-matrix candidate-versus-bypass mutants", () =
       'if (!candidates.length) return rejected("unknown-intent-or-parameter");',
     )(ambiguous, good).kind,
     "ambiguity-check-bypassed",
+  ).toBe("intent");
+  const shadowCatalog: LinkIntentCatalog = {
+    ...catalog,
+    partition: [
+      ...catalog.partition,
+      {
+        owner: "synthetic",
+        routeId: "static-shadow",
+        host: "marketplace-web",
+        path: "/items/reserved",
+        kind: "indeterminate",
+        reason: "Synthetic static-sibling control",
+      },
+    ],
+  };
+  const shadowInput = "https://marketplace.chasesets.com/items/reserved";
+  expect(parseCanonicalLink(shadowCatalog, shadowInput).kind).toBe("rejected");
+  expect(
+    mutant(
+      'if (routeWinner(catalog, authority.host, `${url.pathname}${url.search}`) !== candidates[0]!.intent.id) return rejected("unregistered-route-winner");',
+      "",
+    )(shadowCatalog, shadowInput).kind,
+    "route-winner-check-bypassed",
   ).toBe("intent");
 });

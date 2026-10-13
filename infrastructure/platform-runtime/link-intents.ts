@@ -8,6 +8,7 @@ import type {
   ParsedLinkIntent,
 } from "@chase-sets/bounded-context-module";
 import environmentHosts from "../../scripts/environment-hosts.json" with { type: "json" };
+import { matchRoutes } from "react-router";
 import { resolveWebHostRouteRecords, type WebContextManifest, type WebContextRegistry, type WebHostName } from "./web";
 
 export type * from "@chase-sets/bounded-context-module/link-intents";
@@ -46,7 +47,12 @@ export function composeLinkIntents(contexts: WebContextRegistry): LinkIntentCata
         throw new Error(`Link intent owner mismatch: ${route.contextName}/${route.routeId}`);
       const metadata = route as typeof route &
         Partial<Pick<BcMarketplaceRouteModule, "canonicalLink" | "authorization" | "availability">>;
-      const base = { owner: route.contextName, routeId: route.routeId, host };
+      const base = {
+        owner: route.contextName,
+        routeId: route.routeId,
+        host,
+        path: `/${route.routePath.replace(/^\//, "")}`,
+      };
       if (metadata.canonicalLink?.kind !== "route-derived") {
         partition.push({
           ...base,
@@ -178,7 +184,18 @@ export function buildCanonicalLink(
   const path = intent.path.replace(/:([A-Za-z][\w]*)/g, (_, key: string) => encodeURIComponent(parameters.path[key]!));
   const query = new URLSearchParams(parameters.query).toString();
   const href = `${path}${query ? `?${query}` : ""}`;
+  if (routeWinner(catalog, intent.host, href) !== intent.id)
+    throw new Error(`Link parameters select another contributed route: ${intent.id}`);
   return { href, url: `${originFor(intent.host, environment)}${href}` };
+}
+
+function routeWinner(catalog: LinkIntentCatalog, host: WebHostName, href: string) {
+  return matchRoutes(
+    catalog.partition
+      .filter((row) => row.host === host)
+      .map((row) => ({ id: `${row.owner}.${row.routeId}`, path: row.path })),
+    href,
+  )?.at(-1)?.route.id;
 }
 
 export function parseCanonicalLink(catalog: LinkIntentCatalog, input: string): ParsedLinkIntent {
@@ -246,6 +263,8 @@ export function parseCanonicalLink(catalog: LinkIntentCatalog, input: string): P
     candidates.push({ intent, parameters });
   }
   if (candidates.length !== 1) return rejected(candidates.length ? "ambiguous-intent" : "unknown-intent-or-parameter");
+  if (routeWinner(catalog, authority.host, `${url.pathname}${url.search}`) !== candidates[0]!.intent.id)
+    return rejected("unregistered-route-winner");
   return { kind: "intent", ...candidates[0]!, environment: authority.environment };
 }
 

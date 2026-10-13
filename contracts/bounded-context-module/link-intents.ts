@@ -27,7 +27,7 @@ export type LinkIntent = Readonly<{
 }>;
 
 export type LinkIntentPartitionRow = Readonly<
-  { owner: string; routeId: string; host: LinkIntent["host"] } & (
+  { owner: string; routeId: string; host: LinkIntent["host"]; path: string } & (
     | { kind: "intent"; intentId: string }
     | { kind: "indeterminate"; reason: string }
   )
