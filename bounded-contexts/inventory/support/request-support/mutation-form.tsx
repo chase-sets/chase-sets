@@ -55,6 +55,27 @@ export function InventoryMutationProvider({
       current = false;
     };
   }, [authority.accountId, authority.actorUserId]);
+  useEffect(() => {
+    let current = true;
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      for (const controller of controllers.values()) {
+        if (controller.snapshot().state !== "submitting") continue;
+        controller.possibleSendLoss();
+        changed();
+        void controller
+          .confirm((id) => inventoryApi.getMutationAttempt(id))
+          .then(() => {
+            if (current) changed();
+          });
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      current = false;
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [controllers]);
   const pending = [...controllers.values()].filter((controller) => controller.snapshot().state !== "editing");
   const unavailable = controllers.size !== families.length;
   const state = unavailable
@@ -157,12 +178,7 @@ export function InventoryMutationForm({
           hidden.current.value = controller.begin(targetId);
           onSubmit?.(event);
           if (event.defaultPrevented) controller.refusedBeforeAcceptance();
-          else
-            setTimeout(() => {
-              controller.possibleSendLoss();
-              recovery.changed();
-              void controller.confirm((id) => inventoryApi.getMutationAttempt(id)).then(recovery.changed);
-            }, 0);
+          else setTimeout(() => recovery.changed(), 0);
         } catch {
           event.preventDefault();
           recovery?.changed();
