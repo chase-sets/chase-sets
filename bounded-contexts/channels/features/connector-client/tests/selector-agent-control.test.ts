@@ -94,7 +94,7 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
-  it.each(["confirmed", "unknown-output", "native-exception", "missing-native-action-mutant"])(
+  it.each(["confirmed", "unknown-output", "native-exception", "missing-private-bus", "missing-native-action-mutant"])(
     "native confirmation %s precedes exact-ID UI removal",
     async (result) => {
       const f = fixture("C");
@@ -131,6 +131,7 @@ describe("selector-agent-control-capability", () => {
       };
       nativeRemoval.mockReset().mockImplementation((_executable: string, args: string[]) => {
         expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
+        expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
         expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
         expect(rendered).toBe(true);
         if (result === "native-exception") throw new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION");
@@ -153,6 +154,7 @@ describe("selector-agent-control-capability", () => {
         binding: f.binding,
         ordersUrl: pathToFileURL(path.join(f.root, "synthetic-orders.html")).href,
         deadline: Date.parse(f.binding.startedAt) + 900000,
+        nativeSessionBus: result === "missing-private-bus" ? undefined : "unix:path=/SYNTHETIC_PRIVATE_BUS",
       });
       if (result === "missing-native-action-mutant")
         await expect(browser.action("remove")).rejects.toThrow("to be true");
@@ -163,7 +165,9 @@ describe("selector-agent-control-capability", () => {
           message: "selector_operation_refused",
         });
       expect(removed).toBe(result === "confirmed");
-      expect(nativeRemoval).toHaveBeenCalledTimes(result === "missing-native-action-mutant" ? 0 : 1);
+      expect(nativeRemoval).toHaveBeenCalledTimes(
+        ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
+      );
     },
   );
   it("waits for the actual fixed helper API before cancel-before-begin, not navigation commit", async () => {

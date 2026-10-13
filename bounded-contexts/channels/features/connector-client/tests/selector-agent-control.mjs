@@ -532,11 +532,12 @@ export async function createRunEndpoint(session, binding) {
 }
 
 // Chromium's extension confirmation is a native Views dialog, not WebUI.
-// The X11 input is private, one-shot, and bound to the exact synthetic process.
+// The accessibility action is private, one-shot, and exact-process bound.
 const nativeRemovalScript = String.raw`
 import ctypes as c, hashlib, os, pathlib, sys, time
-profile, executable, digest, until = sys.argv[1:]
+profile, executable, digest, address, until = sys.argv[1:]
 until = float(until)
+if not address.startswith('unix:'): raise RuntimeError()
 pids = []
 for entry in pathlib.Path('/proc').iterdir():
     if not entry.name.isdigit(): continue
@@ -550,67 +551,126 @@ for entry in pathlib.Path('/proc').iterdir():
     except (FileNotFoundError, PermissionError): pass
 if len(pids) != 1: raise RuntimeError()
 pid = pids[0]
-started = pathlib.Path('/proc', str(pid), 'stat').read_bytes()
-x = c.CDLL('libX11.so.6')
-def api(name, result, args):
-    fn = getattr(x, name); fn.restype = result; fn.argtypes = args; return fn
-ptr, ulong, uint = c.c_void_p, c.c_ulong, c.c_uint
-open_display = api('XOpenDisplay', ptr, [c.c_char_p])
-display = open_display(None)
-if not display: raise RuntimeError()
-root = api('XDefaultRootWindow', ulong, [ptr])(display)
-atom = api('XInternAtom', ulong, [ptr, c.c_char_p, c.c_int])
-property_get = api('XGetWindowProperty', c.c_int, [ptr, ulong, ulong, c.c_long, c.c_long, c.c_int, ulong, c.POINTER(ulong), c.POINTER(c.c_int), c.POINTER(ulong), c.POINTER(ulong), c.POINTER(ptr)])
-free = api('XFree', c.c_int, [ptr])
-tree = api('XQueryTree', c.c_int, [ptr, ulong, c.POINTER(ulong), c.POINTER(ulong), c.POINTER(c.POINTER(ulong)), c.POINTER(uint)])
-def property(window, name):
-    kind, fmt, count, remaining, data = ulong(), c.c_int(), ulong(), ulong(), ptr()
-    if property_get(display, window, atom(display, name, 0), 0, 1024, 0, 0, c.byref(kind), c.byref(fmt), c.byref(count), c.byref(remaining), c.byref(data)) != 0: raise RuntimeError()
+started = pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19]
+gio, glib = c.CDLL('libgio-2.0.so.0'), c.CDLL('libglib-2.0.so.0')
+ptr = c.c_void_p
+def api(lib, name, result, args):
+    fn = getattr(lib, name); fn.restype = result; fn.argtypes = args; return fn
+child = api(glib, 'g_variant_get_child_value', ptr, [ptr, c.c_size_t])
+length = api(glib, 'g_variant_n_children', c.c_size_t, [ptr])
+string = api(glib, 'g_variant_get_string', c.c_char_p, [ptr, ptr])
+uint = api(glib, 'g_variant_get_uint32', c.c_uint, [ptr])
+boolean = api(glib, 'g_variant_get_boolean', c.c_int, [ptr])
+variant = api(glib, 'g_variant_get_variant', ptr, [ptr])
+unref = api(glib, 'g_variant_unref', None, [ptr])
+text = api(glib, 'g_variant_new_string', ptr, [c.c_char_p])
+integer = api(glib, 'g_variant_new_int32', ptr, [c.c_int])
+tuple_new = api(glib, 'g_variant_new_tuple', ptr, [c.POINTER(ptr), c.c_size_t])
+def params(*values):
+    items = [text(v) if isinstance(v, bytes) else integer(v) for v in values]
+    return tuple_new((ptr * len(items))(*items), len(items))
+error = ptr()
+connection = api(gio, 'g_dbus_connection_new_for_address_sync', ptr, [c.c_char_p, c.c_int, ptr, ptr, c.POINTER(ptr)])(address.encode(), 9, None, None, c.byref(error))
+if not connection: raise RuntimeError()
+invoke = api(gio, 'g_dbus_connection_call_sync', ptr, [ptr, c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p, ptr, ptr, c.c_int, c.c_int, ptr, c.POINTER(ptr)])
+def call(bus, path, interface, method, arguments=None):
+    error = ptr()
+    remaining = int((until - time.time()) * 1000)
+    if remaining <= 0: raise RuntimeError()
+    reply = invoke(connection, bus, path, interface, method, arguments, None, 0, remaining, None, c.byref(error))
+    if not reply: raise RuntimeError()
+    return reply
+def scalar(reply, reader):
+    value = child(reply, 0)
+    try: return reader(value)
+    finally: unref(value); unref(reply)
+def strings(reply):
+    array = child(reply, 0)
     try:
-        if remaining.value: raise RuntimeError()
-        if fmt.value == 8: return c.string_at(data, count.value)
-        if fmt.value == 32 and count.value == 1: return c.cast(data, c.POINTER(ulong))[0]
-        return None
-    finally:
-        if data: free(data)
-def windows():
-    parent, origin, children, count = ulong(), ulong(), c.POINTER(ulong)(), uint()
-    if not tree(display, root, c.byref(origin), c.byref(parent), c.byref(children), c.byref(count)): raise RuntimeError()
-    try: return list(children[:count.value])
-    finally:
-        if children: free(children)
+        result = []
+        for i in range(length(array)):
+            value = child(array, i)
+            try: result.append(string(value, None))
+            finally: unref(value)
+        return result
+    finally: unref(array); unref(reply)
+accessible = b'org.a11y.atspi.Accessible'
+root = b'/org/a11y/atspi/accessible/root'
+def children(bus, path):
+    reply = call(bus, path, accessible, b'GetChildren'); array = child(reply, 0)
+    try:
+        if length(array) > 512: raise RuntimeError()
+        result = []
+        for i in range(length(array)):
+            item = child(array, i); owner, location = child(item, 0), child(item, 1)
+            try:
+                if string(owner, None) == bus: result.append(string(location, None))
+            finally: unref(owner); unref(location); unref(item)
+        return result
+    finally: unref(array); unref(reply)
+def role(bus, path): return scalar(call(bus, path, accessible, b'GetRoleName'), lambda value: string(value, None))
+def name(bus, path):
+    reply = call(bus, path, b'org.freedesktop.DBus.Properties', b'Get', params(accessible, b'Name'))
+    wrapped = child(reply, 0); value = variant(wrapped)
+    try: return string(value, None)
+    finally: unref(value); unref(wrapped); unref(reply)
 title = b'Remove "Chase Sets Temporary Order Authority Capture"?'
-target = None
+button = None
 while time.time() < until:
-    matches = [w for w in windows() if property(w, b'_NET_WM_PID') == pid and property(w, b'_NET_WM_NAME') == title]
+    matches = []
+    names = strings(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'ListNames'))
+    if len(names) > 64: raise RuntimeError()
+    for bus in names:
+        if not bus.startswith(b':'): continue
+        if scalar(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'GetConnectionUnixProcessID', params(bus)), uint) != pid: continue
+        try: pending = children(bus, root)
+        except RuntimeError: continue
+        seen = set()
+        while pending:
+            path = pending.pop()
+            if path in seen: continue
+            seen.add(path)
+            if len(seen) > 2000: raise RuntimeError()
+            if role(bus, path) == b'dialog':
+                if name(bus, path) != title: raise RuntimeError()
+                buttons, nested, visited = [], children(bus, path), set()
+                while nested:
+                    node = nested.pop()
+                    if node in visited: continue
+                    visited.add(node)
+                    if len(visited) > 512: raise RuntimeError()
+                    if role(bus, node) == b'push button' and name(bus, node) == b'Remove': buttons.append(node)
+                    nested.extend(children(bus, node))
+                if len(buttons) != 1: raise RuntimeError()
+                matches.append((bus, buttons[0]))
+            else: pending.extend(children(bus, path))
     if len(matches) > 1: raise RuntimeError()
-    if matches: target = matches[0]; break
+    if matches: button = matches[0]; break
     time.sleep(.025)
-if target is None: raise RuntimeError()
-# The frozen Chromium dialog has an OK/Remove default button. No global key,
-# arbitrary title, unknown prompt, or alternative target is admitted.
-api('XSetInputFocus', c.c_int, [ptr, ulong, c.c_int, ulong])(display, target, 1, 0)
-api('XSync', c.c_int, [ptr, c.c_int])(display, 0)
-focus, revert = ulong(), c.c_int()
-api('XGetInputFocus', c.c_int, [ptr, c.POINTER(ulong), c.POINTER(c.c_int)])(display, c.byref(focus), c.byref(revert))
-if focus.value != target or property(target, b'_NET_WM_PID') != pid or property(target, b'_NET_WM_NAME') != title: raise RuntimeError()
-if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started.split(b') ')[1].split()[19]: raise RuntimeError()
-class Key(c.Structure):
-    _fields_ = [('type', c.c_int), ('serial', ulong), ('send_event', c.c_int), ('display', ptr), ('window', ulong), ('root', ulong), ('subwindow', ulong), ('time', ulong), ('x', c.c_int), ('y', c.c_int), ('x_root', c.c_int), ('y_root', c.c_int), ('state', uint), ('keycode', uint), ('same_screen', c.c_int)]
-class Event(c.Union): _fields_ = [('key', Key), ('padding', c.c_long * 24)]
-keycode = api('XKeysymToKeycode', c.c_ubyte, [ptr, ulong])(display, 0xff0d)
-if not keycode: raise RuntimeError()
-send = api('XSendEvent', c.c_int, [ptr, ulong, c.c_int, c.c_long, c.POINTER(Event)])
-for kind, mask in [(2, 1), (3, 2)]:
-    event = Event(); event.key = Key(kind, 0, 1, display, target, root, 0, 0, 1, 1, 1, 1, 0, keycode, 1)
-    if not send(display, target, 0, mask, c.byref(event)): raise RuntimeError()
-api('XSync', c.c_int, [ptr, c.c_int])(display, 0)
-api('XCloseDisplay', c.c_int, [ptr])(display)
+if button is None: raise RuntimeError()
+if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
+bus, path = button
+actions = call(bus, path, b'org.a11y.atspi.Action', b'GetActions'); array = child(actions, 0)
+try:
+    if length(array) != 1: raise RuntimeError()
+    action = child(array, 0); action_name = child(action, 0)
+    try:
+        if string(action_name, None) not in [b'click', b'press']: raise RuntimeError()
+    finally: unref(action_name); unref(action)
+finally: unref(array); unref(actions)
+if not scalar(call(bus, path, b'org.a11y.atspi.Action', b'DoAction', params(0)), boolean): raise RuntimeError()
 print('NATIVE_REMOVE_SENT')
 `;
 
 // Raw browser primitives are private to this offline-only Channels adapter.
-export function createPlaywrightSelectorBrowser({ context, preparation, binding, ordersUrl, deadline }) {
+export function createPlaywrightSelectorBrowser({
+  context,
+  preparation,
+  binding,
+  ordersUrl,
+  deadline,
+  nativeSessionBus,
+}) {
   check(binding.evidence === "synthetic" && preparation.evidence === "synthetic", "live_launch_not_authorized");
   check(context.browser().version() === binding.version, "chrome_version_refused");
   check(
@@ -753,6 +813,8 @@ export function createPlaywrightSelectorBrowser({ context, preparation, binding,
     });
     await item.locator("#removeButton").click({ timeout: remaining() });
     try {
+      if (typeof nativeSessionBus !== "string" || !nativeSessionBus.startsWith("unix:"))
+        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
       if (
         execFileSync(
           "python3",
@@ -762,6 +824,7 @@ export function createPlaywrightSelectorBrowser({ context, preparation, binding,
             binding.profile,
             binding.executable,
             binding.executableHash,
+            nativeSessionBus,
             String(removalDeadline / 1000),
           ],
           { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: remaining() },

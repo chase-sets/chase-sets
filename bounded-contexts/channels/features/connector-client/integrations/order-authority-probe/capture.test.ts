@@ -1,6 +1,7 @@
 import { createHash, webcrypto } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -1417,6 +1418,51 @@ describe("selector-lifecycle-removal", () => {
 if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
   const { acquireHeavySlot } = await import("../../../../../../scripts/lib/heavy-slot.mjs");
   acquireHeavySlot("playwright");
+  async function startNativeBus(runOut: string) {
+    if (process.platform !== "linux") throw new Error("native_removal_capability_unavailable");
+    const config = path.join(runOut, "native-bus.conf");
+    // No service directories: this owned bus cannot activate detached daemons.
+    writeFileSync(
+      config,
+      `<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>`,
+      { flag: "wx", mode: 0o600 },
+    );
+    const child = spawn("dbus-daemon", ["--nofork", "--nopidfile", "--print-address=1", `--config-file=${config}`], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const ended = new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+    });
+    const close = async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      await ended;
+    };
+    try {
+      const address = await new Promise<string>((resolve, reject) => {
+        let output = "";
+        const timer = setTimeout(() => reject(new Error("native_bus_refused")), 10000);
+        const finish = (value?: string) => {
+          clearTimeout(timer);
+          if (value) resolve(value);
+          else reject(new Error("native_bus_refused"));
+        };
+        child.once("error", () => finish());
+        child.once("exit", () => finish());
+        child.stdout.on("data", (bytes: Buffer) => {
+          output += bytes.toString("utf8");
+          if (output.length > 512) finish();
+          else if (output.includes("\n")) {
+            const value = output.trim();
+            finish(/^unix:(path|abstract)=[A-Za-z0-9/_-]+,guid=[a-f0-9]{32}$/.test(value) ? value : undefined);
+          }
+        });
+      });
+      return { address, close };
+    } catch (error) {
+      await close();
+      throw error;
+    }
+  }
   describe("selector-lifecycle-removal host-attributed hermetic Chromium", () => {
     it.each(["qualified", "canceled", "expired"])(
       "native dialogs and terminal %s with synthetic install/removal; provider reachability refused",
@@ -1469,41 +1515,54 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           { flag: "wx" },
         );
         const profile = hostPackage.profileDirectory;
-        const context = await chromium.launchPersistentContext(profile, {
-          headless: false,
-          executablePath: executable,
-          ignoreDefaultArgs: ["--disable-extensions"],
-          args: [
-            "--disable-background-networking",
-            "--host-resolver-rules=MAP * ~NOTFOUND",
-            "--enable-unsafe-extension-debugging",
-          ],
-        });
-        const browser = control.createPlaywrightSelectorBrowser({
-          context,
-          preparation: hostPackage,
-          binding,
-          ordersUrl: pathToFileURL(ordersFile).href,
-          deadline: Date.parse(hostPackage.t0) + 900000,
-        });
-        const session = control.attachSelectorSession({ binding, browser });
-        const endpoint = await control.createRunEndpoint(session, binding);
-        const operate = async (operation: string) => {
-          const reply = await fetch(endpoint.url, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${endpoint.token}` },
-            body: JSON.stringify({ runId: binding.runId, policyHash: control.POLICY.hash, operation }),
-          });
-          expect(reply.status, JSON.stringify(session.hostTerminal())).toBe(
-            operation === "cancel-before-begin" ||
-              (scenario === "expired" && operation === "capture") ||
-              (scenario !== "qualified" && ["remove", "close"].includes(operation))
-              ? 204
-              : 200,
-          );
-          return reply.status === 204 ? null : reply.json();
-        };
+        const nativeBus = await startNativeBus(runOut);
+        let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
+        let endpoint: Awaited<ReturnType<typeof control.createRunEndpoint>> | undefined;
         try {
+          context = await chromium.launchPersistentContext(profile, {
+            headless: false,
+            executablePath: executable,
+            ignoreDefaultArgs: ["--disable-extensions"],
+            env: {
+              ...process.env,
+              DBUS_SESSION_BUS_ADDRESS: nativeBus.address,
+              AT_SPI_BUS_ADDRESS: nativeBus.address,
+              ACCESSIBILITY_ENABLED: "1",
+              NO_AT_BRIDGE: "0",
+            },
+            args: [
+              "--disable-background-networking",
+              "--host-resolver-rules=MAP * ~NOTFOUND",
+              "--enable-unsafe-extension-debugging",
+              "--force-renderer-accessibility",
+            ],
+          });
+          const browser = control.createPlaywrightSelectorBrowser({
+            context,
+            preparation: hostPackage,
+            binding,
+            ordersUrl: pathToFileURL(ordersFile).href,
+            deadline: Date.parse(hostPackage.t0) + 900000,
+            nativeSessionBus: nativeBus.address,
+          });
+          const session = control.attachSelectorSession({ binding, browser });
+          endpoint = await control.createRunEndpoint(session, binding);
+          const admittedEndpoint = endpoint;
+          const operate = async (operation: string) => {
+            const reply = await fetch(admittedEndpoint.url, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${admittedEndpoint.token}` },
+              body: JSON.stringify({ runId: binding.runId, policyHash: control.POLICY.hash, operation }),
+            });
+            expect(reply.status, JSON.stringify(session.hostTerminal())).toBe(
+              operation === "cancel-before-begin" ||
+                (scenario === "expired" && operation === "capture") ||
+                (scenario !== "qualified" && ["remove", "close"].includes(operation))
+                ? 204
+                : 200,
+            );
+            return reply.status === 204 ? null : reply.json();
+          };
           let blocked = 0;
           await context.route("**/*", async (route) => {
             if (
@@ -1579,11 +1638,18 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
             .toBe(false);
           await operate("close");
         } finally {
-          await endpoint.close();
-          await context.close();
+          try {
+            await endpoint?.close();
+          } finally {
+            try {
+              await context?.close();
+            } finally {
+              await nativeBus.close();
+            }
+          }
           // Only this synthetic test profile; never a user or provider profile.
           expect(path.dirname(profile)).toBe(runOut);
-          rmSync(profile, { recursive: true });
+          if (existsSync(profile)) rmSync(profile, { recursive: true });
         }
       },
     );
