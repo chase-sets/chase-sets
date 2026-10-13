@@ -14,61 +14,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => ({
 import Route, { action, loader } from "../../../routes/marketplace/account-support-detail";
 
 const actor = evidenceActor("viewer", ["support.view", "support.manage"]);
-function detail() {
-  return {
-    support_request_id: "sup_router",
-    display_reference: "SUP-ROUTER",
-    order_id: "ord_router",
-    buyer_account_id: actor.accountId,
-    seller_account_id: "acc_seller",
-    flow_type: "product-not-received",
-    status: "waiting-on-buyer",
-    priority: "normal",
-    opened_by_account_id: actor.accountId,
-    opened_by_role: "buyer",
-    opened_at: "2026-10-12T12:00:00.000Z",
-    updated_at: "2026-10-12T12:00:00.000Z",
-    seller_response_due_at: null,
-    support_review_due_at: null,
-    seller_condition_attestation_due_at: null,
-    order_return_context: [],
-    affected_line_items: [],
-    return_investigation: null,
-    checklist: [
-      {
-        key: "attestation",
-        label: "Confirm no delivery",
-        ownerRole: "buyer",
-        evidenceTypes: ["buyer-attestation"],
-        required: true,
-        satisfiedAt: null,
-      },
-    ],
-    evidence: [],
-    responses: [],
-    offers: [],
-    pending_offer: null,
-    resolution: null,
-    closed_at: null,
-    cancellation_reason: null,
-    escalated_at: null,
-    escalated_by_account_id: null,
-    escalated_by_role: null,
-    escalation_reason: null,
-    return_refund_gate_status: null,
-    return_delivered_at: null,
-    return_refund_release_due_at: null,
-    return_condition_disputed_at: null,
-    remedy: null,
-    remedy_approval: null,
-    contested: false,
-    case_presentation: "decision-pending",
-    closure_eligible: false,
-    closure_blocking_reasons: [],
-    next_remedy_action: null,
-    remedy_repair_guidance: [],
-  };
-}
+import { supportParticipantDetailFixture as detail } from "./participant-router.test-support";
 function mount() {
   const router = createMemoryRouter([{ path: "/account/support/:id", loader, action, element: <Route /> }], {
     initialEntries: ["/account/support/sup_router"],
@@ -159,9 +105,8 @@ describe("real-router transition/accessibility/reload matrix", () => {
     );
     await waitFor(() => expect(release).toBeDefined());
     release!();
-    const announcement = await screen.findByText(t("support.participantAttempt.checkBeforeRetry"));
-    expect(announcement.getAttribute("role")).toBe("status");
-    expect(announcement.getAttribute("aria-live")).toBe("polite");
+    const announcement = await screen.findByRole("heading", { name: t("support.participantAttempt.checkBeforeRetry") });
+    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
     expect(announcement.textContent).toContain("Check status before retrying");
     await waitFor(() => expect(document.activeElement).toBe(announcement));
     expect(

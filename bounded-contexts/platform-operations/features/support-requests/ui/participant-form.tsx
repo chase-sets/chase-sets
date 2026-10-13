@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useState, type ComponentProps, type ReactNode } from "react";
 import { useNavigation } from "react-router";
-import { Banner, Button, HiddenInput, Stack, Text } from "@chase-sets/design-system";
+import { Banner, Button, Heading, HiddenInput, Stack } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import type { ParticipantRouteRecovery } from "../../../support/request-support/participant-recovery";
@@ -21,17 +21,17 @@ export function ParticipantRoute({
   children: ReactNode;
 }>) {
   const current = recovery?.accountId === accountId && recovery.tenantId === tenantId ? recovery : null;
-  const heading = useRef<HTMLDivElement>(null);
+  const headingId = useId();
   useEffect(() => {
-    if (current?.phase === "ambiguous") heading.current?.focus();
-  }, [current]);
+    if (current?.phase === "ambiguous") document.getElementById(headingId)?.focus();
+  }, [current, headingId]);
   return (
     <State.Provider value={{ accountId, tenantId, recovery: current }}>
       {current?.phase === "ambiguous" ? (
-        <Stack gap={3}>
-          <Text as="div" ref={heading} tabIndex={-1} role="status" aria-live="polite">
+        <Stack gap={3} role="status" aria-live="polite">
+          <Heading level={2} visualSize={5} id={headingId} tabIndex={-1}>
             {t("support.participantAttempt.checkBeforeRetry")}
-          </Text>
+          </Heading>
           <Banner tone="warning" title={t("support.participantAttempt.ambiguous")} />
           {current.descriptor ? (
             <RouterForm method="post">

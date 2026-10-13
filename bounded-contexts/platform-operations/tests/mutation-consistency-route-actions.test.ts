@@ -590,7 +590,7 @@ describe("platform operations mutation consistency route actions", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
+    expect(response.headers.get("Location")).toBe("/account/support/sup_1");
   });
 
   it("rejects missing required photos before opening a support case", async () => {
@@ -657,7 +657,7 @@ describe("platform operations mutation consistency route actions", () => {
       }),
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/support?opened=sup_1");
+    expect(response.headers.get("Location")).toBe("/account/support/sup_1");
   });
 
   it("loads account support with account-scoped order context from the query handoff", async () => {

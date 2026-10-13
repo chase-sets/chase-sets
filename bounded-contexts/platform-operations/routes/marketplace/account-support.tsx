@@ -155,9 +155,7 @@ export async function action({ request }: ActionFunctionArgs) {
         supportRequestId,
       );
     }
-    return redirect(
-      navigateAfterWrite(commandResult, `/account/support?opened=${encodeURIComponent(supportRequestId)}`),
-    );
+    return redirect(navigateAfterWrite(commandResult, `/account/support/${encodeURIComponent(supportRequestId)}`));
   } catch (error) {
     if (error instanceof SupportEvidenceUploadError && error.status >= 400 && error.status < 500)
       uploadUncertain = false;
