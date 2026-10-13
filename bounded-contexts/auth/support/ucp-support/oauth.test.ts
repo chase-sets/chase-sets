@@ -41,6 +41,117 @@ const managementRoutes = [
 ] as const;
 
 describe("UCP OAuth routes", () => {
+  describe("revocation receipt read", () => {
+    const attemptId = "74220000-0000-4000-8000-000000000001";
+    const path = `/authorizations/synthetic-grant/revocation/${attemptId}`;
+    async function fixture() {
+      const options = createOAuthOptions({
+        revokeStoredPaymentMethodsForAgentGrant: async () => ({ detached: 0, alreadyRemoved: 0, instrumentIds: [] }),
+      });
+      await options.linkedPlatformAuthorizations.grant({
+        authorizationId: "synthetic-grant",
+        accountId: actor.accountId,
+        userId: actor.userId,
+        clientId: "synthetic-client",
+        platformProfileUrl: "https://agent.example",
+        scopes: ["order:read"],
+        accessTokenHash: "synthetic-token-hash",
+        accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+        grantedAt: "2026-10-13T00:00:00.000Z",
+      });
+      return { options, app: createUcpOAuthRoutes(options) };
+    }
+
+    it("requires an interactive session before reading an attempt", async () => {
+      const { options, app } = await fixture();
+      options.resolveActor = async () => null;
+      const read = vi.spyOn(options.agentGrantRevocations!, "read");
+      const response = await app.request(path);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ state: "reauth-required" });
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("denies a Grant outside the actor's Account before reading an attempt", async () => {
+      const { options, app } = await fixture();
+      options.resolveActor = async () => ({ ...actor, accountId: "synthetic-foreign-account" });
+      const read = vi.spyOn(options.agentGrantRevocations!, "read");
+      const response = await app.request(path);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ state: "route-denied" });
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("returns only the safe receipt fields for a recorded attempt", async () => {
+      const { app } = await fixture();
+      const write = await app.request("/authorizations/synthetic-grant/revoke", {
+        method: "POST",
+        headers: { "Idempotency-Key": attemptId },
+      });
+      expect(write.status).toBe(200);
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        attempt_id: attemptId,
+        operation_id: attemptId,
+        phase: "completed",
+        state: "succeeded",
+      });
+    });
+
+    it("reports an unknown attempt as ambiguous without a write", async () => {
+      const { options, app } = await fixture();
+      const admit = vi.spyOn(options.agentGrantRevocations!, "admit");
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ attempt_id: attemptId, state: "ambiguous" });
+      expect(admit).not.toHaveBeenCalled();
+    });
+
+    it("reports a recorded attempt read from another session as conflict", async () => {
+      const { options, app } = await fixture();
+      expect(
+        (
+          await app.request("/authorizations/synthetic-grant/revoke", {
+            method: "POST",
+            headers: { "Idempotency-Key": attemptId },
+          })
+        ).status,
+      ).toBe(200);
+      options.resolveActor = async () => ({ ...actor, sessionId: "synthetic-other-session" });
+      const response = await app.request(path);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ state: "conflict" });
+    });
+
+    it.each(["revocation_conflict", "revocation_binding_invalid"])("maps %s to conflict", async (code) => {
+      const { options, app } = await fixture();
+      vi.spyOn(options.agentGrantRevocations!, "read").mockRejectedValue(new Error(code));
+      const response = await app.request(path);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ state: "conflict" });
+    });
+
+    it.each([new Error("synthetic pool failure"), new Error("revocation_history_invalid"), "synthetic rejection"])(
+      "keeps a non-binding owner failure resumable: %s",
+      async (error) => {
+        const { options, app } = await fixture();
+        vi.spyOn(options.agentGrantRevocations!, "read").mockRejectedValue(error);
+        const response = await app.request(path);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ state: "ambiguous" });
+      },
+    );
+
+    it("reports an unavailable owner as ambiguous", async () => {
+      const { options, app } = await fixture();
+      options.agentGrantRevocations = undefined;
+      const response = await app.request(path);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ state: "ambiguous" });
+    });
+  });
+
   it("revocation-floor preserves dormant token and Account revocation without activating receipts", async () => {
     const base = createOAuthOptions();
     const options: ReturnType<typeof createOAuthOptions> = {
@@ -1401,7 +1512,8 @@ function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthR
       return state;
     },
     read: async (binding) => {
-      if (attempts.get(binding.attemptId) !== JSON.stringify(binding)) return null;
+      if (!attempts.has(binding.attemptId)) return null;
+      if (attempts.get(binding.attemptId) !== JSON.stringify(binding)) throw new Error("revocation_conflict");
       return operations.get(binding.grantId) ?? null;
     },
     advance: async (state) => {

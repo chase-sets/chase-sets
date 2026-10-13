@@ -970,8 +970,10 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       );
       if (!state) return c.json({ attempt_id: attemptId, state: "ambiguous" });
       return c.json(revocationReceipt(state, attemptId, false));
-    } catch {
-      return c.json({ state: "conflict" }, 409);
+    } catch (error) {
+      const conflict =
+        error instanceof Error && ["revocation_conflict", "revocation_binding_invalid"].includes(error.message);
+      return c.json({ state: conflict ? "conflict" : "ambiguous" }, conflict ? 409 : 503);
     }
   });
 
