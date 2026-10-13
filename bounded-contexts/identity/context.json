@@ -342,11 +342,9 @@
         "status": "not-read-model-backed",
         "owner": "identity",
         "reviewBy": "2026-10-31",
-        "reason": "GET /account-management/attempts proves the private receipt against complete owner histories and current authorization. It never derives commitment from projections, writes, retries a command, or recovers plaintext.",
-        "files": [
-          "bounded-contexts/identity/features/account-management/api/runtime.ts",
-          "bounded-contexts/identity/features/account-management/ui/transport.ts"
-        ]
+        "reason": "GET /account-management/attempts proves the private receipt against complete owner histories and current authorization. The shared runtime derives canonical navigation from validated owner positions for the existing account-route fresh reads. Lookup never derives commitment from projections, writes, retries a command, or recovers plaintext.",
+        "files": ["bounded-contexts/identity/features/account-management/api/runtime.ts"],
+        "helperUses": ["navigateAfterWrite"]
       }
     },
     {
