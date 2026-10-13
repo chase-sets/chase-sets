@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 16,
-      authoritativeSites: 16,
+      discoveredCallCandidates: 18,
+      authoritativeSites: 18,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -103,6 +103,14 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/identity/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
+      [
+        "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
+        "CANONICAL",
+      ],
+      [
+        "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
+        "CANONICAL",
+      ],
       ["contracts/event-core/complete-stream.ts", "HELPER"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],

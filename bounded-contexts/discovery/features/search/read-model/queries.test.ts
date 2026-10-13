@@ -1,5 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   discoverySearchCursorState,
   previewBulkAddSearchResults,
@@ -92,6 +93,71 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("db-profile-test-leaks-into-non-db-ci", () => {
+    const { scripts } = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    for (const file of [
+      "features/search/read-model/queries.db.test.ts",
+      "tests/acceptance/marketplace-search.test.ts",
+    ]) {
+      expect(scripts["test:db"].split(" ")).toContain(file);
+      for (const profile of ["test:fast", "test:unit"]) {
+        const excludes = (script: string) => [...script.matchAll(/--exclude (\S+)/g)].map((match) => match[1]);
+        expect(excludes(scripts[profile])).toContain(file);
+        // Bypass mutant: deleting only the DB exclusion exposes the file in
+        // a non-DB profile even though it still enters the DB profile.
+        expect(excludes(scripts[profile].replace(`--exclude ${file}`, ""))).not.toContain(file);
+      }
+    }
+  });
+  it.each([undefined, 1, "2", 3])("selected price cursor restarts without numeric pv=2 (%s)", async (pv) => {
+    const params = {
+      sort: "price_asc",
+      dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
+      cursor: encodeCursorJson({ id: "old", title: "Old", lowestPriceAmount: "2", pv }),
+      offset: 40,
+      includeTotal: true,
+    };
+    expect(discoverySearchCursorState(params)).toBe("restarted");
+    const { db, calls } = createCapturingDb();
+    await searchDiscoveryItems(db, params);
+    expect(calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(true);
+    expect(findListCall(calls)?.sql).not.toContain("OFFSET");
+    expect(findListCall(calls)?.values).not.toContain("old");
+    expect(discoverySearchCursorState({ ...params, dimensionFilters: [] })).toBe("cursor");
+  });
+
+  it("same-listing variant commerce binds AND groups, OR options and selected minima everywhere", async () => {
+    const dimensionFilters = [
+      { dimensionId: "finish", optionId: "foil" },
+      { dimensionId: "finish", optionId: "etched" },
+      { dimensionId: "condition", optionId: "mint" },
+    ];
+    const { db, calls } = createCapturingDb([listRow("card", "Card", { lowest_price_amount: "20" })]);
+    await searchDiscoveryItems(db, { dimensionFilters, priceMax: "3", inStock: true });
+    const list = findListCall(calls)!;
+    expect(list.sql).toContain("selected_market.lowest_price_amount <=");
+    expect(list.sql).toContain("selected_market.total_visible_quantity > 0");
+    expect(list.sql).toContain("COUNT(DISTINCT price_currency_code) = 1");
+    expect(list.sql).toMatch(/listing\.selected_options @> \$\d+::jsonb OR listing\.selected_options @> \$\d+::jsonb/);
+    expectBuyerVisibleListingPredicate(list.sql);
+    const hydration = calls.find((call) => call.sql.startsWith("WITH startable_listing"))!;
+    expect(hydration.values).toEqual([["card"], ...dimensionFilters.map((filter) => JSON.stringify([filter]))]);
+    expect(hydration.sql).toContain("listing.selected_options @> $2::jsonb");
+  });
+
+  it.each(["price_asc", "price_desc"])("encodes selected-price pv=2 from selected minima for %s", async (sort) => {
+    const { db } = createCapturingDb([
+      listRow("a", "A", { lowest_price_amount: "20" }),
+      listRow("b", "B", { lowest_price_amount: "30" }),
+    ]);
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    const page = await searchDiscoveryItems(db, { sort, dimensionFilters, limit: 1 });
+    expect(decodeCursorJson(page.nextCursor)).toMatchObject({ pv: 2, lowestPriceAmount: "20" });
+    expect(discoverySearchCursorState({ sort, dimensionFilters, cursor: page.nextCursor! })).toBe("cursor");
+  });
+
   it("installs the identity-term table and concurrent trigram index idempotently", () => {
     expect(discoverySearchSchemaSql).toContain("CREATE EXTENSION IF NOT EXISTS pg_trgm");
     expect(discoverySearchSchemaSql).toContain("CREATE TABLE IF NOT EXISTS discovery_search_item_identity_terms");
@@ -839,7 +905,9 @@ describe("searchDiscoveryItems cursor paging", () => {
     const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
     expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
     expectBuyerVisibleListingPredicate(facetValueCall?.sql);
-    expect(facetValueCall?.sql).toContain("COUNT(DISTINCT activity.activity_id)::integer AS count");
+    expect(facetValueCall?.sql).toContain(
+      "COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NOT NULL)::integer AS listing_count",
+    );
     expect(facetValueCall?.sql).toContain("jsonb_array_elements(activity.selected_options)");
     expect(facetValueCall?.sql).toContain("COALESCE(market_counts.count, 0)::integer AS count");
     expect(facetValueCall?.sql).toContain("WHERE selected OR (count > 0 AND facet_rank <= 50)");
@@ -975,6 +1043,49 @@ describe("searchDiscoveryItems cursor paging", () => {
 });
 
 describe("searchDiscoveryItems facets", () => {
+  it.each(["offers", "any", "listings", undefined] as const)(
+    "prospective variant facet counts bind independent selected supply requirements (%s)",
+    async (marketActivity) => {
+      const { db: capturingDb, calls } = createCapturingDb();
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("AS summaries")) {
+            calls.push({ sql, values });
+            return {
+              rows: [{ kind: "dimension", id: "finish", label: "Finish", coverage: 1, distinct_count: 2 }] as Row[],
+              rowCount: 1,
+            };
+          }
+          return capturingDb.query<Row>(sql, values);
+        },
+      };
+      await searchDiscoveryItems(db, {
+        dimensionFilters: [
+          { dimensionId: "finish", optionId: "foil" },
+          { dimensionId: "condition", optionId: "mint" },
+        ],
+        priceMin: "10",
+        priceMax: "30",
+        inStock: true,
+        marketActivity,
+      });
+      const facet = calls.find(({ sql }) => sql.includes("option_market AS"))!;
+      expect(facet.sql).toContain("market.visible_quantity > 0");
+      expect(facet.sql).toContain("market.lowest_price_amount >=");
+      expect(facet.sql).toContain("market.lowest_price_amount <=");
+      expect(facet.sql).toContain("COUNT(DISTINCT price_currency_code) = 1");
+      expect(facet.sql).toContain("catalog_options AS MATERIALIZED");
+      expect(facet.values).toContain(JSON.stringify([{ dimensionId: "condition", optionId: "mint" }]));
+      expect(facet.values).not.toContain(JSON.stringify([{ dimensionId: "finish", optionId: "foil" }]));
+      expect(facet.values.slice(-2)).toEqual(["10", "30"]);
+      if (marketActivity === "offers")
+        expect(facet.sql).toContain("WHERE market.visible_quantity > 0 AND market.lowest_price_amount");
+      for (const call of calls) {
+        const indices = [...call.sql.matchAll(/\$(\d+)/g)].map((match) => Number(match[1]));
+        expect(Math.max(...indices)).toBe(call.values.length);
+      }
+    },
+  );
   it("starts facet-value queries concurrently", async () => {
     const started: string[] = [];
     let releaseFirst: (() => void) | undefined;
@@ -1151,6 +1262,16 @@ describe("searchDiscoveryItems facets", () => {
 });
 
 describe("previewBulkAddSearchResults", () => {
+  it("preview retains selected dimensions and selected stock/price constraints", async () => {
+    const { db, calls } = createCapturingDb();
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    await previewBulkAddSearchResults(db, { dimensionFilters, inStock: true, priceMin: "10", priceMax: "30" });
+    const list = findListCall(calls)!;
+    expect(list.sql).toContain("selected_market.lowest_price_amount >=");
+    expect(list.sql).toContain("selected_market.lowest_price_amount <=");
+    expect(list.sql).toContain("selected_market.total_visible_quantity > 0");
+    expect(list.values).toContain(JSON.stringify(dimensionFilters));
+  });
   it("performs no facet work", async () => {
     const { db, calls } = createCapturingDb();
 
