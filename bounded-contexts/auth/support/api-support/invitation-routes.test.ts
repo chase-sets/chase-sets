@@ -5,7 +5,7 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
   withRegistrationConsentResolution,
@@ -27,6 +27,25 @@ function invitationFreshWriteHeader(maxGlobalPosition: string): Record<string, s
   };
   return { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt) };
 }
+
+const rateLimiters = vi.hoisted(() => new Map<string, import("@chase-sets/http/rate-limit").InMemoryRateLimiter>());
+vi.mock("@chase-sets/http/rate-limit", async (original) => {
+  const actual = await original<typeof import("@chase-sets/http/rate-limit")>();
+  return {
+    ...actual,
+    createConfiguredInMemoryRateLimiter: (
+      surface: string,
+      defaults: import("@chase-sets/http/rate-limit").RateLimitRule,
+    ) => {
+      const limiter = actual.createInMemoryRateLimiter({ ...defaults, disabled: false, keyPrefix: surface });
+      rateLimiters.set(surface, limiter);
+      return limiter;
+    },
+  };
+});
+beforeEach(() => {
+  for (const limiter of rateLimiters.values()) limiter.clear();
+});
 
 const {
   mockConsumeChallenge,
@@ -170,6 +189,35 @@ function createIdentityMutations() {
 useMockReset();
 
 describe("invitation auth routes", () => {
+  it.each([
+    ["auth.invitation.accept.ip", "local", 10],
+    ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],
+  ] as const)("invitation-acceptance-attempt-binding preserves %s before journey work", async (surface, key, max) => {
+    const services = createServices();
+    const limiter = rateLimiters.get(surface)!;
+    for (let count = 0; count < max; count++) limiter.check(key);
+    const check = vi.spyOn(limiter, "check");
+    try {
+      const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
+      const response = await buildApp(services).request("https://marketplace.test/invitations/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": attemptId },
+        body: JSON.stringify({
+          attemptId,
+          invitationId: "ivt_1",
+          token: "synthetic-token",
+          password: "synthetic-password",
+        }),
+      });
+      expect(check).toHaveBeenCalledWith(key);
+      expect(response.status).toBe(429);
+      expect(mockCreateIdentityAuthRequestClient).not.toHaveBeenCalled();
+      expect(services.db.query).not.toHaveBeenCalled();
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    } finally {
+      check.mockRestore();
+    }
+  });
   it("invitation-acceptance-attempt-binding: refuses disagreement before any owner or Session command", async () => {
     const services = createServices();
     const mutations = createIdentityMutations();

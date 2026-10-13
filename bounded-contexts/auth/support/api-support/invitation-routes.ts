@@ -238,13 +238,23 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
   app.post("/invitations/accept", async (c) => {
     const body = await c.req.json();
     const idempotencyKey = c.req.header("Idempotency-Key");
-    if (hasInvitationAttempt(body, idempotencyKey)) {
-      if (!readInvitationAttemptId(body, idempotencyKey)) {
-        return c.json(
-          { error: { code: "invitation_attempt_invalid", message: t("auth.invitationAttempt.invalid") } },
-          400,
-        );
-      }
+    const hasAttempt = hasInvitationAttempt(body, idempotencyKey);
+    if (hasAttempt && !readInvitationAttemptId(body, idempotencyKey)) {
+      return c.json(
+        { error: { code: "invitation_attempt_invalid", message: t("auth.invitationAttempt.invalid") } },
+        400,
+      );
+    }
+    const invitationId = String(body.invitationId ?? "");
+    const ipDecision = invitationAcceptIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+    if (ipDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.invitation.accept.ip", ipDecision);
+    }
+    const invitationDecision = invitationAcceptIdentifierRateLimiter.check(`invitation:${invitationId || "unknown"}`);
+    if (invitationDecision.limited) {
+      return rateLimitExceededJsonResponse("auth.invitation.accept.identifier", invitationDecision);
+    }
+    if (hasAttempt) {
       try {
         const result = await acceptInvitationAttempt(
           services,
@@ -289,16 +299,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
         400,
       );
     const identityMutations = createIdentityMutations(c);
-    const invitationId = String(body.invitationId ?? "");
     const token = String(body.token ?? "");
-    const ipDecision = invitationAcceptIpRateLimiter.check(publicClientRequestKey(c.req.raw));
-    if (ipDecision.limited) {
-      return rateLimitExceededJsonResponse("auth.invitation.accept.ip", ipDecision);
-    }
-    const invitationDecision = invitationAcceptIdentifierRateLimiter.check(`invitation:${invitationId || "unknown"}`);
-    if (invitationDecision.limited) {
-      return rateLimitExceededJsonResponse("auth.invitation.accept.identifier", invitationDecision);
-    }
 
     if (!invitationId || !token) {
       return c.json(invalidInvitationToken(), 401);
