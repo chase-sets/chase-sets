@@ -29,6 +29,14 @@ import {
   type OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
 import { isClaimedOrderPullOutcome } from "../domain/order-pull";
+import { isClaimedLiveExportOutcome } from "../domain/live-export-codec";
+import {
+  assertLiveExportReportFence,
+  lockReservedLiveExports,
+  recoverExpiredLiveExports,
+  scheduleDueLiveExports,
+  settleLiveExportMember,
+} from "./live-export";
 import { assertClaimedOperationClaimant, canonicalJson } from "../domain/validation";
 import { assertClaimedSubjectOutcome } from "../domain/subject-outcome-validation";
 import {
@@ -87,9 +95,13 @@ export function createOutboundSyncRuntime(
   const store = createOutboundOperationStore(dependencies, options);
   const now = () => (dependencies.clock?.now() ?? new Date()).toISOString();
   const orderPullScan = createOrderPullScanCursor();
+  const liveExportScan = createOrderPullScanCursor();
 
   return {
     ...store,
+
+    scheduleDueLiveExports: (input: Readonly<{ registry: ChannelProviderRegistry }>) =>
+      scheduleDueLiveExports(dependencies, input, now, liveExportScan),
 
     scheduleDueOrderPulls: (input: Readonly<{ registry: ChannelProviderRegistry }>) =>
       scheduleDueOrderPulls(dependencies, input, now, orderPullScan),
@@ -167,7 +179,8 @@ export function createOutboundSyncRuntime(
           [input.reservationId],
         );
         const pullMembers = await lockReservedOrderPulls(db, input.reservationId);
-        if (members.rows.length === 0 && pullMembers.length === 0) {
+        const liveMembers = await lockReservedLiveExports(db, input.reservationId);
+        if (members.rows.length === 0 && pullMembers.length === 0 && liveMembers.length === 0) {
           const concurrentlySettled = await db.query<{
             claimant: unknown;
             outcomes: unknown;
@@ -188,13 +201,17 @@ export function createOutboundSyncRuntime(
           }
           membershipMismatch();
         }
-        if (members.rows.length + pullMembers.length !== input.outcomes.length) membershipMismatch();
-        if (input.runSettlement && pullMembers.length > 0) membershipMismatch();
+        if (members.rows.length + pullMembers.length + liveMembers.length !== input.outcomes.length)
+          membershipMismatch();
+        if (input.runSettlement && (pullMembers.length > 0 || liveMembers.length > 0)) membershipMismatch();
         const reports = new Map(listingOutcomes.map((outcome) => [outcome.operationId, outcome]));
         const pullReports = new Map(
           input.outcomes.filter(isClaimedOrderPullOutcome).map((outcome) => [outcome.operationId, outcome]),
         );
-        if (reports.size + pullReports.size !== input.outcomes.length) membershipMismatch();
+        const liveReports = new Map(
+          input.outcomes.filter(isClaimedLiveExportOutcome).map((outcome) => [outcome.operationId, outcome]),
+        );
+        if (reports.size + pullReports.size + liveReports.size !== input.outcomes.length) membershipMismatch();
         const port = dependencies.claimedReservationRunSettlement;
         if (input.runSettlement && !port) {
           throw new OutboundSyncError(
@@ -219,6 +236,7 @@ export function createOutboundSyncRuntime(
         const expired = [
           ...members.rows.map((row) => timestamp(row.claimed_until)!),
           ...pullMembers.map((member) => member.claimedUntil!),
+          ...liveMembers.map((member) => member.claimedUntil!),
         ].every((claimedUntil) => Date.parse(claimedUntil) <= Date.parse(currentInstant));
         const boundRun = port
           ? await port.lockBoundRun(db, {
@@ -265,6 +283,13 @@ export function createOutboundSyncRuntime(
         for (const member of pullMembers) {
           await settleOrderPullMember(db, dependencies, member, pullReports.get(member.operationId)!, currentInstant);
         }
+        for (const member of liveMembers) {
+          const report = liveReports.get(member.operationId);
+          if (!report) membershipMismatch();
+          assertLiveExportReportFence(member, report, input.claimant);
+          if (expired) throw new OutboundSyncError("reservation-expired");
+          await settleLiveExportMember(db, member, report, currentInstant);
+        }
         for (const row of members.rows) {
           await settleClaimedMember(
             dependencies,
@@ -298,6 +323,9 @@ export function createOutboundSyncRuntime(
       const recoveredPulls = await withPgTransaction(dependencies.db, (db) =>
         recoverExpiredOrderPulls(db, currentInstant),
       );
+      const recoveredExports = await withPgTransaction(dependencies.db, (db) =>
+        recoverExpiredLiveExports(db, currentInstant),
+      );
       const recoveredInline = dependencies.recordOutcome
         ? await recoverExpiredInlineAttempts(dependencies, currentInstant)
         : 0;
@@ -307,12 +335,14 @@ export function createOutboundSyncRuntime(
         }
         return (
           recoveredPulls +
+          recoveredExports +
           recoveredInline +
           (await recoverExpiredReservationsWithBoundRuns(dependencies, currentInstant))
         );
       }
       return (
         recoveredPulls +
+        recoveredExports +
         recoveredInline +
         (await withPgTransaction(dependencies.db, async (db) => {
           const table = await db.query<{ run_table: string | null }>(
@@ -1431,7 +1461,7 @@ function qualifiedOperationColumns(): string {
 }
 
 function isListingOutcome(outcome: ClaimedSubjectOutcome): outcome is ClaimedOperationOutcome {
-  return !isClaimedOrderPullOutcome(outcome);
+  return !isClaimedOrderPullOutcome(outcome) && !isClaimedLiveExportOutcome(outcome);
 }
 
 function membershipMismatch(): never {
