@@ -548,6 +548,13 @@ export function writeNativeBusConfiguration(preparation) {
 }
 const nativeRemovalStages = [
   "PROCESS",
+  "PROCESS_PROFILE",
+  "PROCESS_EXECUTABLE",
+  "PROCESS_DIGEST",
+  "PROCESS_UNIQUE",
+  "PROCESS_START",
+  "LIBRARY",
+  "SYMBOL",
   "CONNECT",
   "LIST",
   "OWNER",
@@ -567,22 +574,28 @@ sys.excepthook = lambda kind, value, trace: print('NATIVE_REMOVE_REFUSED:' + sta
 profile, executable, digest, address, until = sys.argv[1:]
 until = float(until)
 if not address.startswith('unix:'): raise RuntimeError()
-pids = []
+pids, profile_matches = [], 0
 for entry in pathlib.Path('/proc').iterdir():
     if not entry.name.isdigit(): continue
     try:
         args = (entry / 'cmdline').read_bytes().split(b'\0')
         if ('--user-data-dir=' + profile).encode() not in args: continue
         if any(arg.startswith(b'--type=') for arg in args): continue
+        profile_matches += 1
         if os.path.realpath(entry / 'exe') != executable: continue
+        stage = 'PROCESS_DIGEST'
         if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
         pids.append(int(entry.name))
     except (FileNotFoundError, PermissionError): pass
+stage = 'PROCESS_PROFILE' if not profile_matches else 'PROCESS_EXECUTABLE' if not pids else 'PROCESS_UNIQUE'
 if len(pids) != 1: raise RuntimeError()
 pid = pids[0]
+stage = 'PROCESS_START'
 started = pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19]
+stage = 'LIBRARY'
 gio, glib = c.CDLL('libgio-2.0.so.0'), c.CDLL('libglib-2.0.so.0')
 ptr = c.c_void_p
+stage = 'SYMBOL'
 def api(lib, name, result, args):
     fn = getattr(lib, name); fn.restype = result; fn.argtypes = args; return fn
 child = api(glib, 'g_variant_get_child_value', ptr, [ptr, c.c_size_t])

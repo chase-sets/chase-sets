@@ -125,6 +125,8 @@ describe("selector-agent-control-capability", () => {
     "confirmed",
     "unknown-output",
     "native-exception",
+    "native-executable-refusal",
+    "native-library-refusal",
     "missing-private-bus",
     "missing-native-action-mutant",
   ] as const)("native confirmation %s precedes exact-ID UI removal", async (result) => {
@@ -173,6 +175,10 @@ describe("selector-agent-control-capability", () => {
           stdout: "NATIVE_REMOVE_REFUSED:ROLE\n",
         });
       if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
+      if (result === "native-executable-refusal" || result === "native-library-refusal")
+        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
+          stdout: `NATIVE_REMOVE_REFUSED:${result === "native-executable-refusal" ? "PROCESS_EXECUTABLE" : "LIBRARY"}\n`,
+        });
       removed = true;
       return "NATIVE_REMOVE_SENT\n";
     });
@@ -206,6 +212,8 @@ describe("selector-agent-control-capability", () => {
         confirmed: "UI_ABSENT",
         "unknown-output": "UNKNOWN",
         "native-exception": "ROLE",
+        "native-executable-refusal": "PROCESS_EXECUTABLE",
+        "native-library-refusal": "LIBRARY",
         "missing-private-bus": "CAPABILITY",
         "missing-native-action-mutant": "SENT",
       }[result],
