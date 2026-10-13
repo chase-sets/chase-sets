@@ -2047,6 +2047,7 @@
 ["candidate","edges",{"from":"packages/design-system/src/components/forms/shared.tsx","specifier":"../../primitives/typography","resolved":"repo:/packages/design-system/src/primitives/typography.tsx"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/forms/shared.tsx","specifier":"../../utils/cx","resolved":"repo:/packages/design-system/src/utils/cx.ts"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/forms/shared.tsx","specifier":"../control-sizing","resolved":"repo:/packages/design-system/src/components/control-sizing.ts"}]
+["candidate","edges",{"from":"packages/design-system/src/components/forms/shared.tsx","specifier":"./form","resolved":"repo:/packages/design-system/src/components/forms/form.tsx"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/forms/shared.tsx","specifier":"@base-ui/react/field","resolved":"repo:/node_modules/.pnpm/%40base-ui%2Freact%401.4.1(%40types%2Freact%4019.2.14)(react-dom%4019.2.6(react%4019.2.6))(react%4019.2.6)/node_modules/@base-ui/react/esm/field/index.js"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/forms/shared.tsx","specifier":"react","resolved":"repo:/node_modules/.pnpm/react%4019.2.6/node_modules/react/index.js"}]
 ["candidate","edges",{"from":"packages/design-system/src/components/forms/slider.tsx","specifier":"../../utils/cx","resolved":"repo:/packages/design-system/src/utils/cx.ts"}]
