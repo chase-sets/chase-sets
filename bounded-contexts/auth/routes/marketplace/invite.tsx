@@ -68,7 +68,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch (error) {
     if (attemptId) {
       if (error instanceof AuthApiError && error.status < 500)
-        return { state: error.status === 409 ? ("conflict" as const) : ("failed-safe" as const), attemptId };
+        return {
+          state:
+            error.status === 409
+              ? ("conflict" as const)
+              : error.status === 403
+                ? ("route-denied" as const)
+                : ("failed-safe" as const),
+          attemptId,
+        };
       try {
         const status = await createAuthRequestApiClient(request).getInvitationAcceptanceStatus<InvitationAttemptResult>(
           { invitationId, token, attemptId },
@@ -90,6 +98,7 @@ export default function MarketplaceInviteRoute() {
   return (
     <Container width="narrow" paddingX={0}>
       <InvitationAcceptancePage
+        key={data.invitationId}
         invitation={data.invitation}
         token={data.token}
         errorMessage={actionData && "error" in actionData ? actionData.error : null}

@@ -10,6 +10,8 @@ import { ATTEMPT_STAGES } from "../domain/attempt";
 import { acceptInvitationAttempt, lookupInvitationAttempt } from "./journey";
 import { readAttempt } from "./attempt-store";
 import { invitationAttemptRollout } from "./rollout";
+import { consumeChallenge } from "../../../support/auth-support/store";
+import { verifyPasskeyRegistration } from "../../../support/auth-support/webauthn";
 
 vi.mock("./rollout", () => ({ invitationAttemptRollout: { active: true, requireAttempt: true } }));
 vi.mock("../../../support/auth-support/webauthn", () => ({
@@ -157,10 +159,83 @@ function fixture(kind: "password" | "passkey", existing: boolean) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   Object.assign(invitationAttemptRollout, { active: true });
   start.mockReset();
 });
 describe("invitation-acceptance-stage-recovery", () => {
+  it("reads stored passkey ceremony material after a pre-checkpoint fault without consuming or verifying again", async () => {
+    const f = fixture("passkey", true);
+    const append = f.store.appendToStream;
+    let faulted = false;
+    const services = {
+      ...f.services,
+      eventStore: {
+        ...f.store,
+        appendToStream: async (input: Parameters<typeof append>[0]) => {
+          if (!faulted && input.events[0]?.payload.stage === "ceremony-stored") {
+            faulted = true;
+            throw new Error("synthetic pre-checkpoint fault");
+          }
+          return append(input);
+        },
+      },
+    };
+    await expect(acceptInvitationAttempt(services, f.identity, f.input, request, context)).rejects.toThrow();
+    expect((await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).type).toBe(
+      "session-started",
+    );
+    expect(consumeChallenge).toHaveBeenCalledOnce();
+    expect(verifyPasskeyRegistration).toHaveBeenCalledOnce();
+    expect(f.counts.store).toBe(1);
+  });
+  it("a Session committed before its completed checkpoint is recovered without a second Session or token", async () => {
+    const f = fixture("password", true);
+    const append = f.store.appendToStream;
+    let faulted = false;
+    const services = {
+      ...f.services,
+      eventStore: {
+        ...f.store,
+        appendToStream: async (input: Parameters<typeof append>[0]) => {
+          if (!faulted && input.events[0]?.payload.stage === "completed") {
+            faulted = true;
+            throw new Error("synthetic pre-checkpoint fault");
+          }
+          return append(input);
+        },
+      },
+    };
+    await expect(acceptInvitationAttempt(services, f.identity, f.input, request, context)).rejects.toThrow();
+    expect((await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).type).toBe(
+      "accepted-reauth-required",
+    );
+    expect(f.counts.session).toBe(1);
+    expect(f.counts.token).toBe(1);
+    expect((await readAttempt(f.store, attemptId, context))?.stage).toBe("completed");
+  });
+  it("refuses unaffirmed nonempty Consent before attempt, credential or Session writes", async () => {
+    const f = fixture("password", false);
+    vi.mocked(f.identity.resolveRegistrationConsent).mockResolvedValue({
+      bundleKey: "registration",
+      resolvedAt: new Date().toISOString(),
+      signature: "synthetic-not-a-server-proof",
+      requirements: [{ policyKey: "terms-of-service", version: "synthetic-v1", href: "/terms" }],
+    });
+    vi.mocked(f.identity.createPersonalIdentity).mockRejectedValue(new Error("synthetic owner Consent refusal"));
+    await expect(acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).rejects.toThrow();
+    expect(f.store.streams.size).toBe(0);
+    expect(f.identity.createPersonalIdentity).not.toHaveBeenCalled();
+    expect(f.counts).toEqual({
+      registration: 0,
+      acceptance: 0,
+      email: 0,
+      credential: 0,
+      session: 0,
+      token: 0,
+      store: 0,
+    });
+  });
   for (const kind of ["password", "passkey"] as const)
     for (const existing of [false, true]) {
       it.each(ATTEMPT_STAGES)(
@@ -205,6 +280,29 @@ describe("invitation-acceptance-stage-recovery", () => {
 });
 
 describe("invitation-acceptance-response-loss", () => {
+  it("does not treat revoked credential authority as a completed checkpoint", async () => {
+    const f = fixture("password", true);
+    await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    const state = await readAttempt(f.store, attemptId, context);
+    vi.mocked(f.identity.readInvitationAcceptanceAuthority).mockResolvedValue({
+      invitationId: f.input.invitationId,
+      accountId: "acc_invited",
+      roleKey: "viewer",
+      email: "recipient@example.com",
+      expiresAt: new Date(Date.now() + 86400_000).toISOString(),
+      accepted: true,
+      user: {
+        userId: state!.binding.userId,
+        passwordCredentialId: state!.binding.credentialId,
+        passkeyCredentialIds: [],
+        authMethods: [],
+        emailVerified: true,
+      },
+    });
+    await expect(lookupInvitationAttempt(f.services, f.identity, f.input, context)).rejects.toThrow();
+    expect(f.counts.session).toBe(1);
+    expect(f.counts.token).toBe(1);
+  });
   it("invitation-acceptance-compatibility-floor retains completed attempts after deactivation and refuses new ones", async () => {
     const f = fixture("password", true);
     await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);

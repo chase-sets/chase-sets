@@ -1,7 +1,7 @@
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
   ATTEMPT_MAX_EVENTS,
@@ -66,7 +66,7 @@ export async function withInvitationAttemptLock<T>(
   invitationId: string,
   work: () => Promise<T>,
 ): Promise<T> {
-  const client = await pool.connect();
+  const client: PgPoolClient = await pool.connect();
   let releaseError: unknown;
   const key = `auth:invitation-acceptance:${tenantId}:${invitationId}`;
   try {

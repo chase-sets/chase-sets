@@ -7,7 +7,11 @@ import { createInMemoryEventStore } from "../../../tests/in-memory-event-store";
 import { createInvitationRuntime } from "./runtime";
 import { createMembershipRuntime } from "../../memberships/api/runtime";
 import type { IdentityServices } from "../../../support/runtime-support/services";
-import { acceptInvitationOperation, readInvitationAcceptanceAuthority } from "./acceptance-operation";
+import {
+  acceptInvitationOperation,
+  readInvitationAcceptanceAuthority,
+  INVITATION_ACCEPTANCE_MAX_EVENTS,
+} from "./acceptance-operation";
 import { acceptanceContext, acceptanceOperation, seedAcceptance } from "./acceptance-test-support";
 
 function servicesFor(store: EventStore): IdentityServices {
@@ -39,6 +43,88 @@ async function accept(store: EventStore, operation = acceptanceOperation) {
 }
 
 describe("invitation-acceptance-identity-atomicity", () => {
+  it("invitation-acceptance-compatibility-floor rejects otherwise valid over-event and over-byte histories", async () => {
+    const store = createInMemoryEventStore();
+    await seedAcceptance(store);
+    const expiresAt = new Date(Date.now() + 86400_000 * 7).toISOString();
+    await store.appendToStream({
+      streamId: "identity.invitation-ivt_invited",
+      expectedVersion: 2,
+      context: acceptanceContext,
+      events: Array.from({ length: INVITATION_ACCEPTANCE_MAX_EVENTS - 2 }, () => ({
+        eventType: "identity.invitation.resent",
+        payload: { expiresAt },
+      })),
+    });
+    const params = {
+      invitationId: "ivt_invited",
+      acceptanceTokenHash: "existing-store-token-hash",
+      context: acceptanceContext,
+    };
+    await expect(readInvitationAcceptanceAuthority(store, params)).resolves.toMatchObject({
+      invitation: { status: "pending" },
+    });
+    await store.appendToStream({
+      streamId: "identity.invitation-ivt_invited",
+      expectedVersion: INVITATION_ACCEPTANCE_MAX_EVENTS,
+      context: acceptanceContext,
+      events: [{ eventType: "identity.invitation.resent", payload: { expiresAt } }],
+    });
+    expect(
+      await readInvitationAcceptanceAuthority(store, params).then(
+        () => "allowed",
+        () => "refused",
+      ),
+    ).toBe("refused");
+    const large = createInMemoryEventStore();
+    await seedAcceptance(large);
+    const tokenHash = "s".repeat(256 * 1024);
+    await large.appendToStream({
+      streamId: "identity.invitation-ivt_invited",
+      expectedVersion: 2,
+      context: acceptanceContext,
+      events: [
+        {
+          eventType: "identity.invitation.acceptance-token-issued",
+          payload: { tokenHash, expiresAt: new Date(Date.now() + 86400_000).toISOString() },
+        },
+      ],
+    });
+    expect(
+      await readInvitationAcceptanceAuthority(large, { ...params, acceptanceTokenHash: tokenHash }).then(
+        () => "allowed",
+        () => "refused",
+      ),
+    ).toBe("refused");
+  });
+  it.each([
+    ["identity.account-acc_invited", "identity.account.suspended", {}],
+    ["identity.user-usr_recipient", "identity.user.suspended", {}],
+    ["identity.membership-mbr_reserved", "identity.membership.revoked", {}],
+    ["identity.membership-mbr_reserved", "identity.membership.role-changed", { roleKey: "manager" }],
+  ] as const)(
+    "invitation-acceptance-terminal-history refuses incompatible replay after %s/%s",
+    async (streamId, eventType, payload) => {
+      const store = createInMemoryEventStore();
+      await seedAcceptance(store);
+      const params = {
+        operation: acceptanceOperation,
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      };
+      await acceptInvitationOperation(store, params);
+      await store.appendToStream({
+        streamId,
+        expectedVersion: 1,
+        context: acceptanceContext,
+        events: [{ eventType, payload }],
+      });
+      await expect(acceptInvitationOperation(store, params)).rejects.toThrow();
+      expect(
+        await store.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
+      ).toHaveLength(1);
+    },
+  );
   it("does not return stale replay authority when an Account changes between participant reads", async () => {
     const inner = createInMemoryEventStore();
     await seedAcceptance(inner);
@@ -125,6 +211,13 @@ describe("invitation-acceptance-identity-atomicity", () => {
       context: acceptanceContext,
       events: [{ eventType: "identity.invitation.cancelled", payload: {} }],
     });
+    await expect(
+      readInvitationAcceptanceAuthority(store, {
+        invitationId: "ivt_invited",
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      }),
+    ).rejects.toThrow();
     await expect(
       acceptInvitationOperation(store, {
         operation: acceptanceOperation,
@@ -213,6 +306,8 @@ describe("invitation-acceptance-identity-atomicity", () => {
     const again = await accept(store);
     expect(again.status).toBe(200);
     expect((await again.json()).membershipId).toBe(acceptanceOperation.membershipId);
+    const mismatched = await accept(store, { ...acceptanceOperation, bindingDigest: "c".repeat(64) });
+    expect(mismatched.status).toBe(403);
     expect(store.streamIdsWithPrefix("identity.membership-")).toEqual(["identity.membership-mbr_reserved"]);
     expect(
       await store.readStream({ streamId: "identity.invitation-acceptance-" + acceptanceOperation.attemptId }),

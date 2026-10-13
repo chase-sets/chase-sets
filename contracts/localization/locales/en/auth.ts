@@ -6,6 +6,7 @@ export const authEnglishTranslations = {
   "auth.invitationAttempt.conflict": "This invitation acceptance does not match the original attempt.",
   "auth.invitationAttempt.ambiguous": "Invitation acceptance could not be confirmed.",
   "auth.invitationAttempt.route-denied": "This invitation is unavailable.",
+  "auth.invitationAttempt.failed-safe": "Review your input or check this attempt's status before continuing.",
   "auth.invitationAttempt.safeRecovery": "Check the status or sign in. Do not submit another acceptance.",
   "auth.invitationAttempt.signIn": "Sign in",
   "auth.invitationAttempt.checkStatus": "Check status",

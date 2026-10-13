@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, redirect, RouterProvider } from "react-router";
 import MarketplaceInviteRoute, { action, loader } from "./invite";
 import { AuthApiError } from "../../client";
 import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
@@ -116,6 +116,7 @@ describe("invitation-acceptance-real-route", () => {
   it.each([
     [409, "This invitation acceptance does not match the original attempt."],
     [400, "Accept your invitation"],
+    [403, "This invitation is unavailable."],
   ] as const)("renders a safe %s known rejection without lookup or cookie completion", async (status, copy) => {
     api.inspectInvitation.mockResolvedValue(pending);
     api.acceptInvitation.mockRejectedValue(
@@ -131,8 +132,105 @@ describe("invitation-acceptance-real-route", () => {
     fireEvent.submit(screen.getByLabelText("Enter or create a password").closest("form")!);
     await waitFor(() => expect(api.acceptInvitation).toHaveBeenCalledOnce());
     await screen.findByText(copy);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
     expect(api.getInvitationAcceptanceStatus).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain("synthetic-secret-must-not-render");
+  });
+  it("retains one attempt on double-submit and manual retry after a known safe refusal", async () => {
+    api.inspectInvitation.mockResolvedValue(pending);
+    api.acceptInvitation
+      .mockRejectedValueOnce(new AuthApiError(400, { error: { message: "synthetic-not-rendered" } }))
+      .mockResolvedValue({ type: "confirming" });
+    const router = createMemoryRouter(
+      [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+      { initialEntries: ["/invite/ivt_invited"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText("Accept your invitation");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const form = screen.getByLabelText("Enter or create a password").closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await screen.findByText("Review your input or check this attempt's status before continuing.");
+    expect(api.acceptInvitation).toHaveBeenCalledOnce();
+    const firstId = api.acceptInvitation.mock.calls[0][0].attemptId;
+    fireEvent.submit(screen.getByLabelText("Enter or create a password").closest("form")!);
+    await screen.findByText("Confirming invitation acceptance");
+    expect(api.acceptInvitation).toHaveBeenCalledTimes(2);
+    expect(api.acceptInvitation.mock.calls[1][0].attemptId).toBe(firstId);
+    expect(api.getInvitationAcceptanceStatus).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+  it("a known first Session result redirects once without an extra invitation revalidation", async () => {
+    api.inspectInvitation.mockResolvedValue(pending);
+    api.acceptInvitation.mockResolvedValue({
+      type: "session-started",
+      sessionId: "ses_reserved",
+      sessionToken: "synthetic-session-secret",
+    });
+    complete.mockReturnValue(redirect("/account"));
+    const router = createMemoryRouter(
+      [
+        { path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute },
+        { path: "/account", Component: () => <div>Current account</div> },
+      ],
+      { initialEntries: ["/invite/ivt_invited"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText("Accept your invitation");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.submit(screen.getByLabelText("Enter or create a password").closest("form")!);
+    await screen.findByText("Current account");
+    expect(api.acceptInvitation).toHaveBeenCalledOnce();
+    expect(complete).toHaveBeenCalledOnce();
+    expect(api.inspectInvitation).toHaveBeenCalledOnce();
+    expect(api.getInvitationAcceptanceStatus).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("synthetic-session-secret");
+  });
+  it("unknown write and lookup results render ambiguous with no prior Account or write retry", async () => {
+    api.inspectInvitation.mockResolvedValue(pending);
+    api.acceptInvitation.mockRejectedValue(new TypeError("synthetic-transport-secret"));
+    api.getInvitationAcceptanceStatus.mockRejectedValue(new TypeError("synthetic-lookup-secret"));
+    const router = createMemoryRouter(
+      [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+      { initialEntries: ["/invite/ivt_invited"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText("Accept your invitation");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.submit(screen.getByLabelText("Enter or create a password").closest("form")!);
+    await screen.findByText("Invitation acceptance could not be confirmed.");
+    expect(api.acceptInvitation).toHaveBeenCalledOnce();
+    expect(complete).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Accept with/ })).toBeNull();
+    expect(document.body.textContent).not.toMatch(
+      /synthetic-transport-secret|synthetic-lookup-secret|Synthetic invited Account/,
+    );
+  });
+  it("a different Invitation never inherits the previous route's retained attempt", async () => {
+    window.history.replaceState(
+      {
+        invitationAcceptanceAttempt: { invitationId: "ivt_invited", attemptId: "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea" },
+      },
+      "",
+    );
+    api.inspectInvitation.mockResolvedValue(pending);
+    const router = createMemoryRouter(
+      [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+      { initialEntries: ["/invite/ivt_invited"] },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText("Confirming invitation acceptance");
+    api.inspectInvitation.mockResolvedValue({
+      ...pending,
+      invitationId: "ivt_other",
+      accountName: "Different invited Account",
+    });
+    await router.navigate("/invite/ivt_other");
+    await screen.findByText("Accept your invitation");
+    expect(screen.queryByText("Confirming invitation acceptance")).toBeNull();
+    expect(document.body.textContent).not.toContain("Synthetic invited Account");
+    expect(api.acceptInvitation).not.toHaveBeenCalled();
   });
 });

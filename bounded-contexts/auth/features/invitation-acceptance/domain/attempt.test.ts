@@ -7,6 +7,7 @@ import { createInMemoryEventStore } from "../../../../identity/tests/in-memory-e
 import { beginAttempt, checkpoint, readAttempt } from "../api/attempt-store";
 import { parseJourneyInput } from "../api/journey";
 import { ATTEMPT_STAGES, bindingDigest, foldAttempt, parseAttemptBinding, type AttemptBinding } from "./attempt";
+import { authRetentionSweeps } from "../../../support/runtime-support/retention-policy";
 
 const context = createTestEventStoreContext(createInternalSystemTestActor());
 export const binding: AttemptBinding = {
@@ -26,6 +27,12 @@ export const binding: AttemptBinding = {
 };
 
 describe("invitation-acceptance-attempt-binding", () => {
+  it.each([
+    ["top-level secret", { ...binding, token: "synthetic-secret" }],
+    ["nested secret", { ...binding, ceremony: { ...binding.ceremony, password: "synthetic-secret" } }],
+  ])("rejects %s independently", (_name, value) => {
+    expect(() => parseAttemptBinding(value)).toThrow();
+  });
   it("closes the complete binding recursively and hashes only its canonical fields", () => {
     expect(parseAttemptBinding(binding)).toEqual(binding);
     expect(bindingDigest(binding)).toBe(bindingDigest({ ...binding }));
@@ -58,6 +65,16 @@ describe("invitation-acceptance-attempt-binding", () => {
 });
 
 describe("invitation-acceptance-terminal-history", () => {
+  it("invitation-acceptance-compatibility-floor retains nonterminals and recent terminals in a bounded marker-only sweep", () => {
+    const sweep = authRetentionSweeps.find((item) => item.name === "terminal-invitation-acceptance-attempts")!;
+    expect(sweep.tableName).toBe("auth_invitation_acceptance_attempts");
+    expect(sweep.predicateSql).toBe(
+      "candidate.terminal_at IS NOT NULL AND candidate.terminal_at < now() - interval '30 days'",
+    );
+    expect(sweep.batchLimit).toBe(500);
+    expect(sweep.intervalMs).toBe(86400_000);
+    expect(authRetentionSweeps.some((item) => item.tableName === "event_store_events")).toBe(false);
+  });
   it("invitation-acceptance-compatibility-floor refuses complete over-limit and over-byte histories", async () => {
     const store = createInMemoryEventStore();
     await beginAttempt(store, binding, context);

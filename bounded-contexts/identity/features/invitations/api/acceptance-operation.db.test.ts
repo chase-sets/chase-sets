@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { module as identityModule } from "../../../index";
+import { seedIdentityDatabase } from "../../../support/runtime-support/seed";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -28,6 +32,32 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+  it("invitation-acceptance-caller-partition preserves owner-only synthetic seeds across fresh, repeated and retained-history restarts", async () => {
+    await bootstrapContextDatabase(identityModule, pool);
+    await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    const history = async () =>
+      (
+        await pool.query(
+          "SELECT event_id, stream_id, stream_version, event_type, payload FROM event_store_events ORDER BY global_position",
+        )
+      ).rows;
+    const original = await history();
+    const invitation = original.filter(
+      (event) => event.stream_id === `identity.invitation-${identitySeedIds.support.invitationId}`,
+    );
+    expect(invitation.map((event) => event.event_type)).toEqual([
+      "identity.invitation.created",
+      "identity.invitation.acceptance-token-issued",
+      "identity.invitation.accepted",
+    ]);
+    expect(original.some((event) => String(event.stream_id).startsWith("identity.invitation-acceptance-"))).toBe(false);
+    await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    expect(await history()).toEqual(original);
+    await pool.query("TRUNCATE identity_invitations");
+    await bootstrapContextDatabase(identityModule, pool);
+    await seedIdentityDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    expect(await history()).toEqual(original);
   });
   it("rejects replay when another database connection changes a participant between reads", async () => {
     const store = createPostgresEventStore({ pool });

@@ -233,12 +233,15 @@ export function InvitationAcceptancePage({
           })}
         </Text>
       </Stack>
-      {errorMessage ? (
+      {errorMessage || effectivePhase === "failed-safe" ? (
         <Banner
+          id="invitation-acceptance-status"
+          tabIndex={-1}
+          aria-live="polite"
           title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")}
-          description={errorMessage}
+          description={errorMessage ?? t("auth.invitationAttempt.failed-safe")}
           tone="danger"
-          role="alert"
+          role="status"
         />
       ) : null}
       <SegmentedControl

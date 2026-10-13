@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
@@ -110,6 +110,7 @@ describe("invitation-acceptance-caller-partition", () => {
     const callers = paths.flatMap((path) =>
       discover(path, readFileSync(new URL(path, new URL("../../../../../", import.meta.url)), "utf8")),
     );
+    mkdirSync(new URL("../../../../../artifacts/7420/", import.meta.url), { recursive: true });
     writeFileSync(
       new URL("../../../../../artifacts/7420/caller-partition.json", import.meta.url),
       JSON.stringify(

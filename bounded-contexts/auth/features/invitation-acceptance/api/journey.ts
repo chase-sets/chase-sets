@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
-import type { IdentityAuthMutationClient } from "@chase-sets/identity/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -12,7 +11,11 @@ import {
 import { verifyPasskeyRegistration } from "../../../support/auth-support/webauthn";
 import { AUTH_ROLE_PERMISSIONS } from "../../../support/auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../../../support/runtime-support/services";
-import { resolveUnaffirmedRegistrationConsent, createOwnedUserDisplayName } from "../../../support/api-support/support";
+import {
+  resolveUnaffirmedRegistrationConsent,
+  createOwnedUserDisplayName,
+  type IdentityAuthMutationClient,
+} from "../../../support/api-support/support";
 import { ATTEMPT_STAGES, InvitationAttemptError, type AttemptState } from "../domain/attempt";
 import { beginAttempt, checkpoint, readAttempt, withInvitationAttemptLock } from "./attempt-store";
 import { readInvitationAttemptId } from "./attempt-request";
@@ -149,6 +152,10 @@ export async function acceptInvitationAttempt(
       throw new InvitationAttemptError("invitation_attempt_conflict");
     if (!state) {
       if (kind === "password" && !input.password) throw new InvitationAttemptError("invitation_attempt_invalid");
+      if (!authority.user) {
+        const consent = await resolveUnaffirmedRegistrationConsent(identity);
+        if (consent.resolution.requirements.length) throw new InvitationAttemptError("invitation_attempt_invalid");
+      }
       const userId = authority.user?.userId ?? createId("usr");
       const credential = kind === "password" ? await getPasswordCredentialByUserId(services.db, userId) : null;
       state = await beginAttempt(

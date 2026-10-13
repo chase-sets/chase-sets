@@ -26,6 +26,8 @@ import { readAttempt } from "./attempt-store";
 import { ATTEMPT_STAGES } from "../domain/attempt";
 import { authRetentionSweeps } from "../../../support/runtime-support/retention-policy";
 import { invitationAttemptRollout } from "./rollout";
+import { mintRegistrationConsentResolution } from "../../../../identity/features/consents/domain/registration-consent";
+import { resolveRegistrationConsentSigningKeys } from "../../../../identity/support/runtime-support/registration-consent-signing";
 
 vi.mock("./rollout", () => ({ invitationAttemptRollout: { active: true, requireAttempt: true } }));
 vi.mock("../../../support/auth-support/webauthn", () => ({
@@ -114,6 +116,45 @@ const request = new Request("http://localhost/invite/ivt_invited");
     };
     return { services, client, input };
   }
+  it("refuses a real signed unaffirmed nonempty Consent before writes", async () => {
+    const f = await fixture("password", false);
+    const resolution = mintRegistrationConsentResolution({
+      requirements: [{ policyKey: "terms-of-service", version: "synthetic-v1", href: "/terms" }],
+      resolvedAt: new Date().toISOString(),
+      signingKeys: resolveRegistrationConsentSigningKeys(),
+    });
+    const client = { ...f.client, resolveRegistrationConsent: async () => resolution };
+    await expect(acceptInvitationAttempt(f.services, client, f.input, request, acceptanceContext)).rejects.toThrow();
+    expect((await pools.auth.query("SELECT event_id FROM event_store_events")).rows).toEqual([]);
+    expect((await pools.auth.query("SELECT attempt_id FROM auth_invitation_acceptance_attempts")).rows).toEqual([]);
+    expect((await pools.auth.query("SELECT credential_id FROM identity_password_credentials")).rows).toEqual([]);
+    expect(
+      (await pools.identity.query("SELECT event_id FROM event_store_events WHERE event_type = 'identity.user.created'"))
+        .rows,
+    ).toEqual([]);
+  });
+  it("a concurrent attempt lock loser writes nothing and retained owner state remains resumable", async () => {
+    const f = await fixture("password", false);
+    const connection = await pools.auth.connect();
+    const key = `auth:invitation-acceptance:${acceptanceContext.tenantId}:${f.input.invitationId}`;
+    try {
+      await connection.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [key]);
+      await expect(
+        acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext),
+      ).rejects.toThrow();
+      expect((await pools.auth.query("SELECT event_id FROM event_store_events")).rows).toEqual([]);
+    } finally {
+      await connection.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [key]);
+      connection.release();
+    }
+    expect((await acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext)).type).toBe(
+      "session-started",
+    );
+    expect((await acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext)).type).toBe(
+      "accepted-reauth-required",
+    );
+    expect((await pools.auth.query("SELECT session_id FROM identity_session_tokens")).rows).toHaveLength(1);
+  });
   for (const kind of ["password", "passkey"] as const)
     for (const existing of [false, true]) {
       it.each(ATTEMPT_STAGES)(
