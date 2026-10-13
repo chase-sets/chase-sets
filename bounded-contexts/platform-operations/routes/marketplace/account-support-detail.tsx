@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { navigateAfterWrite, type FormActionContext } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, navigateAfterWrite, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
 import {
   SupportRequestDetailPage,
@@ -113,9 +113,10 @@ async function handleParticipantAction(
   }
 }
 
-export async function action(args: ActionFunctionArgs) {
-  const actor = await requireActorFromAuthApi({ request: args.request, permission: "support.manage" });
-  const formData = await args.request.formData();
+async function handleParticipantIntent(actionKind: ParticipantActionKind | "check-status", args: FormActionContext) {
+  const actor = args.actor;
+  if (!actor) throw new Response(null, { status: 401 });
+  const formData = args.formData;
   if (!participantActorMatches(formData, actor))
     return { error: t("support.participantAttempt.accountChanged"), participantRecovery: null };
   let retainedRecovery: ParticipantRouteRecovery | null = null;
@@ -156,25 +157,33 @@ export async function action(args: ActionFunctionArgs) {
       participantRecovery: retainedRecovery,
     };
   }
-  const intent = formValue(formData, "intent");
-  switch (intent) {
-    case "evidence":
-    case "response":
-    case "accept-offer":
-    case "decline-offer":
-    case "escalate":
-    case "cancel":
-      return handleParticipantAction(intent, { ...args, formData, actor, intent }, actor);
-    default:
-      return redirect(
-        detailLocation(
-          args.params.id ?? "",
-          "actionError",
-          t("support.routes.marketplace.accountSupportDetail.action.unsupported"),
-        ),
-      );
-  }
+  if (actionKind === "check-status") return unsupportedParticipantIntent(args);
+  return handleParticipantAction(actionKind, args, actor);
 }
+
+function unsupportedParticipantIntent({ params }: FormActionContext) {
+  return redirect(
+    detailLocation(
+      params.id ?? "",
+      "actionError",
+      t("support.routes.marketplace.accountSupportDetail.action.unsupported"),
+    ),
+  );
+}
+
+export const action = defineFormAction({
+  authorization: ({ request }) => requireActorFromAuthApi({ request, permission: "support.manage" }),
+  intents: {
+    evidence: (context) => handleParticipantIntent("evidence", context),
+    response: (context) => handleParticipantIntent("response", context),
+    "accept-offer": (context) => handleParticipantIntent("accept-offer", context),
+    "decline-offer": (context) => handleParticipantIntent("decline-offer", context),
+    escalate: (context) => handleParticipantIntent("escalate", context),
+    cancel: (context) => handleParticipantIntent("cancel", context),
+    "check-status": (context) => handleParticipantIntent("check-status", context),
+  },
+  onUnknownIntent: unsupportedParticipantIntent,
+});
 
 export const meta: MetaFunction<typeof loader> = ({ data }) =>
   buildOpenGraphMeta({

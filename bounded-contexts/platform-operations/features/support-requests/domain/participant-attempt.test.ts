@@ -7,6 +7,13 @@ import {
 } from "./participant-attempt";
 
 describe("schema negatives", () => {
+  it("normalizes valid currency form amounts before hashing without admitting invalid amounts", () => {
+    const body = { responseType: "offer-partial-refund", summary: "Offer", offerResolutionType: "partial-refund" };
+    for (const refundAmount of ["5", "5.0", "05.00"])
+      expect(canonicalParticipantRequest("record-response", { ...body, refundAmount })).toBe(
+        canonicalParticipantRequest("record-response", { ...body, refundAmount: "5.00" }),
+      );
+  });
   it("rejects unknown canonical actions before hashing", () => {
     expect(() => canonicalParticipantRequest("unexpected" as ParticipantAction, { reason: "Valid reason" })).toThrow();
   });
@@ -93,7 +100,7 @@ describe("schema negatives", () => {
           occurredAt,
         }),
       ).toThrow();
-    for (const refundAmount of ["NaN", "Infinity", "1e3", 1, "-1.00", "1.001"])
+    for (const refundAmount of ["NaN", "Infinity", "1e3", 1, "-1.00", "1.001", "10000000000.00"])
       expect(() =>
         canonicalParticipantRequest("record-response", {
           submittedByRole: "seller",

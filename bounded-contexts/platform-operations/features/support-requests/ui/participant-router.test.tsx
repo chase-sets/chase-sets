@@ -29,6 +29,55 @@ afterEach(() => {
 });
 
 describe("real-router transition/accessibility/reload matrix", () => {
+  it("actual seller CurrencyInput form sends one normalized partial-refund attempt and redirects with its receipt", async () => {
+    auth.mockResolvedValue({ ...actor, accountId: "acc_seller" });
+    let reflected = false;
+    const token = encodeCommitReceipt([
+      { sourceContextName: "platform-operations", maxGlobalPosition: "42", eventIds: ["evt_offer"] },
+    ]);
+    const fetchMock = vi.fn<typeof fetch>(async (_url, init) => {
+      if (init?.method === "POST") {
+        reflected = true;
+        return new Response(JSON.stringify({ id: "sup_router", version: 3, status: "response-recorded" }), {
+          headers: { [CHASE_SETS_COMMIT_RECEIPT_HEADER]: token, "Chase-Sets-Consistency": "eventual" },
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          ...detail(),
+          checklist: [],
+          flow_type: "product-damaged",
+          status: reflected ? "waiting-on-buyer" : "waiting-on-seller",
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const router = mount();
+    const user = userEvent.setup();
+    await user.selectOptions(
+      await screen.findByLabelText(t("support.features.supportRequests.ui.supportRequestDetailPage.response.type")),
+      "offer-partial-refund",
+    );
+    const amount = await screen.findByLabelText(
+      t("support.features.supportRequests.ui.supportRequestDetailPage.response.refundAmount"),
+    );
+    await user.clear(amount);
+    await user.type(amount, "5.00");
+    await user.type(
+      screen.getByLabelText(t("support.features.supportRequests.ui.supportRequestDetailPage.response.summary")),
+      "Keep the item and receive a partial refund.",
+    );
+    expect(new FormData(amount.closest("form")!).get("refundAmount")).toBe("5");
+    await user.click(
+      screen.getByRole("button", {
+        name: t("support.features.supportRequests.ui.supportRequestDetailPage.response.submit"),
+      }),
+    );
+    await waitFor(() => expect(router.state.location.search).toContain("action=response"));
+    expect(router.state.location.search).toContain("afterWrite");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    router.dispose();
+  });
   it("actual submit disables busy, lost response announces/focuses ambiguity, check-status token drives second loader and authoritative timeline", async () => {
     auth.mockResolvedValue(actor);
     let release: (() => void) | undefined;

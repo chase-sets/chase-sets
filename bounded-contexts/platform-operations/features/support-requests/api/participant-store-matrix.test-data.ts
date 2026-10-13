@@ -65,6 +65,27 @@ async function seedAcceptance(store: EventStore, id: string) {
   });
 }
 export function participantStoreMatrix(makeStore: () => EventStore) {
+  it("equivalent currency form amounts replay one response and offer with a canonical receipt hash", async () => {
+    const store = makeStore();
+    const id = "sup_money_form";
+    await seedCase(store, id);
+    const f = participantFixture(store);
+    const body = {
+      responseType: "offer-partial-refund",
+      offerResolutionType: "partial-refund",
+      summary: "Offer",
+      refundAmount: "5",
+    };
+    const first = await f.executeParticipant("record-response", body, id, attemptId, seller);
+    const history = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+    expect(
+      await f.executeParticipant("record-response", { ...body, refundAmount: "5.00" }, id, attemptId, seller),
+    ).toEqual(first);
+    expect(await readCompleteStream(store, { streamId: `support.support-request-${id}` })).toEqual(history);
+    expect(history.find((event) => event.eventType.endsWith(".response-recorded"))?.payload.offer).toMatchObject({
+      refundAmount: "5.00",
+    });
+  });
   it("legacy seed audit tenants preserve authorized seller response and buyer acceptance recovery", async () => {
     const store = makeStore();
     const f = participantFixture(store);

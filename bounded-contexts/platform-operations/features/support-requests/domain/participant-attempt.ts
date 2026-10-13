@@ -1,5 +1,6 @@
 import { normalizeEvidenceType, normalizeFlowType, normalizeResponseType, normalizeResolutionType } from "./common";
 import { parseSupportEvidenceAttachmentReference } from "./attachment-reference";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 
 export const participantActions = {
   "open-support-request": { path: "/", fact: "support.support-request.opened", status: "opened" },
@@ -147,9 +148,14 @@ export function canonicalParticipantRequest(actionKind: ParticipantAction, input
         "affectedLineIds",
         "refundCurrencyCode",
       ]);
-      const refundAmount = optionalText(b.refundAmount, 20);
-      if (refundAmount && !/^(0|[1-9]\d{0,12})\.\d{2}$/.test(refundAmount))
-        throw new ParticipantAttemptError(400, "invalid-participant-amount");
+      let refundAmount = optionalText(b.refundAmount, 20);
+      if (refundAmount) {
+        try {
+          refundAmount = normalizeMoneyAmount(refundAmount);
+        } catch {
+          throw new ParticipantAttemptError(400, "invalid-participant-amount");
+        }
+      }
       const refundCurrencyCode = optionalText(b.refundCurrencyCode, 3);
       if (refundCurrencyCode && !/^[A-Z]{3}$/.test(refundCurrencyCode))
         throw new ParticipantAttemptError(400, "invalid-participant-currency");
