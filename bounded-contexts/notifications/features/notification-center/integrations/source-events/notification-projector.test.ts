@@ -666,7 +666,7 @@ describe("notifications source event projector", () => {
       expect.objectContaining({
         message: expect.objectContaining({
           messageType: "marketplace.seller-listing-availability.enabled",
-          actionHref: "/account/selling/listings",
+          actionHref: "/account/listings",
           idempotencyKey: "notifications:marketplace:seller_availability_restored:acc_seller:2026-07-13T00:00:00.000Z",
           actor: { userId: null, accountId: "acc_seller" },
           channels: [expect.objectContaining({ channel: "web", recipient: { accountId: "acc_seller" } })],

@@ -27,7 +27,7 @@
     "ui-support",
     "ucp-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
     "@chase-sets/collections",
@@ -1116,6 +1116,15 @@
             "owner": "discovery",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "market": {
+                "kind": "value",
+                "maxLength": 4,
+                "values": ["sell", "buy"]
+              }
+            }
           }
         },
         {
