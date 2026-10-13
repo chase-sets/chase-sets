@@ -6,7 +6,9 @@ import type { BuyerOfferPolicyEvent } from "./domain";
 const preview = buyerOfferPolicyAuditSchema.extend({
   previewId: z.string().regex(/^[a-f0-9]{64}$/),
   policyVersion: z.number().int().positive().safe(),
-  terms: buyerOfferPolicyTermsSchema,
+  terms: buyerOfferPolicyTermsSchema
+    .extend({ itemCommitmentAllowance: z.string().optional() })
+    .transform(({ itemCommitmentAllowance: _retired, ...terms }) => terms),
   outcomes: z.array(buyerOfferPolicyOutcomeSchema).max(100).optional(),
 });
 const eventSchema = z.discriminatedUnion("type", [
