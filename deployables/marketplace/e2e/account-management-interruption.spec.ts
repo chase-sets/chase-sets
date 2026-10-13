@@ -412,11 +412,17 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     expect(target).toBe(fixture.consentId);
     await form.getByRole("button", { name: "Confirm withdrawal", exact: true }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(/\/account\/consents\?afterWrite=/);
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === "/account/consents" &&
+        url.searchParams.has("afterWrite") &&
+        url.searchParams.get("afterWrite") !== receipt,
+    );
     expect(posts).toHaveLength(1);
     expect(posts[0].key).toMatch(/^[a-f0-9-]{36}$/i);
     expect(tokens).toHaveLength(1);
     expect(lookups).toBe(1);
+    await expect(page.getByText("Withdrawn", { exact: true }).first()).toBeVisible();
     const headers = { "Idempotency-Key": posts[0].key, Accept: "text/x-script", "Content-Type": posts[0].contentType };
     const replay = await page.request.post("/account/consents.data", { headers, data: posts[0].body });
     expect(replay.status()).toBe(200);
