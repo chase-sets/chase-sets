@@ -4,17 +4,14 @@ Marketplace owns offer abuse controls because offers and offer matches are Marke
 
 ## Active policy
 
-Policy version: `marketplace-offer-abuse-controls-v1`
+Policy version: `marketplace-offer-abuse-controls-v2`
 
 Defaults:
 
 - Buyer daily offer submission cap: `25` submitted offers per rolling 24 hours.
-- Buyer listing daily offer cap: `3` active or seller-declined offers per listing per rolling 24 hours.
-- Minimum offer price: `50%` of the matching Listing ask.
-- Repeat-lowball cooldown: after `2` seller declines below ask, offers from the same buyer to that seller/listing must be at least the last declined amount for `7` days.
 
 ## Scope
 
-Offers stay product-scoped and marketplace-wide. Listing-specific controls evaluate the current active listings the offer would match, then seller-specific mutes, declines, floors, and cooldowns filter the Offer Match surface.
+Offers are product-scoped, marketplace-wide demand. There are no seller mutes, price floor, per-Listing submission cap, or lowball cooldown. Every seller with matching active supply sees an Offer regardless of its price, subject to the existing currency, managed-policy, and supply gates.
 
-Seller-configurable per-listing floors are intentionally deferred; the first policy uses the Marketplace default floor for every listing.
+A Decline privately hides only that Offer from that seller across their matching Listings. Other sellers still see it. Declines do not count toward a buyer limit or start a cooldown. Stored mute, unmute, and cooldown-bearing Decline events continue to replay unchanged, but legacy control rows no longer filter Matches and new Declines carry no cooldown.
