@@ -169,6 +169,10 @@ Notes:
 - Behavior-coupled settings stay with the context that owns the behavior, such as Notifications-owned delivery settings.
 - Device ephemera and anonymous visitor fallbacks stay client-local and are not Identity facts.
 
+### User Preference Write Attempt
+
+A **User Preference Write Attempt** is one User-scoped try to change canonical User Preferences, represented durably by a hashed opaque key and a one-event private receipt committed atomically with the User Preferences version guard. It is distinct from client lifecycle state and Notifications preferences. An exact replay returns the immutable first receipt separately from current authoritative User Preferences and never reapplies the earlier choice.
+
 ## Permission Model
 
 ### Role
