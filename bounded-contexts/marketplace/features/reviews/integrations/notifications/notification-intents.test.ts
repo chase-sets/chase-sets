@@ -227,7 +227,7 @@ describe("review nudge notification intents (m108, #4270)", () => {
       buyerEmail: "buyer@example.com",
       correlationId: "corr_revealed",
     });
-    const actionHref = "/reviews/rev_1";
+    const actionHref = "/account/reviews/rev_1";
     const webChannel = { channel: "web", recipient: { accountId: "acc_subject" }, actionHref };
     expect(message).toEqual({
       messageType: "marketplace.review.revealed",

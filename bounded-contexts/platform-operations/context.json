@@ -60,7 +60,15 @@
     "seller-compliance-sales"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
@@ -932,8 +940,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -944,6 +951,9 @@
             "owner": "platform-operations",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         }
       ]
