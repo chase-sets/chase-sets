@@ -514,6 +514,13 @@ if (realtimeWakeSignal?.stop) {
   });
 }
 const ucpObserver = {
+  negotiationRejected: (event) => {
+    recordUcpOperationCompleted({ transport: event.transport, operation: event.operation, status: "error" });
+    logger.warn("UCP profile negotiation rejected.", {
+      type: "ucp.negotiation.rejected",
+      ...event,
+    });
+  },
   signedWriteRejected: (event) => {
     recordUcpSignedWriteRejected(event);
     logger.warn("UCP signed write rejected.", {

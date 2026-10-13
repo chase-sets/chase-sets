@@ -154,6 +154,9 @@ export type UcpBusinessSigningKeySet = Readonly<{
 }>;
 
 export type UcpRuntimeObserver = Readonly<{
+  negotiationRejected?: (
+    event: Readonly<{ transport: "rest" | "mcp"; operation: string; code: string; profileHost: string | null }>,
+  ) => void;
   signedWriteRejected?: (event: UcpRuntimeSecurityEvent) => void;
   signatureVerificationFailed?: (event: UcpRuntimeSecurityEvent) => void;
   idempotencyReplayed?: (event: UcpRuntimeIdempotencyEvent) => void;
@@ -1867,7 +1870,15 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
     const meta = readUcpRequestMeta(c.req.raw);
     c.set("ucpRequestMeta", meta);
     const failure = await negotiateUcpRequest(c, options, operation, meta, "rest");
-    if (failure) return c.json(failure.envelope, failure.status);
+    if (failure) {
+      emitObserver(options.observer?.negotiationRejected, {
+        transport: "rest",
+        operation,
+        code: failure.code,
+        profileHost: meta.profile.kind === "supplied" ? new URL(meta.profile.url).hostname : null,
+      });
+      return c.json(failure.envelope, failure.status);
+    }
     return write
       ? invokeRestWrite(c, options, operation, params, idempotencyStore, meta)
       : c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
@@ -1985,6 +1996,12 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       c.set("ucpRequestMeta", meta);
       const negotiationFailure = await negotiateUcpRequest(c, options, toolName, meta, "mcp");
       if (negotiationFailure) {
+        emitObserver(options.observer?.negotiationRejected, {
+          transport: "mcp",
+          operation: toolName,
+          code: negotiationFailure.code,
+          profileHost: meta.profile.kind === "supplied" ? new URL(meta.profile.url).hostname : null,
+        });
         if (negotiationFailure.code === "capabilities_incompatible")
           return respondResult(toolResult(tool, negotiationFailure.envelope));
         return c.json(

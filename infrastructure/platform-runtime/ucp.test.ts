@@ -253,8 +253,9 @@ describe("UCP REST routes", () => {
     );
   });
 
-  it("rejects checkout writes that are not signed", async () => {
-    const app = new Hono().route("/ucp/v1", createUcpRestRoutes());
+  it("rejects profile-less checkout writes and signals the negotiation failure", async () => {
+    const negotiationRejected = vi.fn();
+    const app = new Hono().route("/ucp/v1", createUcpRestRoutes({ observer: { negotiationRejected } }));
 
     const response = await app.request("/ucp/v1/checkout-sessions", {
       method: "POST",
@@ -271,6 +272,30 @@ describe("UCP REST routes", () => {
         },
       ],
     });
+    expect(negotiationRejected).toHaveBeenCalledExactlyOnceWith({
+      transport: "rest",
+      operation: "create_checkout",
+      code: "invalid_profile_url",
+      profileHost: null,
+    });
+  });
+
+  it("rejects profile-bearing checkout writes that are not signed", async () => {
+    const signedWriteRejected = vi.fn();
+    const negotiationRejected = vi.fn();
+    const app = new Hono().route(
+      "/ucp/v1",
+      createUcpRestRoutes({ observer: { signedWriteRejected, negotiationRejected } }),
+    );
+    const response = await app.request("/ucp/v1/checkout-sessions", {
+      method: "POST",
+      body: "{}",
+      headers: { "Content-Type": "application/json", "UCP-Agent": 'profile="https://agent.example/.well-known/ucp"' },
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).messages[0].code).toBe("signed_request_required");
+    expect(signedWriteRejected).toHaveBeenCalledTimes(1);
+    expect(negotiationRejected).not.toHaveBeenCalled();
   });
 
   it("replays the stored response for duplicate REST writes with the same idempotency key and body", async () => {
@@ -805,6 +830,7 @@ describe("ucp negotiates platform profiles before effects", () => {
           if (transport === "rest" && location === "argument") continue;
           const handler = vi.fn(() => createUcpEnvelope("ok", {}));
           const reserve = vi.fn();
+          const negotiationRejected = vi.fn();
           const app = new Hono<{ Variables: { actor: ResolvedActor | null } }>();
           app.use("*", async (c, next) => {
             c.set("actor", {
@@ -828,6 +854,7 @@ describe("ucp negotiates platform profiles before effects", () => {
           });
           const options: CreateUcpRoutesOptions = {
             profileResolver: resolveTestProfile,
+            observer: { negotiationRejected },
             restHandlers: { get_checkout: handler },
             mcpToolHandlers: { get_checkout: handler },
             idempotencyStore: { reserve, get: vi.fn(), complete: vi.fn(), abandon: vi.fn(), put: vi.fn() },
@@ -863,13 +890,21 @@ describe("ucp negotiates platform profiles before effects", () => {
             },
           );
           const result = await response.json();
-          if (ownProfile) expect(handler).toHaveBeenCalledTimes(1);
-          else {
+          if (ownProfile) {
+            expect(handler).toHaveBeenCalledTimes(1);
+            expect(negotiationRejected).not.toHaveBeenCalled();
+          } else {
             expect(transport === "rest" ? result.messages[0].code : result.error.data.code).toBe("profile_mismatch");
             expect(transport === "rest" ? response.status : result.error.code).toBe(
               transport === "rest" ? 403 : -32000,
             );
             expect(handler).not.toHaveBeenCalled();
+            expect(negotiationRejected).toHaveBeenCalledExactlyOnceWith({
+              transport,
+              operation: "get_checkout",
+              code: "profile_mismatch",
+              profileHost: "agent.example",
+            });
           }
           expect(reserve).not.toHaveBeenCalled();
         }
@@ -879,7 +914,9 @@ describe("ucp negotiates platform profiles before effects", () => {
 
   it.each(["rest", "mcp"] as const)("rejects an incompatible capability with no effect on %s", async (transport) => {
     const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+    const negotiationRejected = vi.fn();
     const options: CreateUcpRoutesOptions = {
+      observer: { negotiationRejected },
       profileResolver: async () => ({
         ok: true,
         profile: { ucp: { version: UCP_VERSION, services: {}, payment_handlers: {}, capabilities: {} } },
@@ -907,6 +944,114 @@ describe("ucp negotiates platform profiles before effects", () => {
       "capabilities_incompatible",
     );
     expect(handler).not.toHaveBeenCalled();
+    expect(negotiationRejected).toHaveBeenCalledExactlyOnceWith({
+      transport,
+      operation: "search_catalog",
+      code: "capabilities_incompatible",
+      profileHost: "agent.example",
+    });
+  });
+
+  it.each(["rest", "mcp"] as const)(
+    "signals version rejection without leaking profile URL or secrets on %s",
+    async (transport) => {
+      const negotiationRejected = vi.fn();
+      const handler = vi.fn();
+      const reserve = vi.fn();
+      const options: CreateUcpRoutesOptions = {
+        profileResolver: async () => ({
+          ok: true,
+          profile: { ...testPlatformProfile, ucp: { ...testPlatformProfile.ucp, version: "1900-01-01" } },
+        }),
+        observer: { negotiationRejected },
+        restHandlers: { get_checkout: handler },
+        mcpToolHandlers: { get_checkout: handler },
+        idempotencyStore: { reserve, get: vi.fn(), complete: vi.fn(), abandon: vi.fn(), put: vi.fn() },
+      };
+      const app = new Hono()
+        .route("/ucp/v1", buildUcpRestRoutes(options))
+        .route("/ucp/mcp", buildUcpMcpRoutes(options));
+      const bytes: string[] = [];
+      for (const token of ["valid-secret", "invalid-secret", ""]) {
+        const response = await app.request(transport === "rest" ? "/ucp/v1/checkout-sessions/checkout_1" : "/ucp/mcp", {
+          method: transport === "rest" ? "GET" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "UCP-Agent": 'profile="https://agent.example/private-path?secret=profile-secret"',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          ...(transport === "mcp"
+            ? {
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "tools/call",
+                  params: { name: "get_checkout", arguments: {} },
+                }),
+              }
+            : {}),
+        });
+        expect(response.status).toBe(transport === "rest" ? 422 : 200);
+        bytes.push(await response.text());
+      }
+      expect(new Set(bytes).size).toBe(1);
+      expect(negotiationRejected).toHaveBeenCalledTimes(3);
+      for (const [event] of negotiationRejected.mock.calls) {
+        expect(event).toEqual({
+          transport,
+          operation: "get_checkout",
+          code: "version_unsupported",
+          profileHost: "agent.example",
+        });
+      }
+      expect(handler).not.toHaveBeenCalled();
+      expect(reserve).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { meta: { "ucp-agent": "x" }, code: "invalid_profile_url", profileHost: null },
+    {
+      meta: {
+        "ucp-agent": { profile: "https://agent.example/private-path?secret=profile-secret" },
+        "idempotency-key": "argument-secret",
+      },
+      code: "idempotency_key_mismatch",
+      profileHost: "agent.example",
+    },
+  ])("signals MCP $code without raw values", async ({ meta, code, profileHost }) => {
+    const negotiationRejected = vi.fn();
+    const handler = vi.fn();
+    const reserve = vi.fn();
+    const options: CreateUcpRoutesOptions = {
+      profileResolver: resolveTestProfile,
+      observer: { negotiationRejected },
+      restHandlers: { get_checkout: handler },
+      mcpToolHandlers: { get_checkout: handler },
+      idempotencyStore: { reserve, get: vi.fn(), complete: vi.fn(), abandon: vi.fn(), put: vi.fn() },
+    };
+    const app = new Hono().route("/ucp/v1", buildUcpRestRoutes(options)).route("/ucp/mcp", buildUcpMcpRoutes(options));
+    const response = await app.request("/ucp/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "header-secret" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "get_checkout", arguments: { meta, id: "checkout_1" } },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).error.data.code).toBe(code);
+    expect(negotiationRejected).toHaveBeenCalledExactlyOnceWith({
+      transport: "mcp",
+      operation: "get_checkout",
+      code,
+      profileHost,
+    });
+    expect(Object.values(negotiationRejected.mock.calls[0][0])).not.toContain("x");
+    expect(handler).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
   });
 });
 
