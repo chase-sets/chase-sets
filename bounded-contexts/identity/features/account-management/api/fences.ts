@@ -9,7 +9,7 @@ import {
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
-import manifest from "../../../context.json";
+import manifest from "../../../context.json" with { type: "json" };
 import { validateOwnerHistory } from "./owners";
 
 type ScopeEvent = Readonly<{ eventType: string; payload: Readonly<Record<string, unknown>> }>;

@@ -1,5 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
-import { requireInterruptionSafeClient } from "./marketplace-action";
+import { accountMutationResponse, requireInterruptionSafeClient } from "./marketplace-action";
+import * as responses from "@chase-sets/http/responses";
+import { syntheticMutationResult } from "./test-support";
+
+describe("issue-7168-ac9-transport-state", () => {
+  it("snapshot-return secrets revalidate plainly; fresh-read destinations are supplied by their owning routes", async () => {
+    const helper = vi.spyOn(responses, "navigateAfterWrite").mockReturnValue("/unexpected-token");
+    try {
+      const result = syntheticMutationResult("create-api-key", {
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_test",
+      });
+      expect((await accountMutationResponse(result, "/account/security").json()).destination).toBe("/account/security");
+      expect(helper).not.toHaveBeenCalled();
+      expect(
+        (await accountMutationResponse(result, "/account/security", "/account/security?afterWrite=synthetic").json())
+          .destination,
+      ).toBe("/account/security?afterWrite=synthetic");
+    } finally {
+      helper.mockRestore();
+    }
+  });
+});
 
 describe("issue-7168-ac1-derived-partition", () => {
   it("refuses missing keys, unknown fields and a sixteenth action before authorization or work", async () => {

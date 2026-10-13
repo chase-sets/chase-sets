@@ -1966,7 +1966,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["consents", "shipping-addresses"],
+      "expectedConsumers": ["account-management", "consents", "shipping-addresses"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1980,6 +1980,7 @@
       "expectedConsumers": [
         "access-hub",
         "account-capabilities",
+        "account-management",
         "accounts",
         "api-keys",
         "consents",
