@@ -2338,6 +2338,7 @@ describe("marketplace search", () => {
       expect(await ids("zard 4/999")).toEqual([]);
       expect(await ids("zard 004/102")).toEqual([]);
       expect(await ids("zard 4/102 absent")).toEqual([]);
+      expect(await ids("zard!4/102")).toEqual([]);
       expect(await ids("TSP 136a")).toEqual(["syn_tsp"]);
       expect(await ids("TSP 136")).toEqual(["syn_tsp_number"]);
       expect(await ids("TSP 999")).toEqual([]);
@@ -2346,6 +2347,7 @@ describe("marketplace search", () => {
       expect(await ids("pkmn pkmn ETB")).toEqual(["syn_etb"]);
       expect(await ids("elite trainer box")).toEqual(["syn_etb", "syn_wrong_phrase"]);
       expect(await ids("pkmn BB")).toEqual(["syn_bb"]);
+      expect(await ids("pkmn/BB")).toEqual(["syn_bb"]);
       expect(await ids("ygo BB")).toEqual(["syn_ygo"]);
       expect((await search("zard")).items[0]?.catalog_item_id).toBe("syn_exact");
       const expanded = await search("zard 4/102");

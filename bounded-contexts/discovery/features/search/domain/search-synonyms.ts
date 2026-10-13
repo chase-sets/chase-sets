@@ -29,7 +29,7 @@ export async function buildSearchSynonymQueries(
   });
   // Keep the existing plain-query path when no alternatives or compound literal
   // numbers are needed, including its English punctuation/stop-word semantics.
-  const expanded = alternatives.some(Boolean) || tokens.some(({ raw }) => /\p{N}/u.test(raw) && /[/-]/.test(raw));
+  const expanded = alternatives.some(Boolean) || tokens.some(({ raw }) => /\p{N}/u.test(raw) && /[./-]/.test(raw));
   if (!expanded && !prefix) {
     return { english: foldSearchDiacritics(value), simple: buildSimpleSearchQuery(value), expanded: false };
   }

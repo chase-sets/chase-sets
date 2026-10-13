@@ -57,4 +57,20 @@ describe("reviewed search vocabulary", () => {
     expect(queries.english).toBe("(ETB | (elite <-> trainer <-> box)) & Pokemon & リザード");
     expect(queries.simple).toBe("(ETB | (elite <-> trainer <-> box)) & Pokemon & リザ & ザー & ード");
   });
+
+  it("protects digit-bearing raw input before punctuation normalization and expands nonnumeric compound abbreviations", async () => {
+    const lookup = vi.fn(async () => new Set<string>());
+    expect(await classifyProtectedSearchTokens("ETB.1 zard!4", lookup)).toEqual([
+      { raw: "ETB.1", protected: true },
+      { raw: "zard", protected: true },
+      { raw: "4", protected: true },
+    ]);
+    const queries = await buildSearchSynonymQueries("ETB.1 BB", lookup);
+    expect(queries.english).toBe("ETB.1 & (BB | (booster <-> box))");
+    expect(queries.simple).toBe("(ETB <-> 1) & (BB | (booster <-> box))");
+    expect(lookup).not.toHaveBeenCalled();
+    expect((await buildSearchSynonymQueries("pkmn/BB", lookup)).simple).toBe(
+      "(pkmn | (pokemon)) & (BB | (booster <-> box))",
+    );
+  });
 });
