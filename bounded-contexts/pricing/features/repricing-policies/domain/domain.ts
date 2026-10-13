@@ -25,6 +25,7 @@ export class RepricingPolicyValidationError extends Error {}
 export type { RepricingGuardrail } from "./guardrails/registry";
 
 const pricingGoals = createPricingGoalRegistry([fixedPercentileGoal, targetHorizonGoal, profitPerDayGoal]);
+export const pricingGoalDefinitions = () => pricingGoals.definitions();
 const guardrailKinds = createGuardrailRegistry([marketEvidenceFloor, hopelessForecastHold]);
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -454,9 +455,7 @@ function normalizeGuardrails(
       kind !== "hopeless-forecast-hold" || anchorChain.some((anchor) => anchor.source === "curve-objective"),
       "guardrail-requires-curve-objective",
     );
-    return kind === "market-evidence-floor"
-      ? { kind, percentOfEstimate: validation.parameters.percentOfEstimate! }
-      : { kind };
+    return { kind, ...validation.parameters } as RepricingGuardrail;
   });
 }
 

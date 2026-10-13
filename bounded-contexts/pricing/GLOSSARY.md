@@ -264,7 +264,7 @@ A **Market-Evidence Floor** is a post-max-move guardrail: 50 through 100 percent
 
 ## Second Ask
 
-The **Second Ask** is the second-lowest outlier-filtered, currency-equal other-seller hard ask. One eligible ask supplies no Second Ask; the seller's own asks and derived asks are excluded.
+The **Second Ask** is the second-lowest outlier-filtered (through the same ask filter as the hard-ask anchor), currency-equal other-seller hard ask. One eligible ask supplies no Second Ask; the seller's own asks and derived asks are excluded.
 
 ## Curve Low
 

@@ -24,6 +24,10 @@ export type PolicyCategory = Readonly<{ id: string; name: string }>;
 export const editorCopy = (key: string) => t(`pricing.features.repricingPolicies.ui.editor.${key}`);
 export const controlItems = (options: Record<string, { copyKey: string }>) =>
   Object.entries(options).map(([value, option]) => ({ value, label: t(option.copyKey) }));
+export const anchorControlItems = () =>
+  controlItems(
+    Object.fromEntries(Object.entries(policyControls.anchor).filter(([, option]) => option.control !== "goal-summary")),
+  );
 
 export function PolicyNumber({
   label,
@@ -294,11 +298,7 @@ export function PolicyDirectiveFields({
             ) : (
               <Select
                 label={editorCopy("anchor")}
-                items={controlItems(
-                  Object.fromEntries(
-                    Object.entries(policyControls.anchor).filter(([, option]) => option.control !== "goal-summary"),
-                  ),
-                )}
+                items={anchorControlItems()}
                 value={anchor.source}
                 onValueChange={(source) => changeAnchor(index, newAnchor(source))}
               />

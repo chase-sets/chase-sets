@@ -75,6 +75,17 @@ describe("guardrail registry", () => {
       ),
     ).toEqual({ outcome: "clamp", amountCents: 450n });
   });
+  it("does not raise the bound to a higher Second Ask or Curve Low", () => {
+    expect(
+      marketEvidenceFloor.apply(
+        context({
+          targetCents: 700n,
+          otherSellerHardAsks: [ask(950n), ask(980n)],
+          curve: { state: "present", currencyCode: "USD", points: [point(990n)] },
+        }),
+      ),
+    ).toEqual({ outcome: "clamp", amountCents: 900n });
+  });
   it.each([
     [ask(750n)],
     [ask(750n), ask(850n, { currencyCode: "CAD" })],

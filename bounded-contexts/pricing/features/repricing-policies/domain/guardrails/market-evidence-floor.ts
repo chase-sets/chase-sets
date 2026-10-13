@@ -1,4 +1,5 @@
 import { roundRational } from "@chase-sets/primitives/money";
+import { filterCompetingAskOutliers } from "../../../repricing-engine/domain/competing-ask-outliers";
 import type { GuardrailContext, GuardrailDefinition } from "./registry";
 
 export const marketEvidenceFloor: GuardrailDefinition = {
@@ -33,18 +34,18 @@ export const marketEvidenceFloor: GuardrailDefinition = {
 };
 
 function resolveSecondAsk(context: GuardrailContext, estimateCents: bigint): bigint | null {
-  const ratio = BigInt(Math.round(context.hardAskOutlierPriceRatio * 100));
-  const lower = roundRational(estimateCents * 100n, ratio, "nearest");
-  const upper = roundRational(estimateCents * ratio, 100n, "nearest");
-  const eligible = context.otherSellerHardAsks
-    .filter(
-      (ask) =>
-        ask.sellerAccountId !== context.sellerAccountId &&
-        ask.pricingMode === "hard" &&
-        ask.currencyCode === context.currencyCode &&
-        ask.amountCents >= lower &&
-        ask.amountCents <= upper,
-    )
+  const candidates = context.otherSellerHardAsks.filter(
+    (ask) =>
+      ask.sellerAccountId !== context.sellerAccountId &&
+      ask.pricingMode === "hard" &&
+      ask.currencyCode === context.currencyCode,
+  );
+  const eligible = filterCompetingAskOutliers(
+    candidates,
+    (ask) => ask.amountCents,
+    estimateCents,
+    context.hardAskOutlierPriceRatio,
+  )
     .map((ask) => ask.amountCents)
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   return eligible[1] ?? null;

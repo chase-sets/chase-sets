@@ -2,11 +2,28 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { t } from "@chase-sets/localization";
 import { hashRepricingDryRunBody, validateRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { pricingGoalDefinitions } from "../domain/domain";
 import { policyControls } from "./policy-controls";
-import { summarizeRepricingRule } from "./policy-copy";
+import { repricingGoalLabel, summarizeRepricingRule } from "./policy-copy";
 import { compileRepricingPreset, openRepricingPreset, repricingPresets, type RepricingPreset } from "./presets";
 
 describe("policy union coverage and preset round trips", () => {
+  it("gives every registered goal a non-id seller-facing label", () => {
+    const goals = pricingGoalDefinitions();
+    expect(goals.length).toBeGreaterThan(0);
+    for (const goal of goals) {
+      const label = repricingGoalLabel({
+        source: "curve-objective",
+        goalId: goal.id,
+        goalVersion: goal.version,
+        parameters: Object.fromEntries(
+          Object.entries(goal.parameterSchema).map(([name, bounds]) => [name, bounds.default]),
+        ),
+      });
+      expect(label).not.toBe(goal.id);
+      expect(label.length).toBeGreaterThan(0);
+    }
+  });
   it("pins all four preset body bytes, normalized bytes and dry-run hashes", () => {
     const fingerprints = Object.keys(repricingPresets).map((preset) => {
       const body = compileRepricingPreset({
