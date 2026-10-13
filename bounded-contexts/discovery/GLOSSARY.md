@@ -102,6 +102,15 @@ Notes:
 - Alias text contributes at type- and confidence-aware weights so an official equivalent ranks high while a broad species name or generated translation ranks low and never outranks an exact title match.
 - A `broad` alias (one alias text that fans out to many items, e.g. a species name) is down-weighted so it cannot flood or outrank specific matches; matches dedupe by `catalog_item_id`.
 
+### Query-Vocabulary Expansion
+
+**Query-vocabulary expansion** adds reviewed Discovery alternatives to a Discovery Query: ETB (elite trainer box),
+BB (booster box), pkmn (Pokemon), zard (Charizard), and ygo (Yu-Gi-Oh). Each original token or complete expansion
+phrase remains required alongside all other tokens, in both full search and suggestions. Expansion is always on
+and non-recursive; its keys are in-vocabulary. Raw digit-bearing tokens and served set codes before collector
+numbers stay literal. Original query text, display identity, and URLs do not change. This is not **Catalog Alias**
+truth: no alias storage, event, review, rollout, or retraction behavior changes.
+
 ### Search Text Tokenization
 
 **Search Text Tokenization** is how Discovery turns item and alias text into searchable lexemes for the `search_text` (English config) and `search_text_simple` (simple config) tsvectors.

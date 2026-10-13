@@ -248,11 +248,13 @@ to it (`takenFrom`). It shares the candidate assignment predicate with Repricing
 A **Repricing Anchor Chain** is the ordered list of Repricing Anchors a Repricing Rule's directive tries in
 sequence -- market-estimate, lowest-competing-ask, comp-percentile, last-sold, or curve-objective -- so a rule degrades
 gracefully when its first-choice signal is unavailable, ending in a seller-chosen terminal behavior (hold,
-pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted.
+pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted. Each exhausted
+anchor records its input state; a curve-objective member may also record why it could not solve
+(`economics-unavailable`, `goal-retired`, or `curve-feature-missing:<feature>`).
 
 ## Curve-Objective Anchor
 
-A **Curve-Objective Anchor** selects a versioned Pricing Goal and its numeric parameters in a Repricing Anchor Chain. Authoring validates the goal and records filled defaults; resolving its Demand Curve and goal decision belongs to evaluation.
+A **Curve-Objective Anchor** selects a versioned Pricing Goal and its numeric parameters in a Repricing Anchor Chain. Authoring validates the goal and records filled defaults. Evaluation solves the goal on the product's Demand Curve served at the capture instant, with Economics resolved only when the goal requires it: no curve, a retired goal, or a goal that cannot solve leaves it absent, and an expired curve leaves it stale; a missing or different curve or Economics currency fails closed. Its trace names the goal, goal version and curve version, with the forecast read back at the final price.
 
 ## Repricing Guardrail
 
@@ -457,7 +459,9 @@ inside or exactly on that band is `within-tolerance`: the engine records the eva
 ### Terminal Price
 
 A **Terminal Price** is the final bounded price the repricing evaluation engine produces after applying a
-Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing Guardrail clamps).
+Repricing Rule's directive in a fixed stage order: Repricing Anchor Chain resolution, pre-offset Repricing
+Guardrails, offset, rounding, max move, post-max-move Repricing Guardrails, Floor Price, then Ceiling Price.
+Guardrail kinds run in authored order within their slot; a guardrail hold ends evaluation with no Terminal Price.
 It becomes a Marketplace price-update command only when it falls outside Repricing Tolerance and the daily
 change budget admits it.
 

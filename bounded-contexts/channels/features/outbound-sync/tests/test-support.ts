@@ -13,6 +13,7 @@ export function createUnavailableOutboundSyncServices(): OutboundSyncServices {
     reserveClaimedOutboundOperationsInTransaction: unavailable,
     reserveConnectorClaimedOperations: unavailable,
     scheduleDueOrderPulls: unavailable,
+    scheduleDueLiveExports: unavailable,
     readOrderPullOperations: unavailable,
     reportClaimedOperationOutcomes: unavailable,
     clearOutboundOperationLane: unavailable,

@@ -1284,6 +1284,49 @@ describe("previewBulkAddSearchResults", () => {
 });
 
 describe("searchDiscoveryItems input hardening", () => {
+  it("expands reviewed vocabulary as original OR whole phrase, retaining required terms and original exact tier", async () => {
+    const { db, calls } = createCapturingDb();
+    await searchDiscoveryItems(db, { search: "pkmn ETB zard missing" }, { loadFacets: false });
+    const list = findListCall(calls)!;
+    expect(list.sql).toContain("to_tsquery('english', $2)");
+    expect(list.sql).toContain("to_tsquery('simple', $3)");
+    expect(list.values.slice(1, 4)).toEqual([
+      "(pkmn | (pokemon)) & (ETB | (elite <-> trainer <-> box)) & (zard | (charizard)) & missing",
+      "(pkmn | (pokemon)) & (ETB | (elite <-> trainer <-> box)) & (zard | (charizard)) & missing",
+      "pkmn ETB zard missing",
+    ]);
+    expect(list.sql).not.toContain("pkmn");
+    // Bypass mutant: globally OR-relaxing the required groups loses this discriminator.
+    expect(String(list.values[1]).replaceAll(" & ", " | ")).not.toBe(list.values[1]);
+  });
+
+  it("batches served-code candidates once and reuses membership across facets and counts", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        const rows = sql.includes("unnest($1::text[])") ? [{ set_code: "zard" }] : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    await searchDiscoveryItems(db, { search: "zard 4/102 zard 136a TSP 136a charzard 4/102" });
+    const lookups = calls.filter(({ sql }) => sql.includes("unnest($1::text[])"));
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]?.values).toEqual([["zard", "tsp", "charzard"]]);
+    expect(lookups[0]?.sql).toContain("EXISTS");
+    expect(lookups[0]?.sql).toContain("item.set_code = candidate.set_code");
+    expect(findListCall(calls)?.values[1]).toBe("zard & 4/102 & zard & 136a & TSP & 136a & charzard & 4/102");
+  });
+
+  it("does not protect an absent alphabetic nickname merely because it precedes a collector number", async () => {
+    const { db, calls } = createCapturingDb();
+    await searchDiscoveryItems(db, { search: "zard 4/102" }, { loadFacets: false });
+    expect(findListCall(calls)?.values.slice(1, 3)).toEqual([
+      "(zard | (charizard)) & 4/102",
+      "(zard | (charizard)) & (4 <-> 102)",
+    ]);
+  });
+
   it("folds diacritics in both full-text query inputs", async () => {
     const { db, calls } = createCapturingDb();
 

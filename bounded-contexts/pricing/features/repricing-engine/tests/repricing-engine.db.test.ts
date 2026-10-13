@@ -28,6 +28,7 @@ import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
 import { listAssignedRepricingProducts, loadRepricingRoundInputs } from "../read-model/queries";
 import { buildRepricingHaltProjectionHandlers } from "../../repricing-policies/read-model/halt-projection";
+import { economicsNeverResolved, roundCapture } from "./round-capture-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -259,12 +260,16 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     async (mode) => {
       const pool = pools.pricing;
       await seedRound(pool, { listingPrices: ["8.00", "9.00"] });
-      expect((await loadRepricingRoundInputs(pool, product)).listings).toHaveLength(2);
+      expect((await loadRepricingRoundInputs(pool, { product, ...roundCapture() })).listings).toHaveLength(2);
       expect(await listAssignedRepricingProducts(pool, { after: null, limit: 10 })).toEqual([product]);
-      const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        eventStore: createPostgresEventStore({ pool }),
+        db: pool,
+      });
       await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_before_${mode}`));
       await stopPolicy(mode);
-      expect((await loadRepricingRoundInputs(pool, product)).listings).toEqual([]);
+      expect((await loadRepricingRoundInputs(pool, { product, ...roundCapture() })).listings).toEqual([]);
       expect(await listAssignedRepricingProducts(pool, { after: null, limit: 10 })).toEqual([]);
       const marketplace = gateway(() => "applied");
       expect(
@@ -286,11 +291,15 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     async (mode) => {
       const pool = pools.pricing;
       const { listingIds } = await seedRound(pool, { listingPrices: ["8.00", "9.00"] });
-      const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        eventStore: createPostgresEventStore({ pool }),
+        db: pool,
+      });
       await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_after_${mode}`));
       const marketplace = gateway(() => "applied");
       const afterRoundPlanned = vi.fn(async () => {
-        expect((await loadRepricingRoundInputs(pool, product)).listings).toHaveLength(2);
+        expect((await loadRepricingRoundInputs(pool, { product, ...roundCapture() })).listings).toHaveLength(2);
         await stopPolicy(mode);
       });
       expect(
@@ -390,6 +399,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         releaseAppend = resolve;
       });
       const winner = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
         db: precondition.db,
         eventStore: {
           ...store,
@@ -404,6 +414,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       let waiterPid: number | undefined;
       let loserInputReads = 0;
       const loser = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
         eventStore: store,
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
@@ -424,7 +435,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           },
         },
       });
-      const other = createRepricingEngineRuntime({ db: pool, eventStore: store });
+      const other = createRepricingEngineRuntime({ economics: economicsNeverResolved, db: pool, eventStore: store });
       const winnerGateway = gateway(() => "applied");
       const loserGateway = gateway(() => "applied");
       const otherGateway = gateway(() => "applied");
@@ -533,6 +544,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       const released = vi.fn();
       let lockPid: number | undefined;
       const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
         eventStore: {
           ...store,
           appendToStream: async (request) => {
@@ -590,7 +602,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           (await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory'", [lockPid])).rows,
         ).toHaveLength(0);
       });
-      const next = createRepricingEngineRuntime({ db: pool, eventStore: store });
+      const next = createRepricingEngineRuntime({ economics: economicsNeverResolved, db: pool, eventStore: store });
       await next.enqueueMarketPriceSignal({ ...signal(`evt_synthetic_recovery_${failure}`), ...syntheticProduct });
       expect(
         await next.processNextEvaluationJob({
@@ -625,6 +637,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       let admitted = false;
       let waiterPid: number | undefined;
       const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
         eventStore: { ...store, appendToStream: append },
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
@@ -699,7 +712,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
                 next_eligible_at <= clock_timestamp() AS retry_ready FROM pricing_repricing_evaluation_jobs`)
             ).rows,
           ).toEqual([{ claim_owner_id: "worker:synthetic-stale-owner", claim_expired: true, retry_ready: true }]);
-          const recovery = createRepricingEngineRuntime({ db: pool, eventStore: store });
+          const recovery = createRepricingEngineRuntime({
+            economics: economicsNeverResolved,
+            db: pool,
+            eventStore: store,
+          });
           recoveryWork = recovery.processNextEvaluationJob({
             claimOwnerId: "worker:synthetic-recovery-owner",
             claimTtlMs: 30_000,
@@ -798,6 +815,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           acquired();
         }
         const runtime = createRepricingEngineRuntime({
+          economics: economicsNeverResolved,
           eventStore: createPostgresEventStore({ pool }),
           db: {
             query: async <Row>(sql: string, values?: readonly unknown[]) => {
@@ -990,7 +1008,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       });
       const handlers = buildRepricingPolicyProjectionHandlers(pool);
       for (const stored of created.storedEvents) await handlers[stored.eventType]!(toTransportEvent(stored));
-      const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        db: pool,
+        eventStore: createPostgresEventStore({ pool }),
+      });
       const marketplace = gateway((id) => (id === "lst_policy_3" ? "no_op" : "applied"));
       const onSpiralBreakerTrip = vi.fn();
       expect(await readProductRoundState(pool, product)).toBeNull();
@@ -1068,7 +1090,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           },
         ]),
       ]);
-      const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        db: pool,
+        eventStore: createPostgresEventStore({ pool }),
+      });
       const onSpiralBreakerTrip = vi.fn();
       for (let round = 0; round < 4; round += 1) {
         const prices =
@@ -1112,7 +1138,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       vi.setSystemTime(now);
       const pool = pools.pricing;
       await seedRound(pool, { listingPrices: ["16.00"] });
-      const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        db: pool,
+        eventStore: createPostgresEventStore({ pool }),
+      });
       const ask = (id: string) => ({
         listingId: "lst_policy_1",
         trigger: { ...signal(id).trigger, kind: "competing-ask-changed" as const },
@@ -1180,7 +1210,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           : {}),
       });
       const barrier = holdQuery(pool, (sql) => sql.includes("AS policy_revision"));
-      const runtime = createRepricingEngineRuntime({ db: barrier.db, eventStore: createPostgresEventStore({ pool }) });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        db: barrier.db,
+        eventStore: createPostgresEventStore({ pool }),
+      });
       await runtime.enqueueMarketPriceSignal(signal("evt_claimed"));
       const marketplace = gateway(() => "applied");
       const work = runtime.processNextEvaluationJob({
@@ -1217,7 +1251,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     const pool = pools.pricing;
     await recordProductRoundDirection(pool, product, "down", launch, now);
     await recordProductRoundDirection(pool, product, "down", launch, now);
-    const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      db: pool,
+      eventStore: createPostgresEventStore({ pool }),
+    });
     const marketplace = gateway(() => "applied");
     await runtime.enqueueMarketPriceSignal(signal("evt_unassigned"));
     await runtime.processNextEvaluationJob({
@@ -1303,7 +1341,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     });
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(now);
-    const runtime = createRepricingEngineRuntime({ db: pool, eventStore: createPostgresEventStore({ pool }) });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      db: pool,
+      eventStore: createPostgresEventStore({ pool }),
+    });
     expect(await runtime.enqueueMarketPriceSignal({ ...signal("evt_other_frozen"), ...otherProduct })).toBe(false);
     expect(await runtime.enqueueMarketPriceSignal(signal("evt_not_frozen"))).toBe(true);
   });
@@ -1478,7 +1520,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       "UPDATE pricing_market_price_estimates SET amount = '9.00', fresh_until = now() + interval '1 day'",
     );
 
-    const runtime = createRepricingEngineRuntime({ eventStore, db: pool });
+    const runtime = createRepricingEngineRuntime({ economics: economicsNeverResolved, eventStore, db: pool });
     const marketplace = gateway(() => "applied");
     expect(await runtime.enqueueDailyDriftSweep()).toBe(1);
     expect(
@@ -1520,7 +1562,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   it("deduplicates a moved estimate reaction, changes only beyond-tolerance listings, and publishes a complete fact", async () => {
     const pool = pools.pricing;
     await seedRound(pool, { listingPrices: ["10.00", "11.90"] });
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     const trigger = {
       kind: "market-price-estimated" as const,
       eventId: "evt_estimate_2",
@@ -1597,7 +1643,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   it("enforces the policy's daily budget and records a manual-edit conflict without consuming budget", async () => {
     const pool = pools.pricing;
     await seedRound(pool, { listingPrices: ["8.00", "9.00"], maxChangesPerDay: 1 });
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     await runtime.enqueueMarketPriceSignal({
       catalogItemId: "cat_1",
       productId: "cat_1::",
@@ -1637,7 +1687,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   it("does not react to an unchanged daily estimate and enqueues each quiet product only once per drift-sweep day", async () => {
     const pool = pools.pricing;
     await seedRound(pool, { listingPrices: ["8.00"] });
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     await expect(
       runtime.enqueueMarketPriceSignal({
         catalogItemId: "cat_1",
@@ -1660,7 +1714,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   it("damps competing-ask cascades with a per-product cooldown", async () => {
     const pool = pools.pricing;
     await seedRound(pool, { listingPrices: ["100.00"] });
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     const signal = (eventId: string) => ({
       listingId: "lst_competitor",
       trigger: {
@@ -1701,7 +1759,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       JSON.stringify(conditionalRules),
     ]);
 
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     const [evaluation] = await runtime.previewProductRound({
       catalogItemId: "cat_1",
       productId: "cat_1::",
@@ -1731,7 +1793,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
        FROM pricing_market_listing_inputs WHERE listing_id = $1`,
       [seeded.listingIds[0]],
     );
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
 
     await expect(runtime.enqueueDailyDriftSweep({ now: "2026-07-17T13:00:00.000Z", limit: 1 })).resolves.toBe(3);
     const cursor = await pool.query<{ completed: boolean }>(
@@ -1781,7 +1847,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         1,
       ),
     );
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     await runtime.enqueueMarketPriceSignal({
       catalogItemId: "cat_1",
       productId: "cat_1::",
@@ -1830,7 +1900,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       await pool.query(
         `UPDATE pricing_market_price_estimates SET fresh_until = '2026-07-17T11:00:00.000Z' WHERE product_id = 'cat_1::'`,
       );
-      const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+      const runtime = createRepricingEngineRuntime({
+        economics: economicsNeverResolved,
+        eventStore: createPostgresEventStore({ pool }),
+        db: pool,
+      });
       const marketplace = gateway(() => "applied");
       const enqueue = (eventId: string) =>
         runtime.enqueueMarketPriceSignal({
@@ -1892,7 +1966,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   it("honors a policy pause/revision precondition before Marketplace mutation", async () => {
     const pool = pools.pricing;
     const seeded = await seedRound(pool, { listingPrices: ["8.00"] });
-    const runtime = createRepricingEngineRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+    });
     await runtime.enqueueMarketPriceSignal({
       catalogItemId: "cat_1",
       productId: "cat_1::",

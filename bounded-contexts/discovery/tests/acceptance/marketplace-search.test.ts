@@ -50,6 +50,9 @@ import {
 import { retrieveDiscoveryItems } from "../../features/search/read-model/hybrid-retrieval";
 import { createQueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
 import { refreshAllSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
+import { suggestDiscoveryItems } from "../../features/search/read-model/suggestions";
+import { classifyProtectedSearchTokens } from "../../features/search/domain/protected-search-tokens";
+import { lookupServedSearchSetCodes } from "../../features/search/read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const discoveryContextNames = [
@@ -2292,6 +2295,124 @@ describe("marketplace search", () => {
       state: "failed",
       operation_id: "op_atomic_reset_failure",
     });
+  });
+
+  it.each(["english", "simple"] as const)(
+    "query vocabulary recovers every printing and retains literal negatives with the %s vector",
+    async (config) => {
+      const fixtures = [
+        ["syn_print_a", "Charizard", "Base Set 4/102 foil"],
+        ["syn_print_b", "Charizard", "Base Set 4/102 nonfoil"],
+        ["syn_reverse", "Charizard", "Base Set 102/4"],
+        ["syn_tsp", "TSP", "136a"],
+        ["syn_tsp_number", "TSP", "136"],
+        ["syn_etb", "Pokemon Elite Trainer Box", null],
+        ["syn_incomplete", "Elite Trainer", null],
+        ["syn_wrong_phrase", "Elite Box Trainer", null],
+        ["syn_bb", "Pokemon Booster Box", null],
+        ["syn_ygo", "Yu-Gi-Oh Booster Box", null],
+        ["syn_exact", "zard", null],
+      ] as const;
+      for (const [id, title, subtitle] of fixtures) {
+        await pools.discovery.query(
+          `INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, subtitle, status)
+         VALUES ($1, $1, $2, $3, 'active')`,
+          [id, title, subtitle],
+        );
+      }
+      await rebuildSearchIndex();
+      await pools.discovery.query(
+        "UPDATE discovery_search_items SET set_code = 'tsp' WHERE catalog_item_id IN ('syn_tsp', 'syn_tsp_number')",
+      );
+      await pools.discovery.query(
+        config === "english"
+          ? "UPDATE discovery_search_items SET search_text_simple = ''::tsvector"
+          : "UPDATE discovery_search_items SET search_text = ''::tsvector",
+      );
+      await variantListing("syn_listing", "10.00", [], "USD", "syn_print_a");
+      const search = (query: string) =>
+        searchDiscoveryItems(pools.discovery, { search: query, includeTotal: true }, { loadFacets: false });
+      const ids = async (query: string) => (await search(query)).items.map((item) => item.catalog_item_id).sort();
+      expect(await ids("zard 4/102")).toEqual(["syn_print_a", "syn_print_b"]);
+      expect(await ids("zard 102/4")).toEqual(["syn_reverse"]);
+      expect(await ids("zard 4/999")).toEqual([]);
+      expect(await ids("zard 004/102")).toEqual([]);
+      expect(await ids("zard 4/102 absent")).toEqual([]);
+      expect(await ids("zard!4/102")).toEqual([]);
+      expect(await ids("TSP 136a")).toEqual(["syn_tsp"]);
+      expect(await ids("TSP 136")).toEqual(["syn_tsp_number"]);
+      expect(await ids("TSP 999")).toEqual([]);
+      expect(await ids("ETB")).toEqual(["syn_etb"]);
+      expect(await ids("pkmn ETB")).toEqual(["syn_etb"]);
+      expect(await ids("pkmn pkmn ETB")).toEqual(["syn_etb"]);
+      expect(await ids("elite trainer box")).toEqual(["syn_etb", "syn_wrong_phrase"]);
+      expect(await ids("pkmn BB")).toEqual(["syn_bb"]);
+      expect(await ids("pkmn/BB")).toEqual(["syn_bb"]);
+      expect(await ids("ygo BB")).toEqual(["syn_ygo"]);
+      expect((await search("zard")).items[0]?.catalog_item_id).toBe("syn_exact");
+      const expanded = await search("zard 4/102");
+      const original = await search("charizard 4/102");
+      expect(
+        expanded.items.map((item) => [item.catalog_item_id, item.title, item.subtitle, item.market_summary]),
+      ).toEqual(original.items.map((item) => [item.catalog_item_id, item.title, item.subtitle, item.market_summary]));
+      expect(expanded.items.find((item) => item.catalog_item_id === "syn_print_a")?.market_summary).toMatchObject({
+        lowest_price_amount: "10.00",
+      });
+      const classified = await classifyProtectedSearchTokens("TSP 136a charzard 4/102 jungel 60 zard 4/102", (codes) =>
+        lookupServedSearchSetCodes(pools.discovery, codes),
+      );
+      expect(classified.filter((token) => token.protected).map((token) => token.raw)).toEqual([
+        "TSP",
+        "136a",
+        "4/102",
+        "60",
+        "4/102",
+      ]);
+    },
+  );
+
+  it("suggestion vocabulary uses whole phrases, every final prefix alternative, diacritics and CJK", async () => {
+    for (const [id, title] of [
+      ["suggest_etb", "Pokémon Elite Trainer Box リザードン"],
+      ["suggest_bb", "Pokemon Booster Boxes"],
+      ["suggest_zard", "Charizard"],
+      ["suggest_literal", "zardex"],
+      ["suggest_wrong", "Pokemon Elite Box Trainer"],
+    ]) {
+      await pools.discovery.query(
+        `INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, status) VALUES ($1, $1, $2, 'active')`,
+        [id, title],
+      );
+    }
+    await rebuildSearchIndex();
+    const ids = async (query: string) =>
+      (await suggestDiscoveryItems(pools.discovery, query)).map((item) => item.catalogItemId).sort();
+    expect(await ids("pkmn ETB")).toEqual(["suggest_etb"]);
+    expect(await ids("ETB リザード")).toEqual(["suggest_etb"]);
+    expect(await ids("Pokémon ETB")).toEqual(["suggest_etb"]);
+    expect(await ids("Pokémon ETB リザード".normalize("NFD"))).toEqual(["suggest_etb"]);
+    expect(await ids("pkmn BB")).toEqual(["suggest_bb"]);
+    expect(await ids("zard")).toEqual(["suggest_literal", "suggest_zard"]);
+    expect(await ids("pkmn ETB missing")).toEqual([]);
+    expect(
+      (await searchDiscoveryItems(pools.discovery, { search: "pkmn ETB リザード" }, { loadFacets: false })).items.map(
+        (item) => item.catalog_item_id,
+      ),
+    ).toEqual(["suggest_etb"]);
+    // Isolate each config so one successful OR branch cannot mask a broken other branch.
+    const snapshot = await pools.discovery.query<{
+      catalog_item_id: string;
+      search_text: string;
+      search_text_simple: string;
+    }>("SELECT catalog_item_id, search_text::text, search_text_simple::text FROM discovery_search_items");
+    await pools.discovery.query("UPDATE discovery_search_items SET search_text_simple = ''::tsvector");
+    expect(await ids("pkmn BB")).toEqual(["suggest_bb"]);
+    for (const row of snapshot.rows)
+      await pools.discovery.query(
+        "UPDATE discovery_search_items SET search_text = ''::tsvector, search_text_simple = $2::tsvector WHERE catalog_item_id = $1",
+        [row.catalog_item_id, row.search_text_simple],
+      );
+    expect(await ids("pkmn BB")).toEqual(["suggest_bb"]);
   });
 
   it("matches Latin diacritics symmetrically for titles and aliases", async () => {

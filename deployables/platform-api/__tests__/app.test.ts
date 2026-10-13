@@ -34,6 +34,7 @@ import {
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+  UCP_VERSION,
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -1725,6 +1726,19 @@ describe("platform api app wiring", () => {
           accountId: "acc_buyer",
           roleKey: "buyer",
         })),
+        ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
+        },
       },
     );
     const body = JSON.stringify({
@@ -1831,6 +1845,17 @@ describe("platform api app wiring", () => {
       }),
       {
         ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
           mcpToolHandlers: {
             complete_checkout: completeCheckout,
           },

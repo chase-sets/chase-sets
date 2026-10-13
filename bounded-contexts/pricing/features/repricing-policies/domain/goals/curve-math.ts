@@ -223,18 +223,25 @@ export function decideAtPoint(
   requested: GoalCurvePoint,
 ): Readonly<{ selectedPrice: number; equivalentPercentile: number; forecast: GoalForecast }> {
   const selectedPrice = roundCurrency(requested.price);
-  const finalPoint = pointAtPrice(curve, selectedPrice);
+  return { selectedPrice, ...readBackAtPrice(curve, selectedPrice) };
+}
+
+/** The equivalent percentile and forecast at a cent-valued price, read back as a Goal Decision reads them. */
+export function readBackAtPrice(
+  curve: GoalCurveViews,
+  price: number,
+): Readonly<{ equivalentPercentile: number; forecast: GoalForecast }> {
+  const finalPoint = pointAtPrice(curve, price);
   return {
-    selectedPrice,
     equivalentPercentile: finalPoint.percentile,
     forecast: {
       medianSellDays: finalPoint.medianSellDays,
       status:
         finalPoint.supplyStatus !== "observed"
           ? "unavailable"
-          : selectedPrice < curve.minimumPrice
+          : price < curve.minimumPrice
             ? "lower-bound"
-            : selectedPrice > curve.maximumPrice
+            : price > curve.maximumPrice
               ? "upper-bound"
               : "interpolated",
     },
