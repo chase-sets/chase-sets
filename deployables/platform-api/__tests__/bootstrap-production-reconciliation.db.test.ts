@@ -47,12 +47,13 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
     ...original,
     createPostgresEventStore: (...args: Parameters<typeof original.createPostgresEventStore>) => {
       const store = original.createPostgresEventStore(...args);
-      const append = store.appendToStream;
-      store.appendToStream = async (input) => {
-        measureAppendTrace.inputs?.push(input);
-        return append(input);
+      return {
+        ...store,
+        appendToStream: async (input: AppendToStreamInput) => {
+          measureAppendTrace.inputs?.push(input);
+          return store.appendToStream(input);
+        },
       };
-      return store;
     },
   };
 });
