@@ -254,9 +254,18 @@ export async function loadInventoryStockHolds(input: {
       requireHistory(total === expectedTotal && typeof row.stream_id === "string" && row.stream_id > cursor);
       cursor = row.stream_id;
       const events = await readInventoryStockHistory(input.eventStore, row.stream_id);
-      requireHistory(
-        Number.isSafeInteger(Number(row.current_version)) && events.length === Number(row.current_version),
-      );
+      let currentVersion = Number(row.current_version);
+      requireHistory(Number.isSafeInteger(currentVersion) && currentVersion > 0);
+      if (events.length > currentVersion) {
+        // A conversion can commit between discovery and the complete-history read.
+        const current = await input.db.query<{ current_version: string }>(
+          "SELECT current_version FROM event_store_streams WHERE stream_id = $1",
+          [row.stream_id],
+        );
+        requireHistory(current.rows.length === 1);
+        currentVersion = Number(current.rows[0].current_version);
+      }
+      requireHistory(Number.isSafeInteger(currentVersion) && events.length === currentVersion);
       holds.push(
         foldInventoryStockHold({
           events,

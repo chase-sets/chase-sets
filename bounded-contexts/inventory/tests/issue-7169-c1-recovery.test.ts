@@ -188,6 +188,64 @@ describe("issue-7169-ac3-stock-invariants: complete stock authority", () => {
     await expect(loadAuthoritativeInventoryStockSnapshot({ ...deps, eventStore: reader })).rejects.toThrow();
   });
 
+  it("reconciles a checkout conversion committed after hold discovery", async () => {
+    const deps = await stockHarness([
+      {
+        eventType: "inventory.hold.placed",
+        payload: {
+          ...placed,
+          purpose: "checkout",
+          sourceRef: { checkoutSessionId: "chk_synthetic", lineKey: "line_synthetic" },
+          expiresAt: "2099-01-01T00:00:00Z",
+        },
+      },
+      {
+        eventType: "inventory.hold.converted",
+        payload: {
+          holdId: placed.holdId,
+          convertedAt: "2026-10-12T12:00:00Z",
+          purpose: "order",
+          sourceRef: { orderId: "ord_synthetic", reservationRequestId: "rsv_synthetic" },
+          expiresAt: null,
+        },
+      },
+    ]);
+    deps.db.query.mockImplementation(async (sql) => ({
+      rows: sql.includes("WITH candidates AS")
+        ? [{ stream_id: "inventory.hold-hld_c1_synthetic", total: "1", current_version: "1" }]
+        : [{ stream_id: "inventory.hold-hld_c1_synthetic", total: "1", current_version: "2" }],
+    }));
+
+    await expect(loadAuthoritativeInventoryStockSnapshot(deps)).resolves.toMatchObject({
+      heldQuantity: 2,
+      availableQuantity: 3,
+    });
+  });
+
+  it.each(["1", "3", "invalid", null])(
+    "rejects advanced history without an exact owning version (%s)",
+    async (currentVersion) => {
+      const deps = await stockHarness([
+        { eventType: "inventory.hold.placed", payload: placed },
+        {
+          eventType: "inventory.hold.released",
+          payload: { holdId: placed.holdId, releasedAt: "2026-10-12T12:00:00Z", releaseReason: "manual" },
+        },
+      ]);
+      deps.db.query.mockImplementation(async (sql) => ({
+        rows: sql.includes("WITH candidates AS")
+          ? [{ stream_id: "inventory.hold-hld_c1_synthetic", total: "1", current_version: "1" }]
+          : currentVersion === null
+            ? []
+            : [{ stream_id: "inventory.hold-hld_c1_synthetic", total: "1", current_version: currentVersion }],
+      }));
+
+      await expect(loadAuthoritativeInventoryStockSnapshot(deps)).rejects.toThrow(
+        "Inventory stock history is unavailable; reconciliation is required.",
+      );
+    },
+  );
+
   it("pages every discovered stream and reconciles the independent total", async () => {
     const { eventStore } = createInMemoryEventStore();
     const streamIds: string[] = [];
