@@ -65,7 +65,7 @@
     "economics"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/channels",
     "@chase-sets/commercial-terms",
@@ -723,8 +723,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -735,6 +734,9 @@
             "owner": "pricing",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {

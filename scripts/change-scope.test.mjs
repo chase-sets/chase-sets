@@ -96,6 +96,8 @@ const schedulerVocabularyLookalikePaths = [
 // type import, adding platform-runtime to the Ordering case's affected set only.
 // Accepted dependency delta: #7422 imports the real Payments service contract
 // into Auth. Ordering changes now also reach Auth and its downstream consumers.
+// Accepted dependency delta: #7274 declares Notifications' owner-builder imports,
+// adding Notifications to the Ordering and Pricing cases' affected sets.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -347,9 +349,9 @@ const dbTestsOldVersusNewCorpus = [
     baseOutputMap: {
       changed_files_json: '["bounded-contexts/ordering/features/tax-quotes/domain/tax-quote.ts"]',
       affected_workspaces:
-        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/app-public-web,@chase-sets/app-tcgplayer-connector-extension,@chase-sets/auth,@chase-sets/channels,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/ordering,@chase-sets/payments,@chase-sets/platform-runtime,@chase-sets/pricing,@chase-sets/settlement",
+        "@chase-sets/app-admin-web,@chase-sets/app-marketplace-web,@chase-sets/app-platform-api,@chase-sets/app-platform-worker,@chase-sets/app-public-web,@chase-sets/app-tcgplayer-connector-extension,@chase-sets/auth,@chase-sets/channels,@chase-sets/checkout,@chase-sets/discovery,@chase-sets/marketplace-seed-testing,@chase-sets/notifications,@chase-sets/ordering,@chase-sets/payments,@chase-sets/platform-runtime,@chase-sets/pricing,@chase-sets/settlement",
       affected_workspaces_json:
-        '["@chase-sets/app-admin-web","@chase-sets/app-marketplace-web","@chase-sets/app-platform-api","@chase-sets/app-platform-worker","@chase-sets/app-public-web","@chase-sets/app-tcgplayer-connector-extension","@chase-sets/auth","@chase-sets/channels","@chase-sets/checkout","@chase-sets/discovery","@chase-sets/marketplace-seed-testing","@chase-sets/ordering","@chase-sets/payments","@chase-sets/platform-runtime","@chase-sets/pricing","@chase-sets/settlement"]',
+        '["@chase-sets/app-admin-web","@chase-sets/app-marketplace-web","@chase-sets/app-platform-api","@chase-sets/app-platform-worker","@chase-sets/app-public-web","@chase-sets/app-tcgplayer-connector-extension","@chase-sets/auth","@chase-sets/channels","@chase-sets/checkout","@chase-sets/discovery","@chase-sets/marketplace-seed-testing","@chase-sets/notifications","@chase-sets/ordering","@chase-sets/payments","@chase-sets/platform-runtime","@chase-sets/pricing","@chase-sets/settlement"]',
       directly_affected_workspaces_json: '["@chase-sets/ordering"]',
       docs_only: "false",
       local_checks: "true",
@@ -498,6 +500,7 @@ const hostedDbAdmissionCorpusSeeds = [
       "@chase-sets/app-public-web",
       "@chase-sets/discovery",
       "@chase-sets/marketplace-seed-testing",
+      "@chase-sets/notifications",
       "@chase-sets/platform-runtime",
       "@chase-sets/pricing",
     ],

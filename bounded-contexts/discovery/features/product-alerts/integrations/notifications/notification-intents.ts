@@ -1,6 +1,7 @@
 import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { formatMoney } from "@chase-sets/localization";
+import { links } from "../../../../support/runtime-support/link-intents";
 
 export type ProductAlertNotificationInput = Readonly<{
   accountId: string;
@@ -17,10 +18,10 @@ export type ProductAlertNotificationInput = Readonly<{
 
 export function mapProductAlertMatchToNotification(input: ProductAlertNotificationInput): NotificationMessage {
   const itemTitle = input.itemTitle?.trim() || "A watched product";
-  const actionHref =
-    input.marketSide === "offer"
-      ? `/items/${encodeURIComponent(input.catalogItemId)}?market=sell`
-      : `/items/${encodeURIComponent(input.catalogItemId)}`;
+  const actionHref = links("item-detail", {
+    path: { id: input.catalogItemId },
+    ...(input.marketSide === "offer" ? { query: { market: "sell" as const } } : {}),
+  }).href;
   const title = input.marketSide === "offer" ? `Product Alert: demand for ${itemTitle}` : `Product Alert: ${itemTitle}`;
   const price = formatMoney(input.priceAmount, input.priceCurrencyCode);
   const body =
