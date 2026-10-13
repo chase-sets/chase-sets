@@ -11,6 +11,7 @@ import type {
   RepricingRuleDirective,
 } from "../../repricing-policies/domain/domain";
 import { resolveRepricingFloorAmount } from "../../repricing-policies/domain/floor-resolution";
+import { filterCompetingAskOutliers } from "./competing-ask-outliers";
 
 export type RepricingInputState = "present" | "stale" | "absent" | "currency-incomplete" | "currency-mismatch";
 
@@ -49,12 +50,13 @@ export type RepricingClampTrace = Readonly<{
   floor: boolean;
   ceiling: boolean;
   maxMove: boolean;
+  evidenceFloor?: boolean;
 }>;
 
 export type RepricingAnchorTrace = Readonly<{
-  source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold";
+  source: "market-estimate" | "lowest-competing-ask" | "comp-percentile" | "last-sold" | "curve-objective";
   amount: string;
-  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold";
+  stratum: "market-estimate" | "hard-ask" | "any-ask" | "last-sold" | "curve-objective";
   contributingListingCount: number;
 }>;
 
@@ -76,6 +78,7 @@ export type RepricingListingEvaluation = Readonly<{
     | "terminal-pause"
     | "terminal-notify-only"
     | "currency-input-incomplete-or-mismatched"
+    | "hopeless-forecast-hold"
     | null;
 }>;
 
@@ -114,7 +117,11 @@ export function evaluateRepricingListing(
         ask.sellerAccountId !== listing.sellerAccountId &&
         ask.currencyCode === listingCurrencyCode,
     ),
-    snapshot.marketEstimate?.currencyCode === listingCurrencyCode ? snapshot : { ...snapshot, marketEstimate: null },
+    (ask) => moneyToCents(ask.amount),
+    snapshot.marketEstimate?.currencyCode === listingCurrencyCode
+      ? tryMoneyToCents(snapshot.marketEstimate.amount)
+      : null,
+    snapshot.hardAskOutlierPriceRatio,
   );
   const ruleIndex = listing.rules.findIndex((rule) =>
     rule.conditions.every((condition) =>
@@ -271,7 +278,9 @@ function resolveAnchor(
             snapshot.competingAsks.filter(
               (ask) => ask.sellerAccountId !== sellerAccountId && ask.currencyCode === targetCurrencyCode,
             ),
-            snapshot,
+            (ask) => moneyToCents(ask.amount),
+            groundCents,
+            snapshot.hardAskOutlierPriceRatio,
           );
           if (anyAsks.length === 0) {
             exhaustedAnchors.push({
@@ -504,30 +513,6 @@ function anchorBandFloor(groundCents: bigint, percent: number): bigint {
   // decimal places and round upward so the anchor never crosses below the band.
   const [whole, fraction = ""] = percent.toString().split(".");
   return roundRational(groundCents * BigInt(whole! + fraction), 100n * 10n ** BigInt(fraction.length), "ceil");
-}
-
-function filterCompetingAskOutliers(
-  asks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
-  snapshot: RepricingMarketInputSnapshot,
-): readonly RepricingMarketInputSnapshot["competingAsks"][number][] {
-  if (asks.length < 2) {
-    return asks;
-  }
-  const ordered = asks.map((ask) => moneyToCents(ask.amount)).sort(compareBigInt);
-  const midpoint = ordered.length / 2;
-  const median =
-    ordered.length % 2 === 1
-      ? ordered[Math.floor(midpoint)]!
-      : roundRational(ordered[midpoint - 1]! + ordered[midpoint]!, 2n, "nearest");
-  const core = snapshot.marketEstimate ? (tryMoneyToCents(snapshot.marketEstimate.amount) ?? median) : median;
-  const ratioHundredths = BigInt(Math.round(snapshot.hardAskOutlierPriceRatio * 100));
-  const lower = roundRational(core * 100n, ratioHundredths, "nearest");
-  const upper = roundRational(core * ratioHundredths, 100n, "nearest");
-  const filtered = asks.filter((ask) => {
-    const amount = moneyToCents(ask.amount);
-    return amount >= lower && amount <= upper;
-  });
-  return filtered.length > 0 ? filtered : asks;
 }
 
 function applyOffset(anchor: bigint, directive: RepricingRuleDirective): bigint {
