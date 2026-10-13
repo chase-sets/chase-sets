@@ -129,7 +129,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `FilterArea` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Area. | `bounded-contexts/auth/features/sessions/ui/session-list-page.tsx` |
 | `FilterBar` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bar. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module.tsx` |
 | `FilterBottomSheet` | `packages/design-system/src/components/data-display/filter.tsx` | Purpose not documented; symbol name suggests: Filter Bottom Sheet. | `No production consumer yet.` |
-| `firstFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: first Field Error. | `No production consumer yet.` |
+| `firstFieldError` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: first Field Error. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `FlexItem` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Flex Item. | `No production consumer yet.` |
 | `Form` | `packages/design-system/src/components/forms/form.tsx` | Purpose not documented; symbol name suggests: Form. | `bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx` |
 | `formatMarketplaceNumber` | `packages/design-system/src/components/commerce/shared.tsx` | Purpose not documented; symbol name suggests: format Marketplace Number. | `bounded-contexts/checkout/features/sessions/ui/checkout-start-summary.tsx` |
@@ -201,7 +201,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `NavigationMenu` | `packages/design-system/src/components/actions/navigation-menu.tsx` | Purpose not documented; symbol name suggests: Navigation Menu. | `No production consumer yet.` |
 | `NavRail` | `packages/design-system/src/components/actions/navigation.tsx` | Purpose not documented; symbol name suggests: Nav Rail. | `No production consumer yet.` |
 | `NoResultsRecovery` | `packages/design-system/src/components/commerce/search.tsx` | Purpose not documented; symbol name suggests: No Results Recovery. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
-| `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `No production consumer yet.` |
+| `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `bounded-contexts/auth/support/ui-support/auth-form-feedback.ts` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `No production consumer yet.` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx` |
 | `NumericValue` | `packages/design-system/src/primitives/typography.tsx` | Closed inline role carrier for prices and market data: IBM Plex Mono with tabular figures. | `bounded-contexts/pricing/features/public-market-pages/ui/market-price-history-page.tsx` |
@@ -351,7 +351,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `useReducedMotion` | `packages/design-system/src/theme/provider.tsx` | Purpose not documented; symbol name suggests: use Reduced Motion. | `No production consumer yet.` |
 | `useToast` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: use Toast. | `No production consumer yet.` |
 | `ValidationMessageList` | `packages/design-system/src/components/forms/validation-summary.tsx` | Purpose not documented; symbol name suggests: Validation Message List. | `No production consumer yet.` |
-| `ValidationSummary` | `packages/design-system/src/components/forms/validation-summary.tsx` | Purpose not documented; symbol name suggests: Validation Summary. | `bounded-contexts/catalog/features/source-observations/ui/mapping-expression-editor.tsx` |
+| `ValidationSummary` | `packages/design-system/src/components/forms/validation-summary.tsx` | Purpose not documented; symbol name suggests: Validation Summary. | `bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx` |
 | `VerifiedAccountBadge` | `packages/design-system/src/components/commerce/trust.tsx` | Purpose not documented; symbol name suggests: Verified Account Badge. | `No production consumer yet.` |
 | `ViewTransition` | `packages/design-system/src/motion/primitives.tsx` | Purpose not documented; symbol name suggests: View Transition. | `No production consumer yet.` |
 | `VisuallyHidden` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Visually Hidden. | `bounded-contexts/identity/features/accounts/ui/account-badges.tsx` |
