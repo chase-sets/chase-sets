@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Banner,
@@ -10,9 +10,15 @@ import {
   SegmentedControl,
   Stack,
   Text,
+  ValidationSummary,
 } from "@chase-sets/design-system";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
+import {
+  authFormErrors,
+  useAuthFormFeedback,
+  type AuthFormFeedbackProps,
+} from "../../../support/ui-support/auth-form-feedback";
 
 export type InvitationAcceptancePresentation =
   | Readonly<{
@@ -25,12 +31,12 @@ export type InvitationAcceptancePresentation =
     }>
   | Readonly<{ status: "expired" | "revoked" | "accepted" | "unavailable" }>;
 
-type Props = Readonly<{
-  invitation: InvitationAcceptancePresentation;
-  token: string;
-  action?: string;
-  errorMessage?: string | null;
-}>;
+type Props = AuthFormFeedbackProps &
+  Readonly<{
+    invitation: InvitationAcceptancePresentation;
+    token: string;
+    action?: string;
+  }>;
 
 const terminalCopyKeys = {
   expired: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.expired",
@@ -39,12 +45,26 @@ const terminalCopyKeys = {
   unavailable: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.unavailable",
 } as const;
 
-export function InvitationAcceptancePage({ invitation, token, action, errorMessage }: Props) {
+export function InvitationAcceptancePage(props: Props) {
+  const { invitation, token, action } = props;
   const [method, setMethod] = useState<"passkey" | "password">("passkey");
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyForm = useRef<HTMLFormElement | null>(null);
+  const warningId = useId();
+  const feedback = useAuthFormFeedback(props);
+  const { summary } = authFormErrors(feedback.error);
+
+  useEffect(() => {
+    if (passkeyError) document.getElementById(warningId)?.focus();
+  }, [passkeyError, warningId]);
+
+  function handleServerSubmit(event: FormEvent<HTMLFormElement>) {
+    feedback.begin();
+    setPasskeyError(null);
+    props.onSubmit?.(event);
+  }
 
   if (invitation.status !== "pending") {
     return (
@@ -63,26 +83,30 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
   const pendingInvitation = invitation;
 
   async function acceptWithPasskey(event: FormEvent<HTMLFormElement>) {
-    if (passkeyPayload) return;
+    if (passkeyPayload) {
+      handleServerSubmit(event);
+      return;
+    }
     event.preventDefault();
+    feedback.begin();
     setPasskeyError(null);
     setPasskeyLoading(true);
+    const form = event.currentTarget;
     try {
-      setPasskeyPayload(
-        await createPasskeyCredential({
-          displayName: pendingInvitation.email.split("@")[0] || pendingInvitation.email,
-          email: pendingInvitation.email,
-        }),
-      );
-      window.setTimeout(() => passkeyForm.current?.requestSubmit(), 0);
-    } catch (error) {
-      setPasskeyError(
-        error instanceof Error
-          ? error.message
-          : t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"),
-      );
+      const payload = await createPasskeyCredential({
+        displayName: pendingInvitation.email.split("@")[0] || pendingInvitation.email,
+        email: pendingInvitation.email,
+      });
+      if (passkeyForm.current !== form) return;
+      setPasskeyPayload(payload);
+      window.setTimeout(() => {
+        if (passkeyForm.current === form) form.requestSubmit();
+      }, 0);
+    } catch {
+      if (passkeyForm.current === form)
+        setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
     } finally {
-      setPasskeyLoading(false);
+      if (passkeyForm.current === form) setPasskeyLoading(false);
     }
   }
 
@@ -107,19 +131,22 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
           })}
         </Text>
       </Stack>
-      {errorMessage ? (
-        <Banner
-          title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")}
-          description={errorMessage}
-          tone="danger"
-          role="alert"
-        />
-      ) : null}
+      <ValidationSummary
+        ref={feedback.summaryRef}
+        title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")}
+        errors={summary}
+      />
       <SegmentedControl
         fullWidth
         label={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.method")}
         value={method}
-        onValueChange={(value) => setMethod(value as "passkey" | "password")}
+        onValueChange={(value) => {
+          feedback.clear();
+          setPasskeyError(null);
+          setPasskeyPayload(null);
+          setPasskeyLoading(false);
+          setMethod(value as "passkey" | "password");
+        }}
         items={[
           {
             value: "passkey",
@@ -134,7 +161,7 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
         ]}
       />
       {method === "passkey" ? (
-        <Card elevation="elevated" glow>
+        <Card key="passkey" elevation="elevated" glow>
           <Form ref={passkeyForm} action={action} method="post" onSubmit={acceptWithPasskey}>
             <Stack gap={3}>
               {commonFields}
@@ -145,6 +172,8 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
               </Text>
               {passkeyError ? (
                 <Banner
+                  id={warningId}
+                  tabIndex={-1}
                   title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.unavailable")}
                   description={passkeyError}
                   tone="warning"
@@ -158,8 +187,8 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
           </Form>
         </Card>
       ) : (
-        <Card elevation="elevated">
-          <Form action={action} method="post">
+        <Card key="password" elevation="elevated">
+          <Form action={action} method="post" onSubmit={handleServerSubmit}>
             <Stack gap={3}>
               {commonFields}
               <HiddenInput type="hidden" name="credentialMethod" value="password" readOnly />
