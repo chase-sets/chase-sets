@@ -795,8 +795,8 @@
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Auth-owned UCP OAuth authorization, token, and revocation routes while Identity owns durable linked platform authorization facts.",
-      "expectedConsumers": ["Deployable composition for UCP identity linking", "agent-grants"]
+      "purpose": "Provide Auth-owned UCP OAuth authorization, token, and revocation routes for deployable UCP identity-linking composition and the agent-grants slice. Identity owns durable linked platform authorization facts.",
+      "expectedConsumers": ["agent-grants"]
     },
     "ui-support": {
       "classification": "support",
