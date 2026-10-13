@@ -31,6 +31,7 @@ import {
   buildReviewSupportSourceProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 import { buildReviewModerationReactionHandlers } from "./features/reviews/integrations/moderation/moderation-reaction";
+import { buildListingModerationReactionHandlers } from "./features/listings/integrations/moderation/listing-moderation-reaction";
 import { buildReviewHoldReactionHandlers } from "./features/reviews/integrations/support/review-hold-reaction";
 import { buildReviewScoringReactionHandlers } from "./features/reviews/integrations/support/review-scoring-reaction";
 import {
@@ -160,6 +161,8 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
         handlers: {
           "pricing.marketplace-managed-offer-reaction": () =>
             buildManagedOfferMarketPriceReactions(services.managedOfferWork),
+          "platform-operations.marketplace-listing-moderation-reaction": () =>
+            buildListingModerationReactionHandlers({ operatorUnlistListing: services.listings.operatorUnlistListing }),
           "platform-operations.marketplace-review-hold-reaction": () =>
             buildReviewHoldReactionHandlers({
               recordSupportRequestOpened: services.reviews.recordSupportRequestOpened,
