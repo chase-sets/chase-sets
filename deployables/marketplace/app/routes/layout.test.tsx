@@ -7,6 +7,8 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
+const preferenceDefaults = { density: "comfortable", reducedMotion: "user", locale: "en", timeZone: "UTC" };
+
 const { mockUseLocation, mockUseNavigate, mockUseRouteLoaderData } = vi.hoisted(() => ({
   mockUseLocation: vi.fn(),
   mockUseNavigate: vi.fn(),
@@ -57,6 +59,101 @@ const actorDisplay = {
 };
 
 describe("marketplace route layout", () => {
+  it.each([
+    [400, null, "Preferences were not sent"],
+    [401, null, "Sign in to confirm preferences"],
+    [403, null, "Sign in to confirm preferences"],
+    [409, null, "Preferences changed"],
+    [503, "light", "Preferences changed"],
+    [503, "dark", "Preferences saved"],
+    [503, null, "Preferences could not be confirmed"],
+    [503, "invalid", "Preferences could not be confirmed"],
+  ] as const)(
+    "marketplace-preference-recovery-route-states PUT %s authority %s",
+    async (status, authority, heading) => {
+      const root = {
+        actor: { userId: "usr_alex", permissions: [] },
+        actorDisplay,
+        viewer: { preferences: { colorMode: "system" } },
+      };
+      mockUseRouteLoaderData.mockReturnValue(root);
+      const methods: string[] = [];
+      let dispatch!: (response: Response) => void;
+      let confirm!: (response: Response) => void;
+      const pending = new Promise<Response>((resolve) => {
+        dispatch = resolve;
+      });
+      const checking = new Promise<Response>((resolve) => {
+        confirm = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_input, init) => {
+          methods.push(init.method);
+          return init.method === "PUT" ? pending : checking;
+        }),
+      );
+      const view = render(<MarketplaceLayoutRoute />);
+      const user = userEvent.setup({ document });
+      await user.click(screen.getByRole("button", { name: "Account menu" }));
+      expect(screen.queryByRole("status")).toBeNull();
+      await user.click(screen.getByRole("radio", { name: "Dark" }));
+      expect(screen.getByRole("heading", { name: "Saving preferences" })).toBeTruthy();
+      expect(screen.getByRole("radio", { name: "Dark" }).matches(":disabled")).toBe(true);
+      dispatch(
+        Response.json({ preferences: { userId: "usr_alex", colorMode: "light", ...preferenceDefaults } }, { status }),
+      );
+      if (status === 503) {
+        await screen.findByRole("heading", { name: "Checking preferences" });
+        expect(screen.getByRole("radio", { name: "Dark" }).matches(":disabled")).toBe(true);
+        confirm(
+          authority === null
+            ? Response.json({}, { status: 503 })
+            : Response.json(
+                authority === "invalid" ? {} : { userId: "usr_alex", colorMode: authority, ...preferenceDefaults },
+              ),
+        );
+      }
+      const result = await screen.findByRole("heading", { name: heading });
+      expect(document.activeElement).toBe(result);
+      const announcement = result.closest('[role="status"]');
+      expect(announcement?.getAttribute("aria-live")).toBe("polite");
+      expect(screen.getByRole("radio", { name: "Dark" }).matches(":disabled")).toBe(false);
+      expect(methods).toEqual(status === 503 ? ["PUT", "GET"] : ["PUT"]);
+      if (heading !== "Preferences saved")
+        expect(screen.queryByRole("heading", { name: "Preferences saved" })).toBeNull();
+      if (heading === "Preferences could not be confirmed") {
+        mockUseRouteLoaderData.mockReturnValue({
+          ...root,
+          colorMode: "dark",
+          viewer: { preferences: { colorMode: "dark" } },
+        });
+        view.rerender(<MarketplaceLayoutRoute />);
+        expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
+        expect(screen.queryByRole("heading", { name: "Preferences saved" })).toBeNull();
+        expect(methods).toEqual(["PUT", "GET"]);
+      }
+    },
+  );
+  it("marketplace-preference-recovery-route-states", async () => {
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { userId: "usr_alex", permissions: [] },
+      actorDisplay,
+      viewer: { preferences: { colorMode: "system" } },
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({}, { status: 503 }))
+      .mockResolvedValueOnce(Response.json({ userId: "usr_alex", colorMode: "dark", ...preferenceDefaults }));
+    vi.stubGlobal("fetch", fetch);
+    render(<MarketplaceLayoutRoute />);
+    const user = userEvent.setup({ document });
+    await user.click(screen.getByRole("button", { name: "Account menu" }));
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Preferences saved" })).toBeTruthy());
+    expect(fetch.mock.calls.map(([, init]) => init.method)).toEqual(["PUT", "GET"]);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Preferences saved" }));
+  });
   beforeEach(() => {
     mockUseLocation.mockReturnValue({
       pathname: "/search",
@@ -261,6 +358,8 @@ describe("marketplace route layout", () => {
           });
           return Response.json({
             preferences: {
+              ...preferenceDefaults,
+              userId: "usr_alex",
               colorMode: "dark",
             },
           });
@@ -269,6 +368,7 @@ describe("marketplace route layout", () => {
         return Response.json({});
       });
       const actor = {
+        userId: "usr_alex",
         permissions: [
           "accounts.view",
           "offers.view",
