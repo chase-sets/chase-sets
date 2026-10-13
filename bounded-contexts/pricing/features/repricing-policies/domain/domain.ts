@@ -229,6 +229,7 @@ function normalizeAnchorChain(anchorChain: readonly RepricingAnchor[]): readonly
         pricingGoals.definitions().some((goal) => goal.id === anchor.goalId),
         "goal-unknown",
       );
+      assert(Number.isSafeInteger(anchor.goalVersion) && anchor.goalVersion > 0, "goal-not-selectable");
       const goal = pricingGoals.resolve(anchor.goalId, anchor.goalVersion);
       assert(goal?.lifecycle === "selectable", "goal-not-selectable");
       const validation = validateParameters(goal.parameterSchema, anchor.parameters);

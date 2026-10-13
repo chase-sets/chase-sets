@@ -69,6 +69,7 @@ describe("curve-objective authoring", () => {
     ["goal-unknown", { goalId: "unknown" }],
     ["goal-not-selectable", { goalVersion: 2 }],
     ["goal-not-selectable", { goalVersion: 0 }],
+    ["goal-not-selectable", { goalVersion: "1" as unknown as number }],
     ["goal-parameter-unknown", { parameters: { surprise: 1 } }],
     ["goal-parameter-out-of-bounds", { parameters: { percentile: 100 } }],
     ["goal-parameter-out-of-bounds", { parameters: { percentile: Number.NaN } }],
