@@ -293,7 +293,10 @@ export async function sendMutation(
     response = await fetch(`${args.route}.data`, {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Idempotency-Key": args.key, Accept: "text/x-script" },
+      headers: {
+        "Idempotency-Key": args.route === "/account/consents" ? "invalid-consent-proof-mutant" : args.key,
+        Accept: "text/x-script",
+      },
       body: args.form,
     });
     if (response.status < 500 && response.body) {

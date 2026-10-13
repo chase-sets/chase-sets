@@ -406,9 +406,10 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       expect(response.status()).toBe(200);
       await route.abort("connectionreset");
     });
-    await page.getByRole("button", { name: "Withdraw", exact: true }).last().click();
+    await page.getByRole("button", { name: "Withdraw consent", exact: true }).first().click();
     const form = page.locator('form:has(input[name="intent"][value="withdraw"])');
     const target = await form.locator('input[name="consentId"]').inputValue();
+    expect(target).toBe(fixture.consentId);
     await form.getByRole("button", { name: "Confirm withdrawal", exact: true }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     await expect(page).toHaveURL(/\/account\/consents\?afterWrite=/);
