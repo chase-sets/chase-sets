@@ -3,6 +3,7 @@ import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
   HiddenInput,
+  LinkButton,
   Form,
   Button,
   Banner,
@@ -135,6 +136,11 @@ export function SecurityPage({
       <PageSection
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals.description")}
+        actions={
+          <LinkButton href="/account/sessions" tone="secondary">
+            {t("identity.features.apiKeys.ui.accountSecurityPage.manage.sessions")}
+          </LinkButton>
+        }
       >
         <Stack>
           <SecurePaymentCue label={t("identity.features.apiKeys.ui.accountSecurityPage.sign.in.methods.verified")} />

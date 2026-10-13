@@ -25,7 +25,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
@@ -108,6 +108,72 @@ const itemSeed = {
   itemId: "cat_charizard",
   japaneseItemId: "cat_japanese_charizard",
 };
+
+describe("Discovery removal handler reachability", () => {
+  it("legacy-modern parity", async () => {
+    const legacy = {
+      reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      reportCount: 3,
+      threshold: 3,
+      autoUnlistedAt: "2026-07-23T03:00:01.000Z",
+    };
+    for (const data of [
+      legacy,
+      {
+        ...legacy,
+        listingEnforcement: {
+          version: 1,
+          listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          source: "automatic-report-threshold",
+          sourceActionId: legacy.reportId,
+          occurredAt: legacy.autoUnlistedAt,
+        },
+      },
+    ]) {
+      const writes: { sql: string; values: readonly unknown[] }[] = [];
+      const db: PgQueryable = {
+        async query(sql: string, values: readonly unknown[] = []) {
+          if (sql.startsWith("UPDATE ")) writes.push({ sql, values });
+          return { rows: [], rowCount: 0 };
+        },
+      };
+      await buildDiscoveryMarketProjectionHandlers(db)["marketplace.listing.auto-unlisted"]!(
+        projectionEvent("marketplace.listing.auto-unlisted", data, "marketplace.listing-lst_1", 1),
+      );
+      // Independent expected SQL contract from immutable base 43d1c261; no new identity column or write.
+      expect(writes).toEqual([
+        {
+          sql: "UPDATE discovery_market_listings SET status = $1, updated_at = $2 WHERE listing_id = $3",
+          values: ["paused", "2026-07-23T03:00:01.000Z", "lst_1"],
+        },
+      ]);
+    }
+  });
+
+  it("operator removal matches automatic visibility without erasing another source row", async () => {
+    const rows = new Map([
+      ["lst_1", { account_id: "acc_1", status: "active" }],
+      ["lst_2", { account_id: "acc_2", status: "active" }],
+    ]);
+    const db: PgQueryable = {
+      async query(sql: string, values: readonly unknown[] = []) {
+        if (sql.startsWith("UPDATE discovery_market_listings")) {
+          const row = rows.get(String(values[2]));
+          if (row) row.status = String(values[0]);
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+    expect(rows.get("lst_1")?.status).toBe("active");
+    await handlers["marketplace.listing.operator-unlisted"]!(
+      projectionEvent("marketplace.listing.operator-unlisted", {}, "marketplace.listing-lst_1", 1),
+    );
+    expect(rows.get("lst_1")).toEqual({ account_id: "acc_1", status: "paused" });
+    expect(rows.get("lst_2")).toEqual({ account_id: "acc_2", status: "active" });
+  });
+});
 
 describe("marketplace search", () => {
   beforeAll(async () => {
@@ -1829,6 +1895,114 @@ describe("marketplace search", () => {
     expect(await searchItemIds("Pokemon Celebration")).toContain("cat_accented_pokemon");
     expect(await searchItemIds("Pokemon Legacy")).toContain("cat_alias_pokemon");
   });
+
+  it.each(["legacy", "modern", "operator"])(
+    "operator removal matches automatic visibility / legacy-modern parity: %s",
+    async (shape) => {
+      const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);
+      const at = "2026-07-23T03:00:10.000Z";
+      const project = async (type: string, data: Record<string, unknown>, streamId: string, position: number) => {
+        expect(handlers[type]).toBeTypeOf("function");
+        await handlers[type]!(projectionEvent(type, data, streamId, position));
+      };
+      await pools.discovery.query(
+        `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status) VALUES ('cat_removal', 'Removal Item', 'active')`,
+      );
+      await rebuildSearchIndex();
+      const owner = "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      for (const [listingId, accountId, price, position] of [
+        ["lst_1", owner, "10.00", 1],
+        ["lst_2", "acc_2", "20.00", 4],
+      ] as const) {
+        await project(
+          "identity.account.created",
+          { accountId, displayName: accountId },
+          `identity.account-${accountId}`,
+          position,
+        );
+        await project(
+          "marketplace.listing.created",
+          {
+            listingId,
+            accountId,
+            inventoryItemId: `inv_${listingId}`,
+            catalogItemId: "cat_removal",
+            productId: "prd_removal",
+            itemTitle: "Removal Item",
+            selectedOptions: [],
+            productMeasureSnapshot: { quantity: 1, unit: "item" },
+            priceAmount: price,
+            priceCurrencyCode: "USD",
+            quantityCap: 1,
+          },
+          `marketplace.listing-${listingId}`,
+          position + 1,
+        );
+        await project("marketplace.listing.published", {}, `marketplace.listing-${listingId}`, position + 2);
+      }
+      const listings = async () =>
+        (
+          await pools.discovery.query(
+            `SELECT listing_id, account_id, status, price_amount::text FROM discovery_market_listings ORDER BY listing_id`,
+          )
+        ).rows;
+      const signals = async () =>
+        (
+          await pools.discovery.query(
+            `SELECT lowest_price_amount::text, visible_quantity FROM discovery_search_items WHERE catalog_item_id = 'cat_removal'`,
+          )
+        ).rows;
+      expect(await signals()).toEqual([{ lowest_price_amount: "10.00", visible_quantity: 2 }]);
+      const reportId = "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      const listingEnforcement = {
+        version: 1,
+        listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        source: shape === "operator" ? "operator-unlist" : "automatic-report-threshold",
+        sourceActionId: shape === "operator" ? "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV" : reportId,
+        occurredAt: at,
+      };
+      const type = `marketplace.listing.${shape === "operator" ? "operator" : "auto"}-unlisted`;
+      await project(
+        type,
+        shape === "operator"
+          ? { listingEnforcement }
+          : {
+              reportId,
+              reportCount: 3,
+              threshold: 3,
+              autoUnlistedAt: at,
+              ...(shape === "modern" ? { listingEnforcement } : {}),
+            },
+        "marketplace.listing-lst_1",
+        10,
+      );
+      // Independent public-output contract from immutable base 43d1c261; the second owner remains visible.
+      expect(await listings()).toEqual([
+        { listing_id: "lst_1", account_id: owner, status: "paused", price_amount: "10.00" },
+        { listing_id: "lst_2", account_id: "acc_2", status: "active", price_amount: "20.00" },
+      ]);
+      expect(await signals()).toEqual([{ lowest_price_amount: "20.00", visible_quantity: 1 }]);
+      const feed = (
+        await pools.discovery.query(
+          "SELECT eligibility_status, exclusion_reasons FROM discovery_google_shopping_feed_rows WHERE listing_id = 'lst_1'",
+        )
+      ).rows[0]!;
+      expect(feed.eligibility_status).toBe("excluded");
+      expect(feed.exclusion_reasons).toContain("listing-not-active");
+      await project(
+        type,
+        shape === "operator" ? { listingEnforcement } : { reportId, reportCount: 3, threshold: 3, autoUnlistedAt: at },
+        "marketplace.listing-lst_1",
+        9,
+      );
+      expect(await signals()).toEqual([{ lowest_price_amount: "20.00", visible_quantity: 1 }]);
+      const columns = (
+        await pools.discovery.query(`SELECT * FROM discovery_market_listings WHERE listing_id = 'lst_1'`)
+      ).rows[0]!;
+      expect(Object.keys(columns).some((key) => key.includes("enforcement"))).toBe(false);
+    },
+  );
 
   it("keeps market signals current through listing lifecycle and an absent-aggregate shadow cutover", async () => {
     const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);

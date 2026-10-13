@@ -16,10 +16,13 @@ import {
 } from "./idempotency";
 import {
   MCP_LEGACY_PROTOCOL_VERSIONS,
-  MCP_PROTOCOL_VERSION_HEADER,
-  isValidMcpHeaderValue,
+  UCP_MCP_MODERN_POLICY,
+  UCP_MCP_SUPPORTED_PROTOCOL_VERSIONS,
+  isModernUcpMcpRequest,
+  resolveMcpRequestProtocol,
+  validateMcpRoutingHeaders,
+  type McpRequestProtocolFailure,
   negotiateMcpProtocolVersion,
-  readMcpHeaderValue,
 } from "./mcp-protocol";
 import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } from "./mcp-http";
 import {
@@ -561,24 +564,28 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   };
 }
 
-function validateUcpMcpProtocolHeader(request: Request, id: JsonRpcRequest["id"]) {
-  const protocolHeader = readMcpHeaderValue(request, MCP_PROTOCOL_VERSION_HEADER);
-  if (!protocolHeader) {
-    return null;
-  }
+function ucpMcpProtocolError(id: JsonRpcRequest["id"], failure: McpRequestProtocolFailure, modern: boolean) {
+  const code =
+    failure.kind === "unsupported-version"
+      ? modern
+        ? -32022
+        : -32004
+      : failure.kind === "invalid-stateless-params"
+        ? -32602
+        : modern
+          ? -32020
+          : -32001;
+  const data =
+    failure.kind === "unsupported-version"
+      ? modern
+        ? { supported: failure.supportedVersions, requested: failure.requestedVersion }
+        : { requestedVersion: failure.requestedVersion, supportedVersions: failure.supportedVersions }
+      : undefined;
+  return jsonRpcError(id, code, failure.message, data);
+}
 
-  if (!isValidMcpHeaderValue(protocolHeader)) {
-    return jsonRpcError(id, -32001, `${MCP_PROTOCOL_VERSION_HEADER} contains an invalid value.`);
-  }
-
-  if (!MCP_LEGACY_PROTOCOL_VERSIONS.includes(protocolHeader as (typeof MCP_LEGACY_PROTOCOL_VERSIONS)[number])) {
-    return jsonRpcError(id, -32004, `Unsupported MCP protocol version '${protocolHeader}'.`, {
-      requestedVersion: protocolHeader,
-      supportedVersions: MCP_LEGACY_PROTOCOL_VERSIONS,
-    });
-  }
-
-  return null;
+function ucpMcpServerInfo() {
+  return { name: "chase-sets-ucp", title: "Chase Sets UCP", version: "0.1.0" };
 }
 
 function toolResult(tool: UcpMcpToolDescriptor, result: UcpEnvelope) {
@@ -1885,20 +1892,50 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       return c.json(jsonRpcError(null, -32600, "Invalid JSON-RPC request."), 400);
     }
 
-    const protocolHeaderError = validateUcpMcpProtocolHeader(c.req.raw, request.id);
-    if (protocolHeaderError) {
-      return c.json(protocolHeaderError, 400);
+    const modern = isModernUcpMcpRequest(request);
+    const protocolResolution = resolveMcpRequestProtocol(c.req.raw, request, UCP_MCP_MODERN_POLICY);
+    if (!protocolResolution.ok) {
+      return c.json(ucpMcpProtocolError(request.id, protocolResolution.failure, modern), 400);
+    }
+
+    const routingResolution = validateMcpRoutingHeaders(
+      c.req.raw,
+      request,
+      protocolResolution.protocol,
+      UCP_MCP_MODERN_POLICY,
+    );
+    if (!routingResolution.ok) {
+      return c.json(ucpMcpProtocolError(request.id, routingResolution.failure, modern), 400);
+    }
+
+    const respondResult = (result: Readonly<Record<string, unknown>>) =>
+      c.json(
+        jsonRpcResult(
+          request.id,
+          modern
+            ? {
+                ...result,
+                _meta: {
+                  ...normalizeArguments(result._meta),
+                  "io.modelcontextprotocol/serverInfo": ucpMcpServerInfo(),
+                },
+              }
+            : result,
+        ),
+      );
+
+    if (modern && request.method === "server/discover") {
+      return respondResult({
+        supportedVersions: UCP_MCP_SUPPORTED_PROTOCOL_VERSIONS,
+        capabilities: { tools: {}, resources: {} },
+      });
     }
 
     if (request.method === "initialize") {
       return c.json(
         jsonRpcResult(request.id, {
           protocolVersion: negotiateMcpProtocolVersion(request.params, MCP_LEGACY_PROTOCOL_VERSIONS),
-          serverInfo: {
-            name: "chase-sets-ucp",
-            title: "Chase Sets UCP",
-            version: "0.1.0",
-          },
+          serverInfo: ucpMcpServerInfo(),
           capabilities: {
             tools: {},
             resources: {},
@@ -1908,19 +1945,11 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
     }
 
     if (request.method === "tools/list") {
-      return c.json(
-        jsonRpcResult(request.id, {
-          tools: UCP_MCP_TOOLS.map(toMcpToolListItem),
-        }),
-      );
+      return respondResult({ tools: UCP_MCP_TOOLS.map(toMcpToolListItem) });
     }
 
     if (request.method === "resources/list") {
-      return c.json(
-        jsonRpcResult(request.id, {
-          resources: UCP_MCP_RESOURCES.map(toMcpResourceListItem),
-        }),
-      );
+      return respondResult({ resources: UCP_MCP_RESOURCES.map(toMcpResourceListItem) });
     }
 
     if (request.method === "tools/call") {
@@ -1936,7 +1965,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
           if ("trustedHandoffOnUnsignedMcp" in tool && tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
-            return c.json(jsonRpcResult(request.id, toolResult(tool, unsignedMcpTrustedHandoff(tool, args))));
+            return respondResult(toolResult(tool, unsignedMcpTrustedHandoff(tool, args)));
           }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
@@ -1981,7 +2010,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         return c.json(jsonRpcError(request.id, -32029, "A matching request is already in progress. Retry later."));
       }
 
-      return c.json(jsonRpcResult(request.id, toolResult(tool, result)));
+      return respondResult(toolResult(tool, result));
     }
 
     if (request.method === "resources/read") {
@@ -1992,10 +2021,13 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
         return c.json(jsonRpcError(request.id, -32602, `Unknown UCP MCP resource '${uri}'.`));
       }
 
-      return c.json(jsonRpcResult(request.id, result));
+      return respondResult(result);
     }
 
-    return c.json(jsonRpcError(request.id, -32601, `Unsupported UCP MCP method '${request.method ?? ""}'.`));
+    return c.json(
+      jsonRpcError(request.id, -32601, `Unsupported UCP MCP method '${request.method ?? ""}'.`),
+      modern ? 404 : 200,
+    );
   });
 
   return app;

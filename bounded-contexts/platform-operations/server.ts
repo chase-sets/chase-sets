@@ -34,6 +34,10 @@ export type {
   PlatformFeedbackWorkflow,
 } from "./features/platform-feedback/domain/common";
 export { createSupportRequestApiClient } from "./support/request-support/support-request-api-client";
+export {
+  openSupportEvidenceCanonicalizer,
+  createSupportEvidenceCanonicalizationQueue,
+} from "./features/support-requests/api/evidence-canonicalization";
 export type { SupportRequestDetail } from "./support/request-support/support-request-api-client";
 export {
   createNoopRateLimitPolicyResolver,

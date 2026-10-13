@@ -30,6 +30,14 @@ const syntheticPricingHostPorts = {
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
 
+const OPERATOR_REMOVAL = "marketplace.listing.operator-unlisted";
+const REMOVAL_CONSUMERS = [
+  ["marketplace", "marketplace-listing-projection", 2],
+  ["platform-operations", "reported-content-queue-projection", 1],
+  ["discovery", "discovery-market-projection", 3],
+  ["discovery", "discovery-product-alert-notification-projection", 2],
+] as const;
+
 const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   sourceContextName: "ordering",
   eventType: "ordering.order.created",
@@ -79,6 +87,46 @@ const NOTIFICATIONS_FULFILLMENT_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("resolves operator removal to every existing visibility consumer independently", () => {
+    const runtime = createPlatformWorkerHost();
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const interests = lookupProjectionInterests(index, {
+      sourceContextName: "marketplace",
+      eventType: OPERATOR_REMOVAL,
+    });
+    expect(interests.map((entry) => `${entry.targetContextName}:${entry.projectionName}`).sort()).toEqual(
+      REMOVAL_CONSUMERS.map(([owner, name]) => `${owner}:${name}`).sort(),
+    );
+    for (const [targetContextName, projectionName, subscriptionVersion] of REMOVAL_CONSUMERS) {
+      const runners = runtime.subscriptionRunners.filter(
+        (runner) =>
+          runner.sourceContextName === "marketplace" &&
+          runner.targetContextName === targetContextName &&
+          runner.projectionName === projectionName,
+      );
+      expect(runners).toHaveLength(1);
+      expect(runners[0]).toMatchObject({
+        subscriptionVersion,
+        checkpointKey: `${projectionName}:marketplace:v${subscriptionVersion}`,
+      });
+      expect(runners[0]?.eventTypes).toContain(OPERATOR_REMOVAL);
+      expect(runners[0]?.handlers?.[OPERATOR_REMOVAL]).toBeTypeOf("function");
+      const disabled = buildPlatformWorkerProjectionWakeRelayInterestIndex([`${targetContextName}:${projectionName}`]);
+      const remaining = lookupProjectionInterests(disabled, {
+        sourceContextName: "marketplace",
+        eventType: OPERATOR_REMOVAL,
+      });
+      expect(remaining.map((entry) => `${entry.targetContextName}:${entry.projectionName}`).sort()).toEqual(
+        REMOVAL_CONSUMERS.filter(([owner, name]) => owner !== targetContextName || name !== projectionName)
+          .map(([owner, name]) => `${owner}:${name}`)
+          .sort(),
+      );
+    }
+    expect(
+      lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType: OPERATOR_REMOVAL }),
+    ).toEqual([]);
+  });
+
   it("boots every public-profile context and creates the Checkout Session runner from its local projector", () => {
     const runtime = createPlatformWorkerHost("public");
     const mountedContextNames = runtime.mountedContexts.map((entry) => entry.contextName).sort();
@@ -119,7 +167,7 @@ describe("platform worker projection wake interest graph", () => {
     ]);
   });
 
-  it("preserves the complete manifest-built subscription fingerprint, checkpoint identities, and shared names", () => {
+  it("resolved-subscription base parity", () => {
     const runtime = createPlatformWorkerHost("public");
     const rawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
       (entry.module.buildSubscriptions?.(entry.services) ?? []).map((subscription) => ({
@@ -175,7 +223,7 @@ describe("platform worker projection wake interest graph", () => {
       "payments-wallet-funding-projection:payments:v1",
       "platform-policy-document-projection:payments:v1",
     ]);
-    expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(runner)))).toEqual({
+    expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutOperatorRemoval(runner))))).toEqual({
       count: 254,
       sha256: "edd07092ca19870223d34bead85750ed4d971ccdec660ea7aca9df666a3a60b6",
     });
@@ -190,13 +238,17 @@ describe("platform worker projection wake interest graph", () => {
           fingerprintObject(
             proofCreditRunners.includes(runner)
               ? {
-                  ...runner,
-                  eventTypes: runner.eventTypes?.filter((eventType) => eventType !== proofCreditEventType),
+                  ...withoutOperatorRemoval(runner),
+                  eventTypes: runner.eventTypes?.filter(
+                    (eventType) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
+                  ),
                   handlers: Object.fromEntries(
-                    Object.entries(runner.handlers ?? {}).filter(([eventType]) => eventType !== proofCreditEventType),
+                    Object.entries(runner.handlers ?? {}).filter(
+                      ([eventType]) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
+                    ),
                   ),
                 }
-              : runner,
+              : withoutOperatorRemoval(runner),
           ),
         ),
       ),
@@ -208,7 +260,7 @@ describe("platform worker projection wake interest graph", () => {
       fingerprint(
         rawSubscriptions.map(({ targetContextName, subscription }) => ({
           targetContextName,
-          subscription: fingerprintObject(subscription),
+          subscription: fingerprintObject(withoutOperatorRemoval(subscription)),
         })),
       ),
     ).toEqual({
@@ -587,6 +639,20 @@ function createUnusedPool() {
 }
 
 type FingerprintRecord = Readonly<Record<string, unknown>>;
+
+function withoutOperatorRemoval(value: FingerprintRecord) {
+  if (value.sourceContextName !== "marketplace" || !REMOVAL_CONSUMERS.some(([, name]) => name === value.projectionName))
+    return value;
+  return {
+    ...value,
+    ...(Array.isArray(value.eventTypes)
+      ? { eventTypes: value.eventTypes.filter((type) => type !== OPERATOR_REMOVAL) }
+      : {}),
+    ...(isRecord(value.handlers)
+      ? { handlers: Object.fromEntries(Object.entries(value.handlers).filter(([type]) => type !== OPERATOR_REMOVAL)) }
+      : {}),
+  };
+}
 
 function fingerprintObject(value: FingerprintRecord) {
   const fieldNames = Object.keys(value)

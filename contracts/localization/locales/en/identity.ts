@@ -192,6 +192,7 @@ export const identityEnglishTranslations = {
   "identity.features.apiKeys.ui.accountSecurityPage.enabled.methods": "Enabled Methods",
   "identity.features.apiKeys.ui.accountSecurityPage.create.api.key": "Create API Key",
   "identity.features.apiKeys.ui.accountSecurityPage.integration": "Integration",
+  "identity.features.apiKeys.ui.accountSecurityPage.manage.sessions": "Manage sessions",
   "identity.features.apiKeys.ui.accountSecurityPage.not.available": "Not available",
   "identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet": "No API keys yet.",
   "identity.features.apiKeys.ui.accountSecurityPage.no.interactive.methods.enabled": "No interactive methods enabled.",
