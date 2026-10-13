@@ -112,18 +112,21 @@ it("real Git-tracked producer partition and arbitrary sibling addition", () => {
   const positive = deriveActionProducers({ repoRoot: fixtureRoot });
   expect(positive.map((row) => row.id)).toEqual(rows.map((row) => row.id));
   expect(verifyActionProducers(positive, { registrations, repoRoot: fixtureRoot })).toEqual([]);
-  mkdirSync(path.dirname(path.join(fixtureRoot, arbitrary.path)), { recursive: true });
-  writeFileSync(path.join(fixtureRoot, arbitrary.path), arbitrary.source);
-  execFileSync("git", ["add", arbitrary.path], { cwd: fixtureRoot });
-  try {
-    const added = deriveActionProducers({ repoRoot: fixtureRoot });
-    expect(
-      verifyActionProducers(added, { registrations, repoRoot: fixtureRoot }).some((error) =>
-        error.includes("Unclassified action producer"),
-      ),
-    ).toBe(true);
-  } finally {
-    execFileSync("git", ["rm", "--cached", arbitrary.path], { cwd: fixtureRoot });
+  for (const siblingPath of [arbitrary.path, arbitrary.path.replace(".ts", ".db.ts")]) {
+    mkdirSync(path.dirname(path.join(fixtureRoot, siblingPath)), { recursive: true });
+    writeFileSync(path.join(fixtureRoot, siblingPath), arbitrary.source);
+    execFileSync("git", ["add", siblingPath], { cwd: fixtureRoot });
+    try {
+      const added = deriveActionProducers({ repoRoot: fixtureRoot });
+      expect(
+        verifyActionProducers(added, { registrations, repoRoot: fixtureRoot }).some((error) =>
+          error.includes("Unclassified action producer"),
+        ),
+        siblingPath,
+      ).toBe(true);
+    } finally {
+      execFileSync("git", ["rm", "--cached", siblingPath], { cwd: fixtureRoot });
+    }
   }
 });
 

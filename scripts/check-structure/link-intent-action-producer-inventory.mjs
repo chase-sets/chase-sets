@@ -116,7 +116,7 @@ function isProduction(file) {
   return (
     /\.[cm]?[jt]sx?$/.test(file) &&
     !/(?:^|\/)(?:tests?|fixtures?|node_modules)\//.test(file) &&
-    !/\.(?:test|spec|db)\./.test(file) &&
+    !/\.(?:test|spec)\./.test(file) &&
     !file.endsWith(".d.ts")
   );
 }
