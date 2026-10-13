@@ -3,20 +3,11 @@ import { Hono } from "hono";
 import type { UserId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { IdentityDomainError } from "../../../support/runtime-support/common";
-import { userPreferencesFor, type UserPreferencesCommand } from "../domain/domain";
+import { canonicalPreferenceChanges } from "../domain/domain";
+import { validatePreferenceKey } from "../domain/write-attempt";
 import { appendUserPreferencesColorModeCookie } from "./color-mode-cookie";
 import type { UserPreferencesServices } from "./runtime";
-
-type PreferencesBody = Partial<
-  Readonly<{
-    userId: unknown;
-    colorMode: unknown;
-    density: unknown;
-    reducedMotion: unknown;
-    locale: unknown;
-    timeZone: unknown;
-  }>
->;
+import { PreferenceWriteConflict } from "./runtime";
 
 function authenticationRequired() {
   return {
@@ -27,41 +18,13 @@ function authenticationRequired() {
   };
 }
 
-function forbidden() {
-  return {
-    error: {
-      code: "authorization_forbidden",
-      message: t("identity.features.preferences.api.route.forbidden"),
-    },
-  };
-}
-
-function validationFailed(error: unknown) {
+function validationFailed() {
   return {
     error: {
       code: "validation_failed",
-      message: error instanceof Error ? error.message : "User preferences are invalid.",
+      message: t("identity.features.preferences.api.route.validation.failed"),
     },
   };
-}
-
-function optionalString(value: unknown): string | undefined {
-  return value === undefined ? undefined : String(value);
-}
-
-function preferencesCommandFor(userId: string, body: PreferencesBody): UserPreferencesCommand {
-  const command: Record<string, unknown> = {
-    type: "SetUserPreferences",
-    userId,
-  };
-
-  for (const key of ["colorMode", "density", "reducedMotion", "locale", "timeZone"] as const) {
-    if (body[key] !== undefined) {
-      command[key] = String(body[key]);
-    }
-  }
-
-  return command as unknown as UserPreferencesCommand;
 }
 
 export function userPreferencesRoutes(services: UserPreferencesServices) {
@@ -86,31 +49,30 @@ export function userPreferencesRoutes(services: UserPreferencesServices) {
       return c.json(authenticationRequired(), 401);
     }
 
-    const body = await c.req.json<PreferencesBody>();
-    const requestedUserId = optionalString(body.userId);
-    if (requestedUserId && requestedUserId !== actor.userId) {
-      return c.json(forbidden(), 403);
+    const key = c.req.header("Idempotency-Key");
+    let changes;
+    try {
+      validatePreferenceKey(key);
+      changes = canonicalPreferenceChanges(await c.req.json<unknown>());
+    } catch (error) {
+      if (error instanceof SyntaxError || error instanceof IdentityDomainError) return c.json(validationFailed(), 400);
+      throw error;
     }
 
     try {
-      const result = await services.commandHandler({
-        streamId: `identity.user-preferences-${actor.userId}`,
-        command: preferencesCommandFor(actor.userId, body),
+      const result = await services.writeUserPreferences({
+        userId: actor.userId as UserId,
+        key: key!,
+        changes,
         context,
       });
 
-      const preferences = userPreferencesFor(actor.userId as UserId, result.state);
-      const response = c.json({
-        id: actor.userId,
-        version: result.version,
-        status: "updated",
-        preferences,
-      });
-      appendUserPreferencesColorModeCookie(response.headers, preferences.colorMode, c.req.raw);
+      const response = c.json(result);
+      appendUserPreferencesColorModeCookie(response.headers, result.preferences.colorMode, c.req.raw);
       return response;
     } catch (error) {
-      if (error instanceof IdentityDomainError) {
-        return c.json(validationFailed(error), 400);
+      if (error instanceof PreferenceWriteConflict) {
+        return c.json({ error: { code: error.code, message: error.message }, preferences: error.preferences }, 409);
       }
 
       throw error;
