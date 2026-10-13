@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
-import { InventoryMutationProvider } from "@chase-sets/inventory/mutation-recovery";
+import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
+import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
@@ -562,14 +563,16 @@ export default function MarketplaceAccountListingsNewRoute() {
       authority={data.recoveryAuthority!}
       key={`${data.recoveryAuthority!.accountId}/${data.recoveryAuthority!.actorUserId}`}
     >
-      <MarketplaceListingCreatePage
-        inventoryItems={data.inventoryItems}
-        hasListingStockLocation={data.hasListingStockLocation}
-        createForm={actionData?.createForm ?? data.createForm ?? undefined}
-        createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
-        errorMessage={actionData?.error ?? data.claimError ?? null}
-        evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
-      />
+      <MutationFormProvider value={InventoryMutationForm}>
+        <MarketplaceListingCreatePage
+          inventoryItems={data.inventoryItems}
+          hasListingStockLocation={data.hasListingStockLocation}
+          createForm={actionData?.createForm ?? data.createForm ?? undefined}
+          createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
+          errorMessage={actionData?.error ?? data.claimError ?? null}
+          evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
+        />
+      </MutationFormProvider>
     </InventoryMutationProvider>
   );
 }

@@ -14,7 +14,7 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryStorageLocation } from "./contracts";
-import { InventoryMutationForm } from "../../../support/request-support/mutation-form";
+import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
 
 function formatDescription(location: InventoryStorageLocation) {
   return location.description ?? t("inventory.features.storageLocations.ui.storageLocationPage.no.description");
@@ -131,7 +131,7 @@ export function StorageLocationPage({
 
       <PageSection title={t("inventory.features.storageLocations.ui.storageLocationPage.create.location")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <InventoryMutationForm family="location-create" targetId="draft" spacing="none" method="post">
+          <Form family="location-create" targetId="draft" spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-location" />
               <TextInput
@@ -154,7 +154,7 @@ export function StorageLocationPage({
                 {t("inventory.features.storageLocations.ui.storageLocationPage.create.location.2")}
               </Button>
             </Stack>
-          </InventoryMutationForm>
+          </Form>
         </Card>
       </PageSection>
 
@@ -172,12 +172,7 @@ export function StorageLocationPage({
                       : t("inventory.features.storageLocations.ui.storageLocationPage.active")}
                   </Badge>
                 </Stack>
-                <InventoryMutationForm
-                  family="location-update"
-                  targetId={location.storage_location_id}
-                  spacing="none"
-                  method="post"
-                >
+                <Form family="location-update" targetId={location.storage_location_id} spacing="none" method="post">
                   <Stack gap={3}>
                     <HiddenInput type="hidden" name="intent" value="update-location" />
                     <HiddenInput type="hidden" name="storageLocationId" value={location.storage_location_id} />
@@ -204,14 +199,9 @@ export function StorageLocationPage({
                       {t("inventory.features.storageLocations.ui.storageLocationPage.save.location")}
                     </Button>
                   </Stack>
-                </InventoryMutationForm>
+                </Form>
                 {!location.is_archived ? (
-                  <InventoryMutationForm
-                    family="location-archive"
-                    targetId={location.storage_location_id}
-                    spacing="none"
-                    method="post"
-                  >
+                  <Form family="location-archive" targetId={location.storage_location_id} spacing="none" method="post">
                     <HiddenInput type="hidden" name="intent" value="archive-location" />
                     <HiddenInput type="hidden" name="storageLocationId" value={location.storage_location_id} />
                     <HiddenInput type="hidden" name="name" value={location.name} />
@@ -221,7 +211,7 @@ export function StorageLocationPage({
                     <Button type="submit" tone="danger">
                       {t("inventory.features.storageLocations.ui.storageLocationPage.archive.location")}
                     </Button>
-                  </InventoryMutationForm>
+                  </Form>
                 ) : null}
               </Stack>
             </Card>

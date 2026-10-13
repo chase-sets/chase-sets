@@ -1,5 +1,5 @@
 import { formatBpsPercent, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
-import { InventoryMutationForm } from "@chase-sets/inventory/mutation-recovery";
+import { Form } from "../../../support/ui-support/mutation-form";
 import { useEffect, useState } from "react";
 import {
   HiddenInput,
@@ -304,7 +304,7 @@ export function MarketplaceListingCreatePage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingCreatePage.create.listing")}>
         <Card elevation="tinted">
-          <InventoryMutationForm
+          <Form
             family="listing-stock-ensure"
             targetId="listing-stock"
             enabled={!inventoryItemId}
@@ -596,7 +596,7 @@ export function MarketplaceListingCreatePage({
                 </Button>
               </Stack>
             </Stack>
-          </InventoryMutationForm>
+          </Form>
         </Card>
         {createPreview ? (
           <PriceBreakdown

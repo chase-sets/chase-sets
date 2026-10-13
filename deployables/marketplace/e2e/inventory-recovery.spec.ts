@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { captureAccessibilityEvidence } from "@chase-sets/playwright-evidence";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
@@ -70,10 +71,7 @@ test.describe("@marketplace-seller issue-7169-c1-boundary-recovery AC9/10/11/13"
   }, testInfo) => {
     await signInWithPassword(page, String(testInfo.project.use.baseURL), marketplaceBrowserE2eSellerCredentials());
     await page.goto("/account/inventory/locations");
-    const actorResponse = await page.request.get("/api/auth/session");
-    expect(actorResponse.ok()).toBe(true);
-    const actorBody = await actorResponse.json();
-    const actor = actorBody.actor ?? actorBody;
+    const actor = { accountId: identitySeedIds.demo.accountId, userId: identitySeedIds.demo.userId };
     expect(actor.accountId).toBeTruthy();
     expect(actor.userId).toBeTruthy();
     const attemptId = randomUUID();

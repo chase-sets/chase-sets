@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { InventoryMutationForm } from "@chase-sets/inventory/mutation-recovery";
+import { Form } from "../../../../support/ui-support/mutation-form";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   HiddenInput,
@@ -32,7 +32,7 @@ export function ListingStockShipFromSetupSection({
 }) {
   return (
     <FormPanel variant="card">
-      <InventoryMutationForm family="location-create" targetId="draft" spacing="none" id={formId} method="post">
+      <Form family="location-create" targetId="draft" spacing="none" id={formId} method="post">
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value="create-listing-stock-location" />
           <Stack gap={1}>
@@ -65,7 +65,7 @@ export function ListingStockShipFromSetupSection({
             {t("discovery.routes.itemDetail.save.ship.from.setup")}
           </Button>
         </Stack>
-      </InventoryMutationForm>
+      </Form>
     </FormPanel>
   );
 }
@@ -139,7 +139,7 @@ export function MarketplaceListingSubmissionSection({
   }, [errorMessage]);
 
   const form = (
-    <InventoryMutationForm
+    <Form
       family="listing-stock-ensure"
       targetId="listing-stock"
       enabled={!listing && !allowDraftWithoutShipFromSetup}
@@ -258,7 +258,7 @@ export function MarketplaceListingSubmissionSection({
         {errorMessage && listingSetupLoadState !== "fresh-write-recovering" ? <Text>{errorMessage}</Text> : null}
         {actions !== undefined ? actions : defaultActions}
       </Stack>
-    </InventoryMutationForm>
+    </Form>
   );
 
   return (

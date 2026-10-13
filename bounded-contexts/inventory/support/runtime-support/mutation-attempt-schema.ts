@@ -1,6 +1,6 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
-export const inventoryMutationAttemptSchemaSql = `
+const inventoryMutationAttemptTableSql = `
 CREATE TABLE IF NOT EXISTS inventory_mutation_attempts (
   attempt_key text PRIMARY KEY CHECK (attempt_key ~ '^[a-f0-9]{64}$'),
   tenant_id text NOT NULL,
@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS inventory_mutation_attempts (
     OR (status = 'succeeded' AND result IS NOT NULL AND result_hash IS NOT NULL AND result_hash ~ '^[a-f0-9]{64}$' AND completed_at IS NOT NULL))
 );
 ALTER TABLE inventory_mutation_attempts ADD COLUMN IF NOT EXISTS requesting_account_id text;
+`;
+export const inventoryMutationAttemptSchemaSql = `${inventoryMutationAttemptTableSql}
 CREATE INDEX IF NOT EXISTS inventory_mutation_attempts_account_idx
   ON inventory_mutation_attempts (tenant_id, actor_user_id, account_id, completed_at);
 `;
@@ -30,7 +32,7 @@ export const inventoryMutationAttemptSchemaMigrations: readonly BcSchemaMigratio
     description:
       "Install versioned Inventory attempt readers and immutable terminal receipt storage before writer cutover.",
     statements: [
-      inventoryMutationAttemptSchemaSql.slice(0, inventoryMutationAttemptSchemaSql.indexOf("CREATE INDEX")),
+      inventoryMutationAttemptTableSql,
       "CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_mutation_attempts_account_idx ON inventory_mutation_attempts (tenant_id, actor_user_id, account_id, completed_at)",
     ],
   },

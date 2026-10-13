@@ -34,8 +34,14 @@
     "restock-decisions",
     "storage-locations"
   ],
-  "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "allowedSupportDirectories": [
+    "catalog-item-support",
+    "request-support",
+    "runtime-support",
+    "seed-support",
+    "ui-support"
+  ],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
@@ -572,7 +578,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-list-page.tsx:H540f811b57f9#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory.tsx"
       ],
       "visibleDestination": {
@@ -595,9 +601,9 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H128ecb5f1379#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:H26a9c8c25c77#1",
+        "post-form:bounded-contexts/inventory/features/inventory-items/ui/inventory-item-detail-page.tsx:He8d8cbd954d7#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx"
       ],
       "visibleDestination": {
@@ -649,9 +655,9 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H44ef8e2f59ba#1",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H5134385a04e6#1",
+        "post-form:bounded-contexts/inventory/features/storage-locations/ui/storage-location-page.tsx:H80c8544a77bf#1",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx"
       ],
       "visibleDestination": {
@@ -978,7 +984,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["Multiple inventory slices", "Deployable composition for inventory"],
+      "expectedConsumers": ["inventory-items", "storage-locations"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -1001,6 +1007,12 @@
       "classification": "support",
       "purpose": "Provide reusable seed-support assets shared by inventory-owned features and composition seams.",
       "expectedConsumers": ["Multiple inventory slices", "Deployable composition for inventory"],
+      "crossCuttingRuntimeComposition": true
+    },
+    "ui-support": {
+      "classification": "support",
+      "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
+      "expectedConsumers": ["Deployable composition for inventory"],
       "crossCuttingRuntimeComposition": true
     },
     "routes": {

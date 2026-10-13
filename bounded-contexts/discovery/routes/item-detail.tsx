@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
-import { InventoryMutationProvider } from "@chase-sets/inventory/mutation-recovery";
+import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
+import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -161,7 +162,7 @@ export default function DiscoveryItemDetailRoute() {
   const authority = "recoveryAuthority" in data ? data.recoveryAuthority : null;
   return authority ? (
     <InventoryMutationProvider authority={authority} key={`${authority.accountId}/${authority.actorUserId}`}>
-      {view}
+      <MutationFormProvider value={InventoryMutationForm}>{view}</MutationFormProvider>
     </InventoryMutationProvider>
   ) : (
     view

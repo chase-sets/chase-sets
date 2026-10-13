@@ -75,14 +75,17 @@ export function createInventoryMutationRecovery(
 
   function persist() {
     if (!record) return;
-    storage.setItem(key(authority, family), JSON.stringify(record));
+    const persistence: InventoryRecoveryStorage = storage;
+    persistence.setItem(key(authority, family), JSON.stringify(record));
   }
   function remove() {
-    storage.removeItem(key(authority, family));
+    const persistence: InventoryRecoveryStorage = storage;
+    persistence.removeItem(key(authority, family));
     record = null;
   }
   function restore() {
-    const encoded = storage.getItem(key(authority, family));
+    const persistence: InventoryRecoveryStorage = storage;
+    const encoded = persistence.getItem(key(authority, family));
     if (encoded === null) return;
     if (encoded.length > 2048) {
       state = "ambiguous";
