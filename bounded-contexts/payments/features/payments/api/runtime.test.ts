@@ -2350,6 +2350,22 @@ describe("payment runtime", () => {
     "agent-grant-revocation-payments-cleanup removes %s instruments locally without provider calls",
     async (readiness) => {
       const { eventStore, readAllEvents } = createInMemoryEventStore();
+      for (let index = 0; index < 2; index += 1)
+        await eventStore.appendToStream({
+          streamId: "payments.checkout-affordances-acc_buyer",
+          expectedVersion: index,
+          context,
+          events: [
+            {
+              eventType: "payments.checkout-affordances-published",
+              payload: {
+                accountId: "acc_buyer",
+                savedCheckoutInstruments: [],
+                publishedAt: "2026-07-09T00:00:00.000Z",
+              },
+            },
+          ],
+        });
       const processorGateway = createProcessorGateway();
       const db = createOrderInputDb({
         savedCheckoutInstrumentRows: [
@@ -2426,9 +2442,11 @@ describe("payment runtime", () => {
       });
       expect(replay).toEqual({ detached: 0, alreadyRemoved: 1, instrumentIds: ["sci_agent_card"] });
       expect(processorGateway.detachSavedPaymentMethod).not.toHaveBeenCalled();
-      expect(readAllEvents()).toEqual([
+      expect(readAllEvents().slice(2)).toEqual([
         expect.objectContaining({
           eventType: "payments.checkout-affordances-published",
+          streamId: "payments.checkout-affordances-acc_buyer",
+          streamVersion: 3,
           payload: expect.objectContaining({
             accountId: "acc_buyer",
             savedCheckoutInstruments: expect.arrayContaining([
@@ -2436,6 +2454,15 @@ describe("payment runtime", () => {
             ]),
           }),
         }),
+        expect.objectContaining({
+          eventType: "payments.agent-grant-cleanup.completed",
+          payload: { accountId: "acc_buyer", agentGrantId: "lpa_1", revokedAt: "2026-07-09T01:00:00.000Z" },
+        }),
+      ]);
+      expect(Object.keys(readAllEvents()[2].payload).sort()).toEqual([
+        "accountId",
+        "publishedAt",
+        "savedCheckoutInstruments",
       ]);
       expect(db.readSavedCheckoutInstruments()).toEqual(
         expect.arrayContaining([
@@ -2453,6 +2480,59 @@ describe("payment runtime", () => {
       );
     },
   );
+
+  it.each(["before", "after"] as const)(
+    "agent-grant-revocation-payments-cleanup recovers loss %s the atomic Account publication and marker",
+    async (boundary) => {
+      const memory = createInMemoryEventStore();
+      const append = memory.eventStore.appendToStreams!;
+      let lost = false;
+      const services = createPaymentRuntime({
+        eventStore: {
+          ...memory.eventStore,
+          appendToStreams: async (inputs) => {
+            if (!lost) {
+              lost = true;
+              if (boundary === "after") await append(inputs);
+              throw new Error("synthetic-transport-loss");
+            }
+            return append(inputs);
+          },
+        },
+        checkpointStore: createCheckpointStore(),
+        db: createOrderInputDb() as never,
+        processorGateway: createProcessorGateway(),
+      });
+      const params = { accountId: "acc_buyer" as never, agentGrantId: "lpa_1", revokedAt: "2026-07-09T01:00:00.000Z" };
+      await expect(services.revokeSavedCheckoutInstrumentsForAgentGrant(params, context)).rejects.toThrow(
+        "synthetic-transport-loss",
+      );
+      expect(memory.readAllEvents()).toHaveLength(boundary === "before" ? 0 : 2);
+      await services.revokeSavedCheckoutInstrumentsForAgentGrant(params, context);
+      await services.revokeSavedCheckoutInstrumentsForAgentGrant(params, context);
+      expect(memory.readAllEvents().map((event) => [event.streamId, event.eventType])).toEqual([
+        ["payments.checkout-affordances-acc_buyer", "payments.checkout-affordances-published"],
+        [expect.stringMatching(/^payments\.agent-grant-cleanup-/), "payments.agent-grant-cleanup.completed"],
+      ]);
+    },
+  );
+
+  it("agent-grant-revocation-payments-cleanup refuses absent atomic append wiring", async () => {
+    const memory = createInMemoryEventStore();
+    const services = createPaymentRuntime({
+      eventStore: { ...memory.eventStore, appendToStreams: undefined },
+      checkpointStore: createCheckpointStore(),
+      db: createOrderInputDb() as never,
+      processorGateway: createProcessorGateway(),
+    });
+    await expect(
+      services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        { accountId: "acc_buyer" as never, agentGrantId: "lpa_1", revokedAt: "2026-07-09T01:00:00.000Z" },
+        context,
+      ),
+    ).rejects.toThrow("agent_grant_cleanup_wiring_missing");
+    expect(memory.readAllEvents()).toHaveLength(0);
+  });
 
   it("detaches a late setup result instead of saving it when the agent grant was already revoked", async () => {
     const { eventStore } = createInMemoryEventStore();

@@ -8,6 +8,10 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { authSchemaSql } from "../runtime-support/schema";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { module as identityModule } from "@chase-sets/identity";
+import { createActiveAgentGrantFence, createLinkedPlatformAuthorizationStore } from "@chase-sets/identity/server";
+import { module as authModule } from "../../index";
 import { createPostgresAgentWebhookOutbox } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
 import {
   bindGuestCheckoutContact,
@@ -34,7 +38,7 @@ if (!databaseBaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = databaseBaseUrl ? describe : describe.skip;
-const contextNames = ["auth"] as const;
+const contextNames = ["auth", "identity"] as const;
 
 describeDb("auth token store persistence boundary", () => {
   let pool: PgTransactionalPool;
@@ -60,13 +64,30 @@ describeDb("auth token store persistence boundary", () => {
 
   describe("agent webhook outbox", () => {
     it("durably deduplicates an identical per-client event and order delivery", async () => {
+      await resetMultiContextTestSchemas({ identity: pools!.identity });
+      await bootstrapContextDatabase(identityModule, pools!.identity);
+      await bootstrapContextDatabase(authModule, pool);
+      await createLinkedPlatformAuthorizationStore(pools!.identity).grant({
+        authorizationId: "grant_1",
+        accountId: "acc_buyer",
+        clientId: "ocl_1",
+        userId: "usr_buyer",
+        platformProfileUrl: "https://synthetic.example/profile",
+        scopes: ["order:read"],
+        accessTokenHash: "synthetic-access",
+        refreshTokenHash: "synthetic-refresh",
+        accessTokenExpiresAt: "2020-01-01T00:00:00.000Z",
+        grantedAt: "2020-01-01T00:00:00.000Z",
+      });
       const outbox = createPostgresAgentWebhookOutbox({
         db: pool,
+        withActiveGrants: createActiveAgentGrantFence(pools!.identity),
         now: () => new Date("2026-07-08T00:00:00.000Z"),
       });
       const delivery = {
         clientId: "ocl_1",
         accountId: "acc_buyer",
+        grantIds: ["grant_1"],
         callbackUrl: "https://agent.example/hooks",
         sourceEventId: "evt_1",
         eventType: "fulfillment.shipment.dispatched",
@@ -76,16 +97,19 @@ describeDb("auth token store persistence boundary", () => {
         idempotencyKey: "ocl_1:evt_1:ord_1",
       } as const;
 
+      await expect(createPostgresAgentWebhookOutbox({ db: pool }).enqueueDelivery(delivery)).rejects.toThrow(
+        "agent_grant_fence_unavailable",
+      );
       await outbox.enqueueDelivery(delivery);
       await outbox.enqueueDelivery(delivery);
 
-      const persisted = await pool.query<{ status: string; attempt_count: number }>(
-        `SELECT status, attempt_count
+      const persisted = await pool.query<{ status: string; attempt_count: number; grant_ids: string[] }>(
+        `SELECT status, attempt_count, grant_ids
          FROM identity_agent_webhook_deliveries
          WHERE idempotency_key = $1`,
         [delivery.idempotencyKey],
       );
-      expect(persisted.rows).toEqual([{ status: "pending", attempt_count: 0 }]);
+      expect(persisted.rows).toEqual([{ status: "pending", attempt_count: 0, grant_ids: ["grant_1"] }]);
     });
   });
 

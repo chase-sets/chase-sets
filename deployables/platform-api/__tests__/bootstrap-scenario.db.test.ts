@@ -140,10 +140,10 @@ describe("platform api bootstrap scenario", () => {
         listingPhotoStorage,
       },
     });
-    const requiredContexts = runtime.mountedContexts.filter(
-      (context) => context.contextName === "identity" || context.contextName === "payments",
+    const requiredContexts = runtime.mountedContexts.filter((context) =>
+      ["identity", "auth", "payments"].includes(context.contextName),
     );
-    expect(requiredContexts.map((context) => context.contextName).sort()).toEqual(["identity", "payments"]);
+    expect(requiredContexts.map((context) => context.contextName).sort()).toEqual(["auth", "identity", "payments"]);
     await Promise.all(requiredContexts.map((context) => bootstrapContextDatabase(context.module, context.pool)));
 
     const accountId = "acc_oauth_revoke";
@@ -192,10 +192,51 @@ describe("platform api bootstrap scenario", () => {
     const app = buildPlatformApiApp(runtime, {
       resolveActor: async () => revokingActor,
     });
-    const response = await app.request(`/ucp/oauth/authorizations/${agentGrantId}/revoke`, { method: "POST" });
+    const dormant = await app.request(`/ucp/oauth/authorizations/${agentGrantId}/revoke`, { method: "POST" });
+    expect(dormant.status).toBe(503);
+    await expect(dormant.json()).resolves.toEqual({ state: "failed-safe" });
+    expect(await identityServices.agentGrantRevocations.isActiveGrant(accountId, agentGrantId)).toBe(true);
+    // Synthetic mixed-replica control only, not the host's pre-activation capture.
+    await identityServices.agentGrantRevocations.activate(
+      {
+        capturedAt: new Date().toISOString(),
+        expectedReplicas: ["synthetic-api", "synthetic-worker"],
+        replicas: [
+          {
+            id: "synthetic-api",
+            role: "platform-api",
+            commit: "a".repeat(40),
+            digest: "sha256:" + "b".repeat(64),
+            supportVersion: 1,
+          },
+          {
+            id: "synthetic-worker",
+            role: "platform-worker",
+            commit: "a".repeat(40),
+            digest: "sha256:" + "c".repeat(64),
+            supportVersion: 1,
+          },
+        ],
+      },
+      {
+        tenantId: "tnt_customer" as never,
+        audit: { performedByUserId: "usr_oauth_revoke" as never, forAccountId: accountId as never },
+      },
+    );
+    const attemptId = "6c165feb-a604-4ff5-8e22-8b4c99491728";
+    const response = await app.request(`/ucp/oauth/authorizations/${agentGrantId}/revoke`, {
+      method: "POST",
+      headers: { "Idempotency-Key": attemptId },
+    });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ revoked: true });
+    await expect(response.json()).resolves.toEqual({
+      revoked: true,
+      attempt_id: attemptId,
+      operation_id: attemptId,
+      phase: "completed",
+      state: "succeeded",
+    });
     const events = await paymentsServices.pool.query<
       Readonly<{
         tenant_id: string;
@@ -212,8 +253,8 @@ describe("platform api bootstrap scenario", () => {
     );
     expect(events.rows).toEqual([
       {
-        tenant_id: "tnt_identity",
-        performed_by_user_id: "usr_identity_system",
+        tenant_id: "tnt_customer",
+        performed_by_user_id: "usr_oauth_revoke",
         for_account_id: accountId,
         payload: expect.objectContaining({
           savedCheckoutInstruments: [

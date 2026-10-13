@@ -1641,31 +1641,45 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       if (completion.length > 0) {
         if (
           completion.length !== 1 ||
-          completion[0].eventType !== "payments.checkout-affordances-published" ||
+          completion[0].eventType !== "payments.agent-grant-cleanup.completed" ||
+          completion[0].streamVersion !== 1 ||
+          Object.keys(completion[0].payload).sort().join() !== "accountId,agentGrantId,revokedAt" ||
           completion[0].payload.accountId !== accountId ||
           completion[0].payload.agentGrantId !== agentGrantId ||
-          completion[0].payload.publishedAt !== revokedAt
+          completion[0].payload.revokedAt !== revokedAt ||
+          completion[0].forAccountId !== accountId ||
+          completion[0].tenantId !== context.tenantId
         )
           throw new Error("agent_grant_cleanup_history_invalid");
       } else {
         const allInstruments = await listSavedCheckoutInstruments(deps.db, accountId);
-        await deps.eventStore.appendToStream({
-          streamId,
-          expectedVersion: 0,
-          context,
-          events: [
-            {
-              eventType: "payments.checkout-affordances-published",
-              payload: {
-                accountId,
-                agentGrantId,
-                savedCheckoutInstruments: allInstruments.map(mapCheckoutAffordanceInstrument),
-                publishedAt: revokedAt,
+        if (!deps.eventStore.appendToStreams) throw new Error("agent_grant_cleanup_wiring_missing");
+        await deps.eventStore.appendToStreams([
+          {
+            streamId: `payments.checkout-affordances-${accountId}`,
+            expectedVersion: "any",
+            context,
+            events: [
+              {
+                eventType: "payments.checkout-affordances-published",
+                payload: {
+                  accountId,
+                  savedCheckoutInstruments: allInstruments.map(mapCheckoutAffordanceInstrument),
+                  publishedAt: revokedAt,
+                },
+                occurredAt: revokedAt as never,
               },
-              occurredAt: revokedAt as never,
-            },
-          ],
-        });
+            ],
+          },
+          {
+            streamId,
+            expectedVersion: 0,
+            context,
+            events: [
+              { eventType: "payments.agent-grant-cleanup.completed", payload: { accountId, agentGrantId, revokedAt } },
+            ],
+          },
+        ]);
       }
 
       return {

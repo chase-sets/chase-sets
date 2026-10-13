@@ -220,7 +220,7 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:493-511");
-    expect(refs).toContain("runtime.ts:1956-1976");
+    expect(refs).toContain("runtime.ts:1999-2019");
   });
 
   it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {

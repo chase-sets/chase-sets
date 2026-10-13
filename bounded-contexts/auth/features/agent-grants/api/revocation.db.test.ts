@@ -263,7 +263,7 @@ describeDb("agent Grant revocation separate-pool proof", () => {
     expect(
       (
         await pools.payments.query(
-          `SELECT count(*) AS count FROM event_store_events WHERE event_type = 'payments.checkout-affordances-published' AND payload->>'agentGrantId' = 'grant_a'`,
+          `SELECT count(*) AS count FROM event_store_events WHERE event_type = 'payments.checkout-affordances-published' AND stream_id = 'payments.checkout-affordances-acc_a'`,
         )
       ).rows[0].count,
     ).toBe("1");
