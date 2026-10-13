@@ -46,7 +46,7 @@ describe("agent-grant-revocation-concurrency-history", () => {
     });
     expect(parseRevocationHistory(history, owner)).toMatchObject({ phase: "completed", version: 5 });
   });
-  it.each(["duplicate", "missing", "contradictory", "over-limit", "invalid-instant", "unknown-field"])(
+  it.each(["duplicate", "missing", "contradictory", "over-limit", "invalid-instant", "unknown-field", "uuid-array"])(
     "fails closed on %s histories",
     (poison) => {
       let events = structuredClone(history);
@@ -57,6 +57,7 @@ describe("agent-grant-revocation-concurrency-history", () => {
         events = Array.from({ length: 501 }, (_, index) => ({ ...history[0], streamVersion: index + 1 }));
       if (poison === "invalid-instant") events[0].payload.revokedAt = "invalid";
       if (poison === "unknown-field") Object.assign(events[0].payload, { token: "synthetic-secret" });
+      if (poison === "uuid-array") Object.assign(events[0].payload, { operationId: [owner.operationId] });
       expect(() => parseRevocationHistory(events, owner)).toThrow("revocation_history_invalid");
     },
   );

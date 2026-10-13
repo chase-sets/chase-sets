@@ -68,7 +68,8 @@ export function parseRevocationHistory(
     const value = payload as Record<string, unknown>;
     if (
       Object.keys(value).sort().join() !== ownerKeys.join() ||
-      !UUID.test(String(value.operationId)) ||
+      typeof value.operationId !== "string" ||
+      !UUID.test(value.operationId) ||
       typeof value.revokedAt !== "string" ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.revokedAt) ||
       !Number.isFinite(Date.parse(value.revokedAt)) ||

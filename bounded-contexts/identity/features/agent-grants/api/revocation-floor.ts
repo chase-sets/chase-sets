@@ -21,11 +21,15 @@ export function assertRevocationActivationProof(
   const age = Date.parse(now) - Date.parse(proof.capturedAt);
   if (
     runtimeSupportVersion !== AGENT_GRANT_REVOCATION_SUPPORT_VERSION ||
+    typeof proof.capturedAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(proof.capturedAt) ||
     !Number.isFinite(age) ||
+    new Date(proof.capturedAt).toISOString() !== proof.capturedAt ||
     age < 0 ||
     age > 5 * 60_000 ||
     proof.expectedReplicas.length === 0 ||
     proof.expectedReplicas.length > 500 ||
+    proof.expectedReplicas.some((id) => typeof id !== "string" || id.length === 0 || id.length > 256) ||
     new Set(proof.expectedReplicas).size !== proof.expectedReplicas.length ||
     proof.replicas.length !== proof.expectedReplicas.length ||
     new Set(proof.replicas.map((replica) => replica.id)).size !== proof.replicas.length ||
@@ -36,6 +40,8 @@ export function assertRevocationActivationProof(
         !proof.expectedReplicas.includes(replica.id) ||
         !["platform-api", "platform-worker"].includes(replica.role) ||
         replica.supportVersion !== AGENT_GRANT_REVOCATION_SUPPORT_VERSION ||
+        typeof replica.commit !== "string" ||
+        typeof replica.digest !== "string" ||
         !/^[a-f0-9]{40}$/.test(replica.commit) ||
         !/^sha256:[a-f0-9]{64}$/.test(replica.digest),
     ) ||
