@@ -130,8 +130,9 @@ async function extractAndScan(archive: string, output: string) {
   return { extractedEntries: files.length, markersAbsent: secretMarkers.length };
 }
 
+test.use({ trace: "off" }); // Manual recovery traces exclude private setup, including on hosted retries.
+
 test.describe("Invitation real browser route @marketplace-account", () => {
-  test.use({ trace: "off" }); // Manual recovery traces exclude private setup, including on hosted retries.
   for (const scenario of ["success", "retry-failure", "conflict", "failed-safe", "route-denied"]) {
     test(`${scenario} retains real route states, focus and secret-free recovery evidence`, async ({
       browser,
