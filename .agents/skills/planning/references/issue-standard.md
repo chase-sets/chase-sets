@@ -63,8 +63,10 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
 - **Operator actions.** Enumerate only residual human steps under the
   [delivery operator boundary](../../delivery/SKILL.md#operator-boundary), or
   state `none`. Name the environment, why the step needs a human, the exact
-  authorization/supervision, private entry, or protected permission prompt, and
-  the agent resumption point. Agents own preparation, execution, monitoring,
+  production-credential or real-money authorization/supervision, private entry
+  for credentials agents may not hold, protected permission prompt, or actual
+  policy/external-authority step agents cannot lawfully perform, and the agent
+  resumption point. Agents own preparation, execution, monitoring,
   evidence, cleanup, and reporting; missing tooling is agent repair. Batch
   genuine human steps into a signaled window without blocking preparation.
   Preserve external approvals at their ruled lifecycle. Performer-specific

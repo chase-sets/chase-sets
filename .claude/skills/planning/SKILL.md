@@ -68,13 +68,15 @@ candidates; candidate status only excludes ordinary implementation dispatch.
 Apply the [delivery operator boundary](../delivery/SKILL.md#operator-boundary)
 when forecasting human dependencies. Agents own probe preparation, execution,
 monitoring, evidence, cleanup, and reporting, including permitted sandbox/test
-credential entry through supported computer use. Reserve only production
-credential or real-money authorization/supervision, necessary private entry,
-and protected Windows permission prompts for Todd; do not assign him routine
-sign-ins or watch windows. Live credentials or real charges do not become
-autonomous sandbox work because the task is called a test. Missing tooling is
-agent repair. Preserve actual tool policy, secret safety, provider restrictions
-(including no automated TCGplayer login), external approvals at their ruled
+credential entry through supported computer use. Reserve for Todd only production
+credential or real-money authorization/supervision, private entry for credentials
+agents may not hold, protected Windows permission prompts, or an actual
+policy/external-authority step agents cannot lawfully perform; do not assign him
+routine sign-ins or watch windows. Live credentials or real charges do not become
+autonomous sandbox work because the task is called a test. Missing tooling,
+including sandbox/test safe-entry gaps, is agent repair. Preserve actual tool
+policy, secret safety, provider restrictions (including no automated TCGplayer
+login), external approvals at their ruled
 lifecycle, and unrelated reserved authority. This grants no provider or
 production authorization. Explicit performer-specific acceptance needs
 prospective repair through the decision route and independent validation before

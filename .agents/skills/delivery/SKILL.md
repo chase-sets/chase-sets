@@ -78,20 +78,25 @@ actions no lane can perform" means only the residual human step, not a runbook
 for Todd. Todd retains product priority/scope and unrelated reserved authority.
 
 - Use admitted tools, including supported computer use for approved-scope OAuth,
-  sandbox/test sign-ins, and credential entry when permitted. Missing tooling is agent-owned repair,
-  not a reason to assign Todd the workflow. Actual tool policy still governs;
-  do not bypass a restriction or automate TCGplayer login.
+  sandbox/test sign-ins, and credential entry when permitted. Missing tooling is
+  agent-owned repair, not a reason to assign Todd the workflow. Actual tool
+  policy still governs; do not bypass a restriction or automate TCGplayer login.
 - Request only production-credential or real-money authorization/supervision,
-  private credential entry when needed, or protected Windows permission prompts.
-  Name the environment, exact residual step, and agent resumption point; agents
-  own preparation and all permitted work around it. A test using a live
-  credential or real charge is not autonomous sandbox work.
-- Preserve secret safety and credential custody: never expose secrets in chat,
-  logs, screenshots, evidence, or commits. Use supported private entry when the
-  agent cannot handle a credential safely. Preserve provider restrictions,
-  external approvals at their ruled lifecycle, scope limits, and stop conditions.
-  A GA-only approval does not become a sandbox/pre-GA hold.
-  This guidance grants no provider or production authorization.
+  private entry for credentials agents may not hold, protected Windows permission
+  prompts, or an actual policy/external-authority step agents cannot lawfully
+  perform. Name the environment, reason a human is needed, exact residual step,
+  and agent resumption point; agents own preparation and all permitted work around
+  it. A test using a live credential or real charge is not autonomous sandbox work.
+- Preserve privacy, least privilege, secret safety, and
+  [production credential custody](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6114225296),
+  including Todd's own operator-session custody: never expose secrets in chat,
+  logs, screenshots, evidence, or commits. Human private entry is only for
+  credentials agents may not hold; sandbox/test safe-entry gaps are agent repair.
+  Preserve provider restrictions, external approvals at their ruled lifecycle,
+  scope limits, and stop conditions. A GA-only approval does not become a
+  sandbox/pre-GA hold. This guidance grants no provider or production
+  authorization. No broader access, outreach, impersonation, retry, evidence or
+  lifecycle authority is granted.
 - If acceptance explicitly names a human performer or human-only evidence,
   obtain prospective acceptance repair through the existing decision route and
   independent validation of the agent proof route before execution. Do not
