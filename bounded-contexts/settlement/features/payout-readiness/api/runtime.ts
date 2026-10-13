@@ -1,4 +1,5 @@
 import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
+import { links } from "../../../routes/link-intents";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -423,7 +424,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         recipient: { accountId: params.accountId },
         title,
         body,
-        actionHref: "/account/desk/settings",
+        actionHref: links("account-desk-settings", { path: {} }).href,
       },
     ];
     const [firstChannel, ...otherChannels] = channels;
@@ -436,7 +437,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         criticality: "security",
         title,
         body,
-        actionHref: "/account/desk/settings",
+        actionHref: links("account-desk-settings", { path: {} }).href,
         templateId: "settlement_payout_destination_changed",
         templateVersion: 1,
         locale: "en",

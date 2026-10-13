@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["shipments", "return-shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./links"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
@@ -572,8 +572,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -584,6 +583,9 @@
             "owner": "fulfillment",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {

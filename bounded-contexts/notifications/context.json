@@ -13,7 +13,16 @@
   "slices": ["notification-center", "preferences"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": [
+    "@chase-sets/customer-feedback",
+    "@chase-sets/fulfillment",
+    "@chase-sets/inventory",
+    "@chase-sets/marketplace",
+    "@chase-sets/ordering",
+    "@chase-sets/platform-operations",
+    "@chase-sets/pricing",
+    "@chase-sets/settlement"
+  ],
   "seedRequirements": [],
   "eventSubscriptions": [
     {

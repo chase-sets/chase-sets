@@ -17,7 +17,8 @@
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
-    "./server": "./server.ts"
+    "./server": "./server.ts",
+    "./links": "./routes/link-intents.ts"
   },
   "types": "./index.ts",
   "dependencies": {

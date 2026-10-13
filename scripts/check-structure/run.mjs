@@ -21,6 +21,7 @@ import {
 } from "./software-delivery-concepts.mjs";
 import { findBusinessLiteralGuardViolations, isBusinessLiteralGuardedFile } from "./business-literal-guard.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
+import { validateLinkIntentActionProducers } from "./link-intent-action-producer-inventory.mjs";
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateIaRegistry } from "./ia-registry-guard.mjs";
@@ -3709,6 +3710,7 @@ export async function runStructureCheck(options = {}) {
     );
   }
 
+  validateLinkIntentActionProducers({ addPathViolation });
   const readAfterWriteInventoryResult = await validateReadAfterWriteRouteInventory({
     repoRoot,
     contextManifests,

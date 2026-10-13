@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { links } from "@chase-sets/customer-feedback/links";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -80,7 +81,7 @@ export function mapFeedbackAttentionToNotification(event: FeedbackAttentionReque
       priority: event.data.priority,
       rating: event.data.rating,
     }),
-    actionHref: event.data.adminHref,
+    actionHref: links.fromHref(event.data.adminHref, "admin-web").href,
     templateId: "customer_feedback_attention",
     templateVersion: CUSTOMER_FEEDBACK_TEMPLATE_VERSION,
     locale: "en",
@@ -92,13 +93,13 @@ export function mapFeedbackAttentionToNotification(event: FeedbackAttentionReque
       ruleVersion: event.data.ruleVersion,
       priority: event.data.priority,
       rating: event.data.rating,
-      actionHref: event.data.adminHref,
+      actionHref: links.fromHref(event.data.adminHref, "admin-web").href,
     },
     channels: [
       {
         channel: "web",
         recipient: { userId: event.data.ownerId as UserId },
-        actionHref: event.data.adminHref,
+        actionHref: links.fromHref(event.data.adminHref, "admin-web").href,
       },
     ],
     idempotencyKey: `notifications:customer-feedback:attention:${event.data.attentionId}:${event.data.ownerId}`,
@@ -148,7 +149,7 @@ export function mapFeedbackAttentionDigestToNotification(
     category: "operational",
     title: t("notifications.intents.customerFeedbackDigest.title"),
     body: t("notifications.intents.customerFeedbackDigest.body", { count: event.data.items.length }),
-    actionHref: "/support/customer-feedback/attention",
+    actionHref: links("customer-feedback-attention", { path: {} }).href,
     templateId: "customer_feedback_attention_digest",
     templateVersion: CUSTOMER_FEEDBACK_TEMPLATE_VERSION,
     locale: "en",
@@ -165,7 +166,7 @@ export function mapFeedbackAttentionDigestToNotification(
       {
         channel: "web",
         recipient: { userId: event.data.recipientUserId as UserId },
-        actionHref: "/support/customer-feedback/attention",
+        actionHref: links("customer-feedback-attention", { path: {} }).href,
       },
     ],
     idempotencyKey: `notifications:customer-feedback:attention-digest:${event.data.digestId}`,

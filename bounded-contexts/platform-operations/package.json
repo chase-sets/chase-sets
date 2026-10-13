@@ -17,7 +17,8 @@
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
     "./server": "./server.ts",
-    "./web": "./web.ts"
+    "./web": "./web.ts",
+    "./links": "./routes/link-intents.ts"
   },
   "types": "./index.ts",
   "dependencies": {

@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { links } from "../../../../routes/link-intents";
 import type {
   EmailNotificationChannel,
   NotificationMessage,
@@ -51,7 +52,10 @@ export type ReviewOpportunityNotificationInput = Readonly<{
 
 export function mapReviewOpportunityToNotification(input: ReviewOpportunityNotificationInput): NotificationMessage {
   const orderReference = orderReferenceOrRaw(input.orderId);
-  const actionHref = `/account/${input.authorRole === "buyer" ? "purchases" : "sales"}/${input.orderId}/review`;
+  const actionHref =
+    input.authorRole === "buyer"
+      ? links("account-purchase-review", { path: { purchaseId: input.orderId } }).href
+      : links("account-sale-review", { path: { orderId: input.orderId } }).href;
   const subjectLabel = input.subjectDisplayName ?? (input.authorRole === "buyer" ? "the seller" : "the buyer");
 
   return {
@@ -91,7 +95,10 @@ export type ReviewReminderNotificationInput = Readonly<{
 
 export function mapReviewReminderToNotification(input: ReviewReminderNotificationInput): NotificationMessage {
   const orderReference = orderReferenceOrRaw(input.orderId);
-  const actionHref = `/account/${input.authorRole === "buyer" ? "purchases" : "sales"}/${input.orderId}/review`;
+  const actionHref =
+    input.authorRole === "buyer"
+      ? links("account-purchase-review", { path: { purchaseId: input.orderId } }).href
+      : links("account-sale-review", { path: { orderId: input.orderId } }).href;
   const subjectLabel = input.subjectDisplayName ?? (input.authorRole === "buyer" ? "the seller" : "the buyer");
 
   return {
@@ -137,7 +144,7 @@ export type ReviewRevealedNotificationInput = Readonly<{
 
 export function mapReviewRevealedToNotification(input: ReviewRevealedNotificationInput): NotificationMessage {
   const orderReference = orderReferenceOrRaw(input.orderId);
-  const actionHref = `/reviews/${input.reviewId}`;
+  const actionHref = links("account-review", { path: { reviewId: input.reviewId } }).href;
   const authorLabel = input.authorDisplayName ?? (input.subjectRole === "buyer" ? "the seller" : "the buyer");
 
   return {

@@ -1,0 +1,1072 @@
+[
+  {
+    "id": "bounded-contexts/auth/features/invitation-acceptance/integrations/notifications/notification-intents.ts::mapInvitationAcceptanceLinkRequestedToNotification",
+    "classification": "auth-single-use",
+    "reason": "Auth-owned invitation, guest-order claim or magic-link security flow; never ordinary navigation.",
+    "messageTypes": [
+      "\"auth.invitation-acceptance-link.requested\""
+    ],
+    "fields": [
+      {
+        "field": "invitationLink",
+        "expression": "input.invitationLink"
+      },
+      {
+        "field": "invitationLink",
+        "expression": "input.invitationLink"
+      }
+    ]
+  },
+  {
+    "id": "bounded-contexts/auth/features/sessions/integrations/notifications/notification-intents.ts::mapGuestCheckoutClaimLinkRequestedToNotification",
+    "classification": "auth-single-use",
+    "reason": "Auth-owned invitation, guest-order claim or magic-link security flow; never ordinary navigation.",
+    "messageTypes": [
+      "\"auth.guest-checkout-claim-link.requested\""
+    ],
+    "fields": [
+      {
+        "field": "claimLink",
+        "expression": "input.claimLink"
+      },
+      {
+        "field": "claimLink",
+        "expression": "input.claimLink"
+      }
+    ]
+  },
+  {
+    "id": "bounded-contexts/auth/features/sessions/integrations/notifications/notification-intents.ts::mapPhoneCodeRequestedToNotification",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"auth.phone-code.requested\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/auth/features/sessions/integrations/transactional-email/transactional-email-intents.ts::mapMagicLinkRequestedToTransactionalEmail",
+    "classification": "auth-single-use",
+    "reason": "Auth-owned invitation, guest-order claim or magic-link security flow; never ordinary navigation.",
+    "messageTypes": [
+      "\"auth.magic-link.requested\""
+    ],
+    "fields": [
+      {
+        "field": "magicLink",
+        "expression": "input.magicLink"
+      }
+    ]
+  },
+  {
+    "id": "bounded-contexts/discovery/features/product-alerts/integrations/notifications/notification-intents.ts::mapProductAlertMatchToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "`discovery.product-alert.${input.marketSide}`"
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "discovery.item-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/fulfillment/features/shipments/integrations/transactional-email/transactional-email-intents.ts::mapShipmentDeliveredToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"fulfillment.shipment.delivered\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/marketplace/features/reviews/integrations/notifications/notification-intents.ts::mapReviewOpportunityToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"marketplace.review.opportunity\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "marketplace.account-purchase-review",
+      "marketplace.account-sale-review"
+    ]
+  },
+  {
+    "id": "bounded-contexts/marketplace/features/reviews/integrations/notifications/notification-intents.ts::mapReviewReminderToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"marketplace.review.opportunity-reminder\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "marketplace.account-purchase-review",
+      "marketplace.account-sale-review"
+    ]
+  },
+  {
+    "id": "bounded-contexts/marketplace/features/reviews/integrations/notifications/notification-intents.ts::mapReviewRevealedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"marketplace.review.revealed\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "marketplace.account-review"
+    ]
+  },
+  {
+    "id": "bounded-contexts/marketplace/features/reviews/integrations/notifications/notification-intents.ts::recipientChannels",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "input.actionHref"
+      }
+    ],
+    "intentIds": [
+      "marketplace.account-purchase-review",
+      "marketplace.account-sale-review",
+      "marketplace.account-review"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/customer-feedback-notifications.ts::mapFeedbackAttentionDigestToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"customer-feedback.case.attention-digest\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "links(\"customer-feedback-attention\", { path: {} }).href"
+      },
+      {
+        "field": "actionHref",
+        "expression": "links(\"customer-feedback-attention\", { path: {} }).href"
+      }
+    ],
+    "intentIds": [
+      "customer-feedback.customer-feedback-attention"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/customer-feedback-notifications.ts::mapFeedbackAttentionToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"customer-feedback.case.attention-requested\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "links.fromHref(event.data.adminHref, \"admin-web\").href"
+      },
+      {
+        "field": "actionHref",
+        "expression": "links.fromHref(event.data.adminHref, \"admin-web\").href"
+      },
+      {
+        "field": "actionHref",
+        "expression": "links.fromHref(event.data.adminHref, \"admin-web\").href"
+      }
+    ],
+    "intentIds": [
+      "customer-feedback.customer-feedback-attention"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/customer-feedback-notifications.ts::mapFeedbackFollowUpToNotification",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"customer-feedback.case.follow-up-requested\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapOrderCancelledToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"ordering.order.cancelled\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "purchaseHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "purchaseHref"
+      },
+      {
+        "field": "purchaseHref",
+        "expression": "purchaseHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-purchase"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapOrderCreatedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"ordering.order.created\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-purchase"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapPayoutReadinessRegressionToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.payout-readiness.regressed\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "settlement.account-payout-setup"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapRestockDecisionPendingToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"inventory.restock-decision-pending\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "itemLedgerHref"
+      },
+      {
+        "field": "itemLedgerHref",
+        "expression": "itemLedgerHref"
+      },
+      {
+        "field": "orderHref",
+        "expression": "orderHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-sale",
+      "inventory.account-inventory-item"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapSaleRecordedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"inventory.sale-recorded\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "orderHref"
+      },
+      {
+        "field": "itemLedgerHref",
+        "expression": "itemLedgerHref"
+      },
+      {
+        "field": "orderHref",
+        "expression": "orderHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-sale",
+      "inventory.account-inventory-item"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapSellerAvailabilityRestoredToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"marketplace.seller-listing-availability.enabled\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "marketplace.account-listings"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapShipmentDeliveredToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"fulfillment.shipment.delivered\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "fulfillment.account-shipment"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapShipmentDispatchedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"fulfillment.shipment.dispatched\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "shipmentHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "shipmentHref"
+      },
+      {
+        "field": "shipmentHref",
+        "expression": "shipmentHref"
+      }
+    ],
+    "intentIds": [
+      "fulfillment.account-shipment"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapStockCommittedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"inventory.stock-committed\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "orderHref"
+      },
+      {
+        "field": "itemLedgerHref",
+        "expression": "itemLedgerHref"
+      },
+      {
+        "field": "orderHref",
+        "expression": "orderHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-sale",
+      "inventory.account-inventory-item"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::mapStockReturnedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"inventory.stock-returned\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "orderHref"
+      },
+      {
+        "field": "itemLedgerHref",
+        "expression": "itemLedgerHref"
+      },
+      {
+        "field": "orderHref",
+        "expression": "orderHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-sale",
+      "inventory.account-inventory-item"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/notification-intents.ts::sellerWebNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "input.messageType"
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "input.actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "input.actionHref"
+      }
+    ],
+    "intentIds": [
+      "ordering.account-sale",
+      "inventory.account-inventory-item"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/pricing-repricing-notifications.ts::mapRepricingDigestToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"pricing.repricing-activity.digest-requested\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "pricing.account-desk-repricing"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::caseWebNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "input.messageType as NotificationMessage[\"messageType\"]"
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "input.actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "input.actionHref"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSettlementSupportHoldConsumedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.support-hold.consumed.v1\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSettlementSupportHoldPlacedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.support-hold.placed.v1\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSettlementSupportHoldReleasedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.support-hold.released.v1\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportCancelledToNotifications/build",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.cancelled\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportCaseOpenedToBuyerNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.opened\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportCaseOpenedToSellerNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.opened\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportEscalatedToNotifications/build",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.escalated\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportOfferDeclinedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.offer-declined\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportResolvedToNotifications/build",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.resolved\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(data.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportResponseRecordedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.response-recorded\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportResponseReminderToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.response-reminder-emitted\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportReturnConditionDisputedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.return-condition-disputed\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportReturnDeliveredToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.return-delivered\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/notifications/features/notification-center/integrations/source-events/support-dispute-notifications.ts::mapSupportReturnRefundReleasedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"support.support-request.return-refund-released\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      },
+      {
+        "field": "actionHref",
+        "expression": "CASE_LINK(routing.supportRequestId)"
+      }
+    ],
+    "intentIds": [
+      "platform-operations.account-support-detail"
+    ]
+  },
+  {
+    "id": "bounded-contexts/ordering/features/orders/integrations/transactional-email/transactional-email-intents.ts::mapOrderConfirmedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"ordering.order.created\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/payments/features/payments/integrations/fraud-alerts/fraud-alert-projection.ts::fraudAlertMessage",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "`payments.${kind}`"
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/payments/features/payments/integrations/transactional-email/transactional-email-intents.ts::mapPaymentCapturedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"payments.payment-captured\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/payments/features/refunds/integrations/transactional-email/transactional-email-intents.ts::mapRefundFailedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"payments.refund-failed\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/payments/features/refunds/integrations/transactional-email/transactional-email-intents.ts::mapRefundIssuedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"payments.refund-issued\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/transactional-email/transactional-email-intents.ts::mapSupportRequestOpenedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"support.support-request.opened\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/platform-operations/features/support-requests/integrations/transactional-email/transactional-email-intents.ts::mapSupportRequestResolvedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"support.support-request.resolved\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts::mapFoundersWindowOpenedToAdmissionEmail",
+    "classification": "web-only-campaign",
+    "reason": "Public Presence-owned waitlist, referral and UTM campaign links remain web-only.",
+    "messageTypes": [
+      "\"public-presence.waitlist-nurture.wave-admitted\""
+    ],
+    "fields": [
+      {
+        "field": "detailsLink",
+        "expression": "input.missingCohortFields.length > 0\n          ? trackedPublicUrl(`/welcome?signup=${encodeURIComponent(input.signupId)}`, step, \"complete_wave_profile\")\n          : trackedMarketplaceUrl(\"/account/sell-list\", step, \"first_listing_walkthrough\")"
+      },
+      {
+        "field": "preferencesLink",
+        "expression": "trackedMarketplaceUrl(\"/?notifications=settings\", step, \"email_preferences\")"
+      },
+      {
+        "field": "referralLink",
+        "expression": "trackedReferralLink(input.signupId, step)"
+      }
+    ]
+  },
+  {
+    "id": "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts::mapWaitlistAdmissionToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"public-presence.waitlist-signup.admitted\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/public-presence/features/waitlist/integrations/transactional-email/transactional-email-intents.ts::mapWaitlistNurtureEmail",
+    "classification": "web-only-campaign",
+    "reason": "Public Presence-owned waitlist, referral and UTM campaign links remain web-only.",
+    "messageTypes": [
+      "`public-presence.waitlist-nurture.${step}` as const"
+    ],
+    "fields": [
+      {
+        "field": "foundersTermsLink",
+        "expression": "trackedPublicUrl(\"/founders\", step, \"founders_terms\")"
+      },
+      {
+        "field": "discordInviteLink",
+        "expression": "trackedPublicUrl(\n          `/welcome?signup=${encodeURIComponent(input.signupId)}`,\n          step,\n          \"discord_invite\",\n        )"
+      },
+      {
+        "field": "referralLink",
+        "expression": "referralLink"
+      },
+      {
+        "field": "detailsLink",
+        "expression": "trackedPublicUrl(\"/sales-fees\", step, \"sales_fees\")"
+      },
+      {
+        "field": "referralLink",
+        "expression": "referralLink"
+      },
+      {
+        "field": "detailsLink",
+        "expression": "trackedPublicUrl(\"/#open-offers\", step, \"open_offers_preview\")"
+      },
+      {
+        "field": "referralLink",
+        "expression": "referralLink"
+      },
+      {
+        "field": "detailsLink",
+        "expression": "welcomeLink"
+      },
+      {
+        "field": "referralLink",
+        "expression": "referralLink"
+      }
+    ]
+  },
+  {
+    "id": "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts::createPayoutReadinessRuntime/notifyPayoutDestinationChanged",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.payout-destination-changed\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "links(\"account-desk-settings\", { path: {} }).href"
+      },
+      {
+        "field": "actionHref",
+        "expression": "links(\"account-desk-settings\", { path: {} }).href"
+      }
+    ],
+    "intentIds": [
+      "settlement.account-desk-settings"
+    ]
+  },
+  {
+    "id": "bounded-contexts/settlement/features/payouts/integrations/transactional-email/transactional-email-intents.ts::mapPayoutCompletedToTransactionalEmail",
+    "classification": "non-actionable",
+    "reason": "This current message has no action or transactional-email link field.",
+    "messageTypes": [
+      "\"settlement.payout.completed\""
+    ],
+    "fields": []
+  },
+  {
+    "id": "bounded-contexts/settlement/features/wallets/integrations/transactional-notifications/wallet-adjustment-notification-intents.ts::mapWalletAdjustmentPostedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.wallet-adjustment.posted\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "settlement.account-wallet-adjustment"
+    ]
+  },
+  {
+    "id": "bounded-contexts/settlement/features/wallets/integrations/transactional-notifications/wallet-adjustment-notification-intents.ts::mapWalletAdjustmentReversedToNotification",
+    "classification": "business-navigation",
+    "reason": "Owner-defined typed navigation; authorization is re-evaluated by the destination.",
+    "messageTypes": [
+      "\"settlement.wallet-adjustment.reversed\""
+    ],
+    "fields": [
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      },
+      {
+        "field": "actionHref",
+        "expression": "actionHref"
+      }
+    ],
+    "intentIds": [
+      "settlement.account-wallet-adjustment"
+    ]
+  }
+]

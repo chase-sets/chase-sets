@@ -13,7 +13,8 @@
     ".": "./index.ts",
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
-    "./server": "./server.ts"
+    "./server": "./server.ts",
+    "./links": "./routes/link-intents.ts"
   },
   "types": "./index.ts",
   "dependencies": {

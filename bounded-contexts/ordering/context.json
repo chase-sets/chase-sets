@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["orders", "postage-policies", "tax-quotes", "tax-nexus"],
   "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./links"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
   "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
@@ -794,8 +794,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -806,6 +805,9 @@
             "owner": "ordering",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -846,8 +848,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -858,6 +859,9 @@
             "owner": "ordering",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {

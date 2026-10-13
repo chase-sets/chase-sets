@@ -1,4 +1,5 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { links } from "../../../../routes/link-intents";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { AccountId, WalletAdjustmentId } from "@chase-sets/primitives/typed-ids";
 import type {
@@ -49,7 +50,7 @@ function walletAdjustmentReferenceOrRaw(adjustmentId: string): string {
 }
 
 function walletAdjustmentDetailHref(adjustmentId: string): string {
-  return `/account/wallet/adjustments/${walletAdjustmentReferenceOrRaw(adjustmentId)}`;
+  return links("account-wallet-adjustment", { path: { reference: walletAdjustmentReferenceOrRaw(adjustmentId) } }).href;
 }
 
 export type WalletAdjustmentPostedNotificationInput = Readonly<{
