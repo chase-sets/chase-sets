@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
@@ -131,7 +133,10 @@ function accountIdParam(c: { req: { param(name: string): string | undefined } })
   return parseTypedIdBoundary(c.req.param("accountId"), "acc", "accountId");
 }
 
-export function shippingAddressRoutes(services: ShippingAddressServices) {
+export function shippingAddressRoutes(
+  services: ShippingAddressServices,
+  accountManagement?: AccountManagementServices,
+) {
   const app = new Hono<IdentityApiEnv>();
 
   app.get("/", async (c) => {
@@ -146,6 +151,11 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.post("/", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(c, accountManagement, "create", null, await c.req.json());
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }
@@ -200,6 +210,17 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.put("/:shippingAddressId", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(
+        c,
+        accountManagement,
+        "update",
+        c.req.param("shippingAddressId"),
+        await c.req.json(),
+      );
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }
@@ -250,6 +271,17 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.post("/:shippingAddressId/default", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(
+        c,
+        accountManagement,
+        "default",
+        c.req.param("shippingAddressId"),
+        {},
+      );
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }
@@ -284,6 +316,17 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.post("/:shippingAddressId/archive", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(
+        c,
+        accountManagement,
+        "archive",
+        c.req.param("shippingAddressId"),
+        {},
+      );
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }

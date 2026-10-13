@@ -228,6 +228,7 @@
     "bounded-contexts/fulfillment/support/runtime-support/seed.ts",
     "bounded-contexts/identity/api.ts",
     "bounded-contexts/identity/features/access-hub/read-model/queries.ts",
+    "bounded-contexts/identity/features/account-management/api/fences.ts",
     "bounded-contexts/identity/features/accounts/read-model/projection.ts",
     "bounded-contexts/identity/features/accounts/read-model/queries.ts",
     "bounded-contexts/identity/features/api-keys/api/secret-store.ts",
@@ -248,7 +249,6 @@
     "bounded-contexts/identity/features/users/read-model/projection.ts",
     "bounded-contexts/identity/features/users/read-model/queries.ts",
     "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
-    "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts",
     "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
     "bounded-contexts/inventory/features/channel-allocations/read-model/projection.ts",
     "bounded-contexts/inventory/features/channel-allocations/read-model/queries.ts",
@@ -501,7 +501,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 292,
+    "count": 294,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -545,6 +545,7 @@
       "bounded-contexts/discovery/support/market-support/route.ts": 3,
       "bounded-contexts/fulfillment/features/return-shipments/api/route.ts": 4,
       "bounded-contexts/fulfillment/features/shipments/api/route.ts": 5,
+      "bounded-contexts/identity/api.ts": 2,
       "bounded-contexts/identity/features/access-hub/api/route.ts": 1,
       "bounded-contexts/identity/features/accounts/api/route.ts": 1,
       "bounded-contexts/identity/features/api-keys/api/route.ts": 1,

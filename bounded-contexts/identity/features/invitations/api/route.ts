@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import {
@@ -62,11 +64,17 @@ function accountNotFound() {
   };
 }
 
-export function invitationRoutes(services: InvitationServices, accounts: InvitationAccountReader) {
+export function invitationRoutes(
+  services: InvitationServices,
+  accounts: InvitationAccountReader,
+  accountManagement?: AccountManagementServices,
+) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
     const body = await c.req.json();
+    const attempted = await submitAccountManagement(c, accountManagement, "create-invitation", null, body);
+    if (attempted) return attempted;
     const invitationId = parseTypedIdBoundary(body.invitationId, "ivt", "invitationId");
     const accountId = parseTypedIdBoundary(body.accountId, "acc", "accountId");
     if (!canManageInvitation(c.var.actor, { account_id: accountId })) {
@@ -123,6 +131,8 @@ export function invitationRoutes(services: InvitationServices, accounts: Invitat
 
   app.post("/:id/cancel", async (c) => {
     const invitationId = parseTypedIdBoundary(c.req.param("id"), "ivt", "invitationId");
+    const attempted = await submitAccountManagement(c, accountManagement, "cancel-invitation", invitationId, {});
+    if (attempted) return attempted;
     const invitation = await services.getInvitationForRead(invitationId);
     if (!invitation) {
       return c.json(
