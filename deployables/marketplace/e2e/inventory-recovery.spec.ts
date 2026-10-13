@@ -43,8 +43,10 @@ test.describe("@marketplace-seller issue-7169-c1-boundary-recovery AC9/10/11/13"
       await route.abort("failed");
       finish();
     });
+    const abortedNavigation = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame() });
     await form.getByRole("button", { name: "Create location", exact: true }).click();
     await committed;
+    await abortedNavigation;
     await page.goto("/account/inventory/locations");
     const status = page.getByRole("status").filter({ hasText: "original Inventory change is confirmed" });
     await expect(status).toBeVisible();
