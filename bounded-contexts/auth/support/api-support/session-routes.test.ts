@@ -257,7 +257,7 @@ describe("session auth routes", () => {
       membershipId: "mbr_fresh",
       roleKey: "owner",
       permissions: ["offers.view"],
-      agentGrant: { grantId: "auth_1", scopes: ["catalog:read"], rolePermissions: ["offers.view", "offers.manage"] },
+      agentGrant: { grantId: "auth_1", platformProfileUrl: "https://agent.example/.well-known/ucp", scopes: ["catalog:read"], rolePermissions: ["offers.view", "offers.manage"] },
     };
     const app = buildApp(services, linkedActor);
 

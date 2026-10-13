@@ -127,6 +127,7 @@ export type AgentOAuthScopeDefinition = Readonly<{
 
 export type AgentOAuthGrantContext = Readonly<{
   grantId: string;
+  platformProfileUrl: string;
   scopes: readonly AgentOAuthScope[];
   rolePermissions: readonly string[];
 }>;
