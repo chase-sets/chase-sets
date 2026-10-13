@@ -1322,11 +1322,6 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
   const dimensionFilter = buildSearchFilter(
     {
       ...params,
-      dimensionFilters: undefined,
-      priceMin: undefined,
-      priceMax: undefined,
-      inStock: false,
-      marketActivity: undefined,
     },
     { itemAlias: "item", firstParamIndex: filter.nextParamIndex },
   );

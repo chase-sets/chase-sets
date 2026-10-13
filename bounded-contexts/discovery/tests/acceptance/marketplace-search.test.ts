@@ -231,10 +231,12 @@ describe("marketplace search", () => {
 
   it("same-listing variant commerce", async () => {
     await variantItem();
-    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }], "EUR");
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
     await variantListing("foil", "20");
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
     const selected = { dimensionFilters: foil };
     expect((await variantSearch({ ...selected, priceMax: "3" })).total).toBe(0);
+    await variantListing("nonfoil-eur", "2", [{ dimensionId: "finish", optionId: "nonfoil" }], "EUR");
     expect((await variantSearch({ ...selected, priceMin: "10" })).items[0]?.market_summary).toEqual({
       lowest_price_amount: "20",
       lowest_price_currency_code: "USD",
@@ -300,12 +302,24 @@ describe("marketplace search", () => {
     await variantListing("foil", "20");
     await variantOffer("demand-1");
     await variantOffer("demand-2");
-    const count = async (params: DiscoverySearchParams, optionId = "foil") =>
-      (await variantSearch({ dimensionFilters: foil, ...params })).facets
-        .find((group) => group.id === "finish")
-        ?.values.find((value) => value.id === optionId)?.count ?? 0;
+    const count = async (params: DiscoverySearchParams, optionId = "foil", expectedSelectedCount?: number) => {
+      const selection = params.dimensionFilters ?? foil;
+      const result = await variantSearch({ dimensionFilters: foil, ...params });
+      const group = result.facets.find((group) => group.id === "finish");
+      const value = group?.values.find((value) => value.id === optionId);
+      if (selection.some((filter) => filter.dimensionId === "finish" && filter.optionId === optionId)) {
+        expect(group).toBeDefined();
+        expect(value).toEqual({
+          id: optionId,
+          label: optionId,
+          count: expectedSelectedCount ?? expect.any(Number),
+          selected: true,
+        });
+      }
+      return value?.count ?? 0;
+    };
     for (const marketActivity of [undefined, "listings", "offers", "any"] as const) {
-      expect(await count({ marketActivity, priceMax: "3" })).toBe(0);
+      expect(await count({ marketActivity, priceMax: "3" }, "foil", 0)).toBe(0);
       expect(await count({ marketActivity, priceMin: "10" })).toBe(
         marketActivity === "offers" ? 2 : marketActivity === "any" ? 3 : 1,
       );
@@ -314,7 +328,7 @@ describe("marketplace search", () => {
     for (const marketActivity of ["offers", "any"] as const) {
       expect(await count({ marketActivity })).toBe(2);
       for (const restriction of [{ inStock: true }, { priceMin: "10" }, { priceMax: "30" }]) {
-        expect(await count({ marketActivity, ...restriction })).toBe(0);
+        expect(await count({ marketActivity, ...restriction }, "foil", 0)).toBe(0);
         expect((await variantSearch({ dimensionFilters: foil, marketActivity, ...restriction })).total).toBe(0);
       }
     }
@@ -370,7 +384,21 @@ describe("marketplace search", () => {
     await variantListing("disjoint-condition", "20", [...foil, condition]);
     await variantListing("disjoint-grade", "20", [...foil, grade]);
     const dimensionFilters = [...foil, condition, good, grade];
-    expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true })).toBe(0);
+    expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true }, "foil", 0)).toBe(0);
+    const selectedZeroResult = await variantSearch({ dimensionFilters, marketActivity: "listings", inStock: true });
+    for (const selection of dimensionFilters) {
+      const group = selectedZeroResult.facets.find((group) => group.id === selection.dimensionId);
+      const fixture = multiOptions.find(
+        (option) => option.dimensionId === selection.dimensionId && option.optionId === selection.optionId,
+      )!;
+      expect(group).toBeDefined();
+      expect(group?.values.find((value) => value.id === selection.optionId)).toEqual({
+        id: selection.optionId,
+        label: fixture.optionLabel,
+        count: 0,
+        selected: true,
+      });
+    }
     await variantListing("all-groups", "20", [...foil, good, grade]);
     expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true })).toBe(1);
     expect(
