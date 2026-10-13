@@ -452,15 +452,13 @@ export function createSavedListRecoveryRuntime(
         };
         try {
           return await withPgTransaction(transactionPool, async (db) => {
-            const row = await readRow(db, input.operationId, owner, true);
-            if (!row) throw new SavedListRecoveryError("not-found");
+            const row = (await readRow(db, input.operationId, owner, true)) ?? before;
             if (row.status === "expired") throw new SavedListRecoveryError("expired");
             if (row.send_revision !== input.revision || row.fingerprint !== before.fingerprint)
               throw new SavedListRecoveryError("conflict");
             const found = await receipt(db, row, context);
             if (found) return output(row, found);
-            if (row.status !== "possible-send" || new Date(row.expires_at).getTime() <= now().getTime())
-              throw new SavedListRecoveryError("expired");
+            if (row.status !== "possible-send") throw new SavedListRecoveryError("expired");
             await lockIntent(db, row);
             const request = row.request!;
             const runtime = boundRuntime(db, validatedCatalog);
