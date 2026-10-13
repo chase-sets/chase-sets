@@ -56,6 +56,25 @@ function fakeOutbox(deliveries: readonly ClaimedAgentWebhookDelivery[], renew = 
 }
 
 describe("agent webhook dispatcher", () => {
+  it("reports safe persistence failure only after processing later claimed deliveries", async () => {
+    const { outbox, sent } = fakeOutbox([claimed(), claimed({ deliveryId: "delivery_2" })]);
+    vi.mocked(outbox.markFailed).mockRejectedValueOnce(new Error("synthetic-private-storage-error"));
+    let calls = 0;
+    const dispatcher = createAgentWebhookDispatcher({
+      outbox,
+      now,
+      claimOwnerId: "worker_1",
+      withActiveGrants: allowedFence,
+      resolveSigningSecret: async () => {
+        if (++calls === 1) throw new Error("synthetic-private-secret-error");
+        return "synthetic-secret";
+      },
+      send: async () => ({ status: 200 }),
+    });
+    await expect(dispatcher.runOnce()).rejects.toThrow("agent_webhook_delivery_recovery_pending");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].deliveryId).toBe("delivery_2");
+  });
   it.each(["fence", "secret"])(
     "active-stranded-recovery isolates a pre-POST %s error and processes later deliveries",
     async (boundary) => {

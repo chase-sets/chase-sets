@@ -267,7 +267,8 @@ export function AgentGrantDetailPage({
     if (typeof window === "undefined") return globalThis.crypto.randomUUID();
     try {
       const retained = window.sessionStorage.getItem(`agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`);
-      if (retained) return retained;
+      if (retained && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(retained))
+        return retained;
       const created = globalThis.crypto.randomUUID();
       window.sessionStorage.setItem(`agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`, created);
       return created;
@@ -280,7 +281,10 @@ export function AgentGrantDetailPage({
     ? navigation.state === "submitting"
       ? "submitting"
       : "confirming"
-    : (revocation?.state ?? "editing");
+    : (revocation?.state ??
+      (revocationActivated && !revocationAvailable && grant.status === "revoked"
+        ? "already-revoked-cleanup-complete"
+        : "editing"));
   const stateMessage = {
     editing: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.editing"),
     submitting: t("auth.features.agentGrants.ui.agentGrantDetailPage.revocation.submitting"),
