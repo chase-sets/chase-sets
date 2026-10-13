@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvitationAcceptancePage } from "./invitation-acceptance-page";
 import MarketplaceInviteRoute from "../../../routes/marketplace/invite";
-import { missingPhoneFailure, renderAuthRoute, safeFailure } from "../../../tests/auth-form-route-test-support";
+import {
+  renderAuthRoute,
+  safeFailure,
+  mockNativeRequestSubmit,
+  successfulPasskey,
+  pendingPasskey,
+} from "../../../tests/auth-form-route-test-support";
 import { createPasskeyCredential } from "../../../support/ui-support/passkey-browser";
 import { redirect } from "react-router";
 
@@ -50,6 +56,7 @@ describe("invitation acceptance page", () => {
     ["expired", "This invitation has expired"],
     ["revoked", "This invitation was revoked"],
     ["accepted", "This invitation was already accepted"],
+    ["unavailable", "This invitation is unavailable"],
   ] as const)("shows clear %s copy", (status, copy) => {
     render(<InvitationAcceptancePage invitation={{ status }} token="invite_token" />);
 
@@ -60,15 +67,76 @@ describe("invitation acceptance page", () => {
 });
 
 describe("routed invitation errors", () => {
-  const invitation = { status: "pending" as const, invitationId: "synthetic-invite", email: "seller@example.com", accountName: "Cards", invitedByName: "Avery", roleLabel: "Member" };
-  const route = { path: "/invite/:invitationId", Component: MarketplaceInviteRoute, loader: () => ({ invitation, token: "synthetic-token" }) };
+  const invitation = {
+    status: "pending" as const,
+    invitationId: "synthetic-invite",
+    email: "seller@example.com",
+    accountName: "Cards",
+    invitedByName: "Avery",
+    roleLabel: "Member",
+  };
+  const route = {
+    path: "/invite/:invitationId",
+    Component: MarketplaceInviteRoute,
+    loader: () => ({ invitation, token: "synthetic-token" }),
+  };
+
+  it("focus lifecycle: a retired browser ceremony cannot clear a new form's loading or warning owner", async () => {
+    const oldCeremony = pendingPasskey();
+    const newCeremony = pendingPasskey();
+    vi.mocked(createPasskeyCredential)
+      .mockReturnValueOnce(oldCeremony.promise)
+      .mockReturnValueOnce(newCeremony.promise);
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    const oldForm = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    fireEvent.submit(oldForm);
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const button = screen.getByRole("button", { name: "Accept with passkey" });
+    expect(button.closest("form")).not.toBe(oldForm);
+    fireEvent.submit(button.closest("form")!);
+    await act(async () => {
+      oldCeremony.reject(new Error("RAW_OLD_PASSKEY_MARKER"));
+    });
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      newCeremony.reject(new Error("RAW_NEW_PASSKEY_MARKER"));
+    });
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    expect(document.body.textContent).not.toMatch(/RAW_.*MARKER/);
+    expect(rendered.requests).not.toHaveBeenCalled();
+  });
+
+  it("safe fields / auth parity: passkey acceptance failures stay form-only and a successful retry navigates", async () => {
+    vi.mocked(createPasskeyCredential).mockResolvedValue(successfulPasskey);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    const form = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.settle(safeFailure("invitation-accept"));
+    expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    fireEvent.submit(form);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(2));
+    await rendered.settle(redirect("/done"));
+    expect(screen.getByText("Authenticated destination")).toBeTruthy();
+  });
 
   it("safe fields: credential and unknown targets remain form-only", async () => {
     const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
     fireEvent.click(screen.getByRole("radio", { name: "Password" }));
     fireEvent.submit(screen.getByRole("button", { name: "Accept with password" }).closest("form")!);
     await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
-    await rendered.settle(safeFailure("invitation-accept", 400, { error: { code: "validation_failed", message: "RAW_AUTH_MARKER", details: [{ field: "password", code: "phone_required", message: "RAW_AUTH_MARKER" }] } }));
+    await rendered.settle(
+      safeFailure("invitation-accept", 400, {
+        error: {
+          code: "validation_failed",
+          message: "RAW_AUTH_MARKER",
+          details: [{ field: "password", code: "phone_required", message: "RAW_AUTH_MARKER" }],
+        },
+      }),
+    );
     expect(screen.getByRole("alert").querySelector("a")).toBeNull();
     expect(screen.getByLabelText("Enter or create a password").getAttribute("aria-invalid")).toBeNull();
     expect(document.body.textContent).not.toContain("RAW_AUTH_MARKER");
@@ -106,7 +174,7 @@ describe("routed invitation errors", () => {
     fireEvent.submit(screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!);
     expect((await screen.findByRole("alert")).textContent).toContain("Passkey registration failed.");
     expect(document.body.textContent).not.toContain("RAW_PASSKEY_SECRET_MARKER");
-    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("alert")));
     expect(rendered.requests).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("radio", { name: "Password" }));
     expect(screen.queryByRole("alert")).toBeNull();

@@ -14,7 +14,11 @@ import {
 } from "@chase-sets/design-system";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
-import { authFormErrors, useAuthFormFeedback, type AuthFormFeedbackProps } from "../../../support/ui-support/auth-form-feedback";
+import {
+  authFormErrors,
+  useAuthFormFeedback,
+  type AuthFormFeedbackProps,
+} from "../../../support/ui-support/auth-form-feedback";
 
 export type InvitationAcceptancePresentation =
   | Readonly<{
@@ -27,11 +31,12 @@ export type InvitationAcceptancePresentation =
     }>
   | Readonly<{ status: "expired" | "revoked" | "accepted" | "unavailable" }>;
 
-type Props = AuthFormFeedbackProps & Readonly<{
-  invitation: InvitationAcceptancePresentation;
-  token: string;
-  action?: string;
-}>;
+type Props = AuthFormFeedbackProps &
+  Readonly<{
+    invitation: InvitationAcceptancePresentation;
+    token: string;
+    action?: string;
+  }>;
 
 const terminalCopyKeys = {
   expired: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.expired",
@@ -51,7 +56,9 @@ export function InvitationAcceptancePage(props: Props) {
   const feedback = useAuthFormFeedback(props);
   const { summary } = authFormErrors(feedback.error);
 
-  useEffect(() => { if (passkeyError) warningRef.current?.focus(); }, [passkeyError]);
+  useEffect(() => {
+    if (passkeyError) warningRef.current?.focus();
+  }, [passkeyError]);
 
   function handleServerSubmit(event: FormEvent<HTMLFormElement>) {
     feedback.begin();
@@ -76,7 +83,10 @@ export function InvitationAcceptancePage(props: Props) {
   const pendingInvitation = invitation;
 
   async function acceptWithPasskey(event: FormEvent<HTMLFormElement>) {
-    if (passkeyPayload) { handleServerSubmit(event); return; }
+    if (passkeyPayload) {
+      handleServerSubmit(event);
+      return;
+    }
     event.preventDefault();
     feedback.begin();
     setPasskeyError(null);
@@ -84,16 +94,19 @@ export function InvitationAcceptancePage(props: Props) {
     const form = event.currentTarget;
     try {
       const payload = await createPasskeyCredential({
-          displayName: pendingInvitation.email.split("@")[0] || pendingInvitation.email,
-          email: pendingInvitation.email,
-        });
+        displayName: pendingInvitation.email.split("@")[0] || pendingInvitation.email,
+        email: pendingInvitation.email,
+      });
       if (passkeyForm.current !== form) return;
       setPasskeyPayload(payload);
-      window.setTimeout(() => { if (passkeyForm.current === form) form.requestSubmit(); }, 0);
+      window.setTimeout(() => {
+        if (passkeyForm.current === form) form.requestSubmit();
+      }, 0);
     } catch {
-      if (passkeyForm.current === form) setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
+      if (passkeyForm.current === form)
+        setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
     } finally {
-      setPasskeyLoading(false);
+      if (passkeyForm.current === form) setPasskeyLoading(false);
     }
   }
 
@@ -118,7 +131,11 @@ export function InvitationAcceptancePage(props: Props) {
           })}
         </Text>
       </Stack>
-      <ValidationSummary ref={feedback.summaryRef} title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")} errors={summary} />
+      <ValidationSummary
+        ref={feedback.summaryRef}
+        title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.acceptance.failed")}
+        errors={summary}
+      />
       <SegmentedControl
         fullWidth
         label={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.method")}
@@ -144,7 +161,7 @@ export function InvitationAcceptancePage(props: Props) {
         ]}
       />
       {method === "passkey" ? (
-        <Card elevation="elevated" glow>
+        <Card key="passkey" elevation="elevated" glow>
           <Form ref={passkeyForm} action={action} method="post" onSubmit={acceptWithPasskey}>
             <Stack gap={3}>
               {commonFields}
@@ -170,7 +187,7 @@ export function InvitationAcceptancePage(props: Props) {
           </Form>
         </Card>
       ) : (
-        <Card elevation="elevated">
+        <Card key="password" elevation="elevated">
           <Form action={action} method="post" onSubmit={handleServerSubmit}>
             <Stack gap={3}>
               {commonFields}

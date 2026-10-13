@@ -1,19 +1,30 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignInPage } from "./sign-in-page";
 import { defineAuthHost } from "../../../support/route-support/auth-host";
 import { adminAuthHostConfig, marketplaceAuthHostConfig } from "../../../support/route-support/host-config";
 import { getPasskeyCredential } from "../../../support/ui-support/passkey-browser";
 import MarketplaceSignInRoute, { loader } from "../../../routes/marketplace/sign-in";
-import { renderAuthRoute, missingPhoneFailure, safeFailure } from "../../../tests/auth-form-route-test-support";
+import {
+  renderAuthRoute,
+  missingPhoneFailure,
+  safeFailure,
+  mockNativeRequestSubmit,
+  successfulPasskey,
+  pendingPasskey,
+} from "../../../tests/auth-form-route-test-support";
+import AccessAdminSignInRoute from "../../../routes/access-admin/sign-in";
 import { redirect } from "react-router";
 
 vi.mock("../../../support/route-support/auth-host.server", async () => {
   const { defineAuthHost } = await import("../../../support/route-support/auth-host");
   const { marketplaceAuthHostConfig, adminAuthHostConfig } = await import("../../../support/route-support/host-config");
-  return { marketplaceAuthHost: defineAuthHost(marketplaceAuthHostConfig), adminAuthHost: defineAuthHost(adminAuthHostConfig) };
+  return {
+    marketplaceAuthHost: defineAuthHost(marketplaceAuthHostConfig),
+    adminAuthHost: defineAuthHost(adminAuthHostConfig),
+  };
 });
 
 vi.mock("../../../support/ui-support/passkey-browser", () => ({
@@ -509,6 +520,152 @@ describe("sign-in page magic link recovery", () => {
 });
 
 describe("routed sign-in errors", () => {
+  it("focus lifecycle: a retired browser ceremony cannot clear a new form's loading or warning owner", async () => {
+    const oldCeremony = pendingPasskey();
+    const newCeremony = pendingPasskey();
+    vi.mocked(getPasskeyCredential).mockReturnValueOnce(oldCeremony.promise).mockReturnValueOnce(newCeremony.promise);
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.submit(screen.getByRole("button", { name: "Use Passkey" }).closest("form")!);
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const button = screen.getByRole("button", { name: "Use Passkey" });
+    fireEvent.submit(button.closest("form")!);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      oldCeremony.reject(new Error("RAW_OLD_PASSKEY_MARKER"));
+    });
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      newCeremony.reject(new Error("RAW_NEW_PASSKEY_MARKER"));
+    });
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    expect(document.body.textContent).not.toMatch(/RAW_.*MARKER/);
+    expect(route.requests).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["password", "Password", "Sign In"],
+    ["magic-link-request", "Email me a sign-in link", "Email me a sign-in link"],
+    ["passkey-sign-in", "Passkey", "Use Passkey"],
+  ] as const)(
+    "safe fields / auth parity: %s stays form-only and its successful retry navigates",
+    async (intent, method, buttonName) => {
+      vi.mocked(getPasskeyCredential).mockResolvedValue(successfulPasskey);
+      mockNativeRequestSubmit();
+      const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+      continueWithIdentifier("buyer@example.com");
+      fireEvent.click(screen.getByRole("radio", { name: method }));
+      const form = screen.getByRole("button", { name: buttonName }).closest("form")!;
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      await route.settle(safeFailure(intent));
+      expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+      expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("RAW_AUTH_MARKER");
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
+      await route.settle(redirect("/done"));
+      expect(screen.getByText("Authenticated destination")).toBeTruthy();
+    },
+  );
+
+  it("focus lifecycle: the access-admin caller consumes safe errors and preserves revalidation focus", async () => {
+    const route = await renderAuthRoute(
+      { path: "/access/sign-in", Component: AccessAdminSignInRoute },
+      "/access/sign-in?signInIdentifier=buyer%40example.com&signInMethod=password",
+    );
+    const button = screen.getByRole("button", { name: "Sign In" });
+    fireEvent.submit(button.closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    await route.settle(safeFailure("password"));
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    button.focus();
+    await route.revalidate();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.getByRole("link", { name: "Continue with Google Workspace" })).toBeTruthy();
+  });
+
+  it("focus lifecycle: identifier changes during an accepted submission discard its late error", async () => {
+    const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.submit(screen.getByRole("button", { name: "Sign In" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    const identifier = screen.getByLabelText(/Email or phone/);
+    expect(document.activeElement).toBe(identifier);
+    await route.settle(safeFailure("password"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(identifier);
+    continueWithIdentifier("next@example.com");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it.each(["phone", "magic"] as const)(
+    "focus lifecycle: %s success focuses its mounted destination without revalidation refocus",
+    async (kind) => {
+      const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
+      continueWithIdentifier(kind === "phone" ? "+13125550100" : "buyer@example.com");
+      if (kind === "magic") fireEvent.click(screen.getByRole("radio", { name: "Email me a sign-in link" }));
+      const button = screen.getByRole("button", {
+        name: kind === "phone" ? "Send Phone Code" : "Email me a sign-in link",
+      });
+      fireEvent.submit(button.closest("form")!);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      await route.settle(
+        kind === "phone"
+          ? {
+              status: "phone-code-sent",
+              phone: "+13125550100",
+              tokenId: "synthetic-token",
+              expiresAt: "2099-01-01T00:00:00Z",
+            }
+          : {
+              status: "magic-link-sent",
+              email: "buyer@example.com",
+              tokenId: "synthetic-token",
+              expiresAt: "2099-01-01T00:00:00Z",
+            },
+      );
+      const destination = kind === "phone" ? screen.getByLabelText("Phone Code") : screen.getByRole("status");
+      expect(document.activeElement).toBe(destination);
+      expect(screen.queryByRole("alert")).toBeNull();
+      button.focus();
+      await route.revalidate();
+      expect(document.activeElement).toBe(button);
+      if (kind === "phone") {
+        fireEvent.submit(screen.getByRole("button", { name: "Continue With Code" }).closest("form")!);
+        await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
+        await route.settle(redirect("/done"));
+        expect(screen.getByText("Authenticated destination")).toBeTruthy();
+      }
+    },
+  );
+
+  it("auth parity: social safe codes keep one Banner owner per navigation, not revalidation", async () => {
+    const route = await renderAuthRoute(
+      { path: "/sign-in", Component: MarketplaceSignInRoute, loader },
+      "/sign-in?socialLoginError=provider_failed",
+    );
+    const banner = screen.getByRole("alert");
+    expect(banner.tagName).not.toBe("SECTION");
+    expect(banner.querySelector("a")).toBeNull();
+    expect(document.activeElement).toBe(banner);
+    const identifier = screen.getByLabelText(/Email or phone/);
+    identifier.focus();
+    await route.revalidate();
+    expect(document.activeElement).toBe(identifier);
+    await act(async () => {
+      await route.router.navigate("/sign-in?socialLoginError=provider_failed");
+    });
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    continueWithIdentifier("buyer@example.com");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("safe fields: source-authored phone is form-only when hidden; unknown fields never link", async () => {
     const route = await renderAuthRoute({ path: "/sign-in", Component: MarketplaceSignInRoute, loader }, "/sign-in");
     continueWithIdentifier("+13125550100");
@@ -520,7 +677,15 @@ describe("routed sign-in errors", () => {
     expect(screen.getByLabelText("Phone Code").getAttribute("aria-invalid")).toBeNull();
     fireEvent.submit(screen.getByRole("button", { name: "Continue With Code" }).closest("form")!);
     await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
-    await route.settle(safeFailure("phone-code-consume", 400, { error: { code: "validation_failed", message: "RAW_AUTH_MARKER", details: [{ field: "code", code: "phone_required", message: "RAW_AUTH_MARKER" }] } }));
+    await route.settle(
+      safeFailure("phone-code-consume", 400, {
+        error: {
+          code: "validation_failed",
+          message: "RAW_AUTH_MARKER",
+          details: [{ field: "code", code: "phone_required", message: "RAW_AUTH_MARKER" }],
+        },
+      }),
+    );
     expect(screen.getByRole("alert").querySelector("a")).toBeNull();
     expect(document.body.textContent).not.toContain("RAW_AUTH_MARKER");
     route.router.dispose();
@@ -576,7 +741,7 @@ describe("routed sign-in errors", () => {
     const warning = await screen.findByRole("alert");
     expect(warning.textContent).toContain("Passkey sign-in failed.");
     expect(document.body.textContent).not.toContain("RAW_PASSKEY_SECRET_MARKER");
-    expect(document.activeElement).toBe(warning);
+    await waitFor(() => expect(document.activeElement).toBe(warning));
     expect(route.requests).not.toHaveBeenCalled();
     const method = screen.getByRole("radio", { name: "Password" });
     method.focus();

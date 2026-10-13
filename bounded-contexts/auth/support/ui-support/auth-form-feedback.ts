@@ -34,10 +34,17 @@ export function useAuthFormFeedback(props: AuthFormFeedbackProps, successTargetI
   const focusedSocial = useRef<string | null>(null);
   const wasPending = useRef(false);
   const [invalidatedSubmission, setInvalidatedSubmission] = useState(false);
-  const [dismissed, setDismissed] = useState<Pick<AuthFormFeedbackProps, "actionError" | "notice" | "socialOccurrence">>({});
-  const error = !props.submissionPending && !invalidatedSubmission && props.actionError !== dismissed.actionError ? props.actionError : null;
-  const notice = !props.submissionPending && !invalidatedSubmission && props.notice !== dismissed.notice ? props.notice : null;
-  const socialError = !props.submissionPending && props.socialOccurrence !== dismissed.socialOccurrence ? props.socialError : null;
+  const [dismissed, setDismissed] = useState<
+    Pick<AuthFormFeedbackProps, "actionError" | "notice" | "socialOccurrence">
+  >({});
+  const error =
+    !props.submissionPending && !invalidatedSubmission && props.actionError !== dismissed.actionError
+      ? props.actionError
+      : null;
+  const notice =
+    !props.submissionPending && !invalidatedSubmission && props.notice !== dismissed.notice ? props.notice : null;
+  const socialError =
+    !props.submissionPending && props.socialOccurrence !== dismissed.socialOccurrence ? props.socialError : null;
 
   function dismiss() {
     setDismissed({ actionError: props.actionError, notice: props.notice, socialOccurrence: props.socialOccurrence });
@@ -64,7 +71,7 @@ export function useAuthFormFeedback(props: AuthFormFeedbackProps, successTargetI
     if (result && focusedResult.current !== result) {
       const target = error
         ? summaryRef.current
-        : (successTargetId ? document.getElementById(successTargetId) : null) ?? successRef.current;
+        : ((successTargetId ? document.getElementById(successTargetId) : null) ?? successRef.current);
       if (target) {
         focusedResult.current = result;
         target.focus();
@@ -93,7 +100,9 @@ export function authFormErrors(
   });
   const summary: ValidationSummaryError[] = [
     ...errors.formErrors.map((message) => ({ message })),
-    ...phoneErrors.filter(() => phoneEligible).map((message) => ({ message, fieldId: phoneTarget?.id, fieldName: phoneTarget?.label })),
+    ...phoneErrors
+      .filter(() => phoneEligible)
+      .map((message) => ({ message, fieldId: phoneTarget?.id, fieldName: phoneTarget?.label })),
   ];
   return { errors, summary };
 }

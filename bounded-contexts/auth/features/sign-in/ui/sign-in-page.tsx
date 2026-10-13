@@ -25,7 +25,11 @@ import {
 } from "../../../support/route-support/auth-host";
 import { getPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
-import { authFormErrors, useAuthFormFeedback, type AuthFormFeedbackProps } from "../../../support/ui-support/auth-form-feedback";
+import {
+  authFormErrors,
+  useAuthFormFeedback,
+  type AuthFormFeedbackProps,
+} from "../../../support/ui-support/auth-form-feedback";
 
 type SignInMethodItem = SegmentedControlItem & Readonly<{ value: SignInMethod }>;
 type SignInIdentifierKind = "email" | "phone";
@@ -96,18 +100,19 @@ function resolveInitialMethod(
 }
 
 export function SignInPage(
-  props: AuthFormFeedbackProps & Readonly<{
-    action?: string;
-    contextMessage?: Readonly<{ title: string; description: string }> | null;
-    hiddenFields?: readonly { name: string; value: string }[];
-    initialIdentifier?: string | null;
-    initialMethod?: string | null;
-    returnTo?: string;
-    signInMethods?: readonly SignInMethod[];
-    allowManualMagicLinkTokenEntry?: boolean;
-    socialLoginDescription?: string;
-    socialLoginLinks?: readonly SocialLoginLink[];
-  }>,
+  props: AuthFormFeedbackProps &
+    Readonly<{
+      action?: string;
+      contextMessage?: Readonly<{ title: string; description: string }> | null;
+      hiddenFields?: readonly { name: string; value: string }[];
+      initialIdentifier?: string | null;
+      initialMethod?: string | null;
+      returnTo?: string;
+      signInMethods?: readonly SignInMethod[];
+      allowManualMagicLinkTokenEntry?: boolean;
+      socialLoginDescription?: string;
+      socialLoginLinks?: readonly SocialLoginLink[];
+    }>,
 ) {
   const signInMethods = props.signInMethods ?? DEFAULT_SIGN_IN_METHODS;
   const initialIdentifier = identifierFromNotice(props.notice) || props.initialIdentifier?.trim() || "";
@@ -135,7 +140,10 @@ export function SignInPage(
   const methodButtonId = useId();
   const identifierFocus = useRef<"methods" | "identifier" | null>(null);
   const warningRef = useRef<HTMLDivElement>(null);
-  const feedback = useAuthFormFeedback(props, props.notice?.status === "phone-code-sent" ? codeId : props.allowManualMagicLinkTokenEntry ? tokenId : undefined);
+  const feedback = useAuthFormFeedback(
+    props,
+    props.notice?.status === "phone-code-sent" ? codeId : props.allowManualMagicLinkTokenEntry ? tokenId : undefined,
+  );
   const { summary } = authFormErrors(feedback.error);
   const passkeyFormRef = useRef<HTMLFormElement | null>(null);
   const challengeMethods = identifierKind ? methodItemsForIdentifier(identifierKind, signInMethods) : [];
@@ -157,16 +165,19 @@ export function SignInPage(
 
   useEffect(() => {
     if (identifierFocus.current) {
-      const target = identifierFocus.current === "identifier"
-        ? document.getElementById(identifierId)
-        : document.getElementById(methodsId)?.querySelector<HTMLElement>('[aria-checked="true"]')
-          ?? document.getElementById(method === "password" ? passwordId : methodButtonId);
+      const target =
+        identifierFocus.current === "identifier"
+          ? document.getElementById(identifierId)
+          : (document.getElementById(methodsId)?.querySelector<HTMLElement>('[aria-checked="true"]') ??
+            document.getElementById(method === "password" ? passwordId : methodButtonId));
       target?.focus();
       identifierFocus.current = null;
     }
   }, [hasIdentifier, identifier, identifierId, method, methodButtonId, methodsId, passwordId]);
 
-  useEffect(() => { if (passkeyError) warningRef.current?.focus(); }, [passkeyError]);
+  useEffect(() => {
+    if (passkeyError) warningRef.current?.focus();
+  }, [passkeyError]);
 
   function handleServerSubmit(event: FormEvent<HTMLFormElement>) {
     feedback.begin();
@@ -228,11 +239,14 @@ export function SignInPage(
       const payload = await getPasskeyCredential(email);
       if (passkeyFormRef.current !== form) return;
       setPasskeyPayload(payload);
-      window.setTimeout(() => { if (passkeyFormRef.current === form) form.requestSubmit(); }, 0);
+      window.setTimeout(() => {
+        if (passkeyFormRef.current === form) form.requestSubmit();
+      }, 0);
     } catch {
-      if (passkeyFormRef.current === form) setPasskeyError(t("auth.features.signIn.ui.signInPage.passkey.sign.in.failed"));
+      if (passkeyFormRef.current === form)
+        setPasskeyError(t("auth.features.signIn.ui.signInPage.passkey.sign.in.failed"));
     } finally {
-      setPasskeyLoading(false);
+      if (passkeyFormRef.current === form) setPasskeyLoading(false);
     }
   }
 
@@ -256,7 +270,11 @@ export function SignInPage(
         <Banner title={props.contextMessage.title} description={props.contextMessage.description} tone="info" />
       ) : null}
 
-      <ValidationSummary ref={feedback.summaryRef} title={t("auth.features.signIn.ui.signInPage.sign.in.failed")} errors={summary} />
+      <ValidationSummary
+        ref={feedback.summaryRef}
+        title={t("auth.features.signIn.ui.signInPage.sign.in.failed")}
+        errors={summary}
+      />
       {!feedback.error && feedback.socialError ? (
         <Banner
           ref={feedback.socialRef}
@@ -461,7 +479,12 @@ export function SignInPage(
                   <HiddenFields fields={props.hiddenFields} />
                   <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
                   <HiddenInput type="hidden" name="email" value={identifier} readOnly />
-                  <TextInput id={tokenId} label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
+                  <TextInput
+                    id={tokenId}
+                    label={t("auth.features.signIn.ui.signInPage.magic.link.token")}
+                    name="token"
+                    required
+                  />
                   <Button type="submit" tone="secondary">
                     {t("auth.features.signIn.ui.signInPage.continue.with.token")}
                   </Button>

@@ -17,13 +17,18 @@ import {
   TextInput,
   ValidationSummary,
   firstFieldError,
+  type FormProps,
   type IconName,
 } from "@chase-sets/design-system";
 import type { FormEvent, ReactNode, Ref } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "../../../support/ui-support/passkey-browser";
 import { HiddenFields, PasskeyHiddenFields } from "../../../support/ui-support/auth-hidden-fields";
-import { authFormErrors, useAuthFormFeedback, type AuthFormFeedbackProps } from "../../../support/ui-support/auth-form-feedback";
+import {
+  authFormErrors,
+  useAuthFormFeedback,
+  type AuthFormFeedbackProps,
+} from "../../../support/ui-support/auth-form-feedback";
 
 type RegistrationMethod = "passkey" | "phone-code" | "magic-link" | "password";
 type RegistrationAnalyticsStage = "shown" | "selected" | "completed" | "abandoned" | "failed";
@@ -67,12 +72,13 @@ type RegistrationDetails = Readonly<{
   password: string;
 }>;
 
-type RegistrationPageProps = AuthFormFeedbackProps & Readonly<{
-  action?: string;
-  hiddenFields?: readonly { name: string; value: string }[];
-  contextMessage?: Readonly<{ title: string; description: string }> | null;
-  returnTo?: string;
-}>;
+type RegistrationPageProps = AuthFormFeedbackProps &
+  Readonly<{
+    action?: string;
+    hiddenFields?: readonly { name: string; value: string }[];
+    contextMessage?: Readonly<{ title: string; description: string }> | null;
+    returnTo?: string;
+  }>;
 
 type RegistrationFormCardProps = Readonly<{
   action?: string;
@@ -83,6 +89,7 @@ type RegistrationFormCardProps = Readonly<{
   intent: string;
   method: RegistrationMethod;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  errorAnnouncement?: FormProps["errorAnnouncement"];
 }>;
 
 type IdentityFieldsProps = Readonly<{
@@ -136,10 +143,18 @@ function RegistrationFormCard({
   intent,
   method,
   onSubmit,
+  errorAnnouncement,
 }: RegistrationFormCardProps) {
   return (
     <Card elevation="elevated" glow={glow}>
-      <Form spacing="none" ref={formRef} action={action} method="post" onSubmit={onSubmit}>
+      <Form
+        spacing="none"
+        ref={formRef}
+        action={action}
+        method="post"
+        onSubmit={onSubmit}
+        errorAnnouncement={errorAnnouncement}
+      >
         <Stack gap={3}>
           <HiddenFields fields={hiddenFields} />
           <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
@@ -196,11 +211,19 @@ export function RegisterPage(props: RegistrationPageProps) {
   const phoneConsumeId = useId();
   const codeId = useId();
   const warningRef = useRef<HTMLDivElement>(null);
-  const feedback = useAuthFormFeedback(props, props.notice?.status === "phone-code-sent" && method === "phone-code" ? codeId : undefined);
+  const feedback = useAuthFormFeedback(
+    props,
+    props.notice?.status === "phone-code-sent" && method === "phone-code" ? codeId : undefined,
+  );
   const phoneIntent = feedback.error?.intent;
-  const phoneTarget = method === "phone-code" && (phoneIntent === "phone-code-request" || phoneIntent === "phone-code-consume")
-    ? { intent: phoneIntent, id: phoneIntent === "phone-code-request" ? phoneRequestId : phoneConsumeId, label: t("auth.features.registration.ui.registerPage.phone") }
-    : undefined;
+  const phoneTarget =
+    method === "phone-code" && (phoneIntent === "phone-code-request" || phoneIntent === "phone-code-consume")
+      ? {
+          intent: phoneIntent,
+          id: phoneIntent === "phone-code-request" ? phoneRequestId : phoneConsumeId,
+          label: t("auth.features.registration.ui.registerPage.phone"),
+        }
+      : undefined;
   const { errors, summary } = authFormErrors(feedback.error, phoneTarget);
   const observedError = useRef<typeof feedback.error>(null);
 
@@ -226,7 +249,9 @@ export function RegisterPage(props: RegistrationPageProps) {
     });
   }, [method, feedback.error]);
 
-  useEffect(() => { if (passkeyError) warningRef.current?.focus(); }, [passkeyError]);
+  useEffect(() => {
+    if (passkeyError) warningRef.current?.focus();
+  }, [passkeyError]);
 
   useEffect(() => {
     function handleAbandoned() {
@@ -279,7 +304,9 @@ export function RegisterPage(props: RegistrationPageProps) {
       const payload = await createPasskeyCredential({ displayName, email });
       if (passkeyFormRef.current !== form) return;
       setPasskeyPayload(payload);
-      window.setTimeout(() => { if (passkeyFormRef.current === form) form.requestSubmit(); }, 0);
+      window.setTimeout(() => {
+        if (passkeyFormRef.current === form) form.requestSubmit();
+      }, 0);
     } catch {
       if (passkeyFormRef.current !== form) return;
       setPasskeyError(t("auth.features.registration.ui.registerPage.passkey.registration.failed"));
@@ -289,7 +316,7 @@ export function RegisterPage(props: RegistrationPageProps) {
         reason: "browser-passkey-failed",
       });
     } finally {
-      setPasskeyLoading(false);
+      if (passkeyFormRef.current === form) setPasskeyLoading(false);
     }
   }
 
@@ -314,7 +341,11 @@ export function RegisterPage(props: RegistrationPageProps) {
         <Banner title={props.contextMessage.title} description={props.contextMessage.description} tone="info" />
       ) : null}
 
-      <ValidationSummary ref={feedback.summaryRef} title={t("auth.features.registration.ui.registerPage.registration.failed")} errors={summary} />
+      <ValidationSummary
+        ref={feedback.summaryRef}
+        title={t("auth.features.registration.ui.registerPage.registration.failed")}
+        errors={summary}
+      />
       {!feedback.error && feedback.socialError ? (
         <Banner
           ref={feedback.socialRef}
@@ -440,6 +471,9 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-request"
             method="phone-code"
+            errorAnnouncement={
+              phoneTarget?.intent === "phone-code-request" && summary.length > 0 ? "summary" : "inline"
+            }
             onSubmit={(event) => handleCompleted("phone-code", event)}
           >
             <Text size="sm" tone="secondary">
@@ -474,6 +508,9 @@ export function RegisterPage(props: RegistrationPageProps) {
             hiddenFields={props.hiddenFields}
             intent="phone-code-consume"
             method="phone-code"
+            errorAnnouncement={
+              phoneTarget?.intent === "phone-code-consume" && summary.length > 0 ? "summary" : "inline"
+            }
             onSubmit={(event) => handleCompleted("phone-code", event)}
           >
             <Text size="sm" tone="secondary">
