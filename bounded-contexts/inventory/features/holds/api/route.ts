@@ -259,7 +259,7 @@ export function inventoryCheckoutReservationRoutes(
               error instanceof Error && error.message.includes("available quantity")
                 ? "checkout_reservation_unavailable"
                 : "validation_failed",
-            message: "Checkout reservation is unavailable.",
+            message: t("inventory.checkoutReservation.unavailable"),
           },
         },
         409,
@@ -319,7 +319,7 @@ export function inventoryCheckoutReservationRoutes(
         {
           error: {
             code: "checkout_reservation_extension_unavailable",
-            message: "Checkout reservation extension is unavailable.",
+            message: t("inventory.checkoutReservation.extensionUnavailable"),
           },
         },
         409,
@@ -427,7 +427,7 @@ export function inventoryCheckoutReservationRoutes(
         {
           error: {
             code: "checkout_reservation_release_unavailable",
-            message: "Checkout reservation release is unavailable.",
+            message: t("inventory.checkoutReservation.releaseUnavailable"),
           },
         },
         409,

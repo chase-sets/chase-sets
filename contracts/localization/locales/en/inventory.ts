@@ -441,4 +441,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.recoveredItems.ui.page.action.failed": "The recovered item action could not be recorded.",
   "inventory.features.recoveredItems.ui.page.action.unknown": "Choose a recovered item action.",
   "inventory.routes.admin.recoveredItems.title": "Recovered Returns | Admin",
+  "inventory.checkoutReservation.unavailable": "Checkout reservation is unavailable.",
+  "inventory.checkoutReservation.extensionUnavailable": "Checkout reservation extension is unavailable.",
+  "inventory.checkoutReservation.releaseUnavailable": "Checkout reservation release is unavailable.",
 } as const;
