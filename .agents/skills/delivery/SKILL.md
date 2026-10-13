@@ -68,6 +68,42 @@ git -C <worktree> switch -c <branch> --track origin/main
 - Record decisions in the PR description under Resolved Decisions. Files under `.codex/plans/` are optional scratch artifacts — they are gitignored and must never be committed.
 - Do not edit product code, runtime code, schemas, or UI while a full-path plan is still unresolved.
 
+## Operator boundary
+
+The [#4388 prospective amendment](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6135898084)
+narrows the performer boundary of the earlier rulings, not their history.
+Agents prepare, execute, monitor, capture evidence, clean up, and report probes
+and routine work. This boundary applies on both delivery paths; "operator
+actions no lane can perform" means only the residual human step, not a runbook
+for Todd. Todd retains product priority/scope and unrelated reserved authority.
+
+- Use admitted tools, including supported computer use for approved-scope OAuth,
+  sandbox/test sign-ins, and credential entry when permitted. Missing tooling is
+  agent-owned repair, not a reason to assign Todd the workflow. Actual tool
+  policy still governs; do not bypass a restriction or automate TCGplayer login.
+- Request only production-credential or real-money authorization/supervision,
+  private entry for credentials agents may not hold, protected Windows permission
+  prompts, or an actual policy/external-authority step agents cannot lawfully
+  perform. Name the environment, reason a human is needed, exact residual step,
+  and agent resumption point; agents own preparation and all permitted work around
+  it. A test using a live credential or real charge is not autonomous sandbox work.
+- Preserve privacy, least privilege, secret safety, and
+  [production credential custody](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6114225296),
+  including Todd's own operator-session custody: never expose secrets in chat,
+  logs, screenshots, evidence, or commits. Human private entry is only for
+  credentials agents may not hold; sandbox/test safe-entry gaps are agent repair.
+  Preserve provider restrictions, external approvals at their ruled lifecycle,
+  scope limits, and stop conditions. A GA-only approval does not become a
+  sandbox/pre-GA hold. This guidance grants no provider or production
+  authorization. No broader access, outreach, impersonation, retry, evidence or
+  lifecycle authority is granted.
+- If acceptance explicitly names a human performer or human-only evidence,
+  obtain prospective acceptance repair through the existing decision route and
+  independent validation of the agent proof route before execution. Do not
+  relabel agent evidence as human evidence or silently change an issue's ACs.
+  Independent host/reviewer acceptance of a Probe is not mandatory Todd
+  acceptance; the Probe's exact authority and lifecycle evidence still govern.
+
 ## Implementation & Verification
 
 - Inner loop is watch mode (`pnpm --filter @chase-sets/<workspace> run test:watch`); run the scoped checks for every touched workspace before opening the PR. On concurrent-lane hosts, set `CHASE_SETS_LANE_MODE=1` for local Vitest commands so the shared config uses lane-safe timeouts and capped workers; leave it unset for the strict default and hosted CI profile.
