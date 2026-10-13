@@ -26,7 +26,7 @@ async function profileForm(page: Page) {
 test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
   test.beforeEach(async ({ page, baseURL }, testInfo) => {
     if (!baseURL) throw new Error("Marketplace base URL is required");
-    await registerSyntheticAccount(page, baseURL, syntheticActor(testInfo));
+    await registerSyntheticAccount(page, baseURL, syntheticActor(testInfo), { freshReadRoute: "/account/security" });
     await page.goto("/account");
     await expect
       .poll(async () => {
@@ -117,6 +117,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(posts).toBe(1);
     expect(lookups).toBe(1);
+    await expect(page).toHaveURL(/\/account\?afterWrite=/);
     await page.reload();
     await expect(page.getByLabel("Marketplace name", { exact: true })).toHaveValue("Recovered synthetic account");
   });
@@ -182,6 +183,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await profile.getByLabel(/^Display name$/i).fill("Synthetic interruption user");
     await profile.getByRole("button", { name: /^Update profile$/i }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/account\/security\?afterWrite=/);
     await page.reload();
     await expect(page.getByLabel(/^Display name$/i)).toHaveValue("Synthetic interruption user");
     await page.goto("/account/team");
@@ -190,6 +192,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await invitation.getByRole("button", { name: /^Invite$/i }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(writes).toEqual(["/account/security.data", "/account/team.data"]);
+    await expect(page).toHaveURL(/\/account\/team\?afterWrite=/);
     await page.reload();
     await expect(page.getByText("synthetic-invite7168@example.test", { exact: true })).toBeVisible();
   });

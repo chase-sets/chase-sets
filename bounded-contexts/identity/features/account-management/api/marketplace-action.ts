@@ -69,5 +69,8 @@ export function accountMutationResponse(result: MutationResult, destination: str
       status: result.outcome === "conflict" ? 409 : result.outcome === "not-recorded" ? 400 : 503,
       headers: { "Cache-Control": "no-store" },
     });
-  return Response.json({ ...result, destination: freshDestination }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json(
+    { ...result, destination: result.destination ?? freshDestination },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

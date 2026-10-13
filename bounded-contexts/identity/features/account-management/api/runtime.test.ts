@@ -98,6 +98,11 @@ describe("issue-7168-ac3-atomic-replay", () => {
       receipt: { committedVersion: 2 },
       current: { version: 3 },
     });
+    const recovered = await f.runtime.lookup(input);
+    expect(recovered.outcome).toBe("committed");
+    if (recovered.outcome === "committed") {
+      expect(recovered).toHaveProperty("destination", expect.stringMatching(/^\/account\?afterWrite=/));
+    }
   });
   it("rejects the receipt-only bypass mutant", async () => {
     await f.runtime.submit(input);

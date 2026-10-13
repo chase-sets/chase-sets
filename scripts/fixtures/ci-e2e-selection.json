@@ -2309,7 +2309,8 @@
     },
     {
       "changedFiles": ["deployables/marketplace/e2e/account-management-interruption.spec.ts"],
-      "suiteIds": ["marketplace_account"]
+      "suiteIds": ["marketplace_account"],
+      "batches": ["marketplace_account"]
     }
   ]
 }

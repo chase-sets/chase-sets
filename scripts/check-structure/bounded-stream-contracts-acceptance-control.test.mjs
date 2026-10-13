@@ -70,6 +70,8 @@ const expectedInventory = [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
     null,
   ],
+  // Identity's eligibility adapter forwards the caller's complete read request.
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", null],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
@@ -99,9 +101,18 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact fifteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact sixteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("keeps the Identity eligibility adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments[0].getText(site.source)).toBe("input");
+    expect(site.limit).toBeNull();
   });
 
   it("keeps the promotion authority decorator's page request unchanged", () => {

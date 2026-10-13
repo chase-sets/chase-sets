@@ -38,6 +38,8 @@ describe("issue-7168-ac9-transport-state", () => {
       await screen.findByText("Saving your change");
       expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(true);
       expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("User work");
+      fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
+      expect(fetch).toHaveBeenCalledTimes(1);
       loseResponse();
       await screen.findByText("No change was recorded. Review and submit again.");
       expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("User work");

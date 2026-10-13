@@ -68,8 +68,9 @@ export function AccountMutationForm(props: RouterFormProps) {
       }}
       onSubmit={(event) => {
         event.preventDefault();
+        if (!controller?.ready || busy) return;
         entered.current = new FormData(event.currentTarget);
-        controller?.submit(event);
+        controller.submit(event);
       }}
     />
   );

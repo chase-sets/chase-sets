@@ -1,4 +1,5 @@
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
 import type { DomainEvent } from "@chase-sets/event-core";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
@@ -51,6 +52,7 @@ export type MutationResult =
       newlyCommitted: boolean;
       receipt: Receipt;
       current: SafeOwner;
+      destination?: string;
       secret?: string;
       secretState?: "committed-secret-unrecoverable";
       delivery?: "unknown";
@@ -113,6 +115,34 @@ function safeOwner(owner: Owner, id: string, version: number): SafeOwner {
   return { id, version, status: "status" in owner.state ? owner.state.status : "active" };
 }
 
+function ownerReadDestination(action: MutationAction, category: OwnerKind, history: readonly StoredEvent[]) {
+  if (action === "create-api-key" || action === "rotate-api-key") return undefined;
+  const destination = {
+    account: "/account",
+    user: "/account/security",
+    "api-key": "/account/security",
+    "shipping-address-book": "/account/shipping-addresses",
+    consent: "/account/consents",
+    invitation: "/account/team",
+    membership: "/account/team",
+  }[category];
+  const last = history.at(-1);
+  if (!last) return destination;
+  return navigateAfterWrite(
+    {
+      mode: "eventual",
+      commitPositions: [
+        {
+          sourceContextName: "identity",
+          maxGlobalPosition: String(last.globalPosition),
+          eventIds: [String(last.eventId)],
+        },
+      ],
+    },
+    destination,
+  );
+}
+
 export function createAccountManagementRuntime(
   persistence: IdentityMutationPersistence,
   services: Pick<IdentityServices, "auth" | "shippingAddresses">,
@@ -165,6 +195,7 @@ export function createAccountManagementRuntime(
       newlyCommitted: false,
       receipt,
       current,
+      destination: ownerReadDestination(receipt.action, receipt.category, ownerHistory),
       ...(["create-api-key", "rotate-api-key"].includes(receipt.action)
         ? { secretState: "committed-secret-unrecoverable" as const }
         : {}),
@@ -324,6 +355,10 @@ export function createAccountManagementRuntime(
             newlyCommitted: true,
             receipt,
             current: safeOwner(nextOwner, id, result.version),
+            destination: ownerReadDestination(request.action, target.kind, [
+              ...history,
+              ...appended.find((entry) => entry.streamId === target.streamId)!.storedEvents,
+            ]),
             ...(plan.secret ? { secret: plan.secret } : {}),
             committedEvents: appended.flatMap((entry) => entry.storedEvents),
           };
