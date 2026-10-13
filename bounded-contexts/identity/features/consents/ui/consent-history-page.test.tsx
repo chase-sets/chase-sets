@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { renderAccountManagementPage as render } from "../../account-management/ui/test-support";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConsentHistoryPage } from "./consent-history-page";
 

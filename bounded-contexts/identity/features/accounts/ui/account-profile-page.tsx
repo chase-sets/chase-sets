@@ -1,7 +1,6 @@
 import { formatDate, t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   ActorIdentityCue,
   Button,
   Banner,
@@ -20,6 +19,7 @@ import {
 import type { Account } from "./contracts";
 import type { CurrentActorDisplay } from "../../../support/shell-support/current-actor-display";
 import { AccountBadgeList } from "./account-badges";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
 import {
   accountStatusLabel,
   accountTypeLabel,

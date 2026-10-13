@@ -1,14 +1,6 @@
 import { t } from "@chase-sets/localization";
-import {
-  HiddenInput,
-  Form,
-  Banner,
-  Button,
-  ModalDialog,
-  NativeSelect,
-  Stack,
-  TextInput,
-} from "@chase-sets/design-system";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import { HiddenInput, Banner, Button, ModalDialog, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
 import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages";
 import type { Membership } from "./contracts";
 import type { Invitation } from "../../invitations/ui/contracts";

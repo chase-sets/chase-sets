@@ -29,13 +29,18 @@ function createServices(existing: boolean, existingRoleKey = "platform-admin") {
     services: {
       accounts: {
         getAccount: vi.fn(async () => (existing ? { account_id: "acc_platform_admin" } : null)),
+        getAccountState: vi.fn(async () => (existing ? { id: "acc_platform_admin" } : null)),
         commandHandler: accounts.handler,
       },
       users: {
         getUser: vi.fn(async () => (existing ? { user_id: "usr_platform_admin" } : null)),
+        getUserState: vi.fn(async () => (existing ? { id: "usr_platform_admin" } : null)),
         commandHandler: users.handler,
       },
       memberships: {
+        getMembershipState: vi.fn(async () =>
+          existing ? { id: "mbr_platform_admin", roleKey: existingRoleKey } : null,
+        ),
         commandHandler: memberships.handler,
       },
       db: {
