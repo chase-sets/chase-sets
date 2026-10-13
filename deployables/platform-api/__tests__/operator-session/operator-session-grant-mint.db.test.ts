@@ -64,6 +64,9 @@ describeDb("mounted operator grant mint authority", () => {
       WHERE revoked_at IS NULL`),
     ).rejects.toMatchObject({ code: "23505" });
     for (const column of ["creator_user_id", "creator_membership_id"]) {
+      for (const value of ["x", "x".repeat(128)]) {
+        await db().query(`UPDATE catalog_operator_session_grants SET ${column} = $1`, [value]);
+      }
       for (const value of ["", "x".repeat(129)]) {
         await expect(
           db().query(`UPDATE catalog_operator_session_grants SET ${column} = $1`, [value]),
@@ -74,6 +77,20 @@ describeDb("mounted operator grant mint authority", () => {
       });
     }
     await bootstrapContextDatabase(catalogModule, db());
+    expect(
+      (
+        await db().query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    const migrated = await snapshot(db());
+    // A lost acknowledgement after DDL but before the ledger INSERT must be recoverable.
+    await db().query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId]);
+    await bootstrapContextDatabase(catalogModule, db());
+    expect((await snapshot(db())).grants.map(({ row_version: _version, ...row }) => row)).toEqual(
+      migrated.grants.map(({ row_version: _version, ...row }) => row),
+    );
     expect(
       (
         await db().query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
