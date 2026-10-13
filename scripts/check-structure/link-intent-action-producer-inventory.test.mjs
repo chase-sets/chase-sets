@@ -159,6 +159,7 @@ it("reports a Git-tracked shipped source importing checkout-only scripts", () =>
     );
     expect(findCheckoutOnlyScriptImports(fixtureRoot)).toEqual([]);
   } finally {
+    execFileSync("git", ["add", file], { cwd: fixtureRoot });
     execFileSync("git", ["rm", "--cached", file], { cwd: fixtureRoot });
     rmSync(filename);
   }
