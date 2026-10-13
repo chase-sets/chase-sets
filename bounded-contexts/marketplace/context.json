@@ -282,6 +282,18 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "platform-operations",
+      "reactionName": "marketplace-listing-moderation-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
+      "order": 95,
+      "reactionHandlerSetNames": ["marketplace-listing-moderation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
       "sourceContextName": "pricing",
       "reactionName": "marketplace-managed-offer-reaction",
       "subscriptionVersion": 1,
@@ -339,6 +351,14 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "marketplace-listing-moderation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "includeInBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "marketplace-managed-offer-reaction",
       "handlerKind": "reaction",

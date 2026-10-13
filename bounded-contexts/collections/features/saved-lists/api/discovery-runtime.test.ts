@@ -272,6 +272,35 @@ describe("Saved List discovery application", () => {
     );
   });
 
+  it("receipt-only-recovery-poison rejects claimed_response without aggregate authority", async () => {
+    const memory = createIntentDb();
+    memory.insertIntent({ intentId: "sli_poison" });
+    const row = memory.intents.get("sli_poison")!;
+    Object.assign(row, {
+      status: "claimed",
+      claimed_account_id: ownerAccountId,
+      claimed_list_id: "svl_poison",
+      claimed_tracked_quantity: 1,
+      claimed_response: { command: { receipt: { replayed: false } }, listId: "svl_poison", title: "forged" },
+    });
+    const { discovery, savedLists } = setup(memory.db);
+    const apply = vi.spyOn(savedLists, "applyLineChanges");
+    await expect(
+      discovery.claimAnonymousIntent(
+        {
+          anonymousOwnerId: "anon_device",
+          intentId: "sli_poison",
+          accountId: ownerAccountId,
+          destination: { kind: "existing", listId: "svl_poison" as never },
+          trackedQuantity: 1,
+          sourceSurface: "search",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "list-unavailable" });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
   it("expires stale intents before lookup and enforces the anonymous active-intent cap", async () => {
     const memory = createIntentDb();
     const { discovery } = setup(memory.db);

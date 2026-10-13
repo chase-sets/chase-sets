@@ -227,6 +227,11 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
       expect.arrayContaining([
         expect.objectContaining({
           category: "member-declaration",
+          file: "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
+          line: 93,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
           file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
           line: 45,
         }),

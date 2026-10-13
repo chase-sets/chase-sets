@@ -148,7 +148,6 @@ export function createSavedListDiscoveryRuntime(
       ? {
           intent: toIntent(row),
           expectedVersion: row.claimed_expected_version === null ? null : Number(row.claimed_expected_version),
-          response: parseClaimedResponse(row.claimed_response),
           revision: Number(row.owner_revision),
         }
       : null;
@@ -459,6 +458,8 @@ export function createSavedListDiscoveryRuntime(
       }>,
       context: EventStoreContext,
     ) {
+      if (context.audit.forAccountId !== input.accountId)
+        throw new SavedListDiscoveryError("intent-not-found", "Saved List addition was not found.");
       const loaded = await getIntent(input.anonymousOwnerId, input.intentId);
       if (!loaded) {
         throw new SavedListDiscoveryError("intent-not-found", "Saved List addition was not found.");
@@ -476,8 +477,49 @@ export function createSavedListDiscoveryRuntime(
       if (intent.status !== "active") {
         assertMatchingClaim(intent, input.accountId, destination, trackedQuantity);
       }
-      if (intent.status === "claimed" && loaded.response) {
-        return replayClaimedResponse(loaded.response);
+      if (intent.status === "claimed") {
+        const command = await deps.savedLists.readLineChangesReceipt(
+          {
+            commandId: intent.addCommandId,
+            listId: destination.listId,
+            ownerAccountId: input.accountId,
+            expectedVersion: loaded.expectedVersion ?? 1,
+            operations: [
+              {
+                operationId: "discovery-add",
+                kind: "add",
+                lineId: intent.lineId,
+                product: intent.product,
+                trackedQuantity,
+              },
+            ],
+          },
+          context,
+        );
+        const line = command?.receipt.lineResults[0];
+        if (!command || !line || (line.status !== "added" && line.status !== "merged"))
+          throw new SavedListDiscoveryError("list-unavailable", "Saved List addition has no matching receipt.");
+        if (
+          destination.kind === "new" &&
+          !(await deps.savedLists.readCreationReceipt(
+            {
+              commandId: destination.createCommandId,
+              listId: destination.listId,
+              ownerAccountId: input.accountId,
+              title: destination.title,
+            },
+            context,
+          ))
+        )
+          throw new SavedListDiscoveryError("list-unavailable", "Saved List addition has no matching receipt.");
+        return {
+          command,
+          listId: destination.listId,
+          title: command.savedList.title,
+          lineStatus: line.status,
+          alreadyClaimed: true,
+          analyticsLabel: "saved-list.guest-intent-claimed" as const,
+        };
       }
       if (destination.kind === "existing") {
         const target = await deps.savedLists.getOwnerSnapshot(
@@ -643,24 +685,6 @@ function assertMatchingClaim(
   if (!matches) {
     throw new SavedListDiscoveryError("intent-already-claimed", "Saved List addition is already being claimed.");
   }
-}
-
-function parseClaimedResponse(value: unknown): SavedListAdditionResponse | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Partial<SavedListAdditionResponse>;
-  return candidate.command && candidate.listId && candidate.title ? (candidate as SavedListAdditionResponse) : null;
-}
-
-function replayClaimedResponse(response: SavedListAdditionResponse): SavedListAdditionResponse {
-  return {
-    ...response,
-    alreadyClaimed: true,
-    analyticsLabel: "saved-list.guest-intent-claimed",
-    command: {
-      ...response.command,
-      receipt: { ...response.command.receipt, replayed: true },
-    },
-  };
 }
 
 function toIntent(row: AnonymousIntentRow): AnonymousSavedListIntent {
