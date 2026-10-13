@@ -2,10 +2,11 @@ import { forwardRef, useCallback, type ComponentPropsWithoutRef, type ReactNode 
 import { Form as ReactRouterForm, Link as ReactRouterLink, useLocation, useNavigate } from "react-router";
 import { cx } from "../../utils/cx";
 import type { LinkAdapterProps, LinkComponent } from "../../theme/link-adapter";
-import { FormProvider, type FormStatus } from "./form";
+import { FormProvider, type FormContextValue, type FormStatus } from "./form";
 
 export interface RouterFormProps extends Omit<ComponentPropsWithoutRef<typeof ReactRouterForm>, "style"> {
   children?: ReactNode;
+  errorAnnouncement?: FormContextValue["errorAnnouncement"];
   disabled?: boolean;
   submitting?: boolean;
   status?: FormStatus;
@@ -23,6 +24,7 @@ const spacingClasses = {
 export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function RouterForm(
   {
     children,
+    errorAnnouncement,
     disabled = false,
     submitting = false,
     status = submitting ? "submitting" : "idle",
@@ -40,6 +42,7 @@ export const RouterForm = forwardRef<HTMLFormElement, RouterFormProps>(function 
 
   return (
     <FormProvider
+      errorAnnouncement={errorAnnouncement}
       disabled={disabled}
       submitting={submitting}
       status={status}
