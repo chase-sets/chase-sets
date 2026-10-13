@@ -1,7 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { canonicalParticipantRequest, parseParticipantAttempt, parseParticipantLookup } from "./participant-attempt";
+import {
+  canonicalParticipantRequest,
+  parseParticipantAttempt,
+  parseParticipantLookup,
+  type ParticipantAction,
+} from "./participant-attempt";
 
 describe("schema negatives", () => {
+  it("rejects unknown canonical actions before hashing", () => {
+    expect(() => canonicalParticipantRequest("unexpected" as ParticipantAction, { reason: "Valid reason" })).toThrow();
+  });
+  it("rejects array-shaped outcome IDs without coercion", () => {
+    expect(() =>
+      parseParticipantLookup({
+        outcome: "committed",
+        actionKind: "cancel",
+        result: {
+          id: ["sup_case"],
+          version: 2,
+          status: "cancelled",
+          evidenceId: null,
+          responseId: null,
+          offerId: null,
+        },
+      }),
+    ).toThrow();
+  });
   it("normalizes versioned ordered business inputs, not unknown transport fields", () => {
     expect(
       canonicalParticipantRequest("open-support-request", { flowType: "product-not-received", orderId: " ord_case " }),

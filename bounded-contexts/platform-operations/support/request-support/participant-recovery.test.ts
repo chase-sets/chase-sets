@@ -12,6 +12,18 @@ const descriptor = {
   requestHash: "a".repeat(64),
 };
 describe("reload/serialization scan/account-switch/tenant-mismatch matrix", () => {
+  it("rejects array-shaped recovery actions instead of coercing them to a participant action", () => {
+    const form = new FormData();
+    form.set(
+      "participantRecovery",
+      JSON.stringify({
+        phase: "ambiguous",
+        descriptor: { ...descriptor, actionKind: ["cancel"] },
+        ...actor,
+      }),
+    );
+    expect(() => readParticipantRecovery(form, actor)).toThrow();
+  });
   it("retains one bounded inert descriptor, no business text or file metadata, and reload performs only reads", async () => {
     const form = new FormData();
     form.set("participantRecovery", JSON.stringify({ phase: "ambiguous", descriptor, ...actor }));

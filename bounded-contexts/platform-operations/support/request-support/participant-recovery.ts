@@ -34,7 +34,8 @@ export function readParticipantRecovery(
   )
     throw new Error("Support recovery owner changed");
   const d = closedObject(b.descriptor, ["actionKind", "targetId", "attemptId", "requestHash"]);
-  const actionKind = participantAction(String(d.actionKind));
+  if (typeof d.actionKind !== "string") throw new Error("Invalid support recovery action");
+  const actionKind = participantAction(d.actionKind);
   const attempt = parseParticipantAttempt({ attemptId: d.attemptId, requestHash: d.requestHash });
   if (
     Object.keys(d).length !== 4 ||

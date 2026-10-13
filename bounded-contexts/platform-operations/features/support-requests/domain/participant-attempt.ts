@@ -113,6 +113,7 @@ function ids(value: unknown, attachment = false): readonly string[] | null {
 
 // The same versioned normalization runs before hashing at both dispatch boundaries.
 export function canonicalParticipantRequest(actionKind: ParticipantAction, input: unknown): string {
+  participantAction(actionKind);
   let payload: Record<string, unknown>;
   switch (actionKind) {
     case "open-support-request": {
@@ -215,7 +216,8 @@ export function parseParticipantLookup(value: unknown): ParticipantLookup {
       !Number.isSafeInteger(r.version) ||
       r.version < 1 ||
       r.status !== participantActions[actionKind].status ||
-      !/^sup_[A-Za-z0-9_-]{1,80}$/.test(String(r.id)) ||
+      typeof r.id !== "string" ||
+      !/^sup_[A-Za-z0-9_-]{1,80}$/.test(r.id) ||
       ["evidenceId", "responseId", "offerId"].some((key, index) => {
         const id = r[key];
         return (
