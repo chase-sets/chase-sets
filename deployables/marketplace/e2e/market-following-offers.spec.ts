@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext } from "@playwright/test";
+import { expect, test, type APIResponse, type BrowserContext } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -6,7 +6,10 @@ import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  appendFreshWriteTokenFromSources,
   encodeFreshWriteReceipt,
+  readFreshWriteToken,
+  readResponseConsistencyMetadata,
 } from "@chase-sets/http/responses";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
@@ -52,6 +55,47 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   let policyId: string | undefined;
   let sellerContext: BrowserContext | undefined;
   const authorizations: unknown[] = [];
+  const writes: unknown[] = [];
+  const rememberWrite = (response: APIResponse) => {
+    const metadata = readResponseConsistencyMetadata({ headers: new Headers(response.headers()) });
+    expect(metadata?.commitPositions.length, "retain the real command's commit receipt").toBeGreaterThan(0);
+    writes.push(metadata);
+  };
+  const freshReadHeaders = (target: "marketplace" | "ordering") => {
+    const receipt = readFreshWriteToken(appendFreshWriteTokenFromSources("http://localhost/", writes));
+    expect(receipt, "carry the captured command receipts into the exact read").not.toBeNull();
+    return {
+      [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt!),
+      [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: target,
+    };
+  };
+  const submitTestOffer = async (offer: {
+    catalogItemId: string;
+    productId: string;
+    itemTitle: string;
+    selectedOptions: { dimensionId: string; optionId: string }[];
+    priceAmount: string;
+    priceCurrencyCode: string;
+    quantityRequested: number;
+  }) => {
+    const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
+      data: {
+        ...offer,
+        shippingDestinationSnapshot: {
+          name: "Synthetic Buyer",
+          line1: "1 Main Street",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+      },
+    });
+    expect(submitted.status()).toBe(201);
+    rememberWrite(submitted);
+    return String((await submitted.json()).id);
+  };
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
       removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
@@ -88,6 +132,24 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       accountId: identitySeedIds.collector.accountId,
     });
     expect(actor.permissions, "offers.manage on the receipted session response").toContain("offers.manage");
+    const controlOfferIds: string[] = [];
+    for (const seedOfferId of [fixture.offerId, fixture.heldOfferId]) {
+      const response = await page.request.get(`/api/marketplace/account/offers/submitted/${seedOfferId}`);
+      expect(response.ok(), "read the seed only as a template; never attach its permanent membership").toBe(true);
+      const source = await response.json();
+      controlOfferIds.push(
+        await submitTestOffer({
+          catalogItemId: source.catalog_catalog_item_id,
+          productId: source.product_id,
+          itemTitle: source.item_title,
+          selectedOptions: source.selected_options,
+          priceAmount: source.price_amount,
+          priceCurrencyCode: source.price_currency_code,
+          quantityRequested: source.quantity_requested,
+        }),
+      );
+    }
+    const [controlOfferId, heldControlOfferId] = controlOfferIds;
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/account/offers/submitted")) {
         const fields = new URLSearchParams(request.postData() ?? "");
@@ -97,11 +159,11 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           authorizations.push(JSON.parse(command));
       }
     });
-    await page.goto("/account/offers/submitted");
+    await page.goto(appendFreshWriteTokenFromSources("/account/offers/submitted", writes));
     await page.getByRole("switch", { name: "Follow the market for selected Offers" }).click();
     for (const name of [
-      `Select Surging Sparks Booster Box (${fixture.offerId})`,
-      `Select Pikachu (${fixture.heldOfferId})`,
+      `Select Surging Sparks Booster Box (${controlOfferId})`,
+      `Select Pikachu (${heldControlOfferId})`,
     ]) {
       const selection = page.getByRole("checkbox", { name });
       await selection.focus();
@@ -171,12 +233,14 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     {
       const seller = await sellerContext.newPage();
       await signInWithPassword(seller, String(testInfo.project.use.baseURL), marketplaceBrowserE2eSellerCredentials());
-      const response = await seller.request.get(`/api/marketplace/account/offers/matches/${fixture.heldOfferId}`);
+      const response = await seller.request.get(`/api/marketplace/account/offers/matches/${heldControlOfferId}`, {
+        headers: freshReadHeaders("marketplace"),
+      });
       expect(response.ok()).toBe(true);
       const match = await response.json();
       expect(match.can_fulfill).toBe(false);
       expect(["unavailable", "held", "refresh_required"]).toContain(match.managed_status);
-      await seller.goto(`/account/offers/matches/${fixture.heldOfferId}`);
+      await seller.goto(appendFreshWriteTokenFromSources(`/account/offers/matches/${heldControlOfferId}`, writes));
       await expect(seller.getByRole("button", { name: "Accept offer match", exact: true }).first()).toBeDisabled();
       const sellerMarkup = await seller.content();
       for (const field of [
@@ -221,14 +285,14 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     await page.getByRole("button", { name: "Stop market following" }).click();
     await expect(page.getByText("Stopped", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Preview to resume" })).toHaveCount(0);
-    await page.goto(`/account/offers/submitted/${fixture.offerId}`);
+    await page.goto(`/account/offers/submitted/${controlOfferId}`);
     await page.getByRole("button", { name: /^Manage Stopped/ }).click();
     await expect(page.getByText(/Stop is permanent/)).toBeVisible();
     await test.step("Two Offers of one policy each create exactly one distinct Order", async () => {
       const offerIds: string[] = [];
       for (let index = 0; index < 2; index++) {
-        const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
-          data: {
+        offerIds.push(
+          await submitTestOffer({
             catalogItemId: fixture.catalogItemId,
             productId: fixture.productId,
             itemTitle: "Surging Sparks Booster Box",
@@ -236,19 +300,8 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             priceAmount: fixture.amount,
             priceCurrencyCode: "USD",
             quantityRequested: 1,
-            shippingDestinationSnapshot: {
-              name: "Synthetic Buyer",
-              line1: "1 Main Street",
-              line2: null,
-              city: "Chicago",
-              state: "IL",
-              postalCode: "60601",
-              country: "US",
-            },
-          },
-        });
-        expect(submitted.status()).toBe(201);
-        offerIds.push((await submitted.json()).id);
+          }),
+        );
       }
       const acceptancePolicyId = `bop_${crypto.randomUUID()}`;
       const commandUrl = `/api/marketplace/account/offer-policies/${acceptancePolicyId}/commands`;
@@ -291,6 +344,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           },
         });
         expect(authorized.ok()).toBe(true);
+        rememberWrite(authorized);
         const seller = await sellerContext!.newPage();
         let listingId: string | undefined;
         try {
@@ -303,28 +357,48 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             },
           });
           expect(listing.status(), "create test-owned stock; the seeded demo Listing is withdrawn").toBe(201);
+          rememberWrite(listing);
           const draft = await listing.json();
           listingId = draft.id;
           const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
             data: { feeQuoteFingerprint: draft.feeQuoteFingerprint },
           });
           expect(published.ok(), "publish the test-owned two-unit Listing through its normal gates").toBe(true);
+          rememberWrite(published);
+          const fixtureRead = await seller.request.get(`/api/marketplace/account/listings/${listingId}`, {
+            headers: freshReadHeaders("marketplace"),
+          });
+          expect(fixtureRead.ok(), "receipted read of the exact owned seller stock").toBe(true);
+          expect(await fixtureRead.json()).toMatchObject({
+            listing_id: listingId,
+            product_id: fixture.productId,
+            price_currency_code: "USD",
+            status: "active",
+          });
           for (const offerId of offerIds) {
             await expect
               .poll(async () => {
-                const response = await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`);
+                const response = await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`, {
+                  headers: freshReadHeaders("marketplace"),
+                });
                 return { httpStatus: response.status(), ...(await response.json()) };
               })
               .toMatchObject({ httpStatus: 200, can_fulfill: true, listing_id: listingId });
-            const match = await (await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`)).json();
+            const match = await (
+              await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`, {
+                headers: freshReadHeaders("marketplace"),
+              })
+            ).json();
             const quote = await seller.request.get(
               `/api/marketplace/account/offers/matches/${offerId}/terms-preview?listingId=${match.listing_id}`,
+              { headers: freshReadHeaders("marketplace") },
             );
             expect(quote.ok()).toBe(true);
             const acceptance = await seller.request.post(`/api/marketplace/account/offers/matches/${offerId}/accept`, {
               data: { listingId: match.listing_id, feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint },
             });
             expect(acceptance.status()).toBe(201);
+            rememberWrite(acceptance);
           }
         } finally {
           try {
@@ -337,7 +411,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           }
         }
         const readOrders = async () => {
-          const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
+          const response = await page.request.get("/api/marketplace/account/purchases?limit=100", {
+            headers: freshReadHeaders("ordering"),
+          });
           expect(response.ok()).toBe(true);
           const result = await response.json();
           expect(result.count).toBe(result.total);
