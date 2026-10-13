@@ -40,6 +40,8 @@ export type TermsRouteDeps = Readonly<{
  * account consent-history display), and `POST /accept` records acceptance
  * of the active version for the current actor. Both always resolve the
  * active version server-side; the client never supplies a version or guard.
+ * Read-side status honors the publication override; recording always uses the
+ * compiled publication and fails closed if that override diverges.
  */
 export function termsOfServiceConsentRoutes(deps: TermsRouteDeps) {
   const app = new Hono<IdentityApiEnv>();

@@ -320,6 +320,60 @@ describe("internally resolved Terms recording", () => {
 });
 
 describe("closed generic Consent admission", () => {
+  it("post-call mutation of command.type cannot record through the generic handler", async () => {
+    const h = createHarness();
+    const command: Record<string, unknown> = {
+      type: "WithdrawConsent",
+      consentId: h.input.consentId,
+      subjectType: "user",
+      userId: h.input.userId,
+      accountId: h.input.accountId,
+      policyKey: "seller-agreement",
+      policyVersion: "v999",
+      recordedAt: h.input.recordedAt,
+    };
+    const pending = h.runtime.commandHandler({
+      streamId: h.input.streamId,
+      command,
+      context,
+      authorization: h.input.authorization,
+    } as never);
+    command.type = "RecordConsent";
+    await pending.catch(() => undefined);
+    expect(h.appendToStream).not.toHaveBeenCalled();
+    expect(h.appendToStreams).not.toHaveBeenCalled();
+    expect(h.memory.readAllEvents()).toEqual([]);
+  });
+
+  it("a flipping type getter cannot record through the generic handler", async () => {
+    const h = createHarness();
+    let reads = 0;
+    const command = {
+      get type() {
+        reads += 1;
+        return reads === 1 ? "WithdrawConsent" : "RecordConsent";
+      },
+      consentId: h.input.consentId,
+      subjectType: "user",
+      userId: h.input.userId,
+      accountId: h.input.accountId,
+      policyKey: "seller-agreement",
+      policyVersion: "v999",
+      recordedAt: h.input.recordedAt,
+    };
+    await h.runtime
+      .commandHandler({
+        streamId: h.input.streamId,
+        command,
+        context,
+        authorization: h.input.authorization,
+      } as never)
+      .catch(() => undefined);
+    expect(h.appendToStream).not.toHaveBeenCalled();
+    expect(h.appendToStreams).not.toHaveBeenCalled();
+    expect(h.memory.readAllEvents()).toEqual([]);
+  });
+
   it.each([
     { policyKey: "seller-agreement", policyVersion: "v999" },
     { policyKey: "privacy-policy", policyVersion: "future-v999", guards: [] },

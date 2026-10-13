@@ -411,6 +411,7 @@ export async function resolveConsentPolicyMemberAgainstPublication(
   return (await resolveMember(authority, policyKey, publication)).outcome;
 }
 
+/** Test-only publication override; production recording uses the canonical resolver below. */
 export async function resolveConsentPolicyMemberWithProvenanceAgainstPublication(
   authority: ConsentActivationAuthorityReader,
   policyKey: IdentityConsentPolicyKey,

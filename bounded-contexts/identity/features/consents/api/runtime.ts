@@ -91,16 +91,18 @@ export function createConsentRuntime(deps: IdentityRuntimeDeps): ConsentServices
   });
 
   const commandHandler: ConsentServices["commandHandler"] = async (input) => {
-    if (input.command.type !== "WithdrawConsent") {
+    const requested = input.command;
+    if (requested.type !== "WithdrawConsent") {
       throw new IdentityDomainError("The generic Consent handler only admits WithdrawConsent.");
     }
+    const command: WithdrawConsentCommand = Object.freeze({ type: "WithdrawConsent", withdrawnAt: requested.withdrawnAt });
     const context = snapshotEventStoreContext(input.context);
     assertConsentAuthorizationForContext(input.authorization, context);
 
     return authorizedCommandHandler({
       streamId: input.streamId,
       command: {
-        command: input.command,
+        command,
         authorization: input.authorization,
       },
       context,
