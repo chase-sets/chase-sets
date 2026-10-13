@@ -26,7 +26,7 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
   const actor = {
     email: `${identity}@chasesets.test`,
     password: `E2e!${identity}`,
-    displayName: "Synthetic Revocation Account A",
+    displayName: `E2E ${identity}`,
   };
   await registerSyntheticAccount(page, baseURL, actor, { freshReadRoute: "/account/security" });
   const response = await page.request.get("/api/identity/current-actor-display");
@@ -104,7 +104,7 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
       page.getByText("You can revoke access or confirm interrupted cleanup.", { exact: true }),
     ).toBeVisible();
     const mandate = page.locator('form:has(input[name="intent"][value="update-mandate"])');
-    const webhook = page.locator('form:has(input[name="intent"][value="update-webhook"])');
+    const webhook = page.locator('form:has(button[name="intent"][value="update-webhook"])');
     await expect(mandate).toBeVisible();
     await expect(webhook).toBeVisible();
     let posts = 0;
@@ -141,7 +141,7 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
       {
         email: `${otherId}@chasesets.test`,
         password: `E2e!${otherId}`,
-        displayName: "Synthetic Revocation Account B",
+        displayName: `E2E ${otherId}`,
       },
       { freshReadRoute: "/account/security" },
     );
