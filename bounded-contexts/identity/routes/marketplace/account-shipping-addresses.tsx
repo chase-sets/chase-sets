@@ -3,7 +3,14 @@ import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react
 import { data, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
-import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
+import { defineFormAction, defineResourceRoute } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import {
+  accountMutationResponse,
+  requireInterruptionSafeClient,
+} from "../../features/account-management/api/marketplace-action";
+import type { MutationResult } from "../../features/account-management/api/runtime";
+import { AccountMutationBoundary } from "../../features/account-management/ui/controller";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createIdentityRequestApiClient,
@@ -59,6 +66,7 @@ function addressBody(formData: FormData) {
     phone: nullableText(formData, "phone"),
     email: nullableText(formData, "email"),
     makeDefault: text(formData, "makeDefault") === "true",
+    addressVerificationDecision: text(formData, "addressVerificationDecision") || null,
   };
 }
 
@@ -73,8 +81,13 @@ export const loader = defineResourceRoute({
   errorAdapter: identityApiErrorAdapter,
   load: ({ request, actor }) =>
     createIdentityRequestApiClient(request).listShippingAddresses<ListResponse<ShippingAddress>>(actor!.accountId),
-  map: (response) => ({ addresses: response.items, loadError: null }),
-  onPending: () => ({
+  map: (response, { actor }) => ({
+    addresses: response.items,
+    loadError: null,
+    mutationActor: { tenantId: actor!.tenantId, userId: actor!.userId, accountId: actor!.accountId },
+  }),
+  onPending: (_result, { actor }) => ({
+    mutationActor: { tenantId: actor!.tenantId, userId: actor!.userId, accountId: actor!.accountId },
     addresses: emptyAddressList().items,
     loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
   }),
@@ -87,27 +100,39 @@ async function handleShippingAddressAction(intent: string, request: Request, for
 
   try {
     if (intent === "create") {
-      return formActionRedirect(
-        await api.createShippingAddress(accountId, addressBody(formData)),
+      const result = await api.createShippingAddress<MutationResult>(accountId, addressBody(formData));
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     if (intent === "update" && shippingAddressId) {
-      return formActionRedirect(
-        await api.updateShippingAddress(accountId, shippingAddressId, addressBody(formData)),
+      const result = await api.updateShippingAddress<MutationResult>(
+        accountId,
+        shippingAddressId,
+        addressBody(formData),
+      );
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     if (intent === "default" && shippingAddressId) {
-      return formActionRedirect(
-        await api.setDefaultShippingAddress(accountId, shippingAddressId),
+      const result = await api.setDefaultShippingAddress<MutationResult>(accountId, shippingAddressId);
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     if (intent === "archive" && shippingAddressId) {
-      return formActionRedirect(
-        await api.archiveShippingAddress(accountId, shippingAddressId),
+      const result = await api.archiveShippingAddress<MutationResult>(accountId, shippingAddressId);
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     return unknownAction();
@@ -142,20 +167,22 @@ async function handleShippingAddressAction(intent: string, request: Request, for
   }
 }
 
-export const action = defineFormAction({
-  authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
-  intents: {
-    create: ({ request, formData, actor }) =>
-      handleShippingAddressAction("create", request, formData, actor!.accountId),
-    update: ({ request, formData, actor }) =>
-      handleShippingAddressAction("update", request, formData, actor!.accountId),
-    default: ({ request, formData, actor }) =>
-      handleShippingAddressAction("default", request, formData, actor!.accountId),
-    archive: ({ request, formData, actor }) =>
-      handleShippingAddressAction("archive", request, formData, actor!.accountId),
-  },
-  onUnknownIntent: unknownAction,
-});
+export const action = requireInterruptionSafeClient(
+  defineFormAction({
+    authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
+    intents: {
+      create: ({ request, formData, actor }) =>
+        handleShippingAddressAction("create", request, formData, actor!.accountId),
+      update: ({ request, formData, actor }) =>
+        handleShippingAddressAction("update", request, formData, actor!.accountId),
+      default: ({ request, formData, actor }) =>
+        handleShippingAddressAction("default", request, formData, actor!.accountId),
+      archive: ({ request, formData, actor }) =>
+        handleShippingAddressAction("archive", request, formData, actor!.accountId),
+    },
+    onUnknownIntent: unknownAction,
+  }),
+);
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -164,7 +191,14 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<Readonly<{ failure: Readonly<{ message: string }> }>>();
   const failure = actionData && "failure" in actionData ? actionData.failure : null;
-  return <ShippingAddressPage addresses={data.addresses} errorMessage={failure?.message ?? data.loadError ?? null} />;
+  return (
+    <AccountMutationBoundary
+      key={`${data.mutationActor.tenantId}:${data.mutationActor.userId}:${data.mutationActor.accountId}`}
+      actor={data.mutationActor}
+    >
+      <ShippingAddressPage addresses={data.addresses} errorMessage={failure?.message ?? data.loadError ?? null} />
+    </AccountMutationBoundary>
+  );
 }

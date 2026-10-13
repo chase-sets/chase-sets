@@ -392,7 +392,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[66]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[75]).toContain("pool as PgQueryable");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {
@@ -446,7 +446,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 44)?.outcome).toBe(
       "not-sql",
     );
-    expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 154)?.outcome).toBe("not-sql");
+    expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 168)?.outcome).toBe("not-sql");
     expect(callAt(result, "contracts/event-core/projector.ts", 130)).toBeUndefined();
     const projectorLines = readFileSync(path.join(repoRoot, "contracts/event-core/projector.ts"), "utf8").split(
       /\r?\n/,

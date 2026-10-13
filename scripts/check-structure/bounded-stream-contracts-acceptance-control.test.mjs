@@ -70,6 +70,9 @@ const expectedInventory = [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
     null,
   ],
+  // Fenced enrollment reads the creation event; its decorator still forwards complete caller requests.
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", "1"],
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
   [
@@ -107,9 +110,45 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact seventeen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact nineteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("keeps the Identity eligibility adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#2"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments[0].getText(site.source)).toBe("input");
+    expect(site.limit).toBeNull();
+  });
+
+  it("limits the Identity enrollment read to exactly the creation event", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual([
+      "{ streamId: input.streamId, fromVersion: 1, limit: 1 }",
+    ]);
+    expect(site.limit).toBe("1");
+    const file = site.file;
+    const source = readSource(file);
+    expect(
+      errorCodes(mutatedInventory(file, source.replace("fromVersion: 1, limit: 1", "fromVersion: 1, limit: 2"))),
+    ).toContain("inventory-mismatch");
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          source.replace(
+            "readStream: (input) => store.readStream(input)",
+            "readStream: (input) => store.readStream({ ...input, limit: 1 })",
+          ),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
   });
 
   it("keeps the promotion authority decorator's page request unchanged", () => {

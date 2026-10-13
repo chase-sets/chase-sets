@@ -22,9 +22,15 @@ import { createShippingAddressRuntime } from "../../features/shipping-addresses/
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
 import { createAgentGrantRevocations, type AgentGrantRevocations } from "../../features/agent-grants/api/revocation";
+import { createIdentityMutationPersistence } from "../../features/account-management/api/fences";
+import {
+  createAccountManagementRuntime,
+  type AccountManagementServices,
+} from "../../features/account-management/api/runtime";
 
 export type IdentityServices = Readonly<{
   eventStore?: EventStore;
+  accountManagement?: AccountManagementServices;
   accessHub: ReturnType<typeof createAccessHubRuntime>;
   accounts: ReturnType<typeof createAccountRuntime>;
   accountCapabilities: ReturnType<typeof createAccountCapabilityRuntime>;
@@ -59,10 +65,13 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   ) {
     throw new Error("Identity requires capabilityAdministrationAuthority host capability.");
   }
-  const eventStore = createPostgresEventStore({
+  const postgresEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
   });
+  let projectors: readonly ProjectionHandlerSet[] = [];
+  const mutationPersistence = createIdentityMutationPersistence(pool, postgresEventStore, () => projectors);
+  const eventStore = mutationPersistence.eventStore;
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
@@ -96,10 +105,25 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const preferences = createUserPreferencesRuntime(deps);
   const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool);
   const shippingAddresses = createShippingAddressRuntime(deps);
+  const accountManagement = createAccountManagementRuntime(mutationPersistence, { auth, shippingAddresses });
+
+  projectors = [
+    ...accounts.projectors,
+    ...users.projectors,
+    ...memberships.projectors,
+    ...invitations.projectors,
+    ...foundersCohort.projectors,
+    ...apiKeys.projectors,
+    ...consents.projectors,
+    ...preferences.projectors,
+    ...shippingAddresses.projectors,
+    ...policies.projectors,
+  ];
 
   return {
     eventStore,
     agentGrantRevocations: createAgentGrantRevocations(pool, eventStore),
+    accountManagement,
     accessHub,
     accounts,
     accountCapabilities,
@@ -113,18 +137,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     linkedPlatformAuthorizations,
     shippingAddresses,
     policies,
-    projectors: [
-      ...accounts.projectors,
-      ...users.projectors,
-      ...memberships.projectors,
-      ...invitations.projectors,
-      ...foundersCohort.projectors,
-      ...apiKeys.projectors,
-      ...consents.projectors,
-      ...preferences.projectors,
-      ...shippingAddresses.projectors,
-      ...policies.projectors,
-    ],
+    projectors,
     pool,
     db,
     auth,

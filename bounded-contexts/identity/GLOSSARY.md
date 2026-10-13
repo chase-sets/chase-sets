@@ -14,6 +14,14 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Account Management Mutation Attempt
+
+An **Account Management Mutation Attempt** binds one explicit account-management
+submission to its tenant, User, Account, action, and normalized caller intent.
+Its private immutable receipt commits atomically with the owning aggregate's
+events. Replaying the same attempt returns that original result and separately
+identified current owner state, never another write or a recovered API key secret.
+
 ### Consent Activation
 
 **Consent Activation** is the authenticated operator act that makes a published policy version required through its Consent Activation Authority. Registration only declares a consent-capable key; a policy document revision alone does not activate it. Deactivation removes the active requirement without deleting authority history or Consent facts.
