@@ -3,7 +3,6 @@ export { createMarketplaceApiClient, marketplaceApi, MarketplaceApiError } from 
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
-  OfferBuyerMute,
   MarketplaceApiClientOptions,
   MarketplaceOffer,
   PublicOfferDetail,

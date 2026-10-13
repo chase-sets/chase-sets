@@ -9,6 +9,7 @@ import { canonicalParticipantRequest, type ParticipantAction } from "../domain/p
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { createSupportRequestRuntime } from "./runtime";
 import { buildSupportApi, type SupportApiEnv } from "./http";
+import type { SupportEvidenceAttachmentStorage } from "./attachments";
 
 export const buyer = evidenceActor("viewer", ["support.view", "support.manage"], true);
 export const attemptId = "7163_attempt_0123456789abcdef";
@@ -26,7 +27,11 @@ export function participantFixture(store?: EventStore) {
   const memory = createInMemoryEventStore();
   const eventStore = store ?? memory.eventStore;
   let actor: ResolvedActor | null = buyer;
-  const storage = { putObject: vi.fn(), getObject: vi.fn(), deleteObjects: vi.fn() };
+  const storage = {
+    putPrivate: vi.fn<SupportEvidenceAttachmentStorage["putPrivate"]>(),
+    readPrivate: vi.fn<SupportEvidenceAttachmentStorage["readPrivate"]>(),
+    verifyPrivate: vi.fn<SupportEvidenceAttachmentStorage["verifyPrivate"]>(),
+  } satisfies SupportEvidenceAttachmentStorage;
   const db = {
     query: vi.fn(async (sql: string) => ({
       rows: sql.includes("FROM support_order_sources")

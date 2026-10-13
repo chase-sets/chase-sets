@@ -250,11 +250,7 @@ A **Commerce Commitment Request** is the integration fact emitted when Marketpla
 
 ## Offer Decline
 
-An **Offer Decline** is a seller action that hides one Offer Match from that seller's listing-specific match surface without ending the marketplace-wide Offer.
-
-## Buyer Offer Mute
-
-A **Buyer Offer Mute** is a seller action that hides current and future Offer Matches from one buyer account for a specific Listing until removed.
+An **Offer Decline** is a seller's private hide of one marketplace-wide Offer across that seller's matching Listings. It does not hide the Offer from other sellers, end the Offer, count toward a buyer limit, or start a cooldown.
 
 ## Review
 

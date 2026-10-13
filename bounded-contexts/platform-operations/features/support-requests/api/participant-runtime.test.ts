@@ -58,7 +58,7 @@ describe("scoped-attempt matrix", () => {
     }
     expect(readStream).not.toHaveBeenCalled();
     expect(appendToStream).not.toHaveBeenCalled();
-    expect(f.storage.putObject).not.toHaveBeenCalled();
+    for (const operation of Object.values(f.storage)) expect(operation).not.toHaveBeenCalled();
   });
   it("same owner/id changed action conflicts with valid domain prerequisites", async () => {
     const f = participantFixture();
@@ -245,8 +245,6 @@ describe("history matrix", () => {
     f.setActor(null);
     expect((await f.app.request(url)).status).toBe(401);
     expect(f.allEvents).toHaveLength(before);
-    expect(f.storage.putObject).not.toHaveBeenCalled();
-    expect(f.storage.getObject).not.toHaveBeenCalled();
-    expect(f.storage.deleteObjects).not.toHaveBeenCalled();
+    for (const operation of Object.values(f.storage)) expect(operation).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,7 @@ import {
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
-import { formatMoney, t } from "@chase-sets/localization";
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -143,21 +143,6 @@ function offerAbuseControlMessage(error: MarketplaceOfferAbuseControlError) {
       return t("marketplace.features.offers.api.route.offer.daily.submission.cap.reached", {
         limit: String(error.details.limit ?? ""),
       });
-    case "offer_listing_submission_cap_reached":
-      return t("marketplace.features.offers.api.route.offer.listing.submission.cap.reached", {
-        limit: String(error.details.limit ?? ""),
-      });
-    case "offer_price_floor_not_met":
-      return t("marketplace.features.offers.api.route.offer.price.floor.not.met", {
-        amount: formatMoney(
-          String(error.details.minimumOfferAmount ?? "0.00"),
-          String(error.details.minimumOfferCurrencyCode ?? ""),
-        ),
-      });
-    case "offer_lowball_cooldown":
-      return t("marketplace.features.offers.api.route.offer.lowball.cooldown");
-    case "offer_muted_by_sellers":
-      return t("marketplace.features.offers.api.route.offer.muted.by.sellers");
     default:
       return error.message;
   }
@@ -425,27 +410,6 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     });
   });
 
-  app.get("/offers/mutes", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
-    if (access.response) {
-      return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
-    }
-
-    const result = await services.listOfferBuyerMutes(access.actor.accountId);
-
-    return c.json({
-      ...result,
-      count: result.items.length,
-    });
-  });
-
   app.get("/offers/matches/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
     if (access.response) {
@@ -607,97 +571,6 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       );
 
       return c.json({ id: result.offerId, version: result.version, status: "declined" }, 201);
-    } catch (error) {
-      return validationError(c, error);
-    }
-  });
-
-  app.post("/offers/matches/:id/mute-buyer", async (c) => {
-    const access = requireOfferAccess(c, "offers.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
-          },
-        },
-        401,
-      );
-    }
-
-    try {
-      const result = await services.muteBuyerOffers(
-        {
-          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
-          sellerAccountId: access.actor.accountId as AccountId,
-        },
-        context,
-      );
-
-      return c.json({ id: result.offerId, version: result.version, status: "muted" }, 201);
-    } catch (error) {
-      return validationError(c, error);
-    }
-  });
-
-  app.post("/offers/mutes/:listingId/:buyerAccountId/unmute", async (c) => {
-    const access = requireOfferAccess(c, "offers.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
-          },
-        },
-        401,
-      );
-    }
-
-    try {
-      const result = await services.unmuteBuyerOffers(
-        {
-          listingId: c.req.param("listingId"),
-          buyerAccountId: parseTypedIdBoundary(c.req.param("buyerAccountId"), "acc", "buyerAccountId"),
-          sellerAccountId: access.actor.accountId as AccountId,
-        },
-        context,
-      );
-
-      return c.json(
-        {
-          listingId: result.listingId,
-          buyerAccountId: result.buyerAccountId,
-          version: result.version,
-          status: "unmuted",
-        },
-        201,
-      );
     } catch (error) {
       return validationError(c, error);
     }

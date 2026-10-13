@@ -155,9 +155,14 @@ describe("support request runtime", () => {
       ],
     });
     const storage = {
-      putObject: vi.fn(),
-      getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
-      deleteObjects: vi.fn(),
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(async () => ({
+        status: "found" as const,
+        body,
+        byteSize: body.length,
+        providerContentType: "image/jpeg",
+      })),
+      verifyPrivate: vi.fn(),
     };
     const runtime = createSupportRequestRuntime({
       eventStore,
@@ -187,7 +192,7 @@ describe("support request runtime", () => {
         actor: evidenceActor("platform-admin", ["support.view"], false, "acc_operator"),
       }),
     ).rejects.toMatchObject({ status: 404 });
-    expect(storage.getObject).toHaveBeenCalledTimes(1);
+    expect(storage.readPrivate).toHaveBeenCalledTimes(1);
     expect(db.query).not.toHaveBeenCalled();
   });
 

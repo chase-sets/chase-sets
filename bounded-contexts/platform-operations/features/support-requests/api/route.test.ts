@@ -22,6 +22,10 @@ import {
 } from "../tests/attachment-intake.test-support";
 import { SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES, SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS } from "./attachment-intake";
 import { canonicalParticipantRequest } from "../domain/participant-attempt";
+import {
+  canonicalizeSupportEvidenceImage,
+  createSupportEvidenceCanonicalizationQueue,
+} from "./evidence-canonicalization";
 
 const participantReference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
 
@@ -71,7 +75,7 @@ describe("support attachment capability x role x participation", () => {
     ).request(request);
     expect(response.status, await response.clone().text()).toBe(201);
     expect((await response.json()).attachments).toHaveLength(5);
-    expect(fixture.storage.putObject).toHaveBeenCalledTimes(5);
+    expect(fixture.storage.putPrivate).toHaveBeenCalledTimes(5);
   });
   for (const scenario of ["declared-over", "stream-over", "cap", "stalled"] as const) {
     it(`bounds API intake ${scenario} with zero storage calls`, async () => {
@@ -83,6 +87,7 @@ describe("support attachment capability x role x participation", () => {
         scenario === "declared-over" ? cap + 1 : cap,
         scenario === "stalled",
       );
+      request.headers.set("x-support-attachment-operation-id", "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV");
       const parse = vi.spyOn(Response.prototype, "formData");
       if (scenario === "stalled") vi.useFakeTimers();
       try {
@@ -94,8 +99,8 @@ describe("support attachment capability x role x participation", () => {
         const response = await pending;
         expect(response.status).toBe(scenario === "stalled" ? 408 : scenario === "cap" ? 400 : 413);
         expect(parse).toHaveBeenCalledTimes(scenario === "cap" ? 1 : 0);
-        expect(fixture.storage.putObject).not.toHaveBeenCalled();
-        expect(fixture.storage.getObject).not.toHaveBeenCalled();
+        expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+        expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
       } finally {
         parse.mockRestore();
         vi.useRealTimers();
@@ -108,6 +113,7 @@ describe("support attachment capability x role x participation", () => {
     const encoded = await multipartRequest(
       "http://localhost/support-requests/sup_case/attachments",
       await openingPhotoForm(6),
+      { "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
     );
     const bytes = new Uint8Array(await encoded.arrayBuffer());
     const text = new TextDecoder().decode(bytes);
@@ -137,7 +143,7 @@ describe("support attachment capability x role x participation", () => {
       expect(cancelled).toBe(true);
       expect(parse).not.toHaveBeenCalled();
       expect(decode).not.toHaveBeenCalled();
-      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
     } finally {
       parse.mockRestore();
       decode.mockRestore();
@@ -151,7 +157,7 @@ describe("support attachment capability x role x participation", () => {
     "sao_81ARZ3NDEKTSV4RRFFQ69G5FAV",
     "",
   ] as const) {
-    it(`validates optional operation header ${String(header)} after authorization, before parsing`, async () => {
+    it(`requires operation header ${String(header)} after authorization, before parsing or operation staging`, async () => {
       const fixture = await attachmentRouteFixture();
       const request = await multipartRequest(
         "http://localhost/support-requests/sup_case/attachments",
@@ -165,15 +171,13 @@ describe("support attachment capability x role x participation", () => {
           evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
         ).request(request);
         expect(response.status).toBe(400);
-        expect(parse).toHaveBeenCalledTimes(
-          header === undefined || header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" ? 1 : 0,
-        );
+        expect(parse).toHaveBeenCalledTimes(header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" ? 1 : 0);
         expect((await response.json()).error.code).toBe(
-          header === undefined || header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV"
-            ? "invalid-content"
-            : "invalid-operation-id",
+          header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" ? "invalid-content" : "invalid-operation-id",
         );
-        expect(fixture.storage.putObject).not.toHaveBeenCalled();
+        expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+        expect(fixture.storage.verifyPrivate).not.toHaveBeenCalled();
+        expect(fixture.allEvents.filter((e) => e.streamId.startsWith("support.attachment-operation-"))).toHaveLength(0);
       } finally {
         parse.mockRestore();
       }
@@ -184,6 +188,7 @@ describe("support attachment capability x role x participation", () => {
     const request = new Request("http://localhost/support-requests/sup_case/attachments", {
       method: "POST",
       body: new URLSearchParams({ attachments: "photo" }),
+      headers: { "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
     });
     const parse = vi.spyOn(request, "formData");
     const response = await attachmentApp(
@@ -192,7 +197,7 @@ describe("support attachment capability x role x participation", () => {
     ).request(request);
     expect(response.status).toBe(411);
     expect(parse).not.toHaveBeenCalled();
-    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
   });
   for (const role of ["owner", "manager", "fulfillment", "viewer", "platform-admin"]) {
     for (const permitted of [false, true]) {
@@ -236,7 +241,12 @@ describe("support attachment capability x role x participation", () => {
                   { type: "image/jpeg" },
                 ) as File,
               );
-              const intakeRequest = action === "upload" ? await multipartRequest(request.url, form) : request;
+              const intakeRequest =
+                action === "upload"
+                  ? await multipartRequest(request.url, form, {
+                      "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    })
+                  : request;
               const parse = vi.spyOn(intakeRequest, "formData");
               const response = await app.request(intakeRequest);
               const status = !permitted
@@ -257,13 +267,15 @@ describe("support attachment capability x role x participation", () => {
               expect(response.status).toBe(status);
               if (status >= 400) {
                 expect(parse).not.toHaveBeenCalled();
-                expect(fixture.storage.putObject).not.toHaveBeenCalled();
-                expect(fixture.storage.getObject).not.toHaveBeenCalled();
+                expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+                expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
               }
               expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(
                 1,
               );
-              expect(fixture.allEvents.at(-1)?.payload).toMatchObject({
+              expect(
+                fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case").at(-1)?.payload,
+              ).toMatchObject({
                 decision: status >= 400 ? "denied" : "allowed",
                 action,
               });
@@ -288,8 +300,8 @@ describe("support attachment capability x role x participation", () => {
       const parse = vi.spyOn(request, "formData");
       expect((await attachmentApp(fixture.runtime, null).request(request)).status).toBe(401);
       expect(parse).not.toHaveBeenCalled();
-      expect(fixture.storage.getObject).not.toHaveBeenCalled();
-      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
       expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
       expect(fixture.allEvents.at(-1)).toMatchObject({
         tenantId: "tnt_identity",
@@ -323,8 +335,8 @@ describe("support attachment capability x role x participation", () => {
         accountId: "acc_buyer",
         userId: "usr_guest_checkout",
       });
-      expect(fixture.storage.getObject).not.toHaveBeenCalled();
-      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
       expect(parse).not.toHaveBeenCalled();
     },
   );
@@ -344,7 +356,7 @@ describe("support attachment capability x role x participation", () => {
       userId: actor.userId,
       accountId: actor.accountId,
     });
-    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+    expect(fixture.storage.readPrivate).toHaveBeenCalledTimes(1);
   });
 
   it.each([false, true])(
@@ -370,8 +382,8 @@ describe("support attachment capability x role x participation", () => {
       const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
       expect(attempts).toHaveLength(1);
       expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
-      expect(fixture.storage.getObject).not.toHaveBeenCalled();
-      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
     },
   );
 
@@ -405,8 +417,8 @@ describe("support attachment capability x role x participation", () => {
       expect(attempts).toHaveLength(1);
       expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
       expect(JSON.stringify(fixture.allEvents)).not.toContain("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
-      expect(fixture.storage.getObject).not.toHaveBeenCalled();
-      expect(fixture.storage.putObject).not.toHaveBeenCalled();
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
     },
   );
 
@@ -438,8 +450,8 @@ describe("support attachment capability x role x participation", () => {
               !permitted ? 403 : operations ? (granted ? 200 : participant ? 403 : 404) : participant ? 200 : 404,
             );
             expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
-            expect(fixture.storage.getObject).not.toHaveBeenCalled();
-            expect(fixture.storage.putObject).not.toHaveBeenCalled();
+            expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+            expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
           });
         }
       }
@@ -483,7 +495,7 @@ describe("support attachment capability x role x participation", () => {
       (await attachmentApp(fixture.runtime, revoked).request("/support-requests/sup_case/attachments/sea_photo"))
         .status,
     ).toBe(404);
-    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+    expect(fixture.storage.readPrivate).toHaveBeenCalledTimes(1);
   });
 
   it("seller participation authorizes downloads but not audit reads without an assignment", async () => {
@@ -492,7 +504,7 @@ describe("support attachment capability x role x participation", () => {
     expect((await app.request("/support-requests/sup_case/attachments/sea_photo")).status).toBe(200);
     expect(fixture.allEvents.at(-1)?.payload).toMatchObject({ participation: "seller", reason: "participant" });
     expect((await app.request("/support-requests/ops/sup_case/attachments/access-audit")).status).toBe(403);
-    expect(fixture.storage.getObject).toHaveBeenCalledTimes(1);
+    expect(fixture.storage.readPrivate).toHaveBeenCalledTimes(1);
   });
 
   it("audit append failure kills unaudited-read and multipart-before-audit mutants", async () => {
@@ -511,8 +523,8 @@ describe("support attachment capability x role x participation", () => {
     );
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("PLANTED_AUDIT_SECRET");
-    expect(fixture.storage.getObject).not.toHaveBeenCalled();
-    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+    expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
   });
 
   it("provider GET observes committed authorization; later failure cannot claim delivery or expose markers", async () => {
@@ -520,7 +532,7 @@ describe("support attachment capability x role x participation", () => {
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      fixture.storage.getObject.mockImplementationOnce(async () => {
+      fixture.storage.readPrivate.mockImplementationOnce(async () => {
         const attempts = fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
         expect(attempts).toHaveLength(1);
         expect(attempts[0].payload).toMatchObject({ decision: "allowed", action: "download" });
@@ -602,7 +614,7 @@ describe("support attachment capability x role x participation", () => {
       "/support-requests/sup_case/attachments/sea_photo",
     );
     expect(response.status).toBe(503);
-    expect(fixture.storage.getObject).not.toHaveBeenCalled();
+    expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
     expect(fixture.allEvents.at(-1)?.payload).toMatchObject({ decision: "denied", reason: "authority-unavailable" });
   });
 
@@ -615,7 +627,7 @@ describe("support attachment capability x role x participation", () => {
     const parse = vi.spyOn(request, "formData");
     expect((await attachmentApp(fixture.runtime, null).request(request)).status).toBe(404);
     expect(parse).not.toHaveBeenCalled();
-    expect(fixture.storage.putObject).not.toHaveBeenCalled();
+    expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
     expect(fixture.allEvents.filter((event) => event.streamId.startsWith("support.evidence-access-"))).toHaveLength(0);
   });
 });
@@ -682,16 +694,30 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
         },
       ],
     });
+  const storedKeys = new Set<string>();
   const storage = {
-    putObject: vi.fn(async (input: { key: string }) => ({ key: input.key, publicUrl: "private" })),
-    getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
-    deleteObjects: vi.fn(),
+    putPrivate: vi.fn(async (input: { key: string }) => {
+      storedKeys.add(input.key);
+      return { status: "completed" as const, key: input.key };
+    }),
+    readPrivate: vi.fn(async () => ({
+      status: "found" as const,
+      body,
+      byteSize: body.length,
+      providerContentType: "image/jpeg",
+    })),
+    verifyPrivate: vi.fn(async (key: string) => ({
+      status: storedKeys.has(key) ? ("match" as const) : ("absent" as const),
+    })),
   };
   const runtime = createSupportRequestRuntime({
     eventStore,
     db: { query: vi.fn(async () => ({ rows: [supportRequestDetail()] })) } as never,
     checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
     attachmentStorage: storage,
+    attachmentCanonicalizer: createSupportEvidenceCanonicalizationQueue({
+      canonicalize: canonicalizeSupportEvidenceImage,
+    }),
   });
   return { runtime, eventStore, allEvents, storage };
 }
