@@ -122,7 +122,6 @@ const canonicalReserveZeroConsumerExports = [
   "surfaceSemanticToneClasses",
   "Tag",
   "ThemeScope",
-  "ThemePreferenceControl",
   "toastManager",
   "ToastProvider",
   "TokenSwatch",
