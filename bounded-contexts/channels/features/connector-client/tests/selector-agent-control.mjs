@@ -931,6 +931,12 @@ export function createPlaywrightSelectorBrowser({
     }
     const page = await context.newPage();
     await page.goto("chrome://extensions/", { waitUntil: "commit", timeout: remaining() });
+    nativeRemovalStage = "WINDOW";
+    try {
+      await bounded(() => page.bringToFront());
+    } catch {
+      throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    }
     const item = page.locator(`extensions-item[id="${preparation.extensionId}"]`);
     await item.waitFor({ state: "visible", timeout: remaining() });
     if ((await item.count()) !== 1) throw new SelectorFailure("ANCHOR_ABSENT");

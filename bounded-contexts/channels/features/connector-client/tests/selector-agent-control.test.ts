@@ -284,6 +284,8 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
     "native-window-refusal",
     "missing-private-bus",
     "missing-native-action-mutant",
+    "missing-foreground-mutant",
+    "foreground-private-exception",
     "profile-mismatch",
     "duplicate-profile-switch",
     "missing-browser-process",
@@ -301,6 +303,7 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
       removed = false,
       clicked = false,
       detached = false,
+      foregrounded = false,
       url = "";
     const preflightRefused = [
       "profile-mismatch",
@@ -370,6 +373,7 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
           click: async () => {
             expect(removed).toBe(false);
             expect(detached).toBe(true);
+            expect(foregrounded).toBe(true);
             clicked = true;
           },
         };
@@ -380,6 +384,11 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
         url = next;
       },
       url: () => url,
+      bringToFront: async () => {
+        expect(detached).toBe(true);
+        if (result === "foreground-private-exception") throw new Error("SYNTHETIC_PRIVATE_FOREGROUND_EXCEPTION");
+        foregrounded = true;
+      },
       on: () => {},
       locator: (selector: string) => {
         if (selector === `extensions-item[id="${f.binding.packageId}"]`) return item;
@@ -424,7 +433,9 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
     const browserControl =
       result === "missing-native-action-mutant"
         ? await mutant("execFileSync(", '(() => "NATIVE_REMOVE_SENT")(')
-        : control;
+        : result === "missing-foreground-mutant"
+          ? await mutant("await bounded(() => page.bringToFront());", "await Promise.resolve();")
+          : control;
     const browser = browserControl.createPlaywrightSelectorBrowser({
       context: {
         browser: () => ({ version: () => f.binding.version, newBrowserCDPSession: async () => metadata }),
@@ -441,7 +452,8 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
       deadline: Date.parse(f.binding.startedAt) + 900000,
       nativeSessionBus: result === "missing-private-bus" ? undefined : "unix:path=/SYNTHETIC_PRIVATE_BUS",
     });
-    if (result === "missing-native-action-mutant") await expect(browser.action("remove")).rejects.toThrow("to be true");
+    if (["missing-native-action-mutant", "missing-foreground-mutant"].includes(result))
+      await expect(browser.action("remove")).rejects.toThrow("to be true");
     else if (result === "confirmed") expect(await browser.action("remove")).toEqual({ ok: true });
     else
       await expect(browser.action("remove")).rejects.toMatchObject({
@@ -449,7 +461,14 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
         message: "selector_operation_refused",
       });
     expect(removed).toBe(result === "confirmed");
-    expect(clicked).toBe(!preflightRefused && result !== "missing-private-bus");
+    expect(clicked).toBe(
+      !preflightRefused &&
+        !["missing-private-bus", "missing-foreground-mutant", "foreground-private-exception"].includes(result),
+    );
+    expect(foregrounded).toBe(
+      !preflightRefused &&
+        !["missing-private-bus", "missing-foreground-mutant", "foreground-private-exception"].includes(result),
+    );
     expect(browser.hostNativeRemovalStage()).toBe(
       {
         confirmed: "UI_ABSENT",
@@ -462,6 +481,8 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
         "native-window-refusal": "WINDOW",
         "missing-private-bus": "CAPABILITY",
         "missing-native-action-mutant": "SENT",
+        "missing-foreground-mutant": "WINDOW",
+        "foreground-private-exception": "WINDOW",
         "profile-mismatch": "PROCESS_PROFILE",
         "duplicate-profile-switch": "PROCESS_PROFILE",
         "missing-browser-process": "PROCESS_UNIQUE",
@@ -474,7 +495,15 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
       }[result],
     );
     expect(nativeRemoval).toHaveBeenCalledTimes(
-      preflightRefused || ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
+      preflightRefused ||
+        [
+          "missing-private-bus",
+          "missing-native-action-mutant",
+          "missing-foreground-mutant",
+          "foreground-private-exception",
+        ].includes(result)
+        ? 0
+        : 1,
     );
     if (!["missing-private-bus", "mode-S-refusal"].includes(result)) {
       expect(metadataCalls[0]).toBe("Browser.getBrowserCommandLine");
