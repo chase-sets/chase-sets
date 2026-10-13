@@ -237,6 +237,16 @@ describe("Privacy Policy candidate", () => {
 describe(
   "Privacy Policy one-variable controls",
   () => {
+    it("removing the revocation attempt key reds only its Web Storage disclosure", () => {
+      const mutant = withSection("cookies-and-analytics", (text) =>
+        text.replace("agent-grant-revocation:", "connected-agent attempt"),
+      );
+      expectSoleViolation(
+        evaluate(mutant),
+        /does not disclose 'agent-grant-revocation:' required by binding 'web-storage-agent-grant-revocation'\./,
+      );
+    });
+
     it("control 1: removing exactly chase_sets_anonymous_cart reds only that cookie binding", () => {
       const mutant = withSection("cookies-and-analytics", (text) =>
         text.replace("a signed-out cart (chase_sets_anonymous_cart), ", "a signed-out cart, "),

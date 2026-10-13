@@ -4331,9 +4331,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-kubernetes-deployment-transition
-          path: |
-            artifacts/release-health/production-kubernetes-deployment-transition.json
-            artifacts/release-health/agent-grant-revocation-activation.json
+          path: artifacts/release-health/production-kubernetes-deployment-transition.json
           if-no-files-found: error
           retention-days: 30
 
@@ -4768,6 +4766,15 @@ jobs:
         with:
           name: served-marketplace-smoke
           path: artifacts/release-health/served-marketplace-smoke.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Agent Grant revocation activation
+        if: always() && env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-activation
+          path: artifacts/release-health/agent-grant-revocation-activation.json
           if-no-files-found: error
           retention-days: 30
 

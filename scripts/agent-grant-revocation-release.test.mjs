@@ -19,9 +19,13 @@ describe("revocation-caller-partition workflow caller", () => {
       activation.run.indexOf("verify-deployment-transition"),
     );
     expect(activation.run).toContain('if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then');
-    expect(
-      steps.find((step) => step.name === "Upload production Kubernetes deployment transition").with.path,
-    ).toContain("agent-grant-revocation-activation.json");
+    expect(steps.find((step) => step.name === "Upload production Kubernetes deployment transition").with.path).toBe(
+      "artifacts/release-health/production-kubernetes-deployment-transition.json",
+    );
+    const upload = steps.find((step) => step.name === "Upload Agent Grant revocation activation");
+    expect(upload.with.path).toBe("artifacts/release-health/agent-grant-revocation-activation.json");
+    expect(upload.with["if-no-files-found"]).toBe("error");
+    expect(upload.if).toContain("inputs.activate_agent_grant_revocation == true");
   });
   it("checks the durable compatibility floor before both automatic rollback paths", () => {
     for (const name of ["Abort production Argo Rollouts", "Roll back production Kubernetes release"]) {
