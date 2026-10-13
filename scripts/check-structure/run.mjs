@@ -828,6 +828,18 @@ export function isAllowedPublicExportName(value) {
   );
 }
 
+export function findLinkIntentExportViolation(manifest, target) {
+  if (target !== "./support/runtime-support/link-intents.ts")
+    return "link-intent integration must target the generated runtime-support builder";
+  if (
+    !manifest.deployableContributions?.some((contribution) =>
+      contribution.routes?.some((route) => route.canonicalLink?.kind === "route-derived"),
+    )
+  )
+    return "link-intent integration requires owner-published canonical route metadata";
+  return null;
+}
+
 function isValidDirectoryClassification(value) {
   return value === "slice" || value === "support" || value === "routes";
 }
@@ -2084,6 +2096,11 @@ export async function runStructureCheck(options = {}) {
         publicExport === "."
           ? (packageJson.exports?.["."] ?? packageJson.exports)
           : packageJson.exports?.[publicExport];
+
+      if (publicExport === "./integration/link-intents") {
+        const violation = findLinkIntentExportViolation(manifest, exportTarget);
+        if (violation) addPathViolation(`${root}/package.json`, violation);
+      }
 
       if (!exportTarget) {
         addPathViolation(`${root}/package.json`, `package exports must include ${publicExport}`);

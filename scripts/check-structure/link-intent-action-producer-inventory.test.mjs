@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { deriveLinkIntentOrigins, deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
 import { deriveActionProducers, verifyActionProducers } from "./link-intent-action-producer-inventory.mjs";
-import { isAllowedPublicExportName } from "./run.mjs";
+import { findLinkIntentExportViolation, isAllowedPublicExportName } from "./run.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const registrations = JSON.parse(
@@ -44,6 +44,12 @@ it("admits only the exact generated owner link-intent integration surface", () =
     expect(isAllowedPublicExportName(surface)).toBe(false);
   for (const generated of deriveOwnerLinkTypes(root))
     expect(generated.path).toMatch(/\/support\/runtime-support\/link-intents\.ts$/);
+  const manifest = JSON.parse(readFileSync(path.join(root, "bounded-contexts/discovery/context.json"), "utf8"));
+  expect(findLinkIntentExportViolation(manifest, "./support/runtime-support/link-intents.ts")).toBeNull();
+  expect(findLinkIntentExportViolation(manifest, "./server.ts")).toMatch(/generated runtime-support builder/);
+  expect(
+    findLinkIntentExportViolation({ deployableContributions: [] }, "./support/runtime-support/link-intents.ts"),
+  ).toMatch(/owner-published canonical route metadata/);
 });
 
 beforeAll(() => {
