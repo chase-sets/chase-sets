@@ -1,6 +1,8 @@
 {
   "sqlExecuting": [
     "bounded-contexts/auth/features/account-selection/read-model/queries.ts",
+    "bounded-contexts/auth/features/invitation-acceptance/api/attempt-store.ts",
+    "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts",
     "bounded-contexts/auth/features/sessions/read-model/queries.ts",
     "bounded-contexts/auth/support/auth-support/identity-projection.ts",
     "bounded-contexts/auth/support/auth-support/store.ts",
