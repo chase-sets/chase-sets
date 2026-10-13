@@ -18,6 +18,7 @@ import type { CollectionsHostPorts, CollectionsServices } from "./support/runtim
 import { createCollectionsServices } from "./support/runtime-support/services";
 import { collectionsSchemaSql } from "./support/runtime-support/schema";
 import { anonymousOwnerSchemaMigrations } from "./support/runtime-support/anonymous-owner-migrations";
+import { savedListRecoveryMigrations } from "./support/runtime-support/recovery-migrations";
 import { collectionsRetentionSweeps } from "./support/runtime-support/retention-policy";
 import { buildSavedListPickerProjectionHandlers } from "./features/saved-lists/read-model/picker-projection";
 
@@ -26,7 +27,7 @@ const collectionsContextManifest = contextManifest as BcContextManifest;
 export const module = defineBoundedContextModule<CollectionsServices, PgTransactionalPool, CollectionsHostPorts>({
   manifest: collectionsContextManifest,
   schemaSql: collectionsSchemaSql,
-  schemaMigrations: anonymousOwnerSchemaMigrations,
+  schemaMigrations: [...anonymousOwnerSchemaMigrations, ...savedListRecoveryMigrations],
   retentionSweeps: collectionsRetentionSweeps,
   createServices: (pool, ports) => createCollectionsServices(pool, ports),
   buildApis: (services) => [

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createSavedListEventCodec } from "../domain/codec";
@@ -89,6 +90,165 @@ async function setupHistory(length: number) {
 }
 
 describe("Saved List command runtime", () => {
+  it("recovery-append-expiry-atomicity merges JSONB option key order without accepting changed selection", async () => {
+    const { runtime, streams, allEvents } = await setup();
+    const input = {
+      listId,
+      ownerAccountId,
+      operations: [
+        { operationId: "one", kind: "add", lineId: lineId("one"), product: product("one"), trackedQuantity: 2 },
+      ],
+    } as const;
+    const first = await runtime.applyLineChanges(
+      { ...input, commandId: commandId("jsonb-first"), expectedVersion: 1 },
+      context,
+    );
+    const events = streams.get(savedListStreamId(listId))!;
+    const added = events.at(-1)!;
+    const selection = product("one");
+    events[events.length - 1] = {
+      ...added,
+      payload: {
+        ...added.payload,
+        product: {
+          ...selection,
+          selectedOptions: selection.selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId })),
+        },
+      },
+    };
+    const merged = await runtime.applyLineChanges(
+      {
+        ...input,
+        commandId: commandId("jsonb-next"),
+        expectedVersion: first.savedList.version,
+        operations: [{ ...input.operations[0], trackedQuantity: 3 }],
+      },
+      context,
+    );
+    expect(merged.receipt.lineResults).toMatchObject([{ status: "merged" }]);
+    expect(merged.savedList.lines[0]?.trackedQuantity).toBe(5);
+    const count = allEvents.length;
+    const changed = await runtime.applyLineChanges(
+      {
+        ...input,
+        commandId: commandId("jsonb-poison"),
+        expectedVersion: merged.savedList.version,
+        operations: [
+          {
+            ...input.operations[0],
+            product: { ...selection, selectedOptions: [{ dimensionId: "condition", optionId: "damaged" }] },
+          },
+        ],
+      },
+      context,
+    );
+    expect(changed.receipt.lineResults).toMatchObject([{ status: "rejected", error: { code: "invalid-line" } }]);
+    expect(changed.savedList.lines[0]?.trackedQuantity).toBe(5);
+    expect(allEvents).toHaveLength(count);
+  });
+
+  it("saved-list-per-line-recovery", async () => {
+    const { runtime, allEvents } = await setup();
+    const input = {
+      commandId: commandId("recover"),
+      listId,
+      ownerAccountId,
+      expectedVersion: 1,
+      operations: [
+        { operationId: "one", kind: "add", lineId: lineId("one"), product: product("one"), trackedQuantity: 2 },
+        { operationId: "poison", kind: "add", lineId: lineId("bad"), product: product("bad"), trackedQuantity: 0 },
+      ],
+    } as const;
+    const result = await runtime.applyLineChanges(input, context);
+    expect(result.receipt.lineResults.map((line) => line.status)).toEqual(["added", "rejected"]);
+    const count = allEvents.length;
+    await expect(runtime.applyLineChanges({ ...input, expectedVersion: 99 }, context)).resolves.toMatchObject({
+      receipt: { replayed: true, lineResults: result.receipt.lineResults },
+    });
+    await expect(
+      runtime.applyLineChanges({ ...input, operations: [input.operations[0]] }, context),
+    ).rejects.toBeInstanceOf(SavedListIdempotencyConflictError);
+    expect(allEvents).toHaveLength(count);
+  });
+
+  it("legacy-receipt-replay", async () => {
+    const { runtime, streams, allEvents } = await setup();
+    const input = {
+      commandId: commandId("legacy"),
+      listId,
+      ownerAccountId,
+      expectedVersion: 1,
+      operations: [
+        { operationId: "one", kind: "add", lineId: lineId("one"), product: product("one"), trackedQuantity: 2 },
+      ],
+    } as const;
+    await runtime.applyLineChanges(input, context);
+    const stable = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+      if (value && typeof value === "object")
+        return `{${Object.entries(value)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, entry]) => `${JSON.stringify(key)}:${stable(entry)}`)
+          .join(",")}}`;
+      return JSON.stringify(value);
+    };
+    const events = streams.get(savedListStreamId(listId))!;
+    const last = events.at(-1)!;
+    const receipt = last.metadata.savedListCommandReceipt as Record<string, unknown>;
+    const { fingerprintScheme: _scheme, ...legacy } = receipt;
+    const fingerprint = `sha256:${createHash("sha256")
+      .update(stable({ kind: "apply-line-changes", input }))
+      .digest("hex")}`;
+    events[events.length - 1] = { ...last, metadata: { savedListCommandReceipt: { ...legacy, fingerprint } as never } };
+    const count = allEvents.length;
+    await expect(runtime.applyLineChanges({ ...input, expectedVersion: 77 }, context)).resolves.toMatchObject({
+      receipt: { replayed: true },
+    });
+    await expect(
+      runtime.applyLineChanges(
+        { ...input, expectedVersion: 77, operations: [{ ...input.operations[0], trackedQuantity: 3 }] },
+        context,
+      ),
+    ).rejects.toBeInstanceOf(SavedListIdempotencyConflictError);
+    expect(allEvents).toHaveLength(count);
+  });
+
+  it("receipt-only-recovery-poison", async () => {
+    const { runtime, streams, eventStore, allEvents } = await setup();
+    const input = {
+      commandId: commandId("receipt"),
+      listId,
+      ownerAccountId,
+      expectedVersion: 1,
+      operations: [
+        { operationId: "one", kind: "add", lineId: lineId("one"), product: product("one"), trackedQuantity: 2 },
+      ],
+    } as const;
+    const append = vi.spyOn(eventStore, "appendToStream");
+    await expect(runtime.readLineChangesReceipt(input, context)).resolves.toBeNull();
+    await runtime.applyLineChanges(input, context);
+    append.mockClear();
+    await expect(runtime.readLineChangesReceipt({ ...input, expectedVersion: 99 }, context)).resolves.toMatchObject({
+      receipt: { replayed: true },
+    });
+    const events = streams.get(savedListStreamId(listId))!;
+    const last = events.at(-1)!;
+    events[events.length - 1] = { ...last, metadata: {} };
+    await expect(runtime.readLineChangesReceipt(input, context)).rejects.toThrow();
+    for (const poison of [
+      {},
+      { commandId: input.commandId, schemaVersion: 1 },
+      { ...(last.metadata.savedListCommandReceipt as object), committedVersion: 999 },
+      { ...(last.metadata.savedListCommandReceipt as object), fingerprint: "sha256:forged" },
+    ]) {
+      events[events.length - 1] = { ...last, metadata: { savedListCommandReceipt: poison as never } };
+      await expect(runtime.readLineChangesReceipt(input, context)).rejects.toThrow();
+    }
+    events[events.length - 1] = { ...last, payload: { ...last.payload, trackedQuantity: 999 } };
+    await expect(runtime.readLineChangesReceipt(input, context)).rejects.toThrow();
+    expect(append).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(2);
+  });
   it("saved-list-history-bound-exact-and-over", async () => {
     const { runtime, allEvents, streams, eventStore } = await setupHistory(50_000);
     const append = vi.spyOn(eventStore, "appendToStream");

@@ -13,6 +13,8 @@ import type { SavedListProductSelection } from "../domain/contracts";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { additionAnalytics, recordSavedListAnalytics, type SavedListAnalyticsRecorder } from "./analytics-telemetry";
 import { savedListCanonicalIdentifier, savedListCanonicalProduct } from "./anonymous-owner";
+import { createSavedListRecoveryRoutes } from "./recovery-route";
+import type { SavedListRecoveryServices } from "./recovery-runtime";
 
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;
@@ -78,8 +80,13 @@ export function createGuestSavedListRoutes(
   return app;
 }
 
-export function createSavedListRoutes(services: SavedListDiscoveryServices, recorder?: SavedListAnalyticsRecorder) {
+export function createSavedListRoutes(
+  services: SavedListDiscoveryServices,
+  recorder?: SavedListAnalyticsRecorder,
+  recovery?: SavedListRecoveryServices,
+) {
   const app = new Hono<CollectionsApiEnv>();
+  if (recovery) app.route("/", createSavedListRecoveryRoutes(recovery));
 
   app.get("/account/lists/recent", async (c) => {
     const access = requireAccess(c);

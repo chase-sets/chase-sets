@@ -134,7 +134,9 @@ describe("Saved List discovery routes", () => {
     expect((await send(7, "existing", "slc_merge", 6)).status).toBe(200);
     expect(events.slice(beforeMerge).map((item) => item.event)).toEqual(["product_added"]);
     const beforeReplay = events.length;
-    expect((await send(5)).status).toBe(400);
+    const exactReplay = await send(5);
+    expect(exactReplay.status).toBe(200);
+    expect(await exactReplay.json()).toMatchObject({ command: { receipt: { replayed: true } } });
     expect(events).toHaveLength(beforeReplay);
     const beforeCreateReplay = events.length;
     expect((await send(8, "new", "slc_new_add_after_create_replay")).status).toBe(200);

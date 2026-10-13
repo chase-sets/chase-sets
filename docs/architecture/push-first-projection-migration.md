@@ -132,6 +132,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-managed-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-managed-offer-reaction` | Marketplace | pricing | push-eligible | 0/1 |
+| `marketplace:marketplace-listing-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-offer-policy-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
