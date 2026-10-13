@@ -611,6 +611,14 @@
       "synthetic": false
     },
     {
+      "family": "e2eSpecSuiteOwnership:15",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/inventory-recovery\\.spec\\.ts$/",
+      "suites": ["marketplace_seller"],
+      "path": "deployables/marketplace/e2e/inventory-recovery.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
       "family": "e2eNoSuiteExclusions:0",
       "pattern": "/^deployables\\/marketplace\\/app\\/routes\\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\\./",
       "suites": null,
@@ -1132,6 +1140,11 @@
     }
   ],
   "cases": [
+    {
+      "changedFiles": ["deployables/marketplace/e2e/inventory-recovery.spec.ts"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
     {
       "changedFiles": ["docker-compose.dev.yml"],
       "suiteIds": [
