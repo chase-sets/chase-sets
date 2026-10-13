@@ -121,97 +121,99 @@ describe("selector-agent-control-capability", () => {
       } else expect(() => packaging.verifyPackage(root)).toThrow("inventory_mismatch");
     }
   });
-  it.each(["confirmed", "unknown-output", "native-exception", "missing-private-bus", "missing-native-action-mutant"])(
-    "native confirmation %s precedes exact-ID UI removal",
-    async (result) => {
-      const f = fixture("C");
-      const digests = { "synthetic-package": "b".repeat(64) };
-      f.binding.packageHash = hash(JSON.stringify(digests));
-      let rendered = false,
-        removed = false,
-        url = "";
-      const item = {
-        count: async () => (rendered && !removed ? 1 : 0),
-        waitFor: async ({ state }: { state: string }) => {
-          if (state === "visible") rendered = true;
-          else expect(removed).toBe(true);
-        },
-        locator: (selector: string) => {
-          expect(selector).toBe("#removeButton");
-          return {
-            click: async () => {
-              expect(removed).toBe(false);
-            },
-          };
-        },
-      };
-      const page = {
-        goto: async (next: string) => {
-          url = next;
-        },
-        url: () => url,
-        on: () => {},
-        locator: (selector: string) => {
-          if (selector === `extensions-item[id="${f.binding.packageId}"]`) return item;
-          throw new Error(`Unexpected WebUI confirmation selector: ${selector}`);
-        },
-      };
-      nativeRemoval.mockReset().mockImplementation((_executable: string, args: string[]) => {
-        expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
-        expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
-        expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
-        expect(args[1]).toContain("b'GetName', params(index)");
-        expect(args[1]).not.toContain("b'GetActions'");
-        expect(args[1]).toContain("if default != [0]: raise RuntimeError()");
-        expect(rendered).toBe(true);
-        if (result === "native-exception")
-          throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
-            stdout: "NATIVE_REMOVE_REFUSED:ROLE\n",
-          });
-        if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
-        removed = true;
-        return "NATIVE_REMOVE_SENT\n";
-      });
-      const browserControl =
-        result === "missing-native-action-mutant"
-          ? await mutant("execFileSync(", '(() => "NATIVE_REMOVE_SENT")(')
-          : control;
-      const browser = browserControl.createPlaywrightSelectorBrowser({
-        context: { browser: () => ({ version: () => f.binding.version }), newPage: async () => page },
-        preparation: {
-          evidence: "synthetic",
-          extensionId: f.binding.packageId,
-          profileDirectory: f.profile,
-          packageDigests: digests,
-        },
-        binding: f.binding,
-        ordersUrl: pathToFileURL(path.join(f.root, "synthetic-orders.html")).href,
-        deadline: Date.parse(f.binding.startedAt) + 900000,
-        nativeSessionBus: result === "missing-private-bus" ? undefined : "unix:path=/SYNTHETIC_PRIVATE_BUS",
-      });
-      if (result === "missing-native-action-mutant")
-        await expect(browser.action("remove")).rejects.toThrow("to be true");
-      else if (result === "confirmed") expect(await browser.action("remove")).toEqual({ ok: true });
-      else
-        await expect(browser.action("remove")).rejects.toMatchObject({
-          code: "CONTROL_BOUNDARY_LOST",
-          message: "selector_operation_refused",
+  it.each([
+    "confirmed",
+    "unknown-output",
+    "native-exception",
+    "missing-private-bus",
+    "missing-native-action-mutant",
+  ] as const)("native confirmation %s precedes exact-ID UI removal", async (result) => {
+    const f = fixture("C");
+    const digests = { "synthetic-package": "b".repeat(64) };
+    f.binding.packageHash = hash(JSON.stringify(digests));
+    let rendered = false,
+      removed = false,
+      url = "";
+    const item = {
+      count: async () => (rendered && !removed ? 1 : 0),
+      waitFor: async ({ state }: { state: string }) => {
+        if (state === "visible") rendered = true;
+        else expect(removed).toBe(true);
+      },
+      locator: (selector: string) => {
+        expect(selector).toBe("#removeButton");
+        return {
+          click: async () => {
+            expect(removed).toBe(false);
+          },
+        };
+      },
+    };
+    const page = {
+      goto: async (next: string) => {
+        url = next;
+      },
+      url: () => url,
+      on: () => {},
+      locator: (selector: string) => {
+        if (selector === `extensions-item[id="${f.binding.packageId}"]`) return item;
+        throw new Error(`Unexpected WebUI confirmation selector: ${selector}`);
+      },
+    };
+    nativeRemoval.mockReset().mockImplementation((_executable: string, args: string[]) => {
+      expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
+      expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
+      expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
+      expect(args[1]).toContain("b'GetName', params(index)");
+      expect(args[1]).not.toContain("b'GetActions'");
+      expect(args[1]).toContain("if default != [0]: raise RuntimeError()");
+      expect(rendered).toBe(true);
+      if (result === "native-exception")
+        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
+          stdout: "NATIVE_REMOVE_REFUSED:ROLE\n",
         });
-      expect(removed).toBe(result === "confirmed");
-      expect(browser.hostNativeRemovalStage()).toBe(
-        {
-          confirmed: "UI_ABSENT",
-          "unknown-output": "UNKNOWN",
-          "native-exception": "ROLE",
-          "missing-private-bus": "CAPABILITY",
-          "missing-native-action-mutant": "SENT",
-        }[result],
-      );
-      expect(nativeRemoval).toHaveBeenCalledTimes(
-        ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
-      );
-    },
-  );
+      if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
+      removed = true;
+      return "NATIVE_REMOVE_SENT\n";
+    });
+    const browserControl =
+      result === "missing-native-action-mutant"
+        ? await mutant("execFileSync(", '(() => "NATIVE_REMOVE_SENT")(')
+        : control;
+    const browser = browserControl.createPlaywrightSelectorBrowser({
+      context: { browser: () => ({ version: () => f.binding.version }), newPage: async () => page },
+      preparation: {
+        evidence: "synthetic",
+        extensionId: f.binding.packageId,
+        profileDirectory: f.profile,
+        packageDigests: digests,
+      },
+      binding: f.binding,
+      ordersUrl: pathToFileURL(path.join(f.root, "synthetic-orders.html")).href,
+      deadline: Date.parse(f.binding.startedAt) + 900000,
+      nativeSessionBus: result === "missing-private-bus" ? undefined : "unix:path=/SYNTHETIC_PRIVATE_BUS",
+    });
+    if (result === "missing-native-action-mutant") await expect(browser.action("remove")).rejects.toThrow("to be true");
+    else if (result === "confirmed") expect(await browser.action("remove")).toEqual({ ok: true });
+    else
+      await expect(browser.action("remove")).rejects.toMatchObject({
+        code: "CONTROL_BOUNDARY_LOST",
+        message: "selector_operation_refused",
+      });
+    expect(removed).toBe(result === "confirmed");
+    expect(browser.hostNativeRemovalStage()).toBe(
+      {
+        confirmed: "UI_ABSENT",
+        "unknown-output": "UNKNOWN",
+        "native-exception": "ROLE",
+        "missing-private-bus": "CAPABILITY",
+        "missing-native-action-mutant": "SENT",
+      }[result],
+    );
+    expect(nativeRemoval).toHaveBeenCalledTimes(
+      ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
+    );
+  });
   it("waits for the actual fixed helper API before cancel-before-begin, not navigation commit", async () => {
     const f = fixture("C");
     const digests = { "synthetic-package": "b".repeat(64) };
