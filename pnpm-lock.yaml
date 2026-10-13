@@ -138,6 +138,9 @@ importers:
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
+      '@chase-sets/payments':
+        specifier: workspace:*
+        version: link:../payments
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime

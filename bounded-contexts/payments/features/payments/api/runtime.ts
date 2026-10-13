@@ -3,6 +3,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -1611,14 +1612,12 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const revokedAt = params.revokedAt ?? new Date().toISOString();
       await recordRevokedAgentGrant(deps.db, { accountId, agentGrantId, revokedAt });
       const instruments = await listSavedCheckoutInstrumentsForAgentGrant(deps.db, { accountId, agentGrantId });
+      if (instruments.length > 500 || Buffer.byteLength(JSON.stringify(instruments), "utf8") > 1024 * 1024) {
+        throw new Error("agent_grant_cleanup_over_limit");
+      }
       const alreadyRemoved = instruments.filter((instrument) => instrument.readiness === "removed").length;
-      let detached = 0;
 
       for (const instrument of instruments) {
-        if (instrument.provider_reference) {
-          await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
-          detached += 1;
-        }
         await markSavedCheckoutInstrumentRemoved(deps.db, {
           accountId,
           instrumentId: instrument.instrument_id,
@@ -1635,12 +1634,42 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         });
       }
 
-      if (instruments.length > 0) {
-        await publishCheckoutAffordances(accountId, context);
+      const streamId = `payments.agent-grant-cleanup-${createHash("sha256")
+        .update(JSON.stringify([accountId, agentGrantId]))
+        .digest("hex")}`;
+      const completion = await readCompleteStream(deps.eventStore, { streamId, maxEvents: 500 });
+      if (completion.length > 0) {
+        if (
+          completion.length !== 1 ||
+          completion[0].eventType !== "payments.checkout-affordances-published" ||
+          completion[0].payload.accountId !== accountId ||
+          completion[0].payload.agentGrantId !== agentGrantId ||
+          completion[0].payload.publishedAt !== revokedAt
+        )
+          throw new Error("agent_grant_cleanup_history_invalid");
+      } else {
+        const allInstruments = await listSavedCheckoutInstruments(deps.db, accountId);
+        await deps.eventStore.appendToStream({
+          streamId,
+          expectedVersion: 0,
+          context,
+          events: [
+            {
+              eventType: "payments.checkout-affordances-published",
+              payload: {
+                accountId,
+                agentGrantId,
+                savedCheckoutInstruments: allInstruments.map(mapCheckoutAffordanceInstrument),
+                publishedAt: revokedAt,
+              },
+              occurredAt: revokedAt as never,
+            },
+          ],
+        });
       }
 
       return {
-        detached,
+        detached: 0,
         alreadyRemoved,
         instrumentIds: instruments.map((instrument) => instrument.instrument_id),
       };

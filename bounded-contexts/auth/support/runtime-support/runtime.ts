@@ -137,6 +137,15 @@ async function resolveLinkedPlatformActor(
     return null;
   }
 
+  const current = await linkedPlatformAuthorizations.resolveAccessToken(services.auth.hashSecret(token));
+  if (
+    !current ||
+    current.authorization_id !== linked.authorization_id ||
+    current.account_id !== linked.account_id ||
+    current.user_id !== linked.user_id
+  )
+    return null;
+
   const rolePermissions = membership.role_permissions as readonly string[];
   const scopes = normalizeAgentOAuthScopes(linked.scopes);
 

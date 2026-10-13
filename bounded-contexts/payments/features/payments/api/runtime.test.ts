@@ -399,7 +399,7 @@ function createOrderInputDb(
         const accountRows = savedCheckoutInstrumentRows.filter((row) => row.account_id === params?.[0]);
         if (sql.includes("agent_grant_id = $2")) {
           return {
-            rows: accountRows.filter((row) => row.agent_grant_id === params?.[1] && row.readiness !== "removed"),
+            rows: accountRows.filter((row) => row.agent_grant_id === params?.[1]),
           };
         }
         if (sql.includes("instrument_id = $2")) {
@@ -2346,107 +2346,113 @@ describe("payment runtime", () => {
     ]);
   });
 
-  it("detaches active saved checkout instruments owned by a revoked agent grant idempotently", async () => {
-    const { eventStore, readAllEvents } = createInMemoryEventStore();
-    const processorGateway = createProcessorGateway();
-    const db = createOrderInputDb({
-      savedCheckoutInstrumentRows: [
-        {
-          instrument_id: "sci_agent_card",
-          account_id: "acc_buyer",
-          agent_grant_id: "lpa_1",
-          payment_method_category: "card",
-          provider: "stripe",
-          provider_customer_reference: "cus_buyer",
-          provider_reference: "pm_agent_card",
-          provider_fingerprint: "fp_agent",
-          display_label: "Visa ending in 4242",
-          confirmation_experience: "off-session-token",
-          readiness: "ready",
-          allow_redisplay: "always",
-          consent_id: "consent_1",
-          consent_text: "Save this payment method",
-          is_default: true,
-          removed_at: null,
-          created_at: "2026-07-09T00:00:00.000Z",
-          updated_at: "2026-07-09T00:00:00.000Z",
-        },
-        {
-          instrument_id: "sci_other_card",
-          account_id: "acc_buyer",
-          agent_grant_id: "lpa_2",
-          payment_method_category: "card",
-          provider: "stripe",
-          provider_customer_reference: "cus_buyer",
-          provider_reference: "pm_other_card",
-          provider_fingerprint: "fp_other",
-          display_label: "Visa ending in 1881",
-          confirmation_experience: "off-session-token",
-          readiness: "ready",
-          allow_redisplay: "always",
-          consent_id: "consent_2",
-          consent_text: "Save this payment method",
-          is_default: false,
-          removed_at: null,
-          created_at: "2026-07-09T00:00:00.000Z",
-          updated_at: "2026-07-09T00:00:00.000Z",
-        },
-      ],
-    });
-    const services = createPaymentRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      processorGateway,
-    });
+  it.each(["ready", "removed"] as const)(
+    "agent-grant-revocation-payments-cleanup removes %s instruments locally without provider calls",
+    async (readiness) => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const db = createOrderInputDb({
+        savedCheckoutInstrumentRows: [
+          {
+            instrument_id: "sci_agent_card",
+            account_id: "acc_buyer",
+            agent_grant_id: "lpa_1",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_agent_card",
+            provider_fingerprint: "fp_agent",
+            display_label: "Visa ending in 4242",
+            confirmation_experience: "off-session-token",
+            readiness,
+            allow_redisplay: "always",
+            consent_id: "consent_1",
+            consent_text: "Save this payment method",
+            is_default: true,
+            removed_at: null,
+            created_at: "2026-07-09T00:00:00.000Z",
+            updated_at: "2026-07-09T00:00:00.000Z",
+          },
+          {
+            instrument_id: "sci_other_card",
+            account_id: "acc_buyer",
+            agent_grant_id: "lpa_2",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_other_card",
+            provider_fingerprint: "fp_other",
+            display_label: "Visa ending in 1881",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_2",
+            consent_text: "Save this payment method",
+            is_default: false,
+            removed_at: null,
+            created_at: "2026-07-09T00:00:00.000Z",
+            updated_at: "2026-07-09T00:00:00.000Z",
+          },
+        ],
+      });
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
 
-    const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
-      {
-        accountId: "acc_buyer" as never,
-        agentGrantId: "lpa_1",
-        revokedAt: "2026-07-09T01:00:00.000Z",
-      },
-      context,
-    );
-    const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
-      {
-        accountId: "acc_buyer" as never,
-        agentGrantId: "lpa_1",
-        revokedAt: "2026-07-09T01:00:00.000Z",
-      },
-      context,
-    );
+      const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        {
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+        },
+        context,
+      );
+      const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        {
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+        },
+        context,
+      );
 
-    expect(result).toEqual({ detached: 1, alreadyRemoved: 0, instrumentIds: ["sci_agent_card"] });
-    expect(replay).toEqual({ detached: 0, alreadyRemoved: 0, instrumentIds: [] });
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledTimes(1);
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_agent_card");
-    expect(readAllEvents()).toEqual([
-      expect.objectContaining({
-        eventType: "payments.checkout-affordances-published",
-        payload: expect.objectContaining({
-          accountId: "acc_buyer",
-          savedCheckoutInstruments: expect.arrayContaining([
-            expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
-          ]),
-        }),
-      }),
-    ]);
-    expect(db.readSavedCheckoutInstruments()).toEqual(
-      expect.arrayContaining([
+      expect(result).toEqual({
+        detached: 0,
+        alreadyRemoved: readiness === "removed" ? 1 : 0,
+        instrumentIds: ["sci_agent_card"],
+      });
+      expect(replay).toEqual({ detached: 0, alreadyRemoved: 1, instrumentIds: ["sci_agent_card"] });
+      expect(processorGateway.detachSavedPaymentMethod).not.toHaveBeenCalled();
+      expect(readAllEvents()).toEqual([
         expect.objectContaining({
-          instrument_id: "sci_agent_card",
-          readiness: "removed",
-          is_default: false,
-          removed_at: "2026-07-09T01:00:00.000Z",
+          eventType: "payments.checkout-affordances-published",
+          payload: expect.objectContaining({
+            accountId: "acc_buyer",
+            savedCheckoutInstruments: expect.arrayContaining([
+              expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
+            ]),
+          }),
         }),
-        expect.objectContaining({
-          instrument_id: "sci_other_card",
-          readiness: "ready",
-        }),
-      ]),
-    );
-  });
+      ]);
+      expect(db.readSavedCheckoutInstruments()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instrument_id: "sci_agent_card",
+            readiness: "removed",
+            is_default: false,
+            removed_at: "2026-07-09T01:00:00.000Z",
+          }),
+          expect.objectContaining({
+            instrument_id: "sci_other_card",
+            readiness: "ready",
+          }),
+        ]),
+      );
+    },
+  );
 
   it("detaches a late setup result instead of saving it when the agent grant was already revoked", async () => {
     const { eventStore } = createInMemoryEventStore();

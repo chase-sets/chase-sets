@@ -11,6 +11,7 @@
     "api-key",
     "consent",
     "registration-operation",
+    "agent-grant-revocation-operation",
     "founders-cohort",
     "shipping-address",
     "user-preference"
@@ -18,6 +19,7 @@
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
   "slices": [
+    "agent-grants",
     "access-hub",
     "accounts",
     "account-capabilities",
@@ -1878,6 +1880,11 @@
     }
   ],
   "directoryIntent": {
+    "agent-grants": {
+      "classification": "slice",
+      "purpose": "Own retained Agent Grant terminal authority, revocation operations and the active Grant fence.",
+      "expectedConsumers": ["Identity services", "Auth revocation coordination", "Platform worker composition"]
+    },
     "access-hub": {
       "classification": "slice",
       "purpose": "Own the account-centric Access home, account hub read model, route behavior, and UI composition across Identity aggregates.",

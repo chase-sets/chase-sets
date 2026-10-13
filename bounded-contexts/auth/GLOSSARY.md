@@ -131,6 +131,12 @@ Notes:
 - Auth owns authorization, account selection, token-facing actor resolution, and safe return paths.
 - Identity owns the durable Linked Platform Authorization consent and revocation facts.
 
+## Agent Grant Revocation Operation
+
+An **Agent Grant Revocation Operation** is the retained Identity-owned terminal decision for one Account and Agent Grant, coordinated by Auth through Identity terminal authority, Payments local cleanup, webhook exclusion, and completion. UUID attempts bind the admitted actor and request without reopening revoked authority. Recovery reads complete bounded histories and repeats only missing effects. Payments removes agent-usable Saved Checkout Instruments locally; provider attachments can remain, and this operation makes no deferred-detach promise.
+
+Owner history retains at most 500 events and 64 KiB; valid phase history has five events. Each Grant admits at most 500 actor-bound attempts. These are durable consent facts, not expiry-token records, and are retained with the Grant.
+
 ## OAuth Consent
 
 **OAuth Consent** is the interactive approve or deny step of an OAuth Authorization. Every request requires a decision from the bound browser session for its active account and exact requested scopes. Auth stores only the hash of a ten-minute, single-use consent token. Approve issues the authorization code; deny consumes the request without issuing one. Agent-bearer and guest-checkout actors cannot give OAuth Consent.

@@ -705,8 +705,7 @@ export async function listSavedCheckoutInstrumentsForAgentGrant(
      FROM payments_saved_checkout_instruments
      WHERE account_id = $1
        AND agent_grant_id = $2
-       AND readiness <> 'removed'
-     ORDER BY updated_at ASC, instrument_id ASC`,
+     ORDER BY updated_at ASC, instrument_id ASC LIMIT 501`,
     [params.accountId, params.agentGrantId],
   );
 

@@ -12,6 +12,24 @@ The connected-agents API addresses webhook configuration through an owned author
 
 Every management request requires an interactive session actor, then verifies that the grant belongs to the signed-in account. Agent bearer tokens and guest-checkout actors are refused with 401 `login_required` before any management read or write. A client registration is shared by its grants, so replacing a callback changes delivery for every active grant using that OAuth client.
 
+## Revocation Authority
+
+Identity owns one retained Agent Grant Revocation Operation per Account and Grant. Auth coordinates Identity terminal authority, Payments local instrument removal/audit/affordance publication, webhook exclusion, and completion. Token and Account revokes resume the same owner operation, including a known expired or revoked token. Unknown or malformed present tokens return 200 with no writes; missing tokens retain 400. An unavailable effect never produces a completion receipt.
+
+Account callers may send one UUID in both `Idempotency-Key` and `attempt_id`; the values must agree. Old clients without an attempt UUID receive a stable server-derived binding. `GET /ucp/oauth/authorizations/:id/revocation/:attemptId` performs a read only, after interactive session and Account ownership admission. The detail route retains its attempt, reads once after a lost response, and never automatically submits a second write.
+
+The outbox freezes eligible Grant IDs during enqueue under Identity's owner fence. Replay cannot add later Grants. Claim and send do not infer authority from the Auth projection or the current Client membership. Legacy rows have no causal Grant membership proof and fail closed, including tied or skewed timestamps. Pending revoked rows terminalize; an already-entered send settles only its original delivery. A lost response or stranded `sending` claim becomes `delivery_outcome_unknown`, never another POST. Explicit callback failures still use bounded retries while a bound Grant remains active.
+
+Grant cleanup makes zero provider calls. Provider attachments may remain; there is no deferred-detach promise. Account instrument removal and late setup-result cleanup retain their existing detach behavior. Mandate and callback configuration remain their existing contracts; only their revoked-Grant commit admission is fenced here.
+
+## Support Then Activation
+
+The additive Identity support indexes and Auth `grant_ids` migration install dormant support. Installing support or restarting does not create the Identity activation event. Before activation, known-token and Account revoke requests return a safe temporary failure and the new revoke UI is unavailable. After activation, old token/Account payloads still work without a new client field.
+
+The host with cluster access must capture **every serving platform-api and platform-worker replica**, with the actual commit and image digest, after support deployment and immediately before the activation deploy. It passes that complete inventory to `agentGrantRevocations.activate` through its trusted deployment composition; the internal method is not a user API. The capture must be no more than five minutes old, include both roles, and contain only support-version-1 replicas. Synthetic tests validate the admission shape only; they are not a captured host proof.
+
+After any operation is used, rollback is limited to binaries retaining support version 1, exact Identity authority, provider-free cleanup, immutable outbox Grant membership and the recovery runner. The host must refuse a pre-support binary; the old binary cannot enforce a contract it never contained. No SQL cleanup or manually fabricated completion is a recovery path. Restarted workers read the retained owner phases and run only missing effects. The required real pre-activation host capture is not supplied by this implementation lane.
+
 ## Signature verification
 
 The sender posts the exact JSON body with these headers:

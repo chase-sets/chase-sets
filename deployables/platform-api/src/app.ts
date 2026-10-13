@@ -6,6 +6,9 @@ import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  createPostgresAgentWebhookOutbox,
+  fenceAgentGrantActor,
+  fenceAgentGrantSpendPolicy,
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
@@ -982,7 +985,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createCheckoutUcpHandlers(checkoutServices, {
         checkoutClosed: options.checkoutClosed,
         paymentHandoff,
-        agentGrantSpendPolicy: options.agentGrantSpendPolicy,
+        agentGrantSpendPolicy: fenceAgentGrantSpendPolicy(
+          options.agentGrantSpendPolicy,
+          identityServices.identity?.agentGrantRevocations,
+        ),
         signCheckout: options.ucp?.businessSigningKeys
           ? (checkout) => addUcpAp2MerchantAuthorization(checkout, options.ucp?.businessSigningKeys)
           : undefined,
@@ -1034,7 +1040,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           },
         }
       : options.ucp;
-  const resolveActor = options.resolveActor ?? (async () => null);
+  const resolveActor = fenceAgentGrantActor(
+    options.resolveActor ?? (async () => null),
+    identityServices.identity?.agentGrantRevocations,
+  );
   const anonymousRoutes = resolveAuthIdentityAnonymousRoutes(runtime);
   const platformActorAnonymousRoutes = resolvePlatformActorAnonymousRoutes(runtime);
 
@@ -1112,10 +1121,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       createUcpOAuthRoutes({
         auth: identityServices.auth,
         linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
+        agentGrantRevocations: identityServices.identity.agentGrantRevocations,
         resolveActor,
         agentGrantConsent: options.agentGrantConsent,
         agentGrantActivity: options.agentGrantActivity,
-        agentWebhookOutbox: identityServices.auth.agentWebhookOutbox,
+        agentWebhookOutbox: createPostgresAgentWebhookOutbox({
+          db: identityServices.auth.db,
+          withActiveGrants: identityServices.identity.agentGrantRevocations?.withActiveGrants,
+        }),
         revokeStoredPaymentMethodsForAgentGrant:
           paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
       }),
