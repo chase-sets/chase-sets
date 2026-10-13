@@ -93,6 +93,51 @@ const reviewedCatalogDelta = [
     purpose: "managed-postgres-boundary",
   },
 ];
+// #9520: exact two capture-step consumers; no workflow/job-wide credential grant.
+const countCaptureDelta = [
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+];
 // #9268 delta: the staging preview DNS-01 token converge step in deploy-staging and the on-demand restore workflow.
 const previewWildcardWorkflow = ".github/workflows/platform-preview-wildcard-tls.yml";
 const previewWildcardJob = "restore-preview-wildcard-tls";
@@ -412,9 +457,10 @@ describe("managed Postgres authority source generator", () => {
         ...[...original.grants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...countCaptureDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1632);
+    expect(expected.grants).toHaveLength(1638);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
