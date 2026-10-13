@@ -213,7 +213,7 @@ describe("platform email template renderer", () => {
         const request = requests[0]!;
         const reference = orderId.startsWith("ord_01") ? "ORD-Q69G5FAV" : orderId;
         const headline = `Order ${reference} cancelled`;
-        const purchaseHref = `/account/purchases/${orderId}`;
+        const purchaseHref = `/account/purchases/${encodeURIComponent(orderId)}`;
         expect(request.Destination.ToAddresses).toEqual(["buyer@example.test"]);
         expect(request.Content.Simple.Subject.Data).toBe(headline);
         expect(request.Content.Simple.Body.Text.Data).toBe(
