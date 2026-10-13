@@ -29,7 +29,7 @@
   },
   "bootstrap-production-reconciliation.db.test.ts": {
     "executionUnit": "test:db:1",
-    "sourceSha256": "ea40da40c18a0b066ae775a5f34f29a8ee9ec56d8408ca15e13b10ce11fba8f2",
+    "sourceSha256": "5664ed0ab100d9a24ebd3c94253e7203bd65a5f626a627ce3c32ec598f547972",
     "cases": [
       {
         "name": "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
@@ -73,7 +73,7 @@
       },
       {
         "name": "publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables",
-        "identity": "db12e56a36b47abd"
+        "identity": "d92236dde5468bdf"
       },
       {
         "name": "resumes the real representative commerce command after offer acceptance without duplicate creation events",
@@ -199,7 +199,7 @@
   },
   "catalog-seed-aggregate-state.db.test.ts": {
     "executionUnit": "test:db:1",
-    "sourceSha256": "ec16e9545b21e0f6add58fdc749d380554273b382f8feafd261ffca00693d9b9",
+    "sourceSha256": "5ed5c6a7f5bb10eb2585d6dfe22ed8a325a18dc56166bbad7e5f2f27586a4b63",
     "cases": [
       {
         "name": "reconciles all required aggregates for a clean scenario-seed-only module seed",
@@ -207,7 +207,7 @@
       },
       {
         "name": "does not re-author unchanged Product Measures facts on scenario-seed repeat",
-        "identity": "e3a73dc7f5c60304"
+        "identity": "119d53278b4453d7"
       },
       {
         "name": "NC-1 resumes an undrained Dimension seed without duplicate creation",
