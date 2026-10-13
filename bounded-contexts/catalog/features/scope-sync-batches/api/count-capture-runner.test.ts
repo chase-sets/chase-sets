@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCountCaptureJourney } from "./count-capture-runner";
 import { syntheticCountLifecycleReceipt } from "../tests/count-lifecycle-receipt-fixture";
+import { normalizeScopeSyncBatchBudget } from "../domain/batch";
 
 const identity = { sha: "a".repeat(40), dispatchId: "synthetic-dispatch", scopeRecordId: "synthetic-scope" };
 const now = () => "2026-10-13T08:06:00.000Z";
@@ -35,6 +36,10 @@ describe("isolates the count capture runner", () => {
       selection: receipt.selection,
       units: receipt.units,
       effects: receipt.effects,
+      plannerInput: {
+        selection: { mode: "ids", scopeRecordIds: [identity.scopeRecordId] },
+        budget: normalizeScopeSyncBatchBudget(),
+      },
       bootstrapRequired,
       providerEgressDenied: true,
     };
@@ -48,6 +53,10 @@ describe("isolates the count capture runner", () => {
       if (intent === "capture-baseline") return baseline;
       if (intent === "count-quote" || intent === "capture-quote-readback") return quote;
       if (intent === "preview") return { planFingerprint: receipt.preConfirm.currentFingerprint };
+      if (intent === "pre-confirm-planner-read") {
+        const { blockers: _blockers, ...observation } = receipt.preConfirm;
+        return { ...observation, refusal: null };
+      }
       if (intent === "capture-freeze") return receipt;
       return { retained: true };
     });
@@ -122,5 +131,66 @@ describe("isolates the count capture runner", () => {
     );
     expect(await runCountCaptureJourney(identity, action, now, collect)).toMatchObject({ phase: "quote" });
     expect(action.mock.calls.at(-1)?.[0]).toBe("capture-quote-readback");
+  });
+
+  it.each(["absent", "wrong-scope", "missing-budget", "extra-provider"])(
+    "refuses %s planner input before notice or spend",
+    async (mode) => {
+      const { action: original, collect, baseline } = journey();
+      const changed = structuredClone(baseline) as Record<string, unknown>;
+      if (mode === "absent") delete changed.plannerInput;
+      else {
+        const input = structuredClone(baseline.plannerInput) as Record<string, unknown>;
+        if (mode === "wrong-scope") input.selection = { mode: "ids", scopeRecordIds: ["synthetic-other"] };
+        if (mode === "missing-budget") delete input.budget;
+        if (mode === "extra-provider")
+          input.budget = { ...baseline.plannerInput.budget, providerConcurrency: { unrelated: 1 } };
+        changed.plannerInput = input;
+      }
+      const action = vi.fn(async (intent: string) => (intent === "capture-baseline" ? changed : original(intent)));
+      expect(await runCountCaptureJourney(identity, action, now, collect)).toMatchObject({ phase: "baseline" });
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(collect).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { retained: true },
+    { comparedFingerprint: "e".repeat(64) },
+    { currentFingerprint: "e".repeat(64) },
+    { effectsCapability: true },
+    { eligible: false, refusal: null },
+    { nested: { secret: "synthetic-private-marker" } },
+  ])("refuses an unbound or malformed pre-confirm result without freeze", async (change) => {
+    const { action: original, collect } = journey();
+    const action = vi.fn(async (intent: string) => {
+      const value = await original(intent);
+      return intent === "pre-confirm-planner-read" ? { ...value, ...change } : value;
+    });
+    const result = await runCountCaptureJourney(identity, action, now, collect);
+    expect(result).toMatchObject({ schemaVersion: "scope-sync-count-lifecycle-stop/v1", phase: "pre-confirm" });
+    expect(action.mock.calls.at(-1)?.[0]).toBe("pre-confirm-planner-read");
+    expect(JSON.stringify(result)).not.toContain("synthetic-private-marker");
+  });
+
+  it("does not substitute a different final receipt for the observed planner fingerprint", async () => {
+    const { action: original, collect, receipt } = journey();
+    const action = vi.fn(async (intent: string) => {
+      if (intent === "preview") return { planFingerprint: "e".repeat(64) };
+      if (intent === "pre-confirm-planner-read")
+        return {
+          comparedFingerprint: "e".repeat(64),
+          currentFingerprint: "e".repeat(64),
+          eligible: true,
+          refusal: null,
+          effectsCapability: false,
+        };
+      return original(intent);
+    });
+    expect(await runCountCaptureJourney(identity, action, now, collect)).toMatchObject({
+      phase: "freeze",
+      reason: "missing-observation",
+    });
+    expect(receipt.preConfirm.currentFingerprint).not.toBe("e".repeat(64));
   });
 });

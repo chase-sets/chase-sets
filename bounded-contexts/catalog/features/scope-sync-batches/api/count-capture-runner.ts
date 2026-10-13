@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { countCapturePlannerInputSchema } from "../domain/count-capture-plan";
 import {
   countCaptureAuthoritySchema,
   countLifecycleReceiptSchema,
@@ -21,11 +22,24 @@ const baselineSchema = z
     selection: countLifecycleReceiptSchema.shape.selection,
     units: countLifecycleReceiptSchema.shape.units,
     effects: countLifecycleReceiptSchema.shape.effects,
+    plannerInput: countCapturePlannerInputSchema,
     bootstrapRequired: z.boolean(),
     providerEgressDenied: z.literal(true),
   })
   .strict();
 const acknowledgementSchema = z.object({ retained: z.literal(true) }).strict();
+const preConfirmSchema = z
+  .object({
+    comparedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    currentFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    eligible: z.boolean(),
+    refusal: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
+      .nullable(),
+    effectsCapability: z.literal(false),
+  })
+  .strict();
 const quoteSchema = z
   .object({
     quoteId: z.uuid(),
@@ -64,6 +78,7 @@ export async function runCountCaptureJourney(
       baseline.authority.runnerSha !== identity.sha ||
       baseline.authority.dispatchId !== identity.dispatchId ||
       baseline.selection.scopeRecordId !== identity.scopeRecordId ||
+      baseline.plannerInput.selection.scopeRecordIds[0] !== identity.scopeRecordId ||
       new Set(baseline.units.map((unit) => unit.unitKey)).size !== 3 ||
       !validateCountCaptureAuthority(baseline.authority, now()) ||
       !baseline.effects.complete ||
@@ -98,11 +113,21 @@ export async function runCountCaptureJourney(
       }),
     );
     phase = "preview";
+    const plannerFields = { captureInput: JSON.stringify(baseline.plannerInput) };
     const preview = z
       .object({ planFingerprint: z.string().regex(/^[a-f0-9]{64}$/) })
-      .parse(await action("preview", {}));
+      .strict()
+      .parse(await action("preview", plannerFields));
     phase = "pre-confirm";
-    acknowledgementSchema.parse(await action("pre-confirm-planner-read", { planFingerprint: preview.planFingerprint }));
+    const preConfirm = preConfirmSchema.parse(
+      await action("pre-confirm-planner-read", { ...plannerFields, planFingerprint: preview.planFingerprint }),
+    );
+    if (
+      preConfirm.comparedFingerprint !== preview.planFingerprint ||
+      preConfirm.currentFingerprint !== preview.planFingerprint ||
+      preConfirm.eligible !== (preConfirm.refusal === null)
+    )
+      return stop("missing-observation");
     phase = "freeze";
     const freezeCollection = await collectDeployment(baseline.authority, now());
     const receipt = await action("capture-freeze", { collection: JSON.stringify(freezeCollection) });
@@ -111,6 +136,9 @@ export async function runCountCaptureJourney(
       parsed.authority.runnerSha !== identity.sha ||
       parsed.authority.dispatchId !== identity.dispatchId ||
       parsed.selection.scopeRecordId !== identity.scopeRecordId ||
+      parsed.preConfirm.comparedFingerprint !== preConfirm.comparedFingerprint ||
+      parsed.preConfirm.currentFingerprint !== preConfirm.currentFingerprint ||
+      parsed.preConfirm.eligible !== preConfirm.eligible ||
       JSON.stringify(parsed.freezeCollection) !== JSON.stringify(freezeCollection) ||
       !validateCountLifecycleReceipt(receipt).valid
     )

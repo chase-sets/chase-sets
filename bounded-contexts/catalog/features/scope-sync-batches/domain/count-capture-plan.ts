@@ -148,6 +148,13 @@ export const countCapturePlanSchema = z
     }),
   );
 
+export const countCapturePlannerInputSchema = z
+  .object({
+    selection: z.object({ mode: z.literal("ids"), scopeRecordIds: z.array(id).length(1) }).strict(),
+    budget: countCapturePlanSchema.shape.budget,
+  })
+  .strict();
+
 // Project only support-safe facts from the observed resolver result. No second
 // resolve, sampled public preview, diagnostic prose or provider payload is used.
 export function captureCountPlan(

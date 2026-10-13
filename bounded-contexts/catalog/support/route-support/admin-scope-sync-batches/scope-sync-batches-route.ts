@@ -9,14 +9,13 @@ import {
 } from "../../../features/scope-sync-batches/domain/held-set-export";
 import { readHeldSetExportAdminUpload } from "../../../features/scope-sync-batches/api/held-set-upload";
 import type { CountQuote } from "../../../features/scope-sync-batches/domain/count-acquisition";
-import type { CountCapturePlannerRuntime } from "../../../features/scope-sync-batches/api/count-capture-runtime";
+import { countCapturePlannerInputSchema } from "../../../features/scope-sync-batches/domain/count-capture-plan";
 
 export type ScopeSyncBatchRouteActionData = Readonly<{
   preview: ScopeSyncBatchPreview | null;
   heldSetResolution: HeldSetResolution | null;
   error: string | null;
   countQuote?: CountQuote | null;
-  capturePreConfirm?: Awaited<ReturnType<CountCapturePlannerRuntime["preConfirm"]>>;
 }>;
 
 export async function loader({
@@ -46,26 +45,16 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
       try {
         if (formData.getAll("countCapture").length !== 1 || formData.get("countCapture") !== "1")
           throw new Error("capture-stopped");
-        if (intent === "preview")
-          return Response.json(
-            {
-              preview: await api.captureScopeSyncBatchPreview(captureRequest(formData)),
-              heldSetResolution: null,
-              error: null,
-            } satisfies ScopeSyncBatchRouteActionData,
-            { headers },
-          );
+        if (intent === "preview") {
+          const preview = await api.captureScopeSyncBatchPreview(captureRequest(formData));
+          return Response.json({ planFingerprint: preview.planFingerprint }, { headers });
+        }
         if (intent === "pre-confirm-planner-read")
           return Response.json(
-            {
-              preview: null,
-              heldSetResolution: null,
-              error: null,
-              capturePreConfirm: await api.readScopeSyncBatchPreConfirm({
-                ...captureRequest(formData),
-                planFingerprint: requiredString(formData.get("planFingerprint"), "capture-stopped"),
-              }),
-            } satisfies ScopeSyncBatchRouteActionData,
+            await api.readScopeSyncBatchPreConfirm({
+              ...captureRequest(formData),
+              planFingerprint: requiredString(formData.get("planFingerprint"), "capture-stopped"),
+            }),
             { headers },
           );
         throw new Error("capture-stopped");
@@ -131,9 +120,13 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
 }
 
 function captureRequest(formData: FormData) {
-  const input = previewRequest(formData);
-  if (input.selection.mode !== "ids" || input.selection.scopeRecordIds.length !== 1) throw new Error("capture-stopped");
-  return { ...input, selection: input.selection };
+  const allowed = ["intent", "countCapture", "captureInput"];
+  if (formData.get("intent") === "pre-confirm-planner-read") allowed.push("planFingerprint");
+  if ([...formData.keys()].some((key) => !allowed.includes(key) || formData.getAll(key).length !== 1))
+    throw new Error("capture-stopped");
+  const value = formData.get("captureInput");
+  if (typeof value !== "string" || value.length > 4096) throw new Error("capture-stopped");
+  return countCapturePlannerInputSchema.parse(JSON.parse(value));
 }
 
 function previewRequest(formData: FormData) {
