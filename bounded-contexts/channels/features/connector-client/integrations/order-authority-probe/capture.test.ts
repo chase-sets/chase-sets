@@ -1493,7 +1493,11 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
         try {
           let blocked = 0;
           await context.route("**/*", async (route) => {
-            if (new URL(route.request().url()).protocol === "chrome-extension:") await route.continue();
+            if (
+              new URL(route.request().url()).protocol === "chrome-extension:" ||
+              route.request().url() === pathToFileURL(ordersFile).href
+            )
+              await route.continue();
             else {
               blocked += 1;
               await route.abort("blockedbyclient");
