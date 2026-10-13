@@ -94,7 +94,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     });
     expect(submitted.status()).toBe(201);
     rememberWrite(submitted);
-    return String((await submitted.json()).id);
+    const result = await submitted.json();
+    expect(result.id, "the created Offer's actual identity").toEqual(expect.stringMatching(/^off_/));
+    return result.id as string;
   };
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
