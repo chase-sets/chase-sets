@@ -265,8 +265,11 @@ native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only
 projects to `Tracking`.
 
 The derivation is total — every issue on the board resolves to exactly one
-status. The sync is scheduled hourly every day, including nights and weekends,
-but GitHub may delay scheduled runs by hours. Newly added board items receive
+status. Closing or reopening an issue triggers the sync. An hourly schedule runs
+every day, including nights and weekends, as a fallback for other board changes,
+but GitHub may delay scheduled runs by hours. The workflow can also be dispatched
+manually. All triggers share one concurrency group with cancellation disabled:
+at most one run is running and one is pending. Newly added board items receive
 their status on the next successful run. The orchestrator's `board-reconcile.ps1`
 also dispatches the workflow after clearing lane-owned statuses or finding blank
 ones.
