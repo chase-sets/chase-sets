@@ -267,13 +267,11 @@ describe("invitation auth routes", () => {
         },
       }),
     );
-    const accept = vi
-      .spyOn(journey, "acceptInvitationAttempt")
-      .mockResolvedValueOnce({
-        type: "session-started",
-        sessionToken: "synthetic-first-secret",
-        mutationSources: [source],
-      } as Awaited<ReturnType<typeof journey.acceptInvitationAttempt>>);
+    const accept = vi.spyOn(journey, "acceptInvitationAttempt").mockResolvedValueOnce({
+      type: "session-started",
+      sessionToken: "synthetic-first-secret",
+      mutationSources: [source],
+    } as Awaited<ReturnType<typeof journey.acceptInvitationAttempt>>);
     try {
       const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
       expect(response.status).toBe(200);
