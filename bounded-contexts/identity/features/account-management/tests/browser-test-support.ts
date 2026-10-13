@@ -1,6 +1,10 @@
 import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import {
+  getEventCommitMetadata,
+  recordCommittedEvents,
+  runWithEventCommitMetadata,
+} from "@chase-sets/event-core/consistency";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { Pool } from "pg";
@@ -74,7 +78,7 @@ export async function seedBrowserConsent(
     const consentId = createId("cns");
     return await runWithEventCommitMetadata(async () => {
       const persistence = createIdentityMutationPersistence(pool, raw, () => []);
-      await persistence.eventStore.appendToStream({
+      const committed = await persistence.eventStore.appendToStream({
         streamId: `identity.consent-${consentId}`,
         expectedVersion: "no_stream",
         context,
@@ -93,8 +97,16 @@ export async function seedBrowserConsent(
           },
         ],
       });
+      recordCommittedEvents(committed);
       const sources = getEventCommitMetadata().sources;
-      if (sources.length !== 1 || sources[0].sourceContextName !== "identity" || sources[0].eventIds.length !== 1)
+      if (
+        committed.length !== 1 ||
+        sources.length !== 1 ||
+        sources[0].sourceContextName !== "identity" ||
+        sources[0].eventIds.length !== 1 ||
+        sources[0].eventIds[0] !== String(committed[0].eventId) ||
+        sources[0].maxGlobalPosition !== String(committed[0].globalPosition)
+      )
         throw new Error("Consent fixture requires its exact committed event receipt.");
       return { consentId, sources };
     });

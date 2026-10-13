@@ -2,7 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { encodeFreshWriteReceipt } from "@chase-sets/http/responses";
-import { seedBrowserConsent } from "@chase-sets/identity/account-management-test-support";
+import { seedBrowserConsent } from "@chase-sets/identity/seed-support/account-management-browser";
 import { registerSyntheticAccount, syntheticAccountFor } from "./support/auth";
 
 const routes = ["/account", "/account/shipping-addresses", "/account/consents", "/account/security", "/account/team"];
