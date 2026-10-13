@@ -208,12 +208,30 @@ describeDb("agent Grant revocation separate-pool proof", () => {
       ),
     ).rejects.toThrow("revocation_conflict");
     expect(await owner.read({ ...binding, accountId: "acc_b", grantId: "grant_a" })).toBeNull();
-    const cleanup = vi.fn(async () => ({ detached: 0, alreadyRemoved: 0, instrumentIds: [] }));
-    await resumeAgentGrantRevocation(
-      { advance: owner.advance, cleanup, exclude: outbox().excludeRevokedGrant },
-      session!,
-      context,
+    await pools.payments.query(`INSERT INTO payments_saved_checkout_instruments
+      (instrument_id, account_id, agent_grant_id, payment_method_category, provider, provider_reference,
+       display_label, confirmation_experience, readiness, is_default, created_at, updated_at)
+      VALUES ('instrument_a', 'acc_a', 'grant_a', 'card', 'stripe', 'synthetic-provider-id',
+       'Synthetic card', 'off-session-token', 'ready', true, now(), now())`);
+    const services = await paymentsModule.createServices(pools.payments, {});
+    const bothCleanupsEntered = deferred();
+    let entered = 0;
+    const cleanup = vi.fn<typeof services.payments.revokeSavedCheckoutInstrumentsForAgentGrant>(
+      async (input, effectContext) => {
+        if (++entered === 2) bothCleanupsEntered.resolve();
+        await bothCleanupsEntered.promise;
+        return services.payments.revokeSavedCheckoutInstrumentsForAgentGrant(input, effectContext);
+      },
     );
+    const effects = { advance: owner.advance, cleanup, exclude: outbox().excludeRevokedGrant };
+    const concurrent = await Promise.allSettled([
+      resumeAgentGrantRevocation(effects, session!, context),
+      resumeAgentGrantRevocation(effects, token!, tokenContext),
+    ]);
+    expect(concurrent.some((result) => result.status === "fulfilled")).toBe(true);
+    await resumeAgentGrantRevocation(effects, (await owner.read(binding))!, context);
+    await resumeAgentGrantRevocation(effects, (await owner.read(tokenBinding))!, tokenContext);
+    expect((await owner.read(binding))!.phase).toBe("completed");
     expect((await owner.read(tokenBinding))!.phase).toBe("completed");
     expect(
       await createLinkedPlatformAuthorizationStore(pools.identity).resolveAccessToken("synthetic-grant_a"),
@@ -222,7 +240,35 @@ describeDb("agent Grant revocation separate-pool proof", () => {
       (await createLinkedPlatformAuthorizationStore(pools.identity).resolveRevocationToken("synthetic-grant_a"))!
         .status,
     ).toBe("revoked");
-    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(
+      (
+        await pools.payments.query(`SELECT readiness, is_default FROM payments_saved_checkout_instruments
+        WHERE instrument_id = 'instrument_a'`)
+      ).rows,
+    ).toEqual([{ readiness: "removed", is_default: false }]);
+    expect(
+      (
+        await pools.payments.query(`SELECT audit_id FROM payments_saved_checkout_instrument_audit
+        WHERE instrument_id = 'instrument_a' AND action = 'agent-grant-revoked'`)
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pools.payments.query(`SELECT event_type FROM event_store_events WHERE event_type IN
+        ('payments.checkout-affordances-published', 'payments.agent-grant-cleanup.completed')`)
+      ).rows,
+    ).toHaveLength(2);
+    expect(
+      (
+        await pools.identity.query(`SELECT event_type FROM event_store_events
+        WHERE event_type LIKE 'identity.agent-grant-revocation.%' ORDER BY global_position`)
+      ).rows.map((row) => row.event_type),
+    ).toEqual(
+      ["admitted", "identity-terminal", "payments-terminal", "webhook-excluded", "completed"].map(
+        (phase) => `identity.agent-grant-revocation.${phase}`,
+      ),
+    );
   });
 
   it.each(["token", "session"] as const)(
