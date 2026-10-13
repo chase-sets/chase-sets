@@ -1,8 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCountCaptureRequest } from "../../../scope-sync-batches/api/count-capture-context";
 import { sendCatalogProviderRequest } from "./provider-send-admission";
+import { acquireScrydexPageOneCount, scrydexCountQuery } from "./scrydex/adapter";
 
 describe("caps actual sends", () => {
+  it.each(["cards", "sealed"] as const)("classifies %s acquisition without an unrelated send window", async (kind) => {
+    const f = fixture();
+    f.transport.mockResolvedValue(Response.json({ data: [], total_count: 0, page_size: 100, page: 1 }));
+    const query = scrydexCountQuery({
+      environment: "staging",
+      accountRevision: "synthetic",
+      productDomain: "one-piece",
+      profileKey: `synthetic-${kind}`,
+      profileVersion: "synthetic",
+      unitKey: `scrydex:one-piece:${kind === "cards" ? "single-card" : "sealed-product"}:source-observation-import`,
+      kind,
+      languageCode: "en",
+      parentValue: "OP01",
+    });
+    await f.run(() =>
+      acquireScrydexPageOneCount(query, {
+        fetch: f.transport,
+        credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      }),
+    );
+    expect(f.ledger.debit).toHaveBeenCalledWith(expect.anything(), {
+      category: kind,
+      requestFingerprint: query.requestFingerprint,
+    });
+    expect(f.transport).toHaveBeenCalledTimes(1);
+  });
   function fixture(limit = 4) {
     let debits = 0;
     const ledger = {
@@ -67,7 +94,7 @@ describe("caps actual sends", () => {
     }
   });
 
-  it("atomic-debit and no-redirect deletion mutants fail the safety oracle", async () => {
+  it("rejects zero admitted slots and requests redirects manually", async () => {
     const f = fixture(0);
     await expect(f.run(() => f.send())).rejects.toThrow("capture-stopped");
     expect(f.transport).not.toHaveBeenCalled();

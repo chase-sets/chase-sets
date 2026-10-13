@@ -1,0 +1,23 @@
+2026-10-13T05:15:20.7278641Z {
+2026-10-13T05:15:20.7279179Z   "schemaVersion": "platform-kubernetes-deployment/v1",
+2026-10-13T05:15:20.7279708Z   "action": "deploy",
+2026-10-13T05:15:20.7280141Z   "release": "chase-sets-platform",
+2026-10-13T05:15:20.7280618Z   "namespace": "chase-sets-platform",
+2026-10-13T05:15:20.7281568Z   "image": "registry.digitalocean.com/chase-sets/chase-sets-platform:7d81f3f3309fc2a83ca3a70ee0ed5f51b45e4c0a@sha256:bde13c7a962cb4d6d0937bc8ac8b669ba9fd2d07a476dfc06cd05b3e602111e2",
+2026-10-13T05:15:20.7282440Z   "startedAt": null,
+2026-10-13T05:15:20.7282834Z   "completedAt": null,
+2026-10-13T05:15:20.7283216Z   "result": "success",
+2026-10-13T05:15:20.7283642Z   "workloads": {
+2026-10-13T05:15:20.7284047Z     "deployments": [
+2026-10-13T05:15:20.7284536Z       "chase-sets-platform-chase-sets-platform-public-web",
+2026-10-13T05:15:20.7285199Z       "chase-sets-platform-chase-sets-platform-marketplace",
+2026-10-13T05:15:20.7285819Z       "chase-sets-platform-chase-sets-platform-admin-web",
+2026-10-13T05:15:20.7286632Z       "chase-sets-platform-chase-sets-platform-platform-api",
+2026-10-13T05:15:20.7287288Z       "chase-sets-platform-chase-sets-platform-platform-worker"
+2026-10-13T05:15:20.7287813Z     ],
+2026-10-13T05:15:20.7288217Z     "rollouts": [],
+2026-10-13T05:15:20.7288621Z     "jobs": [
+2026-10-13T05:15:20.7289158Z       "chase-sets-platform-chase-sets-platform-platform-bootstrap"
+2026-10-13T05:15:20.7289692Z     ]
+2026-10-13T05:15:20.7290068Z   }
+2026-10-13T05:15:20.7290445Z }

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { readScrydexCountSource, scrydexCountQuery } from "../../source-observations/api/providers/scrydex/adapter";
-import { collectCountCaptureWinners } from "./count-capture-context";
+import {
+  createScrydexOnePieceProviderAdapter,
+  readScrydexCountSource,
+  scrydexCountQuery,
+} from "../../source-observations/api/providers/scrydex/adapter";
+import { collectCountCaptureWinners, runCountCaptureRequest, type CountCaptureLedger } from "./count-capture-context";
+import type { ProviderUsageSnapshot } from "../../source-observations/api/provider-adapters/provider-adapter";
+import { countCaptureUnitKeys } from "../domain/count-lifecycle-receipt";
 import { retainTargetedCountCaptureUsage } from "./count-capture-usage";
 
 describe("captures actual winners", () => {
@@ -41,7 +47,7 @@ describe("captures actual winners", () => {
     expect(result.winners[0]?.source?.sourceId).not.toBe("synthetic-same-total-alternate");
   });
 
-  it("records absent authority honestly and a missing observer cannot pass", async () => {
+  it("records absent sources and a missing observation distinctly", async () => {
     const query = scrydexCountQuery({
       environment: "staging",
       accountRevision: "synthetic",
@@ -62,6 +68,96 @@ describe("captures actual winners", () => {
 });
 
 describe("retains targeted usage", () => {
+  it("accounts for all three planning units and one readiness read on each of two cold adapters", async () => {
+    let sequence = 0;
+    const ledger = {
+      debit: vi.fn<CountCaptureLedger["debit"]>(async () => ++sequence),
+      result: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+    };
+    for (const phase of ["preview", "pre-confirm"] as const) {
+      const transport = vi.fn<typeof fetch>(async () =>
+        Response.json({
+          data: {
+            credits_remaining: 100,
+            total_credits_consumed: 0,
+            overage_credits_consumed: 0,
+            period_start: "2026-10-01T00:00:00Z",
+            period_end: "2026-11-01T00:00:00Z",
+          },
+        }),
+      );
+      const adapter = createScrydexOnePieceProviderAdapter({
+        fetch: transport,
+        credentials: { apiKey: "synthetic", teamId: "synthetic" },
+        now: () => new Date("2026-10-13T08:00:00Z"),
+      });
+      const binding = { runId: "synthetic-run", requestId: `synthetic-${phase}`, phase };
+      await runCountCaptureRequest({ binding, ledger }, async () => {
+        await Promise.all([adapter.getCredentialReadiness(), adapter.getTransportDiagnostics()]);
+        for (const unitKey of countCaptureUnitKeys)
+          await adapter.planImport({
+            unitKey,
+            scopeKey: "synthetic-op01",
+            values: { expansionId: "OP01", languageCode: "en" },
+          });
+      });
+      expect(transport).toHaveBeenCalledTimes(4);
+      const sends = ledger.debit.mock.calls.filter(([request]) => request.phase === phase).map(([, send]) => send);
+      expect(sends.map((send) => send.usage)).toEqual([
+        { purpose: "readiness" },
+        ...countCaptureUnitKeys.map((unitKey) => ({ purpose: "planImport", unitKey })),
+      ]);
+    }
+    expect(ledger.debit).toHaveBeenCalledTimes(8);
+    expect(ledger.stop).not.toHaveBeenCalled();
+  });
+  it("uses the real sanitizer and callback, then skips without another transport", async () => {
+    const now = new Date("2026-10-13T08:00:00.000Z");
+    let persisted: ProviderUsageSnapshot | null = null;
+    const onUsageObserved = vi.fn(async (snapshot: ProviderUsageSnapshot) => {
+      persisted = snapshot;
+    });
+    const transport = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: {
+          credits_remaining: 100,
+          total_credits_consumed: 0,
+          overage_credits_consumed: 0,
+          period_start: "2026-10-01T00:00:00Z",
+          period_end: "2026-11-01T00:00:00Z",
+          account_id: "synthetic-private-account-marker",
+        },
+      }),
+    );
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      fetch: transport,
+      now: () => now,
+      onUsageObserved,
+    });
+    const ledger = { debit: vi.fn(async () => 1), result: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+    const authority = async () => ({
+      allowed: persisted?.attemptState === "checked",
+      headroom: persisted?.remainingCredits ?? null,
+      fingerprint: "synthetic-retained",
+    });
+    const work = () =>
+      retainTargetedCountCaptureUsage({ authority, getUsageSnapshot: () => adapter.getUsageSnapshot!() }, 11);
+    const binding = { runId: "synthetic-run", requestId: "synthetic-request", phase: "bootstrap" as const };
+    expect(await runCountCaptureRequest({ binding, ledger }, work)).toEqual({ state: "persisted" });
+    expect(onUsageObserved).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(persisted)).not.toContain("synthetic-private-account-marker");
+    expect(onUsageObserved).toHaveBeenCalledWith(
+      expect.objectContaining({ providerUpdatedAt: null, lagCategory: "documented-window" }),
+    );
+    expect(ledger.debit).toHaveBeenCalledWith(
+      binding,
+      expect.objectContaining({ category: "usage", usage: { purpose: "bootstrap" } }),
+    );
+    expect(await runCountCaptureRequest({ binding, ledger }, work)).toEqual({ state: "skipped" });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
   it("skips sufficient durable authority without a provider call", async () => {
     const authority = vi.fn(async () => ({ allowed: true, headroom: 11, fingerprint: "synthetic-authority" }));
     const getUsageSnapshot = vi.fn();

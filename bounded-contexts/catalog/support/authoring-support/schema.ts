@@ -41,6 +41,10 @@ import {
 } from "../../features/scope-sync-state/read-model/schema";
 import { catalogScopeSyncBatchSchemaSql } from "../../features/scope-sync-batches/read-model/schema";
 import {
+  countCaptureSchemaSql,
+  countCaptureSchemaMigrations,
+} from "../../features/scope-sync-batches/read-model/count-capture-schema";
+import {
   catalogCountHistorySchemaSql,
   catalogCountHistorySchemaMigrations,
 } from "../../features/scope-sync-batches/read-model/count-schema";
@@ -63,6 +67,7 @@ export const catalogAuthoringSchemaSql = [
   catalogProviderScopeMappingSchemaSql,
   catalogScopeSyncStateSchemaSql,
   catalogScopeSyncBatchSchemaSql,
+  countCaptureSchemaSql,
   catalogCountHistorySchemaSql,
   catalogProviderScopeDiscoverySchemaSql,
   catalogCatalogItemSchemaSql,
@@ -87,6 +92,7 @@ export const catalogAuthoringSchemaSql = [
 ].join("\n\n");
 
 export const catalogAuthoringSchemaMigrations = [
+  ...countCaptureSchemaMigrations,
   ...catalogCountHistorySchemaMigrations,
   ...durableJobSchemaMigrations({
     jobsTable: "catalog_authoring_bulk_jobs",

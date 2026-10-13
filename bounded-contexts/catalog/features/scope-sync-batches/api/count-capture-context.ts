@@ -3,7 +3,16 @@ import { countFingerprint, type ScrydexCountQuery, type ScrydexCountSource } fro
 
 export type CountCapturePhase = "baseline" | "bootstrap" | "quote" | "acquisition" | "preview" | "pre-confirm";
 export type CountCaptureBinding = Readonly<{ runId: string; requestId: string; phase: CountCapturePhase }>;
-export type CountCaptureSend = Readonly<{ category: "usage" | "cards" | "sealed"; requestFingerprint: string }>;
+export type CountCaptureUsage = Readonly<{ purpose: "bootstrap" | "readiness" | "planImport"; unitKey?: string }>;
+export type CountCaptureSend = Readonly<{
+  category: "usage" | "cards" | "sealed";
+  requestFingerprint: string;
+  usage?: CountCaptureUsage;
+}>;
+const usageRequests = new AsyncLocalStorage<CountCaptureUsage>();
+export function runCountCaptureUsage<T>(usage: CountCaptureUsage, work: () => T): T {
+  return usageRequests.run(usage, work);
+}
 export type CountCaptureLedger = Readonly<{
   debit(binding: CountCaptureBinding, send: CountCaptureSend): Promise<number>;
   result(binding: CountCaptureBinding, sequence: number, status: number): Promise<void>;
@@ -116,7 +125,8 @@ export async function sendCountCaptureRequest(
   const capture = requests.getStore();
   if (!capture) return transport(input, init);
   try {
-    const send = classifyCountCaptureSend(provider, category, input, init);
+    const classified = classifyCountCaptureSend(provider, category, input, init);
+    const send = classified.category === "usage" ? { ...classified, usage: usageRequests.getStore() } : classified;
     const sequence = await capture.ledger.debit(capture.binding, send);
     if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 11) throw new CountCaptureStopped();
     const response = await transport(input, { ...init, redirect: "manual" });

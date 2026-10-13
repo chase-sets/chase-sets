@@ -9,28 +9,13 @@ import {
 } from "../api/count-capture-context";
 import {
   countCaptureAuthoritySchema,
+  countCaptureUnitKeys,
   validateCountCaptureAuthority,
   type CountCaptureAuthority,
 } from "../domain/count-lifecycle-receipt";
-import { countFingerprint, type CountQuote } from "../domain/count-acquisition";
+import { countFingerprint, countTimeIsCurrent, type CountQuote } from "../domain/count-acquisition";
 import type { ScopeSyncBatchBudget, ScopeSyncBatchSelection } from "../domain/batch";
 
-export const countCaptureSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_scope_sync_count_capture_history (
-  position bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  run_id text NOT NULL,
-  owner_hash text NOT NULL,
-  payload jsonb NOT NULL,
-  recorded_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS catalog_count_capture_run_idx ON catalog_scope_sync_count_capture_history (run_id,position DESC);
-CREATE INDEX IF NOT EXISTS catalog_count_capture_owner_idx ON catalog_scope_sync_count_capture_history (owner_hash,position DESC);`;
-export const countCaptureSchemaMigrations = [
-  {
-    migrationId: "catalog-count-capture-history-v1",
-    description: "Retain staging count capture phases and possible sends without import capabilities.",
-    statements: [countCaptureSchemaSql],
-  },
-];
 const phaseSchema = z.enum(["baseline", "bootstrap", "quote", "acquisition", "preview", "pre-confirm"]);
 const stateSchema = z
   .object({
@@ -60,6 +45,13 @@ const stateSchema = z
             requestId: z.uuid(),
             sequence: z.number().int().min(1).max(11),
             category: z.enum(["usage", "cards", "sealed"]),
+            usage: z
+              .object({
+                purpose: z.enum(["bootstrap", "readiness", "planImport"]),
+                unitKey: z.enum(countCaptureUnitKeys).optional(),
+              })
+              .strict()
+              .optional(),
             requestFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
             debitedAt: z.iso.datetime({ offset: true }),
             status: z.number().int().min(100).max(599).nullable(),
@@ -145,17 +137,35 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
             state.sends.some((entry) => entry.category === send.category)
           )
             throw new CountCaptureStopped();
-        } else if (send.category !== "usage") throw new CountCaptureStopped();
+        } else {
+          if (send.category !== "usage" || !send.usage) throw new CountCaptureStopped();
+          const { purpose, unitKey } = send.usage;
+          if (phase === "bootstrap") {
+            if (purpose !== "bootstrap" || unitKey !== undefined) throw new CountCaptureStopped();
+          } else if (purpose === "readiness") {
+            if (unitKey !== undefined) throw new CountCaptureStopped();
+          } else if (purpose !== "planImport" || !countCaptureUnitKeys.some((key) => key === unitKey)) {
+            throw new CountCaptureStopped();
+          }
+          if (
+            state.sends.some(
+              (entry) => entry.phase === phase && entry.usage?.purpose === purpose && entry.usage?.unitKey === unitKey,
+            )
+          )
+            throw new CountCaptureStopped();
+        }
         const sequence = state.sends.length + 1;
-        state.sends.push({
-          ...send,
-          phase,
-          requestId: binding.requestId,
-          sequence,
-          debitedAt: now(),
-          status: null,
-          respondedAt: null,
-        });
+        state.sends.push(
+          stateSchema.shape.sends.element.parse({
+            ...send,
+            phase,
+            requestId: binding.requestId,
+            sequence,
+            debitedAt: now(),
+            status: null,
+            respondedAt: null,
+          }),
+        );
         return sequence;
       }),
     result: (binding, sequence, status) =>
@@ -185,15 +195,21 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
       return withPgTransaction(pool, async (db) => {
         await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["catalog-count-capture"]);
         if (await latest(db, "owner_hash", input.ownerHash)) throw new CountCaptureStopped();
-        const existing = await db.query<{ payload: unknown }>(
-          "SELECT payload FROM catalog_scope_sync_count_capture_history ORDER BY position DESC LIMIT 1",
+        const existing = await db.query<{ blocked: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM (
+               SELECT DISTINCT ON (run_id) payload
+               FROM catalog_scope_sync_count_capture_history ORDER BY run_id, position DESC
+             ) current_runs
+             WHERE (payload->>'expiresAt')::timestamptz >= $1::timestamptz
+               AND payload->>'stage' NOT IN ('failed','frozen')
+           ) OR EXISTS (
+             SELECT 1 FROM catalog_scope_sync_count_capture_history
+             WHERE payload->'authority'->>'dispatchId' = $2
+           ) AS blocked`,
+          [now(), input.authority.dispatchId],
         );
-        if (existing.rows[0]) {
-          const previous = stateSchema.parse(existing.rows[0].payload);
-          if (Date.parse(previous.expiresAt) >= Date.parse(now()) && !["failed", "frozen"].includes(previous.stage))
-            throw new CountCaptureStopped();
-          if (previous.authority.dispatchId === input.authority.dispatchId) throw new CountCaptureStopped();
-        }
+        if (existing.rows[0]?.blocked !== false) throw new CountCaptureStopped();
         const state: CountCaptureState = {
           runId: randomUUID(),
           ownerHash: input.ownerHash,
@@ -216,6 +232,12 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     transition: (runId: string, expected: CountCaptureState["stage"], next: CountCaptureState["stage"]) =>
       mutate(runId, (state) => {
         if (state.request || state.stage !== expected) throw new CountCaptureStopped();
+        const allowed: Readonly<Record<string, string | undefined>> = {
+          admitted: "noticed",
+          quoted: "approved",
+          "pre-confirmed": "frozen",
+        };
+        if (next !== "failed" && allowed[state.stage] !== next) throw new CountCaptureStopped();
         state.stage = next;
         return state;
       }),
@@ -237,6 +259,11 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     finish: (binding: CountCaptureBinding) =>
       mutate(binding.runId, (state) => {
         bound(state, binding);
+        if (
+          (binding.phase === "quote" || binding.phase === "acquisition") &&
+          (!state.quoteId || !state.quoteFingerprint)
+        )
+          throw new CountCaptureStopped();
         if (state.sends.some((send) => send.status === null)) throw new CountCaptureStopped();
         const next = {
           baseline: "admitted",
@@ -255,18 +282,25 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         bound(state, binding);
         if (
           binding.phase !== "quote" ||
+          quote.state !== "quoted" ||
+          Date.parse(quote.expiresAt) < Date.parse(now()) ||
           quote.cap !== quote.plannedCredits ||
+          quote.plannedCredits !== quote.targets.filter((target) => !target.source).length ||
           quote.plannedCredits > 2 ||
           !quote.authority.allowed ||
           (quote.authority.headroom ?? -1) < quote.plannedCredits + 8 ||
           countFingerprint(quote.selection) !== state.selectionHash ||
           quote.targets.length !== 2 ||
+          new Set(quote.targets.map((target) => target.query.kind)).size !== 2 ||
           quote.targets.some(
             (target) =>
               target.blocked ||
+              target.query.environment !== "staging" ||
               target.query.productDomain !== "one-piece" ||
               target.query.parentValue !== "OP01" ||
-              target.query.languageCode !== "en",
+              target.query.languageCode !== "en" ||
+              target.query.unitKey !== countCaptureUnitKeys[target.query.kind === "cards" ? 1 : 2] ||
+              (target.source !== null && !countTimeIsCurrent(target.source, now())),
           )
         )
           throw new CountCaptureStopped();

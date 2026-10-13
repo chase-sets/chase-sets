@@ -10,6 +10,16 @@ const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const instant = z.iso.datetime({ offset: true });
 const integer = z.number().int().min(0).max(2147483647);
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
+const receiptQuerySchema = countQuerySchema.extend({
+  environment: z.literal("staging"),
+  accountRevision: id,
+  productDomain: z.literal("one-piece"),
+  profileKey: id,
+  profileVersion: id,
+  unitKey: id,
+  languageCode: z.literal("en"),
+  parentValue: z.literal("OP01"),
+});
 export const countCaptureUnitKeys = [
   "scrydex:one-piece:set:reference-data",
   "scrydex:one-piece:single-card:source-observation-import",
@@ -107,14 +117,14 @@ export function validateCountCaptureAuthority(value: unknown, now: string): valu
     ) &&
     collection.complete &&
     !collection.overlap &&
-    collection.attemptCount >= collection.runCount &&
+    collection.attemptCount >= 1 &&
     budget.remainingCredits - budget.unreflectedCredits - budget.reservedCredits >= budget.totalCap
   );
 }
 
 const sourceSchema = z
   .object({
-    query: countQuerySchema,
+    query: receiptQuerySchema,
     sourceId: id,
     validationKind: z.enum(["page-1-count", "complete-cache"]),
     totalCount: integer,
@@ -130,7 +140,7 @@ const consumptionSchema = z
     phase: z.enum(["preview", "pre-confirm"]),
     requestId: id,
     kind: z.enum(["cards", "sealed"]),
-    query: countQuerySchema,
+    query: receiptQuerySchema,
     source: sourceSchema.nullable(),
     readAt: instant,
     ageMs: integer.max(900000).nullable(),
@@ -144,6 +154,13 @@ const sendSchema = z
     requestId: id,
     sequence: integer.min(1).max(11),
     category: z.enum(["usage", "cards", "sealed"]),
+    usage: z
+      .object({
+        purpose: z.enum(["bootstrap", "readiness", "planImport"]),
+        unitKey: z.enum(countCaptureUnitKeys).optional(),
+      })
+      .strict()
+      .optional(),
     requestFingerprint: hash,
     debitedAt: instant,
     respondedAt: instant.nullable(),
@@ -202,7 +219,7 @@ export const countLifecycleReceiptSchema = z
         remainingCredits: integer,
         unreflectedCredits: integer,
         reservedCredits: integer,
-        lagCategory: z.literal("unobserved"),
+        lagCategory: z.enum(["unobserved", "documented-window"]),
         persisted: z.boolean(),
       })
       .strict(),
@@ -210,7 +227,7 @@ export const countLifecycleReceiptSchema = z
       .array(
         z
           .object({
-            evidence: countEvidenceSchema,
+            evidence: countEvidenceSchema.safeExtend({ query: receiptQuerySchema, sourceId: id }),
             debitId: id,
             quoteId: z.uuid(),
             debitedAt: instant,
@@ -292,6 +309,8 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
     reasons.push("freeze-unknown-or-drift");
   if (receipt.preConfirm.comparedFingerprint !== receipt.preConfirm.currentFingerprint)
     reasons.push("fingerprint-changed");
+  if (at(receipt.frozenAt) < at(receipt.startedAt) || at(receipt.frozenAt) - at(receipt.startedAt) > 900_000)
+    reasons.push("capture-time");
   if (
     !receipt.effects.complete ||
     [
@@ -308,6 +327,20 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
     const sends = receipt.sends.filter((send) => send.phase === phase);
     if (sends.length > cap || sends.some((send) => (phase === "acquisition") === (send.category === "usage")))
       reasons.push("phase-cap");
+    const usage = sends.filter((send) => send.category === "usage");
+    if (
+      usage.some(
+        (send) =>
+          !send.usage ||
+          (phase === "bootstrap"
+            ? send.usage.purpose !== "bootstrap" || send.usage.unitKey !== undefined
+            : send.usage.purpose === "readiness"
+              ? send.usage.unitKey !== undefined
+              : send.usage.purpose !== "planImport" || !send.usage.unitKey),
+      ) ||
+      new Set(usage.map((send) => `${send.usage?.purpose}:${send.usage?.unitKey ?? ""}`)).size !== usage.length
+    )
+      reasons.push("usage-subcap");
   }
   if (
     receipt.sends.some(
@@ -322,11 +355,44 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
   )
     reasons.push("send-uncertain");
   if (
+    receipt.sends.some(
+      (send) =>
+        at(send.debitedAt) < at(receipt.notices.initialAt) ||
+        at(send.debitedAt) > at(receipt.frozenAt) ||
+        (send.respondedAt !== null &&
+          (at(send.respondedAt) < at(send.debitedAt) || at(send.respondedAt) > at(receipt.frozenAt))) ||
+        (send.category !== "usage" && at(send.debitedAt) < at(receipt.notices.approvalAt)),
+    )
+  )
+    reasons.push("send-time");
+  if (
+    receipt.effects.baselineAt !== receipt.startedAt ||
+    at(receipt.effects.finalAt) < at(receipt.frozenAt) ||
+    at(receipt.usage.observedAt) > at(receipt.notices.approvalAt) ||
+    at(receipt.notices.approvalAt) - at(receipt.usage.observedAt) > 900_000 ||
+    receipt.usage.remainingCredits - receipt.usage.unreflectedCredits - receipt.usage.reservedCredits <
+      receipt.notices.plannedCount + 8 ||
+    !receipt.usage.persisted
+  )
+    reasons.push("authority-or-effects-time");
+  if (
     receipt.sends.filter((send) => send.category === "usage").length > 9 ||
     ["cards", "sealed"].some((kind) => receipt.sends.filter((send) => send.category === kind).length > 1)
   )
     reasons.push("category-cap");
   const missing: string[] = [];
+  for (const phase of ["preview", "pre-confirm"] as const) {
+    const sends = receipt.sends.filter((send) => send.phase === phase);
+    if (
+      new Set(sends.map((send) => send.requestId)).size !== 1 ||
+      countCaptureUnitKeys.some(
+        (unitKey) => !sends.some((send) => send.usage?.purpose === "planImport" && send.usage.unitKey === unitKey),
+      )
+    )
+      missing.push(`${phase}-planning-sends`);
+    if (receipt.consumption.some((row) => row.phase === phase && row.requestId !== sends[0]?.requestId))
+      reasons.push("consumption-request-mismatch");
+  }
   for (const phase of ["preview", "pre-confirm"] as const)
     for (const kind of ["cards", "sealed"] as const) {
       const rows = receipt.consumption.filter((row) => row.phase === phase && row.kind === kind);
@@ -336,9 +402,17 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
         continue;
       }
       const source = row.source;
+      const unit = receipt.units.find((unit) => unit.unitKey === countCaptureUnitKeys[kind === "cards" ? 1 : 2]);
       if (
         countQueryKey(row.query) !== countQueryKey(source.query) ||
         row.query.kind !== kind ||
+        !unit ||
+        row.query.unitKey !== unit.unitKey ||
+        row.query.profileKey !== unit.profileKey ||
+        row.query.profileVersion !== unit.profileVersion ||
+        row.estimate !== unit.estimate ||
+        at(row.readAt) < at(receipt.notices.approvalAt) ||
+        at(row.readAt) > at(receipt.frozenAt) ||
         !countTimeIsCurrent(source, row.readAt) ||
         row.ageMs !== at(row.readAt) - at(source.observedAt) ||
         row.estimate !== Math.max(1, Math.ceil(source.totalCount / source.pageSize)) ||
@@ -363,6 +437,22 @@ export function validateCountLifecycleReceipt(value: unknown, forbiddenValues: r
         acquired[0].evidence.expiresAt !== source.expiresAt
       )
         missing.push(`${phase}-${kind}-writer-join`);
+      else if (!acquired[0].reused) {
+        const sends = receipt.sends.filter(
+          (send) =>
+            send.category === kind &&
+            send.phase === "acquisition" &&
+            send.requestFingerprint === source.query.requestFingerprint,
+        );
+        if (
+          sends.length !== 1 ||
+          acquired[0].quoteId !== receipt.notices.quoteId ||
+          at(acquired[0].debitedAt) > at(sends[0]!.debitedAt) ||
+          at(acquired[0].debitedAt) < at(receipt.notices.approvalAt) ||
+          at(source.observedAt) < at(sends[0]!.respondedAt ?? "")
+        )
+          reasons.push("acquisition-send-join");
+      }
     }
   return {
     valid: true,
