@@ -1,6 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
-import { buildSimpleSearchQuery, foldSearchDiacritics, normalizeSimpleSearchText } from "../domain/normalization";
+import {
+  buildSimpleSearchQuery,
+  foldSearchDiacritics,
+  normalizeSimpleSearchText,
+  truncateDiscoverySearchQuery,
+} from "../domain/normalization";
+import { buildSearchSynonymQueries, type SearchSynonymQueries } from "../domain/search-synonyms";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
@@ -213,6 +219,7 @@ type SearchFilterBuildOptions = Readonly<{
   excludeFacet?: Readonly<{ kind: DiscoveryFacetKind | "category"; id: string }>;
   itemAlias?: string;
   firstParamIndex?: number;
+  searchQueries?: SearchSynonymQueries;
 }>;
 
 type BuiltSearchFilter = Readonly<{
@@ -224,9 +231,11 @@ type BuiltSearchFilter = Readonly<{
   nextParamIndex: number;
   englishSearchParamIndex: number | null;
   simpleSearchParamIndex: number | null;
+  queryFunction: "plainto_tsquery" | "to_tsquery";
 }>;
 
 function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterBuildOptions = {}): BuiltSearchFilter {
+  const queryFunction = options.searchQueries?.expanded ? "to_tsquery" : "plainto_tsquery";
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = options.firstParamIndex ?? 1;
@@ -256,7 +265,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
 
   if (params.search) {
     englishSearchParamIndex = paramIndex;
-    values.push(foldSearchDiacritics(params.search));
+    values.push(options.searchQueries?.english ?? foldSearchDiacritics(params.search));
     paramIndex++;
     simpleSearchParamIndex = paramIndex;
     // Product-contents text is folded into the item's own tsvector at projection
@@ -265,9 +274,9 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     // EXISTS over discovery_search_product_contents — that disjunct defeated the
     // GIN bitmap scan and forced a per-row probe of every active item.
     conditions.push(
-      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
+      `(${itemColumn("search_text")} @@ ${queryFunction}('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ ${queryFunction}('simple', $${simpleSearchParamIndex}))`,
     );
-    values.push(buildSimpleSearchQuery(params.search));
+    values.push(options.searchQueries?.simple ?? buildSimpleSearchQuery(params.search));
     paramIndex++;
   }
 
@@ -396,7 +405,21 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     nextParamIndex: paramIndex,
     englishSearchParamIndex,
     simpleSearchParamIndex,
+    queryFunction,
   };
+}
+
+export async function lookupServedSearchSetCodes(
+  db: PgQueryable,
+  candidates: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (candidates.length === 0) return new Set();
+  const result = await db.query<{ set_code: string }>(
+    `SELECT candidate.set_code FROM unnest($1::text[]) AS candidate(set_code)
+     WHERE EXISTS (SELECT 1 FROM discovery_search_items AS item WHERE item.set_code = candidate.set_code)`,
+    [candidates],
+  );
+  return new Set(result.rows.map((row) => row.set_code));
 }
 
 function marketDimensionFilterGroups(
@@ -577,7 +600,12 @@ export async function searchDiscoveryItems(
   params: DiscoverySearchParams = {},
   options: Readonly<{ loadFacets?: boolean; loadMarketSummaries?: boolean }> = {},
 ): Promise<ListResult<DiscoverySearchItemRow>> {
-  const baseFilter = buildSearchFilter(params);
+  const searchQueries = params.search
+    ? await buildSearchSynonymQueries(truncateDiscoverySearchQuery(params.search), (codes) =>
+        lookupServedSearchSetCodes(db, codes),
+      )
+    : undefined;
+  const baseFilter = buildSearchFilter(params, { searchQueries });
   const values = [...baseFilter.values];
   let paramIndex = baseFilter.nextParamIndex;
   const relevance = usesRelevanceOrdering(params);
@@ -648,8 +676,8 @@ export async function searchDiscoveryItems(
     case "relevance":
     default:
       if (relevance) {
-        const englishQuery = `plainto_tsquery('english', $${baseFilter.englishSearchParamIndex})`;
-        const simpleQuery = `plainto_tsquery('simple', $${baseFilter.simpleSearchParamIndex})`;
+        const englishQuery = `${baseFilter.queryFunction}('english', $${baseFilter.englishSearchParamIndex})`;
+        const simpleQuery = `${baseFilter.queryFunction}('simple', $${baseFilter.simpleSearchParamIndex})`;
         const exactQueryParam = `$${paramIndex}`;
         values.push(exactIdentityQuery(params.search ?? ""));
         paramIndex++;
@@ -743,8 +771,8 @@ export async function searchDiscoveryItems(
           params.dimensionFilters,
         );
   const loadFacets = options.loadFacets !== false && !continuing;
-  const facets = loadFacets ? await loadSearchFacets(db, params) : [];
-  const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params) : [];
+  const facets = loadFacets ? await loadSearchFacets(db, params, searchQueries) : [];
+  const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params, searchQueries) : [];
 
   return {
     items: rows.map(
@@ -901,10 +929,12 @@ function categoryCountsForItems(
 async function loadSearchCategoryCounts(
   db: PgQueryable,
   params: DiscoverySearchParams,
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryCategoryCount[]> {
   const filter = buildSearchFilter(params, {
     excludeFacet: { kind: "category", id: params.category ?? "" },
     itemAlias: "item",
+    searchQueries,
   });
   const result = await db.query<{ slug: string; count: string | number }>(
     `SELECT category_slug AS slug, COUNT(DISTINCT item.catalog_item_id)::integer AS count
@@ -1317,8 +1347,12 @@ type FacetSummaryRow = Readonly<{
   distinct_count: string | number;
 }>;
 
-async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams): Promise<DiscoveryFacetGroup[]> {
-  const filter = buildSearchFilter(params, { itemAlias: "item" });
+async function loadSearchFacets(
+  db: PgQueryable,
+  params: DiscoverySearchParams,
+  searchQueries: SearchSynonymQueries | undefined,
+): Promise<DiscoveryFacetGroup[]> {
+  const filter = buildSearchFilter(params, { itemAlias: "item", searchQueries });
   const dimensionFilter = buildSearchFilter(
     {
       ...params,
@@ -1328,7 +1362,7 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
       inStock: false,
       marketActivity: undefined,
     },
-    { itemAlias: "item", firstParamIndex: filter.nextParamIndex },
+    { itemAlias: "item", firstParamIndex: filter.nextParamIndex, searchQueries },
   );
   const selectedFields = groupFieldFilters(params.fieldFilters);
   const selectedReferences = groupReferenceFilters(params.referenceFilters);
@@ -1403,10 +1437,22 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
       [...chosen.values()].map(async (summary): Promise<DiscoveryFacetGroup | null> => {
         const values =
           summary.kind === "field"
-            ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
+            ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [], searchQueries)
             : summary.kind === "reference"
-              ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
-              : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
+              ? await loadReferenceFacetValues(
+                  db,
+                  params,
+                  summary.id,
+                  selectedReferences.get(summary.id) ?? [],
+                  searchQueries,
+                )
+              : await loadDimensionFacetValues(
+                  db,
+                  params,
+                  summary.id,
+                  selectedDimensions.get(summary.id) ?? [],
+                  searchQueries,
+                );
 
         return values.length > 0
           ? {
@@ -1452,8 +1498,13 @@ async function loadReferenceFacetValues(
   params: DiscoverySearchParams,
   typeKey: string,
   selectedReferenceIds: readonly string[],
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "reference", id: typeKey }, itemAlias: "item" });
+  const filter = buildSearchFilter(params, {
+    excludeFacet: { kind: "reference", id: typeKey },
+    itemAlias: "item",
+    searchQueries,
+  });
   const orderBy = fieldFacetValueOrderSql({
     sortKind: "sort_kind",
     sortValue: "sort_value",
@@ -1506,8 +1557,13 @@ async function loadFieldFacetValues(
   params: DiscoverySearchParams,
   fieldId: string,
   selectedValues: readonly string[],
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "field", id: fieldId }, itemAlias: "item" });
+  const filter = buildSearchFilter(params, {
+    excludeFacet: { kind: "field", id: fieldId },
+    itemAlias: "item",
+    searchQueries,
+  });
   const orderBy = fieldFacetValueOrderSql({
     sortKind: "sort_kind",
     sortValue: "sort_value",
@@ -1560,6 +1616,7 @@ async function loadDimensionFacetValues(
   params: DiscoverySearchParams,
   dimensionId: string,
   selectedOptionIds: readonly string[],
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryFacetValue[]> {
   const constrained = Boolean(
     params.marketActivity || params.inStock || params.priceMin !== undefined || params.priceMax !== undefined,
@@ -1575,7 +1632,7 @@ async function loadDimensionFacetValues(
           sort: undefined,
         }
       : params,
-    { excludeFacet: { kind: "dimension", id: dimensionId }, itemAlias: "item" },
+    { excludeFacet: { kind: "dimension", id: dimensionId }, itemAlias: "item", searchQueries },
   );
   const activityDimensionFilters = marketDimensionFilterGroups(groupDimensionFilters(params.dimensionFilters), {
     kind: "dimension",

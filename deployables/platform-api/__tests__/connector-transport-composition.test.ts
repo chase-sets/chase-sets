@@ -32,6 +32,7 @@ describe("connector-feed-bootstrap-and-manifest", () => {
       maxOperationsPerClaim: 100,
       maxIngestBytes: 33_554_432,
       maxIngestRecords: 100_000,
+      liveExportIntervalSeconds: 21_600,
     });
     const mounts = channelsModule.buildApis(services);
     expect(mounts.map(({ mountPath, contextMountOrdinal }) => ({ mountPath, contextMountOrdinal }))).toEqual([

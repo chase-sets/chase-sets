@@ -390,7 +390,12 @@ export function assertTotalResult(result: ExecutorResult, members: readonly Oper
     if (!outcome || outcome.attemptId !== member.attemptId || outcome.claimGeneration !== member.claimGeneration)
       refuse();
     if (member.operationKind === "tcgplayer-order-pull") {
-      if (!("operationKind" in outcome) || outcome.payloadDigest !== member.payloadDigest) refuse();
+      if (
+        !("operationKind" in outcome) ||
+        outcome.operationKind !== "tcgplayer-order-pull" ||
+        outcome.payloadDigest !== member.payloadDigest
+      )
+        refuse();
       assertHandoffOutcome(outcome, member.payload, member.handoff);
     } else if ("operationKind" in outcome || outcome.desiredStateSequence !== member.desiredStateSequence) refuse();
   }

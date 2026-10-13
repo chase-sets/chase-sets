@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "../read-model/schema";
 
 describe("outbound-bootstrap-and-manifest", () => {
+  it("channels-bootstrap-and-migrations: every live-export boot statement is ledgered verbatim", () => {
+    const migration = outboundSyncSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261010_channels_live_export_producer",
+    )!;
+    expect(migration.statements).toHaveLength(6);
+    for (const statement of migration.statements) expect(outboundSyncSchemaSql.split(`${statement};`)).toHaveLength(2);
+  });
   it("expands the retained origin column before boot indexes using the ledgered statement", () => {
     const expansion = outboundSyncSchemaMigrations[2]!.statements[1]!;
     expect(expansion).toContain("ADD COLUMN IF NOT EXISTS operation_origin text NOT NULL DEFAULT 'desired-state'");
@@ -34,6 +41,10 @@ describe("outbound-bootstrap-and-manifest", () => {
       "channel_order_pull_chunks",
       "channel_order_pull_operations_one_live_uidx",
       "channel_order_pull_schedules_due_idx",
+      "channel_live_export_operations",
+      "channel_live_export_schedules",
+      "channel_live_export_operations_one_live_uidx",
+      "channel_live_export_schedules_due_idx",
     ]) {
       expect(outboundSyncSchemaSql).toContain(expected);
       expect(migrationSql).toContain(expected);
@@ -45,6 +56,7 @@ describe("outbound-bootstrap-and-manifest", () => {
       "20260912_channels_outbound_pending_lane_order",
       "20261008_channels_order_pull_producer",
       "20261009_channels_order_pull_progress",
+      "20261010_channels_live_export_producer",
     ]);
     expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
       "channel_outbound_reservation_settlements",

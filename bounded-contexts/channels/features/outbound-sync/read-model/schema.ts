@@ -1,5 +1,6 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { orderPullProgressSchemaStatements } from "./order-pull-progress-schema";
+import { liveExportSchemaStatements } from "./live-export-schema";
 
 const createOutboundOperationsTable = `CREATE TABLE IF NOT EXISTS channel_outbound_operations (
   operation_id text PRIMARY KEY,
@@ -184,6 +185,7 @@ ${createOrderPullOperationsTable};
 ${createOrderPullSchedulesTable};
 ${createOrderPullIndexes.map((statement) => `${statement};`).join("\n")}
 ${orderPullProgressSchemaStatements.map((statement) => `${statement};`).join("\n")}
+${liveExportSchemaStatements.map((statement) => `${statement};`).join("\n")}
 `;
 
 export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -249,5 +251,10 @@ export const outboundSyncSchemaMigrations: readonly BcSchemaMigration[] = [
     migrationId: "20261009_channels_order_pull_progress",
     description: "Retain bounded discovery checkpoints and atomic successor progress in the existing pull coordinator.",
     statements: orderPullProgressSchemaStatements,
+  },
+  {
+    migrationId: "20261010_channels_live_export_producer",
+    description: "Create connection-scoped live-export operations and boundary-anchored schedules.",
+    statements: liveExportSchemaStatements,
   },
 ];
