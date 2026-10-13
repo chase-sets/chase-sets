@@ -75,6 +75,14 @@ const expectedInventory = [
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts#readStream#1",
+    null,
+  ],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts#readStream#2",
+    null,
+  ],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   // The existing corpus includes slice-local .test-support.ts history assertions.
   [
@@ -102,7 +110,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact seventeen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact nineteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
