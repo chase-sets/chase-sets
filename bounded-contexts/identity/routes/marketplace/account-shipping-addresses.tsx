@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { data, useActionData, useLoaderData } from "react-router";
+import { data, useActionData, useLoaderData, useLocation, useNavigation } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
 import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
@@ -165,6 +165,16 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
+  const location = useLocation();
   const failure = actionData && "failure" in actionData ? actionData.failure : null;
-  return <ShippingAddressPage addresses={data.addresses} errorMessage={failure?.message ?? data.loadError ?? null} />;
+  return (
+    <ShippingAddressPage
+      addresses={data.addresses}
+      failure={failure}
+      errorMessage={data.loadError}
+      submitting={navigation.state === "submitting"}
+      locationKey={location.key}
+    />
+  );
 }
