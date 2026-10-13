@@ -845,9 +845,11 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(54);
+    expect(census.entries).toHaveLength(55);
     expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/activate-agent-grant-revocation.test.ts");
+    expect(census.entries).toContain("__tests__/ucp-profile-negotiation.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/ucp-profile-negotiation.test.ts");
     expect(census.entries).toContain("__tests__/channels-services-production-ports.test.ts");
     expect(census.entries).toContain("__tests__/connector-transport-composition.test.ts");
     expect(census.entries).toContain("__tests__/ebay-account-deletion-composition.test.ts");

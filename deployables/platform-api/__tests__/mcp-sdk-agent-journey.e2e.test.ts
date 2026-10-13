@@ -8,7 +8,7 @@ import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
-import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
@@ -647,6 +647,17 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           })),
         },
         ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
           businessSigningKeys: {
             current: {
               kid: "merchant-uat",
