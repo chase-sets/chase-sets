@@ -241,7 +241,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     if (hasInvitationAttempt(body, idempotencyKey)) {
       if (!readInvitationAttemptId(body, idempotencyKey)) {
         return c.json(
-          { error: { code: "invitation_attempt_invalid", message: "Invitation acceptance attempt is invalid." } },
+          { error: { code: "invitation_attempt_invalid", message: t("auth.invitationAttempt.invalid") } },
           400,
         );
       }
@@ -258,7 +258,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
             {
               error: {
                 code: "invitation_attempts_not_active",
-                message: "Invitation acceptance attempts are not active.",
+                message: t("auth.invitationAttempt.notActive"),
               },
             },
             409,
@@ -267,7 +267,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       } catch (error) {
         if (error instanceof InvitationAttemptError)
           return c.json(
-            { error: { code: error.code, message: error.message } },
+            { error: { code: error.code, message: t("auth.invitationAttempt.safeRecovery") } },
             error.code === "invitation_attempt_invalid" ? 400 : 409,
           );
         const consent = readRegistrationConsentRejection(error);
@@ -276,7 +276,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
           {
             error: {
               code: "invitation_attempt_ambiguous",
-              message: "Invitation acceptance could not be confirmed. Check its status or sign in.",
+              message: t("auth.invitationAttempt.safeRecovery"),
             },
           },
           503,
@@ -285,7 +285,7 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     }
     if (invitationAttemptRollout.requireAttempt)
       return c.json(
-        { error: { code: "invitation_attempt_invalid", message: "Invitation acceptance attempt is required." } },
+        { error: { code: "invitation_attempt_invalid", message: t("auth.invitationAttempt.required") } },
         400,
       );
     const identityMutations = createIdentityMutations(c);

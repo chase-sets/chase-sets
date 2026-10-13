@@ -1,4 +1,7 @@
 export const authEnglishTranslations = {
+  "auth.invitationAttempt.invalid": "Invitation acceptance attempt is invalid.",
+  "auth.invitationAttempt.notActive": "Invitation acceptance attempts are not active.",
+  "auth.invitationAttempt.required": "Invitation acceptance attempt is required.",
   "auth.invitationAttempt.submitting": "Submitting your invitation acceptance",
   "auth.invitationAttempt.confirming": "Confirming invitation acceptance",
   "auth.invitationAttempt.succeeded": "Invitation accepted",

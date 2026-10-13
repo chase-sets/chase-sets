@@ -1,5 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
-import { invitationAttemptSchemaSql } from "../../features/invitation-acceptance/api/schema";
+import { invitationAttemptSchemaSql } from "../../features/invitation-acceptance/read-model/schema";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";

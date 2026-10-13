@@ -9,7 +9,7 @@ import {
   authRetentionSweeps,
 } from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
-import { invitationAttemptSchemaMigrations } from "./features/invitation-acceptance/api/schema";
+import { invitationAttemptSchemaMigrations } from "./features/invitation-acceptance/read-model/schema";
 import {
   buildAuthIdentityAccountCapabilityProjectionHandlers,
   buildAuthIdentityAccountProjectionHandlers,
