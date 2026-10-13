@@ -90,6 +90,63 @@ async function setupHistory(length: number) {
 }
 
 describe("Saved List command runtime", () => {
+  it("recovery-append-expiry-atomicity merges JSONB option key order without accepting changed selection", async () => {
+    const { runtime, streams, allEvents } = await setup();
+    const input = {
+      listId,
+      ownerAccountId,
+      operations: [
+        { operationId: "one", kind: "add", lineId: lineId("one"), product: product("one"), trackedQuantity: 2 },
+      ],
+    } as const;
+    const first = await runtime.applyLineChanges(
+      { ...input, commandId: commandId("jsonb-first"), expectedVersion: 1 },
+      context,
+    );
+    const events = streams.get(savedListStreamId(listId))!;
+    const added = events.at(-1)!;
+    const selection = product("one");
+    events[events.length - 1] = {
+      ...added,
+      payload: {
+        ...added.payload,
+        product: {
+          ...selection,
+          selectedOptions: selection.selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId })),
+        },
+      },
+    };
+    const merged = await runtime.applyLineChanges(
+      {
+        ...input,
+        commandId: commandId("jsonb-next"),
+        expectedVersion: first.savedList.version,
+        operations: [{ ...input.operations[0], trackedQuantity: 3 }],
+      },
+      context,
+    );
+    expect(merged.receipt.lineResults).toMatchObject([{ status: "merged" }]);
+    expect(merged.savedList.lines[0]?.trackedQuantity).toBe(5);
+    const count = allEvents.length;
+    const changed = await runtime.applyLineChanges(
+      {
+        ...input,
+        commandId: commandId("jsonb-poison"),
+        expectedVersion: merged.savedList.version,
+        operations: [
+          {
+            ...input.operations[0],
+            product: { ...selection, selectedOptions: [{ dimensionId: "condition", optionId: "damaged" }] },
+          },
+        ],
+      },
+      context,
+    );
+    expect(changed.receipt.lineResults).toMatchObject([{ status: "rejected", error: { code: "invalid-line" } }]);
+    expect(changed.savedList.lines[0]?.trackedQuantity).toBe(5);
+    expect(allEvents).toHaveLength(count);
+  });
+
   it("saved-list-per-line-recovery", async () => {
     const { runtime, allEvents } = await setup();
     const input = {

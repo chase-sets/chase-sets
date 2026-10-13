@@ -137,6 +137,7 @@ describeDb("durable Saved List recovery", () => {
       await bootstrapContextDatabase(collectionsModule, pools.collections);
       const prepared = await ready();
       let current = 0;
+      const injectedFailure = new Error("synthetic-write-crash");
       const crashing: PgTransactionalPool = {
         ...counted,
         connect: async () => {
@@ -144,19 +145,26 @@ describeDb("durable Saved List recovery", () => {
           return {
             release: client.release.bind(client),
             query: async <Row>(sql: string, values?: readonly unknown[]) => {
-              if (/^\s*(INSERT|UPDATE|DELETE)/i.test(sql) && ++current === crash)
-                throw new Error("synthetic-write-crash");
+              if (/^\s*(INSERT|UPDATE|DELETE)/i.test(sql) && ++current === crash) throw injectedFailure;
               return client.query<Row>(sql, values);
             },
           };
         },
       };
-      await expect(
-        runtime(crashing).apply(
-          { operationId: prepared.sending.operationId, revision: prepared.sending.revision },
-          context,
-        ),
-      ).rejects.toThrow("synthetic-write-crash");
+      const failure = await runtime(crashing)
+        .apply({ operationId: prepared.sending.operationId, revision: prepared.sending.revision }, context)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(failure).toBeInstanceOf(Error);
+      if (failure !== injectedFailure) {
+        expect(failure).toMatchObject({
+          code: "infrastructure_failure",
+          details: { cause: injectedFailure.message },
+        });
+      }
+      expect(current).toBe(crash);
       const events = await pools.collections.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM event_store_events",
       );
