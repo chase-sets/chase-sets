@@ -24,6 +24,7 @@ function assertImmutableProviderUatAdmission(document) {
   const gate = document.jobs["admit-reviewed-sha"];
   const resolver = document.jobs["resolve-provider-uat-plan"];
   const worker = document.jobs["staging-provider-uat"];
+  const capture = document.jobs["scope-sync-count-lifecycle"];
   expect(document.on.workflow_dispatch.inputs.expected_sha).toMatchObject({ required: true, type: "string" });
   expect(gate.steps).toHaveLength(1);
   expect(gate.steps[0].env).toEqual({
@@ -34,10 +35,16 @@ function assertImmutableProviderUatAdmission(document) {
     ADMIN_WEB_URL: "${{ inputs.admin_web_url }}",
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
-  expect(resolver.if).toBe("needs.admit-reviewed-sha.result == 'success'");
+  expect(resolver.if).toBe(
+    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle'",
+  );
   expect(worker.needs).toEqual(["admit-reviewed-sha", "resolve-provider-uat-plan"]);
   expect(worker.if).toBe(
-    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success'",
+    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success' && inputs.journey_scope != 'scope-sync-count-lifecycle'",
+  );
+  expect(capture.needs).toBe("admit-reviewed-sha");
+  expect(capture.if).toBe(
+    "needs.admit-reviewed-sha.result == 'success' && inputs.journey_scope == 'scope-sync-count-lifecycle'",
   );
   expect(gate.steps.some((step) => /checkout|setup|playwright/i.test(step.uses ?? step.run ?? ""))).toBe(false);
   const sha = "a".repeat(40);
@@ -78,6 +85,11 @@ describe("Catalog provider UAT immutable admission", () => {
     const bypass = parseYaml(source);
     bypass.jobs["staging-provider-uat"].if = "always()";
     expect(() => assertImmutableProviderUatAdmission(bypass)).toThrow();
+    for (const field of ["needs", "if"]) {
+      const captureBypass = parseYaml(source);
+      captureBypass.jobs["scope-sync-count-lifecycle"][field] = field === "needs" ? [] : "always()";
+      expect(() => assertImmutableProviderUatAdmission(captureBypass)).toThrow();
+    }
   });
 });
 const workflowSource = (file) => readFileSync(resolve(file), "utf8");
