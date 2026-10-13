@@ -392,7 +392,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[64]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[66]).toContain("pool as PgQueryable");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {
