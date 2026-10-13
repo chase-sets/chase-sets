@@ -122,7 +122,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
 
   return {
     eventStore,
-    agentGrantRevocations: createAgentGrantRevocations(pool, eventStore),
+    agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore),
     accountManagement,
     accessHub,
     accounts,

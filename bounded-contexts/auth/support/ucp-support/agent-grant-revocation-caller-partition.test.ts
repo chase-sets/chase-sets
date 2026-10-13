@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const oauthPath = "bounded-contexts/auth/support/ucp-support/oauth.ts";
 const ownerPath = "bounded-contexts/identity/features/agent-grants/api/revocation.ts";
+const identityServicesPath = "bounded-contexts/identity/support/runtime-support/services.ts";
 const allowed = new Set([
   oauthPath,
   ownerPath,
@@ -38,6 +39,9 @@ function assertPartition(sources: ReadonlyMap<string, string>) {
   expect(sources.get(oauthPath)?.match(/await resumeAgentGrantRevocation\(/g)).toHaveLength(2);
   expect(sources.get("deployables/platform-api/src/app.ts")).toContain(
     "agentGrantRevocations: identityServices.identity.agentGrantRevocations",
+  );
+  expect(sources.get(identityServicesPath)).toContain(
+    "agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore)",
   );
   expect(sources.get(oauthPath)?.match(/return withMode\(async\s*\(?activated\)?/g)).toHaveLength(2);
   expect(sources.get(oauthPath)?.match(/if \(!activated\)/g)).toHaveLength(2);
@@ -74,5 +78,15 @@ describe("agent-grant-revocation-caller-partition", () => {
     expect(() => assertPartition(omittedToken)).toThrow();
     const omittedComposition = new Map(sources).set("deployables/platform-api/src/app.ts", "no owner binding");
     expect(() => assertPartition(omittedComposition)).toThrow();
+    const nonTransactionalStore = new Map(sources).set(
+      identityServicesPath,
+      sources
+        .get(identityServicesPath)!
+        .replace(
+          "createAgentGrantRevocations(pool, postgresEventStore)",
+          "createAgentGrantRevocations(pool, eventStore)",
+        ),
+    );
+    expect(() => assertPartition(nonTransactionalStore)).toThrow();
   });
 });

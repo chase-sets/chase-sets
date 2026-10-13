@@ -523,12 +523,12 @@ describeDb("agent Grant revocation separate-pool proof", () => {
     expect(replay.detached).toBe(0);
     expect(replay.instrumentIds).toEqual([]);
     const foreign = (
-      await pools.payments.query(
+      await pools.payments.query<{ removed_at: Date; updated_at: Date; is_default: boolean }>(
         `SELECT removed_at, updated_at, is_default FROM payments_saved_checkout_instruments WHERE instrument_id = 'instrument_foreign'`,
       )
     ).rows[0];
-    expect(new Date(foreign.removed_at).toISOString()).toBe(foreignRemovedAt);
-    expect(new Date(foreign.updated_at).toISOString()).toBe(foreignRemovedAt);
+    expect(foreign.removed_at.toISOString()).toBe(foreignRemovedAt);
+    expect(foreign.updated_at.toISOString()).toBe(foreignRemovedAt);
     expect(foreign.is_default).toBe(false);
     expect(
       (
