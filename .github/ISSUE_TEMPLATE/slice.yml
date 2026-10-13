@@ -123,7 +123,7 @@ body:
     id: operator-actions
     attributes:
       label: Operator actions
-      description: Credentials, sign-ins, approvals, or live watch windows needed by this slice; enter `none` when there are no operator actions.
+      description: Residual human steps only, per the delivery operator boundary (production-credential or real-money authorization/supervision, private entry for credentials agents may not hold, a protected permission prompt, or an actual policy/external-authority step agents cannot lawfully perform), each with its environment, reason a human is needed, exact step, and agent resumption point; agent-owned sign-ins, probe execution, and watch windows are not operator actions. Enter `none` when there are none.
     validations:
       required: true
   - type: textarea

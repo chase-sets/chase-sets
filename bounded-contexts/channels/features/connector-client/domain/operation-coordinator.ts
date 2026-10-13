@@ -192,6 +192,10 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     claim: ClaimedOperationReservation<ClaimedSubjectOperation>,
     state: OperationJournal,
   ) {
+    const operations = claim.operations.map((operation) => {
+      if (operation.operationKind === "tcgplayer-live-export") refuse();
+      return operation;
+    });
     if (
       state.reservations.some(
         (row) =>
@@ -211,10 +215,10 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       throw new StagedImportDispatchError("staged-import-outcome-unknown");
     if (existingReservation) throw new OperationProtocolError("incomplete-authority");
     const executor = select(claim);
-    const incomingIds = new Set(claim.operations.map((operation) => operation.operationId));
+    const incomingIds = new Set(operations.map((operation) => operation.operationId));
     const previous = new Map(state.members.map((member) => [member.operationId, member]));
     // Inspect the entire claim before producing either store's replacement.
-    for (const operation of claim.operations) {
+    for (const operation of operations) {
       const old = previous.get(operation.operationId);
       if (
         old &&
@@ -235,7 +239,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         refuse();
       if (old?.state === "reported") throw new OperationProtocolError("incomplete-authority");
     }
-    const members = claim.operations.map((operation): OperationAttempt => {
+    const members = operations.map((operation): OperationAttempt => {
       const old = previous.get(operation.operationId);
       const base: OperationAttempt = {
         schemaVersion: 1,
