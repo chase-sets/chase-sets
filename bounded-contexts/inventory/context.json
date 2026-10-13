@@ -41,7 +41,15 @@
     "seed-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web", "./integration/link-intents"],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
