@@ -1418,15 +1418,9 @@ describe("selector-lifecycle-removal", () => {
 if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
   const { acquireHeavySlot } = await import("../../../../../../scripts/lib/heavy-slot.mjs");
   acquireHeavySlot("playwright");
-  async function startNativeBus(runOut: string) {
+  async function startNativeBus(config: string) {
     if (process.platform !== "linux") throw new Error("native_removal_capability_unavailable");
-    const config = path.join(runOut, "native-bus.conf");
     // No service directories: this owned bus cannot activate detached daemons.
-    writeFileSync(
-      config,
-      `<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>`,
-      { flag: "wx", mode: 0o600 },
-    );
     const child = spawn("dbus-daemon", ["--nofork", "--nopidfile", "--print-address=1", `--config-file=${config}`], {
       stdio: ["ignore", "pipe", "ignore"],
     });
@@ -1515,7 +1509,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           { flag: "wx" },
         );
         const profile = hostPackage.profileDirectory;
-        const nativeBus = await startNativeBus(runOut);
+        const nativeBus = await startNativeBus(control.writeNativeBusConfiguration(hostPackage));
         let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
         let endpoint: Awaited<ReturnType<typeof control.createRunEndpoint>> | undefined;
         try {
@@ -1627,13 +1621,15 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           const extensions = await context.newPage();
           await extensions.goto("chrome://extensions/");
           await expect
-            .poll(async () =>
-              extensions.evaluate((id) => {
-                const list = document
-                  .querySelector("extensions-manager")
-                  ?.shadowRoot?.querySelector("extensions-item-list")?.shadowRoot;
-                return list ? list.querySelector(`extensions-item[id="${id}"]`) !== null : null;
-              }, hostPackage.extensionId),
+            .poll(
+              async () =>
+                extensions.evaluate((id) => {
+                  const list = document
+                    .querySelector("extensions-manager")
+                    ?.shadowRoot?.querySelector("extensions-item-list")?.shadowRoot;
+                  return list ? list.querySelector(`extensions-item[id="${id}"]`) !== null : null;
+                }, hostPackage.extensionId),
+              { message: `native removal host stage=${browser.hostNativeRemovalStage()}` },
             )
             .toBe(false);
           await operate("close");

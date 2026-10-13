@@ -94,6 +94,33 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
+  it("native bus config stays outside sealed v4 inventory; inside-root placement mutant is refused", async () => {
+    const packaging = await import(new URL("../integrations/order-authority-probe/package.mjs", import.meta.url).href);
+    const parent = mkdtempSync(path.join(scratch, "native-bus-inventory-"));
+    const altered = await mutant(
+      "path.join(path.dirname(root), `${path.basename(root)}.native-bus.conf`)",
+      'path.join(root, "native-bus.conf")',
+    );
+    for (const [name, adapter] of [
+      ["correct", control],
+      ["inside-root", altered],
+    ] as const) {
+      const root = path.join(parent, `selector-capability-${name}`);
+      const preparation = packaging.prepare({
+        out: root,
+        cadenceMs: 1,
+        cadenceSource: packaging.AUTHORITY,
+        t0: new Date().toISOString(),
+        synthetic: true,
+      });
+      const before = packaging.verifyPackage(root);
+      const config = adapter.writeNativeBusConfiguration(preparation);
+      if (name === "correct") {
+        expect(path.dirname(config)).toBe(parent);
+        expect(packaging.verifyPackage(root)).toEqual(before);
+      } else expect(() => packaging.verifyPackage(root)).toThrow("inventory_mismatch");
+    }
+  });
   it.each(["confirmed", "unknown-output", "native-exception", "missing-private-bus", "missing-native-action-mutant"])(
     "native confirmation %s precedes exact-ID UI removal",
     async (result) => {
@@ -133,8 +160,14 @@ describe("selector-agent-control-capability", () => {
         expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
         expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
         expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
+        expect(args[1]).toContain("b'GetName', params(index)");
+        expect(args[1]).not.toContain("b'GetActions'");
+        expect(args[1]).toContain("if default != [0]: raise RuntimeError()");
         expect(rendered).toBe(true);
-        if (result === "native-exception") throw new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION");
+        if (result === "native-exception")
+          throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
+            stdout: "NATIVE_REMOVE_REFUSED:ROLE\n",
+          });
         if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
         removed = true;
         return "NATIVE_REMOVE_SENT\n";
@@ -165,6 +198,15 @@ describe("selector-agent-control-capability", () => {
           message: "selector_operation_refused",
         });
       expect(removed).toBe(result === "confirmed");
+      expect(browser.hostNativeRemovalStage()).toBe(
+        {
+          confirmed: "UI_ABSENT",
+          "unknown-output": "UNKNOWN",
+          "native-exception": "ROLE",
+          "missing-private-bus": "CAPABILITY",
+          "missing-native-action-mutant": "SENT",
+        }[result],
+      );
       expect(nativeRemoval).toHaveBeenCalledTimes(
         ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
       );

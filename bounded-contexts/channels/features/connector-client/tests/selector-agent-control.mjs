@@ -9,6 +9,7 @@ import {
   readFileSync,
   realpathSync,
   readdirSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { createServer } from "node:http";
@@ -533,8 +534,36 @@ export async function createRunEndpoint(session, binding) {
 
 // Chromium's extension confirmation is a native Views dialog, not WebUI.
 // The accessibility action is private, one-shot, and exact-process bound.
+export function writeNativeBusConfiguration(preparation) {
+  check(preparation.evidence === "synthetic", "live_launch_not_authorized");
+  const root = path.dirname(preparation.profileDirectory);
+  check(absolute(root) && /^selector-capability-[A-Za-z0-9-]+$/.test(path.basename(root)), "native_bus_root_refused");
+  const config = path.join(path.dirname(root), `${path.basename(root)}.native-bus.conf`);
+  writeFileSync(
+    config,
+    `<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth><policy context="default"><allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>`,
+    { flag: "wx", mode: 0o600 },
+  );
+  return config;
+}
+const nativeRemovalStages = [
+  "PROCESS",
+  "CONNECT",
+  "LIST",
+  "OWNER",
+  "CHILDREN",
+  "ROLE",
+  "NAME",
+  "DIALOG",
+  "BUTTON",
+  "IDENTITY",
+  "ACTIONS",
+  "ACTION",
+];
 const nativeRemovalScript = String.raw`
 import ctypes as c, hashlib, os, pathlib, sys, time
+stage = 'PROCESS'
+sys.excepthook = lambda kind, value, trace: print('NATIVE_REMOVE_REFUSED:' + stage)
 profile, executable, digest, address, until = sys.argv[1:]
 until = float(until)
 if not address.startswith('unix:'): raise RuntimeError()
@@ -560,6 +589,7 @@ child = api(glib, 'g_variant_get_child_value', ptr, [ptr, c.c_size_t])
 length = api(glib, 'g_variant_n_children', c.c_size_t, [ptr])
 string = api(glib, 'g_variant_get_string', c.c_char_p, [ptr, ptr])
 uint = api(glib, 'g_variant_get_uint32', c.c_uint, [ptr])
+int_value = api(glib, 'g_variant_get_int32', c.c_int, [ptr])
 boolean = api(glib, 'g_variant_get_boolean', c.c_int, [ptr])
 variant = api(glib, 'g_variant_get_variant', ptr, [ptr])
 unref = api(glib, 'g_variant_unref', None, [ptr])
@@ -570,10 +600,13 @@ def params(*values):
     items = [text(v) if isinstance(v, bytes) else integer(v) for v in values]
     return tuple_new((ptr * len(items))(*items), len(items))
 error = ptr()
+stage = 'CONNECT'
 connection = api(gio, 'g_dbus_connection_new_for_address_sync', ptr, [c.c_char_p, c.c_int, ptr, ptr, c.POINTER(ptr)])(address.encode(), 9, None, None, c.byref(error))
 if not connection: raise RuntimeError()
 invoke = api(gio, 'g_dbus_connection_call_sync', ptr, [ptr, c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p, ptr, ptr, c.c_int, c.c_int, ptr, c.POINTER(ptr)])
 def call(bus, path, interface, method, arguments=None):
+    global stage
+    stage = {b'ListNames':'LIST', b'GetConnectionUnixProcessID':'OWNER', b'GetChildren':'CHILDREN', b'GetRoleName':'ROLE', b'Get':'NAME', b'GetName':'ACTIONS', b'DoAction':'ACTION'}[method]
     error = ptr()
     remaining = int((until - time.time()) * 1000)
     if remaining <= 0: raise RuntimeError()
@@ -609,11 +642,12 @@ def children(bus, path):
         return result
     finally: unref(array); unref(reply)
 def role(bus, path): return scalar(call(bus, path, accessible, b'GetRoleName'), lambda value: string(value, None))
-def name(bus, path):
-    reply = call(bus, path, b'org.freedesktop.DBus.Properties', b'Get', params(accessible, b'Name'))
+def property_value(bus, path, interface, key, reader):
+    reply = call(bus, path, b'org.freedesktop.DBus.Properties', b'Get', params(interface, key))
     wrapped = child(reply, 0); value = variant(wrapped)
-    try: return string(value, None)
+    try: return reader(value)
     finally: unref(value); unref(wrapped); unref(reply)
+def name(bus, path): return property_value(bus, path, accessible, b'Name', lambda value: string(value, None))
 title = b'Remove "Chase Sets Temporary Order Authority Capture"?'
 button = None
 while time.time() < until:
@@ -632,7 +666,8 @@ while time.time() < until:
             seen.add(path)
             if len(seen) > 2000: raise RuntimeError()
             if role(bus, path) == b'dialog':
-                if name(bus, path) != title: raise RuntimeError()
+                actual = name(bus, path); stage = 'DIALOG'
+                if actual != title: raise RuntimeError()
                 buttons, nested, visited = [], children(bus, path), set()
                 while nested:
                     node = nested.pop()
@@ -641,6 +676,7 @@ while time.time() < until:
                     if len(visited) > 512: raise RuntimeError()
                     if role(bus, node) == b'push button' and name(bus, node) == b'Remove': buttons.append(node)
                     nested.extend(children(bus, node))
+                stage = 'BUTTON'
                 if len(buttons) != 1: raise RuntimeError()
                 matches.append((bus, buttons[0]))
             else: pending.extend(children(bus, path))
@@ -648,16 +684,20 @@ while time.time() < until:
     if matches: button = matches[0]; break
     time.sleep(.025)
 if button is None: raise RuntimeError()
+stage = 'IDENTITY'
 if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
 bus, path = button
-actions = call(bus, path, b'org.a11y.atspi.Action', b'GetActions'); array = child(actions, 0)
-try:
-    if length(array) != 1: raise RuntimeError()
-    action = child(array, 0); action_name = child(action, 0)
-    try:
-        if string(action_name, None) not in [b'click', b'press']: raise RuntimeError()
-    finally: unref(action_name); unref(action)
-finally: unref(array); unref(actions)
+# GetActions returns localized names, which Chromium leaves empty for native
+# actions. GetName is the nonlocalized, stable action identity.
+action_interface = b'org.a11y.atspi.Action'
+count = property_value(bus, path, action_interface, b'NActions', int_value)
+stage = 'ACTIONS'
+if not 1 <= count <= 16: raise RuntimeError()
+default = []
+for index in range(count):
+    label = scalar(call(bus, path, action_interface, b'GetName', params(index)), lambda value: string(value, None))
+    if label in [b'click', b'press']: default.append(index)
+if default != [0]: raise RuntimeError()
 if not scalar(call(bus, path, b'org.a11y.atspi.Action', b'DoAction', params(0)), boolean): raise RuntimeError()
 print('NATIVE_REMOVE_SENT')
 `;
@@ -689,6 +729,7 @@ export function createPlaywrightSelectorBrowser({
     downloads = 0,
     dialogFailure = null,
     cancelBeforeBegin = false;
+  let nativeRemovalStage = null;
   const saved = [],
     countReads = new Set();
   async function boundary(page, expectedUrl) {
@@ -813,8 +854,10 @@ export function createPlaywrightSelectorBrowser({
     });
     await item.locator("#removeButton").click({ timeout: remaining() });
     try {
+      nativeRemovalStage = "CAPABILITY";
       if (typeof nativeSessionBus !== "string" || !nativeSessionBus.startsWith("unix:"))
         throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+      nativeRemovalStage = "UNKNOWN";
       if (
         execFileSync(
           "python3",
@@ -831,16 +874,24 @@ export function createPlaywrightSelectorBrowser({
         ).trim() !== "NATIVE_REMOVE_SENT"
       )
         throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
-    } catch {
+      nativeRemovalStage = "SENT";
+    } catch (error) {
+      const fixed = typeof error.stdout === "string" ? error.stdout.trim().split(":") : [];
+      if (fixed.length === 2 && fixed[0] === "NATIVE_REMOVE_REFUSED" && nativeRemovalStages.includes(fixed[1]))
+        nativeRemovalStage = fixed[1];
+      else if (nativeRemovalStage !== "CAPABILITY") nativeRemovalStage = "UNKNOWN";
       throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
     }
     if (dialogFailure) throw dialogFailure;
     await item.waitFor({ state: "detached", timeout: remaining() });
     if (page.url() !== "chrome://extensions/" || (await item.count()) !== 0)
       throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    nativeRemovalStage = "UI_ABSENT";
   }
   return Object.freeze({
     identity: structuredClone(binding),
+    // Host-only diagnostic, never an endpoint operation or terminal-schema field.
+    hostNativeRemovalStage: () => nativeRemovalStage,
     pause: async () => {
       paused = true;
     },
