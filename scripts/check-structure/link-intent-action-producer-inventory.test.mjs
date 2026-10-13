@@ -12,9 +12,9 @@ const registrations = JSON.parse(
   readFileSync(path.join(import.meta.dirname, "link-intent-action-producers.json"), "utf8"),
 );
 const arbitrary = {
-  path: "packages/primitives/odd-sibling.ts",
+  path: "contracts/primitives/odd-sibling.ts",
   source:
-    'import type { NotificationMessage as N } from "@chase-sets/outbound-messaging"; export const f = (): N => ({ messageType: "odd.added", ["actionHref"]: "/items/one", channels: [] });',
+    'import type { NotificationMessage as N } from "@chase-sets/outbound-messaging"; export const f = (): N => ({ messageType: "odd.added", criticality: "operational", title: "Synthetic notice", body: "Synthetic notice", ["actionHref"]: "/items/one", templateId: "synthetic_notice", templateVersion: 1, locale: "en", templateData: {}, channels: [{ channel: "web", recipient: {} }], idempotencyKey: "synthetic-1", correlationId: "synthetic-1", actor: { userId: null } });',
 };
 let rows;
 let fixtureRoot;
