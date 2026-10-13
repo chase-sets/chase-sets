@@ -51,6 +51,7 @@ export default defineConfig({
   testDir: ".",
   metadata: {
     catalogDatabaseUrl: sandbox.contextDatabaseUrls.catalog,
+    identityDatabaseUrl: sandbox.contextDatabaseUrls.identity,
     channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels,
   },
   grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined,

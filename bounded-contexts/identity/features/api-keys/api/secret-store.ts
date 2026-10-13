@@ -7,10 +7,16 @@ export async function upsertApiKeySecret(
     userId: string;
     keyPrefix: string;
     secretHash: string;
+    expectedVersion: number;
   }>,
 ) {
   await db.query(
-    `INSERT INTO identity_api_key_secrets (
+    `WITH current_owner AS MATERIALIZED (
+       SELECT current_version FROM event_store_streams
+       WHERE stream_id = $5 AND current_version = $6
+       FOR UPDATE
+     )
+     INSERT INTO identity_api_key_secrets (
        api_key_id,
        user_id,
        key_prefix,
@@ -18,13 +24,20 @@ export async function upsertApiKeySecret(
        created_at,
        updated_at
      )
-     VALUES ($1, $2, $3, $4, now(), now())
+     SELECT $1, $2, $3, $4, now(), now() FROM current_owner WHERE true
      ON CONFLICT (api_key_id) DO UPDATE
      SET user_id = $2,
          key_prefix = $3,
          secret_hash = $4,
          updated_at = now()`,
-    [params.apiKeyId, params.userId, params.keyPrefix, params.secretHash],
+    [
+      params.apiKeyId,
+      params.userId,
+      params.keyPrefix,
+      params.secretHash,
+      `identity.api-key-${params.apiKeyId}`,
+      params.expectedVersion,
+    ],
   );
 }
 
