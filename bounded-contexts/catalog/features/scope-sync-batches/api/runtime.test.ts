@@ -137,23 +137,20 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
     ).toBe("complete");
     expect(await store.history()).toHaveLength(4);
     send.mockClear();
-    let usageMode: "checked" | "unchecked" | "failed" = "checked";
+    let usageMode: "checked" | "failed" = "checked";
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       if (!String(input).includes("/account/v1/usage"))
         throw new Error("Unexpected synthetic count/sealed provider call");
       return usageMode === "failed"
         ? Response.json({ error: "synthetic-denial" }, { status: 403 })
         : Response.json({
-            data:
-              usageMode === "unchecked"
-                ? {}
-                : {
-                    credits_remaining: 100,
-                    total_credits_consumed: 0,
-                    overage_credits_consumed: 0,
-                    period_start: "2026-01-01T00:00:00Z",
-                    period_end: "2027-01-01T00:00:00Z",
-                  },
+            data: {
+              credits_remaining: 100,
+              total_credits_consumed: 0,
+              overage_credits_consumed: 0,
+              period_start: "2026-01-01T00:00:00Z",
+              period_end: "2027-01-01T00:00:00Z",
+            },
           });
     });
     const cache = createPgCatalogProviderOptionQueryCacheStore(pools.catalog)!;
@@ -194,10 +191,20 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
           providerAdapterRegistry: new ProviderAdapterRegistry([createScrydexOnePieceProviderAdapter(adapterOptions)]),
         }),
     });
+    const countHistory = async () =>
+      (await pools.catalog.query("SELECT * FROM catalog_scope_sync_count_history ORDER BY position")).rows;
+    let expectedCountHistory = await countHistory();
+    async function captureCountHistory() {
+      expectedCountHistory = await countHistory();
+    }
     async function noEffects(historyLength = 4) {
       expect((await pools.catalog.query("SELECT batch_id FROM catalog_scope_sync_batches")).rows).toHaveLength(0);
       expect((await pools.catalog.query("SELECT batch_id FROM catalog_scope_sync_batch_units")).rows).toHaveLength(0);
-      expect(await store.history()).toHaveLength(historyLength);
+      expect(
+        (await pools.catalog.query("SELECT event_id FROM catalog_scope_sync_count_history WHERE event_kind='debit'"))
+          .rows,
+      ).toHaveLength(historyLength);
+      expect(await countHistory()).toEqual(expectedCountHistory);
       expect(enqueue).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
       expect(write).not.toHaveBeenCalled();
@@ -213,6 +220,7 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
         result.rows[0]!.event_id,
         JSON.stringify({ outcome: "complete", evidence: transform(result.rows[0]!.payload.evidence) }),
       ]);
+      await captureCountHistory();
     }
     return {
       runtime,
@@ -223,8 +231,10 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
       noEffects,
       poisonSealed,
       counts,
-      setUsage: (value: typeof usageMode) => {
-        usageMode = value;
+      captureCountHistory,
+      setUsage: (value: "checked" | "unchecked" | "failed") => {
+        adapterOptions.credentials.apiKey = value === "unchecked" ? "" : "synthetic";
+        usageMode = value === "failed" ? "failed" : "checked";
       },
     };
   }
@@ -263,6 +273,7 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
           ...(mode === "wrong-query" ? { query: { ...(evidence.query as object), parentValue: "wrong" } } : {}),
           ...(mode === "wrong-source" ? { sourceId: "synthetic-forged-debit" } : {}),
         }));
+      await f.captureCountHistory();
       const preview = await f.runtime.preview({ selection, budget, context });
       expect(preview.status).toBe("blocked");
       expect(preview.providerRequestEstimates.scrydex).toBeNull();
@@ -292,7 +303,11 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
             ? "scope-planning-blocked"
             : "credited-provider-estimate-unavailable",
       );
-      if (mode === "unchecked") expect(preview.blockers.some((item) => item.message.includes("lower"))).toBe(false);
+      if (mode === "unchecked") {
+        expect(preview.providerRequestEstimates.scrydex).toBe(6);
+        expect(f.fetch).not.toHaveBeenCalled();
+        expect(preview.blockers.some((item) => item.message.includes("lower"))).toBe(false);
+      }
       await expect(
         f.runtime.confirm({ selection, budget: limits, context, planFingerprint: preview.planFingerprint }),
       ).rejects.toThrow();
