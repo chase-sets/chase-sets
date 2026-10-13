@@ -473,7 +473,10 @@ export async function queryProviderIntegrationOptions(
                 onValidatedPagination,
               }),
             listScrydexOnePieceSealedProducts: ({ setId }) =>
-              listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+              listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setId,
+                onValidatedPagination,
+              }),
             listScrydexLorcanaSets: () => listScrydexLorcanaSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScrydexLorcanaCards: ({ setId }) =>
               listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, {
@@ -481,7 +484,10 @@ export async function queryProviderIntegrationOptions(
                 onValidatedPagination,
               }),
             listScrydexLorcanaSealedProducts: ({ setId }) =>
-              listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+              listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setId,
+                onValidatedPagination,
+              }),
             listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listYgoprodeckCards: ({ setCode }) =>
               listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -904,7 +910,10 @@ export async function listScrydexOnePieceCardOptionRecordsThroughAdapter(
 
 export async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
+  input: {
+    setId: string | null;
+    onValidatedPagination?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
+  },
 ): Promise<readonly JsonValue[]> {
   if (!input.setId) {
     throw new Error("Scrydex One Piece sealed-product option queries require a selected set.");
@@ -913,8 +922,10 @@ export async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapte
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "sealed-products",
+    cacheObservation: !input.onValidatedPagination,
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
+  input.onValidatedPagination?.(result.validatedPagination);
   return result.items.map((item) => ({
     sealedProductId: item.value,
     name: item.label,
@@ -966,7 +977,10 @@ export async function listScrydexLorcanaCardOptionRecordsThroughAdapter(
 
 export async function listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
+  input: {
+    setId: string | null;
+    onValidatedPagination?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
+  },
 ): Promise<readonly JsonValue[]> {
   if (!input.setId) {
     throw new Error("Scrydex Lorcana sealed-product option queries require a selected set.");
@@ -975,8 +989,10 @@ export async function listScrydexLorcanaSealedProductOptionRecordsThroughAdapter
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "sealed-products",
+    cacheObservation: !input.onValidatedPagination,
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
+  input.onValidatedPagination?.(result.validatedPagination);
   return result.items.map((item) => ({
     sealedProductId: item.value,
     name: item.label,

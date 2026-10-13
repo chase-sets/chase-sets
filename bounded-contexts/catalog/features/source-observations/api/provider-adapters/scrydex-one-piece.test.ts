@@ -492,7 +492,7 @@ describe("Scrydex One Piece provider adapter", () => {
         requestStrategy: "bulk-first",
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
-        estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+        estimateReason: "Sealed-product page count requires fresh exact-query Scrydex count evidence.",
         pageSize: 100,
         selectedFields: ["id", "name", "type", "images", "language", "language_code", "expansion"],
         perRecordFallbackReason: null,
