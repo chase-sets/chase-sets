@@ -332,7 +332,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 158, "deps.db"],
-      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 365, "options.auth.db"],
+      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 305, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
       ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
@@ -392,7 +392,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[64]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[66]).toContain("pool as PgQueryable");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {
@@ -442,7 +442,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     for (const [file, line, outcome] of expectations) {
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
-    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 778)?.outcome).toBe("not-sql");
+    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 764)?.outcome).toBe("not-sql");
     expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 44)?.outcome).toBe(
       "not-sql",
     );
