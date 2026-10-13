@@ -48,12 +48,22 @@ describe("invitation-acceptance-identity-atomicity", () => {
         if (input.streamId === "identity.membership-mbr_reserved") throw new Error("synthetic Membership fault");
         return inner.appendToStream(input);
       },
-      appendToStreams: async () => { throw new Error("synthetic Membership fault"); },
+      appendToStreams: async () => {
+        throw new Error("synthetic Membership fault");
+      },
     };
-    await expect(acceptInvitationOperation(store, { operation: acceptanceOperation, acceptanceTokenHash: "existing-store-token-hash", context: acceptanceContext })).rejects.toThrow();
+    await expect(
+      acceptInvitationOperation(store, {
+        operation: acceptanceOperation,
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      }),
+    ).rejects.toThrow();
     expect(await inner.readStream({ streamId: "identity.invitation-ivt_invited" })).toHaveLength(2);
     expect(await inner.readStream({ streamId: "identity.membership-mbr_reserved" })).toHaveLength(0);
-    expect(await inner.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` })).toHaveLength(0);
+    expect(
+      await inner.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
+    ).toHaveLength(0);
   });
   it("refuses terminal, duplicate and 501st-event authority tails", async () => {
     const store = createInMemoryEventStore();

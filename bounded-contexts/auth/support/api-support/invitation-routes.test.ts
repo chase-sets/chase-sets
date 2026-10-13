@@ -179,7 +179,9 @@ describe("invitation auth routes", () => {
       headers: { "Content-Type": "application/json", "Idempotency-Key": "fe477381-15cc-4ca8-9a40-a004a01ee107" },
       body: JSON.stringify({
         attemptId: "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea",
-        invitationId: "ivt_1", token: "invitation-secret", password: "password-secret",
+        invitationId: "ivt_1",
+        token: "invitation-secret",
+        password: "password-secret",
       }),
     });
     expect(response.status).toBe(400);

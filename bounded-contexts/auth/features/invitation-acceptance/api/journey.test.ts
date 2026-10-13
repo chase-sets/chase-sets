@@ -9,6 +9,7 @@ import { createInMemoryEventStore } from "../../../../identity/tests/in-memory-e
 import { ATTEMPT_STAGES } from "../domain/attempt";
 import { acceptInvitationAttempt, lookupInvitationAttempt } from "./journey";
 import { readAttempt } from "./attempt-store";
+import { invitationAttemptRollout } from "./rollout";
 
 vi.mock("./rollout", () => ({ invitationAttemptRollout: { active: true, requireAttempt: true } }));
 vi.mock("../../../support/auth-support/webauthn", () => ({
@@ -156,6 +157,7 @@ function fixture(kind: "password" | "passkey", existing: boolean) {
 }
 
 beforeEach(() => {
+  Object.assign(invitationAttemptRollout, { active: true });
   start.mockReset();
 });
 describe("invitation-acceptance-stage-recovery", () => {
@@ -203,6 +205,25 @@ describe("invitation-acceptance-stage-recovery", () => {
 });
 
 describe("invitation-acceptance-response-loss", () => {
+  it("invitation-acceptance-compatibility-floor retains completed attempts after deactivation and refuses new ones", async () => {
+    const f = fixture("password", true);
+    await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    const counts = { ...f.counts };
+    Object.assign(invitationAttemptRollout, { active: false });
+    expect((await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).type).toBe(
+      "accepted-reauth-required",
+    );
+    expect(
+      await acceptInvitationAttempt(
+        f.services,
+        f.identity,
+        { ...f.input, attemptId: "fe477381-15cc-4ca8-9a40-a004a01ee107" },
+        request,
+        context,
+      ),
+    ).toEqual({ type: "attempts-not-active" });
+    expect(f.counts).toEqual(counts);
+  });
   it("a lost Session response and repeated lookup never create another Session or token", async () => {
     const f = fixture("password", true);
     await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);

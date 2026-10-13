@@ -6,7 +6,7 @@ import {
 import { createInMemoryEventStore } from "../../../../identity/tests/in-memory-event-store";
 import { beginAttempt, checkpoint, readAttempt } from "../api/attempt-store";
 import { parseJourneyInput } from "../api/journey";
-import { ATTEMPT_STAGES, bindingDigest, parseAttemptBinding, type AttemptBinding } from "./attempt";
+import { ATTEMPT_STAGES, bindingDigest, foldAttempt, parseAttemptBinding, type AttemptBinding } from "./attempt";
 
 const context = createTestEventStoreContext(createInternalSystemTestActor());
 export const binding: AttemptBinding = {
@@ -58,6 +58,18 @@ describe("invitation-acceptance-attempt-binding", () => {
 });
 
 describe("invitation-acceptance-terminal-history", () => {
+  it("invitation-acceptance-compatibility-floor refuses complete over-limit and over-byte histories", async () => {
+    const store = createInMemoryEventStore();
+    await beginAttempt(store, binding, context);
+    const event = store.streams.get(`auth.invitation-acceptance-${binding.attemptId}`)![0];
+    expect(() =>
+      foldAttempt([{ ...event, payload: { ...event.payload, extra: "x".repeat(32769) } }], context.tenantId),
+    ).toThrow(expect.objectContaining({ code: "invitation_attempt_ambiguous" }));
+    const tooLong = Array.from({ length: 17 }, (_, index) => ({ ...event, streamVersion: index + 1 }));
+    expect(() => foldAttempt(tooLong, context.tenantId)).toThrow(
+      expect.objectContaining({ code: "invitation_attempt_ambiguous" }),
+    );
+  });
   it("retains every ordered checkpoint through restart and refuses duplicate/skipped/type-only facts", async () => {
     const store = createInMemoryEventStore();
     let state = await beginAttempt(store, binding, context);
