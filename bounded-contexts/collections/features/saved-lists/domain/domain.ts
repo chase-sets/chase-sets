@@ -638,10 +638,16 @@ function compareSelectedOptions(left: SavedListSelectedOption, right: SavedListS
 }
 
 function sameProductSelection(left: SavedListProductSelection, right: SavedListProductSelection): boolean {
+  const canonicalLeft = normalizeProduct(left);
+  const canonicalRight = normalizeProduct(right);
   return (
-    left.catalogItemId === right.catalogItemId &&
-    left.productId === right.productId &&
-    JSON.stringify(left.selectedOptions) === JSON.stringify(right.selectedOptions)
+    canonicalLeft.catalogItemId === canonicalRight.catalogItemId &&
+    canonicalLeft.productId === canonicalRight.productId &&
+    canonicalLeft.selectedOptions.length === canonicalRight.selectedOptions.length &&
+    canonicalLeft.selectedOptions.every((option, index) => {
+      const other = canonicalRight.selectedOptions[index]!;
+      return option.dimensionId === other.dimensionId && option.optionId === other.optionId;
+    })
   );
 }
 

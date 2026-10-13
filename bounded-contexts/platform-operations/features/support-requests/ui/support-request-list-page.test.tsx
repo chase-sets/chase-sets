@@ -6,10 +6,12 @@ import { supportFlowCatalog } from "../domain/flow-catalog";
 import { SupportRequestListPage } from "./support-request-list-page";
 import { File as NodeFile } from "node:buffer";
 import MarketplaceAccountSupportRoute, { action, loader } from "../../../routes/marketplace/account-support";
+import AccountSupportDetailRoute, { loader as detailLoader } from "../../../routes/marketplace/account-support-detail";
+import { supportParticipantDetailFixture } from "./participant-router.test-data";
 import { multipartRequest, nativeFormData } from "../tests/attachment-intake.test-support";
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
-  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer" })),
+  requireActorFromAuthApi: vi.fn(async () => ({ accountId: "acc_buyer", tenantId: "tnt_identity" })),
 }));
 const BrowserFile = File;
 
@@ -88,6 +90,26 @@ describe("SupportRequestListPage", () => {
             new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
           if (url.endsWith("/flows")) return json({ items: supportFlowCatalog });
           if (url.endsWith("/purchases") || url.endsWith("/sales")) return json({ items: [] });
+          if (url.endsWith("/support-requests/sup_1"))
+            return json({
+              ...supportParticipantDetailFixture(),
+              support_request_id: "sup_1",
+              order_id: "ord_1",
+              display_reference: "SUP-OPENED",
+              flow_type: "product-damaged",
+              status: "waiting-on-seller",
+              checklist: [],
+              evidence: [
+                {
+                  evidenceId: "sev_opening",
+                  evidenceType: "photo",
+                  summary: "Opening photos recorded",
+                  submittedByRole: "buyer",
+                  submittedAt: "2026-10-12T12:01:00.000Z",
+                  attachments: [],
+                },
+              ],
+            });
           if (url.endsWith("/orders/ord_1"))
             return json({
               ...buyerOrder,
@@ -108,8 +130,9 @@ describe("SupportRequestListPage", () => {
                 { error: { message: failure } },
                 failure === "denied" ? 403 : failure === "rejected" ? 413 : 409,
               );
-            return json({ attachments: [{ reference: "att_original" }] });
+            return json({ attachments: [{ reference: `support-attachment:v1:sea_original:${"a".repeat(64)}:jpg` }] });
           }
+          if (url.includes("/participant-attempts/")) return json({ outcome: "not-recorded" });
           if (url.endsWith("/evidence"))
             return failing ? json({ error: { message: "Submit conflict" } }, 409) : json({ id: "sup_1" });
           throw new Error(`Unexpected fixture URL ${url}`);
@@ -149,6 +172,7 @@ describe("SupportRequestListPage", () => {
               return action({ ...args, request: await multipartRequest(args.request.url, native) });
             },
           },
+          { path: "/account/support/:id", loader: detailLoader, element: <AccountSupportDetailRoute /> },
         ],
         { initialEntries: ["/account/support?orderId=ord_1"] },
       );
@@ -183,21 +207,31 @@ describe("SupportRequestListPage", () => {
         expect(field().value).toBe(originalId);
         expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
         expect(screen.queryByText("You already have an open case for this order")).toBeNull();
+        if (failure === "submit-conflict") {
+          const status = await screen.findByRole("heading", {
+            name: "Check status before retrying this support action.",
+          });
+          expect(status.textContent).toContain("Check status before retrying");
+          expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+          expect(screen.getByRole("button", { name: "Start a new photo batch" }).matches(":disabled")).toBe(true);
+          await user.click(screen.getByRole("button", { name: "Check status" }));
+          await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+          expect(uploadIds).toEqual([originalId]);
+          expect(
+            screen
+              .getByRole("heading", { name: "Check status before retrying this support action." })
+              .closest('[role="status"]')
+              ?.getAttribute("aria-live"),
+          ).toBe("polite");
+          return;
+        }
         // Re-selection and retry preserve the id. Ambiguity never dispatches again.
-        if (failure !== "submit-conflict") await user.upload(screen.getByLabelText("Add evidence photos"), photo);
+        await user.upload(screen.getByLabelText("Add evidence photos"), photo);
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
         await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
         await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
         expect(field().value).toBe(originalId);
-        expect(uploadIds).toEqual(
-          failure === "ambiguous" || failure === "submit-conflict" ? [originalId] : [originalId, originalId],
-        );
-        if (failure === "submit-conflict") {
-          expect(document.querySelector<HTMLInputElement>('input[name="uploadedAttachmentReferences"]')?.value).toBe(
-            "att_original",
-          );
-          expect(screen.queryByLabelText("Add evidence photos")).toBeNull();
-        }
+        expect(uploadIds).toEqual(failure === "ambiguous" ? [originalId] : [originalId, originalId]);
         await user.click(screen.getByRole("button", { name: "Start a new photo batch" }));
         const freshId = field().value;
         expect(freshId).not.toBe(originalId);
@@ -210,9 +244,10 @@ describe("SupportRequestListPage", () => {
           new BrowserFile(["changed"], "changed.jpg", { type: "image/jpeg" }),
         );
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
-        await waitFor(() => expect(router.state.location.search).toBe("?opened=sup_1"));
+        await waitFor(() => expect(router.state.location.pathname).toBe("/account/support/sup_1"));
         expect(uploadIds.at(-1)).toBe(freshId);
-        expect(await screen.findByText(/Support request .* is open/)).toBeTruthy();
+        expect(await screen.findByText("Opening photos recorded")).toBeTruthy();
+        expect(document.querySelector('[name="participantRecovery"]')).toBeNull();
       } finally {
         document.removeEventListener("submit", capture, true);
         router.dispose();

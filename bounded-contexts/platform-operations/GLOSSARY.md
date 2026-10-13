@@ -16,6 +16,10 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
 
+## Support Request Participant Attempt
+
+A **Support Request Participant Attempt** is one account's intended mutation of one Support Request within its authenticated tenant. Its opaque attempt id locates a private receipt; action and canonical request hash are immutable comparisons, not identity partitions. An exact retry returns the first result without another command. Another authorized owner may independently use the same opaque id. Attachment Operations remain separate staging identities.
+
 ## Any-case Evidence Access
 
 **Any-case Evidence Access** requires the current Identity `support.evidence.any-case` assignment on the Auth-resolved actor and the independent Support base permission. A role or capability declaration grants no access. Without that assignment, attachment access is limited to buyer or seller participation in the authoritative Support Request stream. Audit reads and operations submissions with attachments require the assignment; participant submissions with attachments remain participant-only.
@@ -92,6 +96,12 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 ## Reported Content
 
 **Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.
+
+## Listing Removal Directive
+
+A **Listing Removal Directive** is the operator's intent to unlist one Listing, recorded atomically after its Reported Content action audit. Marketplace owns the removal decision and its durable enforcement identity; the directive is not removal authority. Only newly authored directives are delivered, never historical audit actions.
+
+Disabling delivery retains the Listing aggregate reader and all visibility consumers. Stored removals remain readable and hidden, and pending directives resume when delivery is enabled again. After the first operator removal event, roll forward rather than reverting the aggregate reader; never delete events or checkpoints.
 
 ## Moderation Queue
 
