@@ -396,8 +396,24 @@ export function createSavedListRecoveryRuntime(
         },
       };
       for (let attempt = 0; attempt < 2; attempt += 1) {
+        let rolledBack = false;
+        const transactionPool: PgTransactionalPool = {
+          query: deps.pool.query.bind(deps.pool),
+          idleInTransactionSessionTimeoutMillis: deps.pool.idleInTransactionSessionTimeoutMillis,
+          connect: async () => {
+            const client = await deps.pool.connect();
+            return {
+              release: (error) => client.release(error),
+              query: async <Row>(sql: string, values?: readonly unknown[]) => {
+                const result = await client.query<Row>(sql, values);
+                if (sql === "ROLLBACK") rolledBack = true;
+                return result;
+              },
+            };
+          },
+        };
         try {
-          return await withPgTransaction(deps.pool, async (db) => {
+          return await withPgTransaction(transactionPool, async (db) => {
             const row = await readRow(db, input.operationId, owner, true);
             if (!row) throw new SavedListRecoveryError("not-found");
             if (row.status === "expired") throw new SavedListRecoveryError("expired");
@@ -438,8 +454,8 @@ export function createSavedListRecoveryRuntime(
             return output(terminal, applied ? result : null);
           });
         } catch (error) {
-          // withPgTransaction has rolled this complete attempt back before retry.
           if (!(error instanceof SavedListConcurrencyConflictError) || attempt === 1) throw error;
+          if (!rolledBack) throw new SavedListRecoveryError("conflict");
         }
       }
       throw new SavedListRecoveryError("conflict");
