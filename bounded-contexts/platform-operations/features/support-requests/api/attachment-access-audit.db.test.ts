@@ -78,9 +78,14 @@ describeDb("durable evidence access authorization, not delivery", () => {
 
   function fixture(resolvedActor: ResolvedActor | null = actor, store = eventStore) {
     const storage = {
-      putObject: vi.fn(),
-      getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
-      deleteObjects: vi.fn(),
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(async () => ({
+        status: "found" as const,
+        body,
+        byteSize: body.length,
+        providerContentType: "image/jpeg",
+      })),
+      verifyPrivate: vi.fn(),
     };
     const runtime = createSupportRequestRuntime({
       eventStore: store,
@@ -104,7 +109,7 @@ describeDb("durable evidence access authorization, not delivery", () => {
 
   it("allowed download commits exactly one authorization before GET and survives connection/runtime restart", async () => {
     const { app, storage } = fixture();
-    storage.getObject.mockImplementationOnce(async () => {
+    storage.readPrivate.mockImplementationOnce(async () => {
       expect(await attempts()).toHaveLength(1);
       expect((await attempts())[0].payload).toMatchObject({
         decision: "allowed",
@@ -113,7 +118,7 @@ describeDb("durable evidence access authorization, not delivery", () => {
         assignmentId: "acap_current",
         assignmentVersion: 3,
       });
-      return { body, contentType: "image/jpeg" };
+      return { status: "found" as const, body, byteSize: body.length, providerContentType: "image/jpeg" };
     });
     const response = await app.request(download);
     expect(response.status).toBe(200);
@@ -148,8 +153,8 @@ describeDb("durable evidence access authorization, not delivery", () => {
       expect(await attempts()).toHaveLength(1);
       expect((await attempts())[0].payload).toMatchObject({ decision: "denied" });
       expect(parse).not.toHaveBeenCalled();
-      expect(storage.getObject).not.toHaveBeenCalled();
-      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(storage.readPrivate).not.toHaveBeenCalled();
+      expect(storage.putPrivate).not.toHaveBeenCalled();
     },
   );
 
@@ -175,8 +180,8 @@ describeDb("durable evidence access authorization, not delivery", () => {
         expect(response.status).toBe(503);
         expect(await response.text()).not.toContain(marker);
         expect(parse).not.toHaveBeenCalled();
-        expect(storage.getObject).not.toHaveBeenCalled();
-        expect(storage.putObject).not.toHaveBeenCalled();
+        expect(storage.readPrivate).not.toHaveBeenCalled();
+        expect(storage.putPrivate).not.toHaveBeenCalled();
         expect(await attempts()).toHaveLength(0);
         expect(JSON.stringify([...errorLog.mock.calls, ...warnLog.mock.calls])).not.toContain(marker);
       } finally {
@@ -191,7 +196,7 @@ describeDb("durable evidence access authorization, not delivery", () => {
     const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const { app, storage } = fixture();
-      storage.getObject.mockRejectedValueOnce(new Error(marker));
+      storage.readPrivate.mockRejectedValueOnce(new Error(marker));
       const response = await app.request(download);
       expect(response.status).toBe(503);
       expect(await response.text()).not.toContain(marker);
@@ -209,7 +214,12 @@ describeDb("durable evidence access authorization, not delivery", () => {
 
   it("verification failure releases no bytes despite an allowed attempt", async () => {
     const { app, storage } = fixture();
-    storage.getObject.mockResolvedValueOnce({ body: new Uint8Array([0]), contentType: "image/jpeg" });
+    storage.readPrivate.mockResolvedValueOnce({
+      status: "found",
+      body: new Uint8Array([0]),
+      byteSize: 1,
+      providerContentType: "image/jpeg",
+    });
     expect((await app.request(download)).status).toBe(404);
     expect(await attempts()).toHaveLength(1);
   });
@@ -238,14 +248,14 @@ describeDb("durable evidence access authorization, not delivery", () => {
     expect(tail.nextCursor).toBeNull();
     expect(await attempts()).toHaveLength(53);
     expect((await attempts()).filter((event) => event.payload.action === "audit-read")).toHaveLength(2);
-    expect(storage.getObject).not.toHaveBeenCalled();
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.readPrivate).not.toHaveBeenCalled();
+    expect(storage.putPrivate).not.toHaveBeenCalled();
   });
 
   it("anonymous malformed case ids return non-disclosing 404 without audit or storage", async () => {
     const { app, storage } = fixture(null);
     expect((await app.request("/support-requests/not-a-case/attachments/sea_photo")).status).toBe(404);
     expect(await attempts()).toHaveLength(0);
-    expect(storage.getObject).not.toHaveBeenCalled();
+    expect(storage.readPrivate).not.toHaveBeenCalled();
   });
 });
