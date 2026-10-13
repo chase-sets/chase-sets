@@ -262,13 +262,12 @@ export function AgentGrantDetailPage({
   const submit = useSubmit();
   const navigation = useNavigation();
   const [attemptId] = useState(() => {
-    const key = `agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`;
     if (typeof window === "undefined") return globalThis.crypto.randomUUID();
     try {
-      const retained = window.sessionStorage.getItem(key);
+      const retained = window.sessionStorage.getItem(`agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`);
       if (retained) return retained;
       const created = globalThis.crypto.randomUUID();
-      window.sessionStorage.setItem(key, created);
+      window.sessionStorage.setItem(`agent-grant-revocation:${grant.account_id ?? ""}:${grant.id}`, created);
       return created;
     } catch {
       return globalThis.crypto.randomUUID();

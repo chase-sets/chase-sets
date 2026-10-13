@@ -831,7 +831,7 @@ const citationFencePaths = {
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
   // Refreshed for byte-identical citation relocations; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "3107386fd3d02e7072c633be6def3eec052efeee68b49d245f26aecc53aa5578",
+  [citationFencePaths.privacyPolicy]: "162c9e80c2b03a878fee20ec6e62339444fdc7bb44c43c7d097b3dbaf30526c2",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };

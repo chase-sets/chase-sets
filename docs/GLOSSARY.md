@@ -154,6 +154,7 @@ External Order Reference are owned by the [Channels glossary](../bounded-context
 
 | Term | Source of truth | Other context use |
 | --- | --- | --- |
+| Agent Grant Revocation Operation | [Identity](../bounded-contexts/identity/GLOSSARY.md) owns the retained Account/Grant terminal operation and attempt bindings. | [Auth](../bounded-contexts/auth/GLOSSARY.md) coordinates missing effects and safe receipts; Payments owns local instrument cleanup. |
 | Channel Inbound Clamp | [Marketplace](../bounded-contexts/marketplace/GLOSSARY.md) | Marketplace owns the revision-fenced Listing pause and recovery record; [Channels](../bounded-contexts/channels/GLOSSARY.md) coordinates it from a genuine Channel Sync Run and presents its outcome. |
 | Hold family | [Inventory](../bounded-contexts/inventory/GLOSSARY.md) owns stock Holds, Hold Purpose, Hold Source Reference, Hold Expiry, Hold Release Reason, Hold Collision, Protect Orders, and Honor Offline. | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) owns Payout Release Hold for wallet availability. Other contexts consume the qualified Inventory terms or name a qualified local hold. |
 | Policy family | The context that owns the decision owns each named policy, such as Ordering Postage Policy, Marketplace High-Dollar Listing Publication Policy, Pricing Repricing Policy, or Payments Marketplace Checkout Fee Policy. | Do not use bare Policy as a durable term. Consumers reference the named policy and its owner, and adapters translate provider policy vocabulary at the boundary. |

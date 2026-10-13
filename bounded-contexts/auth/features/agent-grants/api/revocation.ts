@@ -1,6 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identity/server";
-import type { PaymentServices } from "@chase-sets/payments/server";
+import type { AgentGrantRevocations, RevocationState, PaymentServices } from "./api";
 import type { AgentWebhookOutbox } from "../../../support/ucp-support/agent-webhooks/agent-webhook-outbox";
 
 export type AgentGrantRevocationEffects = Readonly<{

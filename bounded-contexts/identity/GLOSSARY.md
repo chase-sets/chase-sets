@@ -14,6 +14,10 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Agent Grant Revocation Operation
+
+An **Agent Grant Revocation Operation** is the retained Identity-owned Account/Grant operation that fixes one revocation instant and records terminal authority, local Payments cleanup, webhook exclusion, and completion. Actor-bound UUID attempts converge on that owner without reopening the Grant. Auth coordinates the missing effects; Payments owns instrument removal.
+
 ### Consent Activation
 
 **Consent Activation** is the authenticated operator act that makes a published policy version required through its Consent Activation Authority. Registration only declares a consent-capable key; a policy document revision alone does not activate it. Deactivation removes the active requirement without deleting authority history or Consent facts.

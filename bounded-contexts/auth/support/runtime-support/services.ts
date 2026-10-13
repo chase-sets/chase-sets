@@ -1,6 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { AgentGrantRevocations } from "@chase-sets/identity/server";
+import type { AgentGrantRevocations } from "../../features/agent-grants/api/api";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";

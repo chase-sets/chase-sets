@@ -141,7 +141,7 @@ describe("Privacy Policy candidate", () => {
     );
     const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
     expect(capture.assertion).toContain("records capture");
-    expect(capture.evidenceRef).toContain("runtime.ts:2532-2573");
+    expect(capture.evidenceRef).toContain("runtime.ts:2575-2616");
     expect(capture.evidenceRef).toContain("domain.ts:968-1005");
     expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
     expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");
@@ -237,6 +237,15 @@ describe("Privacy Policy candidate", () => {
 describe(
   "Privacy Policy one-variable controls",
   () => {
+    it("removing only the Agent Grant attempt family reds only its browser-storage disclosure", () => {
+      const mutant = withSection("cookies-and-analytics", (text) =>
+        text.replace("agent-grant-revocation:", "a revocation family"),
+      );
+      expectSoleViolation(
+        evaluate(mutant),
+        /does not disclose 'agent-grant-revocation:' required by binding 'web-storage-agent-grant-revocation-attempt'\./,
+      );
+    });
     it("control 1: removing exactly chase_sets_anonymous_cart reds only that cookie binding", () => {
       const mutant = withSection("cookies-and-analytics", (text) =>
         text.replace("a signed-out cart (chase_sets_anonymous_cart), ", "a signed-out cart, "),

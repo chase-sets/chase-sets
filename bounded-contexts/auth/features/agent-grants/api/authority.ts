@@ -1,4 +1,4 @@
-import type { AgentGrantRevocations } from "@chase-sets/identity/server";
+import type { AgentGrantRevocations } from "./api";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
 

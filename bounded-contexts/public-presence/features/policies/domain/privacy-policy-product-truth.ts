@@ -280,6 +280,18 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["chase-sets:marketplace:recent-searches"] }],
   },
   {
+    factId: "web-storage-agent-grant-revocation-attempt",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "agent-grant-revocation:*",
+    evidenceRefs: [
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:267",
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:270",
+    ],
+    factualSummary:
+      "The connected-Agent detail page reads and writes sessionStorage entries in the Account/Grant-scoped agent-grant-revocation: key family holding a UUID revocation attempt identifier, not tokens, credentials, or provider details.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["agent-grant-revocation:"] }],
+  },
+  {
     factId: "web-storage-theme-preference",
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "chase-sets-theme",

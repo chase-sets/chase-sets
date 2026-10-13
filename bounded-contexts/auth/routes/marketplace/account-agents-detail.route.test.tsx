@@ -69,6 +69,17 @@ async function revoke() {
 }
 
 describe("agent-grant-revocation-real-route", () => {
+  it("reuses only the retained Account/Grant UUID without storing receipt or sensitive data", async () => {
+    const attemptId = "6c165feb-a604-4ff5-8e22-8b4c99491728";
+    window.sessionStorage.setItem("agent-grant-revocation:acc_a:grant_a", attemptId);
+    await mount();
+    api.revokeAgentGrant.mockResolvedValue({ attempt_id: attemptId, state: "succeeded", phase: "completed" });
+    await revoke();
+    await screen.findByText("Access revoked and cleanup complete.");
+    expect(api.revokeAgentGrant).toHaveBeenCalledExactlyOnceWith("grant_a", attemptId);
+    expect(window.sessionStorage.length).toBe(1);
+    expect(window.sessionStorage.getItem("agent-grant-revocation:acc_a:grant_a")).toBe(attemptId);
+  });
   it("renders submitting and confirming from actual router transitions, then completion", async () => {
     const response = deferred();
     const confirmation = deferred();

@@ -225,6 +225,7 @@ describe("privacy product-truth derivation over the real repository", () => {
 
   it("derives Web Storage subjects through direct, helper, alias, Pick<Storage>, and dynamic-key shapes", () => {
     expect(subjectsOf("web-storage")).toEqual([
+      "agent-grant-revocation:*",
       "catalog.primaryWorkbench.observationSelection.*",
       "chase-sets-theme",
       "chase-sets:marketplace:recent-searches",
@@ -234,6 +235,11 @@ describe("privacy product-truth derivation over the real repository", () => {
     ]);
 
     expect(factFor("web-storage", "chase-sets-theme").derivationShapes).toEqual(["direct-member-access"]);
+    expect(factFor("web-storage", "agent-grant-revocation:*").detail).toMatchObject({
+      storageAreas: ["sessionStorage"],
+      operations: ["getItem", "setItem"],
+      dynamicKeyFamily: true,
+    });
     expect(factFor("web-storage", "chase-sets:marketplace:recent-searches").derivationShapes).toEqual([
       "direct-member-access",
     ]);
