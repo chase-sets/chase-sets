@@ -83,7 +83,7 @@ export const agentConnectorTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "infrastructure/platform-runtime/mcp-contracts.ts:156-190,239-261",
           "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md:22-24,50-60,75-77",
-          "bounded-contexts/identity/GLOSSARY.md:168-218",
+          "bounded-contexts/identity/GLOSSARY.md:172-222",
         ],
         openQuestions: [
           "To what extent, if any, should an Account holder be responsible or liable for actions taken by an authorized agent? Qualified counsel must settle the allocation before publication.",

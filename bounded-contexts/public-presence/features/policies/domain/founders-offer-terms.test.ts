@@ -346,7 +346,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /type: "OpenFoundersWindow"/,
       ],
       [
-        "bounded-contexts/identity/GLOSSARY.md:108-120",
+        "bounded-contexts/identity/GLOSSARY.md:112-124",
         /anchored to beta access, not badge claim/,
         /includes its start and excludes/,
       ],

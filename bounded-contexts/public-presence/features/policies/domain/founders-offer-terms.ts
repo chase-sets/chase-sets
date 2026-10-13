@@ -101,7 +101,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         assumptions: [
           {
             assertion: "Beta access starts the 60-day window independently of badge claim.",
-            evidenceRef: "bounded-contexts/identity/api.ts:815-827; bounded-contexts/identity/GLOSSARY.md:108-120",
+            evidenceRef: "bounded-contexts/identity/api.ts:815-827; bounded-contexts/identity/GLOSSARY.md:112-124",
           },
           {
             assertion:
