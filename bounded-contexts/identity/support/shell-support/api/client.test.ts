@@ -23,16 +23,18 @@ function buildClient() {
 describe("Identity API account enforcement client", () => {
   it("identity-preference-write-caller-inventory", async () => {
     const root = fileURLToPath(new URL("../../../../../", import.meta.url));
-    const files = execFileSync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard", "--", "bounded-contexts", "deployables"],
-      { cwd: root, encoding: "utf8" },
-    )
-      .split(/\r?\n/)
-      .filter(
-        (file) =>
-          /\.[cm]?[jt]sx?$/.test(file) && !/(?:\/tests\/|\/__tests__\/|\.(?:test|spec)\.[cm]?[jt]sx?$)/.test(file),
-      );
+    const enumerate = (root: string) =>
+      execFileSync(
+        "git",
+        ["ls-files", "--cached", "--others", "--exclude-standard", "--", "bounded-contexts", "deployables"],
+        { cwd: root, encoding: "utf8" },
+      )
+        .split(/\r?\n/)
+        .filter(
+          (file) =>
+            /\.[cm]?[jt]sx?$/.test(file) && !/(?:\/tests\/|\/__tests__\/|\.(?:test|spec)\.[cm]?[jt]sx?$)/.test(file),
+        );
+    const files = enumerate(root);
     const sources = new Map(files.map((file) => [file, readFileSync(path.join(root, file), "utf8")]));
     const classified = [
       "bounded-contexts/identity/features/preferences/api/route.ts:writeUserPreferences",
@@ -174,7 +176,29 @@ describe("Identity API account enforcement client", () => {
         ]),
       ),
     ).not.toEqual(classified);
-    expect(files.some((file) => file.startsWith("artifacts/"))).toBe(false);
+    const ignoredFixtureRoot = mkdtempSync(path.join(tmpdir(), "cs-7164-ignored-callers-"));
+    try {
+      execFileSync("git", ["init", "--quiet"], { cwd: ignoredFixtureRoot });
+      writeFileSync(path.join(ignoredFixtureRoot, ".gitignore"), readFileSync(path.join(root, ".gitignore")));
+      const unignoredWriter = "deployables/marketplace/app/w.ts";
+      for (const file of [
+        "deployables/marketplace/.react-router/types/w.ts",
+        "deployables/marketplace/build/w.js",
+        unignoredWriter,
+      ]) {
+        const writer = path.join(ignoredFixtureRoot, file);
+        mkdirSync(path.dirname(writer), { recursive: true });
+        writeFileSync(writer, "api.updateUserPreferences({})");
+      }
+      const fixtureFiles = enumerate(ignoredFixtureRoot);
+      expect(fixtureFiles).toEqual([unignoredWriter]);
+      expect(
+        inspect(new Map(fixtureFiles.map((file) => [file, readFileSync(path.join(ignoredFixtureRoot, file), "utf8")]))),
+      ).toEqual([`${unignoredWriter}:updateUserPreferences`]);
+    } finally {
+      // mkdtemp's exact child is the only recursive removal target.
+      rmSync(ignoredFixtureRoot, { recursive: true, force: true });
+    }
     const manifest = JSON.parse(readFileSync(path.join(root, "bounded-contexts/identity/context.json"), "utf8"));
     const inventory = manifest.mutationConsistencyInventory;
     const entry = inventory.find((row: { id: string }) => row.id === "identity.user-preferences-api-command-snapshots");
