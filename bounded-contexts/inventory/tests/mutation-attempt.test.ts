@@ -92,7 +92,10 @@ function harness() {
       return { rows: [] };
     },
   );
-  const invoke = async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<PgQueryResult<Row>> => (await query(sql, values)) as PgQueryResult<Row>;
+  const invoke = async <Row = Record<string, unknown>>(
+    sql: string,
+    values?: readonly unknown[],
+  ): Promise<PgQueryResult<Row>> => (await query(sql, values)) as PgQueryResult<Row>;
   const pool: PgTransactionalPool = { query: invoke, connect: async () => ({ query: invoke, release: vi.fn() }) };
   const runtime = createInventoryMutationRuntime(pool, createPostgresEventStore({ pool }));
   return { runtime, rows, committedFacts, query };
@@ -220,7 +223,16 @@ describe("issue-7169-ac2-single-target-replay: owner transaction", () => {
     await runtime.execute("location-create", "draft", "acc_synthetic", location, trusted, async () => ({ version: 1 }));
     expect(await runtime.read(id, buyer)).toMatchObject({ result: { version: 1 } });
     expect(await runtime.read(id, context)).toBeNull();
-    await expect(runtime.execute("location-create", "draft", "acc_synthetic", location, withInventoryMutationAttempt(context, id), async () => ({ version: 2 }))).rejects.toThrow("not authorized");
+    await expect(
+      runtime.execute(
+        "location-create",
+        "draft",
+        "acc_synthetic",
+        location,
+        withInventoryMutationAttempt(context, id),
+        async () => ({ version: 2 }),
+      ),
+    ).rejects.toThrow("not authorized");
   });
 
   it("raw-params-hash mutant changes normalized defaults but canonical object order does not", () => {

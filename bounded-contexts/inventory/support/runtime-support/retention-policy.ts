@@ -15,7 +15,8 @@ export const inventoryRetentionExemptions: readonly BcRetentionExemption[] = [
   {
     tableName: "inventory_mutation_attempts",
     owner: "inventory",
-    reason: "Immutable first-result receipts and audit are retained; deleting a receipt must never authorize replaying its accepted effect.",
+    reason:
+      "Immutable first-result receipts and audit are retained; deleting a receipt must never authorize replaying its accepted effect.",
   },
   {
     tableName: "inventory_holds",

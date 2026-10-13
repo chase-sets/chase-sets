@@ -11,15 +11,13 @@ describe("issue-7169-c1-boundary-recovery: AC9/10/13 full router", () => {
     });
     const pool: PgTransactionalPool = { query, connect: async () => ({ query, release: vi.fn() }) };
     const services = createInventoryServices(pool);
-    const read = vi
-      .spyOn(services.mutations, "read")
-      .mockResolvedValue({
-        version: 1,
-        family: "hold-create",
-        targetId: "draft",
-        completedAt: "2026-10-13T00:00:00Z",
-        result: { holdId: "hld_synthetic" },
-      });
+    const read = vi.spyOn(services.mutations, "read").mockResolvedValue({
+      version: 1,
+      family: "hold-create",
+      targetId: "draft",
+      completedAt: "2026-10-13T00:00:00Z",
+      result: { holdId: "hld_synthetic" },
+    });
     const app = new Hono<InventoryApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", { accountId: "acc_synthetic", permissions });

@@ -114,7 +114,8 @@ export function discoverInventoryCallers(sources) {
         return resolve(node.expression);
       if (ts.isIdentifier(node)) return alias(node, node.text);
       if (ts.isPropertyAccessExpression(node)) {
-        if (node.name.text === "read" && /(?:^|\.)mutations$/.test(node.expression.getText(source))) return "readMutationAttempt";
+        if (node.name.text === "read" && /(?:^|\.)mutations$/.test(node.expression.getText(source)))
+          return "readMutationAttempt";
         return methodFamily(node.name.text) ? node.name.text : null;
       }
       if (ts.isElementAccessExpression(node))
