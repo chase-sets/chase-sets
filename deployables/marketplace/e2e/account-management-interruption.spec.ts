@@ -5,6 +5,9 @@ import { registerSyntheticAccount, syntheticAccountFor } from "./support/auth";
 
 const routes = ["/account", "/account/shipping-addresses", "/account/consents", "/account/security", "/account/team"];
 
+// These real mutations return plaintext key secrets; never record their network or DOM sinks.
+test.use({ trace: "off", video: "off", screenshot: "off" });
+
 async function profileForm(page: Page) {
   const form = page.locator('form:has(input[name="intent"][value="update-profile"])');
   await expect(form.getByRole("button", { name: /^Update profile$/i })).toBeEnabled();
@@ -204,8 +207,6 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
   }
 
   test.describe("plaintext recording exclusion", () => {
-    // A first-response secret must not enter Playwright's network/DOM recording sinks.
-    test.use({ trace: "off", video: "off", screenshot: "off" });
     test("key secret stays in controller memory, acknowledgement/unmount/account switch purge it and artifacts stay clean", async ({
       page,
       baseURL,
