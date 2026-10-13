@@ -830,8 +830,8 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  // Refreshed for byte-identical citation relocations; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "3107386fd3d02e7072c633be6def3eec052efeee68b49d245f26aecc53aa5578",
+  // Includes #7422's revocation-attempt storage disclosure; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "c7a901f10eee079d003ba759933e68bb8c769acdfef007b3bc33e242ac6e69ae",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };
@@ -2011,6 +2011,12 @@ describe("occurrence-scoped citation byte fence", () => {
         file: citationFencePaths.privacyPolicy,
         before: "Launch jurisdiction scope is undecided",
         after: "Launch region scope is undecided",
+      },
+      {
+        name: "revocation storage disclosure edited",
+        file: citationFencePaths.privacyPolicy,
+        before: "The stored value contains only that identifier, not a revocation receipt or credentials.",
+        after: "The stored value contains the revocation receipt and credentials.",
       },
       {
         name: "provenance key edited",
