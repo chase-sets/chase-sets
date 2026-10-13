@@ -1406,12 +1406,15 @@
       "strategy": "snapshot-return",
       "surfaces": ["api-route:bounded-contexts/identity/features/preferences/api/route.ts:PUT /"],
       "visibleDestination": {
-        "description": "User Preferences API writes return the authenticated User id, aggregate version, update status, and resolved preferences directly from the command result, so shell callers can render the committed setting without waiting on the preferences projection."
+        "description": "User Preferences writes atomically commit a hashed User-scoped attempt receipt with the preference version guard. The immutable first receipt is returned separately from the current authoritative preferences; replay never re-applies an earlier choice or waits on the projection."
       },
       "proof": {
-        "authoritativeResponse": "userPreferencesRoutes returns services.commandHandler result.version plus userPreferencesFor(actor.userId, result.state) after SetUserPreferences.",
+        "authoritativeResponse": "userPreferencesRoutes calls services.writeUserPreferences with the authenticated User and Idempotency-Key; it returns the validated first receipt, replay flag, current aggregate version and current authoritative preferences. The account menu confirms uncertain delivery with one GET and no automatic PUT.",
         "tests": [
-          "bounded-contexts/identity/features/preferences/api/route.test.ts proves preference updates return committed version/status/preferences and reject invalid or cross-user writes."
+          "bounded-contexts/identity/features/preferences/api/route.test.ts proves closed request validation and authenticated User isolation.",
+          "bounded-contexts/identity/features/preferences/api/runtime.db.test.ts proves atomic receipt/business writes, complete-history replay and bounded concurrency.",
+          "deployables/marketplace/app/routes/layout.test.tsx proves the real preference recovery states; bounded-contexts/identity/support/shell-support/ui/user-preferences-account-menu.test.tsx proves User generation isolation.",
+          "bounded-contexts/identity/support/shell-support/api/client.test.ts proves identity-preference-write-caller-inventory over tracked and unignored production callers, separately from the shipped app.put census."
         ]
       }
     },

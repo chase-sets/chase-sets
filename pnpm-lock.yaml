@@ -728,6 +728,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
