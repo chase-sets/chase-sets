@@ -1,5 +1,5 @@
 import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
-import { links } from "../../../routes/link-intents";
+import { links } from "../../../support/runtime-support/link-intents";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";

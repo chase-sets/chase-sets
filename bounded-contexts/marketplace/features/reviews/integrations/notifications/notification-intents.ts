@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { links } from "../../../../routes/link-intents";
+import { links } from "../../../../support/runtime-support/link-intents";
 import type {
   EmailNotificationChannel,
   NotificationMessage,

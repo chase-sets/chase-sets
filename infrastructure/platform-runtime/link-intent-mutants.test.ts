@@ -2,13 +2,15 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { expect, it } from "vitest";
-import manifest from "../../bounded-contexts/discovery/context.json" with { type: "json" };
 import { linkIntentOrigins } from "./link-intent-origins.generated";
 import { resolveWebHostRouteRecords, type WebContextManifest } from "./web";
 import { matchRoutes } from "react-router";
 import { composeLinkIntents, parseCanonicalLink } from "./link-intents";
 import type { LinkIntentCatalog } from "@chase-sets/bounded-context-module";
 
+const manifest = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../bounded-contexts/discovery/context.json", import.meta.url)), "utf8"),
+);
 const catalog = composeLinkIntents([
   { contextName: manifest.contextName, packageName: manifest.packageName, manifest: manifest as WebContextManifest },
 ]);

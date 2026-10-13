@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export function deriveLinkIntentOrigins(root) {
@@ -53,8 +53,8 @@ export function deriveOwnerLinkTypes(root) {
     });
     return [
       {
-        path: `bounded-contexts/${manifest.contextName}/routes/link-intents.ts`,
-        source: `// Generated from this context's route contributions by generate-link-intents.mjs.\nimport manifest from "../context.json" with { type: "json" };\nimport { createContextLinkBuilder } from "@chase-sets/platform-runtime/link-intents";\n\n// prettier-ignore\nexport const links = createContextLinkBuilder<{\n${rows.join("\n")}\n}>(manifest);\n`,
+        path: `bounded-contexts/${manifest.contextName}/support/runtime-support/link-intents.ts`,
+        source: `// Generated from this context's route contributions by generate-link-intents.mjs.\nimport manifest from "../../context.json" with { type: "json" };\nimport { createContextLinkBuilder } from "@chase-sets/platform-runtime/link-intents";\n\n// prettier-ignore\nexport const links = createContextLinkBuilder<{\n${rows.join("\n")}\n}>(manifest);\n`,
       },
     ];
   });
@@ -62,6 +62,8 @@ export function deriveOwnerLinkTypes(root) {
 
 if (process.argv[1] === import.meta.filename) {
   const root = path.resolve(import.meta.dirname, "../..");
-  for (const file of [...deriveOwnerLinkTypes(root), deriveLinkIntentOrigins(root)])
+  for (const file of [...deriveOwnerLinkTypes(root), deriveLinkIntentOrigins(root)]) {
+    mkdirSync(path.dirname(path.join(root, file.path)), { recursive: true });
     writeFileSync(path.join(root, file.path), file.source);
+  }
 }

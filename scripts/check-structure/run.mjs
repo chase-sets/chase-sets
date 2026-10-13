@@ -821,6 +821,7 @@ export function isAllowedPublicExportName(value) {
     value === "./host-config" ||
     value === "./seed-support/*" ||
     value === "./test-support" ||
+    value === "./integration/link-intents" ||
     value === "./server" ||
     value === "./web" ||
     value === "./routes/*"

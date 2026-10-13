@@ -1,5 +1,5 @@
 import { formatMoney, t } from "@chase-sets/localization";
-import { links } from "../../../../routes/link-intents";
+import { links } from "../../../../support/runtime-support/link-intents";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { AccountId, WalletAdjustmentId } from "@chase-sets/primitives/typed-ids";
 import type {

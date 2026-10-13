@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { deriveLinkIntentOrigins, deriveOwnerLinkTypes } from "./generate-link-intents.mjs";
 import { deriveActionProducers, verifyActionProducers } from "./link-intent-action-producer-inventory.mjs";
+import { isAllowedPublicExportName } from "./run.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const registrations = JSON.parse(
@@ -31,6 +32,19 @@ const methodSiblings = [
 ];
 let rows;
 let fixtureRoot;
+
+it("admits only the exact generated owner link-intent integration surface", () => {
+  expect(isAllowedPublicExportName("./integration/link-intents")).toBe(true);
+  for (const surface of [
+    "./integration/*",
+    "./integration/link-intents/*",
+    "./integration/arbitrary",
+    "./integration/link-intents/extra",
+  ])
+    expect(isAllowedPublicExportName(surface)).toBe(false);
+  for (const generated of deriveOwnerLinkTypes(root))
+    expect(generated.path).toMatch(/\/support\/runtime-support\/link-intents\.ts$/);
+});
 
 beforeAll(() => {
   rows = deriveActionProducers();

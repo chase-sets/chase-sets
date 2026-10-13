@@ -1,7 +1,7 @@
 import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { formatMoney } from "@chase-sets/localization";
-import { links } from "../../../../routes/link-intents";
+import { links } from "../../../../support/runtime-support/link-intents";
 
 export type ProductAlertNotificationInput = Readonly<{
   accountId: string;
