@@ -26,7 +26,13 @@ An **Evidence Access Attempt** is one immutable authorization decision on `suppo
 
 ## Support Attachment Operation
 
-A **Support Attachment Operation** identifies one opening-photo batch with `sao_` plus a canonical ULID, created by the form before dispatch and retained through recovery and retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account, and Support Request together; the id alone is never access authority. Intake accepts the additive header when valid but does not yet persist operations or guarantee same-id convergence.
+A **Support Attachment Operation** identifies one photo batch with `sao_` plus a canonical ULID, created by the client before dispatch and retained through retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account and Support Request together; the id alone is never access authority. The required `x-support-attachment-operation-id` header names the operation.
+
+It durably stages one ordered canonical evidence manifest on `support.attachment-operation-{supportRequestId}-{operationId}` before any storage write. Its fingerprint binds the owner, client operation, canonical hashes, profile and encoder fingerprint. Each put has a version-guarded admission and is settled only by an actual provider response; ambiguous outcomes remain unresolved. Only independent byte verification records Stored. Exact retries match the manifest, resume unstored items and never re-put a stored item. Known failures record CleanupRequired; cleanup execution belongs to a later slice.
+
+## Support Evidence Attachment
+
+A **Support Evidence Attachment** is one private, canonical image referenced by `support-attachment:v1`. New attachment ids are `sea_` plus the complete 52-character lowercase, unpadded base32 SHA-256 of the versioned tenant/account/case/operation/index/canonical-hash tuple. Legacy ids, references, object keys and bytes remain unchanged and readable. A reference is returned only when the entire operation is verified Stored, never from put success, a provider key or ETag.
 
 ## Platform Remedy Policy
 

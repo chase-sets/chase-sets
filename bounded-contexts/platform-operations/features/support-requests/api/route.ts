@@ -801,19 +801,22 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     try {
       const attachments = await services.uploadAttachments({
         supportRequestId: c.req.param("id"),
+        operationId: c.req.header(SUPPORT_ATTACHMENT_OPERATION_HEADER) ?? "",
         actor: c.get("actor"),
         uploads: async () => {
           const operationId = c.req.header(SUPPORT_ATTACHMENT_OPERATION_HEADER);
-          if (operationId !== undefined) validateSupportAttachmentOperationId(operationId);
+          validateSupportAttachmentOperationId(operationId ?? "");
           const formData = await readSupportAttachmentFormData(c.req.raw);
           const files = formData.getAll("attachments").filter(isUploadedFile);
-          return Promise.all(
-            files.map(async (file) => ({
+          const uploads = [];
+          for (const file of files) {
+            uploads.push({
               body: new Uint8Array(await file.arrayBuffer()),
               contentType: file.type,
               filename: file.name || null,
-            })),
-          );
+            });
+          }
+          return uploads;
         },
       });
       return c.json({ attachments }, 201);

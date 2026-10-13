@@ -624,14 +624,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.api.route.authentication.required": "Authentication required.",
   "marketplace.features.offers.api.route.offer.daily.submission.cap.reached":
     "You can submit up to {limit} offers per day. Try again after your daily window resets.",
-  "marketplace.features.offers.api.route.offer.listing.submission.cap.reached":
-    "You can submit up to {limit} active or declined offers for one listing per day.",
-  "marketplace.features.offers.api.route.offer.price.floor.not.met":
-    "Offer must be at least {amount} for current listings.",
-  "marketplace.features.offers.api.route.offer.lowball.cooldown":
-    "This account declined repeated low offers. Raise your offer before trying again.",
-  "marketplace.features.offers.api.route.offer.muted.by.sellers":
-    "Current matching accounts are not accepting offers from your account.",
   "marketplace.features.offers.api.route.forbidden": "Forbidden.",
   "marketplace.features.offers.api.route.forbidden.2": "Forbidden.",
   "marketplace.features.offers.api.route.forbidden.3": "Forbidden.",
@@ -682,7 +674,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.match": "Offer match",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview": "Offer Match Overview",
   "marketplace.features.offers.ui.offerMatchDetailPage.decline": "Decline",
-  "marketplace.features.offers.ui.offerMatchDetailPage.mute.buyer": "Mute buyer",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.price": "Offer price: ",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask":
     "Offer is {percentage} of ask, {gap}.",
@@ -724,12 +715,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.item": "Item",
   "marketplace.features.offers.ui.offerMatchListPage.listing": "Listing",
   "marketplace.features.offers.ui.offerMatchListPage.listing.quantity": "{visible} visible of {cap} listed",
-  "marketplace.features.offers.ui.offerMatchListPage.mute.buyer": "Mute buyer",
-  "marketplace.features.offers.ui.offerMatchListPage.muted.buyers": "Muted buyers",
-  "marketplace.features.offers.ui.offerMatchListPage.muted.buyers.appear.here":
-    "Muted buyers appear here after you mute offer matches from an account.",
-  "marketplace.features.offers.ui.offerMatchListPage.muted.on": "Muted on",
-  "marketplace.features.offers.ui.offerMatchListPage.no.muted.buyers": "No muted buyers",
   "marketplace.features.offers.ui.offerMatchListPage.needs.supply": "Needs supply",
   "marketplace.features.offers.ui.offerMatchListPage.listings.unavailable": "Listings unavailable",
   "marketplace.features.offers.ui.offerMatchListPage.no.offer.matches": "No offer matches",
@@ -778,7 +763,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.standard.terms": "Standard terms",
   "marketplace.features.offers.ui.offerMatchListPage.status": "Status",
   "marketplace.features.offers.ui.offerMatchListPage.updated": "Updated",
-  "marketplace.features.offers.ui.offerMatchListPage.unmute": "Unmute",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
   "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
   "marketplace.features.offers.ui.price.incomplete": "Price incomplete",
