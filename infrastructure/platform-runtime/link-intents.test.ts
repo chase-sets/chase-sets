@@ -56,6 +56,16 @@ describe("canonical link intents", () => {
         expect(built.url).toContain(environment === "staging" ? ".staging.chasesets.com/" : ".chasesets.com/");
       }
     }
+    for (const environment of ["constructor", "toString", "__proto__", "preview"]) {
+      expect(() =>
+        Reflect.apply(buildCanonicalLink, undefined, [
+          catalog,
+          "discovery.item-detail",
+          { path: { id: "item-1" } },
+          environment,
+        ]),
+      ).toThrow(/Indeterminate canonical origin/);
+    }
     const good = "https://marketplace.chasesets.com/items/item-1";
     const bad = [
       "https://other.chasesets.com/items/item-1",

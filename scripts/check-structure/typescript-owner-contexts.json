@@ -17,7 +17,7 @@
     "implementationPath": "node_modules/.pnpm/typescript@6.0.3/node_modules/typescript/lib/typescript.js",
     "implementationSourceSha256": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
     "lockfilePath": "pnpm-lock.yaml",
-    "lockfileSha256": "da6821d6927d651f31d0d6139cdca6fc182f8c2e217ae3e8b4cde3f4025a7d2b",
+    "lockfileSha256": "6f9a208336d3567dcb8e864fd7bc14de7f3cfda2811a8246a0baee3e0e1de7fd",
     "lockfileKeys": [
       { "key": "typescript-api:", "occurrences": 1 },
       { "key": "version: '@typescript/typescript6@6.0.2'", "occurrences": 1 },

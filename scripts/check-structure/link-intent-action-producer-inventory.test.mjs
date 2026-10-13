@@ -218,6 +218,7 @@ it("owner-builder proof follows object and class method helpers and rejects raw 
       ...registrations,
       ...added.map((row) => ({
         ...row,
+        fields: row.fields.map(({ field, expression }) => ({ field, expression })),
         classification: "business-navigation",
         reason: "Synthetic method-helper control",
         intentIds: ["discovery.item-detail"],

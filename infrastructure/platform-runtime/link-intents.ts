@@ -15,8 +15,11 @@ export type * from "@chase-sets/bounded-context-module/link-intents";
 
 const hosts: readonly WebHostName[] = ["marketplace-web", "admin-web", "public-web"];
 function originFor(host: WebHostName, environment: LinkEnvironment) {
-  const origin = linkIntentOrigins[host]?.[environment];
-  if (!origin) throw new Error(`Indeterminate canonical origin for ${host}/${environment}`);
+  const origin =
+    Object.hasOwn(linkIntentOrigins, host) && Object.hasOwn(linkIntentOrigins[host], environment)
+      ? linkIntentOrigins[host][environment]
+      : undefined;
+  if (typeof origin !== "string") throw new Error(`Indeterminate canonical origin for ${host}/${environment}`);
   return origin;
 }
 
