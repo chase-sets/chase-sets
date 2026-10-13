@@ -107,7 +107,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       await expect(selection).toBeChecked();
     }
     await page.getByLabel("Maximum unit item amount: Surging Sparks Booster Box").fill("140.00");
-    await page.getByLabel("Lifetime Item Commitment Allowance", { exact: false }).fill("400.00");
+    await expect(page.getByLabel(/item commitment allowance/i)).toHaveCount(0);
     const advanced = page.getByRole("button", { name: "Advanced adjustment" });
     await expect(advanced).toHaveAttribute("aria-expanded", "false");
     await advanced.focus();
@@ -133,10 +133,15 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       [1440, 1000],
     ]) {
       await page.setViewportSize({ width: width!, height: height! });
-      await page.getByLabel("Lifetime Item Commitment Allowance", { exact: true }).scrollIntoViewIfNeeded();
-      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: true })).toBeVisible();
-      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: true })).toHaveCount(1);
-      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: true })).toHaveValue("400.00");
+      await page.getByRole("checkbox", { name: /^I authorize/ }).scrollIntoViewIfNeeded();
+      await expect(page.getByLabel(/item commitment allowance/i)).toHaveCount(0);
+      await expect(page.getByText(/accepted item commitments|remaining item commitment/i)).toHaveCount(0);
+      await expect(
+        page.getByRole("checkbox", {
+          name: "I authorize these exact selected Offers, quantities, currency, adjustment and maximum unit item amounts. Resuming requires a fresh preview and consent.",
+          exact: true,
+        }),
+      ).toBeVisible();
       await expect(page.getByRole("checkbox", { name: /^I authorize/ })).toBeVisible();
       await expect(page.getByRole("checkbox", { name: /^I authorize/ })).not.toBeChecked();
       await expect(page.getByRole("button", { name: "Authorize reviewed Offers" })).toBeDisabled();
@@ -154,7 +159,10 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     expect(policyId).toBeTruthy();
     const policy = await page.request.get(`/api/marketplace/account/offer-policies/${policyId}`);
     expect(policy.ok(), "authoritative policy detail after Authorize").toBe(true);
-    expect(await policy.json()).toMatchObject({ policyId, status: "active" });
+    const owner = await policy.json();
+    expect(owner).toMatchObject({ policyId, status: "active" });
+    for (const field of ["itemCommitmentAllowance", "consumedItemAmount", "remainingItemAllowance"])
+      expect(JSON.stringify(owner)).not.toContain(`"${field}"`);
     await page.getByRole("button", { name: "Pause market following" }).click();
     await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
     const sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
@@ -216,6 +224,130 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     await page.goto(`/account/offers/submitted/${fixture.offerId}`);
     await page.getByRole("button", { name: /^Manage Stopped/ }).click();
     await expect(page.getByText(/Stop is permanent/)).toBeVisible();
+    await test.step("Two Offers of one policy each create exactly one distinct Order", async () => {
+      const offerIds: string[] = [];
+      for (let index = 0; index < 2; index++) {
+        const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
+          data: {
+            catalogItemId: fixture.catalogItemId,
+            productId: fixture.productId,
+            itemTitle: "Surging Sparks Booster Box",
+            selectedOptions: [],
+            priceAmount: fixture.amount,
+            priceCurrencyCode: "USD",
+            quantityRequested: 1,
+            shippingDestinationSnapshot: {
+              name: "Synthetic Buyer",
+              line1: "1 Main Street",
+              line2: null,
+              city: "Chicago",
+              state: "IL",
+              postalCode: "60601",
+              country: "US",
+            },
+          },
+        });
+        expect(submitted.status()).toBe(201);
+        offerIds.push((await submitted.json()).id);
+      }
+      const acceptancePolicyId = `bop_${crypto.randomUUID()}`;
+      const commandUrl = `/api/marketplace/account/offer-policies/${acceptancePolicyId}/commands`;
+      let created = false;
+      try {
+        const creation = await page.request.post(commandUrl, {
+          data: { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: crypto.randomUUID() },
+        });
+        expect(creation.ok()).toBe(true);
+        created = true;
+        const preview = await page.request.post(commandUrl, {
+          data: {
+            type: "PreviewBuyerOfferPolicy",
+            expectedVersion: 1,
+            operationId: crypto.randomUUID(),
+            terms: {
+              currency: "USD",
+              adjustmentBps: 0,
+              offers: offerIds.map((offerId) => ({
+                offerId,
+                offerVersion: 1,
+                catalogItemId: fixture.catalogItemId,
+                productId: fixture.productId,
+                selectedOptions: [],
+                quantity: 1,
+                maximumUnitItemAmount: "140.00",
+              })),
+            },
+          },
+        });
+        expect(preview.ok()).toBe(true);
+        const reviewed = await preview.json();
+        const authorized = await page.request.post(commandUrl, {
+          data: {
+            type: "AuthorizeBuyerOfferPolicy",
+            expectedVersion: reviewed.version,
+            previewId: reviewed.preview.previewId,
+            consent: true,
+            operationId: crypto.randomUUID(),
+          },
+        });
+        expect(authorized.ok()).toBe(true);
+        const sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
+        try {
+          const seller = await sellerContext.newPage();
+          await signInWithPassword(
+            seller,
+            String(testInfo.project.use.baseURL),
+            marketplaceBrowserE2eSellerCredentials(),
+          );
+          for (const offerId of offerIds) {
+            await expect
+              .poll(async () => {
+                const response = await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`);
+                return response.ok() ? (await response.json()).can_fulfill : false;
+              })
+              .toBe(true);
+            const match = await (await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`)).json();
+            const quote = await seller.request.get(
+              `/api/marketplace/account/offers/matches/${offerId}/terms-preview?listingId=${match.listing_id}`,
+            );
+            expect(quote.ok()).toBe(true);
+            const acceptance = await seller.request.post(`/api/marketplace/account/offers/matches/${offerId}/accept`, {
+              data: { listingId: match.listing_id, feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint },
+            });
+            expect(acceptance.status()).toBe(201);
+          }
+        } finally {
+          await sellerContext.close();
+        }
+        const readOrders = async () => {
+          const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
+          expect(response.ok()).toBe(true);
+          const result = await response.json();
+          expect(result.count).toBe(result.total);
+          return result.items.filter(
+            (order: { source_type: string; source_reference_id: string }) =>
+              order.source_type === "offer-acceptance" && offerIds.includes(order.source_reference_id),
+          );
+        };
+        await expect.poll(async () => (await readOrders()).length).toBe(2);
+        const orders = await readOrders();
+        for (const offerId of offerIds)
+          expect(
+            orders.filter((order: { source_reference_id: string }) => order.source_reference_id === offerId),
+          ).toHaveLength(1);
+        expect(new Set(orders.map((order: { order_id: string }) => order.order_id)).size).toBe(2);
+      } finally {
+        if (created) {
+          const response = await page.request.get(`/api/marketplace/account/offer-policies/${acceptancePolicyId}`);
+          expect(response.ok()).toBe(true);
+          const current = await response.json();
+          const stopped = await page.request.post(commandUrl, {
+            data: { type: "StopBuyerOfferPolicy", expectedVersion: current.version, operationId: crypto.randomUUID() },
+          });
+          expect(stopped.ok()).toBe(true);
+        }
+      }
+    });
   } finally {
     try {
       if (policyId) {
