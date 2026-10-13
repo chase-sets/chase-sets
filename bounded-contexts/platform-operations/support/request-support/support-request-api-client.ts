@@ -1,6 +1,26 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import {
+  hashParticipantRequest,
+  parseParticipantAttempt,
+  parseParticipantLookup,
+  participantActions,
+  type ParticipantAction,
+  type SupportParticipantDescriptor,
+} from "../../features/support-requests/domain/participant-attempt";
+
+export type { SupportParticipantDescriptor } from "../../features/support-requests/domain/participant-attempt";
+export class SupportParticipantSendError extends Error {
+  constructor(
+    public readonly phase: "failed-safe" | "ambiguous",
+    public readonly descriptor: SupportParticipantDescriptor | null,
+  ) {
+    super(
+      phase === "ambiguous" ? "Check status before retrying this support action." : "This support action was not sent.",
+    );
+  }
+}
+import {
   SUPPORT_ATTACHMENT_OPERATION_HEADER,
   validateSupportAttachmentOperationId,
 } from "../../features/support-requests/api/attachment-intake";
@@ -33,6 +53,7 @@ export type {
 } from "../../features/support-requests/ui/contracts";
 
 type SupportRequestApiClientOptions = Readonly<{
+  participantAttemptId?: string;
   baseUrl?: string;
   fetch?: typeof fetch;
   headers?: HeadersInit | (() => HeadersInit);
@@ -55,7 +76,78 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
   const clientFetch = options.fetch ?? fetch;
   const baseUrl = options.baseUrl ?? "/api/marketplace";
 
+  async function lookupParticipantAttempt(descriptor: SupportParticipantDescriptor) {
+    parseParticipantAttempt({ attemptId: descriptor.attemptId, requestHash: descriptor.requestHash });
+    const query = new URLSearchParams({ requestHash: descriptor.requestHash });
+    if (descriptor.actionKind !== "open-support-request") query.set("actionKind", descriptor.actionKind);
+    const path =
+      descriptor.actionKind === "open-support-request" ? "" : `/${encodeURIComponent(descriptor.targetId ?? "")}`;
+    const response = await clientFetch(
+      `${baseUrl}/support-requests${path}/participant-attempts/${encodeURIComponent(descriptor.attemptId)}?${query}`,
+      {
+        headers: resolveHeaders(options.headers),
+      },
+    );
+    if (!response.ok) throw new SupportParticipantSendError("ambiguous", descriptor);
+    const lookup = parseParticipantLookup(await response.json());
+    if (lookup.outcome === "committed" || lookup.outcome === "confirming") {
+      if (
+        lookup.actionKind !== descriptor.actionKind ||
+        (descriptor.targetId !== null && lookup.result.id !== descriptor.targetId)
+      )
+        throw new SupportParticipantSendError("ambiguous", descriptor);
+      attachResponseMetadata(lookup.result, response);
+    }
+    return lookup;
+  }
+  async function participantCommand(
+    actionKind: ParticipantAction,
+    body: unknown,
+    attemptId: string,
+    targetId: string | null = null,
+    offerId: string | null = null,
+  ): Promise<SupportRequestCommandSnapshot> {
+    let descriptor: SupportParticipantDescriptor;
+    let hashBody = body;
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("offline");
+      if (actionKind === "accept-offer" || actionKind === "decline-offer") hashBody = { ...(body as object), offerId };
+      descriptor = { actionKind, targetId, attemptId, requestHash: await hashParticipantRequest(actionKind, hashBody) };
+      parseParticipantAttempt({ attemptId, requestHash: descriptor.requestHash });
+    } catch {
+      throw new SupportParticipantSendError("failed-safe", null);
+    }
+    const path = participantActions[actionKind].path
+      .replace(":id", encodeURIComponent(targetId ?? ""))
+      .replace(":offerId", encodeURIComponent(offerId ?? ""));
+    try {
+      const headers = new Headers(resolveHeaders(options.headers));
+      headers.set("content-type", "application/json");
+      headers.set("Idempotency-Key", attemptId);
+      headers.set("X-Support-Request-Hash", descriptor.requestHash);
+      const response = await clientFetch(`${baseUrl}/support-requests${path === "/" ? "" : path}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      if ([400, 401, 403].includes(response.status)) throw new SupportParticipantSendError("failed-safe", null);
+      return await parseJsonResponse<SupportRequestCommandSnapshot>(response);
+    } catch (error) {
+      if (error instanceof SupportParticipantSendError && error.phase === "failed-safe") throw error;
+      // A read can prove commitment. Absence is never permission for a second write.
+      try {
+        const lookup = await lookupParticipantAttempt(descriptor);
+        if (lookup.outcome === "committed" || lookup.outcome === "confirming") return lookup.result;
+      } catch {
+        /* retain the single inert descriptor */
+      }
+      throw new SupportParticipantSendError("ambiguous", descriptor);
+    }
+  }
+
   return {
+    participantCommand,
+    lookupParticipantAttempt,
     listFlows: async () =>
       parseJsonResponse<{ items: readonly SupportFlowSummary[] }>(
         await clientFetch(`${baseUrl}/support-requests/flows`, {
@@ -104,17 +196,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         flowType: string;
         affectedLineIds?: readonly string[];
       }>,
-    ) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(`${baseUrl}/support-requests`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...resolveHeaders(options.headers),
-          },
-          body: JSON.stringify(body),
-        }),
-      ),
+    ) => participantCommand("open-support-request", body, options.participantAttemptId ?? crypto.randomUUID()),
     uploadSupportEvidenceAttachments: async (supportRequestId: string, files: readonly File[], operationId: string) => {
       validateSupportAttachmentOperationId(operationId);
       const formData = new FormData();
@@ -149,12 +231,11 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         attachments?: readonly string[];
       }>,
     ) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/evidence`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
-          body: JSON.stringify(body),
-        }),
+      participantCommand(
+        "submit-evidence",
+        body,
+        options.participantAttemptId ?? crypto.randomUUID(),
+        supportRequestId,
       ),
     recordSupportResponse: async (
       supportRequestId: string,
@@ -166,54 +247,44 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         refundAmount?: string | null;
       }>,
     ) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/responses`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
-          body: JSON.stringify(body),
-        }),
+      participantCommand(
+        "record-response",
+        body,
+        options.participantAttemptId ?? crypto.randomUUID(),
+        supportRequestId,
       ),
     acceptSupportOffer: async (supportRequestId: string, offerId: string) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(
-          `${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/offers/${encodeURIComponent(offerId)}/accept`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
-            body: JSON.stringify({}),
-          },
-        ),
+      participantCommand(
+        "accept-offer",
+        {},
+        options.participantAttemptId ?? crypto.randomUUID(),
+        supportRequestId,
+        offerId,
       ),
     declineSupportOffer: async (
       supportRequestId: string,
       offerId: string,
       body: Readonly<{ summary?: string | null }> = {},
     ) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(
-          `${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/offers/${encodeURIComponent(offerId)}/decline`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
-            body: JSON.stringify(body),
-          },
-        ),
+      participantCommand(
+        "decline-offer",
+        body,
+        options.participantAttemptId ?? crypto.randomUUID(),
+        supportRequestId,
+        offerId,
       ),
     requestSupportReview: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/escalate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
-          body: JSON.stringify(body),
-        }),
-      ),
+      participantCommand("escalate", body, options.participantAttemptId ?? crypto.randomUUID(), supportRequestId),
     cancelSupportRequest: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
-      parseJsonResponse<SupportRequestCommandSnapshot>(
-        await clientFetch(`${baseUrl}/support-requests/${encodeURIComponent(supportRequestId)}/cancel`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...resolveHeaders(options.headers) },
-          body: JSON.stringify(body),
-        }),
+      participantCommand("cancel", body, options.participantAttemptId ?? crypto.randomUUID(), supportRequestId),
+    closeSupportRequest: async (supportRequestId: string) =>
+      participantCommand("close", {}, options.participantAttemptId ?? crypto.randomUUID(), supportRequestId),
+    disputeSupportReturnCondition: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
+      participantCommand(
+        "return-condition-dispute",
+        body,
+        options.participantAttemptId ?? crypto.randomUUID(),
+        supportRequestId,
       ),
     escalateOverdueSupportRequests: async (body: Readonly<{ limit?: number }> = {}) =>
       parseJsonResponse<SupportRequestEscalationSnapshot>(
@@ -401,8 +472,9 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
   };
 }
 
-export function createSupportRequestRequestApiClient(request: Request) {
+export function createSupportRequestRequestApiClient(request: Request, participantAttemptId?: string) {
   return createSupportRequestApiClient({
+    participantAttemptId,
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "platform-operations" }),
   });
