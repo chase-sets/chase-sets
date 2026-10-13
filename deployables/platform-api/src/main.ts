@@ -104,6 +104,7 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {
   createFakeMoneyMovementGateway,
@@ -282,6 +283,9 @@ const waitlistAnalyticsRecorder = {
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
 const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
+const supportEvidenceCanonicalizer = await openPlatformSupportEvidenceCanonicalizer(
+  ["production", "staging", "preview"].includes(config.deploymentEnvironment ?? "dev"),
+);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
   Boolean(config.taxProviderBackedQuotesRequired),
@@ -352,6 +356,7 @@ const runtime = createPlatformApiHost({
     listingPhotoStorage,
     returnIntakeEvidenceStorage,
     supportEvidenceAttachmentStorage,
+    supportEvidenceCanonicalizer,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
@@ -783,16 +788,6 @@ function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhot
   return createFilesystemObjectStorage({
     rootDir: `${storageConfig.rootDir}/private-return-intake`,
     publicBaseUrl: "private://return-intake-evidence",
-  });
-}
-
-function createSupportEvidenceAttachmentStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
-  if (storageConfig.kind === "s3") {
-    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://support-evidence" });
-  }
-  return createFilesystemObjectStorage({
-    rootDir: `${storageConfig.rootDir}-private-support-evidence`,
-    publicBaseUrl: "private://support-evidence",
   });
 }
 
