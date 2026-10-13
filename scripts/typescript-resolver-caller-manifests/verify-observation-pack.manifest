@@ -1516,6 +1516,7 @@
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/payments.ts","specifier":"../platform-coverage-facts","resolved":"repo:/contracts/event-core/platform-coverage-facts.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/payments.ts","specifier":"./marketplace","resolved":"repo:/contracts/event-core/public-event-payloads/marketplace.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/platform-operations.ts","specifier":"../../primitives/json","resolved":"repo:/contracts/primitives/json.ts"}]
+["candidate","edges",{"from":"contracts/event-core/public-event-payloads/platform-operations.ts","specifier":"../../primitives/typed-ids","resolved":"repo:/contracts/primitives/typed-ids.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/platform-operations.ts","specifier":"../platform-coverage-facts","resolved":"repo:/contracts/event-core/platform-coverage-facts.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/settlement.ts","specifier":"../../primitives/typed-ids","resolved":"repo:/contracts/primitives/typed-ids.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/settlement.ts","specifier":"../account-linkage-facts","resolved":"repo:/contracts/event-core/account-linkage-facts.ts"}]
