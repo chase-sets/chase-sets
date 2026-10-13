@@ -70,12 +70,13 @@ const request = new Request("http://localhost/invite/ivt_invited");
       capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
     });
     await seedAcceptance(identity.eventStore!, existing);
+    const invitation = await identity.invitations.getInvitationState("ivt_invited");
     await identity.invitations.commandHandler({
       streamId: "identity.invitation-ivt_invited",
       command: {
         type: "IssueInvitationAcceptanceToken",
         tokenHash: services.auth.hashSecret(token),
-        expiresAt: new Date(Date.now() + 86400_000 * 7).toISOString(),
+        expiresAt: invitation!.expiresAt!,
       },
       context: acceptanceContext,
     });
