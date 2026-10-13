@@ -14,7 +14,7 @@ const rawValuePattern =
   /account_type|role_key|auth_methods|authentication_method|policy_key|recorded_at|withdrawn_at|updated_at|expires_at|last_used_at|[.]status/;
 
 const expectedHitsByFile = {
-  "features/agent-grants/ui/agent-grant-detail-page.tsx": 3,
+  "features/agent-grants/ui/agent-grant-detail-page.tsx": 4,
   "features/agent-grants/ui/agent-grant-list-page.tsx": 1,
   "features/invitation-acceptance/ui/invitation-acceptance-page.tsx": 2,
   "features/registration/ui/register-page.tsx": 6,
@@ -22,6 +22,7 @@ const expectedHitsByFile = {
   "features/sessions/ui/session-list-page.tsx": 10,
   "features/sign-in/ui/sign-in-page.tsx": 8,
   "routes/marketplace/account-agents-consent.tsx": 2,
+  "routes/marketplace/account-agents-detail.tsx": 2,
   "support/route-support/magic-link-landing.tsx": 1,
 } as const;
 
@@ -71,6 +72,14 @@ function classify(hit: CensusHit): Disposition {
     throw new Error(`Unclassified Auth raw-value hit: ${hit.file}:${hit.line}`);
   }
   if (machineOnlyFiles.has(hit.file)) {
+    return "MACHINE_ONLY";
+  }
+  if (
+    hit.file === "routes/marketplace/account-agents-detail.tsx" &&
+    /revocationFailure\((?:error\.status|readError instanceof AuthApiError \? readError\.status : 0), attemptId\)/.test(
+      hit.source,
+    )
+  ) {
     return "MACHINE_ONLY";
   }
   if (visibleLabelLine.test(hit.source)) {
@@ -137,7 +146,7 @@ describe("Auth human-readable values", () => {
     );
     const partition = hits.map((hit) => ({ ...hit, disposition: classify(hit) }));
 
-    expect(hits).toHaveLength(37);
+    expect(hits).toHaveLength(40);
     expect(counts).toEqual(expectedHitsByFile);
     expect(partition).toHaveLength(hits.length);
     expect(
@@ -146,10 +155,18 @@ describe("Auth human-readable values", () => {
         .map((hit) => hit.disposition),
     ).toEqual(["MACHINE_ONLY", "MACHINE_ONLY"]);
     expect(
+      partition
+        .filter((hit) => hit.file === "routes/marketplace/account-agents-detail.tsx")
+        .map((hit) => hit.disposition),
+    ).toEqual(["MACHINE_ONLY", "MACHINE_ONLY"]);
+    expect(
       partition.every((hit) => ["VISIBLE_LABEL", "MACHINE_ONLY", "OPERATOR_REFERENCE"].includes(hit.disposition)),
     ).toBe(true);
     expect(() =>
       classify({ file: "features/sessions/ui/session-list-page.tsx", line: 999, source: "row.status" }),
+    ).toThrow(/Unclassified Auth raw-value hit/);
+    expect(() =>
+      classify({ file: "routes/marketplace/account-agents-detail.tsx", line: 999, source: "row.status" }),
     ).toThrow(/Unclassified Auth raw-value hit/);
   });
 

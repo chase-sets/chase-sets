@@ -18,12 +18,14 @@ function quotedValues(source: string, declaration: RegExp): string[] {
 
 describe("Auth value labels", () => {
   it("labels every current Auth value", () => {
-    const linkedAuthorizationStore = readFileSync(
-      path.resolve(authRoot, "../identity/support/ucp-support/linked-platform-authorizations.ts"),
-      "utf8",
-    );
+    const grantLifecycleSources = [
+      "../identity/support/ucp-support/linked-platform-authorizations.ts",
+      "../identity/features/agent-grants/api/revocation.ts",
+    ]
+      .map((file) => readFileSync(path.resolve(authRoot, file), "utf8"))
+      .join("\n");
     const observedAgentGrantStatuses = [
-      ...new Set([...linkedAuthorizationStore.matchAll(/'(active|revoked)'/g)].map((match) => match[1])),
+      ...new Set([...grantLifecycleSources.matchAll(/'(active|revoked)'/g)].map((match) => match[1])),
     ].sort();
     const agentGrantContracts = readFileSync(path.resolve(authRoot, "features/agent-grants/ui/contracts.ts"), "utf8");
     const observedOutcomes = quotedValues(agentGrantContracts, /outcome:\s*"[^"]+"(?:\s*\|\s*"[^"]+")+;/);

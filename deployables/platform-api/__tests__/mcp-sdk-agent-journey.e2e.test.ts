@@ -10,6 +10,7 @@ import { module as settlementModule } from "@chase-sets/settlement";
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
 
 /**
@@ -555,6 +556,9 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         capCents: 100,
       })),
     };
+    const grantAuthority: Pick<AgentGrantRevocations, "isActiveGrant"> = {
+      isActiveGrant: vi.fn(async (accountId, grantId) => accountId === "acc_1" && grantId === "grant_full_journey"),
+    };
     const paymentServices = {
       publicConfig: {
         processorName: "stripe",
@@ -603,6 +607,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       createRuntime(
         {
           checkout: { sessions: checkoutSessions },
+          identity: { agentGrantRevocations: grantAuthority },
           payments: paymentServices,
           marketplace: {
             listings: {},
@@ -743,6 +748,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           amountCents: 2_605,
         }),
       );
+      expect(grantAuthority.isActiveGrant).toHaveBeenCalledWith("acc_1", "grant_full_journey");
     } finally {
       vi.unstubAllGlobals();
     }
