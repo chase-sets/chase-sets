@@ -9,7 +9,17 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import { mapInvitationAcceptanceLinkRequestedToNotification } from "../../features/invitation-acceptance/integrations/notifications/notification-intents";
-import { hasInvitationAttempt, readInvitationAttemptId } from "../../features/invitation-acceptance/api/attempt-request";
+import {
+  hasInvitationAttempt,
+  readInvitationAttemptId,
+} from "../../features/invitation-acceptance/api/attempt-request";
+import {
+  acceptInvitationAttempt,
+  lookupInvitationAttempt,
+  parseJourneyInput,
+} from "../../features/invitation-acceptance/api/journey";
+import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
+import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
@@ -230,10 +240,54 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     const idempotencyKey = c.req.header("Idempotency-Key");
     if (hasInvitationAttempt(body, idempotencyKey)) {
       if (!readInvitationAttemptId(body, idempotencyKey)) {
-        return c.json({ error: { code: "invitation_attempt_invalid", message: "Invitation acceptance attempt is invalid." } }, 400);
+        return c.json(
+          { error: { code: "invitation_attempt_invalid", message: "Invitation acceptance attempt is invalid." } },
+          400,
+        );
       }
-      return c.json({ error: { code: "invitation_attempts_not_active", message: "Invitation acceptance attempts are not active." } }, 409);
+      try {
+        const result = await acceptInvitationAttempt(
+          services,
+          createIdentityMutations(c),
+          parseJourneyInput(body, idempotencyKey),
+          c.req.raw,
+          getBootstrapContext(c),
+        );
+        if (result.type === "attempts-not-active")
+          return c.json(
+            {
+              error: {
+                code: "invitation_attempts_not_active",
+                message: "Invitation acceptance attempts are not active.",
+              },
+            },
+            409,
+          );
+        return c.json(result);
+      } catch (error) {
+        if (error instanceof InvitationAttemptError)
+          return c.json(
+            { error: { code: error.code, message: error.message } },
+            error.code === "invitation_attempt_invalid" ? 400 : 409,
+          );
+        const consent = readRegistrationConsentRejection(error);
+        if (consent) return c.json(consent, 400);
+        return c.json(
+          {
+            error: {
+              code: "invitation_attempt_ambiguous",
+              message: "Invitation acceptance could not be confirmed. Check its status or sign in.",
+            },
+          },
+          503,
+        );
+      }
     }
+    if (invitationAttemptRollout.requireAttempt)
+      return c.json(
+        { error: { code: "invitation_attempt_invalid", message: "Invitation acceptance attempt is required." } },
+        400,
+      );
     const identityMutations = createIdentityMutations(c);
     const invitationId = String(body.invitationId ?? "");
     const token = String(body.token ?? "");
@@ -406,5 +460,14 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       200,
       [createdIdentity, membership, verifiedEmail, credentialResult],
     );
+  });
+
+  app.post("/invitations/acceptance-status", async (c) => {
+    try {
+      const input = parseJourneyInput(await c.req.json(), c.req.header("Idempotency-Key"));
+      return c.json(await lookupInvitationAttempt(services, createIdentityMutations(c), input, getBootstrapContext(c)));
+    } catch {
+      return c.json({ type: "ambiguous" as const });
+    }
   });
 }

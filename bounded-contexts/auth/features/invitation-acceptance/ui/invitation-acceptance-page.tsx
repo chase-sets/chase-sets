@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Banner,
@@ -6,6 +6,7 @@ import {
   Card,
   Form,
   HiddenInput,
+  LinkButton,
   PasswordInput,
   SegmentedControl,
   Stack,
@@ -30,6 +31,20 @@ type Props = Readonly<{
   token: string;
   action?: string;
   errorMessage?: string | null;
+  attemptsActive?: boolean;
+  attemptId?: string | null;
+  phase?:
+    | "editing"
+    | "submitting"
+    | "confirming"
+    | "succeeded"
+    | "accepted-reauth-required"
+    | "failed-safe"
+    | "conflict"
+    | "ambiguous"
+    | "route-denied";
+  submit?: (form: HTMLFormElement) => void;
+  invitationId?: string;
 }>;
 
 const terminalCopyKeys = {
@@ -39,12 +54,108 @@ const terminalCopyKeys = {
   unavailable: "auth.features.invitationAcceptance.ui.invitationAcceptancePage.invitation.unavailable",
 } as const;
 
-export function InvitationAcceptancePage({ invitation, token, action, errorMessage }: Props) {
+export function InvitationAcceptancePage({
+  invitation,
+  token,
+  action,
+  errorMessage,
+  attemptsActive = false,
+  attemptId,
+  phase = "editing",
+  submit,
+  invitationId,
+}: Props) {
   const [method, setMethod] = useState<"passkey" | "password">("passkey");
   const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyForm = useRef<HTMLFormElement | null>(null);
+  const submissionId = useRef(attemptId ?? "");
+  const submitting = useRef(false);
+  const [retainedAttempt, setRetainedAttempt] = useState<string | null>(null);
+  const storageKey = `invitation-acceptance:${invitationId ?? (invitation.status === "pending" ? invitation.invitationId : "")}`;
+  useEffect(() => {
+    if (!attemptsActive) return;
+    try {
+      const retained = sessionStorage.getItem(storageKey);
+      if (retained && /^[0-9a-f-]{36}$/i.test(retained)) {
+        submissionId.current = retained;
+        setRetainedAttempt(retained);
+      }
+    } catch {
+      /* Storage denial does not authorize a write retry. */
+    }
+  }, [attemptsActive, storageKey]);
+  const effectivePhase = retainedAttempt && phase === "editing" ? "confirming" : phase;
+  const effectiveAttemptId = attemptId ?? retainedAttempt;
+  useEffect(() => {
+    if (phase === "editing" || phase === "failed-safe") submitting.current = false;
+  }, [phase]);
+  useEffect(() => {
+    if (effectivePhase !== "editing") document.getElementById("invitation-acceptance-status")?.focus();
+  }, [effectivePhase]);
+
+  function submitOnce(event: FormEvent<HTMLFormElement>) {
+    if (submitting.current) {
+      event.preventDefault();
+      return;
+    }
+    if (attemptsActive) {
+      submissionId.current ||= crypto.randomUUID();
+      const field = event.currentTarget.elements.namedItem("attemptId");
+      if (field instanceof HTMLInputElement) field.value = submissionId.current;
+      try {
+        sessionStorage.setItem(storageKey, submissionId.current);
+      } catch {
+        /* The in-memory UUID still binds this submission. */
+      }
+    }
+    submitting.current = true;
+    if (submit) {
+      event.preventDefault();
+      submit(event.currentTarget);
+    }
+  }
+
+  if (effectivePhase !== "editing" && effectivePhase !== "failed-safe") {
+    const accepted = effectivePhase === "accepted-reauth-required" || effectivePhase === "succeeded";
+    return (
+      <Stack gap={3}>
+        <Banner
+          id="invitation-acceptance-status"
+          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          tone={accepted ? "success" : "warning"}
+          title={t(`auth.invitationAttempt.${effectivePhase}`)}
+          description={t("auth.invitationAttempt.safeRecovery")}
+        />
+        <LinkButton href="/sign-in">{t("auth.invitationAttempt.signIn")}</LinkButton>
+        {effectiveAttemptId && effectivePhase !== "submitting" ? (
+          <Form
+            action={action}
+            method="post"
+            onSubmit={(event) => {
+              if (submit) {
+                event.preventDefault();
+                submit(event.currentTarget);
+              }
+            }}
+          >
+            <HiddenInput name="intent" value="status" readOnly />
+            <HiddenInput name="attemptId" value={effectiveAttemptId} readOnly />
+            <HiddenInput
+              name="invitationId"
+              value={invitationId ?? (invitation.status === "pending" ? invitation.invitationId : "")}
+              readOnly
+            />
+            <HiddenInput name="token" value={token} readOnly />
+            <Button type="submit">{t("auth.invitationAttempt.checkStatus")}</Button>
+          </Form>
+        ) : null}
+      </Stack>
+    );
+  }
 
   if (invitation.status !== "pending") {
     return (
@@ -63,8 +174,12 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
   const pendingInvitation = invitation;
 
   async function acceptWithPasskey(event: FormEvent<HTMLFormElement>) {
-    if (passkeyPayload) return;
+    if (passkeyPayload) {
+      submitOnce(event);
+      return;
+    }
     event.preventDefault();
+    if (passkeyLoading) return;
     setPasskeyError(null);
     setPasskeyLoading(true);
     try {
@@ -75,12 +190,8 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
         }),
       );
       window.setTimeout(() => passkeyForm.current?.requestSubmit(), 0);
-    } catch (error) {
-      setPasskeyError(
-        error instanceof Error
-          ? error.message
-          : t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"),
-      );
+    } catch {
+      setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
     } finally {
       setPasskeyLoading(false);
     }
@@ -90,6 +201,7 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
     <>
       <HiddenInput type="hidden" name="invitationId" value={invitation.invitationId} readOnly />
       <HiddenInput type="hidden" name="token" value={token} readOnly />
+      {attemptsActive ? <HiddenInput type="hidden" name="attemptId" defaultValue={submissionId.current} /> : null}
     </>
   );
 
@@ -159,7 +271,7 @@ export function InvitationAcceptancePage({ invitation, token, action, errorMessa
         </Card>
       ) : (
         <Card elevation="elevated">
-          <Form action={action} method="post">
+          <Form action={action} method="post" onSubmit={submitOnce}>
             <Stack gap={3}>
               {commonFields}
               <HiddenInput type="hidden" name="credentialMethod" value="password" readOnly />

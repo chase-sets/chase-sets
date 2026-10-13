@@ -1,4 +1,5 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { invitationAttemptSchemaSql } from "../../features/invitation-acceptance/api/schema";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";
@@ -201,4 +202,5 @@ export const authSchemaSql = [
   agentWebhookOutboxSchemaSql,
   authSessionSchemaSql,
   authCredentialSchemaSql,
+  invitationAttemptSchemaSql,
 ].join("\n\n");
