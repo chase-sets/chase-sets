@@ -199,7 +199,6 @@ export function AccountMutationBoundary({
             if (generation.current === currentGeneration) setState("confirming");
           },
         });
-        if (generation.current !== currentGeneration) return;
         if (descriptor.current) remember({ ...descriptor.current, observedAt: new Date().toISOString() });
         setState(result.state);
         setSecretLost(result.secretState === "committed-secret-unrecoverable");

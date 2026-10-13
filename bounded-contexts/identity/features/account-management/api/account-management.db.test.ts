@@ -714,6 +714,37 @@ describeDb("issue-7168 PostgreSQL authority", () => {
     expect(await eventCount()).toBe(count);
   });
 
+  it.each(["revoke", "withdraw"])(
+    "issue-7168-ac5-history: %s commits past unrelated Identity events without idle settlement",
+    async (action) => {
+      expect(await runtime.submit(profile)).toMatchObject({ outcome: "committed" });
+      const target = action === "revoke" ? "mbr_second7168" : "cns_synthetic7168";
+      const result = await runtime.submit({
+        ...profile,
+        key: "a230f01b-7871-420b-9c32-37139f80f749",
+        action,
+        target,
+        body: {},
+      });
+      expect(result).toMatchObject({ outcome: "committed", newlyCommitted: true });
+    },
+  );
+
+  it("issue-7168-ac5-history: an unapplied relevant membership event stays indeterminate with zero appends", async () => {
+    await services.eventStore!.appendToStream({
+      streamId: "identity.membership-mbr_second7168",
+      expectedVersion: 1,
+      context,
+      events: [{ eventType: "identity.membership.role-changed", payload: { roleKey: "member" } }],
+    });
+    const count = await eventCount();
+    expect(await runtime.submit({ ...profile, action: "revoke", target: actor.membershipId, body: {} })).toEqual({
+      outcome: "indeterminate",
+      code: "INDETERMINATE",
+    });
+    expect(await eventCount()).toBe(count);
+  });
+
   it.each(["checkpoint", "recovery", "generation", "incomplete", "ignored-poison"])(
     "issue-7168-ac5-history: %s never supplies eligibility authority",
     async (defect) => {

@@ -84,10 +84,7 @@ export default function MarketplaceAccountSecurityRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<AccountActionFailureResult>();
   return (
-    <AccountMutationBoundary
-      key={`${data.mutationActor.tenantId}:${data.mutationActor.userId}:${data.mutationActor.accountId}`}
-      actor={data.mutationActor}
-    >
+    <AccountMutationBoundary key="synthetic-generation-mutant" actor={data.mutationActor}>
       {(secret) => (
         <SecurityPage
           user={data.user}

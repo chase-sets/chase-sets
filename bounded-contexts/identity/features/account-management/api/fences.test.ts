@@ -5,6 +5,60 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 
 describe("issue-7168-ac11-caller-compatibility", () => {
+  it.each(["identity.api-key-key_synthetic9506", "identity.user-preferences-usr_synthetic9506"])(
+    "passes through a 10,001-event %s stream without reads or eligibility SQL",
+    async (streamId) => {
+      const { eventStore } = createInMemoryEventStore();
+      const context = {
+        tenantId: parseTypedId("tnt_synthetic", "tnt"),
+        audit: {
+          performedByUserId: parseTypedId("usr_synthetic", "usr"),
+          forAccountId: parseTypedId("acc_synthetic", "acc"),
+        },
+      };
+      const eventType = streamId.startsWith("identity.api-key-")
+        ? "identity.api-key.used"
+        : "identity.user-preferences.updated";
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: "no_stream",
+        context,
+        events: Array.from({ length: 10001 }, () => ({ eventType, payload: {} })),
+      });
+      const unexpected = vi.fn(async () => {
+        throw new Error("unexpected eligibility SQL");
+      });
+      const read = vi.fn(eventStore.readStream);
+      const append = vi.fn(eventStore.appendToStreams!);
+      const store: PostgresEventStore = {
+        ...eventStore,
+        readStream: read,
+        appendToStreams: append,
+        appendToStreamInTransaction: unexpected,
+        appendToStreamsInTransaction: unexpected,
+        readStreamInTransaction: unexpected,
+      };
+      const persistence = createIdentityMutationPersistence({ query: unexpected, connect: unexpected }, store);
+      const inputs = [
+        {
+          streamId,
+          expectedVersion: 10001,
+          context,
+          metadata: { preferenceWriteKeyHash: "synthetic-key-hash" },
+          events: [{ eventType, payload: {} }],
+        },
+      ] as const;
+      await persistence.eventStore.appendToStreams!(inputs);
+      expect(await eventStore.readStream({ streamId, fromVersion: 10002 })).toHaveLength(1);
+      expect(append).toHaveBeenCalledWith(inputs);
+      expect(read).not.toHaveBeenCalled();
+      expect(unexpected).not.toHaveBeenCalled();
+      await expect(persistence.eventStore.appendToStreams!(inputs)).rejects.toMatchObject({
+        code: "concurrency_conflict",
+      });
+      expect(read).not.toHaveBeenCalled();
+    },
+  );
   it("leaves unrelated capability authority appends on their existing EventStore transaction", async () => {
     const { eventStore } = createInMemoryEventStore();
     const unexpected = vi.fn(async () => {

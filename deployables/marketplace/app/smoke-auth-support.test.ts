@@ -678,7 +678,7 @@ describe("auth-retained-state", () => {
 
 const censusRoots = ["deployables/marketplace/e2e", "deployables/marketplace/app", "deployables/marketplace/src"];
 const expectedConsumers: Record<string, readonly [number, number, number, number, string]> = {
-  "account-management-interruption.spec.ts": [2, 0, 0, 1, "synthetic; interruption recovery and account isolation"],
+  "account-management-interruption.spec.ts": [3, 0, 0, 1, "synthetic; interruption recovery and account isolation"],
   "account-payment.spec.ts": [1, 1, 0, 1, "synthetic/configured"],
   "buy-funnel-redesign.spec.ts": [1, 2, 0, 1, "synthetic/configured/seeded"],
   "critical-flows.spec.ts": [1, 4, 0, 1, "synthetic/configured/later-session/seeded"],
