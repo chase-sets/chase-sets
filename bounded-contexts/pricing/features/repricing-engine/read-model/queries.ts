@@ -1,6 +1,39 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
+import type { EconomicsServices } from "../../economics/api/services";
+import { toEconomicsForPricingGoal } from "../../economics/domain/resolution";
+import {
+  listDemandCurvesAsOf,
+  type DemandCurveWithPoints,
+} from "../../market-estimates/read-model/demand-curve-queries";
 import type { CreateRepricingPolicyCommand, RepricingRule } from "../../repricing-policies/domain/domain";
 import { candidateAssignmentSql } from "../../repricing-policies/read-model/schema";
+import type { RepricingListingEconomics } from "../domain/evaluate";
+import type { RepricingEnginePolicyValue } from "../domain/policy";
+import { readsDemandCurve, requiresGoalEconomics } from "../domain/round";
+
+/** A curve read that throws fails the round; an absent curve never does. */
+export class RepricingDemandCurveReadError extends Error {
+  constructor(options: Readonly<{ cause: unknown }>) {
+    super("Repricing round could not read its Demand Curves.", options);
+    this.name = "RepricingDemandCurveReadError";
+  }
+}
+
+/** An Economics resolve that throws fails the round; an unavailable result never does. */
+export class RepricingEconomicsResolveError extends Error {
+  constructor(listingId: string, options: Readonly<{ cause: unknown }>) {
+    super(`Repricing round could not resolve Economics for listing ${listingId}.`, options);
+    this.name = "RepricingEconomicsResolveError";
+  }
+}
+
+/** The instant a round captures its inputs at, and what it needs to decide which goal inputs to read. */
+export type RepricingRoundCapture = Readonly<{
+  capturedAt: string;
+  policy: RepricingEnginePolicyValue;
+  economics: Pick<EconomicsServices, "resolve">;
+}>;
 
 export type RepricingRoundListing = Readonly<{
   listingId: string;
@@ -23,6 +56,8 @@ export type RepricingRoundListing = Readonly<{
   policyRevision: string;
   rules: readonly RepricingRule[];
   maxChangesPerDay: number;
+  /** Null unless the matched chain holds a curve-objective anchor whose goal requires Economics. */
+  economics: RepricingListingEconomics | null;
 }>;
 
 export type RepricingRoundInputs = Readonly<{
@@ -36,6 +71,8 @@ export type RepricingRoundInputs = Readonly<{
   }>[];
   marketEstimate: Readonly<{ amount: string; currencyCode: string; freshUntil: string }> | null;
   lastSold: Readonly<{ amount: string; currencyCode: string | null; soldAt: string }> | null;
+  /** Read only when a listing's rules read the curve; null when none does or none is served at capture. */
+  demandCurve: DemandCurveWithPoints | null;
 }>;
 
 type ListingRow = Readonly<{
@@ -92,31 +129,27 @@ type ProductRow = { catalog_catalog_item_id: string; product_id: string };
 
 export async function loadRepricingRoundInputs(
   db: PgQueryable,
-  product: RepricingProductKey,
-  candidate?: RepricingCandidate,
+  input: RepricingRoundCapture & Readonly<{ product: RepricingProductKey; candidate?: RepricingCandidate }>,
 ): Promise<RepricingRoundInputs> {
-  return (await loadRepricingRoundInputsPage(db, { products: [product], candidate })).get(
-    repricingProductKey(product),
-  )!;
+  const { product, ...page } = input;
+  return (await loadRepricingRoundInputsPage(db, { ...page, products: [product] })).get(repricingProductKey(product))!;
 }
 
 export async function loadRepricingRoundInputsPage(
   db: PgQueryable,
-  input: Readonly<{ products: readonly RepricingProductKey[]; candidate?: RepricingCandidate }>,
+  input: RepricingRoundCapture & Readonly<{ products: readonly RepricingProductKey[]; candidate?: RepricingCandidate }>,
 ): Promise<Map<string, RepricingRoundInputs>> {
   if (input.products.length > 500) throw new Error("Repricing pages cannot exceed 500 products.");
   const products = [...new Map(input.products.map((product) => [repricingProductKey(product), product])).values()];
-  const rounds = new Map<
-    string,
-    {
-      listings: RepricingRoundListing[];
-      competingAsks: Array<RepricingRoundInputs["competingAsks"][number]>;
-      marketEstimate: RepricingRoundInputs["marketEstimate"];
-      lastSold: RepricingRoundInputs["lastSold"];
-    }
-  >();
+  const rounds = new Map<string, PageRound>();
   for (const product of products) {
-    rounds.set(repricingProductKey(product), { listings: [], competingAsks: [], marketEstimate: null, lastSold: null });
+    rounds.set(repricingProductKey(product), {
+      listings: [],
+      competingAsks: [],
+      marketEstimate: null,
+      lastSold: null,
+      demandCurve: null,
+    });
   }
   if (!products.length) return rounds;
   const keys = [products.map((key) => key.catalogItemId), products.map((key) => key.productId)];
@@ -229,6 +262,7 @@ export async function loadRepricingRoundInputsPage(
       policyRevision: row.policy_revision,
       rules: typeof row.rules === "string" ? JSON.parse(row.rules) : row.rules,
       maxChangesPerDay: row.max_changes_per_day,
+      economics: null,
     });
   for (const row of asks.rows)
     partition(row).competingAsks.push({
@@ -250,7 +284,76 @@ export async function loadRepricingRoundInputsPage(
       currencyCode: row.currency_code,
       soldAt: row.sold_at,
     };
+  await readGoalInputs(db, input, products, rounds);
   return rounds;
+}
+
+type PageRound = {
+  listings: RepricingRoundListing[];
+  competingAsks: Array<RepricingRoundInputs["competingAsks"][number]>;
+  marketEstimate: RepricingRoundInputs["marketEstimate"];
+  lastSold: RepricingRoundInputs["lastSold"];
+  demandCurve: RepricingRoundInputs["demandCurve"];
+};
+
+/**
+ * The page's curves in one versions and one points query, then one Economics
+ * resolve per listing whose matched chain requires it, sequentially so a
+ * 500-product page never fans out across the pool. A page whose rules read
+ * no curve reads none.
+ */
+async function readGoalInputs(
+  db: PgQueryable,
+  input: RepricingRoundCapture,
+  products: readonly RepricingProductKey[],
+  rounds: ReadonlyMap<string, PageRound>,
+): Promise<void> {
+  const identities = products.filter((product) =>
+    rounds.get(repricingProductKey(product))!.listings.some((listing) => readsDemandCurve(listing.rules)),
+  );
+  if (identities.length === 0) return;
+  const curves = await listDemandCurvesAsOf(db, { identities, asOf: input.capturedAt }).catch((error: unknown) => {
+    throw new RepricingDemandCurveReadError({ cause: error });
+  });
+  for (const curve of curves) rounds.get(repricingProductKey(curve))!.demandCurve = curve;
+  for (const round of rounds.values()) {
+    for (const [index, listing] of round.listings.entries()) {
+      if (!requiresGoalEconomics(round, listing, input.capturedAt, input.policy)) continue;
+      round.listings[index] = { ...listing, economics: await resolveListingEconomics(input, round, listing) };
+    }
+  }
+}
+
+/** Economics at the capture instant for one unit, valued at the currency-equal estimate or else the listing price. */
+async function resolveListingEconomics(
+  input: RepricingRoundCapture,
+  round: RepricingRoundInputs,
+  listing: RepricingRoundListing,
+): Promise<RepricingListingEconomics> {
+  if (listing.inventoryItemId === null) return { availability: "unavailable", reason: "inventory-item-missing" };
+  // A matched rule implies a denominated listing price.
+  const currency = listing.priceCurrencyCode!.trim().toUpperCase();
+  const estimate = round.marketEstimate;
+  try {
+    return toEconomicsForPricingGoal(
+      await input.economics.resolve({
+        accountId: listing.sellerAccountId,
+        scope: { kind: "native-marketplace" },
+        catalogItemId: listing.catalogItemId,
+        inventoryItemId: listing.inventoryItemId,
+        marketUnitPrice: {
+          amount: normalizeMoneyAmount(
+            estimate?.currencyCode.toUpperCase() === currency ? estimate.amount : listing.priceAmount,
+          ),
+          currency: currency.toLowerCase(),
+        },
+        quantity: 1,
+        effectiveAt: input.capturedAt,
+      }),
+    );
+  } catch (error) {
+    throw new RepricingEconomicsResolveError(listing.listingId, { cause: error });
+  }
 }
 
 export async function listCandidateRepricingProducts(
