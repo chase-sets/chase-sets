@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { t } from "@chase-sets/localization";
 import { module as catalogModule } from "../../../index";
 import { createCountStore, countAccountSlot } from "../read-model/count-store";
 import { createCountAcquisition } from "./count-acquisition";
@@ -304,7 +305,13 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
             : "credited-provider-estimate-unavailable",
       );
       if (mode === "unchecked") {
-        expect(preview.providerRequestEstimates.scrydex).toBe(6);
+        expect(preview.blockers).toContainEqual(
+          expect.objectContaining({
+            code: "credited-provider-estimate-unavailable",
+            scopeRecordId: selection.scopeRecordIds[0],
+            message: t("catalog.features.scopeSyncBatches.api.planner.scrydex.credit.readiness.not.checked"),
+          }),
+        );
         expect(f.fetch).not.toHaveBeenCalled();
         expect(preview.blockers.some((item) => item.message.includes("lower"))).toBe(false);
       }
