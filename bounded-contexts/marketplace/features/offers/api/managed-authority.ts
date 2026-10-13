@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -8,7 +7,6 @@ import type { BuyerOfferPolicySelection } from "../../offer-policy/domain/contra
 import {
   assertBuyerOfferPolicyAdmission,
   BuyerOfferPolicyError,
-  consumeBuyerOfferCommitment,
   decideBuyerOfferPolicy,
   evolveBuyerOfferPolicy,
   initialBuyerOfferPolicyState,
@@ -108,25 +106,7 @@ export function createManagedOfferAuthority(eventStore: EventStore, pricing?: Ma
       if (target.status === "held") throw new ManagedOfferConflictError("managed_offer_held");
       if (target.unitItemAmount !== offer.priceAmount)
         throw new ManagedOfferConflictError("managed_offer_refresh_required");
-      const operationId = `accept_${offer.offerId}`;
-      const consumption = consumeBuyerOfferCommitment(
-        policy.state,
-        offer,
-        version,
-        {
-          schemaVersion: 1,
-          policyId: policy.state.policyId!,
-          buyerAccountId: offer.buyerAccountId!,
-          actorUserId: context.audit.performedByUserId,
-          operationId,
-          requestHash: createHash("sha256")
-            .update(JSON.stringify({ operationId, version, evidence: target.evidence }))
-            .digest("hex"),
-          recordedAt: new Date().toISOString(),
-        },
-        target.evidence,
-      );
-      return { policy, append: { ...guard(policy, context), events: [buyerOfferPolicyCodec.encode(consumption)] } };
+      return { policy, append: guard(policy, context) };
     } catch (error) {
       if (error instanceof BuyerOfferPolicyError) throw new ManagedOfferConflictError("managed_offer_held");
       throw error;
