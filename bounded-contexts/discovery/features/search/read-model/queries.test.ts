@@ -1046,17 +1046,18 @@ describe("searchDiscoveryItems facets", () => {
   it.each(["offers", "any", "listings", undefined] as const)(
     "prospective variant facet counts bind independent selected supply requirements (%s)",
     async (marketActivity) => {
-      const { db, calls } = createCapturingDb();
-      const original = db.query;
-      db.query = async <Row>(sql: string, values: readonly unknown[] = []) => {
-        if (sql.includes("AS summaries")) {
-          calls.push({ sql, values });
-          return {
-            rows: [{ kind: "dimension", id: "finish", label: "Finish", coverage: 1, distinct_count: 2 }] as Row[],
-            rowCount: 1,
-          };
-        }
-        return original<Row>(sql, values);
+      const { db: capturingDb, calls } = createCapturingDb();
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("AS summaries")) {
+            calls.push({ sql, values });
+            return {
+              rows: [{ kind: "dimension", id: "finish", label: "Finish", coverage: 1, distinct_count: 2 }] as Row[],
+              rowCount: 1,
+            };
+          }
+          return capturingDb.query<Row>(sql, values);
+        },
       };
       await searchDiscoveryItems(db, {
         dimensionFilters: [
