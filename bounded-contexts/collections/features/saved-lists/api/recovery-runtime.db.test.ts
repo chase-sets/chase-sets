@@ -14,6 +14,7 @@ import { createSavedListRecoveryRuntime } from "./recovery-runtime";
 import { createSavedListRuntime } from "./runtime";
 import type { SavedListDestination } from "./discovery-contracts";
 import type { SavedListProductSelection } from "../domain/contracts";
+import { savedListCanonicalProduct, savedListFingerprint } from "./anonymous-owner";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for recovery DB proof.");
@@ -210,6 +211,232 @@ describeDb("durable Saved List recovery", () => {
     await expect(
       service.apply({ operationId: sending.operationId, revision: sending.revision }, context),
     ).rejects.toThrow();
+    expect(
+      (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+        .rows[0]?.count,
+    ).toBe("0");
+  });
+
+  it("F1 retained-recovery-expiry-fence poisoned foreign receipt does not block prepare", async () => {
+    const other = { ...context, audit: { ...context.audit, forAccountId: "acc_other" as never } };
+    const savedLists = createSavedListRuntime({
+      eventStore: createPostgresEventStore({ pool: pools.collections }),
+      productCatalog: catalog,
+    });
+    await savedLists.createSavedList(
+      {
+        commandId: "slc_foreign_create" as never,
+        listId: "svl_foreign" as never,
+        ownerAccountId: other.audit.forAccountId,
+        title: "Foreign",
+      },
+      other,
+    );
+    const service = runtime();
+    const prepared = await service.prepare(draft, context);
+    const target = { kind: "existing" as const, listId: "svl_foreign" as never };
+    await expect(
+      service.confirm({ operationId: prepared.operationId, revision: prepared.revision, destination: target }, context),
+    ).rejects.toThrow();
+    const tokens = await pools.collections.query<{ add_command_id: string; line_id: string }>(
+      "SELECT add_command_id, line_id FROM collections_saved_list_operations WHERE operation_id = $1",
+      [prepared.operationId],
+    );
+    const { add_command_id: commandId, line_id: lineId } = tokens.rows[0]!;
+    const request = { ...draft, destination: target, addCommandId: commandId, lineId };
+    const hash = savedListFingerprint([
+      "collections.addition.v1",
+      context.audit.forAccountId,
+      prepared.operationId,
+      ["existing", target.listId],
+      savedListCanonicalProduct(product),
+      draft.trackedQuantity,
+      draft.sourceSurface,
+      commandId,
+      lineId,
+    ]);
+    // Reproduce a row accepted before destination ownership validation was added.
+    await pools.collections.query(
+      "UPDATE collections_saved_list_operations SET status = 'confirmed', request = $2::jsonb, fingerprint = $3 WHERE operation_id = $1",
+      [prepared.operationId, JSON.stringify(request), hash],
+    );
+    const before = await pools.collections.query(
+      "SELECT * FROM collections_saved_list_operations WHERE operation_id = $1",
+      [prepared.operationId],
+    );
+    clock = new Date("2026-11-12T12:00:00.000Z");
+    await expect(service.prepare(draft, context)).resolves.toMatchObject({ status: "prepared" });
+    expect(
+      (
+        await pools.collections.query("SELECT * FROM collections_saved_list_operations WHERE operation_id = $1", [
+          prepared.operationId,
+        ])
+      ).rows,
+    ).toEqual(before.rows);
+    expect(
+      (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+        .rows[0]?.count,
+    ).toBe("1");
+    expect(await service.expire(context)).toBe(0);
+  });
+
+  it("F1b retained-recovery-expiry-fence intent drift leaves row untouched and continues the batch", async () => {
+    const { service, sending } = await ready();
+    const healthy = await service.prepare(draft, context);
+    await pools.collections.query(
+      "UPDATE collections_saved_list_operations SET intent_id = 'sli_missing', intent_revision = 3 WHERE operation_id = $1",
+      [sending.operationId],
+    );
+    const before = await pools.collections.query(
+      "SELECT * FROM collections_saved_list_operations WHERE operation_id = $1",
+      [sending.operationId],
+    );
+    clock = new Date("2026-11-12T12:00:00.000Z");
+    expect(await service.expire(context)).toBe(1);
+    expect(
+      (
+        await pools.collections.query("SELECT * FROM collections_saved_list_operations WHERE operation_id = $1", [
+          sending.operationId,
+        ])
+      ).rows,
+    ).toEqual(before.rows);
+    expect((await service.get(healthy.operationId, context))?.status).toBe("expired");
+    await expect(service.prepare(draft, context)).resolves.toMatchObject({ status: "prepared" });
+    expect(
+      (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+        .rows[0]?.count,
+    ).toBe("0");
+  });
+
+  it("F2 retained-recovery-expiry-fence late sender without sweep", async () => {
+    const { service, sending } = await ready();
+    clock = new Date("2026-11-12T12:00:00.000Z");
+    await expect(
+      service.apply({ operationId: sending.operationId, revision: sending.revision }, context),
+    ).rejects.toMatchObject({ code: "expired" });
+    expect(
+      (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+        .rows[0]?.count,
+    ).toBe("0");
+    expect(
+      (
+        await pools.collections.query<{ status: string }>(
+          "SELECT status FROM collections_saved_list_operations WHERE operation_id = $1",
+          [sending.operationId],
+        )
+      ).rows[0]?.status,
+    ).toBe("possible-send");
+    expect((await service.get(sending.operationId, context))?.status).toBe("unknown");
+  });
+
+  it.each([false, true])(
+    "F1 savepoint rolls back a partially updated row (infrastructure=%s)",
+    async (infrastructure) => {
+      const service = runtime();
+      const poisoned = await service.prepare(draft, context);
+      const healthy = await service.prepare(draft, context);
+      const failure = new Error("synthetic-post-update-outage");
+      const pool: PgTransactionalPool = {
+        query: pools.collections.query.bind(pools.collections),
+        connect: async () => {
+          const client = await pools.collections.connect();
+          return {
+            release: client.release.bind(client),
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              const result = await client.query<Row>(sql, values);
+              if (/^\s*UPDATE collections_saved_list_operations/.test(sql) && values?.[0] === poisoned.operationId) {
+                if (infrastructure) throw failure;
+                return { rows: [] as Row[], rowCount: 0 };
+              }
+              return result;
+            },
+          };
+        },
+      };
+      const before = await pools.collections.query(
+        "SELECT * FROM collections_saved_list_operations WHERE operation_id = $1",
+        [poisoned.operationId],
+      );
+      clock = new Date("2026-11-12T12:00:00.000Z");
+      if (infrastructure) await expect(runtime(pool).expire(context)).rejects.toBe(failure);
+      else expect(await runtime(pool).expire(context)).toBe(1);
+      expect(
+        (
+          await pools.collections.query("SELECT * FROM collections_saved_list_operations WHERE operation_id = $1", [
+            poisoned.operationId,
+          ])
+        ).rows,
+      ).toEqual(before.rows);
+      expect(
+        (
+          await pools.collections.query<{ status: string }>(
+            "SELECT status FROM collections_saved_list_operations WHERE operation_id = $1",
+            [healthy.operationId],
+          )
+        ).rows[0]?.status,
+      ).toBe(infrastructure ? "prepared" : "expired");
+      expect(
+        (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+          .rows[0]?.count,
+      ).toBe("0");
+    },
+  );
+
+  it.each(["prepared", "confirmed"])(
+    "F3 retained-recovery-expiry-fence elapsed %s reads without sweep",
+    async (status) => {
+      const service = runtime();
+      const prepared = await service.prepare(draft, context);
+      const operation =
+        status === "confirmed"
+          ? await service.confirm(
+              { operationId: prepared.operationId, revision: prepared.revision, destination },
+              context,
+            )
+          : prepared;
+      clock = new Date("2026-11-12T12:00:00.000Z");
+      catalog.resolveProduct.mockClear();
+      expect(await service.get(operation.operationId, context)).toMatchObject({ status: "expired", lineResults: [] });
+      expect((await service.list({}, context)).items[0]).toMatchObject({ status: "expired", lineResults: [] });
+      expect(catalog.resolveProduct).not.toHaveBeenCalled();
+      expect(
+        (
+          await pools.collections.query<{ status: string }>(
+            "SELECT status FROM collections_saved_list_operations WHERE operation_id = $1",
+            [operation.operationId],
+          )
+        ).rows[0]?.status,
+      ).toBe(status);
+      if (status === "confirmed")
+        await expect(
+          service.beginSend({ operationId: operation.operationId, revision: operation.revision }, context),
+        ).rejects.toMatchObject({ code: "expired" });
+      expect(
+        (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+          .rows[0]?.count,
+      ).toBe("0");
+    },
+  );
+
+  it("F2 retained-recovery-expiry-fence purged unelapsed row isolates locked re-read", async () => {
+    const { sending } = await ready();
+    const delayed = createSavedListRecoveryRuntime({
+      pool: pools.collections,
+      eventStore: createPostgresEventStore({ pool: pools.collections }),
+      enabled: true,
+      clock: () => clock,
+      productCatalog: {
+        resolveProduct: async (selection) => {
+          await pools.collections.query("DELETE FROM collections_saved_list_operations WHERE operation_id = $1", [
+            sending.operationId,
+          ]);
+          return { availability: "active", product: selection };
+        },
+      },
+    });
+    await expect(
+      delayed.apply({ operationId: sending.operationId, revision: sending.revision }, context),
+    ).rejects.toMatchObject({ code: "not-found" });
     expect(
       (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
         .rows[0]?.count,

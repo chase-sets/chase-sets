@@ -5,6 +5,7 @@ import { createSavedListRecoveryRoutes } from "./recovery-route";
 import { createCollectionsApiClient } from "./client";
 import { createCollectionsRequestApiClient } from "./request-client";
 import type { SavedListRecoveryServices } from "./recovery-runtime";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 describe("recovery-route-authority-and-callers", () => {
   it("rejects missing, unauthorized, and switched-before-admission callers without reading or commanding", async () => {
@@ -38,9 +39,18 @@ describe("recovery-route-authority-and-callers", () => {
   });
   it("composes receipt-only GETs through the actual client interface and captures admission Account", async () => {
     let accountId = "acc_one";
+    let admittedContext: {
+      tenantId: EventStoreContext["tenantId"];
+      audit: {
+        performedByUserId: EventStoreContext["audit"]["performedByUserId"];
+        forAccountId: EventStoreContext["audit"]["forAccountId"];
+      };
+    };
     const get = vi.fn<SavedListRecoveryServices["get"]>(async (_id, context) => {
       accountId = "acc_two";
+      admittedContext.audit.forAccountId = "acc_two" as never;
       expect(context.audit.forAccountId).toBe("acc_one");
+      expect(context).not.toBe(admittedContext);
       return null;
     });
     const list = vi.fn<SavedListRecoveryServices["list"]>(async (_page, context) => {
@@ -60,10 +70,11 @@ describe("recovery-route-authority-and-callers", () => {
     const app = new Hono<CollectionsApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", { accountId, permissions: ["accounts.view"] });
-      c.set("context", {
+      admittedContext = {
         tenantId: "tnt_test" as never,
         audit: { performedByUserId: "usr_test" as never, forAccountId: accountId as never },
-      });
+      };
+      c.set("context", admittedContext);
       await next();
     });
     app.route("/api/collections", createSavedListRecoveryRoutes(service));

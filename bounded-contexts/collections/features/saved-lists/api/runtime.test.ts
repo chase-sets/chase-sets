@@ -233,6 +233,8 @@ describe("Saved List command runtime", () => {
     });
     const events = streams.get(savedListStreamId(listId))!;
     const last = events.at(-1)!;
+    events[events.length - 1] = { ...last, metadata: {} };
+    await expect(runtime.readLineChangesReceipt(input, context)).rejects.toThrow();
     for (const poison of [
       {},
       { commandId: input.commandId, schemaVersion: 1 },

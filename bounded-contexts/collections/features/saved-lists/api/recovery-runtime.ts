@@ -16,6 +16,8 @@ import type {
 import {
   createSavedListRuntime,
   SavedListConcurrencyConflictError,
+  SavedListAuthorizationError,
+  SavedListIdempotencyConflictError,
   type ApplySavedListLineChangesInput,
 } from "./runtime";
 import {
@@ -164,11 +166,20 @@ export function createSavedListRecoveryRuntime(
     return result;
   }
   function output(row: OperationRow, result: SavedListCommandResult | null = null): SavedListRecoveryOperation {
+    const elapsedNotSent =
+      (row.status === "prepared" || row.status === "confirmed") &&
+      new Date(row.expires_at).getTime() <= now().getTime();
     return {
       operationId: row.operation_id,
       revision: Number(row.revision),
       sendRevision: row.send_revision === null ? null : Number(row.send_revision),
-      status: result ? "applied" : row.status === "possible-send" || row.status === "applied" ? "unknown" : row.status,
+      status: result
+        ? "applied"
+        : elapsedNotSent
+          ? "expired"
+          : row.status === "possible-send" || row.status === "applied"
+            ? "unknown"
+            : row.status,
       draft: canonicalDraft(row.draft),
       request: row.request ? canonicalRequest(row.request) : null,
       createdAt: new Date(row.created_at).toISOString(),
@@ -260,6 +271,7 @@ export function createSavedListRecoveryRuntime(
         WHERE account_id = $1 AND expires_at <= $2 ORDER BY expires_at, operation_id LIMIT 500 FOR UPDATE`,
         [owner, now().toISOString()],
       );
+      let expired = 0;
       for (const row of due.rows) {
         if (["applied", "rejected", "expired"].includes(row.status)) {
           const deleted = await db.query(
@@ -269,13 +281,28 @@ export function createSavedListRecoveryRuntime(
           );
           if (deleted.rowCount !== 1) throw new SavedListRecoveryError("conflict");
         } else {
-          await lockIntent(db, row);
-          const found = await receipt(db, row, context);
-          await update(db, row, found ? "applied" : "expired", true);
-          await finishIntent(db, row, !found);
+          await db.query("SAVEPOINT expire_operation");
+          try {
+            await lockIntent(db, row);
+            const found = await receipt(db, row, context);
+            await update(db, row, found ? "applied" : "expired", true);
+            await finishIntent(db, row, !found);
+          } catch (error) {
+            await db.query("ROLLBACK TO SAVEPOINT expire_operation");
+            if (
+              !(error instanceof SavedListAuthorizationError) &&
+              !(error instanceof SavedListIdempotencyConflictError) &&
+              !(error instanceof SavedListRecoveryError && error.code === "conflict")
+            )
+              throw error;
+            continue;
+          } finally {
+            await db.query("RELEASE SAVEPOINT expire_operation");
+          }
         }
+        expired += 1;
       }
-      return due.rows.length;
+      return expired;
     });
   }
   async function insert(
@@ -309,7 +336,12 @@ export function createSavedListRecoveryRuntime(
     );
     return result.rows[0]!;
   }
-  async function confirmRow(db: PgQueryable, row: OperationRow, destination: SavedListDestination) {
+  async function confirmRow(
+    db: PgQueryable,
+    row: OperationRow,
+    destination: SavedListDestination,
+    context: EventStoreContext,
+  ) {
     const request = canonicalRequest({
       ...row.draft,
       destination,
@@ -317,12 +349,17 @@ export function createSavedListRecoveryRuntime(
       lineId: row.line_id,
     });
     const hash = fingerprint(row, request);
-    if (row.request) {
-      if (row.fingerprint !== hash) throw new SavedListRecoveryError("conflict");
-      return row;
-    }
-    if (row.status !== "prepared" || new Date(row.expires_at).getTime() <= now().getTime())
+    if (row.request && row.fingerprint !== hash) throw new SavedListRecoveryError("conflict");
+    if (!row.request && (row.status !== "prepared" || new Date(row.expires_at).getTime() <= now().getTime()))
       throw new SavedListRecoveryError("expired");
+    if (request.destination.kind === "existing") {
+      const snapshot = await boundRuntime(db, noCatalog).getOwnerSnapshot(
+        { listId: request.destination.listId, ownerAccountId: row.account_id },
+        context,
+      );
+      if (!snapshot) throw new SavedListRecoveryError("not-found");
+    }
+    if (row.request) return row;
     const changed = await db.query<OperationRow>(
       `UPDATE collections_saved_list_operations
       SET request = $4::jsonb, fingerprint = $5, status = 'confirmed', revision = revision + 1
@@ -349,7 +386,7 @@ export function createSavedListRecoveryRuntime(
         const row = await readRow(db, input.operationId, owner, true);
         if (!row) throw new SavedListRecoveryError("not-found");
         if (row.revision !== input.revision) throw new SavedListRecoveryError("conflict");
-        return output(await confirmRow(db, row, input.destination));
+        return output(await confirmRow(db, row, input.destination, context));
       });
     },
     async beginSend(input: SavedListOperationReference, context: EventStoreContext) {
@@ -370,6 +407,7 @@ export function createSavedListRecoveryRuntime(
         return output(changed.rows[0]!);
       });
     },
+    // The locked re-read, receipt proof, aggregate append and finalization share one transaction.
     async apply(input: SavedListOperationReference, context: EventStoreContext) {
       context = { ...context, audit: { ...context.audit } };
       const owner = account(context);
@@ -554,13 +592,13 @@ export function createSavedListRecoveryRuntime(
         const existing = await db.query<OperationRow>(
           `SELECT ${columns} FROM collections_saved_list_operations
           WHERE intent_id = $1 FOR UPDATE`,
-          [input.intentId],
+          [before.intent_id],
         );
         if (existing.rows[0]) {
           const row = existing.rows[0];
           if (row.account_id !== owner || JSON.stringify(canonicalDraft(row.draft)) !== JSON.stringify(draft))
             throw new SavedListRecoveryError("conflict");
-          return output(await confirmRow(db, row, input.destination));
+          return output(await confirmRow(db, row, input.destination, context));
         }
         const intent = await load(db, true);
         if (
@@ -595,7 +633,7 @@ export function createSavedListRecoveryRuntime(
           intent_id: intent.intent_id,
           intent_revision: reserved.rows[0]!.owner_revision,
         });
-        return output(await confirmRow(db, row, target));
+        return output(await confirmRow(db, row, target, context));
       });
     },
   };
