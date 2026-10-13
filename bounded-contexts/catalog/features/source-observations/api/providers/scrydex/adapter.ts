@@ -1,4 +1,5 @@
 import { catalogProductionTransport } from "../catalog-fixture-transports";
+import { observeCountCaptureWinner } from "../../../../scope-sync-batches/api/count-capture-context";
 import {
   sendCatalogProviderRequest,
   ProviderSendStoppedError,
@@ -1202,7 +1203,9 @@ export async function readScrydexCountSource(
   } catch {
     /* Missing read authority is unavailable, never refreshed. */
   }
-  return newestCountSource(cache, count);
+  const selected = newestCountSource(cache, count);
+  observeCountCaptureWinner(query, selected, now);
+  return selected;
 }
 
 async function readScrydexCompletedCount(

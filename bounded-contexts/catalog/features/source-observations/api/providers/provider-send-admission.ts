@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { isCatalogFixtureTransport } from "./catalog-fixture-transports";
+import {
+  countCaptureRequestIsBound,
+  sendCountCaptureRequest,
+} from "../../../scope-sync-batches/api/count-capture-context";
 
 export const providerSendPolicy = Object.freeze({
   preflightCard: 32,
@@ -208,6 +212,17 @@ export function sendCatalogProviderRequest(
   category?: ProviderSendCategory,
   fallbackCategory?: ProviderSendCategory,
 ): Promise<Response> {
+  if (countCaptureRequestIsBound()) {
+    const underlyingTransport = transport;
+    transport = (target, options) =>
+      sendCountCaptureRequest(
+        provider,
+        category ?? providerSendContext.getStore()?.request?.category ?? fallbackCategory,
+        underlyingTransport,
+        target,
+        options,
+      );
+  }
   if (isCatalogFixtureTransport(transport)) return transport(input, init);
   const context = providerSendContext.getStore();
   if (!context) {
