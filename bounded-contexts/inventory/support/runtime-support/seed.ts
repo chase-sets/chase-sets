@@ -31,7 +31,13 @@ import {
 } from "../../features/holds/domain/domain";
 import { createInventoryProductDescriptor } from "../../features/inventory-items/integrations/catalog/versioning";
 import { createInventoryServices } from "./services";
-import { sendSeedCommand } from "../seed-support/context";
+import { seedContext } from "../seed-support/context";
+import { inventorySeedMutationIntent, type InventorySeedCommandHandler } from "../seed-support/mutation-command";
+import {
+  inventoryMutationAttemptFromSource,
+  withInventoryMutationAttempt,
+  withInventoryMutationTargetAccount,
+} from "./mutation-attempt";
 
 const DEMO_RELEASED_AT = "2026-03-31T00:00:00.000Z";
 const DEMO_INVENTORY_COMMAND_OCCURRED_AT = "2026-04-01T00:00:00.000Z";
@@ -717,6 +723,33 @@ export async function inspectInventorySeedState(db: PgQueryable): Promise<readon
 
 export async function seedInventoryDatabase(pool: PgTransactionalPool) {
   const services = createInventoryServices(pool);
+  async function sendSeedCommand<Command>(
+    handler: InventorySeedCommandHandler<Command>,
+    streamId: string,
+    command: Command,
+    ordinal = 0,
+  ) {
+    const prefix = ["inventory.storage-location-", "inventory.item-", "inventory.hold-"].find((value) =>
+      streamId.startsWith(value),
+    );
+    if (!prefix) throw new Error("Unknown Inventory seed stream.");
+    const targetId = streamId.slice(prefix.length);
+    const location = storageLocations.find((entry) => entry.storageLocationId === targetId);
+    const item = inventoryItems.find((entry) => entry.itemId === targetId);
+    const accountId = location?.accountId ?? item?.accountId ?? demoIdentitySeedIds.accountId;
+    const intent = inventorySeedMutationIntent(command, targetId, accountId, location);
+    const context = withInventoryMutationAttempt(
+      withInventoryMutationTargetAccount(seedContext, accountId),
+      inventoryMutationAttemptFromSource(
+        "c1-seed-5cf346e0-47d4-4ad7-a5b2-d5b02b3da3d3",
+        `${streamId}/${intent.family}/${ordinal}`,
+      ),
+    );
+    return services.mutations.execute(intent.family, targetId, accountId, intent.params, context, async () => {
+      const result = await handler({ streamId, command, context });
+      return { targetId, version: result.version };
+    });
+  }
 
   console.log("Starting inventory development seed...\n");
 
@@ -794,20 +827,26 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
       });
     }
 
-    for (const adjustment of itemAdjustments(item).slice(countAppliedAdjustments(persisted.events))) {
-      await sendSeedCommand(services.items.commandHandler, streamId, {
-        type: "AdjustInventoryItemQuantity",
-        quantityDelta: adjustment.quantityDelta,
-        heldQuantity: adjustment.heldQuantity,
-        reason: adjustment.reason,
-        reasonCode: adjustment.reasonCode,
-        ...(adjustment.quantityDelta > 0
-          ? {
-              acquisitionOccurrence: { kind: "unknown" as const },
-              commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
-            }
-          : {}),
-      });
+    for (const [ordinal, adjustment] of itemAdjustments(item).entries()) {
+      if (ordinal < countAppliedAdjustments(persisted.events)) continue;
+      await sendSeedCommand(
+        services.items.commandHandler,
+        streamId,
+        {
+          type: "AdjustInventoryItemQuantity",
+          quantityDelta: adjustment.quantityDelta,
+          heldQuantity: adjustment.heldQuantity,
+          reason: adjustment.reason,
+          reasonCode: adjustment.reasonCode,
+          ...(adjustment.quantityDelta > 0
+            ? {
+                acquisitionOccurrence: { kind: "unknown" as const },
+                commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
+              }
+            : {}),
+        },
+        ordinal,
+      );
     }
 
     console.log(`  Inventory item "${item.itemId}" created`);

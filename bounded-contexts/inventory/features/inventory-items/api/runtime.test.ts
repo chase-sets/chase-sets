@@ -134,7 +134,7 @@ describe("inventory item runtime", () => {
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: [inventoryRow] };
         }
-        if (sql.includes("FROM inventory_holds")) {
+        if (sql.includes("WITH candidates AS") || sql.includes("FROM inventory_holds")) {
           return { rows: [] };
         }
         if (sql.includes("to_regclass")) {
@@ -492,6 +492,7 @@ describe("inventory item runtime", () => {
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: existingItem ? [existingItem] : [] };
         }
+        if (sql.includes("WITH candidates AS")) return { rows: [] };
 
         throw new Error(`Unexpected query: ${sql}`);
       }),

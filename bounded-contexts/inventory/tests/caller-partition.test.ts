@@ -15,7 +15,7 @@ describe("issue-7169-ac1-caller-partition", () => {
     const partition = partitionInventoryCallers(discovery, registry);
     expect(partition.callers).toHaveLength(discovery.callers.length);
     expect(new Set(partition.callers.map((caller: { status: string }) => caller.status))).toEqual(
-      new Set(["unrelated", "retained-reader", "pending", "cutover-required", "retained-family"]),
+      new Set(["unrelated", "retained-reader", "pending", "cutover", "retained-family"]),
     );
   });
 

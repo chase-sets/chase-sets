@@ -128,8 +128,9 @@ export function foldInventoryStockHold(input: {
   const heldQuantity = quantity(placed.quantity);
   text(placed.reason);
   requireHistory(placed.notes === null || placed.notes === undefined || typeof placed.notes === "string");
-  let purpose = placed.purpose;
-  requireHistory(purpose === "manual" || purpose === "checkout" || purpose === "order");
+  const initialPurpose = placed.purpose;
+  requireHistory(initialPurpose === "manual" || initialPurpose === "checkout" || initialPurpose === "order");
+  let purpose: InventoryStockHold["purpose"] = initialPurpose;
   let sourceRef: InventoryHoldOrderSourceRef | null = null;
   let expiresAt: string | null = null;
   if (purpose === "order") {

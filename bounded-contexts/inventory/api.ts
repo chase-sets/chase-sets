@@ -10,6 +10,7 @@ import { inventoryStorageLocationRoutes } from "./features/storage-locations/api
 import { inventoryRecoveredItemRoutes } from "./features/recovered-items/api/route";
 import { inventoryChannelStockAllocationRoutes } from "./features/channel-allocations/api/route";
 import { inventoryMutationReadRoutes } from "./support/runtime-support/mutation-read-route";
+import { inventoryMutationBoundary } from "./support/runtime-support/mutation-boundary";
 
 export type InventoryActor = Readonly<{
   accountId: string;
@@ -63,7 +64,12 @@ export function buildInventoryApi(services: InventoryServices) {
     const requiredPermission = requiredPermissionForMethod(c.req.method, c.req.path);
     if (
       !actor.permissions.includes(requiredPermission) &&
-      !(requiredPermission === "orders.manage" && actor.permissions.includes("guest-checkout.manage"))
+      !(requiredPermission === "orders.manage" && actor.permissions.includes("guest-checkout.manage")) &&
+      !(
+        c.req.method === "GET" &&
+        c.req.path.includes("/mutation-attempts/") &&
+        (actor.permissions.includes("orders.manage") || actor.permissions.includes("guest-checkout.manage"))
+      )
     ) {
       return c.json(
         {
@@ -79,6 +85,7 @@ export function buildInventoryApi(services: InventoryServices) {
     await next();
   });
 
+  app.use("*", inventoryMutationBoundary());
   app.route("/catalog-items", inventoryCatalogItemRoutes(services.catalogItems));
   app.route("/mutation-attempts", inventoryMutationReadRoutes(services.mutations));
   app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));
@@ -88,7 +95,10 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
   app.route("/recovered-items", inventoryRecoveredItemRoutes(services.recoveredItems));
   app.route("/holds", inventoryHoldRoutes(services.holds));
-  app.route("/checkout-reservations", inventoryCheckoutReservationRoutes(services.holds));
+  app.route(
+    "/checkout-reservations",
+    inventoryCheckoutReservationRoutes(services.holds, services.checkoutReservationAuthority, services.mutations),
+  );
 
   return app;
 }

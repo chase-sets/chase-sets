@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -58,7 +58,22 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
     await bootstrapContextDatabase(inventoryModule, pool);
     const discoveryPool: PgTransactionalPool = {
       ...pool,
-      connect: () => pool.connect(),
+      connect: async () => {
+        const client = await pool.connect();
+        return {
+          release: client.release.bind(client),
+          query: <Row>(sql: string, values?: readonly unknown[]) =>
+            client.query<Row>(
+              process.env.CHASE_SETS_C1_MUTANT === "sql-poison-drop" && sql.includes("WITH candidates AS")
+                ? sql.replace(
+                    "WHERE tenant_id = $1",
+                    "WHERE jsonb_typeof(payload -> 'quantity') = 'number' AND tenant_id = $1",
+                  )
+                : sql,
+              values,
+            ),
+        };
+      },
       query: <Row>(sql: string, values?: readonly unknown[]) =>
         pool.query<Row>(
           process.env.CHASE_SETS_C1_MUTANT === "sql-poison-drop" && sql.includes("WITH candidates AS")
@@ -110,7 +125,7 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
         purpose: "manual",
         sourceRef: null,
       },
-      context,
+      withInventoryMutationAttempt(context, randomUUID()),
     );
 
   async function counts() {
@@ -172,6 +187,17 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
     const before = await counts();
     await expect(hold()).rejects.toThrow("reconciliation is required");
     await expect(
+      services.items.adjustItem(
+        {
+          accountId: context.audit.forAccountId,
+          itemId: placement.itemId,
+          quantityDelta: 1,
+          reason: "Synthetic poisoned intake",
+        },
+        withInventoryMutationAttempt(context, randomUUID()),
+      ),
+    ).rejects.toThrow("reconciliation is required");
+    await expect(
       services.holdCollisions.reduceItem(
         {
           accountId: "acc_c1_synthetic",
@@ -180,7 +206,7 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
           reason: "Synthetic reduction",
           mode: "protect-orders",
         },
-        context,
+        withInventoryMutationAttempt(context, randomUUID()),
       ),
     ).rejects.toThrow("reconciliation is required");
     expect(await counts()).toEqual(before);
@@ -190,6 +216,16 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
     eventType: "inventory.hold.released",
     payload: { holdId: placement.holdId, releasedAt: "2026-10-12T12:00:00Z", releaseReason: "manual" },
   };
+  it("sql-poison-drop cannot satisfy the same frozen malformed-quantity assertion", async () => {
+    await eventStore.appendToStream({ streamId: `inventory.hold-${placement.holdId}`, expectedVersion: "no_stream", context, events: [{ eventType: "inventory.hold.placed", payload: { ...placement, quantity: "1" } }] });
+    const discriminate = async () => { await expect(hold()).rejects.toThrow("reconciliation is required"); };
+    await discriminate();
+    const before = await counts();
+    vi.stubEnv("CHASE_SETS_C1_MUTANT", "sql-poison-drop");
+    try { await expect(discriminate()).rejects.toThrow(); }
+    finally { vi.unstubAllEnvs(); }
+    expect(await counts()).not.toEqual(before);
+  });
   it.each([
     ["missing placement", [released]],
     ["duplicate placement", [{ eventType: "inventory.hold.placed", payload: placement }]],
@@ -229,7 +265,7 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
           quantityDelta: -1,
           reason: "Synthetic poison reduction",
         },
-        context,
+        withInventoryMutationAttempt(context, randomUUID()),
       ),
     ).rejects.toThrow("reconciliation is required");
     expect(await counts()).toEqual(before);
@@ -307,15 +343,36 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
     expect(await counts()).toEqual(before);
   });
 
-  it("serializes adjust versus hold and releases the winning hold before a new claim", async () => {
+  it.each(["hold", "adjust"] as const)("serializes adjust versus hold with %s winning the barrier", async (winner) => {
     let entered = 0;
     let open!: () => void;
     const barrier = new Promise<void>((resolve) => {
       open = resolve;
     });
+    let releaseLoser!: () => void;
+    const winnerFinished = new Promise<void>((resolve) => {
+      releaseLoser = resolve;
+    });
     const gatedPool: PgTransactionalPool = {
       ...pool,
-      connect: () => pool.connect(),
+      connect: async () => {
+        const client = await pool.connect();
+        let family = "";
+        return {
+          release: client.release.bind(client),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (sql.includes("INSERT INTO inventory_mutation_attempts")) family = String(values?.[4]);
+            const result = await client.query<Row>(sql, values);
+            if (sql.includes("WITH candidates AS") && entered < 2) {
+              entered++;
+              if (entered === 2) open();
+              await barrier;
+              if ((family === "hold-create" ? "hold" : "adjust") !== winner) await winnerFinished;
+            }
+            return result;
+          },
+        };
+      },
       query: async <Row>(sql: string, values?: readonly unknown[]) => {
         const result = await pool.query<Row>(sql, values);
         if (sql.includes("WITH candidates AS") && entered < 2) {
@@ -327,21 +384,29 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
       },
     };
     services = inventoryModule.createServices(gatedPool, {});
-    const results = await Promise.allSettled([
-      hold(),
-      services.items.adjustItem(
-        {
-          accountId: "acc_c1_synthetic",
-          itemId: "inv_c1_synthetic",
-          quantityDelta: -1,
-          reason: "Synthetic concurrent reduction",
-        },
-        context,
-      ),
-    ]);
+    const runHold = () =>
+      hold().finally(() => {
+        if (winner === "hold") releaseLoser();
+      });
+    const runAdjust = () =>
+      services.items
+        .adjustItem(
+          {
+            accountId: "acc_c1_synthetic",
+            itemId: "inv_c1_synthetic",
+            quantityDelta: -1,
+            reason: "Synthetic concurrent reduction",
+          },
+          withInventoryMutationAttempt(context, randomUUID()),
+        )
+        .finally(() => {
+          if (winner === "adjust") releaseLoser();
+        });
+    const results = await Promise.allSettled([runHold(), runAdjust()]);
     expect(entered).toBe(2);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(results[winner === "hold" ? 0 : 1].status).toBe("fulfilled");
     const placed = (
       await pool.query<{ stream_id: string }>(
         "SELECT stream_id FROM event_store_events WHERE event_type = 'inventory.hold.placed'",
@@ -359,11 +424,77 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
       for (const event of events) await handlers[event.eventType]!(toTransportEvent(event));
       await services.holds.releaseHold(
         { accountId: "acc_c1_synthetic", holdId: String(events[0].payload.holdId), releaseReason: "manual" },
-        context,
+        withInventoryMutationAttempt(context, randomUUID()),
       );
       await expect(hold()).resolves.toMatchObject({ version: 1 });
     }
   });
+
+  it.each(["release-first", "release-last"] as const)(
+    "interleaves release/adjust/hold with %s without a lost update",
+    async (order) => {
+      const initial = await hold();
+      const handlers = buildInventoryHoldProjectionHandlers(pool);
+      for (const event of await eventStore.readStream({ streamId: `inventory.hold-${initial.holdId}` }))
+        await handlers[event.eventType]!(toTransportEvent(event));
+      const normal = services;
+      let entered = 0;
+      let bothReached!: () => void;
+      const reached = new Promise<void>((resolve) => {
+        bothReached = resolve;
+      });
+      let releaseReads!: () => void;
+      const released = new Promise<void>((resolve) => {
+        releaseReads = resolve;
+      });
+      const gatedPool: PgTransactionalPool = {
+        ...pool,
+        connect: async () => {
+          const client = await pool.connect();
+          return {
+            release: client.release.bind(client),
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              if (sql.includes("WITH candidates AS") && entered < 2) {
+                entered++;
+                if (entered === 2) bothReached();
+                if (order === "release-first") await released;
+              }
+              return client.query<Row>(sql, values);
+            },
+          };
+        },
+      };
+      services = inventoryModule.createServices(gatedPool, {});
+      const competitors = Promise.allSettled([
+        hold(),
+        services.items.adjustItem(
+          {
+            accountId: context.audit.forAccountId,
+            itemId: placement.itemId,
+            quantityDelta: -1,
+            reason: "Synthetic interleaving reduction",
+          },
+          withInventoryMutationAttempt(context, randomUUID()),
+        ),
+      ]);
+      await reached;
+      if (order === "release-last")
+        expect((await competitors).every((result) => result.status === "rejected")).toBe(true);
+      await normal.holds.releaseHold(
+        { accountId: context.audit.forAccountId, holdId: initial.holdId, releaseReason: "manual" },
+        withInventoryMutationAttempt(context, randomUUID()),
+      );
+      releaseReads();
+      const results = await competitors;
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(order === "release-first" ? 1 : 0);
+      const releases = await pool.query<{ total: string }>(
+        "SELECT COUNT(*)::text AS total FROM event_store_events WHERE event_type = 'inventory.hold.released'",
+      );
+      expect(releases.rows[0].total).toBe("1");
+      services = normal;
+      if (order === "release-last") await expect(hold()).resolves.toMatchObject({ version: 1 });
+    },
+  );
 
   describe("issue-7169-ac2-single-target-replay", () => {
     const location = {
@@ -384,15 +515,116 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
       return { id, context: withInventoryMutationAttempt(context, id) };
     }
     function runLocation(attempt: ReturnType<typeof attempted>, params = location) {
-      return services.mutations.execute(
-        "location-create",
-        "draft",
-        context.audit.forAccountId,
-        params,
-        attempt.context,
-        () => services.storageLocations.createStorageLocation(params, attempt.context),
-      );
+      return services.storageLocations.createStorageLocation(params, attempt.context);
     }
+
+    it("recovers every production family and nested receipt without duplicating durable transport facts", async () => {
+      await pool.query(
+        "INSERT INTO inventory_catalog_items (catalog_item_id, status) VALUES ('cat_family_synthetic', 'active'), ('cat_ensure_synthetic', 'active')",
+      );
+      const replay = async <T>(family: string, call: (attempt: ReturnType<typeof attempted>) => Promise<T>) => {
+        const attempt = attempted();
+        const [first, concurrent] = await Promise.all([call(attempt), call(attempt)]);
+        expect(concurrent).toEqual(first);
+        const after = await counts();
+        expect(await call(attempt)).toEqual(first);
+        expect(await counts()).toEqual(after);
+        expect(await services.mutations.read(attempt.id, context)).toMatchObject({ family, result: first });
+        return first;
+      };
+      const createdLocation = await replay("location-create", (attempt) => runLocation(attempt));
+      const locationParams = { ...location, storageLocationId: createdLocation.storageLocationId };
+      await replay("location-update", (attempt) =>
+        services.storageLocations.updateStorageLocation(
+          { ...locationParams, name: "Updated synthetic" },
+          attempt.context,
+        ),
+      );
+      const item = await replay("item-create", (attempt) =>
+        services.items.createItem(
+          {
+            accountId: context.audit.forAccountId,
+            catalogItemId: "cat_family_synthetic",
+            selectedOptions: [],
+            storageLocationId: createdLocation.storageLocationId,
+            totalQuantity: 3,
+          },
+          attempt.context,
+        ),
+      );
+      await replay("item-adjust", (attempt) =>
+        services.items.adjustItem(
+          { accountId: context.audit.forAccountId, itemId: item.itemId, quantityDelta: 1, reason: "Synthetic intake" },
+          attempt.context,
+        ),
+      );
+      await replay("item-adjust", (attempt) =>
+        services.holdCollisions.reduceItem(
+          {
+            accountId: context.audit.forAccountId,
+            itemId: item.itemId,
+            requestedQuantity: 1,
+            reason: "Synthetic reduction",
+            mode: "protect-orders",
+          },
+          attempt.context,
+        ),
+      );
+      const placed = await replay("hold-create", (attempt) =>
+        services.holds.createHold(
+          {
+            accountId: context.audit.forAccountId,
+            itemId: item.itemId,
+            quantity: 1,
+            reason: "Synthetic hold",
+            purpose: "manual",
+            sourceRef: null,
+          },
+          attempt.context,
+        ),
+      );
+      const events = await eventStore.readStream({ streamId: `inventory.hold-${placed.holdId}` });
+      const handlers = buildInventoryHoldProjectionHandlers(pool);
+      for (const event of events) await handlers[event.eventType]!(toTransportEvent(event));
+      await replay("hold-release", (attempt) =>
+        services.holds.releaseHold(
+          { accountId: context.audit.forAccountId, holdId: placed.holdId, releaseReason: "manual" },
+          attempt.context,
+        ),
+      );
+      await replay("listing-stock-ensure", (attempt) =>
+        services.items.ensureListingStock(
+          {
+            accountId: context.audit.forAccountId,
+            catalogItemId: "cat_ensure_synthetic",
+            selectedOptions: [],
+            quantity: 2,
+            shipFromAddress: location.shipFromAddress,
+          },
+          attempt.context,
+        ),
+      );
+      await replay("location-archive", (attempt) =>
+        services.storageLocations.updateStorageLocation({ ...locationParams, isArchived: true }, attempt.context),
+      );
+      const receipts = await pool.query<{ family: string; total: string }>(
+        "SELECT family, COUNT(*)::text AS total FROM inventory_mutation_attempts GROUP BY family",
+      );
+      expect(new Set(receipts.rows.map((row) => row.family))).toEqual(
+        new Set([
+          "item-create",
+          "item-adjust",
+          "listing-stock-ensure",
+          "hold-create",
+          "hold-release",
+          "location-create",
+          "location-update",
+          "location-archive",
+        ]),
+      );
+      expect(Number(receipts.rows.find((row) => row.family === "item-create")!.total)).toBe(2);
+      expect(Number(receipts.rows.find((row) => row.family === "location-archive")!.total)).toBe(2);
+    });
 
     it("coalesces concurrent acceptance and reads the exact first result after response loss", async () => {
       const attempt = attempted();
@@ -462,11 +694,12 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
           async () => ({}),
         ),
       ).rejects.toThrow("conflicts");
-      for (const changed of [
+      const changedBindings: EventStoreContext[] = [
         { ...context, tenantId: "tnt_foreign_synthetic" },
         { ...context, audit: { ...context.audit, performedByUserId: "usr_foreign_synthetic" } },
         { ...context, audit: { ...context.audit, forAccountId: "acc_foreign_synthetic" } },
-      ]) {
+      ];
+      for (const changed of changedBindings) {
         expect(await services.mutations.read(attempt.id, changed)).toBeNull();
         expect(await services.mutations.read(randomUUID(), changed)).toBeNull();
         await expect(
@@ -491,10 +724,7 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
         context.audit.forAccountId,
         { accountId: context.audit.forAccountId, catalogItemId: "cat_synthetic", selectedOptions: [], quantity: 1 },
         attempt.context,
-        () =>
-          services.mutations.execute("location-create", "draft", context.audit.forAccountId, location, child, () =>
-            services.storageLocations.createStorageLocation(location, child),
-          ),
+        () => services.storageLocations.createStorageLocation(location, child),
       );
       expect(
         (await pool.query<{ total: string }>("SELECT COUNT(*)::text AS total FROM inventory_mutation_attempts")).rows[0]

@@ -74,6 +74,13 @@ function occurrence(value: unknown) {
 }
 
 function options(value: unknown) {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      throw new InventoryDomainError("Inventory selected options are invalid.");
+    }
+  }
   assert(Array.isArray(value), "Inventory selected options must be an array.");
   const result = value
     .map((entry: unknown) => {

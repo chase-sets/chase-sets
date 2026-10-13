@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { withInventoryMutationAttempt } from "../support/runtime-support/mutation-attempt";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { type BcApiModule } from "@chase-sets/bounded-context-module";
 import {
@@ -137,7 +139,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
               email: null,
             },
           },
-          context,
+          withInventoryMutationAttempt(context, randomUUID()),
         ),
       );
     }
@@ -162,7 +164,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
             storageLocationId: locations[index % 2]!.storageLocationId,
             totalQuantity: 10 + index,
           },
-          context,
+          withInventoryMutationAttempt(context, randomUUID()),
         ),
       );
     }
@@ -177,11 +179,14 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
           purpose: "manual",
           sourceRef: null,
         },
-        context,
+        withInventoryMutationAttempt(context, randomUUID()),
       );
       await settle();
       if (index === 1) {
-        await services.holds.releaseHold({ accountId, holdId: hold.holdId, releaseReason: "manual" }, context);
+        await services.holds.releaseHold(
+          { accountId, holdId: hold.holdId, releaseReason: "manual" },
+          withInventoryMutationAttempt(context, randomUUID()),
+        );
       }
     }
     await settle();

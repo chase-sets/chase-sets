@@ -13,6 +13,11 @@ export const inventoryRetentionSweeps: readonly BcRetentionSweep[] = [
 
 export const inventoryRetentionExemptions: readonly BcRetentionExemption[] = [
   {
+    tableName: "inventory_mutation_attempts",
+    owner: "inventory",
+    reason: "Immutable first-result receipts and audit are retained; deleting a receipt must never authorize replaying its accepted effect.",
+  },
+  {
     tableName: "inventory_holds",
     owner: "inventory",
     reason: "Hold rows are mutable event projections that may receive later release, consume, or extension events.",

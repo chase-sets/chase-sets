@@ -18,8 +18,24 @@ import {
 } from "./mutation-intent";
 
 const attemptIdentity = Symbol("inventoryMutationAttempt");
+const requestingAccount = Symbol("inventoryRequestingAccount");
 type AttemptIdentity = Readonly<{ id: string; path: string; intentVersion: number }>;
-type AttemptContext = EventStoreContext & { readonly [attemptIdentity]?: AttemptIdentity };
+type AttemptContext = EventStoreContext & {
+  readonly [attemptIdentity]?: AttemptIdentity;
+  readonly [requestingAccount]?: string;
+};
+
+export function withInventoryMutationTargetAccount(
+  context: EventStoreContext,
+  targetAccountId: string,
+): EventStoreContext {
+  assert(Boolean(targetAccountId), "Inventory mutation is not authorized.");
+  return {
+    ...context,
+    audit: { ...context.audit, forAccountId: targetAccountId },
+    [requestingAccount]: (context as AttemptContext)[requestingAccount] ?? context.audit.forAccountId,
+  } as AttemptContext;
+}
 
 function assertAttemptId(value: unknown): asserts value is string {
   assert(
@@ -38,6 +54,11 @@ export function withInventoryMutationAttempt(
   assert(Number.isSafeInteger(intentVersion) && intentVersion > 0, "Inventory intent version is invalid.");
   const attempted: AttemptContext = { ...context, [attemptIdentity]: { id: attemptId, path: "", intentVersion } };
   return attempted;
+}
+
+export function inventoryMutationAttemptFromSource(sourceIdentity: string, operation: string): string {
+  assert(sourceIdentity.length > 0 && operation.length > 0, "Inventory source attempt identity is required.");
+  return `iat_${createHash("sha256").update(`inventory-source-attempt/v1\n${sourceIdentity}\n${operation}`).digest("hex")}`;
 }
 
 export function withInventoryMutationChildAttempt(context: EventStoreContext, child: string): EventStoreContext {
@@ -72,6 +93,7 @@ type Receipt<T = unknown> = {
   tenant_id: string;
   actor_user_id: string;
   account_id: string;
+  requesting_account_id?: string;
   family: InventoryMutationFamily;
   target_id: string;
   intent_hash: string;
@@ -113,14 +135,15 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
   let sequence = 0;
   const db: PgTransactionalPool = {
     idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
-    query: (sql, values) => (transactions.getStore()?.client ?? pool).query(sql, values),
+    query: <Row>(sql: string, values?: readonly unknown[]) =>
+      (transactions.getStore()?.client ?? pool).query<Row>(sql, values),
     connect: async () => {
       const client = transactions.getStore()?.client;
       if (!client) return pool.connect();
       const savepoint = `inventory_nested_${++sequence}`;
       return {
-        query: (sql, values) =>
-          client.query(
+        query: <Row>(sql: string, values?: readonly unknown[]) =>
+          client.query<Row>(
             sql === "BEGIN"
               ? `SAVEPOINT ${savepoint}`
               : sql === "COMMIT"
@@ -181,6 +204,7 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
     assert(normalized.accountId === accountId, "Inventory mutation is not authorized.");
     const intentHash = inventoryMutationFingerprint(normalized);
     const attemptKey = createHash("sha256").update(`${identity.id}\n${identity.path}`).digest("hex");
+    const requestingAccountId = (context as AttemptContext)[requestingAccount] ?? accountId;
     const active = transactions.getStore();
     if (active) {
       assert(
@@ -213,6 +237,10 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
             "Inventory mutation is not authorized.",
           );
           assert(
+            (existing.requesting_account_id ?? existing.account_id) === requestingAccountId,
+            "Inventory mutation is not authorized.",
+          );
+          assert(
             existing.family === family &&
               existing.target_id === targetId &&
               existing.fingerprint_version === identity.intentVersion &&
@@ -228,9 +256,18 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
         ]);
         await db.query(
           `INSERT INTO inventory_mutation_attempts
-          (attempt_key, tenant_id, actor_user_id, account_id, family, target_id, fingerprint_version, intent_hash, receipt_version, status)
-          VALUES ($1, $2, $3, $4, $5, $6, 1, $7, 1, 'accepted')`,
-          [attemptKey, context.tenantId, context.audit.performedByUserId, accountId, family, targetId, intentHash],
+          (attempt_key, tenant_id, actor_user_id, account_id, family, target_id, fingerprint_version, intent_hash, receipt_version, status, requesting_account_id)
+          VALUES ($1, $2, $3, $4, $5, $6, 1, $7, 1, 'accepted', $8)`,
+          [
+            attemptKey,
+            context.tenantId,
+            context.audit.performedByUserId,
+            accountId,
+            family,
+            targetId,
+            intentHash,
+            requestingAccountId,
+          ],
         );
         const result = await work();
         const completed = await db.query(
@@ -267,7 +304,7 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
     assertInventoryMutationAuthority(context, context.audit.forAccountId);
     const receipts = await db.query<Receipt>(
       `SELECT * FROM inventory_mutation_attempts
-      WHERE attempt_key = $1 AND tenant_id = $2 AND actor_user_id = $3 AND account_id = $4`,
+      WHERE attempt_key = $1 AND tenant_id = $2 AND actor_user_id = $3 AND COALESCE(requesting_account_id, account_id) = $4`,
       [
         createHash("sha256").update(`${attemptId}\n`).digest("hex"),
         context.tenantId,
@@ -286,5 +323,17 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
       completedAt: new Date(receipt.completed_at).toISOString(),
     };
   }
-  return { db, eventStore, execute, read };
+  async function child<T>(
+    name: string,
+    family: InventoryMutationFamily,
+    targetId: string,
+    params: Readonly<Record<string, unknown> & { accountId: string }>,
+    context: EventStoreContext,
+    work: (context: EventStoreContext) => Promise<T>,
+  ): Promise<T> {
+    if (!transactions.getStore()) return work(context);
+    const childContext = withInventoryMutationChildAttempt(context, name);
+    return execute(family, targetId, params.accountId, params, childContext, () => work(childContext));
+  }
+  return { db, eventStore, execute, read, child };
 }

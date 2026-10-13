@@ -134,6 +134,7 @@ export type InventoryHoldServices = Readonly<{
     params: Readonly<{
       now?: string;
       limit?: number;
+      accountId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<readonly { holdId: string; version: number }[]>;
@@ -390,21 +391,34 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
            AND purpose = 'checkout'
            AND expires_at IS NOT NULL
            AND expires_at <= $1
+           AND ($3::text IS NULL OR account_id = $3)
          ORDER BY expires_at ASC, hold_id ASC
          LIMIT $2`,
-        [now, limit],
+        [now, limit, params.accountId ?? null],
       );
       const expired: { holdId: string; version: number }[] = [];
 
       for (const row of due.rows) {
-        const result = await commandHandler({
-          streamId: `inventory.hold-${row.hold_id}`,
-          command: {
-            type: "ExpireInventoryHold",
-            expiredAt: now,
-          },
-          context,
-        });
+        const expire = (childContext: EventStoreContext) =>
+          commandHandler({
+            streamId: `inventory.hold-${row.hold_id}`,
+            command: {
+              type: "ExpireInventoryHold",
+              expiredAt: now,
+            },
+            context: childContext,
+          });
+        const result =
+          deps.mutationChild && params.accountId
+            ? await deps.mutationChild(
+                `expire-${expired.length}`,
+                "hold-release",
+                row.hold_id,
+                { accountId: params.accountId, holdId: row.hold_id, releaseReason: "checkout-expired" },
+                context,
+                expire,
+              )
+            : await expire(context);
         expired.push({ holdId: row.hold_id, version: result.version });
       }
 

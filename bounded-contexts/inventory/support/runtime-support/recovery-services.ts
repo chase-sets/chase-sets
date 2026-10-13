@@ -67,8 +67,10 @@ export function recoverInventoryReductions(
   return {
     ...raw,
     reduceItem: (params, context) =>
-      mutations.execute("item-adjust", params.itemId, params.accountId, params, context, () =>
-        raw.reduceItem(params, context),
-      ),
+      params.offlineSale
+        ? raw.reduceItem(params, context)
+        : mutations.execute("item-adjust", params.itemId, params.accountId, params, context, () =>
+            raw.reduceItem(params, context),
+          ),
   };
 }

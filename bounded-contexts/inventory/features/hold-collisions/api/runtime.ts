@@ -397,6 +397,27 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             }
 
             const results = await appendToStreams(appends);
+            if (deps.mutationChild && collision?.mode === "honor-offline") {
+              for (const [index, affected] of collision.affectedOrders.entries()) {
+                await deps.mutationChild(
+                  `collision-release-${index}`,
+                  "hold-release",
+                  affected.holdId,
+                  {
+                    accountId: params.accountId,
+                    holdId: affected.holdId,
+                    releaseReason: "hold-collision",
+                  },
+                  context,
+                  async () => ({
+                    holdId: affected.holdId,
+                    version: results
+                      .find((entry) => entry.streamId === `inventory.hold-${affected.holdId}`)
+                      ?.storedEvents.at(-1)?.streamVersion,
+                  }),
+                );
+              }
+            }
             claimOwned = false;
             const stored = results.flatMap((result) => result.storedEvents);
             recordCommittedEvents(stored);

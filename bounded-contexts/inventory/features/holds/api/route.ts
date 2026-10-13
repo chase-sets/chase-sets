@@ -8,6 +8,12 @@ import { InventoryDomainError } from "../../../support/runtime-support/common";
 import { withInventorySystemHoldReleaseAuthority, type InventoryHoldServices } from "./runtime";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryHoldId } from "../../../support/runtime-support/common";
+import type { InventoryCheckoutReservationAuthority } from "./checkout-reservation-authority";
+import {
+  withInventoryMutationTargetAccount,
+  withInventoryMutationChildAttempt,
+  type createInventoryMutationRuntime,
+} from "../../../support/runtime-support/mutation-attempt";
 
 const CHECKOUT_RESERVATION_TTL_MS = 15 * 60 * 1000;
 const CHECKOUT_RESERVATION_EXTENSION_MS = 5 * 60 * 1000;
@@ -119,7 +125,11 @@ export function inventoryHoldRoutes(services: InventoryHoldServices) {
   return app;
 }
 
-export function inventoryCheckoutReservationRoutes(services: InventoryHoldServices) {
+export function inventoryCheckoutReservationRoutes(
+  services: InventoryHoldServices,
+  authority?: InventoryCheckoutReservationAuthority,
+  mutations?: ReturnType<typeof createInventoryMutationRuntime>,
+) {
   const app = new Hono<InventoryApiEnv>();
 
   app.post("/", async (c) => {
@@ -135,70 +145,81 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
     const expiresAt = checkoutReservationExpiresAt(now);
 
     try {
-      await services.expireDueCheckoutHolds({ now: nowIso, limit: 100 }, c.get("context"));
+      const authorized = await authority?.({
+        checkoutSessionId,
+        lineKey,
+        inventoryItemId,
+        quantity,
+        context: c.get("context"),
+      });
+      if (!authorized || authorized.accountId !== sellerAccountId)
+        return c.json({ error: { code: "checkout_reservation_unavailable" } }, 404);
+      const context = withInventoryMutationTargetAccount(c.get("context"), authorized.accountId);
+      const work = async () => {
+        if (authorized.canMutate === false) throw new InventoryDomainError("Checkout reservation is unavailable.");
+        await services.expireDueCheckoutHolds({ now: nowIso, limit: 100, accountId: sellerAccountId }, context);
 
-      let holdId: InventoryHoldId | null = null;
-      for (
-        let attempt = reservationAttempt;
-        attempt < reservationAttempt + CHECKOUT_RESERVATION_ATTEMPT_SEARCH_LIMIT;
-        attempt += 1
-      ) {
-        const candidateHoldId = checkoutReservationHoldId({
-          checkoutSessionId,
-          lineKey,
-          inventoryItemId,
-          reservationAttempt: attempt,
-        });
-        const existing = await services.getHold(candidateHoldId, sellerAccountId);
-        if (!existing) {
-          holdId = candidateHoldId;
-          break;
-        }
-
-        if (
-          checkoutReservationMatches(existing, { checkoutSessionId, lineKey, inventoryItemId, quantity }) &&
-          checkoutReservationIsCurrent(existing, now.getTime())
+        let holdId: InventoryHoldId | null = null;
+        for (
+          let attempt = reservationAttempt;
+          attempt < reservationAttempt + CHECKOUT_RESERVATION_ATTEMPT_SEARCH_LIMIT;
+          attempt += 1
         ) {
-          return c.json({
-            holdId: existing.hold_id,
-            sellerAccountId,
-            inventoryItemId,
-            lineKey,
-            quantity: existing.quantity,
-            expiresAt: existing.expires_at,
-            extensionCount: existing.extension_count,
-            status: "active",
-          });
-        }
-
-        if (existing.status === "active") {
-          throw new InventoryDomainError("Checkout reservation already exists for different stock.");
-        }
-      }
-      if (!holdId) {
-        throw new InventoryDomainError("Checkout reservation attempts are exhausted.");
-      }
-
-      const result = await services.createHold(
-        {
-          holdId,
-          accountId: sellerAccountId,
-          itemId: inventoryItemId,
-          quantity,
-          reason: "Checkout reservation",
-          notes: null,
-          purpose: "checkout",
-          sourceRef: {
+          const candidateHoldId = checkoutReservationHoldId({
             checkoutSessionId,
             lineKey,
-          },
-          expiresAt,
-        },
-        c.get("context"),
-      );
+            inventoryItemId,
+            reservationAttempt: attempt,
+          });
+          const existing = await services.getHold(candidateHoldId, sellerAccountId);
+          if (!existing) {
+            holdId = candidateHoldId;
+            break;
+          }
 
-      return c.json(
-        {
+          if (
+            checkoutReservationMatches(existing, { checkoutSessionId, lineKey, inventoryItemId, quantity }) &&
+            checkoutReservationIsCurrent(existing, now.getTime())
+          ) {
+            return {
+              holdId: existing.hold_id,
+              sellerAccountId,
+              inventoryItemId,
+              lineKey,
+              quantity: existing.quantity,
+              expiresAt: existing.expires_at,
+              extensionCount: existing.extension_count,
+              status: "active",
+            };
+          }
+
+          if (existing.status === "active") {
+            throw new InventoryDomainError("Checkout reservation already exists for different stock.");
+          }
+        }
+        if (!holdId) {
+          throw new InventoryDomainError("Checkout reservation attempts are exhausted.");
+        }
+
+        const result = await services.createHold(
+          {
+            holdId,
+            accountId: sellerAccountId,
+            itemId: inventoryItemId,
+            quantity,
+            reason: "Checkout reservation",
+            notes: null,
+            purpose: "checkout",
+            sourceRef: {
+              checkoutSessionId,
+              lineKey,
+            },
+            expiresAt,
+          },
+          mutations ? withInventoryMutationChildAttempt(context, "checkout-hold") : context,
+        );
+
+        return {
           holdId: result.holdId,
           sellerAccountId,
           inventoryItemId,
@@ -207,9 +228,29 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
           expiresAt,
           extensionCount: 0,
           status: "active",
-        },
-        201,
-      );
+        };
+      };
+      const result = mutations
+        ? await mutations.execute(
+            "hold-create",
+            `${checkoutSessionId}/${lineKey}/${reservationAttempt}`,
+            sellerAccountId,
+            {
+              holdId: checkoutReservationHoldId({ checkoutSessionId, lineKey, inventoryItemId, reservationAttempt }),
+              accountId: sellerAccountId,
+              itemId: inventoryItemId,
+              quantity,
+              reason: "Checkout reservation",
+              notes: null,
+              purpose: "checkout",
+              sourceRef: { checkoutSessionId, lineKey },
+              expiresAt: null,
+            },
+            context,
+            work,
+          )
+        : await work();
+      return c.json(result, 201);
     } catch (error) {
       return c.json(
         {
@@ -218,7 +259,7 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
               error instanceof Error && error.message.includes("available quantity")
                 ? "checkout_reservation_unavailable"
                 : "validation_failed",
-            message: error instanceof Error ? error.message : "Checkout reservation failed.",
+            message: "Checkout reservation is unavailable.",
           },
         },
         409,
@@ -239,6 +280,18 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
         return c.json({ error: { code: "checkout_reservation_not_found" } }, 404);
       }
       const sellerAccountId = existing.account_id;
+      const authorized = await authority?.({
+        checkoutSessionId: body.checkoutSessionId,
+        lineKey: existing.source_ref && "lineKey" in existing.source_ref ? existing.source_ref.lineKey : "",
+        inventoryItemId: existing.item_id,
+        quantity: existing.quantity,
+        operation: "extend",
+        context: c.get("context"),
+      });
+      if (!authorized || authorized.accountId !== sellerAccountId)
+        return c.json({ error: { code: "checkout_reservation_not_found" } }, 404);
+      if (authorized.canMutate === false)
+        return c.json({ error: { code: "checkout_reservation_extension_unavailable" } }, 409);
       const result = await services.extendCheckoutHold(
         {
           accountId: sellerAccountId,
@@ -246,7 +299,7 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
           expiresAt,
           maxExtensionCount: CHECKOUT_RESERVATION_EXTENSION_CAP,
         },
-        c.get("context"),
+        withInventoryMutationTargetAccount(c.get("context"), sellerAccountId),
       );
 
       const hold = await services.getHold(result.holdId, sellerAccountId);
@@ -266,7 +319,7 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
         {
           error: {
             code: "checkout_reservation_extension_unavailable",
-            message: error instanceof Error ? error.message : "Checkout reservation extension failed.",
+            message: "Checkout reservation extension is unavailable.",
           },
         },
         409,
@@ -287,68 +340,94 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
         return c.json({ error: { code: "checkout_reservation_not_found" } }, 404);
       }
       const sellerAccountId = existing.account_id;
-      if (existing.status === "released" && existing.release_reason === "checkout-cancelled") {
-        return c.json({
-          holdId,
-          sellerAccountId,
-          inventoryItemId: existing.item_id,
-          lineKey:
-            existing.source_ref && "lineKey" in existing.source_ref
-              ? existing.source_ref.lineKey
-              : String(body.lineKey ?? ""),
-          quantity: existing.quantity,
-          expiresAt: existing.expires_at,
-          extensionCount: existing.extension_count,
-          status: "released",
-        });
-      }
-      if (existing.status !== "active") {
-        return c.json({
-          holdId,
-          sellerAccountId,
-          inventoryItemId: existing.item_id,
-          lineKey:
-            existing.source_ref && "lineKey" in existing.source_ref
-              ? existing.source_ref.lineKey
-              : String(body.lineKey ?? ""),
-          quantity: existing.quantity,
-          expiresAt: existing.expires_at,
-          extensionCount: existing.extension_count,
-          status: existing.status,
-        });
-      }
-
-      const result = await services.releaseHold(
-        {
-          accountId: sellerAccountId,
-          holdId,
-          releaseReason: "checkout-cancelled",
-        },
-        withInventorySystemHoldReleaseAuthority(c.get("context")),
-      );
-      const released = await services.getHold(result.holdId, sellerAccountId);
-
-      return c.json({
-        holdId: result.holdId,
-        sellerAccountId,
-        inventoryItemId: released?.item_id ?? existing.item_id,
-        lineKey:
-          released?.source_ref && "lineKey" in released.source_ref
-            ? released.source_ref.lineKey
-            : existing.source_ref && "lineKey" in existing.source_ref
-              ? existing.source_ref.lineKey
-              : String(body.lineKey ?? ""),
-        quantity: released?.quantity ?? existing.quantity,
-        expiresAt: released?.expires_at ?? existing.expires_at,
-        extensionCount: released?.extension_count ?? existing.extension_count,
-        status: "released",
+      const authorized = await authority?.({
+        checkoutSessionId: body.checkoutSessionId,
+        lineKey: existing.source_ref && "lineKey" in existing.source_ref ? existing.source_ref.lineKey : "",
+        inventoryItemId: existing.item_id,
+        quantity: existing.quantity,
+        operation: "release",
+        context: c.get("context"),
       });
+      if (!authorized || authorized.accountId !== sellerAccountId)
+        return c.json({ error: { code: "checkout_reservation_not_found" } }, 404);
+      const context = withInventoryMutationTargetAccount(c.get("context"), sellerAccountId);
+      const work = async () => {
+        if (existing.status === "released" && existing.release_reason === "checkout-cancelled") {
+          return {
+            holdId,
+            sellerAccountId,
+            inventoryItemId: existing.item_id,
+            lineKey:
+              existing.source_ref && "lineKey" in existing.source_ref
+                ? existing.source_ref.lineKey
+                : String(body.lineKey ?? ""),
+            quantity: existing.quantity,
+            expiresAt: existing.expires_at,
+            extensionCount: existing.extension_count,
+            status: "released",
+          };
+        }
+        if (existing.status !== "active") {
+          return {
+            holdId,
+            sellerAccountId,
+            inventoryItemId: existing.item_id,
+            lineKey:
+              existing.source_ref && "lineKey" in existing.source_ref
+                ? existing.source_ref.lineKey
+                : String(body.lineKey ?? ""),
+            quantity: existing.quantity,
+            expiresAt: existing.expires_at,
+            extensionCount: existing.extension_count,
+            status: existing.status,
+          };
+        }
+
+        const result = await services.releaseHold(
+          {
+            accountId: sellerAccountId,
+            holdId,
+            releaseReason: "checkout-cancelled",
+          },
+          withInventorySystemHoldReleaseAuthority(
+            mutations ? withInventoryMutationChildAttempt(context, "checkout-release") : context,
+          ),
+        );
+        const released = await services.getHold(result.holdId, sellerAccountId);
+
+        return {
+          holdId: result.holdId,
+          sellerAccountId,
+          inventoryItemId: released?.item_id ?? existing.item_id,
+          lineKey:
+            released?.source_ref && "lineKey" in released.source_ref
+              ? released.source_ref.lineKey
+              : existing.source_ref && "lineKey" in existing.source_ref
+                ? existing.source_ref.lineKey
+                : String(body.lineKey ?? ""),
+          quantity: released?.quantity ?? existing.quantity,
+          expiresAt: released?.expires_at ?? existing.expires_at,
+          extensionCount: released?.extension_count ?? existing.extension_count,
+          status: "released",
+        };
+      };
+      const result = mutations
+        ? await mutations.execute(
+            "hold-release",
+            holdId,
+            sellerAccountId,
+            { accountId: sellerAccountId, holdId, releaseReason: "checkout-cancelled" },
+            context,
+            work,
+          )
+        : await work();
+      return c.json(result);
     } catch (error) {
       return c.json(
         {
           error: {
             code: "checkout_reservation_release_unavailable",
-            message: error instanceof Error ? error.message : "Checkout reservation release failed.",
+            message: "Checkout reservation release is unavailable.",
           },
         },
         409,

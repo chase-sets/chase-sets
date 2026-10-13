@@ -25,6 +25,8 @@ const methods = {
   getStorageLocation: "location-read",
   listStorageLocations: "location-read",
   resolveAccountSkuMappingsToInventoryItems: "item-read",
+  getMutationAttempt: "attempt-read",
+  readMutationAttempt: "attempt-read",
   createImportBatch: "import-create",
   commitImportBatch: "import-commit",
   resolveImportBatchRow: "import-resolve",
@@ -111,7 +113,10 @@ export function discoverInventoryCallers(sources) {
       if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node))
         return resolve(node.expression);
       if (ts.isIdentifier(node)) return alias(node, node.text);
-      if (ts.isPropertyAccessExpression(node)) return methodFamily(node.name.text) ? node.name.text : null;
+      if (ts.isPropertyAccessExpression(node)) {
+        if (node.name.text === "read" && /(?:^|\.)mutations$/.test(node.expression.getText(source))) return "readMutationAttempt";
+        return methodFamily(node.name.text) ? node.name.text : null;
+      }
       if (ts.isElementAccessExpression(node))
         return methodFamily(name(node.argumentExpression)) ? name(node.argumentExpression) : null;
       if (

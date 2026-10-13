@@ -10,6 +10,7 @@ import {
   createInventoryMutationRuntime,
   withInventoryMutationAttempt,
   withInventoryMutationChildAttempt,
+  withInventoryMutationTargetAccount,
 } from "../support/runtime-support/mutation-attempt";
 import {
   inventoryMutationFingerprint,
@@ -39,51 +40,60 @@ function harness() {
   const committedFacts: string[] = [];
   let owner: { rows: Map<string, Record<string, unknown>>; facts: string[] } | null = null;
   const snapshots = new Map<string, { rows: Map<string, Record<string, unknown>>; facts: string[] }>();
-  const query = vi.fn(async <Row>(sql: string, values: readonly unknown[] = []): Promise<PgQueryResult<Row>> => {
-    if (sql === "BEGIN") owner = { rows: structuredClone(rows), facts: [...committedFacts] };
-    else if (sql === "COMMIT") {
-      rows.clear();
-      for (const [key, value] of owner!.rows) rows.set(key, value);
-      committedFacts.splice(0, committedFacts.length, ...owner!.facts);
-      owner = null;
-    } else if (sql === "ROLLBACK") owner = null;
-    else if (sql.startsWith("SAVEPOINT ")) snapshots.set(sql.slice(10), structuredClone(owner!));
-    else if (sql.startsWith("ROLLBACK TO SAVEPOINT ")) owner = structuredClone(snapshots.get(sql.slice(22))!);
-    else if (sql.startsWith("RELEASE SAVEPOINT ")) snapshots.delete(sql.slice(18));
-    else if (sql.startsWith("SELECT * FROM inventory_mutation_attempts")) {
-      const row = (owner?.rows ?? rows).get(String(values[0]));
-      const visible =
-        row &&
-        (values.length === 1 ||
-          (row.tenant_id === values[1] && row.actor_user_id === values[2] && row.account_id === values[3]));
-      return { rows: visible ? [structuredClone(row) as Row] : [] };
-    } else if (sql.includes("INSERT INTO inventory_mutation_attempts")) {
-      owner!.rows.set(String(values[0]), {
-        tenant_id: values[1],
-        actor_user_id: values[2],
-        account_id: values[3],
-        family: values[4],
-        target_id: values[5],
-        fingerprint_version: 1,
-        intent_hash: values[6],
-        receipt_version: 1,
-        status: "accepted",
-        result: null,
-        result_hash: null,
-      });
-    } else if (sql.includes("UPDATE inventory_mutation_attempts")) {
-      const row = owner!.rows.get(String(values[0]))!;
-      Object.assign(row, {
-        status: "succeeded",
-        result: JSON.parse(String(values[7])),
-        result_hash: values[8],
-        completed_at: "2026-10-13T00:00:00Z",
-      });
-      return { rows: [{ attempt_key: values[0] } as Row] };
-    } else if (sql === "SYNTHETIC FACT") owner!.facts.push(String(values[0]));
-    return { rows: [] };
-  });
-  const pool: PgTransactionalPool = { query, connect: async () => ({ query, release: vi.fn() }) };
+  const query = vi.fn(
+    async <Row = Record<string, unknown>>(
+      sql: string,
+      values: readonly unknown[] = [],
+    ): Promise<PgQueryResult<Row>> => {
+      if (sql === "BEGIN") owner = { rows: structuredClone(rows), facts: [...committedFacts] };
+      else if (sql === "COMMIT") {
+        rows.clear();
+        for (const [key, value] of owner!.rows) rows.set(key, value);
+        committedFacts.splice(0, committedFacts.length, ...owner!.facts);
+        owner = null;
+      } else if (sql === "ROLLBACK") owner = null;
+      else if (sql.startsWith("SAVEPOINT ")) snapshots.set(sql.slice(10), structuredClone(owner!));
+      else if (sql.startsWith("ROLLBACK TO SAVEPOINT ")) owner = structuredClone(snapshots.get(sql.slice(22))!);
+      else if (sql.startsWith("RELEASE SAVEPOINT ")) snapshots.delete(sql.slice(18));
+      else if (sql.startsWith("SELECT * FROM inventory_mutation_attempts")) {
+        const row = (owner?.rows ?? rows).get(String(values[0]));
+        const visible =
+          row &&
+          (values.length === 1 ||
+            (row.tenant_id === values[1] &&
+              row.actor_user_id === values[2] &&
+              (row.requesting_account_id ?? row.account_id) === values[3]));
+        return { rows: visible ? [structuredClone(row) as Row] : [] };
+      } else if (sql.includes("INSERT INTO inventory_mutation_attempts")) {
+        owner!.rows.set(String(values[0]), {
+          tenant_id: values[1],
+          actor_user_id: values[2],
+          account_id: values[3],
+          requesting_account_id: values[7],
+          family: values[4],
+          target_id: values[5],
+          fingerprint_version: 1,
+          intent_hash: values[6],
+          receipt_version: 1,
+          status: "accepted",
+          result: null,
+          result_hash: null,
+        });
+      } else if (sql.includes("UPDATE inventory_mutation_attempts")) {
+        const row = owner!.rows.get(String(values[0]))!;
+        Object.assign(row, {
+          status: "succeeded",
+          result: JSON.parse(String(values[7])),
+          result_hash: values[8],
+          completed_at: "2026-10-13T00:00:00Z",
+        });
+        return { rows: [{ attempt_key: values[0] } as Row] };
+      } else if (sql === "SYNTHETIC FACT") owner!.facts.push(String(values[0]));
+      return { rows: [] };
+    },
+  );
+  const invoke = async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<PgQueryResult<Row>> => (await query(sql, values)) as PgQueryResult<Row>;
+  const pool: PgTransactionalPool = { query: invoke, connect: async () => ({ query: invoke, release: vi.fn() }) };
   const runtime = createInventoryMutationRuntime(pool, createPostgresEventStore({ pool }));
   return { runtime, rows, committedFacts, query };
 }
@@ -201,6 +211,16 @@ describe("issue-7169-ac2-single-target-replay: owner transaction", () => {
     ).toBeNull();
     rows.values().next().value!.result = { version: 99 };
     await expect(runtime.read(id, context)).rejects.toThrow("reconciliation");
+  });
+  it("binds a trusted seller-targeted result privately to the initiating buyer account", async () => {
+    const { runtime } = harness();
+    const id = randomUUID();
+    const buyer: EventStoreContext = { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" } };
+    const trusted = withInventoryMutationAttempt(withInventoryMutationTargetAccount(buyer, "acc_synthetic"), id);
+    await runtime.execute("location-create", "draft", "acc_synthetic", location, trusted, async () => ({ version: 1 }));
+    expect(await runtime.read(id, buyer)).toMatchObject({ result: { version: 1 } });
+    expect(await runtime.read(id, context)).toBeNull();
+    await expect(runtime.execute("location-create", "draft", "acc_synthetic", location, withInventoryMutationAttempt(context, id), async () => ({ version: 2 }))).rejects.toThrow("not authorized");
   });
 
   it("raw-params-hash mutant changes normalized defaults but canonical object order does not", () => {

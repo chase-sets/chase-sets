@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import { initialInventoryItemState } from "../features/inventory-items/domain/domain";
 import { loadAuthoritativeInventoryStockSnapshot } from "../support/runtime-support/stock-snapshot";
 import { createInventoryHoldCollisionRuntime } from "../features/hold-collisions/api/runtime";
@@ -24,7 +25,7 @@ const placed = {
   sourceRef: null,
   expiresAt: null,
 };
-type Fact = { eventType: string; payload: Record<string, unknown> };
+type Fact = { eventType: string; payload: JsonObject };
 
 async function stockHarness(facts: Fact[]) {
   const { eventStore } = createInMemoryEventStore();
