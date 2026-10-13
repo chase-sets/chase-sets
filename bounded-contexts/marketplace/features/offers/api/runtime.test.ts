@@ -4,6 +4,10 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createMarketplaceOfferRuntime } from "./runtime";
 import { MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
+import { Hono } from "hono";
+import type { MarketplaceApiEnv } from "../../../api";
+import { createAccountSubmittedOfferRoutes } from "./route";
+import { createMarketplaceOfferMcpHandlers } from "./mcp";
 
 const acceptedOfferMatch = {
   offer_id: "off_1",
@@ -184,22 +188,69 @@ describe("marketplace offer runtime", () => {
     } satisfies Partial<MarketplaceOfferAbuseControlError>);
   });
 
-  it("enforces per-listing buyer cap boundaries before submitting an offer", async () => {
+  it.each(["HTTP", "MCP"])("retains the daily cap through the real %s submission boundary", async (surface) => {
     const db = {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
         .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
-        .mockResolvedValueOnce({ rows: [activeListingGuard({ buyer_listing_daily_offer_count: "3" })] }),
+        .mockResolvedValueOnce({ rows: [{ count: "25" }] }),
     };
-
-    await expect(submitOfferWithDb(db)).rejects.toMatchObject({
-      code: "offer_listing_submission_cap_reached",
-    } satisfies Partial<MarketplaceOfferAbuseControlError>);
+    const services = createSubmitOfferServices(db);
+    const actor = {
+      sessionId: "ses_cap",
+      tenantId: "tnt_marketplace",
+      userId: "usr_cap",
+      accountId: "acc_buyer",
+      membershipId: "mbr_cap",
+      roleKey: "owner",
+      permissions: ["offers.manage"],
+    };
+    const body = {
+      accountId: actor.accountId,
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::",
+      itemTitle: "Charizard",
+      selectedOptions: [],
+      shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+      priceAmount: "1.00",
+      priceCurrencyCode: "USD",
+      quantityRequested: 1,
+    };
+    if (surface === "HTTP") {
+      const app = new Hono<MarketplaceApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", actor);
+        c.set("context", {
+          tenantId: "tnt_marketplace" as never,
+          audit: { performedByUserId: "usr_cap" as never, forAccountId: "acc_buyer" as never },
+        });
+        await next();
+      });
+      app.route("/account", createAccountSubmittedOfferRoutes(services));
+      const response = await app.request("/account/offers/submitted", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "offer_daily_submission_cap_reached" } });
+    } else {
+      const handler = createMarketplaceOfferMcpHandlers(services).toolHandlers["marketplace.submit-offer"]!;
+      await expect(
+        handler({
+          actor,
+          arguments: body,
+          tool: null as never,
+          request: new Request("http://marketplace.test/mcp"),
+          protocol: { protocolVersion: "2025-06-18", stateless: false, clientInfo: null, clientCapabilities: null },
+        }),
+      ).rejects.toMatchObject({ code: "offer_daily_submission_cap_reached" });
+    }
+    expect(db.query).toHaveBeenCalledTimes(3);
   });
 
-  it("preserves per-listing caps before filtering monetary comparisons by currency", async () => {
+  it("submits $1 demand against $10, $14 and $20 asks without querying Listing controls", async () => {
     const db = {
       query: vi
         .fn()
@@ -207,87 +258,38 @@ describe("marketplace offer runtime", () => {
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [{ count: "0" }] })
         .mockResolvedValueOnce({
+          rows: ["10.00", "14.00", "20.00"].map((listing_price_amount, index) =>
+            activeListingGuard({ listing_price_amount, seller_account_id: `acc_seller_${index}` }),
+          ),
+        }),
+    };
+    await expect(submitOfferWithDb(db, "1.00")).resolves.toMatchObject({ offerId: expect.any(String) });
+    expect(db.query).toHaveBeenCalledTimes(3);
+    expect(db.query.mock.calls[2]?.[0]).toContain("COUNT(*)");
+  });
+
+  it("admits the fourth same-Product Offer after two declines, even at a lower price", async () => {
+    const db = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ count: "3" }] })
+        .mockResolvedValueOnce({
           rows: [
             activeListingGuard({
-              listing_price_currency_code: "EUR",
               buyer_listing_daily_offer_count: "3",
-            }),
-          ],
-        }),
-    };
-
-    await expect(submitOfferWithDb(db)).rejects.toMatchObject({
-      code: "offer_listing_submission_cap_reached",
-    } satisfies Partial<MarketplaceOfferAbuseControlError>);
-    expect(db.query.mock.calls[3]?.[0]).not.toContain("listing.price_currency_code = $4");
-  });
-
-  it("rejects offer submissions below the listing-relative price floor", async () => {
-    const db = {
-      query: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
-        .mockResolvedValueOnce({ rows: [activeListingGuard()] }),
-    };
-
-    await expect(submitOfferWithDb(db, "49.99")).rejects.toMatchObject({
-      code: "offer_price_floor_not_met",
-    } satisfies Partial<MarketplaceOfferAbuseControlError>);
-  });
-
-  it("rejects lower repeated-lowball offers during the seller cooldown window", async () => {
-    const db = {
-      query: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
-        .mockResolvedValueOnce({
-          rows: [
-            activeListingGuard({
               lowball_cooldown_until: "2099-01-01T00:00:00.000Z",
-              last_lowball_declined_amount: "90.00",
+              last_lowball_declined_amount: "2.00",
             }),
           ],
         }),
     };
-
-    await expect(submitOfferWithDb(db, "80.00")).rejects.toMatchObject({
-      code: "offer_lowball_cooldown",
-    } satisfies Partial<MarketplaceOfferAbuseControlError>);
+    await expect(submitOfferWithDb(db, "1.00")).resolves.toMatchObject({ offerId: expect.any(String) });
+    expect(db.query).toHaveBeenCalledTimes(3);
   });
 
-  it("rejects offer submissions when every current matching seller muted the buyer", async () => {
-    const db = {
-      query: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ count: "0" }] })
-        .mockResolvedValueOnce({ rows: [activeListingGuard({ muted_at: "2026-07-05T12:00:00.000Z" })] }),
-    };
-
-    await expect(submitOfferWithDb(db, "80.00")).rejects.toMatchObject({
-      code: "offer_muted_by_sellers",
-    } satisfies Partial<MarketplaceOfferAbuseControlError>);
-  });
-
-  it("allows an offer at the cap and floor boundary", async () => {
-    const db = {
-      query: vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [activeCatalogItem()] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [{ count: "24" }] })
-        .mockResolvedValueOnce({ rows: [activeListingGuard({ buyer_listing_daily_offer_count: "2" })] }),
-    };
-
-    await expect(submitOfferWithDb(db, "50.00")).resolves.toMatchObject({ offerId: expect.any(String) });
-  });
-
-  it("records seller decline and mute controls for an offer match", async () => {
+  it("records a private seller Decline for an Offer Match", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = {
       query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })),
@@ -315,25 +317,6 @@ describe("marketplace offer runtime", () => {
         context,
       ),
     ).resolves.toEqual({ offerId: "off_1", version: 1 });
-    await expect(
-      services.muteBuyerOffers(
-        {
-          offerId: "off_1" as never,
-          sellerAccountId: "acc_seller" as never,
-        },
-        context,
-      ),
-    ).resolves.toEqual({ offerId: "off_1", version: 2 });
-    await expect(
-      services.unmuteBuyerOffers(
-        {
-          listingId: "lst_1",
-          buyerAccountId: "acc_buyer" as never,
-          sellerAccountId: "acc_seller" as never,
-        },
-        context,
-      ),
-    ).resolves.toEqual({ listingId: "lst_1", buyerAccountId: "acc_buyer", version: 3 });
   });
 
   it("keeps offer acceptance gated by matching active supply", async () => {
