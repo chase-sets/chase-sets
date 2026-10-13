@@ -1,6 +1,5 @@
 import type { FormActionContext } from "@chase-sets/platform-runtime/http";
 import { data } from "react-router";
-import { navigateAfterWrite } from "@chase-sets/http/responses";
 import { actionFields, actionTargetField, routeActions, parseAttemptKey } from "../domain/contract";
 import type { MutationResult } from "./runtime";
 
@@ -64,11 +63,7 @@ export function requireInterruptionSafeClient(action: (args: AccountActionArgs) 
   };
 }
 
-export function accountMutationResponse(
-  result: MutationResult,
-  destination: string,
-  freshDestination = navigateAfterWrite(result, destination),
-) {
+export function accountMutationResponse(result: MutationResult, destination: string, freshDestination = destination) {
   if (result.outcome !== "committed")
     return Response.json(result, {
       status: result.outcome === "conflict" ? 409 : result.outcome === "not-recorded" ? 400 : 503,
