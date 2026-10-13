@@ -523,9 +523,17 @@ describeDb("issue-7168 PostgreSQL authority", () => {
       }),
     ).toMatchObject({ outcome: "committed" });
     expect((await pool.query("SELECT api_key_id FROM identity_api_key_secrets")).rows).toHaveLength(0);
+    const revokedCount = await eventCount();
     expect(
-      await runtime.submit({ ...profile, action: "rotate-api-key", target: first.receipt.result.id, body: {} }),
-    ).not.toMatchObject({ outcome: "committed" });
+      await runtime.submit({
+        ...profile,
+        key: "e230f01b-7871-420b-9c32-37139f80f749",
+        action: "rotate-api-key",
+        target: first.receipt.result.id,
+        body: {},
+      }),
+    ).toMatchObject({ outcome: "conflict", code: "owner-state-conflict", current: { status: "revoked" } });
+    expect(await eventCount()).toBe(revokedCount);
   });
 
   it("issue-7168-ac6-api-key-secret: late legacy verifier writes cannot replace a newer keyed or legacy rotation", async () => {
