@@ -99,7 +99,11 @@
       "subscriptionVersion": 1,
       "subscriptionName": "platform-operations.reported-content-queue-projection",
       "sourceContextMount": "when-mounted",
-      "eventTypes": ["marketplace.report.submitted", "marketplace.listing.auto-unlisted"],
+      "eventTypes": [
+        "marketplace.report.submitted",
+        "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted"
+      ],
       "order": 60,
       "projectionHandlerSetNames": ["reported-content-queue-projection"]
     },

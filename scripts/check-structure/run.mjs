@@ -36,6 +36,7 @@ import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discriminant-chokepoint.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
+import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
@@ -1904,6 +1905,8 @@ export async function runStructureCheck(options = {}) {
 
   const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
   violations.push(...sqlExecutionSurface.violations);
+  const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
+  violations.push(...realClockElapsedBounds.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);
