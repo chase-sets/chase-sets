@@ -65,7 +65,7 @@
     "economics"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./links"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/channels",
     "@chase-sets/commercial-terms",

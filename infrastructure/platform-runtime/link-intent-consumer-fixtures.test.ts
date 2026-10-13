@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { LinkIntent, LinkParameters, ParsedLinkIntent } from "@chase-sets/outbound-messaging";
-import { links } from "@chase-sets/discovery/links";
+import { links } from "@chase-sets/discovery/integration/link-intents";
 import type { LinkIntentCatalog } from "@chase-sets/platform-runtime/link-intents";
 import { buildCanonicalLink, linkIntentFixtures, parseCanonicalLink } from "@chase-sets/platform-runtime/link-intents";
 

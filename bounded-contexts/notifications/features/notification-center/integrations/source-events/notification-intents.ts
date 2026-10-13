@@ -1,11 +1,11 @@
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
-import { links as fulfillmentLinks } from "@chase-sets/fulfillment/links";
-import { links as inventoryLinks } from "@chase-sets/inventory/links";
-import { links as marketplaceLinks } from "@chase-sets/marketplace/links";
-import { links as orderingLinks } from "@chase-sets/ordering/links";
-import { links as settlementLinks } from "@chase-sets/settlement/links";
+import { links as fulfillmentLinks } from "@chase-sets/fulfillment/integration/link-intents";
+import { links as inventoryLinks } from "@chase-sets/inventory/integration/link-intents";
+import { links as marketplaceLinks } from "@chase-sets/marketplace/integration/link-intents";
+import { links as orderingLinks } from "@chase-sets/ordering/integration/link-intents";
+import { links as settlementLinks } from "@chase-sets/settlement/integration/link-intents";
 import type {
   FulfillmentShipmentDispatchedPayload,
   OrderingOrderCancelledPayload,

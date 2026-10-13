@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["shipments", "return-shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./links"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [

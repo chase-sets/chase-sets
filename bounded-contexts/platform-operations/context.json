@@ -60,7 +60,15 @@
     "seller-compliance-sales"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ui-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web", "./links"],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [

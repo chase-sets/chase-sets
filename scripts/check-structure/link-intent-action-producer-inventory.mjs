@@ -20,7 +20,10 @@ function ownerBuilderViolations(source, file, producerLines) {
     return ast;
   };
   const walk = (node) => {
-    if (ts.isImportDeclaration(node) && /(?:\/links|routes\/link-intents)$/.test(node.moduleSpecifier.text))
+    if (
+      ts.isImportDeclaration(node) &&
+      /(?:integration\/link-intents|routes\/link-intents)$/.test(node.moduleSpecifier.text)
+    )
       for (const binding of node.importClause?.namedBindings?.elements ?? []) builders.add(binding.name.text);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
       variables.push(node);
@@ -261,7 +264,7 @@ export function verifyActionProducers(
         if (routes.length !== 1) violations.push(`Inactive contributed intent ${row.id}/${intentId}`);
       }
       const source = readFileSync(path.join(repoRoot, row.path), "utf8");
-      if (!/from ["'][^"']*(?:\/links|routes\/link-intents)["']/.test(source))
+      if (!/from ["'][^"']*(?:integration\/link-intents|routes\/link-intents)["']/.test(source))
         violations.push(`Missing owner builder ${row.id}`);
       if (row.fields.some((field) => /^['"`]\//.test(field.expression))) violations.push(`Raw business link ${row.id}`);
       if (!inspectedBusinessFiles.has(row.path)) {

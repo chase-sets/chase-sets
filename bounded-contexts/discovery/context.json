@@ -27,7 +27,7 @@
     "ui-support",
     "ucp-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web", "./links"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
     "@chase-sets/collections",

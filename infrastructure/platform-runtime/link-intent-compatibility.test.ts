@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { matchRoutes } from "react-router";
-import { links as marketplace } from "@chase-sets/marketplace/links";
+import { links as marketplace } from "@chase-sets/marketplace/integration/link-intents";
 import {
   mapReviewOpportunityToNotification,
   mapReviewReminderToNotification,

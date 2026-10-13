@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { links } from "@chase-sets/pricing/links";
+import { links } from "@chase-sets/pricing/integration/link-intents";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";

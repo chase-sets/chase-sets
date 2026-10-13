@@ -29,7 +29,7 @@
   "apiBasePath": "/api/customer-feedback",
   "slices": ["csat", "cases", "attention", "privacy"],
   "allowedSupportDirectories": ["runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./links"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventReactions": [

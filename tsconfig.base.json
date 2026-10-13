@@ -156,7 +156,7 @@
       "@chase-sets/customer-feedback/context": [
         "./bounded-contexts/customer-feedback/context.json"
       ],
-      "@chase-sets/customer-feedback/links": [
+      "@chase-sets/customer-feedback/integration/link-intents": [
         "./bounded-contexts/customer-feedback/routes/link-intents.ts"
       ],
       "@chase-sets/customer-feedback/routes/*": [
@@ -375,7 +375,7 @@
       "@chase-sets/discovery/context": [
         "./bounded-contexts/discovery/context.json"
       ],
-      "@chase-sets/discovery/links": [
+      "@chase-sets/discovery/integration/link-intents": [
         "./bounded-contexts/discovery/routes/link-intents.ts"
       ],
       "@chase-sets/discovery/routes/*": [
@@ -474,7 +474,7 @@
       "@chase-sets/fulfillment/context": [
         "./bounded-contexts/fulfillment/context.json"
       ],
-      "@chase-sets/fulfillment/links": [
+      "@chase-sets/fulfillment/integration/link-intents": [
         "./bounded-contexts/fulfillment/routes/link-intents.ts"
       ],
       "@chase-sets/fulfillment/routes/*": [
@@ -516,7 +516,7 @@
       "@chase-sets/inventory/context": [
         "./bounded-contexts/inventory/context.json"
       ],
-      "@chase-sets/inventory/links": [
+      "@chase-sets/inventory/integration/link-intents": [
         "./bounded-contexts/inventory/routes/link-intents.ts"
       ],
       "@chase-sets/inventory/routes/*": [
@@ -552,7 +552,7 @@
       "@chase-sets/marketplace/context": [
         "./bounded-contexts/marketplace/context.json"
       ],
-      "@chase-sets/marketplace/links": [
+      "@chase-sets/marketplace/integration/link-intents": [
         "./bounded-contexts/marketplace/routes/link-intents.ts"
       ],
       "@chase-sets/marketplace/routes/*": [
@@ -606,7 +606,7 @@
       "@chase-sets/ordering/context": [
         "./bounded-contexts/ordering/context.json"
       ],
-      "@chase-sets/ordering/links": [
+      "@chase-sets/ordering/integration/link-intents": [
         "./bounded-contexts/ordering/routes/link-intents.ts"
       ],
       "@chase-sets/ordering/routes/*": [
@@ -654,7 +654,7 @@
       "@chase-sets/platform-operations/context": [
         "./bounded-contexts/platform-operations/context.json"
       ],
-      "@chase-sets/platform-operations/links": [
+      "@chase-sets/platform-operations/integration/link-intents": [
         "./bounded-contexts/platform-operations/routes/link-intents.ts"
       ],
       "@chase-sets/platform-operations/routes/*": [
@@ -885,7 +885,7 @@
       "@chase-sets/pricing/context": [
         "./bounded-contexts/pricing/context.json"
       ],
-      "@chase-sets/pricing/links": [
+      "@chase-sets/pricing/integration/link-intents": [
         "./bounded-contexts/pricing/routes/link-intents.ts"
       ],
       "@chase-sets/pricing/routes/*": [
@@ -951,7 +951,7 @@
       "@chase-sets/settlement/context": [
         "./bounded-contexts/settlement/context.json"
       ],
-      "@chase-sets/settlement/links": [
+      "@chase-sets/settlement/integration/link-intents": [
         "./bounded-contexts/settlement/routes/link-intents.ts"
       ],
       "@chase-sets/settlement/routes/*": [

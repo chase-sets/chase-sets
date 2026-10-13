@@ -35,7 +35,7 @@
     "storage-locations"
   ],
   "allowedSupportDirectories": ["catalog-item-support", "request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./links"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
