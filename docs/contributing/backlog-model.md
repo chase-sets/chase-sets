@@ -30,9 +30,16 @@ claim, or an ongoing-monitoring result. Each Probe acceptance criterion names
 its exact authority, captured artifact, lifecycle moment, and bounded
 unknown/failure behavior; post-landing evidence is not collected before the
 landed/deployed state it observes exists. A marked evidence comment plus
-independent operator acceptance may close a Probe without a pull request only
-after that Probe's own acceptance criteria are met; operator acceptance is a
-closure control, not evidence authority.
+independent acceptance by the authorized host/reviewer may close a Probe without
+a pull request only after that Probe's own acceptance criteria are met;
+acceptance is a closure control, not evidence authority. It does not require
+Todd to perform or accept an agent-owned Probe. Agents own preparation,
+execution, monitoring, evidence, cleanup, and reporting under the
+[delivery operator boundary](../../.agents/skills/delivery/SKILL.md#operator-boundary).
+Preserve external approvals at their ruled lifecycle and unrelated reserved
+authority. Explicit performer-specific acceptance needs prospective repair and
+independent validation before agent execution; never relabel agent evidence as
+human evidence. This grants no provider or production authorization.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
 `kind:epic` label is kept only as a fallback for tooling that predates types;
