@@ -10,6 +10,10 @@ import {
 } from "./ucp";
 import {
   MCP_LEGACY_PROTOCOL_VERSIONS,
+  MCP_META_PROTOCOL_VERSION_KEY,
+  MCP_META_CLIENT_CAPABILITIES_KEY,
+  MCP_METHOD_HEADER,
+  MCP_NAME_HEADER,
   MCP_PROTOCOL_VERSION,
   MCP_PROTOCOL_VERSION_2025_11_25,
   MCP_PROTOCOL_VERSION_HEADER,
@@ -770,6 +774,355 @@ describe("UCP Postgres idempotency store", () => {
 });
 
 describe("UCP MCP routes", () => {
+  const modernMeta = {
+    [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28",
+    [MCP_META_CLIENT_CAPABILITIES_KEY]: {},
+  };
+  const serverInfo = { name: "chase-sets-ucp", title: "Chase Sets UCP", version: "0.1.0" };
+  const modernHeaders = (method: string, name?: string) => ({
+    "Content-Type": "application/json",
+    [MCP_PROTOCOL_VERSION_HEADER]: "2026-07-28",
+    [MCP_METHOD_HEADER]: method,
+    ...(name === undefined ? {} : { [MCP_NAME_HEADER]: name }),
+  });
+
+  it("UCP MCP 2026-07-28 stateless scripted HTTP client without initialize", async () => {
+    const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "ok" as const }, products: [] }));
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { search_catalog: handler } }));
+    // Raw JSON-RPC fetch adapter: the pinned SDK supports legacy revisions only.
+    const scriptedFetch: typeof fetch = async (input, init) => app.request(new Request(input, init));
+    const calls = [
+      { method: "server/discover", params: {}, name: undefined },
+      { method: "tools/list", params: {}, name: undefined },
+      {
+        method: "tools/call",
+        params: { name: "search_catalog", arguments: { query: "charizard", limit: 3 } },
+        name: "search_catalog",
+      },
+      {
+        method: "resources/read",
+        params: { uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI },
+        name: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+      },
+    ];
+    for (const call of calls) {
+      const response = await scriptedFetch("https://marketplace.example/ucp/mcp", {
+        method: "POST",
+        headers: modernHeaders(call.method, call.name),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: call.method,
+          method: call.method,
+          params: { ...call.params, _meta: modernMeta },
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Mcp-Session-Id")).toBeNull();
+      const body = await response.json();
+      expect(body).toMatchObject({
+        jsonrpc: "2.0",
+        id: call.method,
+        result: { _meta: { "io.modelcontextprotocol/serverInfo": serverInfo } },
+      });
+      if (call.method === "server/discover") {
+        expect(body.result).toEqual({
+          supportedVersions: ["2026-07-28", "2025-11-25", "2025-06-18"],
+          capabilities: { tools: {}, resources: {} },
+          _meta: { "io.modelcontextprotocol/serverInfo": serverInfo },
+        });
+      } else if (call.method === "tools/list") {
+        expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(
+          UCP_MCP_TOOLS.map((tool) => tool.name),
+        );
+      } else if (call.method === "tools/call") {
+        expect(body.result.structuredContent).toEqual({ ucp: { version: UCP_VERSION, status: "ok" }, products: [] });
+        expect(body.result._meta.ui.resourceUri).toBe(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI);
+      } else {
+        expect(body.result.contents[0]).toMatchObject({
+          uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+          mimeType: "text/html;profile=mcp-app",
+        });
+      }
+    }
+    expect(handler).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ arguments: { query: "charizard", limit: 3 } }),
+    );
+  });
+
+  describe("UCP MCP era matrix", () => {
+    it.each([
+      {
+        method: "resources/read",
+        params: { uri: UCP_MCP_PRODUCT_CARDS_RESOURCE_URI },
+        name: `=?base64?${Buffer.from(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI).toString("base64")}?=`,
+        status: 200,
+        code: undefined,
+      },
+      {
+        method: "resources/read",
+        params: { uri: UCP_MCP_CART_REVIEW_RESOURCE_URI },
+        name: undefined,
+        status: 400,
+        code: -32020,
+      },
+      { method: "tools/call", params: {}, name: undefined, status: 400, code: -32020 },
+      { method: "prompts/get", params: { name: "prompt" }, name: "other", status: 400, code: -32020 },
+      ...[" padded ", "\uFEFFtarget", "\u4E16\u754C"].map((name) => ({
+        method: "tools/call",
+        params: { name },
+        name: `=?base64?${Buffer.from(name).toString("base64")}?=`,
+        status: 200,
+        code: -32602,
+      })),
+    ])("target encoding and routing $method $name", async (row) => {
+      const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+      const response = await app.request("/ucp/mcp", {
+        method: "POST",
+        headers: modernHeaders(row.method, row.name),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "target",
+          method: row.method,
+          params: { ...row.params, _meta: modernMeta },
+        }),
+      });
+      expect(response.status).toBe(row.status);
+      const body = await response.json();
+      expect(body.error?.code).toBe(row.code);
+      if (row.method === "resources/read" && row.status === 200) {
+        expect(body.result.contents[0].uri).toBe(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI);
+      }
+    });
+
+    const headers = modernHeaders("tools/call", "search_catalog");
+    const rows: readonly {
+      name: string;
+      method?: string;
+      headers: Readonly<Record<string, string>>;
+      meta: Readonly<Record<string, unknown>>;
+      status: number;
+      code: number | undefined;
+    }[] = [
+      { name: "modern without optional clientInfo", headers, meta: modernMeta, status: 200, code: undefined },
+      {
+        name: "unsupported metadata",
+        headers: { ...headers, [MCP_PROTOCOL_VERSION_HEADER]: "1900-01-01" },
+        meta: { ...modernMeta, [MCP_META_PROTOCOL_VERSION_KEY]: "1900-01-01" },
+        status: 400,
+        code: -32022,
+      },
+      {
+        name: "unsupported metadata before missing header",
+        headers: { [MCP_METHOD_HEADER]: "tools/call" },
+        meta: { ...modernMeta, [MCP_META_PROTOCOL_VERSION_KEY]: "1800-01-01" },
+        status: 400,
+        code: -32022,
+      },
+      {
+        name: "missing protocol header",
+        headers: { [MCP_METHOD_HEADER]: "tools/call", [MCP_NAME_HEADER]: "search_catalog" },
+        meta: modernMeta,
+        status: 400,
+        code: -32020,
+      },
+      {
+        name: "different protocol header",
+        headers: { ...headers, [MCP_PROTOCOL_VERSION_HEADER]: "2025-11-25" },
+        meta: modernMeta,
+        status: 400,
+        code: -32020,
+      },
+      {
+        name: "missing method",
+        headers: { [MCP_PROTOCOL_VERSION_HEADER]: "2026-07-28", [MCP_NAME_HEADER]: "search_catalog" },
+        meta: modernMeta,
+        status: 400,
+        code: -32020,
+      },
+      {
+        name: "mismatched method",
+        headers: { ...headers, [MCP_METHOD_HEADER]: "resources/read" },
+        meta: modernMeta,
+        status: 400,
+        code: -32020,
+      },
+      { name: "missing name", headers: modernHeaders("tools/call"), meta: modernMeta, status: 400, code: -32020 },
+      {
+        name: "mismatched name",
+        headers: { ...headers, [MCP_NAME_HEADER]: "lookup_catalog" },
+        meta: modernMeta,
+        status: 400,
+        code: -32020,
+      },
+      {
+        name: "encoded matching name",
+        headers: { ...headers, [MCP_NAME_HEADER]: "=?base64?c2VhcmNoX2NhdGFsb2c=?=" },
+        meta: modernMeta,
+        status: 200,
+        code: undefined,
+      },
+      ...["=?base64?%%%?=", "=?base64?c2VhcmNoX2NhdGFsb2c=?", "=?base64?/w==?=", "=?base64?c2VhcmNoX2NhdGFsb2d=?="].map(
+        (value) => ({
+          name: `malformed encoding ${value}`,
+          headers: { ...headers, [MCP_NAME_HEADER]: value },
+          meta: modernMeta,
+          status: 400,
+          code: -32020,
+        }),
+      ),
+      {
+        name: "missing capabilities",
+        headers,
+        meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28" },
+        status: 400,
+        code: -32602,
+      },
+      {
+        name: "capability header ignored",
+        headers: { ...headers, "Mcp-Client-Capabilities": "{}" },
+        meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28" },
+        status: 400,
+        code: -32602,
+      },
+      {
+        name: "invalid capabilities",
+        headers,
+        meta: { ...modernMeta, [MCP_META_CLIENT_CAPABILITIES_KEY]: [] },
+        status: 400,
+        code: -32602,
+      },
+      ...[null, 7, ""].map((value) => ({
+        name: `invalid metadata version ${value}`,
+        headers,
+        meta: { ...modernMeta, [MCP_META_PROTOCOL_VERSION_KEY]: value },
+        status: 400,
+        code: -32602,
+      })),
+      {
+        name: "unknown method",
+        method: "unknown/method",
+        headers: modernHeaders("unknown/method"),
+        meta: modernMeta,
+        status: 404,
+        code: -32601,
+      },
+    ];
+    it.each(rows)("$name", async (row) => {
+      const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "ok" as const } }));
+      const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { search_catalog: handler } }));
+      const response = await app.request("/ucp/mcp", {
+        method: "POST",
+        headers: row.headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "matrix",
+          method: row.method ?? "tools/call",
+          params: { name: "search_catalog", arguments: { query: "pikachu" }, _meta: row.meta },
+        }),
+      });
+      expect(response.status).toBe(row.status);
+      const body = await response.json();
+      expect(body.error?.code).toBe(row.code);
+      expect(handler).toHaveBeenCalledTimes(row.status === 200 ? 1 : 0);
+      if (row.code === -32022) {
+        expect(body.error.data).toEqual({
+          supported: ["2026-07-28", "2025-11-25", "2025-06-18"],
+          requested: row.meta[MCP_META_PROTOCOL_VERSION_KEY],
+        });
+      }
+    });
+  });
+
+  describe("UCP MCP legacy fallback preserved", () => {
+    const initializeResult = (protocolVersion: string) => ({
+      protocolVersion,
+      serverInfo,
+      capabilities: { tools: {}, resources: {} },
+    });
+    const rows = [
+      {
+        name: "absent header",
+        header: undefined,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18" },
+        status: 200,
+        result: initializeResult("2025-06-18"),
+      },
+      ...["2025-06-18", "2025-11-25"].map((version) => ({
+        name: `legacy header ${version}`,
+        header: version,
+        method: "initialize",
+        params: { protocolVersion: version },
+        status: 200,
+        result: initializeResult(version),
+      })),
+      {
+        name: "initialize naming modern downgrades",
+        header: undefined,
+        method: "initialize",
+        params: { protocolVersion: "2026-07-28" },
+        status: 200,
+        result: initializeResult("2025-06-18"),
+      },
+      {
+        name: "initialize selects legacy despite metadata",
+        header: undefined,
+        method: "initialize",
+        params: { protocolVersion: "2026-07-28", _meta: modernMeta },
+        status: 200,
+        result: initializeResult("2025-06-18"),
+      },
+      {
+        name: "legacy ignores routing and non-version metadata",
+        header: "2025-11-25",
+        method: "initialize",
+        params: { protocolVersion: "2025-11-25", _meta: { [MCP_META_CLIENT_CAPABILITIES_KEY]: [] } },
+        status: 200,
+        result: initializeResult("2025-11-25"),
+      },
+      ...["2026-07-28", "1900-01-01"].map((version) => ({
+        name: `header-only ${version}`,
+        header: version,
+        method: "tools/list",
+        params: {},
+        status: 400,
+        error: {
+          code: -32004,
+          message: `Unsupported MCP protocol version '${version}'.`,
+          data: { requestedVersion: version, supportedVersions: ["2025-06-18", "2025-11-25"] },
+        },
+      })),
+      {
+        name: "legacy discover remains unknown",
+        header: undefined,
+        method: "server/discover",
+        params: {},
+        status: 200,
+        error: { code: -32601, message: "Unsupported UCP MCP method 'server/discover'." },
+      },
+    ];
+    it.each(rows)("$name", async (row) => {
+      const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+      const response = await app.request("/ucp/mcp", {
+        method: "POST",
+        headers: {
+          [MCP_METHOD_HEADER]: "ignored-legacy",
+          [MCP_NAME_HEADER]: "ignored-legacy",
+          ...(row.header === undefined ? {} : { [MCP_PROTOCOL_VERSION_HEADER]: row.header }),
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "legacy", method: row.method, params: row.params }),
+      });
+      expect(response.status).toBe(row.status);
+      expect(await response.text()).toBe(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: "legacy",
+          ...("result" in row ? { result: row.result } : { error: row.error }),
+        }),
+      );
+    });
+  });
+
   it("negotiates the UCP MCP protocol version on initialize", async () => {
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
 
@@ -1120,8 +1473,9 @@ describe("UCP MCP routes", () => {
     });
   });
 
-  it("requires idempotency for complete_checkout tool calls", async () => {
-    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes());
+  it.each(["legacy", "modern"])("requires idempotency for complete_checkout tool calls (%s)", async (era) => {
+    const handler = vi.fn();
+    const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { complete_checkout: handler } }));
     const body = JSON.stringify({
       jsonrpc: "2.0",
       id: "1",
@@ -1129,16 +1483,18 @@ describe("UCP MCP routes", () => {
       params: {
         name: "complete_checkout",
         arguments: { id: "chk_1" },
+        ...(era === "modern" ? { _meta: modernMeta } : {}),
       },
     });
 
     const response = await app.request("/ucp/mcp", {
       method: "POST",
       body,
-      headers: signedHeaders(body),
+      headers: signedHeaders(body, era === "modern" ? modernHeaders("tools/call", "complete_checkout") : {}),
     });
 
     expect(response.status).toBe(200);
+    expect(handler).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       error: {
         message: "Idempotency-Key is required for complete_checkout.",
@@ -1312,123 +1668,133 @@ describe("UCP MCP routes", () => {
     expect(body.result.content).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "json" })]));
   });
 
-  it("returns an OAuth challenge in tool results when account-scoped handlers require authentication", async () => {
-    const app = new Hono().route(
-      "/ucp/mcp",
-      createUcpMcpRoutes({
-        mcpToolHandlers: {
-          get_checkout: async () => ({
-            ucp: { version: UCP_VERSION, status: "error" as const },
-            messages: [
-              {
-                severity: "error" as const,
-                code: "authentication_required",
-                message: "UCP checkout requires a linked buyer account.",
-              },
-            ],
-          }),
-        },
-      }),
-    );
-
-    const response = await app.request("/ucp/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "1",
-        method: "tools/call",
-        params: {
-          name: "get_checkout",
-          arguments: { id: "chk_1" },
-        },
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      result: {
-        structuredContent: {
-          ucp: { status: "error" },
-          messages: [{ code: "authentication_required" }],
-        },
-        _meta: {
-          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
-        },
-      },
-    });
-  });
-
-  it("returns trusted checkout handoff for OAuth actors without UCP signed-write headers", async () => {
-    const app = new Hono<{
-      Variables: {
-        actor: ResolvedActor | null;
-        context: EventStoreContext | null;
-      };
-    }>();
-    app.use("/ucp/mcp", async (c, next) => {
-      c.set("actor", {
-        sessionId: "ses_1",
-        tenantId: "tenant_1",
-        userId: "usr_1",
-        accountId: "acct_1",
-        membershipId: "mem_1",
-        roleKey: "buyer",
-        permissions: ["orders.manage"],
-      });
-      c.set("context", {
-        tenantId: "tenant_1" as never,
-        audit: {
-          performedByUserId: "usr_1" as never,
-          forAccountId: "acct_1" as never,
-        },
-        trace: {},
-      });
-      await next();
-    });
-    app.route(
-      "/ucp/mcp",
-      createUcpMcpRoutes({
-        mcpToolHandlers: {
-          complete_checkout: vi.fn(),
-        },
-      }),
-    );
-
-    const response = await app.request("/ucp/mcp", {
-      method: "POST",
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "1",
-        method: "tools/call",
-        params: {
-          name: "complete_checkout",
-          arguments: { id: "chk_1" },
-        },
-      }),
-      headers: { "Content-Type": "application/json" },
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      result: {
-        structuredContent: {
-          ucp: { status: "requires_action" },
-          action: {
-            type: "trusted_checkout_handoff",
-            url: "/checkout/chk_1",
+  it.each(["legacy", "modern"])(
+    "returns an OAuth challenge in tool results when account-scoped handlers require authentication (%s)",
+    async (era) => {
+      const app = new Hono().route(
+        "/ucp/mcp",
+        createUcpMcpRoutes({
+          mcpToolHandlers: {
+            get_checkout: async () => ({
+              ucp: { version: UCP_VERSION, status: "error" as const },
+              messages: [
+                {
+                  severity: "error" as const,
+                  code: "authentication_required",
+                  message: "UCP checkout requires a linked buyer account.",
+                },
+              ],
+            }),
           },
-          messages: [{ code: "trusted_ui_required" }],
-        },
-        _meta: {
-          ui: {
-            resourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+        }),
+      );
+
+      const response = await app.request("/ucp/mcp", {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "1",
+          method: "tools/call",
+          params: {
+            name: "get_checkout",
+            arguments: { id: "chk_1" },
+            ...(era === "modern" ? { _meta: modernMeta } : {}),
           },
-          "openai/outputTemplate": UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+        }),
+        headers:
+          era === "modern" ? modernHeaders("tools/call", "get_checkout") : { "Content-Type": "application/json" },
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: {
+          structuredContent: {
+            ucp: { status: "error" },
+            messages: [{ code: "authentication_required" }],
+          },
+          _meta: {
+            "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
+          },
         },
-      },
-    });
-  });
+      });
+    },
+  );
+
+  it.each(["legacy", "modern"])(
+    "returns trusted checkout handoff for OAuth actors without UCP signed-write headers (%s)",
+    async (era) => {
+      const app = new Hono<{
+        Variables: {
+          actor: ResolvedActor | null;
+          context: EventStoreContext | null;
+        };
+      }>();
+      app.use("/ucp/mcp", async (c, next) => {
+        c.set("actor", {
+          sessionId: "ses_1",
+          tenantId: "tenant_1",
+          userId: "usr_1",
+          accountId: "acct_1",
+          membershipId: "mem_1",
+          roleKey: "buyer",
+          permissions: ["orders.manage"],
+        });
+        c.set("context", {
+          tenantId: "tenant_1" as never,
+          audit: {
+            performedByUserId: "usr_1" as never,
+            forAccountId: "acct_1" as never,
+          },
+          trace: {},
+        });
+        await next();
+      });
+      app.route(
+        "/ucp/mcp",
+        createUcpMcpRoutes({
+          mcpToolHandlers: {
+            complete_checkout: vi.fn(),
+          },
+        }),
+      );
+
+      const response = await app.request("/ucp/mcp", {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "1",
+          method: "tools/call",
+          params: {
+            name: "complete_checkout",
+            arguments: { id: "chk_1" },
+            ...(era === "modern" ? { _meta: modernMeta } : {}),
+          },
+        }),
+        headers:
+          era === "modern" ? modernHeaders("tools/call", "complete_checkout") : { "Content-Type": "application/json" },
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: {
+          structuredContent: {
+            ucp: { status: "requires_action" },
+            action: {
+              type: "trusted_checkout_handoff",
+              url: "/checkout/chk_1",
+            },
+            messages: [{ code: "trusted_ui_required" }],
+          },
+          _meta: {
+            ui: {
+              resourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+            },
+            "openai/outputTemplate": UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
+          },
+        },
+      });
+    },
+  );
 
   it("replays idempotent MCP tool calls with fresh JSON-RPC ids and rejects changed arguments", async () => {
     const handler = vi.fn(async () => ({
