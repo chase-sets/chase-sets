@@ -207,6 +207,7 @@ async function retrieveHybridPage(
   const items = await (dependencies.hydrateItems ?? hydrateDiscoverySearchItemMarketSummaries)(
     dependencies.db,
     unhydratedItems,
+    params,
   );
   const nextOffset = offset + items.length;
 

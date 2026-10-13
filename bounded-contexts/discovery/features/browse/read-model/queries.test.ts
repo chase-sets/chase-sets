@@ -165,5 +165,6 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
     expect(result?.item_count).toBe(3);
     expect(result?.items).toHaveLength(1);
     expect(result?.items[0]?.title).toBe("Charizard (French printing)");
+    expect(searchDiscoveryItems.mock.calls[0]?.[1]).not.toHaveProperty("dimensionFilters");
   });
 });

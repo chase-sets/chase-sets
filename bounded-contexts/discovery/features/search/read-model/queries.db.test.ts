@@ -10,7 +10,7 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as discoveryModule } from "../../../index";
 import { buildSimpleSearchQuery, foldSearchDiacritics } from "../domain/normalization";
-import { searchDiscoveryItems, type DiscoverySearchParams } from "./queries";
+import { discoverySearchCursorState, searchDiscoveryItems, type DiscoverySearchParams } from "./queries";
 
 // Rank ties are the failure mode from issue #3397: identical weight-class matches
 // produce identical `ts_rank`, so the relevance sort's `title ASC, id ASC`
@@ -131,6 +131,56 @@ describe("searchDiscoveryItems keyset pagination continuity across rank/tiebreak
     expect(result.items.map((item) => item.catalog_item_id)).toEqual(EXPECTED_ORDER.relevance);
     expect(result.nextCursor).toBeNull();
   });
+
+  it.each(["price_asc", "price_desc"])(
+    "walks pv=2 selected prices through ties and null tail once: %s",
+    async (sort) => {
+      await seedItems();
+      const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+      await pool.query(`DELETE FROM discovery_market_listings`);
+      await pool.query(
+        `INSERT INTO discovery_market_accounts (account_id) VALUES ('cursor-seller') ON CONFLICT DO NOTHING`,
+      );
+      await pool.query(
+        `UPDATE discovery_search_items SET dimension_filter_values = '[{"dimensionId":"finish","optionId":"foil","label":"Finish","optionLabel":"Foil"}]', lowest_price_amount = 2`,
+      );
+      for (const item of SEED_ITEMS.filter((item) => item.price !== null)) {
+        await pool.query(
+          `INSERT INTO discovery_market_listings
+         (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code, listing_stream_version,
+          quantity_cap, status, product_measure_snapshot, selected_options)
+         VALUES ($1, 'cursor-seller', $1, $1, $1, $2, 'USD', 1, 1, 'active', '{}', $3::jsonb)`,
+          [item.id, item.price, JSON.stringify(dimensionFilters)],
+        );
+      }
+      const cursors: string[] = [];
+      expect(await walkAllPages({ sort, dimensionFilters }, 1, pool, cursors)).toEqual(EXPECTED_ORDER[sort]);
+      for (const cursor of cursors) {
+        expect(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"))).toMatchObject({ pv: 2 });
+        expect(discoverySearchCursorState({ sort, dimensionFilters, cursor })).toBe("cursor");
+      }
+      const legacy = Buffer.from(JSON.stringify({ id: "cat_d", lowestPriceAmount: "2" })).toString("base64url");
+      const restarted = await searchDiscoveryItems(pool, {
+        sort,
+        dimensionFilters,
+        cursor: legacy,
+        offset: 40,
+        includeTotal: true,
+        limit: 1,
+      });
+      expect(restarted.total).toBe(5);
+      expect(restarted.category_counts).toEqual([]);
+      expect(restarted.items[0]?.catalog_item_id).toBe(EXPECTED_ORDER[sort][0]);
+      expect(discoverySearchCursorState({ sort, cursor: legacy })).toBe("cursor");
+      expect(await walkAllPages({ sort }, 1)).toEqual(
+        sort === "price_asc"
+          ? ["cat_a", "cat_b", "cat_c", "cat_d", "cat_e"]
+          : ["cat_e", "cat_d", "cat_c", "cat_b", "cat_a"],
+      );
+      await pool.query(`DELETE FROM discovery_market_listings`);
+      await seedItems();
+    },
+  );
 
   it("keeps sibling category counts when the selected category is excluded from its own fan-out", async () => {
     await pool.query(
