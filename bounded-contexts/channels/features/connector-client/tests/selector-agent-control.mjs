@@ -550,7 +550,6 @@ const nativeRemovalStages = [
   "PROCESS",
   "PROCESS_PROFILE",
   "PROCESS_EXECUTABLE",
-  "PROCESS_EXECUTABLE_ALIAS",
   "PROCESS_EXECUTABLE_UNREADABLE",
   "PROCESS_DIGEST",
   "PROCESS_UNIQUE",
@@ -573,31 +572,17 @@ const nativeRemovalScript = String.raw`
 import ctypes as c, hashlib, os, pathlib, sys, time
 stage = 'PROCESS'
 sys.excepthook = lambda kind, value, trace: print('NATIVE_REMOVE_REFUSED:' + stage)
-profile, executable, digest, address, until = sys.argv[1:]
+profile, executable, digest, address, until, pid = sys.argv[1:]
 until = float(until)
-if not address.startswith('unix:'): raise RuntimeError()
-pids, profile_matches, executable_alias, executable_unreadable = [], 0, False, False
-for entry in pathlib.Path('/proc').iterdir():
-    if not entry.name.isdigit(): continue
-    try:
-        args = (entry / 'cmdline').read_bytes().split(b'\0')
-        if ('--user-data-dir=' + profile).encode() not in args: continue
-        if any(arg.startswith(b'--type=') for arg in args): continue
-        profile_matches += 1
-        try: actual_executable = os.path.realpath(entry / 'exe', strict=True)
-        except PermissionError:
-            executable_unreadable = True
-            continue
-        if actual_executable != executable:
-            if actual_executable == os.path.realpath(executable): executable_alias = True
-            continue
-        stage = 'PROCESS_DIGEST'
-        if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
-        pids.append(int(entry.name))
-    except (FileNotFoundError, PermissionError): pass
-stage = 'PROCESS_PROFILE' if not profile_matches else 'PROCESS_EXECUTABLE_UNREADABLE' if not pids and executable_unreadable else 'PROCESS_EXECUTABLE_ALIAS' if not pids and executable_alias else 'PROCESS_EXECUTABLE' if not pids else 'PROCESS_UNIQUE'
-if len(pids) != 1: raise RuntimeError()
-pid = pids[0]
+if not address.startswith('unix:') or not os.path.isabs(profile): raise RuntimeError()
+pid = int(pid)
+if pid <= 0: raise RuntimeError()
+stage = 'PROCESS_EXECUTABLE_UNREADABLE'
+actual_executable = os.path.realpath(pathlib.Path('/proc', str(pid), 'exe'), strict=True)
+stage = 'PROCESS_EXECUTABLE'
+if actual_executable != executable: raise RuntimeError()
+stage = 'PROCESS_DIGEST'
+if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
 stage = 'PROCESS_START'
 started = pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19]
 stage = 'LIBRARY'
@@ -862,8 +847,57 @@ export function createPlaywrightSelectorBrowser({
     }
   }
   async function remove() {
+    if (binding.mode !== "C") throw new SelectorFailure("PROTOCOL_REFUSED");
     const removalDeadline = Math.min(deadline, Date.now() + 30000);
     const remaining = () => Math.max(1, removalDeadline - Date.now());
+    async function bounded(call) {
+      let timer;
+      try {
+        return await Promise.race([
+          call(),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new SelectorFailure("CONTROL_BOUNDARY_LOST")), remaining());
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    nativeRemovalStage = "CAPABILITY";
+    if (typeof nativeSessionBus !== "string" || !nativeSessionBus.startsWith("unix:"))
+      throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    let cdp, pid;
+    try {
+      // Chromium flattens /proc/cmdline into a display title. These two fixed
+      // browser-only queries preserve argument boundaries and launch identity;
+      // neither is exposed by the run endpoint or performs uninstallation.
+      nativeRemovalStage = "PROCESS_PROFILE";
+      cdp = await bounded(() => context.browser().newBrowserCDPSession());
+      const { arguments: args } = await bounded(() => cdp.send("Browser.getBrowserCommandLine"));
+      if (
+        !Array.isArray(args) ||
+        !args.every((arg) => typeof arg === "string") ||
+        args.filter((arg) => arg === "--user-data-dir" || arg.startsWith("--user-data-dir=")).length !== 1 ||
+        !args.includes(`--user-data-dir=${binding.profile}`)
+      )
+        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+      nativeRemovalStage = "PROCESS_UNIQUE";
+      const { processInfo } = await bounded(() => cdp.send("SystemInfo.getProcessInfo"));
+      const browsers = Array.isArray(processInfo) ? processInfo.filter((info) => info?.type === "browser") : [];
+      if (browsers.length !== 1 || !Number.isSafeInteger(browsers[0].id) || browsers[0].id <= 0)
+        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+      pid = browsers[0].id;
+    } catch {
+      throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    } finally {
+      if (cdp) {
+        try {
+          await bounded(() => cdp.detach());
+        } catch {
+          throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+        }
+      }
+    }
     const page = await context.newPage();
     await page.goto("chrome://extensions/", { waitUntil: "commit", timeout: remaining() });
     const item = page.locator(`extensions-item[id="${preparation.extensionId}"]`);
@@ -875,9 +909,6 @@ export function createPlaywrightSelectorBrowser({
     });
     await item.locator("#removeButton").click({ timeout: remaining() });
     try {
-      nativeRemovalStage = "CAPABILITY";
-      if (typeof nativeSessionBus !== "string" || !nativeSessionBus.startsWith("unix:"))
-        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
       nativeRemovalStage = "UNKNOWN";
       if (
         execFileSync(
@@ -890,6 +921,7 @@ export function createPlaywrightSelectorBrowser({
             binding.executableHash,
             nativeSessionBus,
             String(removalDeadline / 1000),
+            String(pid),
           ],
           { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: remaining() },
         ).trim() !== "NATIVE_REMOVE_SENT"
@@ -1045,7 +1077,7 @@ export function createSyntheticBinding({ preparation, executable, version, sessi
     root,
     profile: preparation.profileDirectory,
     profileIdentity: validateCleanupTarget({ root, profile: preparation.profileDirectory }),
-    executable: path.resolve(executable),
+    executable: realpathSync(executable),
     executableHash: hash(readFileSync(executable)),
     version,
     packageId: preparation.extensionId,

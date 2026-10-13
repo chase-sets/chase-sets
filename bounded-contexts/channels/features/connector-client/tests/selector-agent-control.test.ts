@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createContext, Script } from "node:vm";
@@ -94,6 +103,31 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
+  it("binds the canonical executable rather than a launch-path alias; lexical-path mutant fails", async () => {
+    const f = fixture("C");
+    const alias = path.join(f.root, "executable-alias");
+    symlinkSync(f.root, alias, "junction");
+    const executable = path.join(alias, path.basename(f.binding.executable));
+    const preparation = {
+      evidence: "synthetic",
+      profileDirectory: f.profile,
+      extensionId: f.binding.packageId,
+      packageDigests: { "synthetic-package": "b".repeat(64) },
+      t0: f.binding.startedAt,
+    };
+    const make = (adapter: typeof control) =>
+      adapter.createSyntheticBinding({
+        preparation,
+        executable,
+        version: f.binding.version,
+        session: f.binding.session,
+        model: f.binding.model,
+      });
+    expect(make(control).executable).toBe(realpathSync(f.binding.executable));
+    expect(make(control).executableHash).toBe(f.binding.executableHash);
+    const altered = await mutant("executable: realpathSync(executable)", "executable: path.resolve(executable)");
+    expect(make(altered).executable).not.toBe(realpathSync(f.binding.executable));
+  });
   it("native bus config stays outside sealed v4 inventory; inside-root placement mutant is refused", async () => {
     const packaging = await import(new URL("../integrations/order-authority-probe/package.mjs", import.meta.url).href);
     const parent = mkdtempSync(path.join(scratch, "native-bus-inventory-"));
@@ -126,18 +160,76 @@ describe("selector-agent-control-capability", () => {
     "unknown-output",
     "native-exception",
     "native-executable-refusal",
-    "native-executable-alias-refusal",
+    "retired-native-stage",
     "native-executable-unreadable-refusal",
     "native-library-refusal",
     "missing-private-bus",
     "missing-native-action-mutant",
+    "profile-mismatch",
+    "duplicate-profile-switch",
+    "missing-browser-process",
+    "duplicate-browser-process",
+    "invalid-browser-pid",
+    "metadata-private-exception",
+    "metadata-detach-exception",
+    "mode-S-refusal",
   ] as const)("native confirmation %s precedes exact-ID UI removal", async (result) => {
-    const f = fixture("C");
+    const f = fixture(result === "mode-S-refusal" ? "S" : "C");
     const digests = { "synthetic-package": "b".repeat(64) };
     f.binding.packageHash = hash(JSON.stringify(digests));
     let rendered = false,
       removed = false,
+      clicked = false,
+      detached = false,
       url = "";
+    const preflightRefused = [
+      "profile-mismatch",
+      "duplicate-profile-switch",
+      "missing-browser-process",
+      "duplicate-browser-process",
+      "invalid-browser-pid",
+      "metadata-private-exception",
+      "metadata-detach-exception",
+      "mode-S-refusal",
+    ].includes(result);
+    const metadataCalls: string[] = [];
+    const args = [f.binding.executable, "--enable-automation", `--user-data-dir=${f.profile}`];
+    // Chromium's process title loses these boundaries; the structured browser
+    // query must retain them rather than learning to parse the display title.
+    expect(`${args.join(" ")}\0`.split("\0")).not.toContain(`--user-data-dir=${f.profile}`);
+    const metadata = {
+      send: async (method: string) => {
+        metadataCalls.push(method);
+        expect(clicked).toBe(false);
+        if (result === "metadata-private-exception") throw new Error("SYNTHETIC_PRIVATE_METADATA_EXCEPTION");
+        if (method === "Browser.getBrowserCommandLine")
+          return {
+            arguments:
+              result === "profile-mismatch"
+                ? [f.binding.executable, `--user-data-dir=${path.join(f.root, "unrelated-profile")}`]
+                : result === "duplicate-profile-switch"
+                  ? [...args, "--user-data-dir=/SYNTHETIC_OTHER_PROFILE"]
+                  : args,
+          };
+        if (method === "SystemInfo.getProcessInfo")
+          return {
+            processInfo:
+              result === "missing-browser-process"
+                ? []
+                : result === "duplicate-browser-process"
+                  ? [
+                      { type: "browser", id: 4242 },
+                      { type: "browser", id: 4243 },
+                    ]
+                  : [{ type: "browser", id: result === "invalid-browser-pid" ? "4242" : 4242 }],
+          };
+        throw new Error("SYNTHETIC_FORBIDDEN_METADATA_METHOD");
+      },
+      detach: async () => {
+        detached = true;
+        if (result === "metadata-detach-exception") throw new Error("SYNTHETIC_PRIVATE_DETACH_EXCEPTION");
+      },
+    };
     const item = {
       count: async () => (rendered && !removed ? 1 : 0),
       waitFor: async ({ state }: { state: string }) => {
@@ -149,6 +241,8 @@ describe("selector-agent-control-capability", () => {
         return {
           click: async () => {
             expect(removed).toBe(false);
+            expect(detached).toBe(true);
+            clicked = true;
           },
         };
       },
@@ -167,6 +261,9 @@ describe("selector-agent-control-capability", () => {
     nativeRemoval.mockReset().mockImplementation((_executable: string, args: string[]) => {
       expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
       expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
+      expect(args[7]).toBe("4242");
+      expect(args[1]).not.toContain("'cmdline'");
+      expect(args[1]).toContain("actual_executable != executable");
       expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
       expect(args[1]).toContain("b'GetName', params(index)");
       expect(args[1]).not.toContain("b'GetActions'");
@@ -181,7 +278,7 @@ describe("selector-agent-control-capability", () => {
         throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
           stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_UNREADABLE\n",
         });
-      if (result === "native-executable-alias-refusal")
+      if (result === "retired-native-stage")
         throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
           stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_ALIAS\n",
         });
@@ -197,7 +294,10 @@ describe("selector-agent-control-capability", () => {
         ? await mutant("execFileSync(", '(() => "NATIVE_REMOVE_SENT")(')
         : control;
     const browser = browserControl.createPlaywrightSelectorBrowser({
-      context: { browser: () => ({ version: () => f.binding.version }), newPage: async () => page },
+      context: {
+        browser: () => ({ version: () => f.binding.version, newBrowserCDPSession: async () => metadata }),
+        newPage: async () => page,
+      },
       preparation: {
         evidence: "synthetic",
         extensionId: f.binding.packageId,
@@ -213,26 +313,41 @@ describe("selector-agent-control-capability", () => {
     else if (result === "confirmed") expect(await browser.action("remove")).toEqual({ ok: true });
     else
       await expect(browser.action("remove")).rejects.toMatchObject({
-        code: "CONTROL_BOUNDARY_LOST",
+        code: result === "mode-S-refusal" ? "PROTOCOL_REFUSED" : "CONTROL_BOUNDARY_LOST",
         message: "selector_operation_refused",
       });
     expect(removed).toBe(result === "confirmed");
+    expect(clicked).toBe(!preflightRefused && result !== "missing-private-bus");
     expect(browser.hostNativeRemovalStage()).toBe(
       {
         confirmed: "UI_ABSENT",
         "unknown-output": "UNKNOWN",
         "native-exception": "ROLE",
         "native-executable-refusal": "PROCESS_EXECUTABLE",
-        "native-executable-alias-refusal": "PROCESS_EXECUTABLE_ALIAS",
+        "retired-native-stage": "UNKNOWN",
         "native-executable-unreadable-refusal": "PROCESS_EXECUTABLE_UNREADABLE",
         "native-library-refusal": "LIBRARY",
         "missing-private-bus": "CAPABILITY",
         "missing-native-action-mutant": "SENT",
+        "profile-mismatch": "PROCESS_PROFILE",
+        "duplicate-profile-switch": "PROCESS_PROFILE",
+        "missing-browser-process": "PROCESS_UNIQUE",
+        "duplicate-browser-process": "PROCESS_UNIQUE",
+        "invalid-browser-pid": "PROCESS_UNIQUE",
+        "metadata-private-exception": "PROCESS_PROFILE",
+        "metadata-detach-exception": "PROCESS_UNIQUE",
+        "mode-S-refusal": null,
       }[result],
     );
     expect(nativeRemoval).toHaveBeenCalledTimes(
-      ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
+      preflightRefused || ["missing-private-bus", "missing-native-action-mutant"].includes(result) ? 0 : 1,
     );
+    if (!["missing-private-bus", "mode-S-refusal"].includes(result)) {
+      expect(metadataCalls[0]).toBe("Browser.getBrowserCommandLine");
+      expect(detached).toBe(true);
+      if (!["profile-mismatch", "duplicate-profile-switch", "metadata-private-exception"].includes(result))
+        expect(metadataCalls).toEqual(["Browser.getBrowserCommandLine", "SystemInfo.getProcessInfo"]);
+    } else expect(metadataCalls).toEqual([]);
   });
   it("waits for the actual fixed helper API before cancel-before-begin, not navigation commit", async () => {
     const f = fixture("C");
