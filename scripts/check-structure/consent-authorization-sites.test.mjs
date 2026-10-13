@@ -1725,8 +1725,8 @@ describe("Consent authorization sites", () => {
     expect(redirectedImportResult.drift.removedImports).toEqual([
       expectedConsentAuthorizationImportIdentity(registry.sites.find(({ file }) => file === redirectedFile)),
     ]);
-    expect(redirectedImportResult.drift.previousImportTotal).toBe(3);
-    expect(redirectedImportResult.drift.currentImportTotal).toBe(3);
+    expect(redirectedImportResult.drift.previousImportTotal).toBe(4);
+    expect(redirectedImportResult.drift.currentImportTotal).toBe(4);
     expect(redirectedImportResult.violations.some(({ code }) => code === "consent-authorization-import-invalid")).toBe(
       true,
     );
@@ -2445,7 +2445,7 @@ describe("Consent authorization sites", () => {
         files: arbitraryPathResult.corpus.files,
       })}\n`,
     );
-    expect(arbitraryPathResult.surface).toEqual({ scanned: 7, total: 7 });
+    expect(arbitraryPathResult.surface).toEqual({ scanned: 8, total: 8 });
     expect(arbitraryPathResult.corpus.files).toContain("zz-unrelated/plain-directory/module.ts");
     expect(
       arbitraryPathResult.violations.some(
@@ -2507,7 +2507,7 @@ describe("Consent authorization sites", () => {
       })}\n`,
     );
     expect(arbitraryControlResult.corpus.files).toContain("zz-unrelated/plain-directory/module.mts");
-    expect(arbitraryControlResult.surface).toEqual({ scanned: 10, total: 10 });
+    expect(arbitraryControlResult.surface).toEqual({ scanned: 11, total: 11 });
     expect(
       arbitraryControlResult.violations.some(
         ({ code, site }) => code === "consent-authorization-site-unregistered" && site?.owner === "seventhModuleProbe",
