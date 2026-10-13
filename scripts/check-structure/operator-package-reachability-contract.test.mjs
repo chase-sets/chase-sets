@@ -1,0 +1,145 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const readProse = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8").replace(/\s+/g, " ");
+const skillPaths = [".agents/skills/delivery/SKILL.md", ".claude/skills/delivery/SKILL.md"];
+const gateLink = "../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability";
+const runbooks = [
+  "docs/runbooks/marketplace-production-promotion.md",
+  "docs/runbooks/tcgplayer-automation-operations.md",
+  "docs/runbooks/channels-pilot-operations.md",
+];
+
+const lifecycleRules = [
+  "Before packaging `READY` or `READY_FOR_TODD`, capture every target in the complete window inventory.",
+  "The package host checklist must recapture every target at host signal and again at window-open re-verification; do not reuse packaging or signal observations.",
+  "A production deploy started after any capture voids that capture, even if it later succeeds at the same SHA; hold readiness and recapture after completion.",
+];
+const evidenceRules = [
+  "Inventory every origin/path a window step opens or its tooling calls, including sign-in hops, extension/API endpoints and external provider entry points.",
+  "Each target names environment, origin/path, expected status and final URL, observation UTC, bound release SHA/image, owning deploy run/job, and effective profile/serving switches as that executed job logged them, matching current Environment values.",
+  "For external providers, mark release/deploy/profile/Environment fields not-applicable, not inferred from a Chase Sets release.",
+  "Bind deployment authority to the exact owning executed deployment job, not an enclosing green run, trigger job or skipped operation; missing, skipped or ambiguous authority is non-authority.",
+  "Capture DNS, TLS verification and every HTTP hop privately, including a same-origin unregistered control path and the response comparison; cite the private evidence locations, not secrets or raw account/provider data.",
+];
+const refusalRules = [
+  "Missing DNS",
+  "TLS failure or verification-disabled probe",
+  "HTTP 404/5xx",
+  "Final origin/path differing from the declared one",
+  "Response indistinguishable from a same-origin unregistered control path (landing/soft-404/SPA shell)",
+  "Incompatible or pending posture",
+  "Missing/incomplete/reused observation",
+  "Release mismatch",
+  "Deploy in progress",
+];
+const authorityRules = [
+  "Refuse both package READY and host signal on any failure or unknown below; window-open re-verification also stops the window.",
+  "Sign-in routing counts only with a same-origin or declared identity-origin hop that returns 200, plus route registration and hosting profile at the exact release; it proves neither authenticated screen nor data.",
+  "Never send a mutating request for reachability.",
+  "An API endpoint whose non-mutating probe is 404/405 or matches the control instead needs exact-release mount and hosting-profile evidence, with the residual recorded; without that evidence refuse readiness.",
+  "This API exception does not excuse a screen 404, 5xx, DNS/TLS failure, release mismatch or posture failure.",
+  "Authenticated checks use existing custody/Phase A authority, never secret collection or new login.",
+  "Reachability is necessary, not an execution GO, account admission, public launch or certification of private data.",
+];
+const consumerTargets = [
+  "/account/channels",
+  "/account/channels/<connectionId>",
+  "/account/channels/publication",
+  "/account/channels/publication/<connectionId>",
+  "/account/channels/<connectionId>/manual-sync/download",
+  "/api/channels/connections/<id>",
+  "/api/channels/connections/<connectionId>/manual-sync",
+  "/api/channels/publication/<connectionId>",
+  "/catalog-items/<id>",
+  "https://store.tcgplayer.com/admin/pricing",
+  "/catalog/providers/tcgplayer",
+  "/api/public/catalog/operator-session/grant",
+  "/api/public/catalog/operator-session/tcgplayer",
+];
+
+function assertRules(text, rules) {
+  for (const rule of rules) expect(text, `missing reachability rule: ${rule}`).toContain(rule);
+}
+
+function assertRefusals(text) {
+  assertRules(text, authorityRules);
+  for (const failure of refusalRules) expect(text).toContain(`| ${failure} | STOP`);
+}
+
+describe.each(skillPaths)("operator package reachability: %s", (path) => {
+  const text = readProse(path);
+
+  it("gates packaging, host signal and window-open with fresh complete target evidence", () => {
+    expect(text).toContain("## Operator-Package Target Reachability");
+    assertRules(text, lifecycleRules);
+    assertRules(text, evidenceRules);
+  });
+
+  it("refuses every failed or unknown target without granting sign-in or mutation authority", () => {
+    assertRefusals(text);
+  });
+
+  it.each(refusalRules)("rejects permitting the negative target case: %s", (failure) => {
+    const clause = `| ${failure} | STOP`;
+    expect(text).toContain(clause);
+    const mutant = text.replace(clause, `| ${failure} | CONTINUE`);
+    expect(() => assertRefusals(mutant)).toThrow();
+  });
+
+  it("retains the historical landing failure at both gates, including the release-only checks", () => {
+    assertRules(text, [
+      "Historical negative (#7728 r4, 2026-10-13; not a current-production observation)",
+      "`PRODUCTION_MARKETPLACE_SERVED` absent; ingress serving chasesets.com/www/admin only; marketplace.chasesets.com without an A record; `/account/channels` returning 404 on chasesets.com and admin.",
+      "Despite closed #8070 and green deploy, package READY and host signal both FAIL.",
+      "The release-only 14:39Z host signal check and 14:55Z window-open check prove no target reachability and both FAIL this gate.",
+      "`f5cbef2cb094a1935841c1a10db0310ac0284442`",
+      "`sha256:d84315b643922527a44633ce43a26c349fb06d49de662bc4d1570c59294bacea`",
+      "38406890844/115345684026",
+      "Do not combine the report's `459dc3fd` binding with that release.",
+      "6148588435",
+    ]);
+  });
+
+  it("labels served-not-public success synthetic and rejects reused captures", () => {
+    assertRules(text, [
+      "Synthetic positive (not live evidence)",
+      "Every inventoried target resolves DNS, verifies TLS and routes as declared, differs from its control, and has complete fresh observations at packaging, signal and window-open.",
+      "Synthetic release/image and owning executed deploy job match every Chase Sets target and current Environment values: `PRODUCTION_MARKETPLACE_SERVED=true`, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, effective profile `proof`, invitation admission and indexing disabled.",
+      "Both readiness gates pass only in this synthetic control; no execution GO or public-launch authority follows.",
+      "Reused-capture negative (synthetic)",
+      "Reusing the synthetic packaging observations at signal FAILS host signal; reusing signal observations at window-open STOPS the window.",
+      "Even unchanged release/posture and formerly passing targets do not make reused observations fresh.",
+    ]);
+  });
+
+  it("inventories both consumers while preserving independent staging and existing safety gates", () => {
+    assertRules(text, consumerTargets);
+    assertRules(text, [
+      "#7728",
+      "#9374-production",
+      "External targets use permitted read-only routes only; no provider traffic is authorized by this contract.",
+      "Staging is independently gated and cannot establish production reachability.",
+      "Production authorization, performer/custody, no-redelivery and read-only Phase A gates remain unchanged.",
+      "Whether to set `PRODUCTION_MARKETPLACE_SERVED=true` remains Todd's separate `PRODUCT_QUESTION`",
+      "#9292 identity-term receipt remains required before admission",
+    ]);
+  });
+
+  it.each([...lifecycleRules, ...evidenceRules, ...refusalRules, ...authorityRules])(
+    "detects removal of the mechanical contract clause: %s",
+    (rule) => {
+      expect(text).toContain(rule);
+      const mutant = text.replaceAll(rule, "REMOVED");
+      expect(() => assertRules(mutant, [rule])).toThrow();
+    },
+  );
+});
+
+describe("operator runbook reachability references", () => {
+  it.each(runbooks)("uses the shared gate rather than a separate readiness rule: %s", (path) => {
+    const text = readProse(path);
+    expect(text).toContain(gateLink);
+    assertRules(text, ["READY", "host signal", "window-open"]);
+  });
+});

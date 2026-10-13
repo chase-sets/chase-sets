@@ -17,6 +17,8 @@ named here does not exist for this pilot.
 
 ## Evidence And Redaction Rules
 
+For production packages, use the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. The #7728 inventory includes Account Channels, connection and publication routes, the manual-sync download route, Admin `/catalog-items/<id>`, Seller Portal entry, all sign-in hops and tooling/API calls. Never claim a reservation or send a mutating download request to prove reachability. Preserve read-only Phase A, performer/custody and no-redelivery gates; routing evidence is neither authenticated data proof nor execution GO.
+
 Evidence for phase-1 operator actions is the `phase1WatchLog` record referenced
 in #7728 and #7729. This runbook does not define its wire format; capture the
 fields listed in "Evidence Capture Checklist" below and cite the issue for the

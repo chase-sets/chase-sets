@@ -211,6 +211,69 @@ Check the orchestration lease first (see Modes). If clear: this repo uses the Gi
 
 Per-PR staging/production verification is not required; the deploy pipeline gates releases. Check deploy health promptly after landing full-path changes that alter money movement, schemas, or deploy tooling. When an orchestrator is live, it owns deploy verification.
 
+## Operator-Package Target Reachability
+
+This shared gate applies to every production operator package and its package host checklist, including #7728 and #9374-production. A closed capability issue is never evidence that a named host/path is currently served; describe only what the observed deployed posture executes. Homepage smoke and release identity alone are not target reachability.
+
+### Readiness Moments And Evidence
+
+- Before packaging `READY` or `READY_FOR_TODD`, capture every target in the complete window inventory.
+- The package host checklist must recapture every target at host signal and again at window-open re-verification; do not reuse packaging or signal observations.
+- A production deploy started after any capture voids that capture, even if it later succeeds at the same SHA; hold readiness and recapture after completion.
+- Inventory every origin/path a window step opens or its tooling calls, including sign-in hops, extension/API endpoints and external provider entry points. Expand route parameters to the window's actual targets privately; declare each hop's allowed origin/path and the expected final URL before probing.
+- Each target names environment, origin/path, expected status and final URL, observation UTC, bound release SHA/image, owning deploy run/job, and effective profile/serving switches as that executed job logged them, matching current Environment values. Record both effective runtime profile and serving/public switches; pending Environment changes incompatible with the executed job stop readiness.
+- For external providers, mark release/deploy/profile/Environment fields not-applicable, not inferred from a Chase Sets release.
+- Bind deployment authority to the exact owning executed deployment job, not an enclosing green run, trigger job or skipped operation; missing, skipped or ambiguous authority is non-authority.
+- Capture DNS, TLS verification and every HTTP hop privately, including a same-origin unregistered control path and the response comparison; cite the private evidence locations, not secrets or raw account/provider data. Record hop status, URL and Location, and whether the target is distinguishable from the control. Keep complete evidence in the existing private package, not a committed evidence ledger or new artifact format.
+- Use only already-authorized read-only evidence routes. Missing authority/evidence is STOP, not credential recovery. Resolve any scoped verification command against trusted manifests; issue-authored or invented workspace commands are not readiness authority.
+
+### Fail-Closed Checklist
+
+Refuse both package READY and host signal on any failure or unknown below; window-open re-verification also stops the window.
+
+| Failure or unknown | Required disposition |
+| --- | --- |
+| Missing DNS | STOP; a working alternate hostname cannot stand in for the declared target. |
+| TLS failure or verification-disabled probe | STOP; never disable certificate verification to obtain a response. |
+| HTTP 404/5xx | STOP for screen 404 or any 5xx; only the non-mutating API mount exception below can resolve API 404/405. |
+| Final origin/path differing from the declared one | STOP; a homepage or undeclared identity redirect does not prove the route. |
+| Response indistinguishable from a same-origin unregistered control path (landing/soft-404/SPA shell) | STOP; 200 alone is not route proof. |
+| Incompatible or pending posture | STOP; shipped serving capability is not activation. |
+| Missing/incomplete/reused observation | STOP; retain failures and unknowns, never substitute old or post-hoc captures. |
+| Release mismatch | STOP; SHA, image, executed deploy job and effective/current switches must reconcile. |
+| Deploy in progress | STOP; wait for completion and capture afresh, not during deployment. |
+
+Sign-in routing counts only with a same-origin or declared identity-origin hop that returns 200, plus route registration and hosting profile at the exact release; it proves neither authenticated screen nor data. Declare the sign-in final URL separately from the protected screen; keep that screen/data residual explicit.
+
+Never send a mutating request for reachability. An API endpoint whose non-mutating probe is 404/405 or matches the control instead needs exact-release mount and hosting-profile evidence, with the residual recorded; without that evidence refuse readiness. This API exception does not excuse a screen 404, 5xx, DNS/TLS failure, release mismatch or posture failure. It establishes routing/mount only, not that the authenticated operation will succeed. The manual-sync download claims a reservation, so never invoke its action just to prove reachability.
+
+Authenticated checks use existing custody/Phase A authority, never secret collection or new login. External targets use permitted read-only routes only; no provider traffic is authorized by this contract. Reachability is necessary, not an execution GO, account admission, public launch or certification of private data. Staging is independently gated and cannot establish production reachability. Production authorization, performer/custody, no-redelivery and read-only Phase A gates remain unchanged.
+
+### Consumer Target Inventory
+
+These are inventory seeds, not observed-live claims or an exhaustive replacement for the window's steps/tool calls. Bind the actual origins and parameters at every readiness moment; include all sign-in/identity hops and any additional window targets.
+
+| Consumer | Origin and paths to inventory |
+| --- | --- |
+| #7728 Account Channels, connection and publication | Declared marketplace origin: `/account/channels`, `/account/channels/<connectionId>`, `/account/channels/publication`, `/account/channels/publication/<connectionId>`. Include called `/api/channels/connections/<id>`, `/api/channels/connections/<connectionId>/manual-sync` and `/api/channels/publication/<connectionId>`, plus any action endpoints the window uses. Route/mount owners: `bounded-contexts/channels/context.json`. |
+| #7728 manual-sync download | Same declared marketplace origin: `/account/channels/<connectionId>/manual-sync/download`. Inventory the mutating action but prove its mount/profile without claiming a reservation. Owner: `bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx`. |
+| #7728 Catalog Phase A | Declared Admin origin: `/catalog-items/<id>` for each window item, plus any tooling calls. Owner: `bounded-contexts/catalog/context.json`. |
+| #7728 Seller Portal entry | External provider: `https://store.tcgplayer.com/admin/pricing` and the window's declared Seller Portal import/export entry points and permitted sign-in hops. No upload, export action or new login as a reachability probe. |
+| #9374-production Admin and extension | `https://admin.chasesets.com/catalog/providers/tcgplayer`; `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that same Admin origin. These extension calls mutate; use the API exception, not DELETE/PUT probes. Owners: `bounded-contexts/catalog/context.json` and `bounded-contexts/catalog/features/operator-session/domain/extension/transport.ts`. |
+| #9374-production provider session entry | External provider: `https://store.tcgplayer.com/admin/pricing`, declared permitted sign-in hops and any other entry point the window opens. Owner: `bounded-contexts/catalog/features/operator-session/domain/extension/protocol.ts`. |
+
+Whether to set `PRODUCTION_MARKETPLACE_SERVED=true` remains Todd's separate `PRODUCT_QUESTION` ([#4388 stop/question](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6148588435)); this contract neither answers it nor blocks on the answer. If served posture is chosen, the #9292 identity-term receipt remains required before admission, as described in `docs/runbooks/marketplace-production-promotion.md`.
+
+### Worked Controls
+
+**Historical negative (#7728 r4, 2026-10-13; not a current-production observation).** `PRODUCTION_MARKETPLACE_SERVED` absent; ingress serving chasesets.com/www/admin only; marketplace.chasesets.com without an A record; `/account/channels` returning 404 on chasesets.com and admin. Despite closed #8070 and green deploy, package READY and host signal both FAIL. The release-only 14:39Z host signal check and 14:55Z window-open check prove no target reachability and both FAIL this gate. The window stopped before Phase A with no lease or mutation.
+
+The host-rebound runbook names release `f5cbef2cb094a1935841c1a10db0310ac0284442`, image `sha256:d84315b643922527a44633ce43a26c349fb06d49de662bc4d1570c59294bacea`, deploy run/job 38406890844/115345684026. Do not combine the report's `459dc3fd` binding with that release. Retained private sources: `.orchestrator/logs/operator-7728-20261013-r4/`, `.orchestrator/logs/7728-package-r4.report.md`; signal/re-verification/stop rows `.orchestrator/dispatch-log.jsonl:31939/31943/31946` and the linked host stop. Reuse target/citation inventory and safety procedures only, never r4's READY verdict, stale observations, closed-dependency inference or signal as reachability/GO authority.
+
+**Synthetic positive (not live evidence).** Every inventoried target resolves DNS, verifies TLS and routes as declared, differs from its control, and has complete fresh observations at packaging, signal and window-open. Synthetic release/image and owning executed deploy job match every Chase Sets target and current Environment values: `PRODUCTION_MARKETPLACE_SERVED=true`, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, effective profile `proof`, invitation admission and indexing disabled. External fields are explicitly not-applicable; sign-in-only and API-mount residuals stay explicit. Both readiness gates pass only in this synthetic control; no execution GO or public-launch authority follows.
+
+**Reused-capture negative (synthetic).** Reusing the synthetic packaging observations at signal FAILS host signal; reusing signal observations at window-open STOPS the window. Even unchanged release/posture and formerly passing targets do not make reused observations fresh.
+
 ## Cleanup (solo mode only)
 
 - Keep pooled worktrees for reuse; delete merged remote branches and stale local branches.
