@@ -27,6 +27,8 @@ not necessarily an environment cookie.
 
 ### Pairing
 
+For production packages, use the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. The #9374-production inventory includes Admin `/catalog/providers/tcgplayer`, the extension's `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that Admin origin, and permitted provider entry/sign-in routes. Do not mint, revoke or push a grant to probe reachability. Staging remains independently gated; existing custody, recovery and G1-G7 authority below is unchanged, and routing proof grants no execution GO.
+
 Complete the [passive recovery gate](#rate-limits-and-recovery) before pairing,
 re-pairing, or changing the provider login for a rotation drill. Pairing can push
 the current session immediately. A cookie change is forwarded to every paired
