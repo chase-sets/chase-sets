@@ -90,7 +90,19 @@ describe("captures actual winners through the authenticated runtime", () => {
     });
     expect(f.store.retainPlannerRead).toHaveBeenCalledWith(
       f.binding,
-      expect.objectContaining({ planFingerprint: value.planFingerprint, winners: [], phase: "preview" }),
+      expect.objectContaining({
+        planFingerprint: value.planFingerprint,
+        winners: [],
+        phase: "preview",
+        plan: {
+          selection: value.selection,
+          budget: value.budget,
+          resolvedAt: value.resolvedAt,
+          status: "empty",
+          blockers: [{ code: "empty-selection", scopeRecordId: null, providerKey: null }],
+          scopes: [],
+        },
+      }),
     );
     expect(f.store.retainPlannerRead.mock.invocationCallOrder[0]).toBeLessThan(
       f.store.finish.mock.invocationCallOrder[0]!,
@@ -117,7 +129,11 @@ describe("captures actual winners through the authenticated runtime", () => {
     expect(result).not.toHaveProperty("current");
     expect(f.store.retainPlannerRead).toHaveBeenLastCalledWith(
       expect.objectContaining({ phase: "pre-confirm" }),
-      expect.objectContaining({ phase: "pre-confirm", eligible: false }),
+      expect.objectContaining({
+        phase: "pre-confirm",
+        eligible: false,
+        plan: f.state.plannerReads[0]!.plan,
+      }),
     );
   });
   it.each(["anonymous", "wrong-owner", "budget"])("refuses %s before planner work", async (mode) => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildScopeSyncBatchPreview, type ScopeSyncBatchPlannedScope } from "../domain/batch";
 import { syntheticCountLifecycleReceipt } from "../tests/count-lifecycle-receipt-fixture";
 import { countCaptureUnitKeys } from "../domain/count-lifecycle-receipt";
+import { captureCountPlan, countCapturePlanSchema } from "../domain/count-capture-plan";
 import {
   collectCountCapturePlannerRead,
   observeCountCapturePlan,
@@ -21,7 +22,7 @@ function fixture() {
   const planned: ScopeSyncBatchPlannedScope = {
     scopeRecordId: "synthetic-scope",
     scopeRecordVersion: "2026-10-13T08:00:00Z",
-    mappingVersions: [],
+    mappingVersions: [{ mappingId: "synthetic-mapping", version: "2026-10-13T08:00:00Z", reviewStatus: "accepted" }],
     profileVersions: sources.map((source) => ({
       providerKey: "scrydex",
       unitKey: source.query.unitKey,
@@ -117,6 +118,87 @@ describe("captures actual winners in the same planner result", () => {
       sources.map((source) => source.sourceId),
     );
     expect(observation.winners.every((winner) => winner.readAt === "2026-10-13T08:04:10Z")).toBe(true);
+  });
+  it("retains the full observed roster, not selected units or the sampled public preview", () => {
+    const { plan, sources } = fixture();
+    const original = plan.plans[0]!;
+    const first = original.participationPreview.units[0]!;
+    const complete = {
+      ...plan,
+      preview: { ...plan.preview, samples: [] },
+      plans: [
+        {
+          ...original,
+          participationPreview: {
+            ...original.participationPreview,
+            units: [
+              {
+                ...first,
+                unitKey: countCaptureUnitKeys[0],
+                profileKey: "synthetic-set-profile",
+                profileVersion: "synthetic-set-version",
+                role: "reference-data" as const,
+                selected: false,
+                estimate: { ...first.estimate, countSource: null },
+                explanation: "synthetic-secret-marker",
+              },
+              ...original.participationPreview.units,
+            ],
+          },
+        },
+      ],
+    };
+    const retained = captureCountPlan(complete);
+    expect(retained.selection).toEqual(plan.preview.selection);
+    expect(retained.budget).toEqual(plan.preview.budget);
+    expect(retained.resolvedAt).toBe(plan.preview.resolvedAt);
+    expect(retained.scopes[0]).toMatchObject({
+      scopeRecordId: original.scopeRecordId,
+      scopeRecordVersion: original.scopeRecordVersion,
+      mappingVersions: original.mappingVersions,
+      profileVersions: original.profileVersions,
+      scope: original.scope,
+    });
+    expect(retained.scopes[0]!.units.map((unit) => unit.unitKey)).toEqual(countCaptureUnitKeys);
+    expect(retained.scopes[0]!.units[0]).toMatchObject({
+      selected: false,
+      profileKey: "synthetic-set-profile",
+      profileVersion: "synthetic-set-version",
+      role: "reference-data",
+    });
+    expect(retained.scopes[0]!.units.slice(1).map((unit) => unit.estimate.countSourceId)).toEqual(
+      sources.map((source) => source.sourceId),
+    );
+    expect(JSON.stringify(retained)).not.toContain("synthetic-secret-marker");
+    expect(plan.preview.planFingerprint).toBe(complete.preview.planFingerprint);
+  });
+  it.each([
+    "scope-date",
+    "mapping-date",
+    "nested-unknown",
+    "out-of-range",
+    "missing-budget",
+    "missing-roster",
+    "duplicate-unit",
+    "duplicate-profile",
+    "profile-mismatch",
+    "extra-provider",
+    "extra-scope",
+  ])("rejects an unsafe retained plan: %s", (mode) => {
+    const value = captureCountPlan(fixture().plan);
+    const scope = value.scopes[0]!;
+    if (mode === "scope-date") scope.scopeRecordVersion = "2026-10-13";
+    if (mode === "mapping-date") scope.mappingVersions[0]!.version = "2026-10-13";
+    if (mode === "nested-unknown") Object.assign(scope.units[0]!.estimate, { rawBody: "synthetic-secret" });
+    if (mode === "out-of-range") scope.units[0]!.estimate.targetCount = 2147483648;
+    if (mode === "missing-budget") Reflect.deleteProperty(value, "budget");
+    if (mode === "missing-roster") Reflect.deleteProperty(scope, "units");
+    if (mode === "duplicate-unit") scope.units[1] = scope.units[0]!;
+    if (mode === "duplicate-profile") scope.profileVersions[1] = scope.profileVersions[0]!;
+    if (mode === "profile-mismatch") scope.profileVersions[0]!.profileVersion = "different";
+    if (mode === "extra-provider") Object.assign(value.budget.providerConcurrency, { other: 1 });
+    if (mode === "extra-scope") value.scopes.push(scope);
+    expect(countCapturePlanSchema.safeParse(value).success).toBe(false);
   });
   it.each([
     "missing-plan",

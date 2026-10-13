@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { countEvidenceSchema, countQuerySchema, countQueryKey, countTimeIsCurrent } from "./count-acquisition";
+import { countCapturePlanSchema, countCaptureUnitKeys } from "./count-capture-plan";
+export { countCaptureUnitKeys } from "./count-capture-plan";
 
 export const countCapturePacketHash = "b44ca44ca7e079b66c19588c49842c499376d063aae1bd8420af32d080a37dde";
 export const countCaptureArtifactPath = "artifacts/catalog-count-lifecycle/receipt.json";
@@ -20,11 +22,6 @@ const receiptQuerySchema = countQuerySchema.extend({
   languageCode: z.literal("en"),
   parentValue: z.literal("OP01"),
 });
-export const countCaptureUnitKeys = [
-  "scrydex:one-piece:set:reference-data",
-  "scrydex:one-piece:single-card:source-observation-import",
-  "scrydex:one-piece:sealed-product:source-observation-import",
-] as const;
 export const countCaptureAuthoritySchema = z
   .object({
     dispatchId: id,
@@ -157,6 +154,7 @@ export const countCapturePlannerReadSchema = z
     eligible: z.boolean(),
     refusal: id.nullable(),
     effectsCapability: z.literal(false),
+    plan: countCapturePlanSchema,
     winners: z
       .array(z.object({ query: receiptQuerySchema, source: sourceSchema.nullable(), readAt: instant }).strict())
       .max(2),

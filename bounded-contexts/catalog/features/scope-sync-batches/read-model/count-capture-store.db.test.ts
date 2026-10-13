@@ -10,7 +10,8 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCountCaptureStore } from "./count-capture-store";
 import { countCaptureSchemaSql, countCaptureSchemaMigrations } from "./count-capture-schema";
 import { syntheticCountCaptureAuthority } from "../tests/count-capture-fixture";
-import { normalizeScopeSyncBatchBudget } from "../domain/batch";
+import { buildScopeSyncBatchPreview, normalizeScopeSyncBatchBudget } from "../domain/batch";
+import { captureCountPlan } from "../domain/count-capture-plan";
 import { syntheticCountLifecycleReceipt } from "../tests/count-lifecycle-receipt-fixture";
 
 const base = process.env.TEST_DATABASE_URL;
@@ -183,6 +184,10 @@ describeDb("caps actual sends across durable capture replicas", () => {
         eligible: false,
         refusal: null,
         effectsCapability: false as const,
+        plan: captureCountPlan({
+          preview: buildScopeSyncBatchPreview({ selection, plans: [], resolvedAt: now() }),
+          plans: [],
+        }),
         winners: [],
       };
       if (mode === "wrong-request") {

@@ -9,6 +9,7 @@ import {
 } from "../domain/batch";
 import { collectCountCapturePlannerRead } from "./count-capture-context";
 import { countCapturePlannerReadSchema } from "../domain/count-lifecycle-receipt";
+import { captureCountPlan } from "../domain/count-capture-plan";
 import { createCountCaptureSessionBoundary, type CountCaptureSession } from "./count-capture-session";
 
 type Input = Readonly<{ selection: ScopeSyncBatchSelection; budget?: Partial<ScopeSyncBatchBudget> | null }>;
@@ -41,6 +42,7 @@ export function createCountCapturePlannerRuntime(deps: {
             eligible: observed.value.confirmAllowed,
             refusal: null,
             effectsCapability: false,
+            plan: captureCountPlan(observed.plan),
             winners: observed.winners,
           }),
         );
@@ -67,6 +69,7 @@ export function createCountCapturePlannerRuntime(deps: {
               eligible,
               refusal,
               effectsCapability,
+              plan: captureCountPlan(observed.plan),
               winners: observed.winners,
             }),
           );
