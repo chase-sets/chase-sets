@@ -83,7 +83,7 @@ describe("review list page", () => {
       expect(markup).not.toContain(hidden);
   });
 
-  it("redacts held-plus-revealed content even when a rating and response remain", () => {
+  it("redacts a server-shaped received held-plus-revealed review with a response", () => {
     const markup = renderToString(
       <ReviewListPage
         title="Reviews"
@@ -91,13 +91,61 @@ describe("review list page", () => {
         emptyTitle="No reviews"
         emptyDescription="Nothing yet."
         reviewDetailBasePath="/account/reviews"
-        reviews={[{ ...reviews[0]!, held: true, reply_status: "active", reply_feedback: "Private response sentinel" }]}
+        reviews={[
+          {
+            ...reviews[0]!,
+            held: true,
+            rating: null,
+            feedback: null,
+            reply_status: "active",
+            reply_feedback: "Private response sentinel",
+          },
+        ]}
       />,
     );
     expect(markup).toContain("Review paused");
-    for (const hidden of ["Packed carefully.", "Private response sentinel", "Report review", 'aria-label="5 rating"'])
+    for (const hidden of [
+      "Packed carefully.",
+      "Private response sentinel",
+      "Account response",
+      "Report review",
+      "Respond to this review",
+      'aria-label="5 rating"',
+    ])
       expect(markup).not.toContain(hidden);
   });
+
+  it.each([null, reviews[0]!.revealed_at])(
+    "preserves the author's own held preview with revealed_at=%s without exposing a response",
+    (revealed_at) => {
+      const markup = renderToString(
+        <ReviewListPage
+          title="Written reviews"
+          eyebrow="Reviews"
+          emptyTitle="No reviews"
+          emptyDescription="Nothing yet."
+          reviewDetailBasePath="/account/reviews"
+          reviews={[
+            {
+              ...reviews[0]!,
+              held: true,
+              revealed_at,
+              reply_status: "active",
+              reply_feedback: "Private response sentinel",
+            },
+          ]}
+        />,
+      );
+      expect(markup).toContain("Packed carefully.");
+      expect(markup).toContain('aria-label="5 rating"');
+      expect(markup).toContain("Review paused");
+      expect(markup.includes("Pending reveal")).toBe(revealed_at === null);
+      expect(markup).toContain("Open review");
+      expect(markup).toContain('href="/account/reviews/rev_1"');
+      for (const hidden of ["Private response sentinel", "Account response", "Report review", "Respond to this review"])
+        expect(markup).not.toContain(hidden);
+    },
+  );
 
   it("preserves the author's pending preview without publishing a private response", () => {
     const markup = renderToString(

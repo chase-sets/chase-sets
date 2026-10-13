@@ -75,7 +75,7 @@ export function ReviewListPage({
                     </Badge>
                   ) : null}
                 </Stack>
-              ) : review.held ? (
+              ) : review.held && review.rating === null ? (
                 <Stack key={review.review_id} gap={2}>
                   <MarketplaceEmptyState
                     title={t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.title")}
@@ -125,6 +125,7 @@ export function ReviewListPage({
                     verified
                     response={
                       review.status === "active" &&
+                      !review.held &&
                       review.revealed_at !== null &&
                       review.reply_status === "active" &&
                       review.reply_feedback

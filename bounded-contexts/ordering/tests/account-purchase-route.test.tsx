@@ -161,7 +161,7 @@ describe("marketplace account purchase route", () => {
       },
     },
     {
-      name: "Review window expired",
+      name: "Review window closed",
       opportunity: {
         ...canonicalOpportunity,
         active_review_id: null,
@@ -224,7 +224,7 @@ describe("marketplace account purchase route", () => {
       "Published",
       "Awaiting publication",
       "Review paused",
-      "Review window expired",
+      "Review window closed",
       "Review not available yet",
       "Review status is temporarily unavailable",
     ])

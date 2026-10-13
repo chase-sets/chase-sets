@@ -110,7 +110,7 @@ export function ReviewDetailPage({
               <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}</Badge>
             ) : null}
           </Stack>
-        ) : review.held ? (
+        ) : review.held && review.rating === null ? (
           <MarketplaceEmptyState
             title={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.title")}
             description={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description")}
@@ -155,6 +155,7 @@ export function ReviewDetailPage({
             verified
             response={
               review.status === "active" &&
+              !review.held &&
               review.revealed_at !== null &&
               review.reply_status === "active" &&
               review.reply_feedback

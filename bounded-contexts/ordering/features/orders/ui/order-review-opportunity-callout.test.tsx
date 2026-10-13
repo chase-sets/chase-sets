@@ -78,7 +78,8 @@ const states: readonly {
     slot: { ...slot, held: true, activeReviewId: "rev_1", activeReviewRevealedAt: "2026-04-03T00:00:00.000Z" },
     expected: "Review paused",
   },
-  { name: "expired-without-review", slot, now: "2026-05-01T00:00:00.000Z", expected: "Review window expired" },
+  { name: "expired-without-review", slot, now: "2026-05-01T00:00:00.000Z", expected: "Review window closed" },
+  // The content-free DTO represents withdrawal as no active review, so this aliases allowed.
   {
     name: "withdrawn/open-window",
     slot: { ...slot, activeReviewId: null },
@@ -138,7 +139,7 @@ describe.each(["purchase", "sale"] as const)("canonical %s outcome matrix", (tra
       "Awaiting publication",
       "Published",
       "Review paused",
-      "Review window expired",
+      "Review window closed",
       "Review not available yet",
       "Review status is temporarily unavailable",
     ])
@@ -202,7 +203,7 @@ describe.each(["purchase", "sale"] as const)("canonical %s outcome matrix", (tra
     );
     expect(markup).toContain(revealed ? "Published" : "Awaiting publication");
     expect(markup).toContain('href="/account/reviews/rev_1"');
-    for (const forbidden of ["Review window expired", "Leave account review", "/forbidden/review"])
+    for (const forbidden of ["Review window closed", "Leave account review", "/forbidden/review"])
       expect(markup).not.toContain(forbidden);
   });
 });
@@ -225,6 +226,22 @@ function expectTintedCard(root: Element | null, label: string) {
 }
 
 describe("order review opportunity callout", () => {
+  it.each(["held", "expired"] as const)(
+    "does not offer a leave link for an unsubmitted %s opportunity",
+    (submission_state) => {
+      const markup = renderToString(
+        <OrderReviewOpportunityCallout
+          opportunity={{ ...opportunity, submission_state, active_review_id: null }}
+          reviewHref="/forbidden/review"
+          transactionLabel="purchase"
+        />,
+      );
+      expect(markup).not.toContain("Leave account review");
+      expect(markup).not.toContain("Open your review");
+      expect(markup).not.toContain("/forbidden/review");
+    },
+  );
+
   it("renders review opportunity as tinted furniture", () => {
     render(
       <OrderReviewOpportunityCallout
@@ -388,7 +405,7 @@ describe("order outcome panel", () => {
       />,
     );
 
-    expect(expired).toContain("Review window expired");
+    expect(expired).toContain("Review window closed");
     expect(ineligible).toContain("Review unavailable for this order");
   });
 

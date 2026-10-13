@@ -98,24 +98,57 @@ describe("review detail page", () => {
       expect(markup).not.toContain(hidden);
   });
 
-  it("redacts held-plus-revealed content even when a rating and response remain", () => {
+  it("redacts a server-shaped received held-plus-revealed review with a response", () => {
     const markup = renderToString(
       <ReviewDetailPage
         backHref="/account/reviews/received"
         viewerAccountId={review.subject_account_id}
-        review={{ ...review, held: true, reply_status: "active", reply_feedback: "Private response sentinel" }}
+        review={{
+          ...review,
+          held: true,
+          rating: null,
+          feedback: null,
+          reply_status: "active",
+          reply_feedback: "Private response sentinel",
+        }}
       />,
     );
     expect(markup).toContain("Review paused");
     for (const hidden of [
       "Prompt payment and clear communication.",
       "Private response sentinel",
+      "Account response",
       "Report review",
       "Respond to this review",
       'aria-label="4 rating"',
     ])
       expect(markup).not.toContain(hidden);
   });
+
+  it.each([null, review.revealed_at])(
+    "preserves the author's own held preview with revealed_at=%s without exposing a response",
+    (revealed_at) => {
+      const markup = renderToString(
+        <ReviewDetailPage
+          backHref="/account/reviews/written"
+          viewerAccountId={review.author_account_id}
+          review={{
+            ...review,
+            held: true,
+            revealed_at,
+            reply_status: "active",
+            reply_feedback: "Private response sentinel",
+          }}
+        />,
+      );
+      expect(markup).toContain("Prompt payment and clear communication.");
+      expect(markup).toContain('aria-label="4 rating"');
+      expect(markup).toContain("Review paused");
+      expect(markup.includes("Pending reveal")).toBe(revealed_at === null);
+      for (const hidden of ["Private response sentinel", "Account response", "Report review", "Respond to this review"])
+        expect(markup).not.toContain(hidden);
+    },
+  );
 
   it("keeps the author's pending preview but hides any private response", () => {
     const markup = renderToString(

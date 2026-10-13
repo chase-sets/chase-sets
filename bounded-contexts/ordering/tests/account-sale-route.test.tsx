@@ -165,7 +165,7 @@ describe("marketplace account sale route", () => {
       },
     },
     {
-      name: "Review window expired",
+      name: "Review window closed",
       opportunity: {
         ...canonicalOpportunity,
         active_review_id: null,
@@ -228,7 +228,7 @@ describe("marketplace account sale route", () => {
       "Published",
       "Awaiting publication",
       "Review paused",
-      "Review window expired",
+      "Review window closed",
       "Review not available yet",
       "Review status is temporarily unavailable",
     ])
@@ -641,7 +641,7 @@ describe("marketplace account sale route", () => {
         );
         expect(screen.getByText("Report a problem")).toBeTruthy();
         expect(screen.queryByText("Leave account review")).toBeNull();
-        expect(screen.queryByText("Review window expired") !== null).toBe(state === "expired");
+        expect(screen.queryByText("Review window closed") !== null).toBe(state === "expired");
         expect(screen.queryByText("Review status is temporarily unavailable") !== null).toBe(state === "unavailable");
         expect(view.container.textContent).not.toContain("withdrawn private sentinel");
         view.unmount();
