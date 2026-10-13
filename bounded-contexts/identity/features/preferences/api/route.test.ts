@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -76,6 +77,10 @@ describe("user preferences API route", () => {
   it("preference-write-closed-request-contract", async () => {
     const services = buildServices();
     const app = buildApp(services);
+    const validationError = {
+      error: { code: "validation_failed", message: t("identity.features.preferences.api.route.validation.failed") },
+    };
+    expect(validationError.error.message).toBe("User preferences are invalid.");
     for (const body of [
       "{",
       "null",
@@ -93,9 +98,7 @@ describe("user preferences API route", () => {
         body,
       });
       expect(response.status, body).toBe(400);
-      expect(await response.json()).toEqual({
-        error: { code: "validation_failed", message: "User preferences are invalid." },
-      });
+      expect(await response.json()).toEqual(validationError);
     }
     for (const key of [undefined, "", "x".repeat(129), "non-ascii-é"]) {
       const response = await app.request("/preferences", {
@@ -104,6 +107,7 @@ describe("user preferences API route", () => {
         body: '{"colorMode":"dark"}',
       });
       expect(response.status).toBe(400);
+      expect(await response.json()).toEqual(validationError);
     }
     expect(services.writeUserPreferences).not.toHaveBeenCalled();
     expect(services.getUserPreferences).not.toHaveBeenCalled();
@@ -115,9 +119,7 @@ describe("user preferences API route", () => {
           body: JSON.stringify({ [field]: scalar }),
         });
         expect(response.status, `${field}/${JSON.stringify(scalar)}`).toBe(400);
-        expect(await response.json()).toEqual({
-          error: { code: "validation_failed", message: "User preferences are invalid." },
-        });
+        expect(await response.json()).toEqual(validationError);
       }
     }
     expect(services.writeUserPreferences).not.toHaveBeenCalled();

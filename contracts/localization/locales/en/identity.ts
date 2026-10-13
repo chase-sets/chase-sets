@@ -382,6 +382,7 @@ export const identityEnglishTranslations = {
   "identity.features.memberships.ui.role.viewer": "Viewer",
   "identity.features.preferences.api.route.authentication.required": "Authentication required.",
   "identity.features.preferences.api.route.forbidden": "Forbidden.",
+  "identity.features.preferences.api.route.validation.failed": "User preferences are invalid.",
   "identity.features.users.api.route.forbidden": "Forbidden.",
   "identity.features.users.api.route.auth.method.invalid": "Auth method is invalid.",
   "identity.features.users.api.route.user.not.found": "User not found.",

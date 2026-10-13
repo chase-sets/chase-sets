@@ -22,7 +22,7 @@ function validationFailed() {
   return {
     error: {
       code: "validation_failed",
-      message: "User preferences are invalid.",
+      message: t("identity.features.preferences.api.route.validation.failed"),
     },
   };
 }
