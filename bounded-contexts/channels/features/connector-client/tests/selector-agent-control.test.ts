@@ -4,7 +4,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSy
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createContext, Script } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const nativeRemoval = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...original,
+    execFileSync: (...args: Parameters<typeof original.execFileSync>) =>
+      args[0] === "python3" ? nativeRemoval(...args) : original.execFileSync(...args),
+  };
+});
 
 const control = await import(new URL("./selector-agent-control.mjs", import.meta.url).href);
 const { JSDOM } = await import(import.meta.resolve("jsdom"));
@@ -84,55 +94,78 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
-  it("waits for the exact extension item to render before checking identity and removing it", async () => {
-    const f = fixture("C");
-    const digests = { "synthetic-package": "b".repeat(64) };
-    f.binding.packageHash = hash(JSON.stringify(digests));
-    let rendered = false,
-      removed = false,
-      url = "";
-    const item = {
-      count: async () => (rendered && !removed ? 1 : 0),
-      waitFor: async ({ state }: { state: string }) => {
-        if (state === "visible") rendered = true;
-        else expect(removed).toBe(true);
-      },
-      locator: (selector: string) => {
-        expect(selector).toBe("#removeButton");
-        return {
-          click: async () => {
-            removed = true;
-          },
-        };
-      },
-    };
-    const page = {
-      goto: async (next: string) => {
-        url = next;
-      },
-      url: () => url,
-      on: () => {},
-      locator: (selector: string) => {
-        if (selector === `extensions-item[id="${f.binding.packageId}"]`) return item;
-        expect(selector).toBe("extensions-remove-dialog");
-        return { locator: () => ({ count: async () => 0 }) };
-      },
-    };
-    const browser = control.createPlaywrightSelectorBrowser({
-      context: { browser: () => ({ version: () => f.binding.version }), newPage: async () => page },
-      preparation: {
-        evidence: "synthetic",
-        extensionId: f.binding.packageId,
-        profileDirectory: f.profile,
-        packageDigests: digests,
-      },
-      binding: f.binding,
-      ordersUrl: pathToFileURL(path.join(f.root, "synthetic-orders.html")).href,
-      deadline: Date.parse(f.binding.startedAt) + 900000,
-    });
-    expect(await browser.action("remove")).toEqual({ ok: true });
-    expect(removed).toBe(true);
-  });
+  it.each(["confirmed", "unknown-output", "native-exception", "missing-native-action-mutant"])(
+    "native confirmation %s precedes exact-ID UI removal",
+    async (result) => {
+      const f = fixture("C");
+      const digests = { "synthetic-package": "b".repeat(64) };
+      f.binding.packageHash = hash(JSON.stringify(digests));
+      let rendered = false,
+        removed = false,
+        url = "";
+      const item = {
+        count: async () => (rendered && !removed ? 1 : 0),
+        waitFor: async ({ state }: { state: string }) => {
+          if (state === "visible") rendered = true;
+          else expect(removed).toBe(true);
+        },
+        locator: (selector: string) => {
+          expect(selector).toBe("#removeButton");
+          return {
+            click: async () => {
+              expect(removed).toBe(false);
+            },
+          };
+        },
+      };
+      const page = {
+        goto: async (next: string) => {
+          url = next;
+        },
+        url: () => url,
+        on: () => {},
+        locator: (selector: string) => {
+          if (selector === `extensions-item[id="${f.binding.packageId}"]`) return item;
+          throw new Error(`Unexpected WebUI confirmation selector: ${selector}`);
+        },
+      };
+      nativeRemoval.mockReset().mockImplementation((_executable: string, args: string[]) => {
+        expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
+        expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
+        expect(rendered).toBe(true);
+        if (result === "native-exception") throw new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION");
+        if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
+        removed = true;
+        return "NATIVE_REMOVE_SENT\n";
+      });
+      const browserControl =
+        result === "missing-native-action-mutant"
+          ? await mutant("execFileSync(", '(() => "NATIVE_REMOVE_SENT")(')
+          : control;
+      const browser = browserControl.createPlaywrightSelectorBrowser({
+        context: { browser: () => ({ version: () => f.binding.version }), newPage: async () => page },
+        preparation: {
+          evidence: "synthetic",
+          extensionId: f.binding.packageId,
+          profileDirectory: f.profile,
+          packageDigests: digests,
+        },
+        binding: f.binding,
+        ordersUrl: pathToFileURL(path.join(f.root, "synthetic-orders.html")).href,
+        deadline: Date.parse(f.binding.startedAt) + 900000,
+      });
+      if (result === "missing-native-action-mutant")
+        await expect(browser.action("remove")).rejects.toThrow("to be true");
+      else if (result === "confirmed") expect(await browser.action("remove")).toEqual({ ok: true });
+      else
+        await expect(browser.action("remove")).rejects.toMatchObject({
+          code: "CONTROL_BOUNDARY_LOST",
+          message: "selector_operation_refused",
+        });
+      expect(removed).toBe(result === "confirmed");
+      expect(nativeRemoval).toHaveBeenCalledTimes(result === "missing-native-action-mutant" ? 0 : 1);
+    },
+  );
   it("waits for the actual fixed helper API before cancel-before-begin, not navigation commit", async () => {
     const f = fixture("C");
     const digests = { "synthetic-package": "b".repeat(64) };
@@ -443,6 +476,57 @@ describe("selector-agent-profile-cleanup", () => {
     expect(execFileSync("pwsh", ["-NoProfile", "-File", test], { encoding: "utf8" }).trim()).toBe(
       "synthetic cleanup fixtures passed",
     );
+    expect(existsSync(f.profile)).toBe(true);
+  });
+  it("PowerShell preserves canonical JSON timestamps before native cleanup; date-coercion mutant is refused", () => {
+    const f = fixture();
+    const source = fileURLToPath(new URL("./selector-profile-cleanup.ps1", import.meta.url));
+    const original = readFileSync(source, "utf8");
+    expect(original.split("ConvertFrom-Json -DateKind String")).toHaveLength(2);
+    const mutated = path.join(f.root, "date-coercion-mutant.ps1");
+    writeFileSync(mutated, original.replace("ConvertFrom-Json -DateKind String", "ConvertFrom-Json"));
+    const admission = {
+      format: "selector-profile-cleanup/v1",
+      root: f.root,
+      profile: f.profile,
+      profileIdentity: f.binding.profileIdentity,
+      scope: "capability",
+      mode: "S",
+      runId: f.binding.runId,
+      policyIdentity: control.POLICY.identity,
+      policyHash: control.POLICY.hash,
+      startedAt: f.binding.startedAt,
+      normalClosedAt: f.binding.startedAt,
+    };
+    for (const [name, script, canonical, reached] of [
+      ["candidate", source, true, true],
+      ["coercion-mutant", mutated, true, false],
+      ["noncanonical", source, false, false],
+    ] as const) {
+      const file = path.join(f.root, `${name}.json`);
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...admission,
+          startedAt: canonical ? admission.startedAt : admission.startedAt.replace(/\.\d{3}Z$/, "Z"),
+        }),
+      );
+      const probe = path.join(f.root, `${name}.ps1`);
+      writeFileSync(
+        probe,
+        `. '${script.replaceAll("'", "''")}'
+        $script:nativeReached=$false
+        function Initialize-SelectorCleanupNative { $script:nativeReached=$true; throw 'SYNTHETIC_PREFLIGHT_STOP' }
+        $result=Invoke-SelectorProfileCleanup '${file.replaceAll("'", "''")}' '${path.join(f.root, `${name}.jsonl`).replaceAll("'", "''")}'
+        if($script:nativeReached -ne $${reached}) { throw 'timestamp_discriminator_failed' }
+        if($result.cleanup -ne 'REFUSED' -or $result.observations.Count -ne 0) { throw 'synthetic_cutoff_failed' }
+        Write-Output 'timestamp discriminator passed; native cleanup intentionally not executed'
+      `,
+      );
+      expect(execFileSync("pwsh", ["-NoProfile", "-File", probe], { encoding: "utf8" }).trim()).toBe(
+        "timestamp discriminator passed; native cleanup intentionally not executed",
+      );
+    }
     expect(existsSync(f.profile)).toBe(true);
   });
 });

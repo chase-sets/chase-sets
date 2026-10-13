@@ -134,7 +134,7 @@ function Invoke-SelectorProfileCleanup([string]$AdmissionFile, [string]$Evidence
   try {
     if (-not [IO.Path]::IsPathFullyQualified($AdmissionFile) -or -not [IO.Path]::IsPathFullyQualified($EvidenceFile) -or
         (Get-Item -LiteralPath $AdmissionFile).Length -gt 4096 -or (Test-Path -LiteralPath $EvidenceFile)) { throw 'CLEANUP_ADMISSION_REFUSED' }
-    $admission = Get-Content -LiteralPath $AdmissionFile -TotalCount 100 | ConvertFrom-Json
+    $admission = Get-Content -LiteralPath $AdmissionFile -TotalCount 100 | ConvertFrom-Json -DateKind String
     $keys = @('format','root','profile','profileIdentity','scope','mode','runId','policyIdentity','policyHash','startedAt','normalClosedAt')
     if (@(Compare-Object ($admission.PSObject.Properties.Name | Sort-Object) ($keys | Sort-Object)).Count -ne 0 -or
         $admission.format -cne 'selector-profile-cleanup/v1' -or

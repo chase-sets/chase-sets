@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -530,6 +531,84 @@ export async function createRunEndpoint(session, binding) {
   });
 }
 
+// Chromium's extension confirmation is a native Views dialog, not WebUI.
+// The X11 input is private, one-shot, and bound to the exact synthetic process.
+const nativeRemovalScript = String.raw`
+import ctypes as c, hashlib, os, pathlib, sys, time
+profile, executable, digest, until = sys.argv[1:]
+until = float(until)
+pids = []
+for entry in pathlib.Path('/proc').iterdir():
+    if not entry.name.isdigit(): continue
+    try:
+        args = (entry / 'cmdline').read_bytes().split(b'\0')
+        if ('--user-data-dir=' + profile).encode() not in args: continue
+        if any(arg.startswith(b'--type=') for arg in args): continue
+        if os.path.realpath(entry / 'exe') != executable: continue
+        if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
+        pids.append(int(entry.name))
+    except (FileNotFoundError, PermissionError): pass
+if len(pids) != 1: raise RuntimeError()
+pid = pids[0]
+started = pathlib.Path('/proc', str(pid), 'stat').read_bytes()
+x = c.CDLL('libX11.so.6')
+def api(name, result, args):
+    fn = getattr(x, name); fn.restype = result; fn.argtypes = args; return fn
+ptr, ulong, uint = c.c_void_p, c.c_ulong, c.c_uint
+open_display = api('XOpenDisplay', ptr, [c.c_char_p])
+display = open_display(None)
+if not display: raise RuntimeError()
+root = api('XDefaultRootWindow', ulong, [ptr])(display)
+atom = api('XInternAtom', ulong, [ptr, c.c_char_p, c.c_int])
+property_get = api('XGetWindowProperty', c.c_int, [ptr, ulong, ulong, c.c_long, c.c_long, c.c_int, ulong, c.POINTER(ulong), c.POINTER(c.c_int), c.POINTER(ulong), c.POINTER(ulong), c.POINTER(ptr)])
+free = api('XFree', c.c_int, [ptr])
+tree = api('XQueryTree', c.c_int, [ptr, ulong, c.POINTER(ulong), c.POINTER(ulong), c.POINTER(c.POINTER(ulong)), c.POINTER(uint)])
+def property(window, name):
+    kind, fmt, count, remaining, data = ulong(), c.c_int(), ulong(), ulong(), ptr()
+    if property_get(display, window, atom(display, name, 0), 0, 1024, 0, 0, c.byref(kind), c.byref(fmt), c.byref(count), c.byref(remaining), c.byref(data)) != 0: raise RuntimeError()
+    try:
+        if remaining.value: raise RuntimeError()
+        if fmt.value == 8: return c.string_at(data, count.value)
+        if fmt.value == 32 and count.value == 1: return c.cast(data, c.POINTER(ulong))[0]
+        return None
+    finally:
+        if data: free(data)
+def windows():
+    parent, origin, children, count = ulong(), ulong(), c.POINTER(ulong)(), uint()
+    if not tree(display, root, c.byref(origin), c.byref(parent), c.byref(children), c.byref(count)): raise RuntimeError()
+    try: return list(children[:count.value])
+    finally:
+        if children: free(children)
+title = b'Remove "Chase Sets Temporary Order Authority Capture"?'
+target = None
+while time.time() < until:
+    matches = [w for w in windows() if property(w, b'_NET_WM_PID') == pid and property(w, b'_NET_WM_NAME') == title]
+    if len(matches) > 1: raise RuntimeError()
+    if matches: target = matches[0]; break
+    time.sleep(.025)
+if target is None: raise RuntimeError()
+# The frozen Chromium dialog has an OK/Remove default button. No global key,
+# arbitrary title, unknown prompt, or alternative target is admitted.
+api('XSetInputFocus', c.c_int, [ptr, ulong, c.c_int, ulong])(display, target, 1, 0)
+api('XSync', c.c_int, [ptr, c.c_int])(display, 0)
+focus, revert = ulong(), c.c_int()
+api('XGetInputFocus', c.c_int, [ptr, c.POINTER(ulong), c.POINTER(c.c_int)])(display, c.byref(focus), c.byref(revert))
+if focus.value != target or property(target, b'_NET_WM_PID') != pid or property(target, b'_NET_WM_NAME') != title: raise RuntimeError()
+if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started.split(b') ')[1].split()[19]: raise RuntimeError()
+class Key(c.Structure):
+    _fields_ = [('type', c.c_int), ('serial', ulong), ('send_event', c.c_int), ('display', ptr), ('window', ulong), ('root', ulong), ('subwindow', ulong), ('time', ulong), ('x', c.c_int), ('y', c.c_int), ('x_root', c.c_int), ('y_root', c.c_int), ('state', uint), ('keycode', uint), ('same_screen', c.c_int)]
+class Event(c.Union): _fields_ = [('key', Key), ('padding', c.c_long * 24)]
+keycode = api('XKeysymToKeycode', c.c_ubyte, [ptr, ulong])(display, 0xff0d)
+if not keycode: raise RuntimeError()
+send = api('XSendEvent', c.c_int, [ptr, ulong, c.c_int, c.c_long, c.POINTER(Event)])
+for kind, mask in [(2, 1), (3, 2)]:
+    event = Event(); event.key = Key(kind, 0, 1, display, target, root, 0, 0, 1, 1, 1, 1, 0, keycode, 1)
+    if not send(display, target, 0, mask, c.byref(event)): raise RuntimeError()
+api('XSync', c.c_int, [ptr, c.c_int])(display, 0)
+api('XCloseDisplay', c.c_int, [ptr])(display)
+print('NATIVE_REMOVE_SENT')
+`;
+
 // Raw browser primitives are private to this offline-only Channels adapter.
 export function createPlaywrightSelectorBrowser({ context, preparation, binding, ordersUrl, deadline }) {
   check(binding.evidence === "synthetic" && preparation.evidence === "synthetic", "live_launch_not_authorized");
@@ -661,20 +740,39 @@ export function createPlaywrightSelectorBrowser({ context, preparation, binding,
     }
   }
   async function remove() {
+    const removalDeadline = Math.min(deadline, Date.now() + 30000);
+    const remaining = () => Math.max(1, removalDeadline - Date.now());
     const page = await context.newPage();
-    await page.goto("chrome://extensions/", { waitUntil: "commit" });
+    await page.goto("chrome://extensions/", { waitUntil: "commit", timeout: remaining() });
     const item = page.locator(`extensions-item[id="${preparation.extensionId}"]`);
-    await item.waitFor({ state: "visible" });
+    await item.waitFor({ state: "visible", timeout: remaining() });
     if ((await item.count()) !== 1) throw new SelectorFailure("ANCHOR_ABSENT");
     page.on("dialog", (dialog) => {
       dialogFailure = new SelectorFailure("PROTOCOL_REFUSED");
       void dialog.dismiss();
     });
-    await item.locator("#removeButton").click();
-    const confirmation = page.locator("extensions-remove-dialog").locator("#remove");
-    if ((await confirmation.count()) === 1) await confirmation.click();
+    await item.locator("#removeButton").click({ timeout: remaining() });
+    try {
+      if (
+        execFileSync(
+          "python3",
+          [
+            "-c",
+            nativeRemovalScript,
+            binding.profile,
+            binding.executable,
+            binding.executableHash,
+            String(removalDeadline / 1000),
+          ],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: remaining() },
+        ).trim() !== "NATIVE_REMOVE_SENT"
+      )
+        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    } catch {
+      throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    }
     if (dialogFailure) throw dialogFailure;
-    await item.waitFor({ state: "detached" });
+    await item.waitFor({ state: "detached", timeout: remaining() });
     if (page.url() !== "chrome://extensions/" || (await item.count()) !== 0)
       throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
   }

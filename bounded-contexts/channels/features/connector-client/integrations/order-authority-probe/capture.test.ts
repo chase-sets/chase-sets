@@ -1415,6 +1415,8 @@ describe("selector-lifecycle-removal", () => {
 // A separate host-attributed opt-in registration, not a skipped unit test or a
 // substitute for post-landing agent-route acceptance. Host uses heavy admission.
 if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
+  const { acquireHeavySlot } = await import("../../../../../../scripts/lib/heavy-slot.mjs");
+  acquireHeavySlot("playwright");
   describe("selector-lifecycle-removal host-attributed hermetic Chromium", () => {
     it.each(["qualified", "canceled", "expired"])(
       "native dialogs and terminal %s with synthetic install/removal; provider reachability refused",
@@ -1433,7 +1435,19 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
         });
         const clockOffset = 0;
         const executable = chromium.executablePath();
-        const version = execFileSync(executable, ["--version"], { encoding: "utf8" }).match(/\d+\.\d+\.\d+\.\d+/)![0];
+        const version = (
+          process.platform === "win32"
+            ? execFileSync(
+                "pwsh",
+                [
+                  "-NoProfile",
+                  "-Command",
+                  `[Diagnostics.FileVersionInfo]::GetVersionInfo('${executable.replaceAll("'", "''")}').ProductVersion`,
+                ],
+                { encoding: "utf8" },
+              )
+            : execFileSync(executable, ["--version"], { encoding: "utf8" })
+        ).match(/\d+\.\d+\.\d+\.\d+/)![0];
         const binding = control.createSyntheticBinding({
           preparation: hostPackage,
           executable,
