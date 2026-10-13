@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import {
   accountEnforcementReasonCodes,
@@ -99,7 +101,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function accountRoutes(services: AccountServices) {
+export function accountRoutes(services: AccountServices, accountManagement?: AccountManagementServices) {
   const app = new Hono<IdentityApiEnv>();
 
   app.post("/", async (c) => {
@@ -123,6 +125,8 @@ export function accountRoutes(services: AccountServices) {
   app.put("/:id", async (c) => {
     const body = await c.req.json();
     const accountId = parseTypedIdBoundary(c.req.param("id"), "acc", "accountId");
+    const attempted = await submitAccountManagement(c, accountManagement, "update-profile", accountId, body);
+    if (attempted) return attempted;
     if (!canManageAccount(c.var.actor, accountId)) {
       return c.json(forbidden(), 403);
     }

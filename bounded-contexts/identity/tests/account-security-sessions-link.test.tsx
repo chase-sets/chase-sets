@@ -3,7 +3,8 @@
 import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { renderAccountManagementPage as render } from "../features/account-management/ui/test-support";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SecurityPage } from "../features/api-keys/ui/account-security-page";
 import { action, loader } from "../routes/marketplace/account-security";
@@ -160,6 +161,7 @@ describe("account-security-sessions-link", () => {
         kind === "action"
           ? {
               method: "POST",
+              headers: { "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749", Accept: "text/x-script" },
               body: new URLSearchParams({ intent: "update-user", displayName: "Alex" }),
             }
           : undefined,

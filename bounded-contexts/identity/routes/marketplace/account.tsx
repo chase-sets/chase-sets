@@ -6,7 +6,14 @@ import {
   postWriteRecoveryKindForFreshWriteReadError,
   type PostWriteRecoveryKind,
 } from "@chase-sets/http/responses";
-import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
+import { defineFormAction } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import {
+  accountMutationResponse,
+  requireInterruptionSafeClient,
+} from "../../features/account-management/api/marketplace-action";
+import type { MutationResult } from "../../features/account-management/api/runtime";
+import { AccountMutationBoundary } from "../../features/account-management/ui/controller";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { requestWithoutFreshWrite, requireActorFromIdentityApi } from "../../support/route-support/identity-request";
@@ -94,26 +101,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     account: accountResult.account,
+    mutationActor: { tenantId: actor.tenantId, userId: actor.userId, accountId: actor.accountId },
     accountRecovery: accountResult.accountRecovery,
     actorDisplay,
   };
 }
 
-export const action = defineFormAction({
-  ...createAccountActionErrorHandling().options,
-  authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
-  intents: {
-    "update-profile": async ({ request, actor, formData }) =>
-      formActionRedirect(
-        await createIdentityRequestApiClient(request).updateAccount(actor!.accountId, {
+export const action = requireInterruptionSafeClient(
+  defineFormAction({
+    ...createAccountActionErrorHandling().options,
+    authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
+    intents: {
+      "update-profile": async ({ request, actor, formData }) => {
+        const result = await createIdentityRequestApiClient(request).updateAccount<MutationResult>(actor!.accountId, {
           name: String(formData.get("name") ?? ""),
           displayName: String(formData.get("displayName") ?? ""),
-        }),
-        "/account",
-      ),
-  },
-  onUnknownIntent: () => formActionRedirect(null, "/account"),
-});
+        });
+        return accountMutationResponse(result, "/account", navigateAfterWrite(result, "/account"));
+      },
+    },
+    onUnknownIntent: () => ({ outcome: "not-recorded", code: "interruption-safe-client-required" }),
+  }),
+);
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("identity.routes.marketplace.account.account.marketplace") });
@@ -122,10 +131,15 @@ export default function MarketplaceAccountRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<AccountActionFailureResult>();
   return (
-    <AccountProfilePage
-      account={data.account}
-      actorDisplay={data.actorDisplay}
-      errorMessage={actionData?.failure.message}
-    />
+    <AccountMutationBoundary
+      key={`${data.mutationActor.tenantId}:${data.mutationActor.userId}:${data.mutationActor.accountId}`}
+      actor={data.mutationActor}
+    >
+      <AccountProfilePage
+        account={data.account}
+        actorDisplay={data.actorDisplay}
+        errorMessage={actionData?.failure?.message}
+      />
+    </AccountMutationBoundary>
   );
 }
