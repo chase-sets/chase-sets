@@ -40,6 +40,7 @@ export type AttemptState = Readonly<{
   digest: string;
   stage: AttemptStage | null;
   version: number;
+  registrationStartedAt: string | null;
 }>;
 
 export class InvitationAttemptError extends Error {
@@ -154,7 +155,7 @@ export function foldAttempt(events: readonly StoredEvent[], tenantId: string): A
       const binding = parseAttemptBinding(event.payload);
       if (event.streamId !== `auth.invitation-acceptance-${binding.attemptId}`)
         throw new InvitationAttemptError("invitation_attempt_ambiguous");
-      state = { binding, digest: bindingDigest(binding), stage: null, version: 1 };
+      state = { binding, digest: bindingDigest(binding), stage: null, version: 1, registrationStartedAt: null };
     } else {
       const data = closed(event.payload, ["bindingDigest", "stage", "at"]);
       if (
@@ -173,6 +174,7 @@ export function foldAttempt(events: readonly StoredEvent[], tenantId: string): A
         digest: previous.digest,
         stage: data.stage as AttemptStage,
         version: event.streamVersion,
+        registrationStartedAt: data.stage === "registration-started" ? data.at : previous.registrationStartedAt,
       };
     }
   }

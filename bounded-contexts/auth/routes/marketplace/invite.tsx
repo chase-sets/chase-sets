@@ -67,10 +67,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
     });
   } catch (error) {
     if (attemptId) {
-      if (error instanceof AuthApiError && error.status < 500)
+      const code =
+        error instanceof AuthApiError &&
+        error.body &&
+        typeof error.body === "object" &&
+        "error" in error.body &&
+        error.body.error &&
+        typeof error.body.error === "object" &&
+        "code" in error.body.error
+          ? error.body.error.code
+          : null;
+      if (error instanceof AuthApiError && error.status < 500 && code !== "invitation_attempt_ambiguous")
         return {
           state:
-            error.status === 409
+            code === "invitation_attempt_conflict"
               ? ("conflict" as const)
               : error.status === 403
                 ? ("route-denied" as const)
@@ -105,7 +115,9 @@ export default function MarketplaceInviteRoute() {
         attemptsActive={data.attemptsActive}
         invitationId={data.invitationId}
         submit={(form) => {
-          void submit(form, { method: "post" });
+          const formData = new FormData(form);
+          formData.set("token", data.token);
+          void submit(formData, { method: "post" });
         }}
         attemptId={actionData && "attemptId" in actionData ? actionData.attemptId : null}
         phase={

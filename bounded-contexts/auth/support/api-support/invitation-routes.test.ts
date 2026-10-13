@@ -14,7 +14,13 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   encodeFreshWriteReceipt,
   type FreshWriteReceipt,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  attachResponseMetadata,
+  decodeCommitReceipt,
+  encodeCommitReceipt,
 } from "@chase-sets/http/responses";
+import * as journey from "../../features/invitation-acceptance/api/journey";
+import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
 import type { AuthServices } from "../runtime-support/services";
 import { createInvitationProjectionFreshnessWaiter } from "../runtime-support/invitation-projection-freshness";
 import { registerInvitationRoutes } from "./invitation-routes";
@@ -189,6 +195,96 @@ function createIdentityMutations() {
 useMockReset();
 
 describe("invitation auth routes", () => {
+  const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
+  const keyedRequest = {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": attemptId },
+    body: JSON.stringify({
+      attemptId,
+      invitationId: "ivt_1",
+      token: "synthetic-secret",
+      password: "synthetic-password",
+    }),
+  };
+  it.each([
+    ["auth.invitation.accept.ip", "local", 10],
+    ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],
+  ] as const)("N3 status lookup preserves %s entry limits", async (surface, key, max) => {
+    const limiter = rateLimiters.get(surface)!;
+    for (let count = 0; count < max; count++) limiter.check(key);
+    const lookup = vi.spyOn(journey, "lookupInvitationAttempt");
+    try {
+      const response = await buildApp(createServices()).request("/invitations/acceptance-status", keyedRequest);
+      expect(response.status).toBe(429);
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+  it("F3 keyed ambiguous lock refusal is 503, not conflict", async () => {
+    const accept = vi
+      .spyOn(journey, "acceptInvitationAttempt")
+      .mockRejectedValueOnce(new InvitationAttemptError("invitation_attempt_ambiguous"));
+    try {
+      const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: { code: "invitation_attempt_ambiguous" } });
+    } finally {
+      accept.mockRestore();
+    }
+  });
+  it("F5 unexpected status faults carry a server failure signal without secrets", async () => {
+    const lookup = vi.spyOn(journey, "lookupInvitationAttempt").mockRejectedValueOnce(new Error("synthetic-secret"));
+    try {
+      const response = await buildApp(createServices()).request("/invitations/acceptance-status", keyedRequest);
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      expect(await response.text()).not.toContain("synthetic-secret");
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+  it.each([403, 404])("F5 expected Identity %s refusals remain uniform nonsecret status responses", async (status) => {
+    const lookup = vi
+      .spyOn(journey, "lookupInvitationAttempt")
+      .mockRejectedValueOnce({ status, body: { secret: "synthetic-secret" } });
+    try {
+      const response = await buildApp(createServices()).request("/invitations/acceptance-status", keyedRequest);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ type: "ambiguous" });
+      expect(response.headers.get("Set-Cookie")).toBeNull();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+  it("F6 first keyed Session response carries Identity commit receipts, without exposing sources", async () => {
+    const sources = [{ sourceContextName: "identity", maxGlobalPosition: "42", eventIds: ["evt_acceptance"] }];
+    const source = attachResponseMetadata(
+      { snapshots: [{ aggregate: "membership", id: "mbr_invited", version: 1, status: "active" }] },
+      new Response(null, {
+        headers: {
+          "Chase-Sets-Consistency": "eventual",
+          [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt(sources),
+        },
+      }),
+    );
+    const accept = vi
+      .spyOn(journey, "acceptInvitationAttempt")
+      .mockResolvedValueOnce({
+        type: "session-started",
+        sessionToken: "synthetic-first-secret",
+        mutationSources: [source],
+      } as Awaited<ReturnType<typeof journey.acceptInvitationAttempt>>);
+    try {
+      const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+      expect(response.status).toBe(200);
+      expect(decodeCommitReceipt(response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual(sources);
+      const body = await response.json();
+      expect(body).toMatchObject({ type: "session-started", sessionToken: "synthetic-first-secret" });
+      expect(body).not.toHaveProperty("mutationSources");
+    } finally {
+      accept.mockRestore();
+    }
+  });
   it.each([
     ["auth.invitation.accept.ip", "local", 10],
     ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],

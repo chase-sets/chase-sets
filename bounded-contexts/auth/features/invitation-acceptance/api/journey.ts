@@ -197,6 +197,9 @@ export async function acceptInvitationAttempt(
         operation: operation(state!),
       });
     if (state.stage === "completed") return lookupInvitationAttempt(services, identity, input, context);
+    if (authority.accepted && authority.tokenExpired)
+      return lookupInvitationAttempt(services, identity, input, context);
+    const mutationSources: unknown[] = [];
     const existingCredential =
       kind === "password" ? await getPasswordCredentialByUserId(services.db, binding.userId) : null;
     if (
@@ -282,13 +285,16 @@ export async function acceptInvitationAttempt(
         case "registered":
           authority = await readOwner();
           if (!authority.user) {
+            if (!state.registrationStartedAt) throw new InvitationAttemptError("invitation_attempt_ambiguous");
             const created = await identity.createPersonalIdentity({
               email: authority.email,
               displayName: createOwnedUserDisplayName(authority.email),
               reservedUserId: binding.userId,
+              foundersBetaAccessStartedAt: state.registrationStartedAt,
               registrationConsent: await resolveUnaffirmedRegistrationConsent(identity),
             });
             if (created.userId !== binding.userId) throw new InvitationAttemptError("invitation_attempt_conflict");
+            mutationSources.push(created);
           }
           authority = await readOwner();
           if (!authority.user) throw new InvitationAttemptError("invitation_attempt_ambiguous");
@@ -301,12 +307,14 @@ export async function acceptInvitationAttempt(
         case "accepted":
           authority = await readOwner();
           if (!authority.accepted)
-            await identity.acceptInvitationForUser({
-              invitationId: input.invitationId,
-              userId: binding.userId,
-              acceptanceTokenHash,
-              operation: operation(state),
-            });
+            mutationSources.push(
+              await identity.acceptInvitationForUser({
+                invitationId: input.invitationId,
+                userId: binding.userId,
+                acceptanceTokenHash,
+                operation: operation(state),
+              }),
+            );
           authority = await readOwner();
           if (!authority.accepted) throw new InvitationAttemptError("invitation_attempt_ambiguous");
           await advance(next);
@@ -318,7 +326,9 @@ export async function acceptInvitationAttempt(
         case "email-verified":
           authority = await readOwner();
           if (!authority.user?.emailVerified)
-            await identity.verifyEmailContactMethod({ userId: binding.userId, email: authority.email });
+            mutationSources.push(
+              await identity.verifyEmailContactMethod({ userId: binding.userId, email: authority.email }),
+            );
           if (!(await readOwner()).user?.emailVerified)
             throw new InvitationAttemptError("invitation_attempt_ambiguous");
           await advance(next);
@@ -334,9 +344,13 @@ export async function acceptInvitationAttempt(
             if (authority.user.passwordCredentialId && authority.user.passwordCredentialId !== binding.credentialId)
               throw new InvitationAttemptError("invitation_attempt_conflict");
             if (!authority.user.passwordCredentialId)
-              await identity.enablePasswordCredential({ userId: binding.userId, credentialId: binding.credentialId });
+              mutationSources.push(
+                await identity.enablePasswordCredential({ userId: binding.userId, credentialId: binding.credentialId }),
+              );
           } else if (!authority.user.passkeyCredentialIds.includes(binding.credentialId)) {
-            await identity.registerPasskeyCredential({ userId: binding.userId, credentialId: binding.credentialId });
+            mutationSources.push(
+              await identity.registerPasskeyCredential({ userId: binding.userId, credentialId: binding.credentialId }),
+            );
           }
           await advance(next);
           break;
@@ -355,6 +369,8 @@ export async function acceptInvitationAttempt(
           break;
         case "completed": {
           authority = await readOwner();
+          if (authority.accepted && authority.tokenExpired)
+            return lookupInvitationAttempt(services, identity, input, context);
           if (
             !authority.accepted ||
             !authority.user ||
@@ -393,6 +409,7 @@ export async function acceptInvitationAttempt(
             attemptId: input.attemptId,
             invitationId: input.invitationId,
             membershipId: binding.membershipId,
+            mutationSources,
           };
         }
         default:

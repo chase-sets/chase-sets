@@ -1836,6 +1836,7 @@ export function buildIdentityApi(
         roleKey: authority.invitation.roleKey!,
         expiresAt: authority.invitation.expiresAt!,
         accepted: authority.receiptHistory.length === 1,
+        tokenExpired: authority.tokenExpired,
         user: authority.user?.id
           ? {
               userId: authority.user.id!,

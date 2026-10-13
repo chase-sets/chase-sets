@@ -392,11 +392,11 @@ export async function readInvitationAcceptanceAuthority(
     !params.acceptanceTokenHash ||
     !instant(invitation.expiresAt) ||
     !instant(invitation.acceptanceTokenExpiresAt) ||
-    Date.parse(invitation.expiresAt) <= Date.now() ||
-    Date.parse(invitation.acceptanceTokenExpiresAt) <= Date.now() ||
     (invitation.status !== "pending" && invitation.status !== "accepted")
   )
     refuse();
+  const tokenExpired = Date.parse(invitation.acceptanceTokenExpiresAt!) <= Date.now();
+  if (invitation.status === "pending" && (Date.parse(invitation.expiresAt!) <= Date.now() || tokenExpired)) refuse();
   const accountHistory = await readInvitationAcceptanceHistory(
     store,
     `identity.account-${invitation.accountId}`,
@@ -472,7 +472,17 @@ export async function readInvitationAcceptanceAuthority(
         input(`identity.invitation-acceptance-${operation.attemptId}`, receiptHistory, [], params.context),
       ]);
     }
-    return { invitation, history, accountHistory, receiptHistory, userHistory, user, membershipHistory, membership };
+    return {
+      invitation,
+      history,
+      accountHistory,
+      receiptHistory,
+      userHistory,
+      user,
+      membershipHistory,
+      membership,
+      tokenExpired,
+    };
   }
   if (invitation.status !== "pending") refuse();
   if (params.recipientUserId) {
@@ -499,6 +509,7 @@ export async function readInvitationAcceptanceAuthority(
       userHistory,
       membership: undefined,
       membershipHistory: undefined,
+      tokenExpired,
     };
   }
   return {
@@ -510,6 +521,7 @@ export async function readInvitationAcceptanceAuthority(
     userHistory: undefined,
     membership: undefined,
     membershipHistory: undefined,
+    tokenExpired,
   };
 }
 

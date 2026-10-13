@@ -273,12 +273,20 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
             },
             409,
           );
+        if ("mutationSources" in result) {
+          const { mutationSources, ...body } = result;
+          return jsonWithMutationReceipts(c, body, 200, mutationSources);
+        }
         return c.json(result);
       } catch (error) {
         if (error instanceof InvitationAttemptError)
           return c.json(
             { error: { code: error.code, message: t("auth.invitationAttempt.safeRecovery") } },
-            error.code === "invitation_attempt_invalid" ? 400 : 409,
+            error.code === "invitation_attempt_invalid"
+              ? 400
+              : error.code === "invitation_attempt_conflict"
+                ? 409
+                : 503,
           );
         const consent = readRegistrationConsentRejection(error);
         if (consent) return c.json(consent, 400);
@@ -466,9 +474,16 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
   app.post("/invitations/acceptance-status", async (c) => {
     try {
       const input = parseJourneyInput(await c.req.json(), c.req.header("Idempotency-Key"));
+      const ipDecision = invitationAcceptIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+      if (ipDecision.limited) return rateLimitExceededJsonResponse("auth.invitation.accept.ip", ipDecision);
+      const invitationDecision = invitationAcceptIdentifierRateLimiter.check(`invitation:${input.invitationId}`);
+      if (invitationDecision.limited)
+        return rateLimitExceededJsonResponse("auth.invitation.accept.identifier", invitationDecision);
       return c.json(await lookupInvitationAttempt(services, createIdentityMutations(c), input, getBootstrapContext(c)));
-    } catch {
-      return c.json({ type: "ambiguous" as const });
+    } catch (error) {
+      if (error instanceof InvitationAttemptError || [403, 404].includes(identityMutationStatus(error) ?? 0))
+        return c.json({ type: "ambiguous" as const });
+      return c.json({ type: "ambiguous" as const }, 503);
     }
   });
 }

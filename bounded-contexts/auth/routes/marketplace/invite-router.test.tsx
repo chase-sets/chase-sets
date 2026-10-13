@@ -108,20 +108,46 @@ describe("invitation-acceptance-real-route", () => {
     expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
     expect(document.body.textContent).not.toMatch(/synthetic-secret|synthetic-password-secret/);
+    expect(document.body.innerHTML).not.toMatch(/synthetic-secret|synthetic-password-secret/);
     fireEvent.click(screen.getByRole("button", { name: "Check status" }));
     await waitFor(() => expect(api.getInvitationAcceptanceStatus).toHaveBeenCalledTimes(2));
     expect(api.acceptInvitation).toHaveBeenCalledOnce();
     expect(api.inspectInvitation).toHaveBeenCalledTimes(3);
   });
   it.each([
-    [409, "This invitation acceptance does not match the original attempt."],
-    [400, "Accept your invitation"],
-    [403, "This invitation is unavailable."],
-  ] as const)("renders a safe %s known rejection without lookup or cookie completion", async (status, copy) => {
+    [409, "invitation_attempt_conflict", "This invitation acceptance does not match the original attempt."],
+    [409, "invitation_attempts_not_active", "Accept your invitation"],
+    [400, "invitation_attempt_invalid", "Accept your invitation"],
+    [403, "forbidden", "This invitation is unavailable."],
+  ] as const)(
+    "renders a safe %s/%s known rejection without lookup or cookie completion",
+    async (status, code, copy) => {
+      api.inspectInvitation.mockResolvedValue(pending);
+      api.acceptInvitation.mockRejectedValue(
+        new AuthApiError(status, { error: { code, message: "synthetic-secret-must-not-render" } }),
+      );
+      const router = createMemoryRouter(
+        [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
+        { initialEntries: ["/invite/ivt_invited"] },
+      );
+      render(<RouterProvider router={router} />);
+      await screen.findByText("Accept your invitation");
+      fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+      fireEvent.submit(screen.getByLabelText("Enter or create a password").closest("form")!);
+      await waitFor(() => expect(api.acceptInvitation).toHaveBeenCalledOnce());
+      await screen.findByText(copy);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
+      expect(api.getInvitationAcceptanceStatus).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      expect(document.body.textContent).not.toContain("synthetic-secret-must-not-render");
+    },
+  );
+  it.each([409, 503])("F3 server ambiguous %s performs one owner lookup and never renders conflict", async (status) => {
     api.inspectInvitation.mockResolvedValue(pending);
     api.acceptInvitation.mockRejectedValue(
-      new AuthApiError(status, { error: { message: "synthetic-secret-must-not-render" } }),
+      new AuthApiError(status, { error: { code: "invitation_attempt_ambiguous", message: "synthetic-secret" } }),
     );
+    api.getInvitationAcceptanceStatus.mockResolvedValue({ type: "ambiguous" });
     const router = createMemoryRouter(
       [{ path: "/invite/:invitationId", loader, action, Component: MarketplaceInviteRoute }],
       { initialEntries: ["/invite/ivt_invited"] },
@@ -130,12 +156,11 @@ describe("invitation-acceptance-real-route", () => {
     await screen.findByText("Accept your invitation");
     fireEvent.click(screen.getByRole("radio", { name: "Password" }));
     fireEvent.submit(screen.getByLabelText("Enter or create a password").closest("form")!);
-    await waitFor(() => expect(api.acceptInvitation).toHaveBeenCalledOnce());
-    await screen.findByText(copy);
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
-    expect(api.getInvitationAcceptanceStatus).not.toHaveBeenCalled();
+    await screen.findByText("Invitation acceptance could not be confirmed.");
+    expect(api.getInvitationAcceptanceStatus).toHaveBeenCalledOnce();
+    expect(api.acceptInvitation).toHaveBeenCalledOnce();
     expect(complete).not.toHaveBeenCalled();
-    expect(document.body.textContent).not.toContain("synthetic-secret-must-not-render");
+    expect(document.body.textContent).not.toContain("synthetic-secret");
   });
   it("retains one attempt on double-submit and manual retry after a known safe refusal", async () => {
     api.inspectInvitation.mockResolvedValue(pending);

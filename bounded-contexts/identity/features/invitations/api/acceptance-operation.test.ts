@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -43,6 +43,63 @@ async function accept(store: EventStore, operation = acceptanceOperation) {
 }
 
 describe("invitation-acceptance-identity-atomicity", () => {
+  it("F2 receipt-bound acceptance remains provable after a one-hour token expires, never pending or wrong-token", async () => {
+    const store = createInMemoryEventStore();
+    await seedAcceptance(store);
+    const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+    await store.appendToStream({
+      streamId: "identity.invitation-ivt_invited",
+      expectedVersion: 2,
+      context: acceptanceContext,
+      events: [
+        {
+          eventType: "identity.invitation.acceptance-token-issued",
+          payload: { tokenHash: "existing-store-token-hash", expiresAt },
+        },
+      ],
+    });
+    const pending = createInMemoryEventStore();
+    await seedAcceptance(pending);
+    await pending.appendToStream({
+      streamId: "identity.invitation-ivt_invited",
+      expectedVersion: 2,
+      context: acceptanceContext,
+      events: [
+        {
+          eventType: "identity.invitation.acceptance-token-issued",
+          payload: { tokenHash: "existing-store-token-hash", expiresAt },
+        },
+      ],
+    });
+    expect((await accept(store)).status).toBe(200);
+    const params = {
+      invitationId: "ivt_invited",
+      acceptanceTokenHash: "existing-store-token-hash",
+      operation: acceptanceOperation,
+      context: acceptanceContext,
+    };
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const now = Date.now();
+      vi.setSystemTime(now + 7200_000);
+      await expect(readInvitationAcceptanceAuthority(store, params)).resolves.toMatchObject({
+        tokenExpired: true,
+        receiptHistory: [expect.anything()],
+      });
+      vi.setSystemTime(now + 86400_000 * 8);
+      await expect(readInvitationAcceptanceAuthority(store, params)).resolves.toMatchObject({
+        tokenExpired: true,
+        receiptHistory: [expect.anything()],
+      });
+      await expect(readInvitationAcceptanceAuthority(pending, params)).rejects.toThrow();
+      await expect(
+        readInvitationAcceptanceAuthority(store, { ...params, acceptanceTokenHash: "wrong" }),
+      ).rejects.toThrow();
+      await expect(readInvitationAcceptanceAuthority(store, { ...params, operation: undefined })).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("invitation-acceptance-compatibility-floor rejects otherwise valid over-event and over-byte histories", async () => {
     const store = createInMemoryEventStore();
     await seedAcceptance(store);

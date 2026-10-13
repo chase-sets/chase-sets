@@ -163,7 +163,7 @@ export function InvitationAcceptancePage({
               value={invitationId ?? (invitation.status === "pending" ? invitation.invitationId : "")}
               readOnly
             />
-            <HiddenInput name="token" value={token} readOnly />
+            {!submit ? <HiddenInput name="token" value={token} readOnly /> : null}
             <Button type="submit">{t("auth.invitationAttempt.checkStatus")}</Button>
           </Form>
         ) : null}
@@ -214,7 +214,7 @@ export function InvitationAcceptancePage({
   const commonFields = (
     <>
       <HiddenInput type="hidden" name="invitationId" value={invitation.invitationId} readOnly />
-      <HiddenInput type="hidden" name="token" value={token} readOnly />
+      {!submit ? <HiddenInput type="hidden" name="token" value={token} readOnly /> : null}
       {attemptsActive ? <HiddenInput type="hidden" name="attemptId" defaultValue={submissionId.current} /> : null}
     </>
   );

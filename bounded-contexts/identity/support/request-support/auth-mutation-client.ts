@@ -110,6 +110,7 @@ export type IdentityAuthMutationClient = Readonly<{
       roleKey: string;
       expiresAt: string;
       accepted: boolean;
+      tokenExpired: boolean;
       user: Readonly<{
         userId: string;
         passwordCredentialId: string | null;

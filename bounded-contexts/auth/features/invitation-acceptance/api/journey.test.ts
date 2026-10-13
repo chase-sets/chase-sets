@@ -37,7 +37,7 @@ const context = createTestEventStoreContext(createInternalSystemTestActor());
 const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
 const request = new Request("https://marketplace.test/invite/ivt_invited");
 
-function fixture(kind: "password" | "passkey", existing: boolean) {
+function fixture(kind: "password" | "passkey", existing: boolean, storedPassword = false) {
   const store = createInMemoryEventStore();
   const counts = { registration: 0, acceptance: 0, email: 0, credential: 0, session: 0, token: 0, store: 0 };
   let userId: string | null = existing ? "usr_existing" : null;
@@ -45,6 +45,14 @@ function fixture(kind: "password" | "passkey", existing: boolean) {
   let emailVerified = false;
   let credentialId: string | null = null;
   const credentials = new Map<string, Record<string, unknown>>();
+  if (storedPassword) {
+    credentialId = "crd_existing";
+    credentials.set(userId!, {
+      credential_id: credentialId,
+      user_id: userId,
+      secret_hash: "synthetic-password:synthetic-password",
+    });
+  }
   const sessions = new Map<string, object>();
   const query = vi.fn(async (sql: string, values: readonly unknown[] = []) => {
     if (sql.includes("pg_try_advisory_lock")) return { rows: [{ locked: true }] };
@@ -164,6 +172,116 @@ beforeEach(() => {
   start.mockReset();
 });
 describe("invitation-acceptance-stage-recovery", () => {
+  it("F1 replays the registration-started instant for the new User Founders Window", async () => {
+    const f = fixture("password", false);
+    const create = f.identity.createPersonalIdentity;
+    vi.mocked(create).mockRejectedValueOnce(new Error("synthetic registration fault"));
+    await expect(acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).rejects.toThrow();
+    const events = [...f.store.streams.values()].flat();
+    const at = events.find((event) => event.payload.stage === "registration-started")!.payload.at;
+    expect(vi.mocked(create).mock.calls.at(-1)?.[0].foundersBetaAccessStartedAt).toBe(at);
+    await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    expect(vi.mocked(create).mock.calls.at(-1)?.[0].foundersBetaAccessStartedAt).toBe(at);
+  });
+  it("F6 carries this request's acceptance snapshots and excludes them from replay and lookup", async () => {
+    const f = fixture("password", true);
+    const accept = f.identity.acceptInvitationForUser;
+    const original = vi.mocked(accept).getMockImplementation()!;
+    const snapshots = [{ aggregate: "membership" as const, id: "mbr_receipt", version: 1, status: "active" }];
+    vi.mocked(accept).mockImplementation(async (params) => ({ ...(await original(params)), snapshots }));
+    const result = await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+    expect(result).toMatchObject({ mutationSources: expect.arrayContaining([expect.objectContaining({ snapshots })]) });
+    expect(await lookupInvitationAttempt(f.services, f.identity, f.input, context)).not.toHaveProperty(
+      "mutationSources",
+    );
+    expect(await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).not.toHaveProperty(
+      "mutationSources",
+    );
+  });
+  it("F4 wrong stored password refuses before any acceptance, credential or Session effects", async () => {
+    const f = fixture("password", true, true);
+    await expect(
+      acceptInvitationAttempt(f.services, f.identity, { ...f.input, password: "wrong" }, request, context),
+    ).rejects.toMatchObject({ code: "invitation_attempt_invalid" });
+    expect(f.counts).toEqual({
+      registration: 0,
+      acceptance: 0,
+      email: 0,
+      credential: 0,
+      session: 0,
+      token: 0,
+      store: 0,
+    });
+    expect(f.identity.acceptInvitationForUser).not.toHaveBeenCalled();
+  });
+  it.each(ATTEMPT_STAGES)(
+    "F4 stored-password User resumes after %s without replacing the credential",
+    async (stage) => {
+      const f = fixture("password", true, true);
+      const append = f.store.appendToStream;
+      let faulted = false;
+      const services = {
+        ...f.services,
+        eventStore: {
+          ...f.store,
+          appendToStream: async (input: Parameters<typeof append>[0]) => {
+            if (!faulted && input.events[0]?.payload.stage === stage) {
+              faulted = true;
+              throw new Error("synthetic checkpoint fault");
+            }
+            return append(input);
+          },
+        },
+      };
+      await expect(acceptInvitationAttempt(services, f.identity, f.input, request, context)).rejects.toThrow();
+      await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
+      expect(f.counts).toEqual({
+        registration: 0,
+        acceptance: 1,
+        email: 1,
+        credential: 0,
+        session: 1,
+        token: 1,
+        store: 0,
+      });
+      expect((await readAttempt(f.store, attemptId, context))?.binding.credentialId).toBe("crd_existing");
+    },
+  );
+  it("F4 resolves second Consent activation afresh after preflight and retries registration faults deterministically", async () => {
+    const f = fixture("password", false);
+    const resolution = {
+      bundleKey: "registration" as const,
+      resolvedAt: new Date().toISOString(),
+      signature: "synthetic-proof",
+      requirements: [
+        { policyKey: "terms-of-service", version: "synthetic-v1", href: "/terms" },
+        { policyKey: "privacy-policy", version: "synthetic-v1", href: "/privacy" },
+      ],
+    };
+    vi.mocked(f.identity.resolveRegistrationConsent)
+      .mockResolvedValueOnce({ ...resolution, requirements: [] })
+      .mockResolvedValue(resolution);
+    vi.mocked(f.identity.createPersonalIdentity).mockImplementation(async (params) => {
+      expect(params.registrationConsent).toEqual({ affirmed: false, resolution });
+      throw new Error("synthetic second-Consent registration refusal");
+    });
+    for (let retry = 0; retry < 2; retry++) {
+      await expect(acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).rejects.toThrow(
+        "synthetic second-Consent",
+      );
+      expect(f.counts).toEqual({
+        registration: 0,
+        acceptance: 0,
+        email: 0,
+        credential: 0,
+        session: 0,
+        token: 0,
+        store: 0,
+      });
+      expect((await readAttempt(f.store, attemptId, context))?.stage).toBe("registration-started");
+    }
+    expect(f.identity.resolveRegistrationConsent).toHaveBeenCalledTimes(3);
+  });
   it("reads stored passkey ceremony material after a pre-checkpoint fault without consuming or verifying again", async () => {
     const f = fixture("passkey", true);
     const append = f.store.appendToStream;
@@ -280,6 +398,37 @@ describe("invitation-acceptance-stage-recovery", () => {
 });
 
 describe("invitation-acceptance-response-loss", () => {
+  it("F2 an accepted in-flight attempt with an expired token cannot issue a Session", async () => {
+    const f = fixture("password", true);
+    const append = f.store.appendToStream;
+    const services = {
+      ...f.services,
+      eventStore: {
+        ...f.store,
+        appendToStream: async (input: Parameters<typeof append>[0]) => {
+          if (input.events[0]?.payload.stage === "accepted") throw new Error("synthetic checkpoint fault");
+          return append(input);
+        },
+      },
+    };
+    await expect(acceptInvitationAttempt(services, f.identity, f.input, request, context)).rejects.toThrow();
+    const read = vi.mocked(f.identity.readInvitationAcceptanceAuthority).getMockImplementation()!;
+    vi.mocked(f.identity.readInvitationAcceptanceAuthority).mockImplementation(async (params) => ({
+      ...(await read(params)),
+      tokenExpired: true,
+    }));
+    const before = { ...f.counts };
+    expect(await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).toEqual({
+      type: "accepted-reauth-required",
+      attemptId,
+    });
+    expect(await lookupInvitationAttempt(f.services, f.identity, f.input, context)).toEqual({
+      type: "accepted-reauth-required",
+      attemptId,
+    });
+    expect(f.counts).toEqual(before);
+    expect(start).not.toHaveBeenCalled();
+  });
   it("does not treat revoked credential authority as a completed checkpoint", async () => {
     const f = fixture("password", true);
     await acceptInvitationAttempt(f.services, f.identity, f.input, request, context);
@@ -291,6 +440,7 @@ describe("invitation-acceptance-response-loss", () => {
       email: "recipient@example.com",
       expiresAt: new Date(Date.now() + 86400_000).toISOString(),
       accepted: true,
+      tokenExpired: false,
       user: {
         userId: state!.binding.userId,
         passwordCredentialId: state!.binding.credentialId,

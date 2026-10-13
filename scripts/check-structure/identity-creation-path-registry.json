@@ -15,8 +15,8 @@
       "disposition": "bound",
       "reason": "Public first-use path; creates a personal identity for an invited email that has no user yet.",
       "sites": [
-        { "file": "bounded-contexts/auth/support/api-support/invitation-routes.ts", "line": 358 },
-        { "file": "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts", "line": 285 }
+        { "file": "bounded-contexts/auth/support/api-support/invitation-routes.ts", "line": 366 },
+        { "file": "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts", "line": 289 }
       ]
     },
     {

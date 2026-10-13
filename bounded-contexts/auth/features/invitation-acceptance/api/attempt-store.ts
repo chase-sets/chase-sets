@@ -36,7 +36,7 @@ export async function beginAttempt(
     context,
     events: [{ eventType: "auth.invitation-acceptance.started", payload: binding as unknown as JsonObject }],
   });
-  return { binding, digest, stage: null, version: 1 };
+  return { binding, digest, stage: null, version: 1, registrationStartedAt: null };
 }
 
 export async function checkpoint(
@@ -46,6 +46,7 @@ export async function checkpoint(
   context: EventStoreContext,
 ): Promise<AttemptState> {
   if (ATTEMPT_STAGES[state.version - 1] !== stage) throw new InvitationAttemptError("invitation_attempt_ambiguous");
+  const at = new Date().toISOString();
   await store.appendToStream({
     streamId: `auth.invitation-acceptance-${state.binding.attemptId}`,
     expectedVersion: state.version,
@@ -53,11 +54,16 @@ export async function checkpoint(
     events: [
       {
         eventType: "auth.invitation-acceptance.checkpoint",
-        payload: { bindingDigest: state.digest, stage, at: new Date().toISOString() },
+        payload: { bindingDigest: state.digest, stage, at },
       },
     ],
   });
-  return { ...state, stage, version: state.version + 1 };
+  return {
+    ...state,
+    stage,
+    version: state.version + 1,
+    registrationStartedAt: stage === "registration-started" ? at : state.registrationStartedAt,
+  };
 }
 
 export async function withInvitationAttemptLock<T>(
