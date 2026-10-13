@@ -7,7 +7,8 @@ import { discoverInventoryCallers, partitionInventoryCallers, trackedInventorySo
 describe("issue-7169-ac1-caller-partition", () => {
   it("discovers the complete tracked repository corpus", () => {
     const discovery = discoverInventoryCallers(trackedInventorySources());
-    if (process.env.CHASE_SETS_C1_CENSUS_EVIDENCE) writeFileSync(process.env.CHASE_SETS_C1_CENSUS_EVIDENCE, JSON.stringify(discovery, null, 2));
+    if (process.env.CHASE_SETS_C1_CENSUS_EVIDENCE)
+      writeFileSync(process.env.CHASE_SETS_C1_CENSUS_EVIDENCE, JSON.stringify(discovery, null, 2));
     expect(discovery.callers.length).toBeGreaterThan(30);
     expect(discovery.scanned + discovery.ignored.length).toBe(discovery.total);
     const registry = JSON.parse(readFileSync(new URL("./caller-partition.json", import.meta.url), "utf8"));
@@ -32,7 +33,10 @@ describe("issue-7169-ac1-caller-partition", () => {
       expect(clean.callers).toHaveLength(1);
       expect(() => partitionInventoryCallers(clean, {})).toThrow("Unclassified Inventory caller");
       mkdirSync(path.join(fixture, "bounded-contexts/arbitrary/dist"), { recursive: true });
-      writeFileSync(path.join(fixture, "bounded-contexts/arbitrary/dist/unexpected.js"), "inventory.holds.createHold({}, context);");
+      writeFileSync(
+        path.join(fixture, "bounded-contexts/arbitrary/dist/unexpected.js"),
+        "inventory.holds.createHold({}, context);",
+      );
       execFileSync("git", ["add", "--", "bounded-contexts/arbitrary/dist/unexpected.js"], { cwd: fixture });
       const built = discoverInventoryCallers(trackedInventorySources(fixture));
       expect(built.callers).toEqual(clean.callers);
@@ -45,7 +49,9 @@ describe("issue-7169-ac1-caller-partition", () => {
   });
   it("discovers direct, bracket, destructured, assigned and bound aliases as one family", () => {
     const discovery = discoverInventoryCallers([
-      { path: "bounded-contexts/example/support/new-path.ts", source: `
+      {
+        path: "bounded-contexts/example/support/new-path.ts",
+        source: `
         const { createHold: reserve } = services.holds;
         const again = reserve;
         const bound = services.holds.createHold.bind(services.holds);
@@ -53,21 +59,23 @@ describe("issue-7169-ac1-caller-partition", () => {
         services.holds["createHold"]({}, context);
         reserve({}, context); again({}, context); bound({}, context);
         services.holds.commandHandler({command: {type: "PlaceInventoryHold"}});
-      ` },
+      `,
+      },
     ]);
-    expect(discovery.callers.map((caller: { family: string }) => caller.family)).toEqual(
-      Array(6).fill("hold-create"),
-    );
+    expect(discovery.callers.map((caller: { family: string }) => caller.family)).toEqual(Array(6).fill("hold-create"));
     expect(discovery.scanned).toBe(1);
     expect(discovery.total).toBe(1);
   });
 
   it("fails closed for an unknown caller at an arbitrary path", () => {
     const discovery = discoverInventoryCallers([
-      { path: "bounded-contexts/unexpected/features/surprise/api/new.ts", source: `
+      {
+        path: "bounded-contexts/unexpected/features/surprise/api/new.ts",
+        source: `
         const { reduceItem: mutate } = inventory.holdCollisions;
         mutate({}, context);
-      ` },
+      `,
+      },
     ]);
     expect(() => partitionInventoryCallers(discovery, {})).toThrow("Unclassified Inventory caller");
   });
@@ -91,8 +99,23 @@ describe("issue-7169-ac1-caller-partition", () => {
   });
 
   it("rejects dynamic executable shapes rather than silently dropping them", () => {
-    expect(() => discoverInventoryCallers([
-      { path: "bounded-contexts/example/api/dynamic.ts", source: "inventory.holds[method]({}, context);" },
-    ])).toThrow("Unresolved Inventory call");
+    expect(() =>
+      discoverInventoryCallers([
+        { path: "bounded-contexts/example/api/dynamic.ts", source: "inventory.holds[method]({}, context);" },
+      ]),
+    ).toThrow("Unresolved Inventory call");
+    expect(() =>
+      discoverInventoryCallers([
+        {
+          path: "bounded-contexts/example/api/exposed-alias.ts",
+          source: "const mutate = inventory.holds[method]; mutate({}, context);",
+        },
+      ]),
+    ).toThrow("Unresolved Inventory call");
+    expect(() =>
+      discoverInventoryCallers([
+        { path: "bounded-contexts/example/api/invalid-syntax.ts", source: "inventory.holds.createHold({" },
+      ]),
+    ).toThrow("invalid syntax");
   });
 });

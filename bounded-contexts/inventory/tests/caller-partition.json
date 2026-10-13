@@ -1,8 +1,6 @@
 {
   "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-selection-store.ts": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "not Inventory: browser storage",
     "attempt": "not applicable",
     "read": "browser storage.getItem",
@@ -10,9 +8,7 @@
     "status": "unrelated"
   },
   "bounded-contexts/channels/support/request-support/setup-locations.ts": {
-    "families": [
-      "location-read"
-    ],
+    "families": ["location-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",
     "read": "existing Inventory reader",
@@ -20,10 +16,7 @@
     "status": "retained-reader"
   },
   "bounded-contexts/checkout/support/request-support/checkout-confirmation.ts": {
-    "families": [
-      "hold-create",
-      "hold-release"
-    ],
+    "families": ["hold-create", "hold-release"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -31,9 +24,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/customer-feedback/features/privacy/api/route.ts": {
-    "families": [
-      "hold-release"
-    ],
+    "families": ["hold-release"],
     "authority": "not Inventory: privacy invitation hold",
     "attempt": "not applicable",
     "read": "Customer Feedback invitation",
@@ -41,9 +32,7 @@
     "status": "unrelated"
   },
   "bounded-contexts/discovery/features/search/ui/header-search.tsx": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "not Inventory: browser storage",
     "attempt": "not applicable",
     "read": "browser storage.getItem",
@@ -51,9 +40,7 @@
     "status": "unrelated"
   },
   "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "not Inventory: browser storage",
     "attempt": "not applicable",
     "read": "browser storage.getItem",
@@ -61,9 +48,7 @@
     "status": "unrelated"
   },
   "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "not Inventory: browser storage",
     "attempt": "not applicable",
     "read": "browser storage.getItem",
@@ -71,10 +56,7 @@
     "status": "unrelated"
   },
   "bounded-contexts/discovery/support/route-support/item-detail/action.ts": {
-    "families": [
-      "listing-stock-ensure",
-      "location-create"
-    ],
+    "families": ["listing-stock-ensure", "location-create"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -82,9 +64,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/channel-sales/api/runtime.ts": {
-    "families": [
-      "item-adjust"
-    ],
+    "families": ["item-adjust"],
     "authority": "trusted Inventory external-channel-sale context",
     "attempt": "retained sale-line immutable receipt; nested adjustment must join owner",
     "read": "sale-line receipt",
@@ -92,10 +72,7 @@
     "status": "retained-family"
   },
   "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts": {
-    "families": [
-      "hold-release",
-      "item-adjust"
-    ],
+    "families": ["hold-release", "item-adjust"],
     "authority": "Inventory owner context",
     "attempt": "C1 owner and nested fact/receipt cutover required",
     "read": "owner streams and projections",
@@ -103,11 +80,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/holds/api/route.ts": {
-    "families": [
-      "hold-create",
-      "hold-read",
-      "hold-release"
-    ],
+    "families": ["hold-create", "hold-read", "hold-release"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -115,10 +88,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/holds/api/runtime.ts": {
-    "families": [
-      "hold-create",
-      "hold-release"
-    ],
+    "families": ["hold-create", "hold-release"],
     "authority": "Inventory owner context",
     "attempt": "C1 owner and nested fact/receipt cutover required",
     "read": "owner streams and projections",
@@ -126,9 +96,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/import-batches/api/mcp.ts": {
-    "families": [
-      "location-read"
-    ],
+    "families": ["location-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",
     "read": "existing Inventory reader",
@@ -136,9 +104,7 @@
     "status": "retained-reader"
   },
   "bounded-contexts/inventory/features/import-batches/api/route.ts": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",
     "read": "existing Inventory reader",
@@ -146,11 +112,7 @@
     "status": "retained-reader"
   },
   "bounded-contexts/inventory/features/import-batches/api/runtime.ts": {
-    "families": [
-      "item-adjust",
-      "item-create",
-      "location-read"
-    ],
+    "families": ["item-adjust", "item-create", "location-read"],
     "authority": "existing Inventory account authority",
     "attempt": "existing path retained until #9500 or #9503",
     "read": "existing Inventory reader retained",
@@ -158,11 +120,7 @@
     "status": "pending"
   },
   "bounded-contexts/inventory/features/inventory-items/api/mcp.ts": {
-    "families": [
-      "item-adjust",
-      "item-read",
-      "location-read"
-    ],
+    "families": ["item-adjust", "item-read", "location-read"],
     "authority": "trusted scoped MCP actor",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -170,13 +128,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/inventory-items/api/route.ts": {
-    "families": [
-      "hold-create",
-      "item-adjust",
-      "item-create",
-      "item-read",
-      "listing-stock-ensure"
-    ],
+    "families": ["hold-create", "item-adjust", "item-create", "item-read", "listing-stock-ensure"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -184,12 +136,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/inventory-items/api/runtime.ts": {
-    "families": [
-      "item-adjust",
-      "item-create",
-      "location-create",
-      "location-read"
-    ],
+    "families": ["item-adjust", "item-create", "location-create", "location-read"],
     "authority": "Inventory owner context",
     "attempt": "C1 owner and nested fact/receipt cutover required",
     "read": "owner streams and projections",
@@ -197,9 +144,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx": {
-    "families": [
-      "item-adjust"
-    ],
+    "families": ["item-adjust"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -207,9 +152,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/reservations/api/order-reservation-workflow.ts": {
-    "families": [
-      "hold-create"
-    ],
+    "families": ["hold-create"],
     "authority": "trusted Ordering event context and reservation owner",
     "attempt": "C1 planned append/internal release cutover required",
     "read": "reservation and Hold authority",
@@ -217,9 +160,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts": {
-    "families": [
-      "item-adjust"
-    ],
+    "families": ["item-adjust"],
     "authority": "existing Inventory account authority",
     "attempt": "existing path retained until #9500 or #9503",
     "read": "existing Inventory reader retained",
@@ -227,11 +168,7 @@
     "status": "pending"
   },
   "bounded-contexts/inventory/features/storage-locations/api/route.ts": {
-    "families": [
-      "location-create",
-      "location-read",
-      "location-update"
-    ],
+    "families": ["location-create", "location-read", "location-update"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -239,12 +176,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/features/storage-locations/api/runtime.ts": {
-    "families": [
-      "location-archive",
-      "location-create",
-      "location-read",
-      "location-update"
-    ],
+    "families": ["location-archive", "location-create", "location-read", "location-update"],
     "authority": "Inventory owner context",
     "attempt": "C1 owner and nested fact/receipt cutover required",
     "read": "owner streams and projections",
@@ -252,10 +184,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/index.ts": {
-    "families": [
-      "hold-read",
-      "hold-release"
-    ],
+    "families": ["hold-read", "hold-release"],
     "authority": "trusted Ordering event context and reservation owner",
     "attempt": "C1 planned append/internal release cutover required",
     "read": "reservation and Hold authority",
@@ -263,12 +192,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx": {
-    "families": [
-      "import-commit",
-      "import-create",
-      "import-resolve",
-      "location-read"
-    ],
+    "families": ["import-commit", "import-create", "import-resolve", "location-read"],
     "authority": "existing Inventory account authority",
     "attempt": "existing path retained until #9500 or #9503",
     "read": "existing Inventory reader retained",
@@ -276,12 +200,7 @@
     "status": "pending"
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory-item.tsx": {
-    "families": [
-      "hold-create",
-      "hold-release",
-      "item-adjust",
-      "item-read"
-    ],
+    "families": ["hold-create", "hold-release", "item-adjust", "item-read"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -289,11 +208,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory-locations.tsx": {
-    "families": [
-      "location-create",
-      "location-read",
-      "location-update"
-    ],
+    "families": ["location-create", "location-read", "location-update"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -301,9 +216,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": {
-    "families": [
-      "restock-record"
-    ],
+    "families": ["restock-record"],
     "authority": "existing Inventory account authority",
     "attempt": "existing path retained until #9500 or #9503",
     "read": "existing Inventory reader retained",
@@ -311,11 +224,7 @@
     "status": "pending"
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": {
-    "families": [
-      "item-create",
-      "item-read",
-      "location-read"
-    ],
+    "families": ["item-create", "item-read", "location-read"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -339,9 +248,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/marketplace/features/reviews/ui/review-submission-page.tsx": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "not Inventory: browser storage",
     "attempt": "not applicable",
     "read": "browser storage.getItem",
@@ -349,9 +256,7 @@
     "status": "unrelated"
   },
   "bounded-contexts/marketplace/routes/account-listings-new.tsx": {
-    "families": [
-      "listing-stock-ensure"
-    ],
+    "families": ["listing-stock-ensure"],
     "authority": "authenticated request actor/account; checkout targets require server authority",
     "attempt": "C1 caller-created attempt cutover required",
     "read": "private exact attempt lookup required",
@@ -359,9 +264,7 @@
     "status": "cutover-required"
   },
   "bounded-contexts/pricing/support/request-support/inventory-sku-gateway.ts": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",
     "read": "existing Inventory reader",
@@ -369,9 +272,7 @@
     "status": "retained-reader"
   },
   "contracts/catalog-seed/representative-commerce-state.ts": {
-    "families": [
-      "listing-stock-ensure"
-    ],
+    "families": ["listing-stock-ensure"],
     "authority": "trusted seed context",
     "attempt": "C1 direct command/bootstrap cutover required",
     "read": "retained stream and exact prerequisite checks",
@@ -379,9 +280,7 @@
     "status": "cutover-required"
   },
   "deployables/platform-worker/src/main.ts": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",
     "read": "existing Inventory reader",
@@ -389,14 +288,36 @@
     "status": "retained-reader"
   },
   "packages/design-system/src/theme/theme-toggle.tsx": {
-    "families": [
-      "item-read"
-    ],
+    "families": ["item-read"],
     "authority": "not Inventory: browser storage",
     "attempt": "not applicable",
     "read": "browser storage.getItem",
     "consumer": "not Inventory",
     "status": "unrelated"
+  },
+  "bounded-contexts/inventory/support/request-support/mutation-recovery.ts": {
+    "families": ["item-read"],
+    "authority": "account and acting User-bound browser metadata",
+    "attempt": "bounded local attempt metadata; no mutation on restore",
+    "read": "browser storage.getItem, not Inventory item read",
+    "consumer": "Inventory client recovery",
+    "status": "unrelated"
+  },
+  "bounded-contexts/inventory/support/runtime-support/recovery-services.ts": {
+    "families": [
+      "item-create",
+      "item-adjust",
+      "listing-stock-ensure",
+      "hold-create",
+      "hold-release",
+      "location-create",
+      "location-update"
+    ],
+    "authority": "Inventory owner context",
+    "attempt": "typed recovery wrappers; pending production caller cutover",
+    "read": "private owner receipts",
+    "consumer": "Inventory recovery composition",
+    "status": "cutover-required"
   },
   "bounded-contexts/inventory/client.ts": {
     "families": [

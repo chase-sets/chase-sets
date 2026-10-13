@@ -6,6 +6,12 @@ This glossary defines the canonical terminology for the Inventory bounded contex
 
 An **Acquisition Occurrence** is Inventory-owned evidence of when a positive quantity actually entered a seller's stock and capital cycle. It is either a timezone-bearing seller/import-supplied occurrence or explicitly unknown. Event recording, upload, import commit, and item creation times never substitute for an unknown acquisition occurrence.
 
+## Inventory Mutation Attempt
+
+An **Inventory Mutation Attempt** is an opaque identity created by a caller before submitting a stock, Hold, or Storage Location mutation. Inventory binds it to the trusted Tenant, acting User, Account, mutation family, target or draft, and versioned normalized intent. It is not an Inventory Item, Hold, Order, or background-job identity.
+
+Acceptance, owned facts, child receipts, and the first terminal receipt commit together. An identical accepted intent reads that immutable first result, even after later changes to the item or Hold. Changed binding or intent cannot authorize another write. After a possible send, recovery reads the exact private receipt rather than silently resubmitting.
+
 ## Inventory Item
 
 An **Inventory Item** is a seller's stock for one specific product and storage location.
