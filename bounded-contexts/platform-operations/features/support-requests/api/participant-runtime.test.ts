@@ -4,6 +4,8 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createEventStoreError } from "@chase-sets/event-core/event-store";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
+import { deriveDisplayReference } from "@chase-sets/primitives/display-reference";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import {
   participantFixture,
@@ -13,9 +15,25 @@ import {
   requestHash,
   actorContext,
 } from "./participant-attempt.test-support";
-import { validateParticipantHistory } from "./participant-runtime";
+import { participantOpenSupportRequestId, validateParticipantHistory } from "./participant-runtime";
 
 describe("scoped-attempt matrix", () => {
+  it("participant open identity is a deterministic canonical typed ULID with a SUP display reference", () => {
+    const inputs = [
+      ["tnt_identity", "acc_buyer", attemptId],
+      ["tnt_other", "acc_buyer", attemptId],
+      ["tnt_identity", "acc_seller", attemptId],
+      ["tnt_identity", "acc_buyer", `${attemptId}_other`],
+    ] as const;
+    const ids = inputs.map(([tenantId, accountId, key]) => {
+      const id = participantOpenSupportRequestId(tenantId, accountId, key);
+      expect(parseStrictTypedUlid(id, "sup")).toBe(id);
+      expect(deriveDisplayReference(id)).toMatch(/^SUP-[0-9A-Z]{8}$/);
+      expect(participantOpenSupportRequestId(tenantId, accountId, key)).toBe(id);
+      return id;
+    });
+    expect(new Set(ids).size).toBe(inputs.length);
+  });
   it("authenticated actor tenant/account mismatch refuses before any history read or append", async () => {
     const memory = createInMemoryEventStore();
     const readStream = vi.fn(memory.eventStore.readStream);
@@ -74,6 +92,7 @@ describe("scoped-attempt matrix", () => {
   it("same owner/id changed hash conflicts before append (action-hash-partition control)", async () => {
     const f = participantFixture();
     const opened = await f.executeParticipant("open-support-request", openBody);
+    expect(parseStrictTypedUlid(opened.id, "sup")).toBe(opened.id);
     const before = f.allEvents.length;
     await expect(
       f.executeParticipant("open-support-request", { ...openBody, affectedLineIds: ["line_a"] }),
@@ -188,7 +207,7 @@ describe("history matrix", () => {
       expect(getEventCommitMetadata().sources).toEqual([]);
     });
   });
-  it("receipt-only, business-only, changed duplicate, unexpected, wrong-target and post-terminal history never qualify", async () => {
+  it("receipt-only, business-only, unpaired duplicate, unexpected, wrong-target and receipt-metadata mismatch never qualify", async () => {
     const f = participantFixture();
     const opened = await f.executeParticipant("open-support-request", openBody);
     const events = await readCompleteStream(f.eventStore, { streamId: `support.support-request-${opened.id}` });

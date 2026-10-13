@@ -278,9 +278,14 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
     cancelSupportRequest: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
       participantCommand("cancel", body, options.participantAttemptId ?? crypto.randomUUID(), supportRequestId),
     closeSupportRequest: async (supportRequestId: string) =>
-      participantCommand("close", {}, crypto.randomUUID(), supportRequestId),
+      participantCommand("close", {}, options.participantAttemptId ?? crypto.randomUUID(), supportRequestId),
     disputeSupportReturnCondition: async (supportRequestId: string, body: Readonly<{ reason: string }>) =>
-      participantCommand("return-condition-dispute", body, crypto.randomUUID(), supportRequestId),
+      participantCommand(
+        "return-condition-dispute",
+        body,
+        options.participantAttemptId ?? crypto.randomUUID(),
+        supportRequestId,
+      ),
     escalateOverdueSupportRequests: async (body: Readonly<{ limit?: number }> = {}) =>
       parseJsonResponse<SupportRequestEscalationSnapshot>(
         await clientFetch(`${baseUrl}/support-requests/ops/escalate-overdue`, {

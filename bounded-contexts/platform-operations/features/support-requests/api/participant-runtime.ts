@@ -98,13 +98,24 @@ type NormalizedPayload = Readonly<{
 function payload(canonical: string): NormalizedPayload {
   return JSON.parse(canonical).payload;
 }
-export function deterministicSupportId(tenantId: string, accountId: string, attemptId: string): SupportRequestId {
-  return `sup_${digest(JSON.stringify([tenantId, accountId, attemptId])).slice(0, 32)}` as SupportRequestId;
+export function participantOpenSupportRequestId(
+  tenantId: string,
+  accountId: string,
+  attemptId: string,
+): SupportRequestId {
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let bits = BigInt(`0x${digest(JSON.stringify([tenantId, accountId, attemptId])).slice(0, 32)}`);
+  let ulid = "";
+  for (let index = 0; index < 26; index++) {
+    ulid = alphabet[Number(bits & 31n)] + ulid;
+    bits >>= 5n;
+  }
+  return `sup_${ulid}`;
 }
 function target(input: ParticipantLookupInput): string {
   const id =
     input.actionKind === "open-support-request"
-      ? deterministicSupportId(input.tenantId, input.accountId, input.attempt.attemptId)
+      ? participantOpenSupportRequestId(input.tenantId, input.accountId, input.attempt.attemptId)
       : input.targetId;
   if (!id || !/^sup_[A-Za-z0-9_-]{1,80}$/.test(id))
     throw new ParticipantAttemptError(400, "invalid-participant-target");
@@ -220,7 +231,7 @@ export function validateParticipantHistory(events: readonly StoredEvent[], id: s
       let factActor: unknown;
       switch (receipt.actionKind) {
         case "open-support-request":
-          if (id !== deterministicSupportId(receipt.tenantId, receipt.accountId, receipt.attemptId))
+          if (id !== participantOpenSupportRequestId(receipt.tenantId, receipt.accountId, receipt.attemptId))
             throw new Error("Changed open owner");
           factActor = primary.payload.openedByAccountId;
           break;

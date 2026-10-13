@@ -59,13 +59,15 @@ describe("schema negatives", () => {
   });
   for (const field of ["file", "filename", "path", "url", "objectKey", "cookie", "token", "metadata", "bytes"]) {
     it(`rejects private or nested ${field} in request, descriptor, and closed recursive outcome`, () => {
-      expect(() =>
-        canonicalParticipantRequest("open-support-request", {
-          orderId: "ord_case",
-          flowType: "product-not-received",
-          [field]: { planted: "PRIVATE" },
-        }),
-      ).toThrow();
+      for (const [actionKind, body] of [
+        ["open-support-request", { orderId: "ord_case", flowType: "product-not-received" }],
+        ["submit-evidence", { evidenceType: "support-note", summary: "Valid note" }],
+        ["record-response", { responseType: "provide-tracking", summary: "Valid response" }],
+      ] as const) {
+        expect(() => canonicalParticipantRequest(actionKind, body)).not.toThrow();
+        for (const value of ["PRIVATE", { planted: "PRIVATE" }])
+          expect(() => canonicalParticipantRequest(actionKind, { ...body, [field]: value })).toThrow();
+      }
       expect(() =>
         parseParticipantAttempt({
           attemptId: "7163_attempt_0123456789abcdef",

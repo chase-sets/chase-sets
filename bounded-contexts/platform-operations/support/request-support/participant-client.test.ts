@@ -78,6 +78,17 @@ describe("action-map/client/runtime call-count matrix", () => {
   }
 });
 describe("one-variable adapter/call-count controls", () => {
+  it("close and return-condition dispute retain the caller's participant attempt identity", async () => {
+    const clientFetch = vi.fn<typeof fetch>(async () => new Response(null, { status: 400 }));
+    const api = createSupportRequestApiClient({ fetch: clientFetch, participantAttemptId: attemptId });
+    await expect(api.closeSupportRequest("sup_case")).rejects.toMatchObject({ phase: "failed-safe" });
+    await expect(api.disputeSupportReturnCondition("sup_case", { reason: "Condition changed." })).rejects.toMatchObject(
+      { phase: "failed-safe" },
+    );
+    expect(clientFetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of clientFetch.mock.calls)
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBe(attemptId);
+  });
   it("proved pre-send offline and local validation make zero calls", async () => {
     const clientFetch = vi.fn();
     const api = createSupportRequestApiClient({ fetch: clientFetch });

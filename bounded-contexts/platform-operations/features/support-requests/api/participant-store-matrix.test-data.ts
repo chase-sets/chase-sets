@@ -9,7 +9,7 @@ import {
   type SupportRequestCommand,
   type SupportRequestEvent,
 } from "../domain/domain";
-import { participantActions, type ParticipantAction } from "../domain/participant-attempt";
+import { participantActions, type ParticipantAction, type ParticipantReceipt } from "../domain/participant-attempt";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 import { actorContext, buyer, participantFixture, openBody, attemptId } from "./participant-attempt.test-support";
 import { validateParticipantHistory } from "./participant-runtime";
@@ -156,6 +156,8 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
     "receipt-only",
     "business-only",
     "changed-duplicate",
+    "repeated",
+    "fact-mismatch",
     "unexpected",
     "wrong-target",
     "post-terminal",
@@ -180,33 +182,71 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
             participantAttempt: { attemptId, requestHash: "a".repeat(64), actionKind: "submit-evidence", targetId: id },
           },
         };
-      if (kind === "changed-duplicate")
-        poison = { ...poison, payload: { ...poison.payload, requestHash: "b".repeat(64) } };
       if (kind === "unexpected")
         poison = { eventType: "support.support-request.unexpected", payload: { supportRequestId: id } };
       if (kind === "wrong-target") poison = { ...poison, payload: { ...poison.payload, targetId: "sup_other" } };
-      if (kind === "post-terminal") {
-        await f.executeParticipant("cancel", { reason: "Closed by requester" }, id, `${attemptId}_cancel`);
-        poison = {
-          eventType: "support.support-request.evidence-submitted",
-          payload: { supportRequestId: id },
-          metadata: {
-            participantAttempt: {
-              attemptId: `${attemptId}_late`,
-              requestHash: "a".repeat(64),
-              actionKind: "submit-evidence",
-              targetId: id,
+      let poisons = [poison];
+      if (["post-terminal", "changed-duplicate", "repeated", "fact-mismatch"].includes(kind)) {
+        await f.executeParticipant(
+          "submit-evidence",
+          { evidenceType: "support-note", summary: "Valid paired note" },
+          id,
+          `${attemptId}_note`,
+        );
+        const pairedHistory = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+        const pair = pairedHistory.slice(first.version);
+        expect(pair.map((event) => event.eventType)).toEqual([
+          "support.support-request.evidence-submitted",
+          "support.support-request.participant-attempt-recorded",
+        ]);
+        if (kind === "post-terminal")
+          await f.executeParticipant("cancel", { reason: "Closed by requester" }, id, `${attemptId}_cancel`);
+        const current = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+        const receipt = pair[1].payload as ParticipantReceipt;
+        const key = kind === "post-terminal" || kind === "fact-mismatch" ? `${attemptId}_late` : receipt.attemptId;
+        const hash = kind === "changed-duplicate" ? "b".repeat(64) : receipt.requestHash;
+        const fact = pair[0];
+        const evidence = fact.payload.evidence as Record<string, unknown>;
+        poisons = [
+          {
+            eventType: fact.eventType,
+            payload:
+              kind === "fact-mismatch"
+                ? { ...fact.payload, evidence: { ...evidence, summary: "Changed paired note" } }
+                : fact.payload,
+            metadata: {
+              ...fact.metadata,
+              participantAttempt: {
+                attemptId: key,
+                requestHash: hash,
+                actionKind: receipt.actionKind,
+                targetId: id,
+              },
             },
           },
-        };
+          {
+            eventType: pair[1].eventType,
+            payload: {
+              ...receipt,
+              attemptId: key,
+              requestHash: hash,
+              firstVersion: current.length + 1,
+              result: { ...receipt.result, version: current.length + pair.length },
+            },
+          },
+        ];
       }
       const current = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
       await store.appendToStream({
         streamId: `support.support-request-${id}`,
         expectedVersion: current.length,
         context: actorContext(buyer),
-        events: [poison],
+        events: poisons,
       });
+      const poisonedHistory = await readCompleteStream(store, { streamId: `support.support-request-${id}` });
+      expect(() => validateParticipantHistory(poisonedHistory, id)).toThrow(
+        kind === "post-terminal" ? "Post-terminal attempt" : undefined,
+      );
       expect(await f.lookup("open-support-request", openBody)).toEqual({
         outcome: "unknown",
         reason: "history-invalid",
