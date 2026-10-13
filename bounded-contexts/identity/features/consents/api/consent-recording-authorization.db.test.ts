@@ -18,6 +18,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import {
   CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX,
   ConsentActivationAuthorityError,
+  consentActivationAuthorityStreamId,
   readConsentActivationAuthority,
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import { activeSnapshot } from "../../../tests/consent-activation-authority-fixtures";
@@ -40,12 +41,12 @@ if (!databaseBaseUrl && process.env.CI) {
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["identity"] as const;
 const authorizedContext = actorContext("usr_authorized", "acc_authorized");
-const authorityStreamId = "platform-policy.consent-activation-authority-identity.terms-of-service";
+const authorityKey = "identity.terms-of-service-active-version";
+const authorityStreamId = consentActivationAuthorityStreamId(authorityKey);
 
 let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
 let eventStore: EventStore;
 let runtime: ConsentServices;
-const authorityKey = "identity.terms-of-service-active-version";
 const publication = {
   ...bundle.identityConsentPolicyPublications["terms-of-service"],
   consentActivatable: true,
@@ -283,6 +284,12 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
           },
         },
       ],
+    });
+    await expect(readConsentActivationAuthority(eventStore, authorityKey)).resolves.toMatchObject({
+      streamId: authorityStreamId,
+      isActive: true,
+      activeVersion: "v1",
+      authorityVersion: 2,
     });
   });
 
