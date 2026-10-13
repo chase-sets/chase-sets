@@ -115,6 +115,8 @@ The primitive preserves native form behavior for `id`, `method`, `action`, `encT
 
 Use `ValidationSummary`, `useFormState`, and `normalizeFormErrors` for controlled client forms that need dirty/touched state, validation timing, server error mapping, status text, counters, and form-level messages:
 
+`Form` and `RouterForm` accept `errorAnnouncement="inline"` (the default) or `"summary"`. Select summary ownership in the same render as a populated `ValidationSummary` covering every displayed field error. Inline errors stay visible, invalid and described, but no longer have an alert/status role or live-region behavior; the summary keeps its existing alert semantics. Clear summary ownership with those errors. Do not select it for field failures absent from the summary. Ownership is not inferred from `validationSummaryId`, form status or mounting a summary. Each nearest form/provider defaults independently to inline announcements, while portal descendants retain their React provider scope. Status and counter announcements are unchanged. This policy does not focus anything; caller-controlled summary focus and natural field links remain unchanged.
+
 ```tsx
 import { Button, Form, TextInput, ValidationSummary, useFormState } from "@chase-sets/design-system";
 
@@ -128,25 +130,24 @@ export function ContactForm() {
       }),
     },
   );
+  const errors = [
+    ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
+      (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
+    ),
+    ...form.errors.formErrors.map((message) => ({ message })),
+  ];
 
   return (
     <Form
       id="contact-form"
-      validationSummaryId="contact-errors"
+      errorAnnouncement={errors.length > 0 ? "summary" : "inline"}
+      validationSummaryId={errors.length > 0 ? "contact-errors" : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         form.submitAttempted();
       }}
     >
-      <ValidationSummary
-        id="contact-errors"
-        errors={[
-          ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
-            (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
-          ),
-          ...form.errors.formErrors.map((message) => ({ message })),
-        ]}
-      />
+      <ValidationSummary id="contact-errors" errors={errors} />
       <TextInput id="email" label="Email" description="Used for receipts." {...form.fieldProps("email")} />
       <TextInput id="name" label="Name" counter={`${form.values.name.length} characters`} {...form.fieldProps("name")} />
       <Button type="submit">Save</Button>
