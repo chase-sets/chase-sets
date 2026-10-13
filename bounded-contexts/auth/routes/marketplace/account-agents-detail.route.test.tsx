@@ -75,7 +75,8 @@ describe("agent-grant-revocation-real-route", () => {
   ])("rejects nested receipt scalars without a success frame or second write: %j", async (fields) => {
     const router = await mount();
     api.revokeAgentGrant.mockImplementation(async (_id: string, attemptId: string) => ({
-      attempt_id: attemptId, ...fields,
+      attempt_id: attemptId,
+      ...fields,
     }));
     await revoke();
     await waitFor(() => expect(router.state.navigation.state).toBe("idle"));

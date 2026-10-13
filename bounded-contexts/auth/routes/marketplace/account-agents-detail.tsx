@@ -121,9 +121,7 @@ function safeRevocationReceipt(value: unknown, attemptId: string): AgentGrantRev
     value.attempt_id !== attemptId ||
     !("state" in value) ||
     typeof value.state !== "string" ||
-    !["succeeded", "already-revoked-cleanup-complete", "ambiguous", "failed-safe", "conflict"].includes(
-      value.state,
-    )
+    !["succeeded", "already-revoked-cleanup-complete", "ambiguous", "failed-safe", "conflict"].includes(value.state)
   )
     return revocationFailure(0, attemptId);
   const receipt: AgentGrantRevocationReceipt = {
@@ -138,9 +136,7 @@ function safeRevocationReceipt(value: unknown, attemptId: string): AgentGrantRev
   if (
     "phase" in value &&
     typeof value.phase === "string" &&
-    ["admitted", "identity-terminal", "payments-terminal", "webhook-excluded", "completed"].includes(
-      value.phase,
-    )
+    ["admitted", "identity-terminal", "payments-terminal", "webhook-excluded", "completed"].includes(value.phase)
   )
     return { ...receipt, phase: value.phase as AgentGrantRevocationReceipt["phase"] };
   return receipt;

@@ -30,12 +30,15 @@ describe("agent-grant-revocation-stage-recovery", () => {
       effectContext: original,
     };
     const advance: AgentGrantRevocations["advance"] = vi.fn(async (current) => ({
-      ...current, phase: phases[current.version], version: current.version + 1,
+      ...current,
+      phase: phases[current.version],
+      version: current.version + 1,
     }));
     const cleanup = vi.fn(async () => ({ detached: 0, alreadyRemoved: 0, instrumentIds: [] }));
     await resumeAgentGrantRevocation({ advance, cleanup, exclude: vi.fn(async () => true) }, state, recovery);
     expect(cleanup).toHaveBeenCalledExactlyOnceWith(
-      { accountId: "acc_a", agentGrantId: "grant_a", revokedAt: state.revokedAt }, original,
+      { accountId: "acc_a", agentGrantId: "grant_a", revokedAt: state.revokedAt },
+      original,
     );
     expect(advance).toHaveBeenNthCalledWith(1, state, original);
   });
@@ -118,9 +121,9 @@ describe("agent-grant-revocation-stage-recovery", () => {
       effectContext: context,
     };
     const advance = vi.fn();
-    await expect(
-      resumeAgentGrantRevocation({ advance, exclude: vi.fn() }, state, context),
-    ).rejects.toThrow("revocation_effect_unavailable");
+    await expect(resumeAgentGrantRevocation({ advance, exclude: vi.fn() }, state, context)).rejects.toThrow(
+      "revocation_effect_unavailable",
+    );
     expect(advance).not.toHaveBeenCalled();
   });
 });
