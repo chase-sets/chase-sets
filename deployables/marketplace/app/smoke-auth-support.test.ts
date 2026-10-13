@@ -940,7 +940,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(20);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(21);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {
