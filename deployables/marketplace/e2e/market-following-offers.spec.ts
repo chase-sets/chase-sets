@@ -56,48 +56,6 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   let sellerContext: BrowserContext | undefined;
   const authorizations: unknown[] = [];
   const writes: unknown[] = [];
-  const rememberWrite = (response: APIResponse) => {
-    const metadata = readResponseConsistencyMetadata({ headers: new Headers(response.headers()) });
-    expect(metadata?.commitPositions.length, "retain the real command's commit receipt").toBeGreaterThan(0);
-    writes.push(metadata);
-  };
-  const freshReadHeaders = (target: "marketplace" | "ordering") => {
-    const receipt = readFreshWriteToken(appendFreshWriteTokenFromSources("http://localhost/", writes));
-    expect(receipt, "carry the captured command receipts into the exact read").not.toBeNull();
-    return {
-      [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt!),
-      [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: target,
-    };
-  };
-  const submitTestOffer = async (offer: {
-    catalogItemId: string;
-    productId: string;
-    itemTitle: string;
-    selectedOptions: { dimensionId: string; optionId: string }[];
-    priceAmount: string;
-    priceCurrencyCode: string;
-    quantityRequested: number;
-  }) => {
-    const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
-      data: {
-        ...offer,
-        shippingDestinationSnapshot: {
-          name: "Synthetic Buyer",
-          line1: "1 Main Street",
-          line2: null,
-          city: "Chicago",
-          state: "IL",
-          postalCode: "60601",
-          country: "US",
-        },
-      },
-    });
-    expect(submitted.status()).toBe(201);
-    rememberWrite(submitted);
-    const result = await submitted.json();
-    expect(result.id, "the created Offer's actual identity").toEqual(expect.stringMatching(/^off_/));
-    return result.id as string;
-  };
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
       removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
@@ -134,6 +92,48 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       accountId: identitySeedIds.collector.accountId,
     });
     expect(actor.permissions, "offers.manage on the receipted session response").toContain("offers.manage");
+    const rememberWrite = (response: APIResponse) => {
+      const metadata = readResponseConsistencyMetadata({ headers: new Headers(response.headers()) });
+      expect(metadata?.commitPositions.length, "retain the real command's commit receipt").toBeGreaterThan(0);
+      writes.push(metadata);
+    };
+    const freshReadHeaders = (target: "marketplace" | "ordering") => {
+      const receipt = readFreshWriteToken(appendFreshWriteTokenFromSources("http://localhost/", writes));
+      expect(receipt, "carry the captured command receipts into the exact read").not.toBeNull();
+      return {
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt!),
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: target,
+      };
+    };
+    const submitTestOffer = async (offer: {
+      catalogItemId: string;
+      productId: string;
+      itemTitle: string;
+      selectedOptions: { dimensionId: string; optionId: string }[];
+      priceAmount: string;
+      priceCurrencyCode: string;
+      quantityRequested: number;
+    }) => {
+      const submitted = await page.request.post("/api/marketplace/account/offers/submitted", {
+        data: {
+          ...offer,
+          shippingDestinationSnapshot: {
+            name: "Synthetic Buyer",
+            line1: "1 Main Street",
+            line2: null,
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+        },
+      });
+      expect(submitted.status()).toBe(201);
+      rememberWrite(submitted);
+      const result = await submitted.json();
+      expect(result.id, "the created Offer's actual identity").toEqual(expect.stringMatching(/^off_/));
+      return result.id as string;
+    };
     const controlOfferIds: string[] = [];
     for (const seedOfferId of [fixture.offerId, fixture.heldOfferId]) {
       const response = await page.request.get(`/api/marketplace/account/offers/submitted/${seedOfferId}`);
