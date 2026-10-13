@@ -16,6 +16,7 @@
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
+    "./mutation-recovery": "./support/request-support/mutation-form.tsx",
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
     "./server": "./server.ts"

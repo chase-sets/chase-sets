@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { InventoryMutationProvider } from "@chase-sets/inventory/mutation-recovery";
 import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
@@ -376,6 +377,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     accountAccessRequired: null,
+    recoveryAuthority: { accountId: actorResult.actor.accountId, actorUserId: actorResult.actor.userId },
     inventoryItems,
     hasListingStockLocation,
     claimError: claimError ?? inventoryHandoffError,
@@ -437,7 +439,9 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             quantityCap,
             purchaseLimits,
             inventorySnapshot: (
-              await createInventoryRequestApiClient(request).ensureListingStock({
+              await createInventoryRequestApiClient(request, {
+                mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+              }).ensureListingStock({
                 catalogItemId: createForm.catalogItemId,
                 selectedOptions: createForm.selectedOptions,
                 quantity: quantityCap,
@@ -554,14 +558,19 @@ export default function MarketplaceAccountListingsNewRoute() {
   }
 
   return (
-    <MarketplaceListingCreatePage
-      inventoryItems={data.inventoryItems}
-      hasListingStockLocation={data.hasListingStockLocation}
-      createForm={actionData?.createForm ?? data.createForm ?? undefined}
-      createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
-      errorMessage={actionData?.error ?? data.claimError ?? null}
-      evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority!}
+      key={`${data.recoveryAuthority!.accountId}/${data.recoveryAuthority!.actorUserId}`}
+    >
+      <MarketplaceListingCreatePage
+        inventoryItems={data.inventoryItems}
+        hasListingStockLocation={data.hasListingStockLocation}
+        createForm={actionData?.createForm ?? data.createForm ?? undefined}
+        createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
+        errorMessage={actionData?.error ?? data.claimError ?? null}
+        evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
+      />
+    </InventoryMutationProvider>
   );
 }
 

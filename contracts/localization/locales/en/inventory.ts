@@ -1,4 +1,16 @@
 export const inventoryEnglishTranslations = {
+  "inventory.recovery.editing": "Inventory changes are ready.",
+  "inventory.recovery.submitting": "Submitting Inventory change.",
+  "inventory.recovery.confirming": "Confirming the original Inventory result. No change will be resubmitted.",
+  "inventory.recovery.succeeded": "The original Inventory change is confirmed.",
+  "inventory.recovery.reauth": "Sign in with the original account to confirm this Inventory change.",
+  "inventory.recovery.failedSafe": "Inventory recovery storage is unavailable. No change was sent.",
+  "inventory.recovery.ambiguous":
+    "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+  "inventory.recovery.check": "Check original result",
+  "inventory.recovery.discard": "Discard recovery metadata",
+  "inventory.recovery.discardConfirmation":
+    "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
   "inventory.features.inventoryItems.api.route.collision.mode.invalid":
     "Collision mode must protect orders or honor offline.",
   "inventory.features.inventoryItems.api.route.honor.offline.authority.required":

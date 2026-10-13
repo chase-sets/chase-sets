@@ -504,6 +504,9 @@
       "@chase-sets/inventory/context": [
         "./bounded-contexts/inventory/context.json"
       ],
+      "@chase-sets/inventory/mutation-recovery": [
+        "./bounded-contexts/inventory/support/request-support/mutation-form.tsx"
+      ],
       "@chase-sets/inventory/routes/*": [
         "./bounded-contexts/inventory/routes/*.tsx"
       ],

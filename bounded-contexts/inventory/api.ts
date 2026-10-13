@@ -46,6 +46,7 @@ function requiredPermissionForMethod(method: string, path: string) {
 
 export function buildInventoryApi(services: InventoryServices) {
   const app = new Hono<InventoryApiEnv>();
+  const mutationBoundary = inventoryMutationBoundary();
 
   app.use("*", async (c, next) => {
     const actor = c.get("actor");
@@ -82,10 +83,9 @@ export function buildInventoryApi(services: InventoryServices) {
       );
     }
 
-    await next();
+    return mutationBoundary(c, next);
   });
 
-  app.use("*", inventoryMutationBoundary());
   app.route("/catalog-items", inventoryCatalogItemRoutes(services.catalogItems));
   app.route("/mutation-attempts", inventoryMutationReadRoutes(services.mutations));
   app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));

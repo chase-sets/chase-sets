@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigation } from "react-router";
 import {
   HiddenInput,
-  Form,
   Button,
   Badge,
   Card,
@@ -35,6 +34,7 @@ import type { InventoryStorageLocation } from "../../storage-locations/ui/contra
 import type { InventoryItemListItem } from "./contracts";
 import { inventoryListingHref } from "./listing-handoff";
 import { OfflineSaleForm, OfflineSaleResult } from "./offline-sale-form";
+import { InventoryMutationForm } from "../../../support/request-support/mutation-form";
 
 const DEFAULT_CATALOG_ITEM_API_BASE_URL = "/api/inventory/catalog-items";
 
@@ -304,7 +304,7 @@ export function InventoryItemListPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form spacing="none" method="post">
+          <InventoryMutationForm family="item-create" targetId="draft" spacing="none" method="post">
             <Grid columns={{ base: 1, lg: 2 }} gap={5}>
               <HiddenInput type="hidden" name="intent" value="create-item" />
               <Stack gap={3}>
@@ -428,7 +428,7 @@ export function InventoryItemListPage({
                 )}
               </Inset>
             </Grid>
-          </Form>
+          </InventoryMutationForm>
         </Card>
       </PageSection>
 

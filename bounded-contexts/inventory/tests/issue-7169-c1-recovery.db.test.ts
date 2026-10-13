@@ -217,13 +217,23 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
     payload: { holdId: placement.holdId, releasedAt: "2026-10-12T12:00:00Z", releaseReason: "manual" },
   };
   it("sql-poison-drop cannot satisfy the same frozen malformed-quantity assertion", async () => {
-    await eventStore.appendToStream({ streamId: `inventory.hold-${placement.holdId}`, expectedVersion: "no_stream", context, events: [{ eventType: "inventory.hold.placed", payload: { ...placement, quantity: "1" } }] });
-    const discriminate = async () => { await expect(hold()).rejects.toThrow("reconciliation is required"); };
+    await eventStore.appendToStream({
+      streamId: `inventory.hold-${placement.holdId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "inventory.hold.placed", payload: { ...placement, quantity: "1" } }],
+    });
+    const discriminate = async () => {
+      await expect(hold()).rejects.toThrow("reconciliation is required");
+    };
     await discriminate();
     const before = await counts();
     vi.stubEnv("CHASE_SETS_C1_MUTANT", "sql-poison-drop");
-    try { await expect(discriminate()).rejects.toThrow(); }
-    finally { vi.unstubAllEnvs(); }
+    try {
+      await expect(discriminate()).rejects.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
     expect(await counts()).not.toEqual(before);
   });
   it.each([
@@ -517,6 +527,48 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
     function runLocation(attempt: ReturnType<typeof attempted>, params = location) {
       return services.storageLocations.createStorageLocation(params, attempt.context);
     }
+    it("replays a hold's first receipt after its later release rather than rereading mutable state", async () => {
+      const attempt = attempted();
+      const params = {
+        accountId: context.audit.forAccountId,
+        itemId: placement.itemId,
+        quantity: 1,
+        reason: "Synthetic terminal replay",
+        purpose: "manual" as const,
+        sourceRef: null,
+      };
+      const first = await services.holds.createHold(params, attempt.context);
+      const handlers = buildInventoryHoldProjectionHandlers(pool);
+      for (const event of await eventStore.readStream({ streamId: `inventory.hold-${first.holdId}` }))
+        await handlers[event.eventType]!(toTransportEvent(event));
+      await services.holds.releaseHold(
+        { accountId: context.audit.forAccountId, holdId: first.holdId, releaseReason: "manual" },
+        attempted().context,
+      );
+      const before = await counts();
+      expect(await services.holds.createHold(params, attempt.context)).toEqual(first);
+      expect(await services.mutations.read(attempt.id, context)).toMatchObject({ result: first });
+      expect(await counts()).toEqual(before);
+    });
+
+    it("reads retained version-one receipts beside requester-bound receipts after reader migration", async () => {
+      const retained = attempted();
+      const first = await runLocation(retained);
+      await pool.query(
+        "UPDATE inventory_mutation_attempts SET requesting_account_id = NULL WHERE family = 'location-create'",
+      );
+      const newAttempt = attempted();
+      const second = await runLocation(newAttempt, { ...location, name: "New receipt beside retained receipt" });
+      expect(await services.mutations.read(retained.id, context)).toMatchObject({ version: 1, result: first });
+      expect(await services.mutations.read(newAttempt.id, context)).toMatchObject({ version: 1, result: second });
+      expect(
+        await services.mutations.read(retained.id, {
+          ...context,
+          audit: { ...context.audit, forAccountId: "acc_foreign" },
+        }),
+      ).toBeNull();
+      expect(await runLocation(retained)).toEqual(first);
+    });
 
     it("recovers every production family and nested receipt without duplicating durable transport facts", async () => {
       await pool.query(
