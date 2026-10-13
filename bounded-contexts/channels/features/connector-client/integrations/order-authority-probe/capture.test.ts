@@ -1481,7 +1481,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
             headers: { Authorization: `Bearer ${endpoint.token}` },
             body: JSON.stringify({ runId: binding.runId, policyHash: control.POLICY.hash, operation }),
           });
-          expect(reply.status).toBe(
+          expect(reply.status, JSON.stringify(session.hostTerminal())).toBe(
             operation === "cancel-before-begin" ||
               (scenario === "expired" && operation === "capture") ||
               (scenario !== "qualified" && ["remove", "close"].includes(operation))

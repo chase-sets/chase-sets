@@ -471,6 +471,10 @@ describe("selector-agent-orders-anchor-contract", () => {
     const doc = documentFor();
     const initial = control.inspectOrders(doc, "LastTwoYears");
     expect(control.inspectOrders(doc, "LastTwoYears", { token: initial.token }).cause).toBe("SETTLE_UNOBSERVABLE");
+    expect(
+      control.inspectOrders(doc, "LastTwoYears", { token: initial.token, documentChanged: true }).payload
+        .currentEpochComplete,
+    ).toBe(false);
     doc.querySelector("main")!.setAttribute("aria-busy", "true");
     const pending = control.inspectOrders(doc, "LastTwoYears", { token: initial.token });
     expect(pending.payload.oldCompletionInvalidated).toBe(true);
