@@ -84,6 +84,55 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
+  it("waits for the exact extension item to render before checking identity and removing it", async () => {
+    const f = fixture("C");
+    const digests = { "synthetic-package": "b".repeat(64) };
+    f.binding.packageHash = hash(JSON.stringify(digests));
+    let rendered = false,
+      removed = false,
+      url = "";
+    const item = {
+      count: async () => (rendered && !removed ? 1 : 0),
+      waitFor: async ({ state }: { state: string }) => {
+        if (state === "visible") rendered = true;
+        else expect(removed).toBe(true);
+      },
+      locator: (selector: string) => {
+        expect(selector).toBe("#removeButton");
+        return {
+          click: async () => {
+            removed = true;
+          },
+        };
+      },
+    };
+    const page = {
+      goto: async (next: string) => {
+        url = next;
+      },
+      url: () => url,
+      on: () => {},
+      locator: (selector: string) => {
+        if (selector === `extensions-item[id="${f.binding.packageId}"]`) return item;
+        expect(selector).toBe("extensions-remove-dialog");
+        return { locator: () => ({ count: async () => 0 }) };
+      },
+    };
+    const browser = control.createPlaywrightSelectorBrowser({
+      context: { browser: () => ({ version: () => f.binding.version }), newPage: async () => page },
+      preparation: {
+        evidence: "synthetic",
+        extensionId: f.binding.packageId,
+        profileDirectory: f.profile,
+        packageDigests: digests,
+      },
+      binding: f.binding,
+      ordersUrl: pathToFileURL(path.join(f.root, "synthetic-orders.html")).href,
+      deadline: Date.parse(f.binding.startedAt) + 900000,
+    });
+    expect(await browser.action("remove")).toEqual({ ok: true });
+    expect(removed).toBe(true);
+  });
   it("waits for the actual fixed helper API before cancel-before-begin, not navigation commit", async () => {
     const f = fixture("C");
     const digests = { "synthetic-package": "b".repeat(64) };

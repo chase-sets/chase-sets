@@ -664,6 +664,7 @@ export function createPlaywrightSelectorBrowser({ context, preparation, binding,
     const page = await context.newPage();
     await page.goto("chrome://extensions/", { waitUntil: "commit" });
     const item = page.locator(`extensions-item[id="${preparation.extensionId}"]`);
+    await item.waitFor({ state: "visible" });
     if ((await item.count()) !== 1) throw new SelectorFailure("ANCHOR_ABSENT");
     page.on("dialog", (dialog) => {
       dialogFailure = new SelectorFailure("PROTOCOL_REFUSED");
