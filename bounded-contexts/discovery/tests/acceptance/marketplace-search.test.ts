@@ -41,6 +41,15 @@ import {
   populateDiscoverySearchIdentityTerms,
   verifyDiscoverySearchIdentityTerms,
 } from "../../support/runtime-support/search-identity-terms-population";
+import {
+  searchDiscoveryItems,
+  searchDiscoveryItemsByNaturalKey,
+  searchDiscoverySemanticItems,
+  type DiscoverySearchParams,
+} from "../../features/search/read-model/queries";
+import { retrieveDiscoveryItems } from "../../features/search/read-model/hybrid-retrieval";
+import { createQueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
+import { refreshAllSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const discoveryContextNames = [
@@ -176,6 +185,374 @@ describe("Discovery removal handler reachability", () => {
 });
 
 describe("marketplace search", () => {
+  const foil = [{ dimensionId: "finish", optionId: "foil" }];
+  const variants = ["nonfoil", "foil", "etched"].map((optionId) => ({
+    dimensionId: "finish",
+    label: "Finish",
+    optionId,
+    optionLabel: optionId,
+  }));
+
+  async function variantItem(id = "variant", options = variants) {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_items
+       (catalog_item_id, slug, title, status, dimension_filter_values, category_slugs, set_code, card_number, search_text, search_text_simple, search_embedding)
+       VALUES ($1, $1, 'Variant dragon', 'active', $2::jsonb, '["cards"]', 'sv04', '123',
+         to_tsvector('english', 'variant dragon'), to_tsvector('simple', 'variant dragon'), $3::halfvec(1024))`,
+      [id, JSON.stringify(options), `[1,${Array(1023).fill(0).join(",")}]`],
+    );
+  }
+
+  async function variantListing(id: string, price: string, options = foil, currency = "USD", item = "variant") {
+    await pools.discovery.query(
+      `INSERT INTO discovery_market_accounts (account_id) VALUES ('variant-seller') ON CONFLICT DO NOTHING`,
+    );
+    await pools.discovery.query(
+      `INSERT INTO discovery_market_listings
+       (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code,
+        listing_stream_version, quantity_cap, supply_total_quantity, active_held_quantity, status, product_measure_snapshot, selected_options)
+       VALUES ($1, 'variant-seller', $1, $2, $1, $3, $4, 1, 4, 10, 2, 'active', '{}', $5::jsonb)`,
+      [id, item, price, currency, JSON.stringify(options)],
+    );
+  }
+
+  async function variantOffer(id: string, options = foil, item = "variant") {
+    await pools.discovery.query(
+      `INSERT INTO discovery_offer_demand_matches
+       (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code, selected_options)
+       VALUES ($1, 'synthetic-buyer', $2, $1, 'Variant dragon', '99', 'USD', $3::jsonb)`,
+      [id, item, JSON.stringify(options)],
+    );
+  }
+
+  async function variantSearch(params: DiscoverySearchParams = {}) {
+    return searchDiscoveryItems(pools.discovery, { search: "variant", includeTotal: true, ...params });
+  }
+
+  it("same-listing variant commerce", async () => {
+    await variantItem();
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }], "EUR");
+    await variantListing("foil", "20");
+    const selected = { dimensionFilters: foil };
+    expect((await variantSearch({ ...selected, priceMax: "3" })).total).toBe(0);
+    expect((await variantSearch({ ...selected, priceMin: "10" })).items[0]?.market_summary).toEqual({
+      lowest_price_amount: "20",
+      lowest_price_currency_code: "USD",
+      active_listing_count: 1,
+      total_visible_quantity: 4,
+    });
+    await variantListing("etched", "25", [{ dimensionId: "finish", optionId: "etched" }]);
+    expect(
+      (await variantSearch({ dimensionFilters: [...foil, { dimensionId: "finish", optionId: "etched" }] })).items[0]
+        ?.market_summary?.active_listing_count,
+    ).toBe(2);
+    await variantListing("foil-eur", "15", foil, "EUR");
+    expect((await variantSearch(selected)).items[0]?.market_summary).toMatchObject({
+      lowest_price_amount: null,
+      lowest_price_currency_code: null,
+    });
+    expect((await variantSearch({ ...selected, priceMin: "10" })).total).toBe(0);
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil-eur'`);
+    await pools.discovery.query(
+      `UPDATE discovery_market_listings SET active_held_quantity = 9 WHERE listing_id = 'foil'`,
+    );
+    expect((await variantSearch(selected)).items[0]?.market_summary?.total_visible_quantity).toBe(1);
+    for (const restriction of [
+      "active_held_quantity = 10",
+      "product_measure_snapshot = NULL",
+      "status = 'withdrawn'",
+      "listing_stream_version = 0",
+      "quantity_cap = 0",
+    ]) {
+      await pools.discovery.query(`UPDATE discovery_market_listings SET ${restriction} WHERE listing_id = 'foil'`);
+      expect((await variantSearch({ ...selected, inStock: true })).total, restriction).toBe(0);
+      await pools.discovery.query(
+        `UPDATE discovery_market_listings SET active_held_quantity = 2, product_measure_snapshot = '{}', status = 'active', listing_stream_version = 1, quantity_cap = 4 WHERE listing_id = 'foil'`,
+      );
+    }
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'unavailable'`,
+    );
+    expect((await variantSearch({ ...selected, inStock: true })).total).toBe(0);
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'available'`,
+    );
+    const disjoint = [
+      ...variants,
+      { dimensionId: "condition", label: "Condition", optionId: "mint", optionLabel: "Mint" },
+      { dimensionId: "grade", label: "Grade", optionId: "10", optionLabel: "10" },
+    ];
+    await pools.discovery.query(`UPDATE discovery_search_items SET dimension_filter_values = $1::jsonb`, [
+      JSON.stringify(disjoint),
+    ]);
+    await variantListing("mint", "30", [...foil, { dimensionId: "condition", optionId: "mint" }]);
+    await variantListing("grade", "40", [...foil, { dimensionId: "grade", optionId: "10" }]);
+    const groups = [...foil, { dimensionId: "condition", optionId: "mint" }, { dimensionId: "grade", optionId: "10" }];
+    expect((await variantSearch({ dimensionFilters: groups })).total).toBe(1);
+    expect((await variantSearch({ dimensionFilters: groups, inStock: true })).total).toBe(0);
+    await variantListing("both", "50", groups);
+    expect((await variantSearch({ dimensionFilters: groups, inStock: true })).total).toBe(1);
+  });
+
+  it("prospective variant facet counts", async () => {
+    await variantItem();
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
+    await variantListing("foil", "20");
+    await variantOffer("demand-1");
+    await variantOffer("demand-2");
+    const count = async (params: DiscoverySearchParams, optionId = "foil") =>
+      (await variantSearch({ dimensionFilters: foil, ...params })).facets
+        .find((group) => group.id === "finish")
+        ?.values.find((value) => value.id === optionId)?.count ?? 0;
+    for (const marketActivity of [undefined, "listings", "offers", "any"] as const) {
+      expect(await count({ marketActivity, priceMax: "3" })).toBe(0);
+      expect(await count({ marketActivity, priceMin: "10" })).toBe(
+        marketActivity === "offers" ? 2 : marketActivity === "any" ? 3 : 1,
+      );
+    }
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil'`);
+    for (const marketActivity of ["offers", "any"] as const) {
+      expect(await count({ marketActivity })).toBe(2);
+      for (const restriction of [{ inStock: true }, { priceMin: "10" }, { priceMax: "30" }]) {
+        expect(await count({ marketActivity, ...restriction })).toBe(0);
+        expect((await variantSearch({ dimensionFilters: foil, marketActivity, ...restriction })).total).toBe(0);
+      }
+    }
+    await variantListing("foil", "20");
+    for (const marketActivity of ["offers", "any"] as const) {
+      for (const restriction of [{ inStock: true }, { priceMin: "10" }, { priceMax: "30" }]) {
+        expect(await count({ marketActivity, ...restriction })).toBe(marketActivity === "offers" ? 2 : 3);
+      }
+    }
+    await variantListing("foil-eur", "21", foil, "EUR");
+    expect(await count({ priceMin: "10" })).toBe(0);
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'unavailable'`,
+    );
+    expect(await count({ marketActivity: "listings" })).toBe(0);
+    expect(await count({ marketActivity: "any" })).toBe(2);
+    expect(await count({ marketActivity: "offers", inStock: true })).toBe(0);
+    expect(await count({})).toBe(1);
+    // Independent contributor oracle: every substituted query and count agree,
+    // including zero supply and two distinct submitted offer IDs for one item.
+    for (const marketActivity of ["listings", "offers", "any"] as const) {
+      for (const optionId of ["foil", "nonfoil", "etched"]) {
+        const selection = [{ dimensionId: "finish", optionId }];
+        const result = await variantSearch({ dimensionFilters: selection, marketActivity });
+        const expectedIds = marketActivity === "listings" || optionId !== "foil" ? [] : ["demand-1", "demand-2"];
+        expect(result.total).toBe(expectedIds.length ? 1 : 0);
+        expect(await count({ marketActivity }, optionId)).toBe(expectedIds.length);
+      }
+    }
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'available'`,
+    );
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil-eur'`);
+    await variantItem("other-card");
+    await variantListing("other-foil", "22", foil, "USD", "other-card");
+    await variantOffer("other-demand", foil, "other-card");
+    const rows = await variantSearch({ marketActivity: "any", dimensionFilters: foil, priceMin: "10" });
+    expect(rows.total).toBe(2);
+    expect(rows.category_counts).toEqual([{ slug: "cards", count: 2 }]);
+    expect(await count({ marketActivity: "any", priceMin: "10" })).toBe(5);
+    const multiOptions = [
+      ...variants,
+      { dimensionId: "condition", label: "Condition", optionId: "mint", optionLabel: "Mint" },
+      { dimensionId: "condition", label: "Condition", optionId: "good", optionLabel: "Good" },
+      { dimensionId: "grade", label: "Grade", optionId: "10", optionLabel: "10" },
+    ];
+    await pools.discovery.query(`UPDATE discovery_search_items SET dimension_filter_values = $1::jsonb`, [
+      JSON.stringify(multiOptions),
+    ]);
+    const condition = { dimensionId: "condition", optionId: "mint" };
+    const good = { dimensionId: "condition", optionId: "good" };
+    const grade = { dimensionId: "grade", optionId: "10" };
+    await variantListing("disjoint-condition", "20", [...foil, condition]);
+    await variantListing("disjoint-grade", "20", [...foil, grade]);
+    const dimensionFilters = [...foil, condition, good, grade];
+    expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true })).toBe(0);
+    await variantListing("all-groups", "20", [...foil, good, grade]);
+    expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true })).toBe(1);
+    expect(
+      (await variantSearch({ dimensionFilters, marketActivity: "listings", inStock: true })).items.map(
+        (item) => item.catalog_item_id,
+      ),
+    ).toEqual(["variant"]);
+    expect(await count({ dimensionFilters, marketActivity: "offers", inStock: true })).toBe(0);
+    await variantOffer("all-groups-demand", [...foil, good, grade]);
+    expect(await count({ dimensionFilters, marketActivity: "offers", inStock: true })).toBe(1);
+    expect(await count({ dimensionFilters, marketActivity: "any", inStock: true })).toBe(2);
+  });
+
+  it("selected variant retrieval summaries agree across lexical structured semantic rescue and hybrid", async () => {
+    await variantItem();
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
+    await variantListing("foil", "20");
+    const params = { search: "variant dragon", dimensionFilters: foil };
+    const lexical = await variantSearch(params);
+    const structured = await searchDiscoveryItemsByNaturalKey(
+      pools.discovery,
+      { setCode: "sv04", cardNumber: "123" },
+      params,
+    );
+    const vector = [1, ...Array<number>(1023).fill(0)];
+    const semantic = await searchDiscoverySemanticItems(pools.discovery, params, vector);
+    expect(structured.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
+    expect(semantic[0]?.item.market_summary).toEqual(lexical.items[0]?.market_summary);
+    for (const hybridEnabled of [false, true]) {
+      const actual = await retrieveDiscoveryItems(
+        {
+          db: pools.discovery,
+          rescueEnabled: true,
+          hybridEnabled,
+          provider: {
+            model: "synthetic",
+            dimensions: 1024,
+            embed: async () => ({ vectors: [vector], totalTokens: 0 }),
+          },
+          cache: createQueryEmbeddingCache(),
+        },
+        params,
+      );
+      expect(actual.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
+      expect(actual.retrievalMode).toBe(hybridEnabled ? "hybrid" : "rescue");
+    }
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil'`);
+    await variantOffer("demand");
+    for (const marketActivity of ["offers", "any"] as const) {
+      const result = await variantSearch({ dimensionFilters: foil, marketActivity });
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.market_summary).toBeNull();
+    }
+  });
+
+  it("withdrawal survives shadow cutover", async () => {
+    await variantItem();
+    await variantListing("foil", "20");
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
+    await pools.discovery.query(
+      `CREATE TABLE discovery_search_items_rebuild (LIKE discovery_search_items INCLUDING ALL)`,
+    );
+    await pools.discovery.query(`INSERT INTO discovery_search_items_rebuild SELECT * FROM discovery_search_items`);
+    await pools.discovery.query(`UPDATE discovery_market_listings SET status = 'withdrawn'`);
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
+    // Bypass mutant: an inner grouped aggregate refresh never visits absent
+    // supply. It demonstrably keeps the shadow's withdrawn price and stock.
+    await pools.discovery.query(`UPDATE discovery_search_items_rebuild AS item
+      SET lowest_price_amount = market.price, visible_quantity = market.quantity
+      FROM (SELECT catalog_catalog_item_id, MIN(price_amount::numeric) AS price, SUM(quantity_cap) AS quantity
+        FROM discovery_market_listings WHERE status = 'active' GROUP BY catalog_catalog_item_id) AS market
+      WHERE item.catalog_item_id = market.catalog_catalog_item_id`);
+    const mutant = await pools.discovery.query(
+      `SELECT lowest_price_amount::text AS price, visible_quantity FROM discovery_search_items_rebuild`,
+    );
+    expect(mutant.rows).toEqual([{ price: "20", visible_quantity: 4 }]);
+    await refreshAllSearchIndexMarketSignals(pools.discovery, "discovery_search_items_rebuild");
+    await pools.discovery.query(`ALTER TABLE discovery_search_items RENAME TO discovery_search_items_previous`);
+    await pools.discovery.query(`ALTER TABLE discovery_search_items_rebuild RENAME TO discovery_search_items`);
+    for (const dimensionFilters of [undefined, foil]) {
+      expect((await variantSearch({ dimensionFilters, inStock: true })).total).toBe(0);
+      expect((await variantSearch({ dimensionFilters })).items[0]?.market_summary).toBeNull();
+    }
+    const signals = await pools.discovery.query(
+      `SELECT lowest_price_amount, visible_quantity FROM discovery_search_items`,
+    );
+    expect(signals.rows).toEqual([{ lowest_price_amount: null, visible_quantity: null }]);
+  });
+
+  it("selected variant enlarged-cardinality query plans and cold/warm measurements", async () => {
+    await pools.discovery.query(`INSERT INTO discovery_market_accounts (account_id) VALUES ('variant-seller')`);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_items (catalog_item_id, slug, title, status, dimension_filter_values, search_text, search_text_simple)
+       SELECT 'perf-' || n, 'perf-' || n, 'Variant dragon', 'active', $1::jsonb,
+         to_tsvector('english', 'variant dragon'), to_tsvector('simple', 'variant dragon')
+       FROM generate_series(1, 1200) AS n`,
+      [
+        JSON.stringify(
+          Array.from({ length: 8 }, (_, n) => ({
+            dimensionId: "finish",
+            label: "Finish",
+            optionId: `option-${n}`,
+            optionLabel: `Option ${n}`,
+          })),
+        ),
+      ],
+    );
+    await pools.discovery.query(
+      `INSERT INTO discovery_market_listings
+       (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code,
+        listing_stream_version, quantity_cap, status, product_measure_snapshot, selected_options)
+       SELECT 'listing-' || n || '-' || option, 'variant-seller', 'inventory-' || n, 'perf-' || n, 'product-' || n || '-' || option,
+         (10 + option)::text, 'USD', 1, 3, 'active', '{}',
+         jsonb_build_array(jsonb_build_object('dimensionId', 'finish', 'optionId', 'option-' || option))
+       FROM generate_series(1, 1200) AS n CROSS JOIN generate_series(0, 7) AS option`,
+    );
+    await pools.discovery.query(`ANALYZE discovery_search_items`);
+    await pools.discovery.query(`ANALYZE discovery_market_listings`);
+    const statements: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const capturing: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        statements.push({ sql, values });
+        return pools.discovery.query<Row>(sql, values);
+      },
+    };
+    const params: DiscoverySearchParams = {
+      search: "variant",
+      dimensionFilters: [{ dimensionId: "finish", optionId: "option-1" }],
+      priceMin: "10",
+      priceMax: "20",
+      inStock: true,
+      marketActivity: "any",
+      sort: "price_asc",
+      limit: 200,
+      includeTotal: true,
+    };
+    const coldStart = performance.now();
+    const cold = await searchDiscoveryItems(capturing, params);
+    const coldMs = performance.now() - coldStart;
+    const warmStart = performance.now();
+    const warm = await searchDiscoveryItems(pools.discovery, params);
+    const warmMs = performance.now() - warmStart;
+    expect(cold.total).toBe(1200);
+    expect(warm.items).toEqual(cold.items);
+    expect(cold.facets.find((facet) => facet.id === "finish")?.values).toHaveLength(8);
+    const plans = [];
+    for (const statement of statements.filter(
+      ({ sql }) => sql.startsWith("SELECT catalog_item_id") || sql.includes("option_market AS"),
+    )) {
+      const result = await pools.discovery.query<{ "QUERY PLAN": unknown }>(
+        `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement.sql}`,
+        statement.values,
+      );
+      plans.push({
+        surface: statement.sql.includes("option_market AS") ? "prospective-facets" : "selected-price-page",
+        plan: result.rows[0]?.["QUERY PLAN"],
+      });
+      // An eligible-listing aggregate is set-based, never a SubPlan evaluated for
+      // each item/option. Catalog JSON applicability probes are separate.
+      const inspect = (node: Record<string, unknown>, correlated = false): void => {
+        const subplan = correlated || node["Parent Relationship"] === "SubPlan";
+        if (node["Relation Name"] === "discovery_market_listings") expect(subplan).toBe(false);
+        for (const child of (node.Plans ?? []) as Record<string, unknown>[]) inspect(child, subplan);
+      };
+      const roots = result.rows[0]?.["QUERY PLAN"] as Array<{ Plan: Record<string, unknown> }>;
+      roots.forEach(({ Plan }) => inspect(Plan));
+    }
+    expect(plans).toHaveLength(2);
+    console.info(
+      "variant-query-plan",
+      JSON.stringify({
+        items: 1200,
+        listings: 9600,
+        options: 8,
+        coldMs,
+        warmMs,
+        cachePolicy: "first query on newly inserted fixture, then unchanged warm query; no shared-cache eviction",
+        plans,
+      }),
+    );
+  });
+
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
       requireDatabaseBaseUrl(),
