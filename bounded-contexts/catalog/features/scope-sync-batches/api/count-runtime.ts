@@ -173,7 +173,7 @@ export function createScopeSyncCountRuntime(deps: {
         await lockCountHeadroom(tx, deps.store.slot);
         for (const plan of input.plans)
           for (const unit of plan.participationPreview.units.filter(
-            (unit) => unit.selected && unit.providerKey === "scrydex" && unit.unitKey.includes(":single-card:"),
+            (unit) => unit.selected && unit.providerKey === "scrydex",
           )) {
             const original = unit.estimate.countSource;
             if (original) {
