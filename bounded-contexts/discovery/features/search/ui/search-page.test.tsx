@@ -9,6 +9,8 @@ import { SearchPage } from "./search-page";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { searchDiscoveryItems } from "../read-model/queries";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
 vi.mock("@chase-sets/localization", async (importOriginal) => {
@@ -429,6 +431,92 @@ describe("6110 result heading hierarchy", () => {
 });
 
 describe("SearchPage", () => {
+  it("two-variant read model drives the selected card price and Buy cue", async () => {
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    const db: PgQueryable = {
+      query: async <Row,>(sql: string, values: readonly unknown[] = []) => {
+        const rows = sql.startsWith("SELECT catalog_item_id")
+          ? [japaneseSearchResult]
+          : sql.startsWith("WITH startable_listing")
+            ? [
+                {
+                  catalog_catalog_item_id: japaneseSearchResult.catalog_item_id,
+                  lowest_price_amount: values.includes(JSON.stringify(dimensionFilters)) ? "20.00" : "2.00",
+                  lowest_price_currency_code: "USD",
+                  active_listing_count: 1,
+                  total_visible_quantity: 1,
+                },
+              ]
+            : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    const result = await searchDiscoveryItems(db, { dimensionFilters }, { loadFacets: false });
+    renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: { ...searchResponse, items: [{ ...japaneseSearchResult, market_summary: result.items[0].market_summary }] },
+    });
+    expect(document.querySelector("[data-listing-card-price-value]")?.textContent).toBe("$20.00");
+    expect(screen.queryByText("$2.00")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Add product to Buy Cart" }).closest('[data-primary-action-count="1"]'),
+    ).toBeTruthy();
+  });
+  it.each([
+    { name: "nonfoil", amount: "2.00", currency: "USD", count: 1, quantity: 1, expected: "$2.00", buy: true },
+    { name: "foil", amount: "20.00", currency: "USD", count: 1, quantity: 1, expected: "$20.00", buy: true },
+    { name: "demand-only", amount: null, currency: null, count: 0, quantity: 0, expected: null, buy: false },
+    { name: "mixed currency", amount: null, currency: null, count: 2, quantity: 2, expected: null, buy: true },
+  ])("selected variant card price and Buy cue: $name", ({ amount, currency, count, quantity, expected, buy }) => {
+    renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: {
+        ...searchResponse,
+        items: [
+          {
+            ...japaneseSearchResult,
+            market_summary: {
+              lowest_price_amount: amount,
+              lowest_price_currency_code: currency,
+              active_listing_count: count,
+              total_visible_quantity: quantity,
+            },
+          },
+        ],
+      },
+      categories: [],
+    });
+    expect(document.querySelector("[data-listing-card-price-value]")?.textContent ?? null).toBe(expected);
+    expect(
+      screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" }).getAttribute("href"),
+    ).toContain("dimension.finish=foil");
+    const action = screen.getByRole("link", { name: buy ? "Add product to Buy Cart" : "Add product to Sell List" });
+    expect(action.getAttribute("href")).toContain(`market=${buy ? "buy" : "sell"}`);
+    expect(action.closest('[data-primary-action-count="1"]')).toBeTruthy();
+  });
+
+  it("retains selected-zero variant facet options", () => {
+    renderSearchPage({
+      committedSearch: "variant",
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: {
+        ...searchResponse,
+        facets: [
+          {
+            id: "finish",
+            kind: "dimension",
+            label: "Finish",
+            values: [
+              { id: "foil", label: "Foil", count: 0, selected: true },
+              { id: "nonfoil", label: "Nonfoil", count: 1, selected: false },
+            ],
+          },
+        ],
+      },
+    });
+    expect(screen.getAllByText("Foil").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Remove Finish: Foil" })).toBeTruthy();
+  });
   it.each(["desktop", "mobile"] as const)(
     "keeps ordered independent %s facet state across toggles, removal, reopening and remount",
     (presentation) => {
