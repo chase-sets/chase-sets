@@ -1,9 +1,9 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { readCompleteStream, type CompleteStreamReader } from "@chase-sets/event-core/complete-stream";
+import type { CompleteStreamReader } from "@chase-sets/event-core/complete-stream";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { InventoryDomainError } from "./common";
-import { loadInventoryStockHolds, validateInventoryItemStockHistory } from "./stock-history";
+import { loadInventoryStockHolds, readInventoryStockHistory, validateInventoryItemStockHistory } from "./stock-history";
 import type { InventoryItemState } from "../../features/inventory-items/domain/domain";
 import {
   getInventoryHoldableItem,
@@ -36,7 +36,7 @@ export async function loadAuthoritativeInventoryStockSnapshot(input: {
   if (aggregate.state.id !== input.itemId || aggregate.state.accountId !== input.accountId) {
     throw input.missingItemError?.() ?? new InventoryDomainError("Inventory item not found.");
   }
-  const itemEvents = await readCompleteStream(input.eventStore, { streamId: `inventory.item-${input.itemId}` });
+  const itemEvents = await readInventoryStockHistory(input.eventStore, `inventory.item-${input.itemId}`);
   validateInventoryItemStockHistory({
     events: itemEvents,
     itemId: input.itemId,

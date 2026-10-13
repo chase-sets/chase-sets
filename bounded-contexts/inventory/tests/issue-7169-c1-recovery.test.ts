@@ -123,6 +123,21 @@ async function stockHarness(facts: Fact[]) {
 }
 
 describe("issue-7169-ac3-stock-invariants: complete stock authority", () => {
+  it.each(["item", "hold"])("bounds the reconciliation error for a missing %s stream version", async (category) => {
+    const deps = await stockHarness([{ eventType: "inventory.hold.placed", payload: placed }]);
+    const reader = {
+      readStream: async (input: Parameters<typeof deps.eventStore.readStream>[0]) => {
+        const events = await deps.eventStore.readStream(input);
+        return input.streamId.startsWith(`inventory.${category}-`)
+          ? events.map((event) => ({ ...event, streamVersion: event.streamVersion + 1 }))
+          : events;
+      },
+    };
+    await expect(loadAuthoritativeInventoryStockSnapshot({ ...deps, eventStore: reader })).rejects.toThrow(
+      "Inventory stock history is unavailable; reconciliation is required.",
+    );
+  });
+
   it("reads a decisive poisoned fact beyond the event-store page boundary", async () => {
     const start = Date.parse("2026-10-12T12:00:00Z");
     const facts: Fact[] = [

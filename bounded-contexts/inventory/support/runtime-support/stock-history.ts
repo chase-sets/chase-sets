@@ -25,6 +25,14 @@ function requireHistory(condition: unknown): asserts condition {
   if (!condition) throw new InventoryDomainError("Inventory stock history is unavailable; reconciliation is required.");
 }
 
+export async function readInventoryStockHistory(eventStore: CompleteStreamReader, streamId: string) {
+  try {
+    return await readCompleteStream(eventStore, { streamId });
+  } catch {
+    throw new InventoryDomainError("Inventory stock history is unavailable; reconciliation is required.");
+  }
+}
+
 function record(value: unknown): Record<string, unknown> {
   requireHistory(value !== null && typeof value === "object" && !Array.isArray(value));
   return value as Record<string, unknown>;
@@ -245,7 +253,7 @@ export async function loadInventoryStockHolds(input: {
       if (expectedTotal === undefined) expectedTotal = total;
       requireHistory(total === expectedTotal && typeof row.stream_id === "string" && row.stream_id > cursor);
       cursor = row.stream_id;
-      const events = await readCompleteStream(input.eventStore, { streamId: row.stream_id });
+      const events = await readInventoryStockHistory(input.eventStore, row.stream_id);
       requireHistory(
         Number.isSafeInteger(Number(row.current_version)) && events.length === Number(row.current_version),
       );
