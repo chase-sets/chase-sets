@@ -290,7 +290,12 @@ describe("payment MCP stored-payment-method rail", () => {
         },
         {
           ...managingActor,
-          agentGrant: { grantId: "lpa_1", platformProfileUrl: "https://agent.example/.well-known/ucp", scopes: ["checkout:write"], rolePermissions: ["orders.manage"] },
+          agentGrant: {
+            grantId: "lpa_1",
+            platformProfileUrl: "https://agent.example/.well-known/ucp",
+            scopes: ["checkout:write"],
+            rolePermissions: ["orders.manage"],
+          },
         },
       ),
     );
