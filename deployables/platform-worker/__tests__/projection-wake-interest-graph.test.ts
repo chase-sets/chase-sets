@@ -87,6 +87,40 @@ const NOTIFICATIONS_FULFILLMENT_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("composes forward-only listing directive delivery independently of review checkpoints and removal consumers", () => {
+    const runtime = createPlatformWorkerHost();
+    const eventType = "platform-operations.reported-content.listing-removal-directed";
+    const name = "marketplace-listing-moderation-reaction";
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    expect(
+      lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType }).map(
+        ({ targetContextName, projectionName }) => `${targetContextName}:${projectionName}`,
+      ),
+    ).toEqual([`marketplace:${name}`]);
+    const runner = runtime.subscriptionRunners.find(({ projectionName }) => projectionName === name);
+    expect(runner).toMatchObject({
+      checkpointKey: `${name}:platform-operations:v1`,
+      subscriptionVersion: 1,
+      handlerKind: "reaction",
+      eventTypes: [eventType],
+    });
+    expect(runner?.handlers?.[eventType]).toBeTypeOf("function");
+    expect(
+      runtime.subscriptionRunners.find(
+        ({ projectionName }) => projectionName === "marketplace-review-moderation-reaction",
+      ),
+    ).toMatchObject({
+      checkpointKey: "marketplace-review-moderation-reaction:platform-operations:v1",
+      subscriptionVersion: 1,
+      eventTypes: ["platform-operations.reported-content.action-recorded"],
+    });
+    const disabled = buildPlatformWorkerProjectionWakeRelayInterestIndex([`marketplace:${name}`]);
+    expect(lookupProjectionInterests(disabled, { sourceContextName: "platform-operations", eventType })).toEqual([]);
+    expect(
+      lookupProjectionInterests(disabled, { sourceContextName: "marketplace", eventType: OPERATOR_REMOVAL }),
+    ).toEqual(lookupProjectionInterests(index, { sourceContextName: "marketplace", eventType: OPERATOR_REMOVAL }));
+  });
+
   it("resolves operator removal to every existing visibility consumer independently", () => {
     const runtime = createPlatformWorkerHost();
     const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
@@ -169,12 +203,19 @@ describe("platform worker projection wake interest graph", () => {
 
   it("resolved-subscription base parity", () => {
     const runtime = createPlatformWorkerHost("public");
-    const rawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
+    const allRawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
       (entry.module.buildSubscriptions?.(entry.services) ?? []).map((subscription) => ({
         targetContextName: entry.contextName,
         subscription,
       })),
     );
+    const added = allRawSubscriptions.filter(
+      ({ targetContextName, subscription }) =>
+        targetContextName === "marketplace" &&
+        subscription.projectionName === "marketplace-listing-moderation-reaction",
+    );
+    expect(added).toHaveLength(1);
+    const rawSubscriptions = allRawSubscriptions.filter((entry) => !added.includes(entry));
     const sharedNames = summarizeSharedSubscriptionNames(rawSubscriptions.map(({ subscription }) => subscription));
     const rawCheckpointIdentities = rawSubscriptions
       .map(
@@ -218,7 +259,17 @@ describe("platform worker projection wake interest graph", () => {
     const fundingRunners = runtime.subscriptionRunners.filter(
       (runner) => runner.targetContextName === "payments" && fundingProjectionNames.includes(runner.projectionName),
     );
-    const inheritedRunners = runtime.subscriptionRunners.filter((runner) => !fundingRunners.includes(runner));
+    const listingDirectiveRunners = runtime.subscriptionRunners.filter(
+      (runner) =>
+        runner.targetContextName === "marketplace" &&
+        runner.projectionName === "marketplace-listing-moderation-reaction",
+    );
+    expect(listingDirectiveRunners.map((runner) => runner.checkpointKey)).toEqual([
+      "marketplace-listing-moderation-reaction:platform-operations:v1",
+    ]);
+    const inheritedRunners = runtime.subscriptionRunners.filter(
+      (runner) => !fundingRunners.includes(runner) && !listingDirectiveRunners.includes(runner),
+    );
     expect(fundingRunners.map((runner) => runner.checkpointKey).sort()).toEqual([
       "payments-wallet-funding-projection:payments:v1",
       "platform-policy-document-projection:payments:v1",
