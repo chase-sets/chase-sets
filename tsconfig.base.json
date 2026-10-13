@@ -483,6 +483,9 @@
       "@chase-sets/identity-seed": [
         "./contracts/identity-seed/index.ts"
       ],
+      "@chase-sets/identity/account-management-test-support": [
+        "./bounded-contexts/identity/features/account-management/tests/browser-test-support.ts"
+      ],
       "@chase-sets/identity/context": [
         "./bounded-contexts/identity/context.json"
       ],

@@ -31,7 +31,8 @@ export function requireInterruptionSafeClient(action: (args: AccountActionArgs) 
       ];
       const seen = new Set<string>();
       for (const [name, value] of form) {
-        if (typeof value !== "string" || value.length > 1000 || seen.has(name)) throw new Error("INDETERMINATE");
+        if (!allowed.includes(name) || typeof value !== "string" || value.length > 1000 || seen.has(name))
+          throw new Error("INDETERMINATE");
         seen.add(name);
       }
     } catch {

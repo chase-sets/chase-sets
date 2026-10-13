@@ -17,6 +17,7 @@
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
     "./seed-support/*": "./support/seed-support/*.ts",
+    "./account-management-test-support": "./features/account-management/tests/browser-test-support.ts",
     "./server": "./server.ts",
     "./web": "./web.ts"
   },

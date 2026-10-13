@@ -41,7 +41,15 @@
     "ucp-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [
+    ".",
+    "./account-management-test-support",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web"
+  ],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": [],
   "eventReactions": [

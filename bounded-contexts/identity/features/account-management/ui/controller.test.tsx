@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { webcrypto } from "node:crypto";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, render } from "@testing-library/react";
 import { Button, HiddenInput, TextInput } from "@chase-sets/design-system";
@@ -26,6 +27,23 @@ describe("issue-7168-ac9-transport-state", () => {
       .mockResolvedValueOnce(Response.json({ outcome: "indeterminate", code: "INDETERMINATE" }))
       .mockResolvedValueOnce(Response.json({ outcome: "not-recorded", code: "validation-failed" }, { status: 400 }));
     vi.stubGlobal("fetch", fetch);
+    function DuplicateRevoke() {
+      const [mounted, setMounted] = useState(true);
+      return (
+        <>
+          <Button type="button" onClick={() => setMounted((value) => !value)}>
+            Toggle duplicate
+          </Button>
+          {mounted ? (
+            <AccountMutationForm method="post">
+              <HiddenInput name="intent" value="revoke" />
+              <HiddenInput name="membershipId" value="mbr_test" />
+              <Button type="submit">Duplicate revoke</Button>
+            </AccountMutationForm>
+          ) : null}
+        </>
+      );
+    }
     const router = createMemoryRouter(
       [
         {
@@ -40,11 +58,7 @@ describe("issue-7168-ac9-transport-state", () => {
                 <HiddenInput name="membershipId" value="mbr_test" />
                 <Button type="submit">Revoke</Button>
               </AccountMutationForm>
-              <AccountMutationForm method="post">
-                <HiddenInput name="intent" value="revoke" />
-                <HiddenInput name="membershipId" value="mbr_test" />
-                <Button type="submit">Duplicate revoke</Button>
-              </AccountMutationForm>
+              <DuplicateRevoke />
               <AccountMutationForm method="post">
                 <HiddenInput name="intent" value="create-invitation" />
                 <TextInput name="email" label="Email" defaultValue="synthetic@example.test" />
@@ -70,6 +84,10 @@ describe("issue-7168-ac9-transport-state", () => {
     expect(screen.getByRole("button", { name: "Duplicate revoke" }).matches(":disabled")).toBe(true);
     expect(screen.getByRole("button", { name: /^Revoke$/ }).matches(":disabled")).toBe(true);
     await waitFor(() => expect(observe.mock.calls.at(-1)?.[0]).toEqual(retained));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle duplicate" }));
+    expect(screen.queryByRole("button", { name: "Duplicate revoke" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle duplicate" }));
+    expect(screen.getByRole("button", { name: "Duplicate revoke" }).matches(":disabled")).toBe(true);
   });
   it("preserves entered fields across submitting/confirming/failed-safe and performs no second write", async () => {
     vi.stubGlobal("crypto", webcrypto);

@@ -3,8 +3,107 @@ import { createIdentityMutationPersistence, eligibilityScopeKeys, lockEligibilit
 import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
+import { createEventStoreError } from "@chase-sets/event-core/event-store";
 
 describe("issue-7168-ac11-caller-compatibility", () => {
+  it("preserves a preference receipt batch, metadata and the original concurrency conflict", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const unexpected = vi.fn(async () => {
+      throw new Error("unexpected eligibility work");
+    });
+    const conflict = createEventStoreError("concurrency_conflict", "synthetic preference race");
+    const append = vi.fn<NonNullable<PostgresEventStore["appendToStreams"]>>().mockRejectedValue(conflict);
+    const store: PostgresEventStore = {
+      ...eventStore,
+      readStream: unexpected,
+      appendToStreams: append,
+      readStreamInTransaction: unexpected,
+      appendToStreamInTransaction: unexpected,
+      appendToStreamsInTransaction: unexpected,
+    };
+    const context = {
+      tenantId: parseTypedId("tnt_synthetic", "tnt"),
+      audit: {
+        performedByUserId: parseTypedId("usr_synthetic", "usr"),
+        forAccountId: parseTypedId("acc_synthetic", "acc"),
+      },
+    };
+    const inputs = [
+      {
+        streamId: "identity.user-preferences-usr_synthetic",
+        expectedVersion: 10001,
+        context,
+        metadata: { preferenceWriteKeyHash: "synthetic" },
+        events: [{ eventType: "identity.user-preferences.updated", payload: {} }],
+      },
+      {
+        streamId: "identity.preference-write-attempt-synthetic",
+        expectedVersion: "no_stream",
+        context,
+        events: [{ eventType: "identity.preference-write-attempt.committed", payload: {} }],
+      },
+    ] as const;
+    const persistence = createIdentityMutationPersistence({ query: unexpected, connect: unexpected }, store, () => []);
+    await expect(persistence.eventStore.appendToStreams!(inputs)).rejects.toBe(conflict);
+    expect(append).toHaveBeenCalledExactlyOnceWith(inputs);
+    expect(unexpected).not.toHaveBeenCalled();
+  });
+
+  it("reads only creation events for fenced enrollment in a mixed batch and never reads unrelated contributors", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const context = {
+      tenantId: parseTypedId("tnt_synthetic", "tnt"),
+      audit: {
+        performedByUserId: parseTypedId("usr_synthetic", "usr"),
+        forAccountId: parseTypedId("acc_synthetic", "acc"),
+      },
+    };
+    await eventStore.appendToStream({
+      streamId: "identity.account-acc_synthetic",
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "identity.account.created", payload: { accountId: "acc_synthetic" } }],
+    });
+    const query = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] }));
+    const read = vi.fn(eventStore.readStream);
+    const transactionRead = vi.fn<PostgresEventStore["readStreamInTransaction"]>(async (_db, input) =>
+      eventStore.readStream(input),
+    );
+    const client = { query, release: vi.fn() };
+    const store: PostgresEventStore = {
+      ...eventStore,
+      readStream: read,
+      readStreamInTransaction: transactionRead,
+      appendToStreamInTransaction: async (_db, input) => eventStore.appendToStream(input),
+      appendToStreamsInTransaction: async (_db, inputs) => eventStore.appendToStreams!(inputs),
+    };
+    const persistence = createIdentityMutationPersistence({ query, connect: async () => client }, store, () => []);
+    await persistence.eventStore.appendToStreams!([
+      {
+        streamId: "identity.account-acc_synthetic",
+        expectedVersion: 1,
+        context,
+        events: [{ eventType: "identity.account.profile-updated", payload: {} }],
+      },
+      {
+        streamId: "identity.api-key-key_synthetic",
+        expectedVersion: "no_stream",
+        context,
+        events: [{ eventType: "identity.api-key.used", payload: {} }],
+      },
+    ]);
+    expect(read).toHaveBeenCalledExactlyOnceWith({
+      streamId: "identity.account-acc_synthetic",
+      fromVersion: 1,
+      limit: 1,
+    });
+    expect(transactionRead).toHaveBeenCalledExactlyOnceWith(client, {
+      streamId: "identity.account-acc_synthetic",
+      fromVersion: 1,
+      limit: 1,
+    });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("event_subscription"))).toBe(false);
+  });
   it.each(["identity.api-key-key_synthetic9506", "identity.user-preferences-usr_synthetic9506"])(
     "passes through a 10,001-event %s stream without reads or eligibility SQL",
     async (streamId) => {
@@ -38,7 +137,11 @@ describe("issue-7168-ac11-caller-compatibility", () => {
         appendToStreamsInTransaction: unexpected,
         readStreamInTransaction: unexpected,
       };
-      const persistence = createIdentityMutationPersistence({ query: unexpected, connect: unexpected }, store);
+      const persistence = createIdentityMutationPersistence(
+        { query: unexpected, connect: unexpected },
+        store,
+        () => [],
+      );
       const inputs = [
         {
           streamId,
@@ -71,7 +174,7 @@ describe("issue-7168-ac11-caller-compatibility", () => {
       appendToStreamsInTransaction: unexpected,
       readStreamInTransaction: unexpected,
     };
-    const persistence = createIdentityMutationPersistence(pool, store);
+    const persistence = createIdentityMutationPersistence(pool, store, () => []);
     await persistence.eventStore.appendToStream({
       streamId: "identity.account-capability-acc_synthetic",
       expectedVersion: "no_stream",

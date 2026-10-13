@@ -67,7 +67,8 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
   });
-  const mutationPersistence = createIdentityMutationPersistence(pool, postgresEventStore);
+  let projectors: readonly ProjectionHandlerSet[] = [];
+  const mutationPersistence = createIdentityMutationPersistence(pool, postgresEventStore, () => projectors);
   const eventStore = mutationPersistence.eventStore;
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
@@ -104,6 +105,19 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const shippingAddresses = createShippingAddressRuntime(deps);
   const accountManagement = createAccountManagementRuntime(mutationPersistence, { auth, shippingAddresses });
 
+  projectors = [
+    ...accounts.projectors,
+    ...users.projectors,
+    ...memberships.projectors,
+    ...invitations.projectors,
+    ...foundersCohort.projectors,
+    ...apiKeys.projectors,
+    ...consents.projectors,
+    ...preferences.projectors,
+    ...shippingAddresses.projectors,
+    ...policies.projectors,
+  ];
+
   return {
     eventStore,
     accountManagement,
@@ -120,18 +134,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     linkedPlatformAuthorizations,
     shippingAddresses,
     policies,
-    projectors: [
-      ...accounts.projectors,
-      ...users.projectors,
-      ...memberships.projectors,
-      ...invitations.projectors,
-      ...foundersCohort.projectors,
-      ...apiKeys.projectors,
-      ...consents.projectors,
-      ...preferences.projectors,
-      ...shippingAddresses.projectors,
-      ...policies.projectors,
-    ],
+    projectors,
     pool,
     db,
     auth,

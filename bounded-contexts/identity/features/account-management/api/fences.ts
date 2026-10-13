@@ -2,6 +2,7 @@ import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import {
   readGapSafeEventStoreHead,
   type PgPoolClient,
@@ -87,6 +88,7 @@ async function connectBounded(pool: PgTransactionalPool): Promise<PgPoolClient> 
 export function createIdentityMutationPersistence(
   pool: PgTransactionalPool,
   store: PostgresEventStore,
+  getProjectors: () => readonly ProjectionHandlerSet[],
 ): IdentityMutationPersistence {
   async function transaction<T>(
     scopes: readonly string[],
@@ -132,6 +134,10 @@ export function createIdentityMutationPersistence(
           }
           const group = manifest.projectionGroups.find((candidate) => candidate.projectionName === projectionName);
           if (!group) throw new Error("INDETERMINATE");
+          const registered = getProjectors().filter((set) => set.projectionName === projectionName);
+          if (registered.length !== 1) throw new Error("INDETERMINATE");
+          const eventTypes = Object.keys(registered[0].handlers);
+          if (eventTypes.length === 0) throw new Error("INDETERMINATE");
           const revision = "projectionRevision" in group ? group.projectionRevision : 1;
           const checkpointKey = createCheckpointKey({
             projectionName,
@@ -162,7 +168,11 @@ export function createIdentityMutationPersistence(
                JOIN event_projection_group_revisions v ON v.target_context_name = 'identity' AND v.projection_name = c.projection_name
                JOIN event_projection_group_generations g ON g.target_context_name = v.target_context_name AND g.projection_name = v.projection_name
                WHERE c.checkpoint_key = $1 AND c.projection_name = $2 AND c.source_context_name = 'identity' AND c.subscription_version = 1
-                 AND c.last_global_position >= $3::bigint AND r.last_global_position >= c.last_global_position
+                 AND (c.last_global_position >= $3::bigint OR NOT EXISTS (
+                   SELECT 1 FROM event_store_events e
+                   WHERE e.global_position > c.last_global_position AND e.global_position <= $3::bigint
+                     AND e.event_type = ANY($${5 + parameters.length}::text[])
+                 )) AND r.last_global_position >= c.last_global_position
                  AND v.projection_revision = $4 AND g.state = 'active' AND g.rebuilding_generation IS NULL
              ) AND NOT EXISTS (
                SELECT 1 FROM event_projection_poison_events WHERE projection_key = $1 AND global_position <= $3::bigint AND state <> 'resolved'
@@ -171,7 +181,7 @@ export function createIdentityMutationPersistence(
              ) AND NOT EXISTS (
                SELECT 1 FROM event_subscription_applications WHERE projection_key = $1 AND global_position <= $3::bigint AND status <> 'applied'
              ) AS healthy, (SELECT COALESCE(jsonb_agg(p), '[]'::jsonb) FROM (${predicate}) p) AS authority`,
-            [checkpointKey, projectionName, horizon, revision, ...parameters],
+            [checkpointKey, projectionName, horizon, revision, ...parameters, eventTypes],
           );
           if (health.rows[0]?.healthy !== true) throw new Error("INDETERMINATE");
           return health.rows[0].authority;
@@ -189,13 +199,18 @@ export function createIdentityMutationPersistence(
 
   async function append(inputs: readonly AppendToStreamInput[]) {
     const contributors = await Promise.all(
-      inputs.map(async (input) => {
-        const history = await readCompleteStream(store, { streamId: input.streamId, maxEvents: 10000 });
-        const events = [...history, ...input.events];
-        return { input, scopes: eligibilityScopeKeys(input.context.tenantId, input.streamId, events) };
-      }),
+      inputs
+        .filter((input) => isFencedStream(input.streamId))
+        .map(async (input) => {
+          const creation =
+            input.expectedVersion === "no_stream"
+              ? []
+              : await store.readStream({ streamId: input.streamId, fromVersion: 1, limit: 1 });
+          const events = creation.length ? creation : input.events.slice(0, 1);
+          return { input, scopes: eligibilityScopeKeys(input.context.tenantId, input.streamId, events) };
+        }),
     );
-    if (contributors.every((entry) => entry.scopes.length === 0)) {
+    if (contributors.length === 0) {
       if (!store.appendToStreams) throw new Error("INDETERMINATE");
       return store.appendToStreams(inputs);
     }
@@ -204,13 +219,26 @@ export function createIdentityMutationPersistence(
       async (tx) => {
         const guards = new Map<string, AppendToStreamInput>();
         for (const { input, scopes } of contributors) {
-          const history = await tx.read(input.streamId);
+          const creation = await store.readStreamInTransaction(tx.db, {
+            streamId: input.streamId,
+            fromVersion: 1,
+            limit: 1,
+          });
+          const scopeEvents = creation.length ? creation : input.events.slice(0, 1);
           if (
-            JSON.stringify(
-              eligibilityScopeKeys(input.context.tenantId, input.streamId, [...history, ...input.events]),
-            ) !== JSON.stringify(scopes)
+            JSON.stringify(eligibilityScopeKeys(input.context.tenantId, input.streamId, scopeEvents)) !==
+            JSON.stringify(scopes)
           )
             throw new Error("INDETERMINATE");
+          // Only guarded removals need complete owner state; enrollment needs the creation event alone.
+          const history = input.events.some(
+            (event) =>
+              event.eventType === "identity.membership.revoked" ||
+              event.eventType === "identity.membership.role-changed" ||
+              event.eventType === "identity.consent.withdrawn",
+          )
+            ? await tx.read(input.streamId)
+            : [];
           const guard = await enforceLegacyEligibility(tx, input, history);
           if (guard && !inputs.some((candidate) => candidate.streamId === guard.streamId))
             guards.set(guard.streamId, guard);
@@ -229,6 +257,14 @@ export function createIdentityMutationPersistence(
       appendToStream: async (input) => (await append([input]))[0].storedEvents,
     },
   };
+}
+
+function isFencedStream(streamId: string): boolean {
+  return (
+    streamId.startsWith("identity.account-acc_") ||
+    streamId.startsWith("identity.membership-") ||
+    streamId.startsWith("identity.consent-")
+  );
 }
 
 async function enforceLegacyEligibility(

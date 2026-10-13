@@ -95,7 +95,7 @@ describeDb("issue-7168 PostgreSQL authority", () => {
       capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
     });
     raw = createPostgresEventStore({ pool });
-    persistence = createIdentityMutationPersistence(pool, raw);
+    persistence = createIdentityMutationPersistence(pool, raw, () => services.projectors);
     runtime = createAccountManagementRuntime(persistence, services);
     await seed(`identity.account-${actor.accountId}`, "identity.account.created", {
       accountId: actor.accountId,

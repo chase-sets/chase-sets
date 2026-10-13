@@ -13,7 +13,7 @@ import { Banner, Button, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm, type RouterFormProps } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import type { OneTimeApiKeySecret } from "../../api-keys/api/one-time-secret";
-import { actionFields, type AttemptBinding } from "../domain/contract";
+import { actionFields, actionTargetField, type AttemptBinding, type MutationAction } from "../domain/contract";
 import { descriptorDisposition, formIntentDigest, type ClientState, type MutationDescriptor } from "./descriptor";
 import { sendMutation } from "./transport";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
@@ -22,6 +22,7 @@ type Controller = Readonly<{
   state: ClientState;
   activeForm: HTMLFormElement | null;
   ready: boolean;
+  isHeld: (form: HTMLFormElement) => boolean;
   submit: (event: FormEvent<HTMLFormElement>) => void;
 }>;
 const MutationContext = createContext<Controller | null>(null);
@@ -30,9 +31,14 @@ export function AccountMutationForm(props: RouterFormProps) {
   const controller = useContext(MutationContext);
   const ref = useRef<HTMLFormElement>(null);
   const entered = useRef<FormData | null>(null);
+  const [held, setHeld] = useState(false);
   const busy =
-    controller?.activeForm === ref.current &&
-    ["submitting", "confirming", "ambiguous", "reauth-required", "route-denied"].includes(controller.state);
+    held ||
+    (controller?.activeForm === ref.current &&
+      ["submitting", "confirming", "reauth-required", "route-denied"].includes(controller.state));
+  useLayoutEffect(() => {
+    setHeld(Boolean(ref.current && controller?.isHeld(ref.current)));
+  }, [controller]);
   useLayoutEffect(() => {
     if (controller?.state === "succeeded") {
       entered.current = null;
@@ -99,6 +105,8 @@ export function AccountMutationBoundary({
   const [activeForm, setActiveForm] = useState<HTMLFormElement | null>(null);
   const status = useRef<HTMLDivElement>(null);
   const descriptor = useRef<MutationDescriptor | null>(null);
+  const held = useRef(new Map<string, MutationDescriptor>());
+  const [heldPairs, setHeldPairs] = useState<readonly string[]>([]);
   const busy = useRef(false);
   const generation = useRef(0);
   const actorKey = `${actor.tenantId}:${actor.userId}:${actor.accountId}`;
@@ -108,11 +116,39 @@ export function AccountMutationBoundary({
 
   function remember(value: MutationDescriptor | null) {
     descriptor.current = value ? Object.freeze({ ...value }) : null;
-    descriptorObserver.current?.(descriptor.current);
+    descriptorObserver.current?.(descriptor.current ?? [...held.current.values()].at(-1) ?? null);
+  }
+
+  function pair(form: HTMLFormElement): string {
+    function field(name: string) {
+      const control = form.elements.namedItem(name);
+      return control instanceof HTMLInputElement || control instanceof HTMLSelectElement ? control.value : "";
+    }
+    const action = field("intent");
+    const targetField = Object.hasOwn(actionTargetField, action) ? actionTargetField[action as MutationAction] : null;
+    const target =
+      action === "update-profile"
+        ? actor.accountId
+        : action === "update-user"
+          ? actor.userId
+          : targetField
+            ? field(targetField) || null
+            : null;
+    return JSON.stringify([action, target]);
+  }
+
+  function hold(form: HTMLFormElement) {
+    if (descriptor.current) {
+      held.current.set(pair(form), descriptor.current);
+      setHeldPairs([...held.current.keys()]);
+    }
+    busy.current = false;
   }
 
   useEffect(() => {
     generation.current += 1;
+    held.current.clear();
+    setHeldPairs([]);
     remember(null);
     busy.current = false;
     setSecret(null);
@@ -123,6 +159,7 @@ export function AccountMutationBoundary({
     setReady(!parent);
     return () => {
       generation.current += 1;
+      held.current.clear();
       remember(null);
       busy.current = false;
     };
@@ -139,7 +176,7 @@ export function AccountMutationBoundary({
     submitter: HTMLButtonElement | HTMLInputElement | null,
     choice?: "accept-suggested" | "keep-original",
   ) {
-    if (!ready || busy.current || parent) return;
+    if (!ready || busy.current || parent || held.current.has(pair(form))) return;
     busy.current = true;
     const data = new FormData(form);
     if (submitter?.name) data.set(submitter.name, submitter.value);
@@ -199,6 +236,7 @@ export function AccountMutationBoundary({
             if (generation.current === currentGeneration) setState("confirming");
           },
         });
+        if (generation.current !== currentGeneration) return;
         if (descriptor.current) remember({ ...descriptor.current, observedAt: new Date().toISOString() });
         setState(result.state);
         setSecretLost(result.secretState === "committed-secret-unrecoverable");
@@ -215,7 +253,8 @@ export function AccountMutationBoundary({
           });
         if (descriptor.current && descriptorDisposition(descriptor.current, result.state, actor) === "discard")
           remember(null);
-        busy.current = ["ambiguous", "reauth-required", "route-denied"].includes(result.state);
+        if (result.state === "ambiguous") hold(form);
+        else busy.current = ["reauth-required", "route-denied"].includes(result.state);
         status.current?.focus();
         if (result.state === "succeeded") {
           if (result.destination && result.destination !== location.pathname)
@@ -225,6 +264,7 @@ export function AccountMutationBoundary({
       } catch {
         if (generation.current !== currentGeneration) return;
         setState(sent ? "ambiguous" : "failed-safe");
+        if (sent) hold(form);
         if (!sent) {
           remember(null);
           busy.current = false;
@@ -235,7 +275,9 @@ export function AccountMutationBoundary({
   }
 
   return (
-    <MutationContext.Provider value={{ ready: ready && !parent, state, activeForm, submit }}>
+    <MutationContext.Provider
+      value={{ ready: ready && !parent, state, activeForm, submit, isHeld: (form) => heldPairs.includes(pair(form)) }}
+    >
       <Stack gap={3}>
         <Stack ref={status} tabIndex={-1} role="status" aria-live="polite">
           {state !== "editing" ? (
@@ -249,6 +291,9 @@ export function AccountMutationBoundary({
               }
               title={t(`identity.accountManagement.state.${state}`)}
             />
+          ) : null}
+          {heldPairs.length > 0 && state !== "ambiguous" ? (
+            <Banner tone="warning" title={t("identity.accountManagement.state.ambiguous")} />
           ) : null}
           {secretLost ? <Text>{t("identity.accountManagement.secretUnrecoverable")}</Text> : null}
           {suggestion?.actorKey === actorKey && activeForm?.isConnected ? (

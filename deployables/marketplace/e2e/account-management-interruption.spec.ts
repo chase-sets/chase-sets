@@ -2,7 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { encodeFreshWriteReceipt } from "@chase-sets/http/responses";
-import { seedBrowserConsent } from "../../../bounded-contexts/identity/features/account-management/tests/browser-test-support";
+import { seedBrowserConsent } from "@chase-sets/identity/account-management-test-support";
 import { registerSyntheticAccount, syntheticAccountFor } from "./support/auth";
 
 const routes = ["/account", "/account/shipping-addresses", "/account/consents", "/account/security", "/account/team"];
@@ -282,7 +282,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
           (value) => new URL(value.url()).pathname === "/account/security.data" && value.request().method() === "POST",
         );
         release();
-        await response;
+        await (await response).finished();
         await page.evaluate(
           () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
         );
@@ -372,10 +372,18 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
   test("keyed Consent withdrawal uses one token read and immutable replay/lookup after response loss", async ({
     page,
   }, testInfo) => {
-    const session = await page.request.get("/api/auth/session");
-    expect(session.status()).toBe(200);
-    const actor = (await session.json()).actor;
-    const fixture = await seedBrowserConsent(testInfo.config.metadata.catalogDatabaseUrl, actor);
+    const displayResponse = await page.request.get("/api/identity/current-actor-display");
+    expect(displayResponse.status()).toBe(200);
+    const display = await displayResponse.json();
+    const fixture = await seedBrowserConsent(
+      testInfo.config.metadata.identityDatabaseUrl,
+      testInfo.config.metadata.catalogDatabaseUrl,
+      {
+        userId: display.user.user_id,
+        accountId: display.account.account_id,
+        membershipId: display.membership.membership_id,
+      },
+    );
     const receipt = encodeFreshWriteReceipt({ observedAtMs: Date.now(), sources: fixture.sources });
     await page.goto(`/account/consents?afterWrite=${encodeURIComponent(receipt)}`);
     const posts: { key: string; body: string; contentType: string }[] = [];
@@ -448,38 +456,60 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         tokens++;
     });
     const create = page.locator('form:has(input[name="intent"][value="create"])');
-    for (const [name, value] of Object.entries({
-      name: "Synthetic recipient",
-      line1: "1 Test St",
-      city: "Chicago",
-      state: "IL",
-      postalCode: "60601",
-      country: "US",
-    }))
-      await create.locator(`input[name="${name}"]`).fill(value);
-    await create.locator('input[name="label"]').fill("Synthetic home");
+    async function fillCreate(label: string) {
+      for (const [name, value] of Object.entries({
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+      await create.locator('input[name="label"]').fill(label);
+    }
+    await fillCreate("Synthetic default");
     await create.getByRole("button", { name: "Save address", exact: true }).click();
     await expect(page).toHaveURL(/\/account\/shipping-addresses\?afterWrite=/);
-    await expect(page.getByText("Synthetic home", { exact: true })).toBeVisible();
+    await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
     expect(tokens).toBe(1);
-    await page.getByRole("button", { name: "Update address", exact: true }).first().click();
+    await fillCreate("Synthetic home");
+    await create.getByRole("button", { name: "Save address", exact: true }).click();
+    await expect(page.getByText("Synthetic home", { exact: true })).toBeVisible();
+    expect(tokens).toBe(2);
+    await page.getByRole("button", { name: "Update address", exact: true }).last().click();
     const update = page.locator('form:has(input[name="intent"][value="update"])');
     await update.locator('input[name="label"]').fill("Updated synthetic home");
+    const target = await update.locator('input[name="shippingAddressId"]').inputValue();
     await update.getByRole("button", { name: "Update address", exact: true }).click();
     await expect(page.getByText("Updated synthetic home", { exact: true })).toBeVisible();
-    expect(tokens).toBe(2);
-    await page.getByRole("button", { name: "Set default", exact: true }).click();
-    await expect(page.getByText("Default", { exact: true }).last()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Set default", exact: true })).toHaveCount(0);
+    await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
     expect(tokens).toBe(3);
-    await page.getByRole("button", { name: "Archive", exact: true }).click();
+    await page
+      .locator(
+        `form:has(input[name="intent"][value="default"]):has(input[name="shippingAddressId"][value="${target}"])`,
+      )
+      .getByRole("button", { name: "Set default", exact: true })
+      .click();
+    await expect(page.getByText("Default", { exact: true }).last()).toBeVisible();
+    await expect(
+      page.locator(
+        `form:has(input[name="intent"][value="default"]):has(input[name="shippingAddressId"][value="${target}"])`,
+      ),
+    ).toHaveCount(0);
+    expect(tokens).toBe(4);
+    await page.getByRole("button", { name: "Archive", exact: true }).first().click();
+    await expect(
+      page.locator('form:has(input[name="intent"][value="archive"]) input[name="shippingAddressId"]'),
+    ).toHaveValue(target);
     await page
       .locator('form:has(input[name="intent"][value="archive"])')
       .getByRole("button", { name: "Archive", exact: true })
       .click();
-    await expect(page.getByText("No saved shipping addresses", { exact: true })).toBeVisible();
-    expect(tokens).toBe(4);
-    expect(writes).toEqual(["create", "update", "default", "archive"]);
+    await expect(page.getByText("Updated synthetic home", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
+    expect(tokens).toBe(5);
+    expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
   });
 
   test("injected actor props in the real profile form are refused before mutation work", async ({ page }) => {

@@ -294,9 +294,7 @@ export async function sendMutation(
       method: "POST",
       credentials: "same-origin",
       headers: {
-        "Idempotency-Key": ["/account/consents", "/account/shipping-addresses"].includes(args.route)
-          ? "invalid"
-          : args.key,
+        "Idempotency-Key": args.route === "/account/consents" ? "invalid-consent-proof-mutant" : args.key,
         Accept: "text/x-script",
       },
       body: args.form,
