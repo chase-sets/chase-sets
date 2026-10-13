@@ -3,10 +3,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 const control = await import(new URL("./selector-agent-control.mjs", import.meta.url).href);
+const { JSDOM } = await import(import.meta.resolve("jsdom"));
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const scratch = path.join(repo, "artifacts", "9514", "tests");
 mkdirSync(scratch, { recursive: true });
