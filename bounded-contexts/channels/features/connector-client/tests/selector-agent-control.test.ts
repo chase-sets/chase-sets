@@ -103,6 +103,12 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
+  it("explicitly admits browser-local metadata; missing automation flag mutant fails", async () => {
+    expect(control.hermeticChromiumArguments.filter((arg: string) => arg === "--enable-automation")).toHaveLength(1);
+    const altered = await mutant('  "--enable-automation",\n', "");
+    expect(altered.hermeticChromiumArguments).not.toContain("--enable-automation");
+    expect(Object.isFrozen(control.hermeticChromiumArguments)).toBe(true);
+  });
   it("binds the canonical executable rather than a launch-path alias; lexical-path mutant fails", async () => {
     const f = fixture("C");
     const alias = path.join(f.root, "executable-alias");
@@ -171,6 +177,7 @@ describe("selector-agent-control-capability", () => {
     "duplicate-browser-process",
     "invalid-browser-pid",
     "metadata-private-exception",
+    "missing-automation-flag",
     "metadata-detach-exception",
     "mode-S-refusal",
   ] as const)("native confirmation %s precedes exact-ID UI removal", async (result) => {
@@ -189,11 +196,18 @@ describe("selector-agent-control-capability", () => {
       "duplicate-browser-process",
       "invalid-browser-pid",
       "metadata-private-exception",
+      "missing-automation-flag",
       "metadata-detach-exception",
       "mode-S-refusal",
     ].includes(result);
     const metadataCalls: string[] = [];
-    const args = [f.binding.executable, "--enable-automation", `--user-data-dir=${f.profile}`];
+    const args = [
+      f.binding.executable,
+      ...control.hermeticChromiumArguments.filter(
+        (arg: string) => result !== "missing-automation-flag" || arg !== "--enable-automation",
+      ),
+      `--user-data-dir=${f.profile}`,
+    ];
     // Chromium's process title loses these boundaries; the structured browser
     // query must retain them rather than learning to parse the display title.
     expect(`${args.join(" ")}\0`.split("\0")).not.toContain(`--user-data-dir=${f.profile}`);
@@ -201,7 +215,8 @@ describe("selector-agent-control-capability", () => {
       send: async (method: string) => {
         metadataCalls.push(method);
         expect(clicked).toBe(false);
-        if (result === "metadata-private-exception") throw new Error("SYNTHETIC_PRIVATE_METADATA_EXCEPTION");
+        if (result === "metadata-private-exception" || !args.includes("--enable-automation"))
+          throw new Error("SYNTHETIC_PRIVATE_METADATA_EXCEPTION");
         if (method === "Browser.getBrowserCommandLine")
           return {
             arguments:
@@ -335,6 +350,7 @@ describe("selector-agent-control-capability", () => {
         "duplicate-browser-process": "PROCESS_UNIQUE",
         "invalid-browser-pid": "PROCESS_UNIQUE",
         "metadata-private-exception": "PROCESS_PROFILE",
+        "missing-automation-flag": "PROCESS_PROFILE",
         "metadata-detach-exception": "PROCESS_UNIQUE",
         "mode-S-refusal": null,
       }[result],
@@ -345,7 +361,14 @@ describe("selector-agent-control-capability", () => {
     if (!["missing-private-bus", "mode-S-refusal"].includes(result)) {
       expect(metadataCalls[0]).toBe("Browser.getBrowserCommandLine");
       expect(detached).toBe(true);
-      if (!["profile-mismatch", "duplicate-profile-switch", "metadata-private-exception"].includes(result))
+      if (
+        ![
+          "profile-mismatch",
+          "duplicate-profile-switch",
+          "metadata-private-exception",
+          "missing-automation-flag",
+        ].includes(result)
+      )
         expect(metadataCalls).toEqual(["Browser.getBrowserCommandLine", "SystemInfo.getProcessInfo"]);
     } else expect(metadataCalls).toEqual([]);
   });

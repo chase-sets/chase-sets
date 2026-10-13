@@ -1524,12 +1524,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
               ACCESSIBILITY_ENABLED: "1",
               NO_AT_BRIDGE: "0",
             },
-            args: [
-              "--disable-background-networking",
-              "--host-resolver-rules=MAP * ~NOTFOUND",
-              "--enable-unsafe-extension-debugging",
-              "--force-renderer-accessibility",
-            ],
+            args: [...control.hermeticChromiumArguments],
           });
           const browser = control.createPlaywrightSelectorBrowser({
             context,

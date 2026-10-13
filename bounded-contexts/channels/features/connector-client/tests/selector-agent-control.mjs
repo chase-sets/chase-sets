@@ -34,6 +34,14 @@ const freeze = (value) => {
   return Object.freeze(value);
 };
 
+export const hermeticChromiumArguments = Object.freeze([
+  "--enable-automation",
+  "--disable-background-networking",
+  "--host-resolver-rules=MAP * ~NOTFOUND",
+  "--enable-unsafe-extension-debugging",
+  "--force-renderer-accessibility",
+]);
+
 // One identity binds both modes, including their different operation sets.
 const contract = {
   identity: "selector-agent-operation-capability-policy/v1",
