@@ -125,7 +125,10 @@ export function participantStoreMatrix(makeStore: () => EventStore) {
     ).toThrow();
     const fact = history.at(-2)!;
     expect(() =>
-      validateParticipantHistory([...history.slice(0, -2), { ...fact, tenantId: history[0].tenantId }, receipt], opened.id),
+      validateParticipantHistory(
+        [...history.slice(0, -2), { ...fact, tenantId: history[0].tenantId }, receipt],
+        opened.id,
+      ),
     ).toThrow();
   });
   for (const kind of [
