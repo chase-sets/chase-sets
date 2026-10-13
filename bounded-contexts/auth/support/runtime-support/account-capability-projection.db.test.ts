@@ -227,6 +227,7 @@ describeDb("Auth projection of Identity Capability Grants", () => {
         linkedPlatformAuthorizations: {
           resolveAccessToken: async () => ({
             authorization_id: "lpa_synthetic_capability",
+            platform_profile_url: "https://agent.example/.well-known/ucp",
             user_id: USER,
             account_id: ACCOUNT,
             scopes: ["support:read"],

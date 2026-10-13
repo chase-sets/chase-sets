@@ -579,6 +579,7 @@ describeDb("Account lifecycle at Auth authorization boundaries", () => {
         linkedPlatformAuthorizations: {
           resolveAccessToken: async () => ({
             authorization_id: "lpa_synthetic_lifecycle",
+            platform_profile_url: "https://agent.example/.well-known/ucp",
             user_id: USER,
             account_id: accountId,
             scopes: ["catalog:read"],
