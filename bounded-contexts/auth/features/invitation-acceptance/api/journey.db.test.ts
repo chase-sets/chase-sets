@@ -179,7 +179,13 @@ const request = new Request("http://localhost/invite/ivt_invited");
           await expect(
             acceptInvitationAttempt(services, f.client, f.input, request, acceptanceContext),
           ).rejects.toThrow();
-          const resumed = await acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext);
+          const resumed = await acceptInvitationAttempt(
+            createAuthServices(pools.auth),
+            f.client,
+            f.input,
+            request,
+            acceptanceContext,
+          );
           expect(resumed.type).toBe(stage === "completed" ? "accepted-reauth-required" : "session-started");
           const state = await readAttempt(store, attemptId, acceptanceContext);
           expect(state?.stage).toBe("completed");
@@ -204,6 +210,32 @@ const request = new Request("http://localhost/invite/ivt_invited");
         },
       );
     }
+  it("retained restart and day-after lookup remain inert with the original credential and Session", async () => {
+    const f = await fixture("password", true);
+    await acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext);
+    const tokens = (await pools.auth.query("SELECT session_id, token_hash FROM identity_session_tokens")).rows;
+    const events = (await pools.auth.query("SELECT event_id FROM event_store_events ORDER BY global_position")).rows;
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 86400_000);
+      const restarted = createAuthServices(pools.auth);
+      expect(await lookupInvitationAttempt(restarted, f.client, f.input, acceptanceContext)).toEqual({
+        type: "accepted-reauth-required",
+        attemptId,
+      });
+      expect((await acceptInvitationAttempt(restarted, f.client, f.input, request, acceptanceContext)).type).toBe(
+        "accepted-reauth-required",
+      );
+      expect((await pools.auth.query("SELECT session_id, token_hash FROM identity_session_tokens")).rows).toEqual(
+        tokens,
+      );
+      expect((await pools.auth.query("SELECT event_id FROM event_store_events ORDER BY global_position")).rows).toEqual(
+        events,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("invitation-acceptance-compatibility-floor honors recorded attempts after deactivation and only sweeps old terminals", async () => {
     const f = await fixture("password", true);
     await acceptInvitationAttempt(f.services, f.client, f.input, request, acceptanceContext);
