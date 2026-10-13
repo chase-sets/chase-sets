@@ -532,7 +532,7 @@ describeDb("issue-7168 PostgreSQL authority", () => {
         target: first.receipt.result.id,
         body: {},
       }),
-    ).toMatchObject({ outcome: "conflict", code: "owner-state-conflict", current: { status: "revoked" } });
+    ).toMatchObject({ outcome: "conflict", code: "conflict", current: { status: "revoked" } });
     expect(await eventCount()).toBe(revokedCount);
   });
 

@@ -35,7 +35,7 @@ export function eligibilityScopeKeys(
   streamId: string,
   events: readonly ScopeEvent[],
 ): readonly string[] {
-  if (streamId.startsWith("identity.account-"))
+  if (streamId.startsWith("identity.account-acc_"))
     return [JSON.stringify(["identity", tenantId, "account", streamId.slice("identity.account-".length)])];
   if (streamId.startsWith("identity.membership-")) {
     const grant = events.find((event) => event.eventType === "identity.membership.granted");
@@ -195,6 +195,10 @@ export function createIdentityMutationPersistence(
         return { input, scopes: eligibilityScopeKeys(input.context.tenantId, input.streamId, events) };
       }),
     );
+    if (contributors.every((entry) => entry.scopes.length === 0)) {
+      if (!store.appendToStreams) throw new Error("INDETERMINATE");
+      return store.appendToStreams(inputs);
+    }
     return transaction(
       contributors.flatMap((entry) => entry.scopes),
       async (tx) => {
@@ -219,8 +223,8 @@ export function createIdentityMutationPersistence(
   return {
     transaction,
     eventStore: {
-      readStream: store.readStream.bind(store),
-      readAll: store.readAll.bind(store),
+      readStream: (input) => store.readStream(input),
+      readAll: (input) => store.readAll(input),
       appendToStreams: append,
       appendToStream: async (input) => (await append([input]))[0].storedEvents,
     },

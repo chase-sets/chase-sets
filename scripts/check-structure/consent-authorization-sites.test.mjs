@@ -416,6 +416,7 @@ function commitScratch(scratch, message) {
 }
 
 const productFixtureFiles = new Map([
+  ["bounded-contexts/identity/features/account-management/api/owners.ts", null],
   [
     "bounded-contexts/identity/features/consents/domain/consent-recording-authorization.ts",
     `${fixtureRoot}/consent-recording-authorization.ts`,
@@ -431,7 +432,15 @@ const productFixtureFiles = new Map([
 ]);
 
 function writeProductSurface(scratch) {
-  for (const [relative, fixture] of productFixtureFiles) writeScratchFile(scratch, relative, repoFile(fixture));
+  for (const [relative, fixture] of productFixtureFiles) {
+    writeScratchFile(
+      scratch,
+      relative,
+      fixture === null
+        ? 'import { authorizeConsentForActor } from "../../consents/domain/consent-recording-authorization";\nexport function planOwnerMutation(context: unknown) { return authorizeConsentForActor(context); }\n'
+        : repoFile(fixture),
+    );
+  }
 }
 
 function buildProductScratchRepo(prefix, extraFiles = new Map()) {
@@ -1545,9 +1554,9 @@ describe("Consent authorization sites", () => {
     expect(observations.every(({ boundToHead }) => boundToHead)).toBe(true);
     expect(observations.map(({ violations }) => violations)).toEqual([0, 0, 0]);
     expect(observations.map(({ surface }) => surface)).toEqual([
-      { scanned: 6, total: 6 },
-      { scanned: 6, total: 6 },
-      { scanned: 6, total: 6 },
+      { scanned: 7, total: 7 },
+      { scanned: 7, total: 7 },
+      { scanned: 7, total: 7 },
     ]);
     expect(observations.map(({ unionsUntrackedNonignored }) => unionsUntrackedNonignored)).toEqual([
       true,
@@ -1603,8 +1612,8 @@ describe("Consent authorization sites", () => {
     const expectedCorpusFiles = [...productFixtureFiles.keys()].toSorted();
     expect(clean.partitionDigest).toBe(registry.partitionDigest);
     expect(built.partitionDigest).toBe(registry.partitionDigest);
-    expect(clean.surface).toEqual({ scanned: 6, total: 6 });
-    expect(built.surface).toEqual({ scanned: 6, total: 6 });
+    expect(clean.surface).toEqual({ scanned: 7, total: 7 });
+    expect(built.surface).toEqual({ scanned: 7, total: 7 });
     expect(clean.violations).toEqual([]);
     expect(built.violations).toEqual([]);
     expect(clean.corpus.files).toEqual(expectedCorpusFiles);
@@ -1625,8 +1634,8 @@ describe("Consent authorization sites", () => {
     expect(after.candidateHead).toBe(advanced);
     expect(before.partitionDigest).toBe(registry.partitionDigest);
     expect(after.partitionDigest).toBe(registry.partitionDigest);
-    expect(before.surface).toEqual({ scanned: 6, total: 6 });
-    expect(after.surface).toEqual({ scanned: 6, total: 6 });
+    expect(before.surface).toEqual({ scanned: 7, total: 7 });
+    expect(after.surface).toEqual({ scanned: 7, total: 7 });
     expect(before.violations).toEqual([]);
     expect(after.violations).toEqual([]);
     expect(after.drift).toBe(null);
@@ -1666,10 +1675,10 @@ describe("Consent authorization sites", () => {
       },
     ]);
     expect(driftResult.drift.removed).toEqual([]);
-    expect(driftResult.drift.previousTotal).toBe(3);
-    expect(driftResult.drift.currentTotal).toBe(4);
-    expect(driftResult.drift.previousCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 0 });
-    expect(driftResult.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 0 });
+    expect(driftResult.drift.previousTotal).toBe(4);
+    expect(driftResult.drift.currentTotal).toBe(5);
+    expect(driftResult.drift.previousCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 0 });
+    expect(driftResult.drift.currentCounts).toEqual({ actor: 4, "self-registration": 1, provisioning: 0 });
     expect(driftResult.drift.previousDigest).toBe(registry.partitionDigest);
     expect(driftResult.drift.currentDigest).not.toBe(registry.partitionDigest);
   });
@@ -1682,14 +1691,14 @@ describe("Consent authorization sites", () => {
       })}\n`,
     );
 
-    // The consumption partition did not move: three registered calls, nothing
+    // The consumption partition did not move: four registered calls, nothing
     // added, nothing removed. Only the owning-import edge changed.
-    expect(redirectedImportResult.partition.consumptions).toHaveLength(3);
+    expect(redirectedImportResult.partition.consumptions).toHaveLength(4);
     expect(redirectedImportResult.drift.added).toEqual([]);
     expect(redirectedImportResult.drift.removed).toEqual([]);
-    expect(redirectedImportResult.drift.previousTotal).toBe(3);
-    expect(redirectedImportResult.drift.currentTotal).toBe(3);
-    expect(redirectedImportResult.drift.currentCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 0 });
+    expect(redirectedImportResult.drift.previousTotal).toBe(4);
+    expect(redirectedImportResult.drift.currentTotal).toBe(4);
+    expect(redirectedImportResult.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 0 });
 
     // The digest separates the two owning-import identities, so drift is
     // reported rather than the redirect passing as an unchanged partition.
@@ -2350,7 +2359,7 @@ describe("Consent authorization sites", () => {
     site.classification = "provisioning";
     site.reason = "Permanent #6120 provisioning exemption.";
     expect(collectConsentAuthorizationRegistryViolations(changed, registrySchema)).toEqual([
-      "registry partition must be exactly 2 actor / 1 self-registration / 0 provisioning",
+      "registry partition must be exactly 3 actor / 1 self-registration / 0 provisioning",
     ]);
   });
 
@@ -2376,9 +2385,9 @@ describe("Consent authorization sites", () => {
     expect(realTreeResult.violations).toEqual([]);
     // All three trusted constructors stay declared; provisioning consumes none.
     expect(realTreeResult.partition.declarations).toHaveLength(3);
-    expect(new Set(realTreeResult.partition.imports.map(({ file }) => file)).size).toBe(3);
-    expect(realTreeResult.partition.consumptions).toHaveLength(3);
-    expect(realTreeResult.partition.counts).toEqual({ actor: 2, "self-registration": 1, provisioning: 0 });
+    expect(new Set(realTreeResult.partition.imports.map(({ file }) => file)).size).toBe(4);
+    expect(realTreeResult.partition.consumptions).toHaveLength(4);
+    expect(realTreeResult.partition.counts).toEqual({ actor: 3, "self-registration": 1, provisioning: 0 });
     expect(realTreeResult.partitionDigest).toBe(registry.partitionDigest);
     expect(new Set(realTreeResult.partition.consumptions.map(key))).toEqual(new Set(registry.sites.map(key)));
     expect(realTreeResult.partition.consumptions.every(({ line }) => typeof line === "number")).toBe(true);
@@ -2922,7 +2931,7 @@ describe("Consent authorization sites", () => {
     expect(planted.map(({ identicalInputs }) => identicalInputs)).toEqual([true]);
   });
 
-  it("is recursively closed and freezes the exact 2/1/0 semantic partition", () => {
+  it("is recursively closed and freezes the exact 3/1/0 semantic partition", () => {
     expect(collectOpenSchemaObjectPaths(registrySchema)).toEqual([]);
     expect(collectOpenSchemaObjectPaths(receiptSchema)).toEqual([]);
     expect(collectOpenSchemaObjectPaths(aggregateSchema)).toEqual([]);
@@ -2930,6 +2939,7 @@ describe("Consent authorization sites", () => {
     expect(collectConsentAuthorizationRegistryViolations(registry, registrySchema)).toEqual([]);
     expect(validateAgainstSchema(enumeration, enumerationSchema)).toEqual([]);
     expect(registry.sites.map(({ classification }) => classification).toSorted()).toEqual([
+      "actor",
       "actor",
       "actor",
       "self-registration",
