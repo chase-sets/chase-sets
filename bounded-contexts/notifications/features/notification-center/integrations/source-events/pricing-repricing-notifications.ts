@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { links } from "@chase-sets/pricing/integration/link-intents";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
@@ -49,7 +50,7 @@ export function mapRepricingDigestToNotification(event: RepricingDigestEvent): N
     withinTolerance,
     spiralBreakerTrips,
   };
-  const actionHref = "/account/desk/repricing";
+  const actionHref = links("account-desk-repricing", { path: {} }).href;
   return {
     messageType: "pricing.repricing-activity.digest-requested",
     criticality: "operational",
