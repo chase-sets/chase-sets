@@ -99,6 +99,7 @@ describe("#9424 sealed option bridges and completed cache", () => {
             listCatalogProviderIntegrationOptionsFromProfiles({
               profiles: [version.profile],
               providerKey: "scrydex",
+              defaultProviderKey: "scrydex",
               queryKind: "sealed-products",
               parentValue: "OP01",
               transports: {
