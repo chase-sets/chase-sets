@@ -819,19 +819,19 @@ describe("roadmap publication authority", () => {
         "unknown/failure behavior",
         "post-landing evidence is not collected before the",
         "landed/deployed state it observes exists",
-        "independent operator acceptance may close a Probe without a pull request only",
-        "after that Probe's own acceptance criteria are met",
+        "independent acceptance by the authorized host/reviewer may close a Probe without",
+        "a pull request only after that Probe's own acceptance criteria are met;",
       ])
         expect(authorityClosureParagraph).toContain(literal);
 
-      expect(authorityClosureParagraph).toMatch(/operator acceptance is a\s+closure control, not evidence authority/);
+      expect(authorityClosureParagraph).toMatch(/met;\s+acceptance is a\s+closure control, not evidence authority/);
       expect(probeRow).not.toContain("what evidence a slice needs before dispatch | as surfaced");
       for (const forbiddenConflation of [
         "a generic Probe authorizes an implementation result",
         "post-landing evidence is collected before the landed/deployed state it observes exists",
       ])
         expect(authorityClosureParagraph).not.toContain(forbiddenConflation);
-      expect(authorityClosureParagraph).not.toMatch(/operator acceptance is\s+evidence authority/);
+      expect(authorityClosureParagraph).not.toMatch(/acceptance is\s+evidence authority/);
     };
 
     expectProbeContract(docs);
