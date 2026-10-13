@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
 import {
   HiddenInput,
-  Form,
   Badge,
   Button,
   Grid,

@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { t } from "@chase-sets/localization";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
@@ -28,7 +30,7 @@ function forbidden() {
   };
 }
 
-export function consentRoutes(services: ConsentServices) {
+export function consentRoutes(services: ConsentServices, accountManagement?: AccountManagementServices) {
   const app = new Hono<IdentityApiEnv>();
 
   app.get("/", async (c) => {
@@ -51,6 +53,8 @@ export function consentRoutes(services: ConsentServices) {
   });
 
   app.post("/:id/withdraw", async (c) => {
+    const attempted = await submitAccountManagement(c, accountManagement, "withdraw", c.req.param("id"), {});
+    if (attempted) return attempted;
     const actor = c.var.actor;
     const context = c.var.context;
     if (!actor || !context) {
