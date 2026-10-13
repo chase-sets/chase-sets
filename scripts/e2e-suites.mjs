@@ -249,6 +249,7 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
   },
+  { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
 ];
 
 export const e2eNoSuiteExclusions = Object.freeze([

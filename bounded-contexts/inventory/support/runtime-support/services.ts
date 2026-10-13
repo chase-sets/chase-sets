@@ -30,8 +30,18 @@ import { createInventoryReservationRuntime } from "../../features/reservations/a
 import { createRestockDecisionRuntime } from "../../features/restock-decisions/api/runtime";
 import { createRecoveredItemRuntime } from "../../features/recovered-items/api/runtime";
 import { createStorageLocationRuntime } from "../../features/storage-locations/api/runtime";
+import { createInventoryMutationRuntime } from "./mutation-attempt";
+import type { InventoryCheckoutReservationAuthority } from "../../features/holds/api/checkout-reservation-authority";
+import {
+  recoverInventoryHolds,
+  recoverInventoryItems,
+  recoverInventoryReductions,
+  recoverStorageLocations,
+} from "./recovery-services";
 
 export type InventoryServices = Readonly<{
+  mutations: ReturnType<typeof createInventoryMutationRuntime>;
+  checkoutReservationAuthority?: InventoryCheckoutReservationAuthority;
   catalogItems: ReturnType<typeof createInventoryCatalogItemRuntime>;
   storageLocations: ReturnType<typeof createStorageLocationRuntime>;
   items: ReturnType<typeof createInventoryItemRuntime>;
@@ -56,6 +66,7 @@ export type InventoryServices = Readonly<{
 }>;
 
 export type InventoryHostPorts = Readonly<{
+  checkoutReservationAuthority?: InventoryCheckoutReservationAuthority;
   draftListingCreator?: InventoryDraftListingCreator;
   importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
@@ -99,39 +110,46 @@ export function createInventoryServices(
   ports: InventoryHostPorts = {},
   options: BcCreateServicesOptions<PgTransactionalPool> = {},
 ): InventoryServices {
-  const eventStore = createPostgresEventStore({
+  const postgresEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
+  const mutations = createInventoryMutationRuntime(pool, postgresEventStore);
+  const { eventStore } = mutations;
   const appendToStreams = eventStore.appendToStreams;
   if (!appendToStreams) {
     throw new Error("Inventory order reservation workflow requires atomic multi-stream event appends.");
   }
-  const checkpointStore = createPostgresProjectionStore({ db: pool });
-  const db = pool as PgQueryable;
-  const deps = { eventStore, checkpointStore, db } as const;
+  const checkpointStore = createPostgresProjectionStore({ db: mutations.db });
+  const db: PgQueryable = mutations.db;
+  const deps = { eventStore, checkpointStore, db, mutationChild: mutations.child } as const;
 
   const catalogItems = createInventoryCatalogItemRuntime(deps);
-  const storageLocations = createStorageLocationRuntime(deps);
-  const items = createInventoryItemRuntime(deps, catalogItems, storageLocations);
+  const storageLocations = recoverStorageLocations(createStorageLocationRuntime(deps), mutations);
+  const pendingStorageLocations = createStorageLocationRuntime(deps);
+  const pendingItems = createInventoryItemRuntime(deps, catalogItems, pendingStorageLocations);
+  const items = recoverInventoryItems(createInventoryItemRuntime(deps, catalogItems, storageLocations), mutations);
   const importBatches = createInventoryImportBatchRuntime({
     db,
     notificationWaiterPool: options.notificationWaiterPool,
-    items,
+    items: pendingItems,
     catalogItems,
     draftListingCreator: ports.draftListingCreator,
     importProductRollout: ports.importProductRollout,
   });
-  const holds = createInventoryHoldRuntime(deps);
+  const holds = recoverInventoryHolds(createInventoryHoldRuntime(deps), mutations);
   const holdCleanupAuthority = createInventoryHoldCleanupAuthority({ eventStore, db });
   const reservations = createInventoryReservationRuntime(deps);
-  const holdCollisions = createInventoryHoldCollisionRuntime(deps);
-  const channelSales = createInventoryExternalChannelSaleRuntime(deps, holdCollisions);
+  const rawHoldCollisions = createInventoryHoldCollisionRuntime(deps);
+  const holdCollisions = recoverInventoryReductions(rawHoldCollisions, mutations);
+  const channelSales = createInventoryExternalChannelSaleRuntime(deps, rawHoldCollisions);
   const channelStockAllocations = createInventoryChannelStockAllocationRuntime(deps);
-  const restockDecisions = createRestockDecisionRuntime(deps, items, reservations);
+  const restockDecisions = createRestockDecisionRuntime(deps, pendingItems, reservations);
   const recoveredItems = createRecoveredItemRuntime(deps);
 
   return {
+    mutations,
+    checkoutReservationAuthority: ports.checkoutReservationAuthority,
     catalogItems,
     storageLocations,
     items,
