@@ -1323,7 +1323,7 @@ function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthR
     activate: async () => {},
     pending: async () => [],
     withActiveGrants: async (_accountId, _clientId, ids, work) => work(ids),
-    admit: async (binding) => {
+    admit: async (binding, context) => {
       const row = (await linkedPlatformAuthorizations.listForAccount(binding.accountId)).find(
         (value) => value.authorization_id === binding.grantId,
       );
@@ -1341,6 +1341,7 @@ function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthR
           revokedAt: String(row.revoked_at ?? new Date().toISOString()),
           phase: "admitted",
           version: 1,
+          effectContext: context,
         };
         operations.set(binding.grantId, state);
       }

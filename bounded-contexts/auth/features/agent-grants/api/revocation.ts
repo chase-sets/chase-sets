@@ -11,8 +11,9 @@ export type AgentGrantRevocationEffects = Readonly<{
 export async function resumeAgentGrantRevocation(
   effects: AgentGrantRevocationEffects,
   initial: RevocationState,
-  context: EventStoreContext,
+  _context: EventStoreContext,
 ): Promise<RevocationState> {
+  const effectContext = initial.effectContext;
   let state = initial;
   for (let boundary = 0; boundary < 5 && state.phase !== "completed"; boundary += 1) {
     if (state.phase === "identity-terminal") {
@@ -23,7 +24,7 @@ export async function resumeAgentGrantRevocation(
           agentGrantId: state.grantId,
           revokedAt: state.revokedAt,
         },
-        context,
+        effectContext,
       );
       if (result.detached !== 0) throw new Error("revocation_effect_contradiction");
     }
@@ -31,7 +32,7 @@ export async function resumeAgentGrantRevocation(
       if (!effects.exclude || !(await effects.exclude({ accountId: state.accountId, grantId: state.grantId })))
         throw new Error("revocation_effect_unavailable");
     }
-    const next = await effects.advance(state, context);
+    const next = await effects.advance(state, effectContext);
     if (next.version <= state.version && next.phase !== "completed") throw new Error("revocation_ambiguous");
     state = next;
   }

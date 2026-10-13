@@ -69,6 +69,22 @@ async function revoke() {
 }
 
 describe("agent-grant-revocation-real-route", () => {
+  it.each([
+    { state: ["succeeded"], phase: ["completed"] },
+    { state: "ambiguous", phase: ["identity-terminal"] },
+  ])("rejects nested receipt scalars without a success frame or second write: %j", async (fields) => {
+    const router = await mount();
+    api.revokeAgentGrant.mockImplementation(async (_id: string, attemptId: string) => ({
+      attempt_id: attemptId, ...fields,
+    }));
+    await revoke();
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    expect(router.state.actionData?.["0"]?.revocation).toMatchObject({ state: "ambiguous" });
+    expect(router.state.actionData?.["0"]?.revocation).not.toHaveProperty("phase");
+    expect(screen.queryByText("Access revoked and cleanup complete.")).toBeNull();
+    expect(api.revokeAgentGrant).toHaveBeenCalledTimes(1);
+    expect(api.getAgentGrantRevocation).not.toHaveBeenCalled();
+  });
   it("reuses only the retained Account/Grant UUID without storing receipt or sensitive data", async () => {
     const attemptId = "6c165feb-a604-4ff5-8e22-8b4c99491728";
     window.sessionStorage.setItem("agent-grant-revocation:acc_a:grant_a", attemptId);

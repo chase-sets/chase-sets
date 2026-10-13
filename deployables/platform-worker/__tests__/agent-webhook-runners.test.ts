@@ -7,6 +7,10 @@ import { createAgentWebhookDispatchRunners } from "../src/agent-webhook-runners"
 
 describe("agent webhook worker runners", () => {
   it("agent-grant-revocation-floor restarts the composed missing-effect runner without reopening authority", async () => {
+    const context: EventStoreContext = {
+      tenantId: "tnt_identity",
+      audit: { performedByUserId: "usr_a", forAccountId: "acc_a" },
+    };
     let state: RevocationState = {
       operationId: "eea0342d-079b-460e-9dfe-06c42a0a8a70",
       accountId: "acc_a",
@@ -14,10 +18,7 @@ describe("agent webhook worker runners", () => {
       revokedAt: "2026-10-12T00:00:00.000Z",
       phase: "identity-terminal",
       version: 2,
-    };
-    const context: EventStoreContext = {
-      tenantId: "tnt_identity",
-      audit: { performedByUserId: "usr_a", forAccountId: "acc_a" },
+      effectContext: context,
     };
     const phases = ["admitted", "identity-terminal", "payments-terminal", "webhook-excluded", "completed"] as const;
     const owner: Pick<AgentGrantRevocations, "pending" | "advance"> = {

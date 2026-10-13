@@ -178,16 +178,23 @@ describeDb("agent Grant revocation separate-pool proof", () => {
 
   it("agent-grant-revocation-concurrency-history converges token/UI and conflicts on changed Account binding", async () => {
     await activate();
+    const tokenContext: EventStoreContext = {
+      tenantId: "tnt_token",
+      audit: { performedByUserId: "usr_identity_system", forAccountId: "acc_a" },
+    };
     const tokenBinding: RevocationBinding = {
       ...binding,
       attemptId: "7d1245cd-bcaa-425c-963a-0048332db4d1",
+      tenantId: tokenContext.tenantId,
+      userId: tokenContext.audit.performedByUserId,
       provenance: "token",
       reason: "token_revocation",
       sessionId: "synthetic-token-digest",
     };
-    const [session, token] = await Promise.all([owner.admit(binding, context), owner.admit(tokenBinding, context)]);
+    const [session, token] = await Promise.all([owner.admit(binding, context), owner.admit(tokenBinding, tokenContext)]);
     expect(session!.operationId).toBe(token!.operationId);
     expect(session!.revokedAt).toBe(token!.revokedAt);
+    expect(session!.effectContext).toEqual(token!.effectContext);
     await expect(
       owner.admit(
         { ...binding, accountId: "acc_b", grantId: "grant_foreign" },
@@ -214,6 +221,78 @@ describeDb("agent Grant revocation separate-pool proof", () => {
     ).toBe("revoked");
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["token", "session"] as const)(
+    "agent-grant-revocation-stage-recovery retains %s admission context through cross-caller Payments replay",
+    async (firstCaller) => {
+      await activate();
+      const tokenContext: EventStoreContext = {
+        tenantId: "tnt_token",
+        audit: { performedByUserId: "usr_identity_system", forAccountId: "acc_a" },
+      };
+      const tokenBinding: RevocationBinding = {
+        ...binding,
+        attemptId: "7d1245cd-bcaa-425c-963a-0048332db4d1",
+        tenantId: tokenContext.tenantId,
+        userId: tokenContext.audit.performedByUserId,
+        sessionId: "synthetic-token-digest",
+        provenance: "token",
+        reason: "token_revocation",
+      };
+      const [firstBinding, firstContext, nextBinding, nextContext] = firstCaller === "token"
+        ? [tokenBinding, tokenContext, binding, context]
+        : [binding, context, tokenBinding, tokenContext];
+      await pools.payments.query(`INSERT INTO payments_saved_checkout_instruments
+        (instrument_id, account_id, agent_grant_id, payment_method_category, provider, provider_reference,
+         display_label, confirmation_experience, readiness, is_default, created_at, updated_at)
+        VALUES ('instrument_a', 'acc_a', 'grant_a', 'card', 'stripe', 'synthetic-provider-id',
+         'Synthetic card', 'off-session-token', 'ready', true, now(), now())`);
+      const services = await paymentsModule.createServices(pools.payments, {});
+      const admitted = await owner.admit(firstBinding, firstContext);
+      const terminal = await owner.advance(admitted!, nextContext);
+      let lost = false;
+      const cleanup = vi.fn<typeof services.payments.revokeSavedCheckoutInstrumentsForAgentGrant>(async (input, effectContext) => {
+        const result = await services.payments.revokeSavedCheckoutInstrumentsForAgentGrant(input, effectContext);
+        if (!lost) {
+          lost = true;
+          throw new Error("synthetic_loss_after_payments_marker");
+        }
+        return result;
+      });
+      const effects = { advance: owner.advance, cleanup, exclude: outbox().excludeRevokedGrant };
+      await expect(resumeAgentGrantRevocation(effects, terminal, firstContext)).rejects.toThrow(
+        "synthetic_loss_after_payments_marker",
+      );
+      const retained = await owner.admit(nextBinding, nextContext);
+      const restarted = createAgentGrantRevocations(pools.identity, createPostgresEventStore({ pool: pools.identity }));
+      await resumeAgentGrantRevocation({ ...effects, advance: restarted.advance }, retained!, nextContext);
+      expect((await restarted.read(firstBinding))!.phase).toBe("completed");
+      expect((await restarted.read(nextBinding))!.effectContext).toEqual(firstContext);
+      expect(cleanup.mock.calls.map((call) => call[1])).toEqual([firstContext, firstContext]);
+      const events = await pools.identity.query(
+        `SELECT tenant_id, performed_by_user_id, for_account_id FROM event_store_events
+         WHERE event_type LIKE 'identity.agent-grant-revocation.%' ORDER BY global_position`,
+      );
+      expect(events.rows).toEqual(Array.from({ length: 5 }, () => ({
+        tenant_id: firstContext.tenantId,
+        performed_by_user_id: firstContext.audit.performedByUserId,
+        for_account_id: "acc_a",
+      })));
+      const audit = await pools.payments.query(
+        `SELECT performed_by_account_id FROM payments_saved_checkout_instrument_audit
+         WHERE instrument_id = 'instrument_a' AND action = 'agent-grant-revoked'`,
+      );
+      expect(audit.rows).toEqual([{ performed_by_account_id: "acc_a" }]);
+      const published = await pools.payments.query(
+        `SELECT event_type, tenant_id, performed_by_user_id, for_account_id FROM event_store_events
+         WHERE event_type IN ('payments.checkout-affordances-published', 'payments.agent-grant-cleanup.completed')`,
+      );
+      expect(published.rows).toHaveLength(2);
+      expect(published.rows.every((row) => row.tenant_id === firstContext.tenantId)).toBe(true);
+      expect(published.rows.every((row) => row.performed_by_user_id === firstContext.audit.performedByUserId)).toBe(true);
+      expect(published.rows.every((row) => row.for_account_id === "acc_a")).toBe(true);
+    },
+  );
 
   it("agent-grant-revocation-payments-cleanup restarts after local removal and recovers durable audit/default/affordance without provider calls", async () => {
     await activate();

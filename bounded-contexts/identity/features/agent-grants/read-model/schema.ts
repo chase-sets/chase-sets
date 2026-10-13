@@ -5,9 +5,9 @@ export const identityAgentGrantRevocationSchemaMigrations: readonly BcSchemaMigr
     migrationId: "20261012_identity_agent_grant_revocation_support",
     description: "Index retained owner and attempt facts; installing support never activates revocation routes.",
     statements: [
-      `CREATE INDEX IF NOT EXISTS identity_agent_grant_revocation_pending_idx ON event_store_events (global_position)
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS identity_agent_grant_revocation_pending_idx ON event_store_events (global_position)
       WHERE event_type = 'identity.agent-grant-revocation.admitted'`,
-      `CREATE INDEX IF NOT EXISTS identity_agent_grant_revocation_attempt_owner_idx ON event_store_events ((payload->>'ownerStream'))
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS identity_agent_grant_revocation_attempt_owner_idx ON event_store_events ((payload->>'ownerStream'))
       WHERE event_type = 'identity.agent-grant-revocation-attempt.admitted'`,
     ],
   },

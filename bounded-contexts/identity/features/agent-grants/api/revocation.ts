@@ -18,7 +18,8 @@ export const REVOCATION_PHASES = [
 ] as const;
 export type RevocationPhase = (typeof REVOCATION_PHASES)[number];
 export type RevocationOwner = Readonly<{ operationId: string; accountId: string; grantId: string; revokedAt: string }>;
-export type RevocationState = RevocationOwner & Readonly<{ phase: RevocationPhase; version: number }>;
+type RevocationProgress = RevocationOwner & Readonly<{ phase: RevocationPhase; version: number }>;
+export type RevocationState = RevocationProgress & Readonly<{ effectContext: EventStoreContext }>;
 export type RevocationBinding = Readonly<{
   attemptId: string;
   tenantId: string;
@@ -56,7 +57,7 @@ const ownerKeys = ["accountId", "grantId", "operationId", "revokedAt"];
 export function parseRevocationHistory(
   events: readonly Readonly<{ streamVersion: number; eventType: string; payload: unknown }>[],
   expected: Readonly<{ accountId: string; grantId: string }>,
-): RevocationState | null {
+): RevocationProgress | null {
   if (events.length === 0) return null;
   if (events.length > MAX_HISTORY_EVENTS || Buffer.byteLength(JSON.stringify(events), "utf8") > MAX_HISTORY_BYTES)
     invalidHistory();
@@ -141,7 +142,16 @@ export function createAgentGrantRevocations(
     const events = await history(db, ownerStream(binding.accountId, binding.grantId));
     if (events.some((event) => event.forAccountId !== binding.accountId || event.tenantId !== events[0].tenantId))
       invalidHistory();
-    return parseRevocationHistory(events, binding);
+    const progress = parseRevocationHistory(events, binding);
+    if (!progress) return null;
+    const first = events[0];
+    return {
+      ...progress,
+      effectContext: {
+        tenantId: first.tenantId,
+        audit: { performedByUserId: first.performedByUserId, forAccountId: first.forAccountId },
+      },
+    };
   };
   const verifyAttempt = async (db: PgQueryable, binding: RevocationBinding): Promise<boolean> => {
     const events = await history(db, attemptStream(binding.attemptId));
@@ -267,7 +277,7 @@ export function createAgentGrantRevocations(
             context,
             events: [{ eventType: "identity.agent-grant-revocation.admitted", payload: owner }],
           });
-          state = { ...owner, phase: "admitted", version: 1 };
+          state = { ...owner, phase: "admitted", version: 1, effectContext: context };
         }
         if (!existingAttempt) {
           const admitted = await db.query<{ count: string }>(
@@ -338,10 +348,10 @@ export function createAgentGrantRevocations(
         await eventStore.appendToStreamInTransaction(db, {
           streamId: ownerStream(state.accountId, state.grantId),
           expectedVersion: current.version,
-          context,
+          context: current.effectContext,
           events: [{ eventType: `identity.agent-grant-revocation.${phase}`, payload: owner }],
         });
-        return { ...owner, phase, version: current.version + 1 };
+        return { ...owner, phase, version: current.version + 1, effectContext: current.effectContext };
       }),
     withActiveGrants: createActiveAgentGrantFence(pool),
   };
