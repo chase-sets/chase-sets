@@ -1,5 +1,13 @@
 import { attachResponseMetadata, readApiErrorMessage } from "@chase-sets/http/responses";
 import type {
+  ConfirmSavedListOperation,
+  PrepareSavedListOperation,
+  SavedListOperationReference,
+  SavedListRecoveryOperation,
+  SavedListRecoveryPage,
+  ReserveAnonymousSavedListOperation,
+} from "./recovery-contracts";
+import type {
   AddProductToSavedListRequest,
   AnonymousSavedListClaimPreparation,
   AnonymousSavedListIntent,
@@ -56,6 +64,42 @@ export function createCollectionsApiClient({
   });
 
   return {
+    listSavedListRecovery: (cursor?: string) =>
+      request<SavedListRecoveryPage>(
+        `/account/list-operations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+      ),
+    getSavedListRecovery: (operationId: string) =>
+      request<SavedListRecoveryOperation | null>(`/account/list-operations/${encodeURIComponent(operationId)}`),
+    prepareSavedListOperation: (body: PrepareSavedListOperation) =>
+      request<SavedListRecoveryOperation>("/account/list-operations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    confirmSavedListOperation: ({ operationId, ...body }: ConfirmSavedListOperation) =>
+      request<SavedListRecoveryOperation>(`/account/list-operations/${encodeURIComponent(operationId)}/confirm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    beginSavedListOperationSend: ({ operationId, revision }: SavedListOperationReference) =>
+      request<SavedListRecoveryOperation>(`/account/list-operations/${encodeURIComponent(operationId)}/begin-send`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ revision }),
+      }),
+    resubmitSavedListOperation: ({ operationId, revision }: SavedListOperationReference) =>
+      request<SavedListRecoveryOperation>(`/account/list-operations/${encodeURIComponent(operationId)}/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ revision }),
+      }),
+    reserveAnonymousSavedListOperation: (anonymousOwnerId: string, body: ReserveAnonymousSavedListOperation) =>
+      request<SavedListRecoveryOperation>("/account/list-operations/anonymous", {
+        method: "POST",
+        headers: anonymousHeaders(anonymousOwnerId),
+        body: JSON.stringify(body),
+      }),
     listRecentSavedLists: () => request<RecentSavedListsResponse>("/account/lists/recent"),
     addProductToSavedList: (body: AddProductToSavedListRequest) =>
       request<SavedListAdditionResponse>("/account/list-additions", {
