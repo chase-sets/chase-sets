@@ -8,6 +8,12 @@ import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } 
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  assembleProductMeasurePublication,
+  productMeasurePublicationCompleted,
+  productMeasurePublicationPartRecorded,
+  type ProductMeasureSnapshot,
+} from "@chase-sets/product-measures";
 import { createProductMeasureRuntime } from "./runtime";
 
 type ProfileRow = Readonly<{
@@ -246,6 +252,164 @@ function reverseObjectProperties(value: unknown): unknown {
 function resolvedFactCount(events: readonly StoredEvent[]): number {
   return events.filter(({ eventType }) => eventType === "catalog.catalog-item.product-measures-resolved").length;
 }
+
+async function createSyntheticMeasureFixture(
+  optionIds = Array.from({ length: 255 }, (_, index) => `synthetic-${index}`),
+) {
+  const item: CatalogItemRow = {
+    catalog_item_id: "cat_synthetic_multipart",
+    blueprint_id: null,
+    category_ids: [],
+    canonical_dimension_order: ["form"],
+    dimension_rules: [{ dimensionId: "form", required: true, allowedOptionIds: optionIds }],
+  };
+  const { db, resolved } = createMeasureDb(item);
+  const store = createEventStore();
+  const services = createProductMeasureRuntime({
+    db,
+    eventStore: store.eventStore,
+    checkpointStore: createCheckpointStore(),
+  });
+  await services.upsertProfile({
+    profileId: "p_synthetic",
+    key: "synthetic-multipart",
+    name: "Synthetic multipart regression",
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card"],
+    stackBehavior: "stackable-thickness",
+    confidence: "measured",
+  });
+  return { item, optionIds, db, resolved, services, ...store };
+}
+
+async function completePublicationProducts(events: readonly StoredEvent[]) {
+  const completion = events.at(-1)!;
+  return assembleProductMeasurePublication(
+    { ...completion, data: completion.payload },
+    events.slice(0, -1).map((event) => ({ ...event, data: event.payload })),
+  );
+}
+
+describe("Catalog multipart publication", () => {
+  it("publishes all 255 synthetic Products once in enumeration order within every event byte budget", async () => {
+    const fixture = await createSyntheticMeasureFixture();
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+    expect(fixture.appended).toHaveLength(1);
+    expect(fixture.appended[0]!.expectedVersion).toBe(0);
+    expect(fixture.events.length).toBeGreaterThanOrEqual(3);
+    expect(fixture.events.at(-1)!.eventType).toBe(productMeasurePublicationCompleted);
+    expect(
+      fixture.events.slice(0, -1).every((event) => event.eventType === productMeasurePublicationPartRecorded),
+    ).toBe(true);
+    const ledger = fixture.events.map((event) => ({
+      version: event.streamVersion,
+      bytes: Buffer.byteLength(JSON.stringify(event.payload), "utf8"),
+    }));
+    expect(
+      ledger.every(({ bytes }) => bytes <= 64_512),
+      JSON.stringify(ledger),
+    ).toBe(true);
+    const products = await completePublicationProducts(fixture.events);
+    expect(products.map(({ productId }) => productId)).toEqual(
+      fixture.optionIds.map((option) => `${fixture.item.catalog_item_id}::form:${option}`),
+    );
+    expect(new Set(products.map(({ productId }) => productId)).size).toBe(255);
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+    expect(fixture.appended).toHaveLength(1);
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id);
+    expect([...fixture.resolved.values()].map(({ measure_snapshot }) => measure_snapshot)).toEqual(products);
+  });
+
+  it("appends fresh legacy A after multipart B, then no-ops only against current A", async () => {
+    const fixture = await createSyntheticMeasureFixture();
+    const largeRules = fixture.item.dimension_rules;
+    Object.assign(fixture.item, {
+      dimension_rules: [{ dimensionId: "form", required: true, allowedOptionIds: ["synthetic-0"] }],
+    });
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+    const a = fixture.events[0]!.payload;
+    Object.assign(fixture.item, { dimension_rules: largeRules });
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+    expect(fixture.events.at(-1)!.eventType).toBe(productMeasurePublicationCompleted);
+    const bVersion = fixture.events.at(-1)!.streamVersion;
+    Object.assign(fixture.item, {
+      dimension_rules: [{ dimensionId: "form", required: true, allowedOptionIds: ["synthetic-0"] }],
+    });
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+    expect(fixture.appended).toHaveLength(3);
+    expect(fixture.appended[2]!.expectedVersion).toBe(bVersion);
+    expect(fixture.events.at(-1)!.payload).toEqual(a);
+    await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+    expect(fixture.appended).toHaveLength(3);
+  });
+
+  it("never accepts a partial tail or poisoned completion as current publication", async () => {
+    for (const poison of ["partial-tail", "digest", "identity", "part-type", "count"] as const) {
+      const fixture = await createSyntheticMeasureFixture();
+      await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+      if (poison === "partial-tail") {
+        fixture.events.push({ ...fixture.events[0]!, streamVersion: fixture.events.at(-1)!.streamVersion + 1 });
+      } else if (poison === "part-type") {
+        fixture.events[0] = { ...fixture.events[0]!, eventType: "catalog.product-measures.control" };
+      } else {
+        const completion = fixture.events.at(-1)!;
+        fixture.events[fixture.events.length - 1] = {
+          ...completion,
+          payload: {
+            ...completion.payload,
+            ...(poison === "digest"
+              ? { productsDigest: "0".repeat(64) }
+              : poison === "identity"
+                ? { catalogItemId: "cat_other" }
+                : { productCount: 1 }),
+          },
+        };
+      }
+      const before = fixture.events.length;
+      await fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext);
+      expect(fixture.appended, poison).toHaveLength(2);
+      expect(fixture.appended[1]!.expectedVersion, poison).toBe(before);
+      expect((await completePublicationProducts(fixture.events.slice(before))).length, poison).toBe(255);
+    }
+  });
+
+  it("refuses one oversized synthetic Product before any append rather than truncating it", async () => {
+    const fixture = await createSyntheticMeasureFixture(["synthetic-" + "\u00e9".repeat(40_000)]);
+    await expect(
+      fixture.services.resolveCatalogItemMeasures(fixture.item.catalog_item_id, eventStoreContext),
+    ).rejects.toMatchObject({
+      code: "product_measure_publication_too_large",
+      catalogItemId: fixture.item.catalog_item_id,
+      productId: `${fixture.item.catalog_item_id}::form:${fixture.optionIds[0]}`,
+    });
+    expect(fixture.appended).toHaveLength(0);
+    expect(fixture.events).toHaveLength(0);
+  });
+
+  it("retains byte-identical fitting legacy publication payloads", async () => {
+    const fixture = await createProfiledMeasureFixture();
+    await fixture.services.resolveCatalogItemMeasures("cat_1", eventStoreContext);
+    const products: ProductMeasureSnapshot[] = ["raw", "graded"].map((optionId) => ({
+      measureVersion: "pokemon-card:v1",
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      source: "profile",
+      confidence: "measured",
+      catalogItemId: "cat_1",
+      productId: `cat_1::form:${optionId}`,
+      selectedOptions: [{ dimensionId: "form", optionId }],
+    }));
+    expect(fixture.events[0]!.eventType).toBe("catalog.catalog-item.product-measures-resolved");
+    expect(JSON.stringify(fixture.events[0]!.payload)).toBe(JSON.stringify({ catalogItemId: "cat_1", products }));
+  });
+});
 
 describe("product measure runtime", () => {
   it("resolves product measures from the most specific matching profile", async () => {
