@@ -272,6 +272,7 @@ Refuse both package READY and host signal on any failure or unknown below; windo
 | Missing DNS | STOP; a working alternate hostname cannot stand in for the declared target. |
 | TLS failure or verification-disabled probe | STOP; never disable certificate verification to obtain a response. |
 | HTTP 404/5xx | STOP for screen 404 or any 5xx; only the non-mutating API mount exception below can resolve API 404/405. |
+| Observed status differing from the declared expected status (outside the API mount exception) | STOP; capture the declared expected status before readiness. |
 | Final origin/path differing from the declared one | STOP; a homepage or undeclared identity redirect does not prove the route. |
 | Response indistinguishable from a same-origin unregistered control path (landing/soft-404/SPA shell) | STOP; 200 alone is not route proof. |
 | Incompatible or pending posture | STOP; shipped serving capability is not activation. |
@@ -293,7 +294,7 @@ These are inventory seeds, not observed-live claims or an exhaustive replacement
 | --- | --- |
 | #7728 Account Channels, connection and publication | Declared marketplace origin: `/account/channels`, `/account/channels/<connectionId>`, `/account/channels/publication`, `/account/channels/publication/<connectionId>`. Include called `/api/channels/connections/<id>`, `/api/channels/connections/<connectionId>/manual-sync` and `/api/channels/publication/<connectionId>`, plus any action endpoints the window uses. Route/mount owners: `bounded-contexts/channels/context.json`. |
 | #7728 manual-sync download | Same declared marketplace origin: `/account/channels/<connectionId>/manual-sync/download`. Inventory the mutating action but prove its mount/profile without claiming a reservation. Owner: `bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx`. |
-| #7728 Catalog Phase A | Declared Admin origin: `/catalog-items/<id>` for each window item, plus any tooling calls. Owner: `bounded-contexts/catalog/context.json`. |
+| #7728 Catalog Phase A | Declared Admin origin: `/catalog/catalog-items/<id>` for each window item, plus any tooling calls. Owner: `bounded-contexts/catalog/context.json`. |
 | #7728 Seller Portal entry | External provider: `https://store.tcgplayer.com/admin/pricing` and the window's declared Seller Portal import/export entry points and permitted sign-in hops. No upload, export action or new login as a reachability probe. |
 | #9374-production Admin and extension | `https://admin.chasesets.com/catalog/providers/tcgplayer`; `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that same Admin origin. These extension calls mutate; use the API exception, not DELETE/PUT probes. Owners: `bounded-contexts/catalog/context.json` and `bounded-contexts/catalog/features/operator-session/domain/extension/transport.ts`. |
 | #9374-production provider session entry | External provider: `https://store.tcgplayer.com/admin/pricing`, declared permitted sign-in hops and any other entry point the window opens. Owner: `bounded-contexts/catalog/features/operator-session/domain/extension/protocol.ts`. |

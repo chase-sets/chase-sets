@@ -23,15 +23,31 @@ const evidenceRules = [
   "Capture DNS, TLS verification and every HTTP hop privately, including a same-origin unregistered control path and the response comparison; cite the private evidence locations, not secrets or raw account/provider data.",
 ];
 const refusalRules = [
-  "Missing DNS",
-  "TLS failure or verification-disabled probe",
-  "HTTP 404/5xx",
-  "Final origin/path differing from the declared one",
-  "Response indistinguishable from a same-origin unregistered control path (landing/soft-404/SPA shell)",
-  "Incompatible or pending posture",
-  "Missing/incomplete/reused observation",
-  "Release mismatch",
-  "Deploy in progress",
+  ["Missing DNS", "STOP; a working alternate hostname cannot stand in for the declared target."],
+  ["TLS failure or verification-disabled probe", "STOP; never disable certificate verification to obtain a response."],
+  [
+    "HTTP 404/5xx",
+    "STOP for screen 404 or any 5xx; only the non-mutating API mount exception below can resolve API 404/405.",
+  ],
+  [
+    "Observed status differing from the declared expected status (outside the API mount exception)",
+    "STOP; capture the declared expected status before readiness.",
+  ],
+  [
+    "Final origin/path differing from the declared one",
+    "STOP; a homepage or undeclared identity redirect does not prove the route.",
+  ],
+  [
+    "Response indistinguishable from a same-origin unregistered control path (landing/soft-404/SPA shell)",
+    "STOP; 200 alone is not route proof.",
+  ],
+  ["Incompatible or pending posture", "STOP; shipped serving capability is not activation."],
+  [
+    "Missing/incomplete/reused observation",
+    "STOP; retain failures and unknowns, never substitute old or post-hoc captures.",
+  ],
+  ["Release mismatch", "STOP; SHA, image, executed deploy job and effective/current switches must reconcile."],
+  ["Deploy in progress", "STOP; wait for completion and capture afresh, not during deployment."],
 ];
 const authorityRules = [
   "Refuse both package READY and host signal on any failure or unknown below; window-open re-verification also stops the window.",
@@ -51,7 +67,7 @@ const consumerTargets = [
   "/api/channels/connections/<id>",
   "/api/channels/connections/<connectionId>/manual-sync",
   "/api/channels/publication/<connectionId>",
-  "/catalog-items/<id>",
+  "/catalog/catalog-items/<id>",
   "https://store.tcgplayer.com/admin/pricing",
   "/catalog/providers/tcgplayer",
   "/api/public/catalog/operator-session/grant",
@@ -64,8 +80,21 @@ function assertRules(text, rules) {
 
 function assertRefusals(text) {
   assertRules(text, authorityRules);
-  for (const failure of refusalRules) expect(text).toContain(`| ${failure} | STOP`);
+  for (const [failure, disposition] of refusalRules) expect(text).toContain(`| ${failure} | ${disposition} |`);
 }
+
+it("rejects a refusal fixture that retains STOP but weakens the release binding", () => {
+  const fixture = [
+    ...authorityRules,
+    ...refusalRules.map(([failure, disposition]) => `| ${failure} | ${disposition} |`),
+  ].join(" ");
+  expect(() => assertRefusals(fixture)).not.toThrow();
+  const mutant = fixture.replace(
+    "STOP; SHA, image, executed deploy job and effective/current switches must reconcile.",
+    "STOP only on SHA; image or deploy-job mismatch may CONTINUE.",
+  );
+  expect(() => assertRefusals(mutant)).toThrow();
+});
 
 describe.each(skillPaths)("operator package reachability: %s", (path) => {
   const text = readProse(path);
@@ -78,13 +107,6 @@ describe.each(skillPaths)("operator package reachability: %s", (path) => {
 
   it("refuses every failed or unknown target without granting sign-in or mutation authority", () => {
     assertRefusals(text);
-  });
-
-  it.each(refusalRules)("rejects permitting the negative target case: %s", (failure) => {
-    const clause = `| ${failure} | STOP`;
-    expect(text).toContain(clause);
-    const mutant = text.replace(clause, `| ${failure} | CONTINUE`);
-    expect(() => assertRefusals(mutant)).toThrow();
   });
 
   it("retains the historical landing failure at both gates, including the release-only checks", () => {
@@ -125,18 +147,13 @@ describe.each(skillPaths)("operator package reachability: %s", (path) => {
       "#9292 identity-term receipt remains required before admission",
     ]);
   });
-
-  it.each([...lifecycleRules, ...evidenceRules, ...refusalRules, ...authorityRules])(
-    "detects removal of the mechanical contract clause: %s",
-    (rule) => {
-      expect(text).toContain(rule);
-      const mutant = text.replaceAll(rule, "REMOVED");
-      expect(() => assertRules(mutant, [rule])).toThrow();
-    },
-  );
 });
 
 describe("operator runbook reachability references", () => {
+  it("names the registered Admin catalog-item target in the channels pilot inventory", () => {
+    expect(readProse("docs/runbooks/channels-pilot-operations.md")).toContain("Admin `/catalog/catalog-items/<id>`");
+  });
+
   it.each(runbooks)("uses the shared gate rather than a separate readiness rule: %s", (path) => {
     const text = readProse(path);
     expect(text).toContain(gateLink);
