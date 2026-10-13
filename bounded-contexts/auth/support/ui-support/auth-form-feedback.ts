@@ -1,5 +1,5 @@
 import { normalizeFormErrors, type ValidationSummaryError } from "@chase-sets/design-system";
-import { useEffect, useRef, useState, type FormEventHandler } from "react";
+import { useEffect, useId, useRef, useState, type FormEventHandler } from "react";
 import { useNavigation, useSubmit } from "react-router";
 import type { AuthActionError, AuthActionIntent } from "../route-support/auth-action-errors";
 import type { AuthActionNotice } from "../route-support/auth-host";
@@ -28,8 +28,8 @@ export function useAuthFormSubmission() {
 
 export function useAuthFormFeedback(props: AuthFormFeedbackProps, successTargetId?: string) {
   const summaryRef = useRef<HTMLElement>(null);
-  const socialRef = useRef<HTMLDivElement>(null);
-  const successRef = useRef<HTMLDivElement>(null);
+  const socialId = useId();
+  const successId = useId();
   const focusedResult = useRef<AuthActionError | AuthActionNotice | null>(null);
   const focusedSocial = useRef<string | null>(null);
   const wasPending = useRef(false);
@@ -71,20 +71,30 @@ export function useAuthFormFeedback(props: AuthFormFeedbackProps, successTargetI
     if (result && focusedResult.current !== result) {
       const target = error
         ? summaryRef.current
-        : ((successTargetId ? document.getElementById(successTargetId) : null) ?? successRef.current);
+        : (document.getElementById(successTargetId ?? successId) ?? document.getElementById(successId));
       if (target) {
         focusedResult.current = result;
         target.focus();
       }
     } else if (!result && socialError && focusedSocial.current !== props.socialOccurrence) {
-      if (socialRef.current) {
+      const banner = document.getElementById(socialId);
+      if (banner) {
         focusedSocial.current = props.socialOccurrence ?? null;
-        socialRef.current.focus();
+        banner.focus();
       }
     }
-  }, [error, notice, props.submissionPending, props.socialOccurrence, socialError, successTargetId]);
+  }, [
+    error,
+    notice,
+    props.submissionPending,
+    props.socialOccurrence,
+    socialError,
+    successId,
+    socialId,
+    successTargetId,
+  ]);
 
-  return { error, notice, socialError, summaryRef, socialRef, successRef, clear, begin };
+  return { error, notice, socialError, summaryRef, socialId, successId, clear, begin };
 }
 
 export function authFormErrors(

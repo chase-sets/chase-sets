@@ -17,10 +17,10 @@ const expectedHitsByFile = {
   "features/agent-grants/ui/agent-grant-detail-page.tsx": 3,
   "features/agent-grants/ui/agent-grant-list-page.tsx": 1,
   "features/invitation-acceptance/ui/invitation-acceptance-page.tsx": 2,
-  "features/registration/ui/register-page.tsx": 6,
+  "features/registration/ui/register-page.tsx": 7,
   "features/sessions/ui/session-detail-page.tsx": 4,
   "features/sessions/ui/session-list-page.tsx": 10,
-  "features/sign-in/ui/sign-in-page.tsx": 8,
+  "features/sign-in/ui/sign-in-page.tsx": 9,
   "routes/marketplace/account-agents-consent.tsx": 2,
   "support/route-support/magic-link-landing.tsx": 1,
 } as const;
@@ -137,7 +137,7 @@ describe("Auth human-readable values", () => {
     );
     const partition = hits.map((hit) => ({ ...hit, disposition: classify(hit) }));
 
-    expect(hits).toHaveLength(37);
+    expect(hits).toHaveLength(39);
     expect(counts).toEqual(expectedHitsByFile);
     expect(partition).toHaveLength(hits.length);
     expect(

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { t } from "@chase-sets/localization";
 import {
   Banner,
@@ -52,13 +52,13 @@ export function InvitationAcceptancePage(props: Props) {
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyForm = useRef<HTMLFormElement | null>(null);
-  const warningRef = useRef<HTMLDivElement>(null);
+  const warningId = useId();
   const feedback = useAuthFormFeedback(props);
   const { summary } = authFormErrors(feedback.error);
 
   useEffect(() => {
-    if (passkeyError) warningRef.current?.focus();
-  }, [passkeyError]);
+    if (passkeyError) document.getElementById(warningId)?.focus();
+  }, [passkeyError, warningId]);
 
   function handleServerSubmit(event: FormEvent<HTMLFormElement>) {
     feedback.begin();
@@ -172,7 +172,7 @@ export function InvitationAcceptancePage(props: Props) {
               </Text>
               {passkeyError ? (
                 <Banner
-                  ref={warningRef}
+                  id={warningId}
                   tabIndex={-1}
                   title={t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.unavailable")}
                   description={passkeyError}

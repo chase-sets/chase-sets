@@ -139,7 +139,7 @@ export function SignInPage(
   const tokenId = useId();
   const methodButtonId = useId();
   const identifierFocus = useRef<"methods" | "identifier" | null>(null);
-  const warningRef = useRef<HTMLDivElement>(null);
+  const warningId = useId();
   const feedback = useAuthFormFeedback(
     props,
     props.notice?.status === "phone-code-sent" ? codeId : props.allowManualMagicLinkTokenEntry ? tokenId : undefined,
@@ -176,8 +176,8 @@ export function SignInPage(
   }, [hasIdentifier, identifier, identifierId, method, methodButtonId, methodsId, passwordId]);
 
   useEffect(() => {
-    if (passkeyError) warningRef.current?.focus();
-  }, [passkeyError]);
+    if (passkeyError) document.getElementById(warningId)?.focus();
+  }, [passkeyError, warningId]);
 
   function handleServerSubmit(event: FormEvent<HTMLFormElement>) {
     feedback.begin();
@@ -277,7 +277,7 @@ export function SignInPage(
       />
       {!feedback.error && feedback.socialError ? (
         <Banner
-          ref={feedback.socialRef}
+          id={feedback.socialId}
           title={t("auth.features.signIn.ui.signInPage.sign.in.failed")}
           description={feedback.socialError}
           tone="danger"
@@ -287,7 +287,7 @@ export function SignInPage(
       ) : null}
       {statusMessage ? (
         <Banner
-          ref={feedback.successRef}
+          id={feedback.successId}
           tabIndex={-1}
           title={
             props.notice?.status === "phone-code-sent"
@@ -505,7 +505,7 @@ export function SignInPage(
               <HiddenInput type="hidden" name="email" value={identifier} readOnly />
               {passkeyError ? (
                 <Banner
-                  ref={warningRef}
+                  id={warningId}
                   tabIndex={-1}
                   title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")}
                   description={passkeyError}

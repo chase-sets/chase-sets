@@ -210,7 +210,7 @@ export function RegisterPage(props: RegistrationPageProps) {
   const phoneRequestId = useId();
   const phoneConsumeId = useId();
   const codeId = useId();
-  const warningRef = useRef<HTMLDivElement>(null);
+  const warningId = useId();
   const feedback = useAuthFormFeedback(
     props,
     props.notice?.status === "phone-code-sent" && method === "phone-code" ? codeId : undefined,
@@ -250,8 +250,8 @@ export function RegisterPage(props: RegistrationPageProps) {
   }, [method, feedback.error]);
 
   useEffect(() => {
-    if (passkeyError) warningRef.current?.focus();
-  }, [passkeyError]);
+    if (passkeyError) document.getElementById(warningId)?.focus();
+  }, [passkeyError, warningId]);
 
   useEffect(() => {
     function handleAbandoned() {
@@ -348,7 +348,7 @@ export function RegisterPage(props: RegistrationPageProps) {
       />
       {!feedback.error && feedback.socialError ? (
         <Banner
-          ref={feedback.socialRef}
+          id={feedback.socialId}
           tabIndex={-1}
           title={t("auth.features.registration.ui.registerPage.registration.failed")}
           description={feedback.socialError}
@@ -358,7 +358,7 @@ export function RegisterPage(props: RegistrationPageProps) {
       ) : null}
       {feedback.notice?.status === "passkey-recovery" ? (
         <Banner
-          ref={feedback.successRef}
+          id={feedback.successId}
           tabIndex={-1}
           title={t("auth.features.registration.ui.registerPage.passkey.added")}
           description={feedback.notice.message}
@@ -367,7 +367,7 @@ export function RegisterPage(props: RegistrationPageProps) {
       ) : null}
       {feedback.notice?.status === "phone-code-sent" ? (
         <Banner
-          ref={feedback.successRef}
+          id={feedback.successId}
           tabIndex={-1}
           title={t("auth.features.registration.ui.registerPage.phone.code.sent")}
           description={t("auth.features.registration.ui.registerPage.phone.code.ready.check.your.phone")}
@@ -431,7 +431,7 @@ export function RegisterPage(props: RegistrationPageProps) {
           <IdentityFields details={details} onChange={updateDetails} />
           {passkeyError ? (
             <Banner
-              ref={warningRef}
+              id={warningId}
               tabIndex={-1}
               title={t("auth.features.registration.ui.registerPage.passkey.unavailable")}
               description={passkeyError}
