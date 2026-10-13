@@ -225,7 +225,7 @@ describeDb("marketplace schema upgrades", () => {
   });
 
   it.each([false, true])(
-    "accepts historical $10 authority consumed to $9 without a debit; concurrent Pause=%s",
+    "accepts historical 10.00 authority consumed to 9.00 without a debit; concurrent Pause=%s",
     async (racePause) => {
       const pool = pools.marketplace;
       await bootstrapContextDatabase(marketplaceModule, pool);

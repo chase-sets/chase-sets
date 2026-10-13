@@ -9,6 +9,7 @@ import {
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
 import { identitySeedIds } from "@chase-sets/identity-seed";
+import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import {
   requireIdentityCommitSource,
   verifyMarketFollowingBuyerContactInOwnedSandbox,
@@ -291,14 +292,30 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         });
         expect(authorized.ok()).toBe(true);
         const seller = await sellerContext!.newPage();
+        let listingId: string | undefined;
         try {
+          const listing = await seller.request.post("/api/marketplace/account/listings", {
+            data: {
+              inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
+              priceAmount: fixture.amount,
+              priceCurrencyCode: "USD",
+              quantityCap: 2,
+            },
+          });
+          expect(listing.status(), "create test-owned stock; the seeded demo Listing is withdrawn").toBe(201);
+          const draft = await listing.json();
+          listingId = draft.id;
+          const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
+            data: { feeQuoteFingerprint: draft.feeQuoteFingerprint },
+          });
+          expect(published.ok(), "publish the test-owned two-unit Listing through its normal gates").toBe(true);
           for (const offerId of offerIds) {
             await expect
               .poll(async () => {
                 const response = await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`);
-                return response.ok() ? (await response.json()).can_fulfill : false;
+                return { httpStatus: response.status(), ...(await response.json()) };
               })
-              .toBe(true);
+              .toMatchObject({ httpStatus: 200, can_fulfill: true, listing_id: listingId });
             const match = await (await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`)).json();
             const quote = await seller.request.get(
               `/api/marketplace/account/offers/matches/${offerId}/terms-preview?listingId=${match.listing_id}`,
@@ -310,7 +327,14 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             expect(acceptance.status()).toBe(201);
           }
         } finally {
-          await seller.close();
+          try {
+            if (listingId) {
+              const withdrawn = await seller.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`);
+              expect(withdrawn.ok(), "withdraw only the test-owned Listing").toBe(true);
+            }
+          } finally {
+            await seller.close();
+          }
         }
         const readOrders = async () => {
           const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
