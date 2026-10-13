@@ -1,4 +1,5 @@
 export { createInventoryRequestApiClient } from "./support/request-support/api-client";
+export { inventoryMutationAttemptFromSource } from "./support/runtime-support/mutation-attempt";
 export { createStorageLocationAuthority } from "./features/storage-locations/api/authority";
 export type {
   InventoryAccountSellerSkuItemResolution,
