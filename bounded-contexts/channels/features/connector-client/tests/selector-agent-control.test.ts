@@ -113,11 +113,12 @@ tree = ast.parse(input['script'])
 parts = []
 for node in tree.body:
     if isinstance(node, ast.FunctionDef) and node.name == 'states': parts.append(node)
+    elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'title': parts.append(node)
     elif isinstance(node, ast.While): parts.append(node)
     elif isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Name) and node.test.left.id == 'button': parts.append(node)
     elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple) and [item.id for item in node.targets[0].elts] == ['bus', 'dialog', 'path']: parts.append(node)
     elif isinstance(node, ast.If) and any(isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == 'states' for item in ast.walk(node.test)): parts.append(node)
-assert len(parts) == 5
+assert len(parts) == 6
 nodes, touched, clock = input['nodes'], [], [0]
 root, bus = b'/org/a11y/atspi/accessible/root', b':1.1'
 scope = {'stage':'PROCESS', 'pid':42, 'until':4, 'button':None, 'root':root, 'accessible':b'org.a11y.atspi.Accessible'}
@@ -139,8 +140,7 @@ def now():
 scope.update({'time':types.SimpleNamespace(time=now, sleep=lambda value:None), 'children':children, 'call':call,
     'role':lambda owner,path:nodes[path.decode()]['role'].encode(), 'name':lambda owner,path:nodes[path.decode()]['name'].encode(),
     'strings':lambda reply:reply[0], 'scalar':lambda reply,reader:reader(reply[0]), 'uint':lambda value:value,
-    'params':lambda *values:values, 'child':lambda value,index:value[index], 'length':len, 'unref':lambda value:None,
-    'title':b'Remove "Chase Sets Temporary Order Authority Capture"?'})
+    'params':lambda *values:values, 'child':lambda value,index:value[index], 'length':len, 'unref':lambda value:None})
 try:
     exec(compile(ast.Module(body=parts, type_ignores=[]), '<production native window predicate>', 'exec'), scope)
     accepted = True
