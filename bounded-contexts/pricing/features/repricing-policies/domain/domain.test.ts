@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import {
@@ -13,6 +14,8 @@ import {
   type RepricingRule,
 } from "./domain";
 import { REPRICING_POLICY_RULE_CAP } from "./policy-bounds";
+import { hashRepricingDryRunBody, validateRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { dryRunBody } from "../../repricing-engine/tests/dry-run-fixture";
 
 function fold(state: RepricingPolicyState, events: readonly RepricingPolicyEvent[]): RepricingPolicyState {
   return events.reduce(evolveRepricingPolicy, state);
@@ -60,6 +63,25 @@ const createCommand = {
 } satisfies CreateRepricingPolicyCommand;
 
 describe("RepricingPolicy lifecycle", () => {
+  it("pins existing recorded fixture bytes and dry-run hashes without guardrails", () => {
+    const recorded = decideRepricingPolicy(initialRepricingPolicyState, createCommand).reduce(
+      evolveRepricingPolicy,
+      initialRepricingPolicyState,
+    );
+    const validated = validateRepricingDryRunBody(dryRunBody, "acc_synthetic");
+    for (const rule of [...recorded.rules, ...validated.rules]) expect(rule.directive).not.toHaveProperty("guardrails");
+    expect({
+      recordedRules: createHash("sha256").update(JSON.stringify(recorded.rules)).digest("hex"),
+      dryRunBytes: createHash("sha256").update(JSON.stringify(validated)).digest("hex"),
+      dryRunHash: hashRepricingDryRunBody(validated),
+    }).toMatchInlineSnapshot(`
+      {
+        "dryRunBytes": "5d9c3ecb68fbdcd15ceef20e30a1526222fa6779d3df6d6f7823b6b572d6462c",
+        "dryRunHash": "9cf72e7a1aa37c3c06a92f8cebecb153ee4ac8b14d45e1e78b5d11723a38683d",
+        "recordedRules": "75338762d285fe1c6cf32125a191db843d92458a25e44c5552370b2bbecbc35a",
+      }
+    `);
+  });
   it("domain validation details tag existing assertions without tagging TypeErrors or assertNever", () => {
     expect(() => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, rules: [] })).toThrow(
       RepricingPolicyValidationError,
