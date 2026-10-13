@@ -29,6 +29,7 @@ const everySkipReason = [
   "resume-hysteresis",
   "repause-cooldown",
   "command-error",
+  "hopeless-forecast-hold",
 ];
 
 const copyMaps = {
@@ -56,6 +57,24 @@ function trace(overrides: Partial<RepricingPolicyListingTrace>): RepricingPolicy
 }
 
 describe("repricing activity copy", () => {
+  it("maps the new guardrail outcomes and goal-solved stratum to the verbatim copy", () => {
+    expect(t(repricingSkipReasonCopyKeys["hopeless-forecast-hold"])).toBe(
+      "Kept the current price: no sale is forecast within the horizon",
+    );
+    expect(t(repricingClampCopyKeys.evidenceFloor)).toBe("Raised to the market-evidence floor");
+    const wording = resolveRepricingAnchorWording(
+      trace({
+        anchor: {
+          source: "curve-objective",
+          stratum: "curve-objective",
+          amount: "9.00",
+          contributingListingCount: 0,
+        },
+      }),
+    );
+    expect(wording).toBe("goal-solved");
+    expect(wording && t(repricingAnchorWordingCopyKeys[wording])).toBe("Priced from your pricing goal");
+  });
   it.each(Object.entries(copyMaps))("has an English string for every %s key", (_name, map) => {
     const missing = Object.entries(map).filter(([, key]) => !hasTranslation(key));
     expect(missing).toEqual([]);

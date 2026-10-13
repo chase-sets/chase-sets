@@ -41,7 +41,7 @@
     "seed-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["catalog", "identity"],
   "eventSubscriptions": [
@@ -819,8 +819,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -831,6 +830,15 @@
             "owner": "inventory",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "ledgerKind": {
+                "kind": "value",
+                "maxLength": 13,
+                "values": ["hold-placed", "hold-released", "hold-consumed"]
+              }
+            }
           }
         },
         {
