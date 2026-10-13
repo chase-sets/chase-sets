@@ -2344,7 +2344,7 @@ describe("marketplace search", () => {
       expect(await ids("ETB")).toEqual(["syn_etb"]);
       expect(await ids("pkmn ETB")).toEqual(["syn_etb"]);
       expect(await ids("pkmn pkmn ETB")).toEqual(["syn_etb"]);
-      expect(await ids("elite trainer box")).toEqual(["syn_etb"]);
+      expect(await ids("elite trainer box")).toEqual(["syn_etb", "syn_wrong_phrase"]);
       expect(await ids("pkmn BB")).toEqual(["syn_bb"]);
       expect(await ids("ygo BB")).toEqual(["syn_ygo"]);
       expect((await search("zard")).items[0]?.catalog_item_id).toBe("syn_exact");
@@ -2353,7 +2353,9 @@ describe("marketplace search", () => {
       expect(
         expanded.items.map((item) => [item.catalog_item_id, item.title, item.subtitle, item.market_summary]),
       ).toEqual(original.items.map((item) => [item.catalog_item_id, item.title, item.subtitle, item.market_summary]));
-      expect(expanded.items.find((item) => item.catalog_item_id === "syn_print_a")?.market_summary).not.toBeNull();
+      expect(expanded.items.find((item) => item.catalog_item_id === "syn_print_a")?.market_summary).toMatchObject({
+        lowest_price_amount: "10.00",
+      });
       const classified = await classifyProtectedSearchTokens("TSP 136a charzard 4/102 jungel 60 zard 4/102", (codes) =>
         lookupServedSearchSetCodes(pools.discovery, codes),
       );
