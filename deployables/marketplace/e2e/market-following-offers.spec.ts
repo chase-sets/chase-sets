@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -49,6 +49,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   const pool = createPgPool(databaseUrl.toString(), { max: 1 });
   let removeEstimate: (() => Promise<void>) | undefined;
   let policyId: string | undefined;
+  let sellerContext: BrowserContext | undefined;
   const authorizations: unknown[] = [];
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
@@ -165,8 +166,8 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       expect(JSON.stringify(owner)).not.toContain(`"${field}"`);
     await page.getByRole("button", { name: "Pause market following" }).click();
     await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
-    const sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
-    try {
+    sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
+    {
       const seller = await sellerContext.newPage();
       await signInWithPassword(seller, String(testInfo.project.use.baseURL), marketplaceBrowserE2eSellerCredentials());
       const response = await seller.request.get(`/api/marketplace/account/offers/matches/${fixture.heldOfferId}`);
@@ -194,8 +195,6 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         expect(JSON.stringify(match)).not.toContain(`"${field}"`);
         expect(sellerMarkup).not.toContain(`"${field}"`);
       }
-    } finally {
-      await sellerContext.close();
     }
     const resumeResponse = page.waitForResponse(
       (response) =>
@@ -291,14 +290,8 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           },
         });
         expect(authorized.ok()).toBe(true);
-        const sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
+        const seller = await sellerContext!.newPage();
         try {
-          const seller = await sellerContext.newPage();
-          await signInWithPassword(
-            seller,
-            String(testInfo.project.use.baseURL),
-            marketplaceBrowserE2eSellerCredentials(),
-          );
           for (const offerId of offerIds) {
             await expect
               .poll(async () => {
@@ -317,7 +310,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             expect(acceptance.status()).toBe(201);
           }
         } finally {
-          await sellerContext.close();
+          await seller.close();
         }
         const readOrders = async () => {
           const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
@@ -371,9 +364,13 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       }
     } finally {
       try {
-        await removeEstimate?.();
+        await sellerContext?.close();
       } finally {
-        await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
+        try {
+          await removeEstimate?.();
+        } finally {
+          await (pool as PgTransactionalPool & { end: () => Promise<void> }).end();
+        }
       }
     }
   }
