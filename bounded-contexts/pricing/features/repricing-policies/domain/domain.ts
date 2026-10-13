@@ -26,7 +26,10 @@ export type { RepricingGuardrail } from "./guardrails/registry";
 
 const pricingGoals = createPricingGoalRegistry([fixedPercentileGoal, targetHorizonGoal, profitPerDayGoal]);
 export const pricingGoalDefinitions = () => pricingGoals.definitions();
+/** Null when the authored goal version is no longer registered (retired). */
+export const resolvePricingGoal = (goalId: string, goalVersion: number) => pricingGoals.resolve(goalId, goalVersion);
 const guardrailKinds = createGuardrailRegistry([marketEvidenceFloor, hopelessForecastHold]);
+export const resolveRepricingGuardrail = (kind: string) => guardrailKinds.resolve(kind);
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
