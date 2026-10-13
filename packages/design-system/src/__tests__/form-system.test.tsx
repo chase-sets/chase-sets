@@ -151,6 +151,33 @@ describe("form system", () => {
     expect(container.querySelector("[errorAnnouncement]")).toBeNull();
   });
 
+  it("announcement scope preserves a trailing standalone alert after a summary-owned form", () => {
+    render(
+      <>
+        <Form errorAnnouncement="summary">
+          <TextInput label="Trailing owned" error="Trailing owned error" />
+        </Form>
+        <TextInput label="Trailing standalone" error="Trailing standalone error" />
+      </>,
+    );
+    expect(screen.getByText("Trailing owned error").getAttribute("role")).toBeNull();
+    expect(screen.getAllByRole("alert").map((node) => node.textContent)).toEqual(["Trailing standalone error"]);
+  });
+
+  it("summary owns inline error announcements without changing canonical error styling", () => {
+    render(
+      <>
+        <Form>
+          <TextInput label="Default styled" error="Default styled error" />
+        </Form>
+        <Form errorAnnouncement="summary">
+          <TextInput label="Owned styled" error="Owned styled error" />
+        </Form>
+      </>,
+    );
+    expect(screen.getByText("Owned styled error").className).toBe(screen.getByText("Default styled error").className);
+  });
+
   it.each([undefined, "inline", "summary"] as const)(
     "announcement policy defaults reach RouterForm (%s) without DOM leakage",
     (policy) => {
@@ -306,6 +333,7 @@ describe("form system", () => {
       [
         "Field",
         <Field {...props} id={undefined} htmlFor="matrix">
+          {/* Field owns the frame anatomy; its caller owns the control's ARIA wiring. */}
           <input id="matrix" aria-invalid="true" aria-describedby="matrix-description matrix-error" />
         </Field>,
       ],
