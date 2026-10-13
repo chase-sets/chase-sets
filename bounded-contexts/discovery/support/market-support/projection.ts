@@ -567,6 +567,18 @@ async function updateDiscoveryAccountBadges(
 }
 
 export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const pauseListing: ProjectorHandlerMap[string] = async (event) => {
+    const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
+    await transitionStatus(db, {
+      table: MARKET_LISTINGS_TABLE,
+      idColumn: "listing_id",
+      id: listingId,
+      status: "paused",
+      updatedAt: event.timing.recordedAt,
+    });
+    await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+    await emitListingPatch(db, event, listingId);
+  };
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -1230,30 +1242,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
-    "marketplace.listing.paused": async (event) => {
-      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_LISTINGS_TABLE,
-        idColumn: "listing_id",
-        id: listingId,
-        status: "paused",
-        updatedAt: event.timing.recordedAt,
-      });
-      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.auto-unlisted": async (event) => {
-      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_LISTINGS_TABLE,
-        idColumn: "listing_id",
-        id: listingId,
-        status: "paused",
-        updatedAt: event.timing.recordedAt,
-      });
-      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
-      await emitListingPatch(db, event, listingId);
-    },
+    "marketplace.listing.paused": pauseListing,
+    "marketplace.listing.auto-unlisted": pauseListing,
+    "marketplace.listing.operator-unlisted": pauseListing,
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
       await transitionStatus(db, {
