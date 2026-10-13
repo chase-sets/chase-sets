@@ -86,7 +86,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the account is not the consenting subject, so there is no registration moment to bind.",
-      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 112 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 114 }]
     },
     {
       "id": "protected-user-administration",
@@ -94,7 +94,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the user is not the consenting subject.",
-      "sites": [{ "file": "bounded-contexts/identity/features/users/api/route.ts", "line": 49 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/users/api/route.ts", "line": 51 }]
     },
     {
       "id": "protected-membership-administration",
@@ -102,7 +102,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Grants membership to an existing user on an existing account; creates no identity.",
-      "sites": [{ "file": "bounded-contexts/identity/features/memberships/api/route.ts", "line": 118 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/memberships/api/route.ts", "line": 124 }]
     },
     {
       "id": "identity-domain-deciders",
@@ -149,7 +149,7 @@
       "sites": [
         { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 69 },
         { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 85 },
-        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 121 }
+        { "file": "bounded-contexts/identity/support/runtime-support/production-bootstrap.ts", "line": 118 }
       ]
     },
     {

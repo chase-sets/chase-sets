@@ -6,12 +6,12 @@ This is the migration report that classifies every projection group and every re
 
 ## Classification Model
 
-| Status | Meaning |
-| --- | --- |
-| `push-enabled` | Every source context the projection consumes from has event-store wake emission and relay fan-out enabled in the registry. Where the loop actually runs is still environment-gated by the kill switches in [Push-Wake Rollout Controls](../runbooks/push-wake-rollout-controls.md) (staging on; production and previews off). |
-| `push-eligible` | The projection needs no further migration work; at least one of its source contexts is still waiting on its rollout wave. The `enabled/total` column shows partial wake delivery. |
-| `disabled` | Every source context is registry-disabled or registry-opted-out. None today. |
-| `opted-out` | The projection group carries an explicit owner-approved opt-out with a reason, review date, and compensating freshness contract. None today. |
+| Status          | Meaning                                                                                                                                                                                                                                                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `push-enabled`  | Every source context the projection consumes from has event-store wake emission and relay fan-out enabled in the registry. Where the loop actually runs is still environment-gated by the kill switches in [Push-Wake Rollout Controls](../runbooks/push-wake-rollout-controls.md) (staging on; production and previews off). |
+| `push-eligible` | The projection needs no further migration work; at least one of its source contexts is still waiting on its rollout wave. The `enabled/total` column shows partial wake delivery.                                                                                                                                             |
+| `disabled`      | Every source context is registry-disabled or registry-opted-out. None today.                                                                                                                                                                                                                                                  |
+| `opted-out`     | The projection group carries an explicit owner-approved opt-out with a reason, review date, and compensating freshness contract. None today.                                                                                                                                                                                  |
 
 Two invariants hold for every row regardless of status:
 
@@ -35,181 +35,181 @@ The validator also rejects opt-outs naming unknown projection groups and duplica
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
-| Projection group | Owner | Source contexts | Status | Enabled |
-| --- | --- | --- | --- | --- |
-| `auth:auth-identity-account-capability-projection` | Auth | **identity** | push-enabled | 1/1 |
-| `auth:auth-identity-account-projection` | Auth | **identity** | push-enabled | 1/1 |
-| `auth:auth-identity-invitation-projection` | Auth | **identity** | push-enabled | 1/1 |
-| `auth:auth-identity-membership-projection` | Auth | **identity** | push-enabled | 1/1 |
-| `authenticity:authenticity-case-projection` | Authenticity | **authenticity** | push-enabled | 1/1 |
-| `auth:auth-identity-user-projection` | Auth | **identity** | push-enabled | 1/1 |
-| `auth:auth-agent-order-webhook-projection` | Auth | fulfillment, **ordering**, **payments** | push-eligible | 2/3 |
-| `auth:auth-session-projection` | Auth | auth | push-eligible | 0/1 |
-| `catalog:catalog-admin-catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `catalog:catalog-attention-dismissal-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `catalog:catalog-item-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `catalog:catalog-product-contents-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `catalog:catalog-provider-scope-mapping-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `catalog:catalog-scope-registry-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `catalog:catalog-source-observation-projection` | Catalog | **catalog** | push-enabled | 1/1 |
-| `channels:channel-catalog-publication-facts` | Channels | **catalog** | push-enabled | 1/1 |
-| `channels:channel-connection-projection` | Channels | channels | push-eligible | 0/1 |
-| `channels:channel-inventory-publication-facts` | Channels | **inventory** | push-enabled | 1/1 |
-| `channels:channel-fulfillment-item-facts` | Channels | **inventory** | push-enabled | 1/1 |
-| `channels:channel-fulfillment-observation-retry` | Channels | channels, **inventory** | push-eligible | 1/2 |
-| `channels:channel-listing-desired-state-reaction` | Channels | **catalog**, channels, **inventory**, **marketplace** | push-eligible | 3/4 |
-| `channels:channel-marketplace-publication-facts` | Channels | **marketplace** | push-enabled | 1/1 |
-| `channels:channel-owned-publication-state` | Channels | channels | push-eligible | 0/1 |
-| `channels:platform-policy-document-projection` | Channels | channels | push-eligible | 0/1 |
-| `channels:tcgplayer-csv-projection` | Channels | channels | push-eligible | 0/1 |
-| `checkout:checkout-catalog-item-projection` | Checkout | **catalog** | push-enabled | 1/1 |
-| `checkout:checkout-marketplace-listing-options-projection` | Checkout | **catalog**, **marketplace**, **ordering** | push-enabled | 3/3 |
-| `checkout:checkout-inventory-supply-projection` | Checkout | **inventory** | push-enabled | 1/1 |
-| `checkout:checkout-seller-accounts-projection` | Checkout | **identity**, **marketplace** | push-enabled | 2/2 |
-| `checkout:checkout.payment-affordance-projection` | Checkout | **payments** | push-enabled | 1/1 |
-| `checkout:checkout.payment-summary-projection` | Checkout | **payments** | push-enabled | 1/1 |
-| `checkout:checkout.cart-projection` | Checkout | **checkout** | push-enabled | 1/1 |
-| `checkout:checkout.sell-list-projection` | Checkout | **marketplace** | push-enabled | 1/1 |
-| `checkout:checkout.session-projection` | Checkout | **checkout** | push-enabled | 1/1 |
-| `collections:collections-saved-list-valuation-projection` | Collections | collections, pricing | push-eligible | 0/2 |
-| `collections:collections-catalog-product-projection` | Collections | **catalog** | push-enabled | 1/1 |
-| `collections:collections-saved-list-projection` | Collections | collections | push-eligible | 0/1 |
-| `collections:collections-saved-list-picker-projection` | Collections | collections | push-eligible | 0/1 |
-| `collections:collections.saved-list-shared-page-projection` | Collections | collections | push-eligible | 0/1 |
-| `commercial-terms:commercial-terms-account-projection` | Commercial Terms | **identity** | push-enabled | 1/1 |
-| `commercial-terms:commercial-terms-founders-window-reaction` | Commercial Terms | **identity** | push-enabled | 1/1 |
-| `commercial-terms:platform-policy-document-projection` | Commercial Terms | **commercial-terms** | push-enabled | 1/1 |
-| `customer-feedback:customer-feedback-case-attention-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `customer-feedback:customer-feedback-csat-analytics-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `customer-feedback:customer-feedback-csat-invitation-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `customer-feedback:customer-feedback-feedback-case-opening` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `customer-feedback:customer-feedback-feedback-case-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `customer-feedback:customer-feedback-notification-delivery-recording` | Customer Feedback | notifications | push-eligible | 0/1 |
-| `customer-feedback:platform-policy-document-projection` | Customer Feedback | customer-feedback | push-eligible | 0/1 |
-| `discovery:discovery-category-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `discovery:discovery-google-shopping-feed-row-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `discovery:discovery-item-detail-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `discovery:discovery-market-projection` | Discovery | **catalog**, **checkout**, **identity**, **inventory**, **marketplace**, **ordering** | push-enabled | 6/6 |
-| `discovery:discovery-product-alert-notification-projection` | Discovery | **marketplace** | push-enabled | 1/1 |
-| `discovery:discovery-product-alert-page-projection` | Discovery | discovery | push-eligible | 0/1 |
-| `discovery:discovery-saved-list-picker-projection` | Discovery | collections | push-eligible | 0/1 |
-| `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |
-| `fulfillment:fulfillment-account-projection` | Fulfillment | **identity** | push-enabled | 1/1 |
-| `fulfillment:fulfillment-order-source-projection` | Fulfillment | **ordering** | push-enabled | 1/1 |
-| `fulfillment:fulfillment-order-group-admission-subscription` | Fulfillment | **ordering** | push-enabled | 1/1 |
-| `fulfillment:fulfillment-payment-fraud-source-projection` | Fulfillment | **payments** | push-enabled | 1/1 |
-| `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
-| `fulfillment:fulfillment-return-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
-| `fulfillment:fulfillment-support-return-source-projection` | Fulfillment | **platform-operations** | push-enabled | 1/1 |
-| `identity:identity-account-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-api-key-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-consent-current-state-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-consent-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-founder-claim-reaction` | Identity | **marketplace** | push-enabled | 1/1 |
-| `identity:identity-founders-cohort-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-invitation-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-membership-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-shipping-address-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-user-preferences-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:identity-user-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `identity:platform-policy-document-projection` | Identity | **identity** | push-enabled | 1/1 |
-| `inventory:inventory-catalog-item-projection` | Inventory | **catalog** | push-enabled | 1/1 |
-| `inventory:inventory-channel-stock-allocation-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-fulfillment-recovered-item-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
-| `inventory:inventory-fulfillment-restock-workflow` | Inventory | fulfillment | push-eligible | 0/1 |
-| `inventory:inventory-hold-collision-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-hold-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-item-ledger-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-order-reservation-workflow` | Inventory | **ordering** | push-enabled | 1/1 |
-| `inventory:inventory-reservation-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-recovered-item-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-restock-decision-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `inventory:inventory-storage-location-projection` | Inventory | **inventory** | push-enabled | 1/1 |
-| `marketplace:marketplace-catalog-item-projection` | Marketplace | **catalog** | push-enabled | 1/1 |
-| `marketplace:marketplace-identity-account-projection` | Marketplace | **identity**, **marketplace** | push-enabled | 2/2 |
-| `marketplace:marketplace-inventory-supply-projection` | Marketplace | **inventory** | push-enabled | 1/1 |
-| `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
-| `marketplace:marketplace-managed-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:marketplace-managed-offer-reaction` | Marketplace | pricing | push-eligible | 0/1 |
-| `marketplace:marketplace-offer-policy-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-hold-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-hold-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-scoring-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-notification-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `marketplace:marketplace-review-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
-| `marketplace:marketplace-review-support-source-projection` | Marketplace | **platform-operations** | push-enabled | 1/1 |
-| `marketplace:marketplace-seller-metrics-order-source-projection` | Marketplace | **ordering** | push-enabled | 1/1 |
-| `marketplace:marketplace-seller-metrics-shipment-source-projection` | Marketplace | fulfillment | push-eligible | 0/1 |
-| `marketplace:marketplace-seller-metrics-support-source-projection` | Marketplace | **platform-operations** | push-enabled | 1/1 |
-| `marketplace:marketplace-settlement-negative-balance-projection` | Marketplace | **settlement** | push-enabled | 1/1 |
-| `marketplace:platform-policy-document-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
-| `notifications:notifications-source-facts-outbox-projection` | Notifications | customer-feedback, fulfillment, **inventory**, **marketplace**, **ordering**, **platform-operations**, **settlement** | push-eligible | 5/7 |
-| `ordering:ordering-account-projection` | Ordering | **identity** | push-enabled | 1/1 |
-| `ordering:ordering-fulfillment-cancellation-inputs` | Ordering | fulfillment | push-eligible | 0/1 |
-| `ordering:ordering-inventory-reservation-outcomes` | Ordering | **inventory** | push-enabled | 1/1 |
-| `ordering:ordering-inventory-supply-input-projection` | Ordering | **inventory** | push-enabled | 1/1 |
-| `ordering:ordering-marketplace-offer-acceptance` | Ordering | **marketplace** | push-enabled | 1/1 |
-| `ordering:ordering-marketplace-supply-input-projection` | Ordering | **catalog**, **marketplace** | push-enabled | 2/2 |
-| `ordering:ordering-order-review-opportunity-projection` | Ordering | fulfillment, **marketplace**, **ordering**, **platform-operations** | push-eligible | 3/4 |
-| `ordering:ordering-order-money-timeline-projection` | Ordering | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
-| `ordering:ordering-order-projection` | Ordering | **ordering** | push-enabled | 1/1 |
-| `ordering:ordering-payment-capture` | Ordering | **payments** | push-enabled | 1/1 |
-| `ordering:ordering-postage-policy-projection` | Ordering | **ordering** | push-enabled | 1/1 |
-| `ordering:ordering-support-cancellation` | Ordering | **platform-operations** | push-enabled | 1/1 |
-| `payments:payments-account-risk-source-projection` | Payments | **identity**, **payments** | push-enabled | 2/2 |
-| `payments:payments-dispute-evidence-submission` | Payments | **payments** | push-enabled | 1/1 |
-| `payments:payments-fulfillment-dispute-evidence-source-projection` | Payments | fulfillment | push-eligible | 0/1 |
-| `payments:payments-fraud-alert-projection` | Payments | **payments** | push-enabled | 1/1 |
-| `payments:payments-order-cancellation-refund-effect` | Payments | **ordering**, **payments** | push-enabled | 2/2 |
-| `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
-| `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
-| `payments:payments-support-refund-effect` | Payments | fulfillment, **platform-operations** | push-eligible | 1/2 |
-| `payments:payments-wallet-funding-projection` | Payments | **payments** | push-enabled | 1/1 |
-| `payments:platform-policy-document-projection` | Payments | **payments** | push-enabled | 1/1 |
-| `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
-| `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
-| `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
-| `platform-operations:public-doc-review-queue-projection` | Platform Operations | **commercial-terms**, **platform-operations** | push-enabled | 2/2 |
-| `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
-| `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
-| `platform-operations:seller-compliance-sales-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
-| `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
-| `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
-| `platform-operations:support-inventory-hold-collision` | Platform Operations | **inventory** | push-enabled | 1/1 |
-| `platform-operations:support-order-source-projection` | Platform Operations | **ordering** | push-enabled | 1/1 |
-| `platform-operations:support-return-label-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
-| `platform-operations:support-shipment-source-projection` | Platform Operations | fulfillment | push-eligible | 0/1 |
-| `pricing:pricing-catalog-input-projection` | Pricing | **catalog** | push-enabled | 1/1 |
-| `pricing:pricing-fulfillment-input-projection` | Pricing | fulfillment | push-eligible | 0/1 |
-| `pricing:pricing-inventory-input-projection` | Pricing | **inventory** | push-enabled | 1/1 |
-| `pricing:pricing-market-input-projection` | Pricing | **marketplace** | push-enabled | 1/1 |
-| `pricing:pricing-market-trades-projection` | Pricing | authenticity, fulfillment, **identity**, **ordering**, **payments** | push-eligible | 3/5 |
-| `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
-| `pricing:pricing-economics-overrides-projection` | Pricing | pricing | push-eligible | 0/1 |
-| `pricing:pricing-repricing-evaluation-projection` | Pricing | pricing | push-eligible | 0/1 |
-| `pricing:pricing-repricing-evaluation-reaction` | Pricing | **marketplace**, pricing | push-eligible | 1/2 |
-| `pricing:pricing-repricing-halt-projection` | Pricing | pricing | push-eligible | 0/1 |
-| `pricing:pricing-repricing-policy-projection` | Pricing | pricing | push-eligible | 0/1 |
-| `public-presence:platform-policy-document-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
-| `public-presence:public-presence-waitlist-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
-| `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
-| `settlement:platform-policy-document-projection` | Settlement | **settlement** | push-enabled | 1/1 |
-| `settlement:settlement-account-risk-source-projection` | Settlement | **identity**, **marketplace**, **payments** | push-enabled | 3/3 |
-| `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
-| `settlement:settlement-liability-allocation-reserve-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
-| `settlement:settlement-inventory-recovery-workflow` | Settlement | **inventory** | push-enabled | 1/1 |
-| `settlement:settlement-payment-input-projection` | Settlement | **payments** | push-enabled | 1/1 |
-| `settlement:settlement-payout-projection` | Settlement | **settlement** | push-enabled | 1/1 |
-| `settlement:settlement-payout-readiness-projection` | Settlement | **settlement** | push-enabled | 1/1 |
-| `settlement:settlement-protection-coverage-projection` | Settlement | **settlement** | push-enabled | 1/1 |
-| `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
-| `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
+| Projection group                                                           | Owner               | Source contexts                                                                                                       | Status        | Enabled |
+| -------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------- | ------- |
+| `auth:auth-identity-account-capability-projection`                         | Auth                | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `auth:auth-identity-account-projection`                                    | Auth                | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `auth:auth-identity-invitation-projection`                                 | Auth                | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `auth:auth-identity-membership-projection`                                 | Auth                | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `authenticity:authenticity-case-projection`                                | Authenticity        | **authenticity**                                                                                                      | push-enabled  | 1/1     |
+| `auth:auth-identity-user-projection`                                       | Auth                | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `auth:auth-agent-order-webhook-projection`                                 | Auth                | fulfillment, **ordering**, **payments**                                                                               | push-eligible | 2/3     |
+| `auth:auth-session-projection`                                             | Auth                | auth                                                                                                                  | push-eligible | 0/1     |
+| `catalog:catalog-admin-catalog-item-projection`                            | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `catalog:catalog-attention-dismissal-projection`                           | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `catalog:catalog-item-projection`                                          | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `catalog:catalog-product-contents-projection`                              | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `catalog:catalog-provider-scope-mapping-projection`                        | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `catalog:catalog-scope-registry-projection`                                | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `catalog:catalog-source-observation-projection`                            | Catalog             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `channels:channel-catalog-publication-facts`                               | Channels            | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `channels:channel-connection-projection`                                   | Channels            | channels                                                                                                              | push-eligible | 0/1     |
+| `channels:channel-inventory-publication-facts`                             | Channels            | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `channels:channel-fulfillment-item-facts`                                  | Channels            | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `channels:channel-fulfillment-observation-retry`                           | Channels            | channels, **inventory**                                                                                               | push-eligible | 1/2     |
+| `channels:channel-listing-desired-state-reaction`                          | Channels            | **catalog**, channels, **inventory**, **marketplace**                                                                 | push-eligible | 3/4     |
+| `channels:channel-marketplace-publication-facts`                           | Channels            | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `channels:channel-owned-publication-state`                                 | Channels            | channels                                                                                                              | push-eligible | 0/1     |
+| `channels:platform-policy-document-projection`                             | Channels            | channels                                                                                                              | push-eligible | 0/1     |
+| `channels:tcgplayer-csv-projection`                                        | Channels            | channels                                                                                                              | push-eligible | 0/1     |
+| `checkout:checkout-catalog-item-projection`                                | Checkout            | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `checkout:checkout-marketplace-listing-options-projection`                 | Checkout            | **catalog**, **marketplace**, **ordering**                                                                            | push-enabled  | 3/3     |
+| `checkout:checkout-inventory-supply-projection`                            | Checkout            | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `checkout:checkout-seller-accounts-projection`                             | Checkout            | **identity**, **marketplace**                                                                                         | push-enabled  | 2/2     |
+| `checkout:checkout.payment-affordance-projection`                          | Checkout            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `checkout:checkout.payment-summary-projection`                             | Checkout            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `checkout:checkout.cart-projection`                                        | Checkout            | **checkout**                                                                                                          | push-enabled  | 1/1     |
+| `checkout:checkout.sell-list-projection`                                   | Checkout            | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `checkout:checkout.session-projection`                                     | Checkout            | **checkout**                                                                                                          | push-enabled  | 1/1     |
+| `collections:collections-saved-list-valuation-projection`                  | Collections         | collections, pricing                                                                                                  | push-eligible | 0/2     |
+| `collections:collections-catalog-product-projection`                       | Collections         | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `collections:collections-saved-list-projection`                            | Collections         | collections                                                                                                           | push-eligible | 0/1     |
+| `collections:collections-saved-list-picker-projection`                     | Collections         | collections                                                                                                           | push-eligible | 0/1     |
+| `collections:collections.saved-list-shared-page-projection`                | Collections         | collections                                                                                                           | push-eligible | 0/1     |
+| `commercial-terms:commercial-terms-account-projection`                     | Commercial Terms    | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `commercial-terms:commercial-terms-founders-window-reaction`               | Commercial Terms    | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `commercial-terms:platform-policy-document-projection`                     | Commercial Terms    | **commercial-terms**                                                                                                  | push-enabled  | 1/1     |
+| `customer-feedback:customer-feedback-case-attention-projection`            | Customer Feedback   | customer-feedback                                                                                                     | push-eligible | 0/1     |
+| `customer-feedback:customer-feedback-csat-analytics-projection`            | Customer Feedback   | customer-feedback                                                                                                     | push-eligible | 0/1     |
+| `customer-feedback:customer-feedback-csat-invitation-projection`           | Customer Feedback   | customer-feedback                                                                                                     | push-eligible | 0/1     |
+| `customer-feedback:customer-feedback-feedback-case-opening`                | Customer Feedback   | customer-feedback                                                                                                     | push-eligible | 0/1     |
+| `customer-feedback:customer-feedback-feedback-case-projection`             | Customer Feedback   | customer-feedback                                                                                                     | push-eligible | 0/1     |
+| `customer-feedback:customer-feedback-notification-delivery-recording`      | Customer Feedback   | notifications                                                                                                         | push-eligible | 0/1     |
+| `customer-feedback:platform-policy-document-projection`                    | Customer Feedback   | customer-feedback                                                                                                     | push-eligible | 0/1     |
+| `discovery:discovery-category-projection`                                  | Discovery           | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `discovery:discovery-google-shopping-feed-row-projection`                  | Discovery           | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `discovery:discovery-item-detail-projection`                               | Discovery           | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `discovery:discovery-market-projection`                                    | Discovery           | **catalog**, **checkout**, **identity**, **inventory**, **marketplace**, **ordering**                                 | push-enabled  | 6/6     |
+| `discovery:discovery-product-alert-notification-projection`                | Discovery           | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `discovery:discovery-product-alert-page-projection`                        | Discovery           | discovery                                                                                                             | push-eligible | 0/1     |
+| `discovery:discovery-saved-list-picker-projection`                         | Discovery           | collections                                                                                                           | push-eligible | 0/1     |
+| `discovery:discovery-search-item-projection`                               | Discovery           | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `fulfillment:fulfillment-account-projection`                               | Fulfillment         | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `fulfillment:fulfillment-order-source-projection`                          | Fulfillment         | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `fulfillment:fulfillment-order-group-admission-subscription`               | Fulfillment         | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `fulfillment:fulfillment-payment-fraud-source-projection`                  | Fulfillment         | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `fulfillment:fulfillment-shipment-projection`                              | Fulfillment         | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `fulfillment:fulfillment-return-shipment-projection`                       | Fulfillment         | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `fulfillment:fulfillment-support-return-source-projection`                 | Fulfillment         | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `identity:identity-account-projection`                                     | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-api-key-projection`                                     | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-consent-current-state-projection`                       | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-consent-projection`                                     | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-founder-claim-reaction`                                 | Identity            | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `identity:identity-founders-cohort-projection`                             | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-invitation-projection`                                  | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-membership-projection`                                  | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-shipping-address-projection`                            | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-user-preferences-projection`                            | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:identity-user-projection`                                        | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `identity:platform-policy-document-projection`                             | Identity            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `inventory:inventory-catalog-item-projection`                              | Inventory           | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `inventory:inventory-channel-stock-allocation-projection`                  | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-fulfillment-recovered-item-workflow`                  | Inventory           | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `inventory:inventory-fulfillment-restock-workflow`                         | Inventory           | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `inventory:inventory-hold-collision-projection`                            | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-hold-projection`                                      | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-item-ledger-projection`                               | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-item-projection`                                      | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-order-reservation-workflow`                           | Inventory           | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `inventory:inventory-reservation-projection`                               | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-recovered-item-projection`                            | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-restock-decision-projection`                          | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `inventory:inventory-storage-location-projection`                          | Inventory           | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `marketplace:marketplace-catalog-item-projection`                          | Marketplace         | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `marketplace:marketplace-identity-account-projection`                      | Marketplace         | **identity**, **marketplace**                                                                                         | push-enabled  | 2/2     |
+| `marketplace:marketplace-inventory-supply-projection`                      | Marketplace         | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `marketplace:marketplace-listing-projection`                               | Marketplace         | **catalog**, **marketplace**                                                                                          | push-enabled  | 2/2     |
+| `marketplace:marketplace-managed-offer-projection`                         | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `marketplace:marketplace-managed-offer-reaction`                           | Marketplace         | pricing                                                                                                               | push-eligible | 0/1     |
+| `marketplace:marketplace-offer-policy-projection`                          | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `marketplace:marketplace-offer-projection`                                 | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-account-source-projection`                 | Marketplace         | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-hold-projection`                           | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-hold-reaction`                             | Marketplace         | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-moderation-reaction`                       | Marketplace         | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-scoring-reaction`                          | Marketplace         | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-order-source-projection`                   | Marketplace         | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-notification-projection`                   | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-projection`                                | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `marketplace:marketplace-review-shipment-source-projection`                | Marketplace         | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `marketplace:marketplace-review-support-source-projection`                 | Marketplace         | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `marketplace:marketplace-seller-metrics-order-source-projection`           | Marketplace         | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `marketplace:marketplace-seller-metrics-shipment-source-projection`        | Marketplace         | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `marketplace:marketplace-seller-metrics-support-source-projection`         | Marketplace         | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `marketplace:marketplace-settlement-negative-balance-projection`           | Marketplace         | **settlement**                                                                                                        | push-enabled  | 1/1     |
+| `marketplace:platform-policy-document-projection`                          | Marketplace         | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `notifications:notifications-source-facts-outbox-projection`               | Notifications       | customer-feedback, fulfillment, **inventory**, **marketplace**, **ordering**, **platform-operations**, **settlement** | push-eligible | 5/7     |
+| `ordering:ordering-account-projection`                                     | Ordering            | **identity**                                                                                                          | push-enabled  | 1/1     |
+| `ordering:ordering-fulfillment-cancellation-inputs`                        | Ordering            | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `ordering:ordering-inventory-reservation-outcomes`                         | Ordering            | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `ordering:ordering-inventory-supply-input-projection`                      | Ordering            | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `ordering:ordering-marketplace-offer-acceptance`                           | Ordering            | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `ordering:ordering-marketplace-supply-input-projection`                    | Ordering            | **catalog**, **marketplace**                                                                                          | push-enabled  | 2/2     |
+| `ordering:ordering-order-review-opportunity-projection`                    | Ordering            | fulfillment, **marketplace**, **ordering**, **platform-operations**                                                   | push-eligible | 3/4     |
+| `ordering:ordering-order-money-timeline-projection`                        | Ordering            | **payments**, **platform-operations**, **settlement**                                                                 | push-enabled  | 3/3     |
+| `ordering:ordering-order-projection`                                       | Ordering            | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `ordering:ordering-payment-capture`                                        | Ordering            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `ordering:ordering-postage-policy-projection`                              | Ordering            | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `ordering:ordering-support-cancellation`                                   | Ordering            | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `payments:payments-account-risk-source-projection`                         | Payments            | **identity**, **payments**                                                                                            | push-enabled  | 2/2     |
+| `payments:payments-dispute-evidence-submission`                            | Payments            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `payments:payments-fulfillment-dispute-evidence-source-projection`         | Payments            | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `payments:payments-fraud-alert-projection`                                 | Payments            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `payments:payments-order-cancellation-refund-effect`                       | Payments            | **ordering**, **payments**                                                                                            | push-enabled  | 2/2     |
+| `payments:payments-order-input-projection`                                 | Payments            | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `payments:payments-payment-projection`                                     | Payments            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `payments:payments-support-refund-effect`                                  | Payments            | fulfillment, **platform-operations**                                                                                  | push-eligible | 1/2     |
+| `payments:payments-wallet-funding-projection`                              | Payments            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `payments:platform-policy-document-projection`                             | Payments            | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `platform-operations:experience-platform-feedback-projection`              | Platform Operations | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms**                                                                                                  | push-enabled  | 1/1     |
+| `platform-operations:platform-policy-document-projection`                  | Platform Operations | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `platform-operations:public-doc-review-queue-projection`                   | Platform Operations | **commercial-terms**, **platform-operations**                                                                         | push-enabled  | 2/2     |
+| `platform-operations:reported-content-queue-projection`                    | Platform Operations | **marketplace**, **platform-operations**                                                                              | push-enabled  | 2/2     |
+| `platform-operations:risk-alert-queue-projection`                          | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations**                                                  | push-enabled  | 4/4     |
+| `platform-operations:seller-compliance-sales-projection`                   | Platform Operations | **ordering**, **payments**                                                                                            | push-enabled  | 2/2     |
+| `platform-operations:support-request-projection`                           | Platform Operations | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `platform-operations:support-affected-line-amount-projection`              | Platform Operations | **ordering**, **payments**                                                                                            | push-enabled  | 2/2     |
+| `platform-operations:support-inventory-hold-collision`                     | Platform Operations | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `platform-operations:support-order-source-projection`                      | Platform Operations | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `platform-operations:support-return-label-source-projection`               | Platform Operations | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `platform-operations:support-shipment-source-projection`                   | Platform Operations | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `pricing:pricing-catalog-input-projection`                                 | Pricing             | **catalog**                                                                                                           | push-enabled  | 1/1     |
+| `pricing:pricing-fulfillment-input-projection`                             | Pricing             | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `pricing:pricing-inventory-input-projection`                               | Pricing             | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `pricing:pricing-market-input-projection`                                  | Pricing             | **marketplace**                                                                                                       | push-enabled  | 1/1     |
+| `pricing:pricing-market-trades-projection`                                 | Pricing             | authenticity, fulfillment, **identity**, **ordering**, **payments**                                                   | push-eligible | 3/5     |
+| `pricing:pricing-order-input-projection`                                   | Pricing             | **ordering**                                                                                                          | push-enabled  | 1/1     |
+| `pricing:pricing-economics-overrides-projection`                           | Pricing             | pricing                                                                                                               | push-eligible | 0/1     |
+| `pricing:pricing-repricing-evaluation-projection`                          | Pricing             | pricing                                                                                                               | push-eligible | 0/1     |
+| `pricing:pricing-repricing-evaluation-reaction`                            | Pricing             | **marketplace**, pricing                                                                                              | push-eligible | 1/2     |
+| `pricing:pricing-repricing-halt-projection`                                | Pricing             | pricing                                                                                                               | push-eligible | 0/1     |
+| `pricing:pricing-repricing-policy-projection`                              | Pricing             | pricing                                                                                                               | push-eligible | 0/1     |
+| `public-presence:platform-policy-document-projection`                      | Public Presence     | **public-presence**                                                                                                   | push-enabled  | 1/1     |
+| `public-presence:public-presence-waitlist-projection`                      | Public Presence     | **public-presence**                                                                                                   | push-enabled  | 1/1     |
+| `public-presence:public-presence-waitlist-transactional-email-projection`  | Public Presence     | **public-presence**                                                                                                   | push-enabled  | 1/1     |
+| `settlement:platform-policy-document-projection`                           | Settlement          | **settlement**                                                                                                        | push-enabled  | 1/1     |
+| `settlement:settlement-account-risk-source-projection`                     | Settlement          | **identity**, **marketplace**, **payments**                                                                           | push-enabled  | 3/3     |
+| `settlement:settlement-fulfillment-source-projection`                      | Settlement          | fulfillment                                                                                                           | push-eligible | 0/1     |
+| `settlement:settlement-liability-allocation-reserve-projection`            | Settlement          | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `settlement:settlement-inventory-recovery-workflow`                        | Settlement          | **inventory**                                                                                                         | push-enabled  | 1/1     |
+| `settlement:settlement-payment-input-projection`                           | Settlement          | **payments**                                                                                                          | push-enabled  | 1/1     |
+| `settlement:settlement-payout-projection`                                  | Settlement          | **settlement**                                                                                                        | push-enabled  | 1/1     |
+| `settlement:settlement-payout-readiness-projection`                        | Settlement          | **settlement**                                                                                                        | push-enabled  | 1/1     |
+| `settlement:settlement-protection-coverage-projection`                     | Settlement          | **settlement**                                                                                                        | push-enabled  | 1/1     |
+| `settlement:settlement-support-hold-lifecycle-projection`                  | Settlement          | **platform-operations**                                                                                               | push-enabled  | 1/1     |
+| `settlement:settlement-support-hold-projection`                            | Settlement          | **payments**, **platform-operations**, **settlement**                                                                 | push-enabled  | 3/3     |
 
 Totals: 128 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
@@ -217,93 +217,94 @@ Totals: 128 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
-| Route entry | Owning context | Risk | Freshness contract | Wave posture (staging) |
-| --- | --- | --- | --- | --- |
-| `auth.browser-registration-identity-freshness-carrier` | auth | important | accepted exception (auth, review 2026-07-31) | deferred until wave 4 |
-| `auth.current-session-fresh-read` | auth | critical | exact wait | deferred until wave 4 |
-| `auth.session-detail-self-refresh` | auth | important | exact wait | deferred until wave 4 |
-| `channels.publication-settings-to-detail` | channels | important | exact wait | deferred until wave 4 |
-| `channels.activation-to-manual-sync` | channels | important | exact wait | deferred until wave 4 |
-| `channels.connect-to-detail` | channels | important | exact wait | deferred until wave 4 |
-| `checkout.cart-self-refresh` | checkout | critical | exact wait | push-accelerated |
-| `checkout.guest-cart-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
-| `checkout.guest-sell-list-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
-| `checkout.guest-sell-list-to-checkout` | checkout | important | accepted exception (checkout, review 2026-07-31, #1809) | push-accelerated |
-| `checkout.sell-checkout-confirmation-detail` | checkout | critical | not-post-write-read exception (checkout, review 2026-07-31) | push-accelerated |
-| `checkout.sell-list-self-refresh` | checkout | important | exact wait | push-accelerated |
-| `checkout.session-offer-handoff` | checkout | important | accepted exception (checkout, review 2026-07-31, #1809) | push-accelerated |
-| `checkout.session-payment-handoff` | checkout | critical | exact wait | push-accelerated |
-| `checkout.session-self-refresh` | checkout | critical | exact wait | push-accelerated |
-| `checkout.session-start-to-detail` | checkout | critical | exact wait | push-accelerated |
-| `collections.saved-list-bulk-to-detail` | collections | important | exact wait | deferred until wave 4 |
-| `collections.saved-list-create-to-detail` | collections | important | exact wait | deferred until wave 4 |
-| `collections.saved-list-detail-self-refresh` | collections | important | exact wait | deferred until wave 4 |
-| `collections.saved-list-list-self-refresh` | collections | important | exact wait | deferred until wave 4 |
-| `commercial-terms.account-agreement-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.agreement-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.agreement-update-to-home` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.schedule-create-to-home` | commercial-terms | important | exact wait | push-accelerated |
-| `commercial-terms.schedule-update-to-home` | commercial-terms | important | exact wait | push-accelerated |
-| `discovery.item-detail-add-to-cart-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
-| `discovery.item-detail-add-to-sell-list-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
-| `discovery.item-detail-checkout-handoff` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
-| `discovery.item-detail-listing-publication-self-refresh` | discovery | critical | exact wait | poll-bounded until wave 3 |
-| `discovery.item-detail-ship-from-setup-self-refresh` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
-| `fulfillment.seller-shipment-self-refresh` | fulfillment | important | exact wait | poll-bounded until wave 2 |
-| `fulfillment.shipment-mutation-owner-recovery` | fulfillment | important | exact wait | poll-bounded until wave 2 |
-| `identity.account-security-api-key-fresh-read` | identity | critical | exact wait | push-accelerated |
-| `identity.account-security-user-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.account-team-invitation-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.account-team-membership-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.consent-withdrawal-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.admin-account-detail-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.admin-api-key-create-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
-| `identity.admin-api-key-detail-fresh-read` | identity | critical | exact wait | push-accelerated |
-| `identity.admin-api-key-list-fresh-read` | identity | critical | exact wait | push-accelerated |
-| `identity.admin-invitation-create-detail-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.admin-invitation-detail-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.admin-invitation-list-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.admin-membership-detail-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.admin-user-detail-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.invitation-email-auth-projection-fresh-read` | identity | important | not-post-write-read exception (identity, review 2026-10-15) | push-accelerated |
-| `identity.marketplace-account-profile-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.registration-current-actor-display-fresh-read` | identity | important | exact wait | push-accelerated |
-| `identity.shipping-addresses-fresh-read` | identity | important | exact wait | push-accelerated |
-| `inventory.import-batch-detail` | inventory | important | accepted exception (inventory, review 2026-07-31, #1809) | push-accelerated |
-| `inventory.item-adjust-to-detail` | inventory | critical | exact wait | push-accelerated |
-| `inventory.item-create-to-detail` | inventory | important | exact wait | push-accelerated |
-| `inventory.restock-decision-list` | inventory | important | exact wait | push-accelerated |
-| `inventory.storage-locations-list` | inventory | important | exact wait | push-accelerated |
-| `marketplace.import-listing-inventory-handoff` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.listing-availability-self-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.listing-create-from-list-to-detail` | marketplace | critical | exact wait | push-accelerated |
-| `marketplace.listing-create-to-detail` | marketplace | critical | exact wait | push-accelerated |
-| `marketplace.listing-fee-lock-self-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.listing-inventory-self-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.listing-list-self-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.listing-stock-location-self-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.offer-match-accept-to-detail` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.offer-match-seller-control-list-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.order-capacity-self-refresh` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.submitted-offer-detail` | marketplace | important | exact wait | push-accelerated |
-| `ordering.accepted-offer-to-sales-list` | ordering | critical | exact wait | push-accelerated |
-| `ordering.postage-policy-command-to-home` | ordering | important | exact wait | push-accelerated |
-| `ordering.postage-policy-create-to-list` | ordering | important | exact wait | push-accelerated |
-| `ordering.purchase-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
-| `ordering.sale-cancel-to-detail` | ordering | important | exact wait | push-accelerated |
-| `payments.checkout-status-order-input-fresh-read` | payments | critical | exact wait | push-accelerated |
-| `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
-| `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
-| `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
-| `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
-| `platform-operations.support-request-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
-| `pricing.seller-desk-repricing-policy-detail-self-refresh` | pricing | important | exact wait | deferred until wave 4 |
-| `pricing.seller-desk-repricing-policy-list-refresh` | pricing | important | exact wait | deferred until wave 4 |
-| `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
-| `marketplace.review-reply-to-detail` | marketplace | important | exact wait | push-accelerated |
-| `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |
-| `settlement.payout-readiness-self-refresh` | settlement | critical | exact wait | push-accelerated |
-| `settlement.payout-request-to-detail` | settlement | critical | exact wait | push-accelerated |
+| Route entry                                                | Owning context      | Risk      | Freshness contract                                           | Wave posture (staging)    |
+| ---------------------------------------------------------- | ------------------- | --------- | ------------------------------------------------------------ | ------------------------- |
+| `auth.browser-registration-identity-freshness-carrier`     | auth                | important | accepted exception (auth, review 2026-07-31)                 | deferred until wave 4     |
+| `auth.current-session-fresh-read`                          | auth                | critical  | exact wait                                                   | deferred until wave 4     |
+| `auth.session-detail-self-refresh`                         | auth                | important | exact wait                                                   | deferred until wave 4     |
+| `channels.publication-settings-to-detail`                  | channels            | important | exact wait                                                   | deferred until wave 4     |
+| `channels.activation-to-manual-sync`                       | channels            | important | exact wait                                                   | deferred until wave 4     |
+| `channels.connect-to-detail`                               | channels            | important | exact wait                                                   | deferred until wave 4     |
+| `checkout.cart-self-refresh`                               | checkout            | critical  | exact wait                                                   | push-accelerated          |
+| `checkout.guest-cart-add-line-handoff`                     | checkout            | critical  | exact wait                                                   | push-accelerated          |
+| `checkout.guest-sell-list-add-line-handoff`                | checkout            | critical  | exact wait                                                   | push-accelerated          |
+| `checkout.guest-sell-list-to-checkout`                     | checkout            | important | accepted exception (checkout, review 2026-07-31, #1809)      | push-accelerated          |
+| `checkout.sell-checkout-confirmation-detail`               | checkout            | critical  | not-post-write-read exception (checkout, review 2026-07-31)  | push-accelerated          |
+| `checkout.sell-list-self-refresh`                          | checkout            | important | exact wait                                                   | push-accelerated          |
+| `checkout.session-offer-handoff`                           | checkout            | important | accepted exception (checkout, review 2026-07-31, #1809)      | push-accelerated          |
+| `checkout.session-payment-handoff`                         | checkout            | critical  | exact wait                                                   | push-accelerated          |
+| `checkout.session-self-refresh`                            | checkout            | critical  | exact wait                                                   | push-accelerated          |
+| `checkout.session-start-to-detail`                         | checkout            | critical  | exact wait                                                   | push-accelerated          |
+| `collections.saved-list-bulk-to-detail`                    | collections         | important | exact wait                                                   | deferred until wave 4     |
+| `collections.saved-list-create-to-detail`                  | collections         | important | exact wait                                                   | deferred until wave 4     |
+| `collections.saved-list-detail-self-refresh`               | collections         | important | exact wait                                                   | deferred until wave 4     |
+| `collections.saved-list-list-self-refresh`                 | collections         | important | exact wait                                                   | deferred until wave 4     |
+| `commercial-terms.account-agreement-create-to-home`        | commercial-terms    | important | exact wait                                                   | push-accelerated          |
+| `commercial-terms.agreement-create-to-home`                | commercial-terms    | important | exact wait                                                   | push-accelerated          |
+| `commercial-terms.agreement-update-to-home`                | commercial-terms    | important | exact wait                                                   | push-accelerated          |
+| `commercial-terms.schedule-create-to-home`                 | commercial-terms    | important | exact wait                                                   | push-accelerated          |
+| `commercial-terms.schedule-update-to-home`                 | commercial-terms    | important | exact wait                                                   | push-accelerated          |
+| `discovery.item-detail-add-to-cart-semantic-handoff`       | discovery           | critical  | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
+| `discovery.item-detail-add-to-sell-list-semantic-handoff`  | discovery           | critical  | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
+| `discovery.item-detail-checkout-handoff`                   | discovery           | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
+| `discovery.item-detail-listing-publication-self-refresh`   | discovery           | critical  | exact wait                                                   | poll-bounded until wave 3 |
+| `discovery.item-detail-ship-from-setup-self-refresh`       | discovery           | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
+| `fulfillment.seller-shipment-self-refresh`                 | fulfillment         | important | exact wait                                                   | poll-bounded until wave 2 |
+| `fulfillment.shipment-mutation-owner-recovery`             | fulfillment         | important | exact wait                                                   | poll-bounded until wave 2 |
+| `identity.account-management-attempt-owner-history`        | identity            | critical  | owner-history receipt lookup                                 | not-read-model-backed     |
+| `identity.account-security-api-key-fresh-read`             | identity            | critical  | exact wait                                                   | push-accelerated          |
+| `identity.account-security-user-fresh-read`                | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.account-team-invitation-fresh-read`              | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.account-team-membership-fresh-read`              | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.consent-withdrawal-fresh-read`                   | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.admin-account-detail-fresh-read`                 | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.admin-api-key-create-detail-fresh-read`          | identity            | critical  | exact wait                                                   | push-accelerated          |
+| `identity.admin-api-key-detail-fresh-read`                 | identity            | critical  | exact wait                                                   | push-accelerated          |
+| `identity.admin-api-key-list-fresh-read`                   | identity            | critical  | exact wait                                                   | push-accelerated          |
+| `identity.admin-invitation-create-detail-fresh-read`       | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.admin-invitation-detail-fresh-read`              | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.admin-invitation-list-fresh-read`                | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.admin-membership-detail-fresh-read`              | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.admin-user-detail-fresh-read`                    | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.invitation-email-auth-projection-fresh-read`     | identity            | important | not-post-write-read exception (identity, review 2026-10-15)  | push-accelerated          |
+| `identity.marketplace-account-profile-fresh-read`          | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.registration-current-actor-display-fresh-read`   | identity            | important | exact wait                                                   | push-accelerated          |
+| `identity.shipping-addresses-fresh-read`                   | identity            | important | exact wait                                                   | push-accelerated          |
+| `inventory.import-batch-detail`                            | inventory           | important | accepted exception (inventory, review 2026-07-31, #1809)     | push-accelerated          |
+| `inventory.item-adjust-to-detail`                          | inventory           | critical  | exact wait                                                   | push-accelerated          |
+| `inventory.item-create-to-detail`                          | inventory           | important | exact wait                                                   | push-accelerated          |
+| `inventory.restock-decision-list`                          | inventory           | important | exact wait                                                   | push-accelerated          |
+| `inventory.storage-locations-list`                         | inventory           | important | exact wait                                                   | push-accelerated          |
+| `marketplace.import-listing-inventory-handoff`             | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-availability-self-refresh`            | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-create-from-list-to-detail`           | marketplace         | critical  | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-create-to-detail`                     | marketplace         | critical  | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-fee-lock-self-refresh`                | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-inventory-self-refresh`               | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-list-self-refresh`                    | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.listing-stock-location-self-refresh`          | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.offer-match-accept-to-detail`                 | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.offer-match-seller-control-list-refresh`      | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.order-capacity-self-refresh`                  | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.submitted-offer-detail`                       | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `ordering.accepted-offer-to-sales-list`                    | ordering            | critical  | exact wait                                                   | push-accelerated          |
+| `ordering.postage-policy-command-to-home`                  | ordering            | important | exact wait                                                   | push-accelerated          |
+| `ordering.postage-policy-create-to-list`                   | ordering            | important | exact wait                                                   | push-accelerated          |
+| `ordering.purchase-cancel-to-detail`                       | ordering            | important | exact wait                                                   | push-accelerated          |
+| `ordering.sale-cancel-to-detail`                           | ordering            | important | exact wait                                                   | push-accelerated          |
+| `payments.checkout-status-order-input-fresh-read`          | payments            | critical  | exact wait                                                   | push-accelerated          |
+| `payments.create-to-detail`                                | payments            | critical  | exact wait                                                   | push-accelerated          |
+| `payments.detail-self-refresh`                             | payments            | important | exact wait                                                   | push-accelerated          |
+| `platform-operations.platform-feedback-detail-fresh-read`  | platform-operations | important | exact wait                                                   | push-accelerated          |
+| `platform-operations.platform-feedback-list-fresh-read`    | platform-operations | important | exact wait                                                   | push-accelerated          |
+| `platform-operations.support-request-detail-fresh-read`    | platform-operations | important | exact wait                                                   | push-accelerated          |
+| `pricing.seller-desk-repricing-policy-detail-self-refresh` | pricing             | important | exact wait                                                   | deferred until wave 4     |
+| `pricing.seller-desk-repricing-policy-list-refresh`        | pricing             | important | exact wait                                                   | deferred until wave 4     |
+| `public-presence.waitlist-signup-to-admin-review`          | public-presence     | critical  | exact wait                                                   | push wake enabled         |
+| `marketplace.review-reply-to-detail`                       | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `marketplace.review-submit-to-detail`                      | marketplace         | important | exact wait                                                   | push-accelerated          |
+| `settlement.payout-readiness-self-refresh`                 | settlement          | critical  | exact wait                                                   | push-accelerated          |
+| `settlement.payout-request-to-detail`                      | settlement          | critical  | exact wait                                                   | push-accelerated          |
 
 ## Rollout Waves: Staging First, Production Gated
 
