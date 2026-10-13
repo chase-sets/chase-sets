@@ -286,8 +286,8 @@ export function createParticipantRuntime(deps: Deps) {
     const opened = events[0];
     if (
       opened &&
-      (opened.tenantId !== owner.tenantId ||
-        (opened.payload.buyerAccountId !== owner.accountId && opened.payload.sellerAccountId !== owner.accountId))
+      opened.payload.buyerAccountId !== owner.accountId &&
+      opened.payload.sellerAccountId !== owner.accountId
     )
       throw new ParticipantAttemptError(403, "support-request-unavailable");
     try {
@@ -298,8 +298,6 @@ export function createParticipantRuntime(deps: Deps) {
   }
   function authorize(loaded: Awaited<ReturnType<typeof load>>, input: ParticipantLookupInput) {
     if (!loaded.events.length) return;
-    if (loaded.events.some((event) => event.tenantId !== input.tenantId))
-      throw new ParticipantAttemptError(403, "support-request-unavailable");
     participant(loaded.state, input.accountId);
   }
   function recorded(loaded: Awaited<ReturnType<typeof load>>, input: ParticipantLookupInput, id: string) {
@@ -311,7 +309,10 @@ export function createParticipantRuntime(deps: Deps) {
   }
   return {
     execute: async (input: ParticipantCommandInput, context: EventStoreContext): Promise<ParticipantResult> => {
-      if (context.audit.forAccountId !== input.accountId)
+      if (
+        context.audit.forAccountId !== input.accountId ||
+        (input.actor && (input.actor.tenantId !== context.tenantId || input.actor.accountId !== input.accountId))
+      )
         throw new ParticipantAttemptError(403, "participant-actor-mismatch");
       const attempt = parseParticipantAttempt(input.attempt);
       const lookupInput = { ...input, attempt, tenantId: context.tenantId };

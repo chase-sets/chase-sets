@@ -65,6 +65,69 @@ async function seedAcceptance(store: EventStore, id: string) {
   });
 }
 export function participantStoreMatrix(makeStore: () => EventStore) {
+  it("legacy seed audit tenants preserve authorized seller response and buyer acceptance recovery", async () => {
+    const store = makeStore();
+    const f = participantFixture(store);
+    const seedActor = { ...buyer, tenantId: "tnt_seed_development" };
+    const opened = await f.runtime.openSupportRequest(
+      { accountId: buyer.accountId, orderId: openBody.orderId, flowType: "product-not-as-described" },
+      actorContext(seedActor),
+    );
+    const body = {
+      responseType: "offer-partial-refund",
+      summary: "Keep the item and receive a partial refund.",
+      offerResolutionType: "partial-refund",
+      refundAmount: "5.00",
+    };
+    const response = await f.executeParticipant("record-response", body, opened.supportRequestId, attemptId, seller);
+    const count = (await readCompleteStream(store, { streamId: `support.support-request-${response.id}` })).length;
+    expect(await f.executeParticipant("record-response", body, response.id, attemptId, seller)).toEqual(response);
+    expect(await f.lookup("record-response", body, response.id, attemptId, buyer)).toEqual({ outcome: "not-recorded" });
+    expect((await readCompleteStream(store, { streamId: `support.support-request-${response.id}` })).length).toBe(
+      count,
+    );
+    const acceptance = await f.executeParticipant("accept-offer", { offerId: response.offerId }, response.id);
+    expect(await f.executeParticipant("accept-offer", { offerId: response.offerId }, response.id)).toEqual(acceptance);
+    expect(await f.lookup("accept-offer", { offerId: response.offerId }, response.id)).toMatchObject({
+      outcome: "confirming",
+      result: acceptance,
+    });
+    const history = await readCompleteStream(store, { streamId: `support.support-request-${response.id}` });
+    expect(history[0].tenantId).toBe("tnt_seed_development");
+    expect(validateParticipantHistory(history, response.id).receipts).toHaveLength(2);
+    expect(history.filter((event) => event.eventType.endsWith(".response-recorded"))).toHaveLength(1);
+    expect(history.filter((event) => event.eventType.endsWith(".offer-accepted"))).toHaveLength(1);
+  });
+  it("authorized tenant owners on one case independently reuse an id without disclosing or invalidating receipts", async () => {
+    const store = makeStore();
+    const f = participantFixture(store);
+    const opened = await f.executeParticipant("open-support-request", openBody);
+    const other = { ...buyer, tenantId: "tnt_other" };
+    const key = `${attemptId}_note`;
+    const body = { evidenceType: "support-note", summary: "Independent owner note" };
+    const first = await f.executeParticipant("submit-evidence", body, opened.id, key);
+    expect(await f.lookup("submit-evidence", body, opened.id, key, other)).toEqual({ outcome: "not-recorded" });
+    const second = await f.executeParticipant("submit-evidence", body, opened.id, key, other);
+    expect(second.evidenceId).not.toBe(first.evidenceId);
+    const count = (await readCompleteStream(store, { streamId: `support.support-request-${opened.id}` })).length;
+    expect(await f.executeParticipant("submit-evidence", body, opened.id, key)).toEqual(first);
+    expect(await f.executeParticipant("submit-evidence", body, opened.id, key, other)).toEqual(second);
+    expect((await readCompleteStream(store, { streamId: `support.support-request-${opened.id}` })).length).toBe(count);
+    const history = await readCompleteStream(store, { streamId: `support.support-request-${opened.id}` });
+    expect(validateParticipantHistory(history, opened.id).receipts.map(({ receipt }) => receipt.tenantId)).toEqual([
+      buyer.tenantId,
+      buyer.tenantId,
+      other.tenantId,
+    ]);
+    const receipt = history.at(-1)!;
+    expect(() =>
+      validateParticipantHistory([...history.slice(0, -1), { ...receipt, tenantId: history[0].tenantId }], opened.id),
+    ).toThrow();
+    const fact = history.at(-2)!;
+    expect(() =>
+      validateParticipantHistory([...history.slice(0, -2), { ...fact, tenantId: history[0].tenantId }, receipt], opened.id),
+    ).toThrow();
+  });
   for (const kind of [
     "receipt-only",
     "business-only",

@@ -5,10 +5,43 @@ import { createEventStoreError } from "@chase-sets/event-core/event-store";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
-import { participantFixture, openBody, buyer, attemptId, requestHash } from "./participant-attempt.test-support";
+import {
+  participantFixture,
+  openBody,
+  buyer,
+  attemptId,
+  requestHash,
+  actorContext,
+} from "./participant-attempt.test-support";
 import { validateParticipantHistory } from "./participant-runtime";
 
 describe("scoped-attempt matrix", () => {
+  it("authenticated actor tenant/account mismatch refuses before any history read or append", async () => {
+    const memory = createInMemoryEventStore();
+    const readStream = vi.fn(memory.eventStore.readStream);
+    const appendToStream = vi.fn(memory.eventStore.appendToStream);
+    const f = participantFixture({ ...memory.eventStore, readStream, appendToStream });
+    for (const actor of [
+      { ...buyer, tenantId: "tnt_other" },
+      { ...buyer, accountId: "acc_other" },
+    ]) {
+      await expect(
+        f.runtime.executeParticipantAttempt(
+          {
+            actionKind: "open-support-request",
+            body: openBody,
+            accountId: buyer.accountId,
+            actor,
+            attempt: { attemptId, requestHash: requestHash("open-support-request", openBody) },
+          },
+          actorContext(buyer),
+        ),
+      ).rejects.toMatchObject({ status: 403, code: "participant-actor-mismatch" });
+    }
+    expect(readStream).not.toHaveBeenCalled();
+    expect(appendToStream).not.toHaveBeenCalled();
+    expect(f.storage.putObject).not.toHaveBeenCalled();
+  });
   it("same owner/id changed action conflicts with valid domain prerequisites", async () => {
     const f = participantFixture();
     const opened = await f.executeParticipant("open-support-request", openBody);

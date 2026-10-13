@@ -14,7 +14,7 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => ({
 import Route, { action, loader } from "../../../routes/marketplace/account-support-detail";
 
 const actor = evidenceActor("viewer", ["support.view", "support.manage"]);
-import { supportParticipantDetailFixture as detail } from "./participant-router.test-support";
+import { supportParticipantDetailFixture as detail } from "./participant-router.test-data";
 function mount() {
   const router = createMemoryRouter([{ path: "/account/support/:id", loader, action, element: <Route /> }], {
     initialEntries: ["/account/support/sup_router"],

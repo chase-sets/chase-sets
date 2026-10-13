@@ -13,7 +13,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { participantStoreMatrix } from "./participant-store-matrix.test-support";
+import { participantStoreMatrix } from "./participant-store-matrix.test-data";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
