@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createBrowserRouter, createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@chase-sets/localization";
 import ShippingAddressRoute, { action, loader } from "../../../routes/marketplace/account-shipping-addresses";
@@ -52,12 +52,14 @@ describe("ShippingAddressPage", () => {
     expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.bg-surface-2")).toHaveLength(1);
   });
 
-  it("renders a loader failure as one form-only summary", () => {
-    const { container } = render(<ShippingAddressPage addresses={[]} errorMessage="Street is required" />);
+  it("renders the post-write loader notice without a live validation summary", () => {
+    const message = t("identity.routes.marketplace.accountShippingAddresses.addresses.updating");
+    const { container } = render(<ShippingAddressPage addresses={[]} errorMessage={message} />);
 
-    expect(container.textContent).toContain("Street is required");
-    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
-    expect(container.querySelector('[role="alert"] a')).toBeNull();
+    expect(screen.getByText(message)).toBeTruthy();
+    expect(container.querySelectorAll('[role="alert"], [aria-live]')).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Check the form" })).toBeNull();
+    expect(container.querySelector('a[href^="#"]')).toBeNull();
     expect(container.querySelectorAll(".min-w-0.max-w-full.rounded-tokenLg.shadow-tokenLg")).toHaveLength(0);
   });
 
@@ -118,6 +120,7 @@ const routers: ReturnType<typeof createMemoryRouter>[] = [];
 afterEach(() => {
   cleanup();
   routers.splice(0).forEach((router) => router.dispose());
+  window.history.replaceState(null, "", "/");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -132,7 +135,7 @@ function rejection(field: unknown = "name", extra = {}) {
   };
 }
 
-async function routed() {
+async function routed(browserHistory = false) {
   let addresses = [...rows];
   let body: unknown = rejection();
   let status = 400;
@@ -154,13 +157,12 @@ async function routed() {
       return Response.json(body, { status });
     }),
   );
-  const router = createMemoryRouter(
-    [
-      { path, Component: ShippingAddressRoute, action, loader, HydrateFallback: () => null },
-      { path: "/elsewhere", element: <p>Elsewhere</p> },
-    ],
-    { initialEntries: [path] },
-  );
+  const routes = [
+    { path, Component: ShippingAddressRoute, action, loader, HydrateFallback: () => null },
+    { path: "/elsewhere", element: <p>Elsewhere</p> },
+  ];
+  if (browserHistory) window.history.replaceState(null, "", path);
+  const router = browserHistory ? createBrowserRouter(routes) : createMemoryRouter(routes, { initialEntries: [path] });
   routers.push(router);
   render(<RouterProvider router={router} />);
   await screen.findByText("Address 3");
@@ -223,6 +225,62 @@ function expectLinkedField(field: string) {
 }
 
 describe("Shipping Address routed presentation", () => {
+  it.each(["create", "update"])(
+    "browser-history summary click retains the %s failure without refocusing or replacing its alert",
+    async (intent) => {
+      const app = await routed(true);
+      const focusEvents: EventTarget[] = [];
+      const onFocus = (event: FocusEvent) => {
+        if ((event.target as HTMLElement).getAttribute("role") === "alert") focusEvents.push(event.target!);
+      };
+      document.addEventListener("focusin", onFocus);
+      try {
+        await app.submit(intent, intent === "update" ? rows[1].shipping_address_id : undefined);
+        const { summary, link, input } = expectLinkedField("name");
+        const key = app.router.state.location.key;
+        expect(focusEvents).toEqual([summary]);
+        await act(async () => {
+          link.click();
+          await waitFor(() => expect(app.router.state.location.hash).toBe(link.getAttribute("href")));
+        });
+        expect(app.router.state.historyAction).toBe("POP");
+        expect(app.router.state.location.key).not.toBe(key);
+        expect(app.router.state.actionData).toBeNull();
+        expect(document.activeElement).toBe(input);
+        expect(expectLinkedField("name").summary).toBe(summary);
+        expect(focusEvents).toEqual([summary]);
+        await app.revalidate();
+        expect(expectLinkedField("name").summary).toBe(summary);
+        expect(document.activeElement).toBe(input);
+        expect(focusEvents).toEqual([summary]);
+        expect(app.writes).toHaveLength(1);
+        fireEvent.submit(input.closest("form")!);
+        expect(screen.queryByRole("alert")).toBeNull();
+        await act(async () => {
+          await app.router.navigate(`${path}#another-field`);
+        });
+        expect(screen.queryByRole("alert")).toBeNull();
+        await app.submit(intent, intent === "update" ? rows[1].shipping_address_id : undefined);
+        const nextSummary = expectLinkedField("name").summary;
+        expect(focusEvents).toEqual([summary, nextSummary]);
+        await act(async () => {
+          await app.router.navigate(`${path}?view=1`);
+        });
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
+        expect(document.querySelector('a[href^="#"]')).toBeNull();
+        await app.submit("create");
+        expectLinkedField("name");
+        await act(async () => {
+          await app.router.navigate("/elsewhere");
+        });
+        expect(screen.queryByRole("alert")).toBeNull();
+      } finally {
+        document.removeEventListener("focusin", onFocus);
+      }
+    },
+  );
+
   it.each(
     Object.keys(SHIPPING_ADDRESS_REQUIRED_MESSAGES).flatMap((field) => [
       { field, intent: "create" },

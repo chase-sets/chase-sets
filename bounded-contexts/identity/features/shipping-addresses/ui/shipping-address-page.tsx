@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { Location } from "react-router";
 import {
   HiddenInput,
   Form,
@@ -205,18 +206,18 @@ export function ShippingAddressPage({
   errorMessage,
   failure = null,
   submitting = false,
-  locationKey,
+  location,
 }: {
   addresses: readonly ShippingAddress[];
   errorMessage?: string | null;
   failure?: ShippingAddressFailure | null;
   submitting?: boolean;
-  locationKey?: string;
+  location?: Pick<Location, "key" | "pathname" | "search" | "hash">;
 }) {
   const [activeFailure, setActiveFailure] = useState(failure);
   const [openAddressId, setOpenAddressId] = useState<string | null>(null);
   const [unavailableFailure, setUnavailableFailure] = useState<ShippingAddressFailure | null>(null);
-  const previousLocation = useRef(locationKey);
+  const previousLocation = useRef(location);
   const focusedFailure = useRef<ShippingAddressFailure | null>(null);
   const focusSummary = useCallback<FocusSummary>((element, result) => {
     if (element && focusedFailure.current !== result) {
@@ -232,12 +233,19 @@ export function ShippingAddressPage({
           ? (failure.shippingAddressId ?? null)
           : null,
       );
-    } else if (previousLocation.current !== locationKey) {
+    } else if (
+      previousLocation.current?.key !== location?.key &&
+      !(
+        previousLocation.current?.pathname === location?.pathname &&
+        previousLocation.current?.search === location?.search &&
+        previousLocation.current?.hash !== location?.hash
+      )
+    ) {
       setActiveFailure(null);
       setOpenAddressId(null);
     }
-    previousLocation.current = locationKey;
-  }, [failure, locationKey]);
+    previousLocation.current = location;
+  }, [failure, location]);
   useEffect(() => {
     if (submitting) setActiveFailure(null);
   }, [submitting]);
@@ -281,7 +289,12 @@ export function ShippingAddressPage({
       {pageFailure ? (
         <FailureSummary failure={pageFailure} focusSummary={focusSummary} />
       ) : !activeFailure && errorMessage ? (
-        <ValidationSummary errors={[{ message: errorMessage }]} />
+        <Surface elevation="tinted">
+          <Stack gap={2}>
+            <Badge tone="danger">{t("identity.features.shippingAddresses.ui.shippingAddressPage.address.issue")}</Badge>
+            <Text>{errorMessage}</Text>
+          </Stack>
+        </Surface>
       ) : null}
 
       <PageSection

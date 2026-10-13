@@ -174,7 +174,7 @@ export default function MarketplaceAccountShippingAddressesRoute() {
       failure={failure}
       errorMessage={data.loadError}
       submitting={navigation.state === "submitting"}
-      locationKey={location.key}
+      location={location}
     />
   );
 }
