@@ -389,6 +389,18 @@ describe("marketplace search", () => {
     await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
     await variantListing("foil", "20");
     const params = { search: "variant dragon", dimensionFilters: foil };
+    await variantItem("semantic-variant");
+    await pools.discovery.query(`UPDATE discovery_search_items
+      SET search_text = to_tsvector('english', 'azure creature'), search_text_simple = to_tsvector('simple', 'azure creature')
+      WHERE catalog_item_id = 'semantic-variant'`);
+    await variantListing(
+      "semantic-nonfoil",
+      "1",
+      [{ dimensionId: "finish", optionId: "nonfoil" }],
+      "USD",
+      "semantic-variant",
+    );
+    await variantListing("semantic-foil", "30", foil, "USD", "semantic-variant");
     const lexical = await variantSearch(params);
     const structured = await searchDiscoveryItemsByNaturalKey(
       pools.discovery,
@@ -398,7 +410,13 @@ describe("marketplace search", () => {
     const vector = [1, ...Array<number>(1023).fill(0)];
     const semantic = await searchDiscoverySemanticItems(pools.discovery, params, vector);
     expect(structured.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
-    expect(semantic[0]?.item.market_summary).toEqual(lexical.items[0]?.market_summary);
+    expect(semantic.find(({ item }) => item.catalog_item_id === "variant")?.item.market_summary).toEqual(
+      lexical.items[0]?.market_summary,
+    );
+    expect(
+      semantic.find(({ item }) => item.catalog_item_id === "semantic-variant")?.item.market_summary
+        ?.lowest_price_amount,
+    ).toBe("30");
     for (const hybridEnabled of [false, true]) {
       const actual = await retrieveDiscoveryItems(
         {
@@ -416,6 +434,9 @@ describe("marketplace search", () => {
       );
       expect(actual.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
       expect(actual.retrievalMode).toBe(hybridEnabled ? "hybrid" : "rescue");
+      expect(
+        actual.items.find((item) => item.catalog_item_id === "semantic-variant")?.market_summary?.lowest_price_amount,
+      ).toBe("30");
     }
     await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil'`);
     await variantOffer("demand");
