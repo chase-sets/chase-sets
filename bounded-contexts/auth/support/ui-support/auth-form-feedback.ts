@@ -1,6 +1,6 @@
 import { normalizeFormErrors, type ValidationSummaryError } from "@chase-sets/design-system";
 import { useEffect, useId, useRef, useState, type FormEventHandler } from "react";
-import { useNavigation, useSubmit } from "react-router";
+import { useLocation, useNavigation, useSubmit } from "react-router";
 import type { AuthActionError, AuthActionIntent } from "../route-support/auth-action-errors";
 import type { AuthActionNotice } from "../route-support/auth-host";
 
@@ -12,6 +12,21 @@ export type AuthFormFeedbackProps = Readonly<{
   submissionPending?: boolean;
   onSubmit?: FormEventHandler<HTMLFormElement>;
 }>;
+
+export function useAuthFormActionData<T>(actionData: T | undefined) {
+  const { pathname, search } = useLocation();
+  const [retained, setRetained] = useState({ pathname, search, data: actionData });
+  if (
+    retained.pathname !== pathname ||
+    retained.search !== search ||
+    (actionData !== undefined && actionData !== retained.data)
+  ) {
+    const next = { pathname, search, data: actionData };
+    setRetained(next);
+    return next.data;
+  }
+  return retained.data;
+}
 
 export function useAuthFormSubmission() {
   const navigation = useNavigation();

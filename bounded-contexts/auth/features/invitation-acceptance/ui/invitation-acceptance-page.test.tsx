@@ -81,6 +81,33 @@ describe("routed invitation errors", () => {
     loader: () => ({ invitation, token: "synthetic-token" }),
   };
 
+  it("F2 scope: retains failure across hashes but drops it on another invitation pathname", async () => {
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const button = screen.getByRole("button", { name: "Accept with password" });
+    fireEvent.submit(button.closest("form")!);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.settle(safeFailure("invitation-accept"));
+    const summary = screen.getByRole("alert");
+    const focus = vi.spyOn(summary, "focus");
+    button.focus();
+    await act(async () => {
+      await rendered.router.navigate("/invite/synthetic-invite#password");
+    });
+    expect(rendered.router.state.actionData).toBeNull();
+    expect(screen.getByRole("alert")).toBe(summary);
+    expect(document.activeElement).toBe(button);
+    expect(focus).not.toHaveBeenCalled();
+    await act(async () => {
+      await rendered.router.navigate("/invite/another-synthetic-invite");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      await rendered.router.navigate("/invite/synthetic-invite#password");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("focus lifecycle: a retired browser ceremony cannot clear a new form's loading or warning owner", async () => {
     const oldCeremony = pendingPasskey();
     const newCeremony = pendingPasskey();

@@ -11,14 +11,14 @@ import {
 import { authFormActionFromLocation } from "../../support/route-support/auth-form-action";
 import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 import { socialLoginErrorMessage } from "../../support/route-support/social-login-errors";
-import { useAuthFormSubmission } from "../../support/ui-support/auth-form-feedback";
+import { useAuthFormActionData, useAuthFormSubmission } from "../../support/ui-support/auth-form-feedback";
 
 export const meta: MetaFunction = () => [{ title: adminAuthHostConfig.titles.signIn }];
 
 export const action = adminAuthHost.createSignInAction();
 
 export default function AccessAdminSignInRoute() {
-  const actionData = useActionData<typeof action>();
+  const actionData = useAuthFormActionData(useActionData<typeof action>());
   const location = useLocation();
   const submission = useAuthFormSubmission();
   const [searchParams] = useSearchParams();

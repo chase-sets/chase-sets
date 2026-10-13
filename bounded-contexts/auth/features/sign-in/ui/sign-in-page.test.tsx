@@ -520,6 +520,94 @@ describe("sign-in page magic link recovery", () => {
 });
 
 describe("routed sign-in errors", () => {
+  it.each([
+    ["marketplace", "/sign-in", MarketplaceSignInRoute, loader],
+    ["access-admin", "/access/sign-in", AccessAdminSignInRoute, undefined],
+  ] as const)(
+    "F2 scope: %s retains failure identity across hashes but drops it on search changes",
+    async (_host, path, Component, routeLoader) => {
+      const route = await renderAuthRoute({ path, Component, loader: routeLoader }, path);
+      continueWithIdentifier("+13125550100");
+      const button = screen.getByRole("button", { name: "Send Phone Code" });
+      fireEvent.submit(button.closest("form")!);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      await route.settle(safeFailure("phone-code-request"));
+      const summary = screen.getByRole("alert");
+      const focus = vi.spyOn(summary, "focus");
+      button.focus();
+      await act(async () => {
+        await route.router.navigate(`${path}#phone`);
+      });
+      expect(route.router.state.actionData).toBeNull();
+      expect(screen.getByRole("alert")).toBe(summary);
+      expect(document.activeElement).toBe(button);
+      expect(focus).not.toHaveBeenCalled();
+      await act(async () => {
+        await route.router.navigate(`${path}?returnTo=%2Faccount`);
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+      await act(async () => {
+        await route.router.navigate(`${path}#phone`);
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
+  it.each([
+    ["marketplace", "/sign-in", MarketplaceSignInRoute, loader],
+    ["access-admin", "/access/sign-in", AccessAdminSignInRoute, undefined],
+  ] as const)(
+    "F1 regression: %s retires social failure after a successful submission and gives a failed retry only its summary",
+    async (_host, path, Component, routeLoader) => {
+      const route = await renderAuthRoute(
+        { path, Component, loader: routeLoader },
+        `${path}?socialLoginError=provider_failed`,
+      );
+      expect(document.activeElement).toBe(screen.getByRole("alert"));
+      continueWithIdentifier("+13125550100");
+      expect(screen.queryByRole("alert")).toBeNull();
+      const form = screen.getByRole("button", { name: "Send Phone Code" }).closest("form")!;
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      await route.settle({
+        status: "phone-code-sent",
+        phone: "+13125550100",
+        tokenId: "synthetic-token",
+        expiresAt: "2099-01-01T00:00:00Z",
+      });
+      expect(document.activeElement).toBe(screen.getByLabelText("Phone Code"));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(new URLSearchParams(route.router.state.location.search).has("socialLoginError")).toBe(false);
+
+      fireEvent.submit(form);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
+      await route.settle(safeFailure("phone-code-request"));
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect(screen.getByRole("alert").tagName).toBe("SECTION");
+      expect(document.activeElement).toBe(screen.getByRole("alert"));
+    },
+  );
+
+  it.each([
+    ["marketplace", "/sign-in", MarketplaceSignInRoute, loader],
+    ["access-admin", "/access/sign-in", AccessAdminSignInRoute, undefined],
+  ] as const)(
+    "F1 regression: %s gives a failure submitted from a social URL only its summary",
+    async (_host, path, Component, routeLoader) => {
+      const route = await renderAuthRoute(
+        { path, Component, loader: routeLoader },
+        `${path}?socialLoginError=provider_failed`,
+      );
+      continueWithIdentifier("+13125550100");
+      fireEvent.submit(screen.getByRole("button", { name: "Send Phone Code" }).closest("form")!);
+      await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+      await route.settle(safeFailure("phone-code-request"));
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect(screen.getByRole("alert").tagName).toBe("SECTION");
+      expect(document.activeElement).toBe(screen.getByRole("alert"));
+    },
+  );
+
   it("focus lifecycle: a retired browser ceremony cannot clear a new form's loading or warning owner", async () => {
     const oldCeremony = pendingPasskey();
     const newCeremony = pendingPasskey();
@@ -634,6 +722,13 @@ describe("routed sign-in errors", () => {
       expect(document.activeElement).toBe(destination);
       expect(screen.queryByRole("alert")).toBeNull();
       button.focus();
+      const notice = screen.getByRole("status");
+      await act(async () => {
+        await route.router.navigate("/sign-in#challenge");
+      });
+      expect(route.router.state.actionData).toBeNull();
+      expect(screen.getByRole("status")).toBe(notice);
+      expect(document.activeElement).toBe(button);
       await route.revalidate();
       expect(document.activeElement).toBe(button);
       if (kind === "phone") {

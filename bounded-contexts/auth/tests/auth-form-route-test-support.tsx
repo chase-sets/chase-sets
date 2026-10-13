@@ -13,7 +13,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-export async function missingPhoneFailure(intent: AuthActionIntent) {
+export function missingPhoneFailure(intent: AuthActionIntent) {
   return authApiActionError(new AuthApiError(400, missingPhoneResponse()), intent);
 }
 

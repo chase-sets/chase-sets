@@ -13,7 +13,7 @@ import {
   successfulPasskey,
   pendingPasskey,
 } from "../../../tests/auth-form-route-test-support";
-import { redirect } from "react-router";
+import { createBrowserRouter, redirect, RouterProvider } from "react-router";
 
 vi.mock("../../../support/route-support/auth-host.server", async () => {
   const { defineAuthHost } = await import("../../../support/route-support/auth-host");
@@ -33,6 +33,120 @@ afterEach(() => {
 });
 
 describe("routed registration errors", () => {
+  it("F1 regression: retires social failure after phone success and gives a failed retry only its summary", async () => {
+    const route = await renderAuthRoute(
+      { path: "/register", Component: MarketplaceRegisterRoute, loader },
+      "/register?socialLoginError=provider_failed",
+    );
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    fireEvent.click(screen.getByRole("radio", { name: "Phone Code" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    const form = screen.getByRole("button", { name: "Text me a code" }).closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    await route.settle({
+      status: "phone-code-sent",
+      phone: "+13125550100",
+      tokenId: "synthetic-token",
+      expiresAt: "2099-01-01T00:00:00Z",
+    });
+    expect(document.activeElement).toBe(screen.getByLabelText("Phone Code"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(new URLSearchParams(route.router.state.location.search).has("socialLoginError")).toBe(false);
+
+    fireEvent.submit(form);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledTimes(2));
+    await route.settle(await missingPhoneFailure("phone-code-request"));
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert").tagName).toBe("SECTION");
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+  });
+
+  it("F1 regression: gives a failure submitted from a social URL only its summary", async () => {
+    const route = await renderAuthRoute(
+      { path: "/register", Component: MarketplaceRegisterRoute, loader },
+      "/register?socialLoginError=provider_failed",
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Phone Code" }));
+    fireEvent.submit(screen.getByRole("button", { name: "Text me a code" }).closest("form")!);
+    await waitFor(() => expect(route.requests).toHaveBeenCalledOnce());
+    await route.settle(await missingPhoneFailure("phone-code-request"));
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert").tagName).toBe("SECTION");
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+  });
+
+  it("F2 regression: a real browser-history summary-link click retains the committed failure without refocus or reinsertion", async () => {
+    const previousUrl = window.location.href;
+    const previousState: unknown = window.history.state;
+    window.history.replaceState(null, "", "/register");
+    let resolveAction: (value: unknown) => void = () => {};
+    const requests = vi.fn();
+    const router = createBrowserRouter([
+      {
+        path: "/register",
+        Component: MarketplaceRegisterRoute,
+        loader,
+        action: async ({ request }) => {
+          requests(request.method);
+          return new Promise((resolve) => {
+            resolveAction = resolve;
+          });
+        },
+      },
+    ]);
+    try {
+      await act(async () => {
+        render(<RouterProvider router={router} />);
+      });
+      await waitFor(() => expect(router.state.initialized).toBe(true));
+      fireEvent.click(screen.getByRole("radio", { name: "Phone Code" }));
+      fireEvent.submit(screen.getByRole("button", { name: "Text me a code" }).closest("form")!);
+      await waitFor(() => expect(requests).toHaveBeenCalledOnce());
+      const failure = await missingPhoneFailure("phone-code-request");
+      await act(async () => {
+        resolveAction(failure);
+      });
+      await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+      const summary = screen.getByRole("alert");
+      const link = screen.getByRole("link", { name: /Phone.*Phone is required/ });
+      const phone = document.getElementById(link.getAttribute("href")!.slice(1))!;
+      const summaryFocus = vi.spyOn(summary, "focus");
+      const locationKey = router.state.location.key;
+      fireEvent.click(link);
+      await waitFor(() => {
+        expect(router.state.location.hash).toBe(`#${phone.id}`);
+        expect(router.state.location.key).not.toBe(locationKey);
+        expect(router.state.actionData).toBeNull();
+      });
+      expect(document.activeElement).toBe(phone);
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect(screen.getByRole("alert")).toBe(summary);
+      expect(summary.tagName).toBe("SECTION");
+      expect(document.querySelectorAll('[role="alert"], [aria-live="assertive"]')).toHaveLength(1);
+      expect(phone.getAttribute("aria-invalid")).toBe("true");
+      const description = document.getElementById(phone.getAttribute("aria-describedby")!)!;
+      expect(description.textContent).toBe("Phone is required.");
+      expect(description.getAttribute("role")).toBeNull();
+      expect(description.getAttribute("aria-live")).toBeNull();
+      expect(summaryFocus).not.toHaveBeenCalled();
+      expect(requests).toHaveBeenCalledExactlyOnceWith("POST");
+      await act(async () => {
+        await router.navigate("/register?returnTo=%2Faccount");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(phone.getAttribute("aria-invalid")).toBeNull();
+      await act(async () => {
+        await router.navigate("/register");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      cleanup();
+      router.dispose();
+      window.history.replaceState(previousState, "", previousUrl);
+    }
+  });
+
   it("focus lifecycle: a retired browser ceremony cannot clear a new form's loading or warning owner", async () => {
     const oldCeremony = pendingPasskey();
     const newCeremony = pendingPasskey();

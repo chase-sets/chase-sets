@@ -8,7 +8,7 @@ import { SignInPage } from "../../features/sign-in/ui/sign-in-page";
 import { marketplaceAccountGateContextMessage } from "../../support/route-support/marketplace-account-gate-context";
 import { authFormActionFromRequest } from "../../support/route-support/auth-form-action";
 import { socialLoginErrorMessage } from "../../support/route-support/social-login-errors";
-import { useAuthFormSubmission } from "../../support/ui-support/auth-form-feedback";
+import { useAuthFormActionData, useAuthFormSubmission } from "../../support/ui-support/auth-form-feedback";
 
 export const meta: MetaFunction = () => buildOpenGraphMeta({ title: marketplaceAuthHostConfig.titles.signIn });
 
@@ -28,7 +28,7 @@ export function loader({ request }: LoaderFunctionArgs) {
 }
 
 export default function MarketplaceSignInRoute() {
-  const actionData = useActionData<typeof action>();
+  const actionData = useAuthFormActionData(useActionData<typeof action>());
   const data = useLoaderData<typeof loader>();
   const submission = useAuthFormSubmission();
   const location = useLocation();
