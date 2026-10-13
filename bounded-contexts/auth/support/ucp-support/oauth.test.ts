@@ -62,9 +62,21 @@ describe("UCP OAuth routes", () => {
       return { options, app: createUcpOAuthRoutes(options) };
     }
 
-    it("requires an interactive session before reading an attempt", async () => {
+    it.each([
+      null,
+      { ...actor, sessionId: "" },
+      { ...actor, roleKey: "guest-buyer" },
+      {
+        ...actor,
+        agentGrant: {
+          grantId: "synthetic-grant",
+          scopes: ["account:manage"] as const,
+          rolePermissions: actor.permissions,
+        },
+      },
+    ])("requires an interactive session before reading an attempt: %j", async (refusedActor) => {
       const { options, app } = await fixture();
-      options.resolveActor = async () => null;
+      options.resolveActor = async () => refusedActor;
       const read = vi.spyOn(options.agentGrantRevocations!, "read");
       const response = await app.request(path);
       expect(response.status).toBe(401);

@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn as spawnCommand } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -139,7 +139,7 @@ export function admissionResources({ namespace, minimumCommit, imageDigests, fro
   ];
 }
 
-function run(file, args, input) {
+function runCommand(file, args, input) {
   return execFileSync(file, args, {
     encoding: "utf8",
     input,
@@ -149,7 +149,7 @@ function run(file, args, input) {
   }).trim();
 }
 
-function readFloor(namespace) {
+function readFloor(namespace, run) {
   const raw = run("kubectl", [
     "get",
     "validatingadmissionpolicy",
@@ -161,7 +161,7 @@ function readFloor(namespace) {
   return raw ? JSON.parse(raw) : null;
 }
 
-function assertCompatible(commit, minimumCommit) {
+function assertCompatible(commit, minimumCommit, run) {
   if (!sha.test(commit) || !sha.test(minimumCommit)) throw new Error("revocation_rollback_floor");
   run("git", ["merge-base", "--is-ancestor", minimumCommit, commit]);
   const source = run("git", [
@@ -171,7 +171,7 @@ function assertCompatible(commit, minimumCommit) {
   if (!source.includes("AGENT_GRANT_REVOCATION_SUPPORT_VERSION = 1;")) throw new Error("revocation_rollback_floor");
 }
 
-function installFloor(resources) {
+function installFloor(resources, run) {
   for (const resource of resources) run("kubectl", ["apply", "-f", "-"], JSON.stringify(resource));
   const policy = JSON.parse(
     run("kubectl", ["get", "validatingadmissionpolicy", resources[0].metadata.name, "-o", "json"]),
@@ -187,7 +187,7 @@ function installFloor(resources) {
   return observed;
 }
 
-function activationStatus(namespace) {
+function activationStatus(namespace, run) {
   const pods = JSON.parse(run("kubectl", ["get", "pods", "-n", namespace, "--chunk-size=0", "-o", "json"]));
   const pod = pods.items.find(
     (pod) =>
@@ -216,31 +216,31 @@ function activationStatus(namespace) {
   return status;
 }
 
-function releaseUnactivatedFence(namespace) {
-  if (activationStatus(namespace).state !== "dormant") return;
+function releaseUnactivatedFence(namespace, run) {
+  if (activationStatus(namespace, run).state !== "dormant") return;
   const name = `agent-grant-revocation-${namespace}`;
   run("kubectl", ["delete", "validatingadmissionpolicybinding", name, "--ignore-not-found"]);
   run("kubectl", ["delete", "validatingadmissionpolicy", name, "--ignore-not-found"]);
 }
 
-async function activate(options, floor) {
-  const status = activationStatus(options.namespace);
+async function activate(options, floor, { run, spawn }) {
+  const status = activationStatus(options.namespace, run);
   if (status.state === "activated") {
     if (status.proof?.releaseCommit !== options.releaseCommit || status.proof?.imageDigest !== options.imageDigest)
       throw new Error("revocation_activation_conflict");
     if (!floor) throw new Error("revocation_floor_missing");
     const minimumCommit = floor.metadata.annotations["chase-sets.com/revocation-minimum-commit"];
-    assertCompatible(options.releaseCommit, minimumCommit);
+    assertCompatible(options.releaseCommit, minimumCommit, run);
     const imageDigests = JSON.parse(floor.metadata.annotations["chase-sets.com/revocation-image-digests"]);
     // An earlier command may have committed and lost its reply while frozen.
-    installFloor(admissionResources({ ...options, minimumCommit, imageDigests, frozen: false }));
+    installFloor(admissionResources({ ...options, minimumCommit, imageDigests, frozen: false }), run);
     mkdirSync(dirname(options.out), { recursive: true });
     writeFileSync(options.out, `${JSON.stringify({ replay: true, proof: status.proof }, null, 2)}\n`);
     return;
   }
   const minimumCommit =
     floor?.metadata.annotations["chase-sets.com/revocation-minimum-commit"] ?? options.releaseCommit;
-  assertCompatible(options.releaseCommit, minimumCommit);
+  assertCompatible(options.releaseCommit, minimumCommit, run);
   const imageDigests = floor ? JSON.parse(floor.metadata.annotations["chase-sets.com/revocation-image-digests"]) : [];
   imageDigests.push(options.imageDigest);
   const readPods = () =>
@@ -271,10 +271,10 @@ async function activate(options, floor) {
     }
   }
   captureServingSet({ ...options, pods: initial, support, fenceId: "preflight" });
-  const installed = installFloor(admissionResources({ ...options, minimumCommit, imageDigests, frozen: true }));
+  const installed = installFloor(admissionResources({ ...options, minimumCommit, imageDigests, frozen: true }), run);
   const fenceId = `${installed.metadata.uid}:${installed.metadata.resourceVersion}`;
   const capture = () => {
-    const current = readFloor(options.namespace);
+    const current = readFloor(options.namespace, run);
     if (`${current?.metadata.uid}:${current?.metadata.resourceVersion}` !== fenceId)
       throw new Error("revocation_membership_changed");
     return captureServingSet({ ...options, pods: readPods(), support, fenceId });
@@ -326,19 +326,19 @@ async function activate(options, floor) {
     await exited;
     // This read takes Identity's activation lock. A missing response is never
     // treated as a dormant release or permission to remove the floor.
-    releaseUnactivatedFence(options.namespace);
+    releaseUnactivatedFence(options.namespace, run);
     throw error;
   } finally {
     child.stdin.end();
     if (child.exitCode === null) child.kill();
     await exited;
   }
-  installFloor(admissionResources({ ...options, minimumCommit, imageDigests, frozen: false }));
+  installFloor(admissionResources({ ...options, minimumCommit, imageDigests, frozen: false }), run);
   mkdirSync(dirname(options.out), { recursive: true });
   writeFileSync(options.out, `${JSON.stringify({ proof, receipt }, null, 2)}\n`);
 }
 
-export async function main(args = process.argv.slice(2)) {
+export async function main(args = process.argv.slice(2), { run = runCommand, spawn = spawnCommand } = {}) {
   const [action, ...flags] = args;
   if (flags.length % 2 || !["prepare", "activate", "check-rollback"].includes(action))
     throw new Error("revocation_activation_arguments_invalid");
@@ -355,14 +355,29 @@ export async function main(args = process.argv.slice(2)) {
   );
   const namespace = values["--namespace"];
   if (!/^[a-z0-9-]{1,63}$/.test(namespace ?? "")) throw new Error("revocation_namespace_invalid");
-  const floor = readFloor(namespace);
+  let floor = readFloor(namespace, run);
+  if (!floor && action !== "activate") {
+    let status;
+    try {
+      status = activationStatus(namespace, run);
+    } catch {
+      // A first support rollout may have no pod that can report activation.
+    }
+    if (status?.state === "activated")
+      floor = admissionResources({
+        namespace,
+        minimumCommit: status.proof?.releaseCommit,
+        imageDigests: [status.proof?.imageDigest],
+        frozen: false,
+      })[0];
+  }
   if (action === "check-rollback") {
-    if (floor && activationStatus(namespace).state === "dormant") {
-      releaseUnactivatedFence(namespace);
+    if (floor && activationStatus(namespace, run).state === "dormant") {
+      releaseUnactivatedFence(namespace, run);
       return;
     }
     if (floor)
-      assertCompatible(values["--commit"], floor.metadata.annotations["chase-sets.com/revocation-minimum-commit"]);
+      assertCompatible(values["--commit"], floor.metadata.annotations["chase-sets.com/revocation-minimum-commit"], run);
     return;
   }
   const options = {
@@ -376,12 +391,12 @@ export async function main(args = process.argv.slice(2)) {
     throw new Error("revocation_release_identity_invalid");
   if (action === "prepare") {
     if (!floor) return;
-    if (activationStatus(namespace).state === "dormant") {
-      releaseUnactivatedFence(namespace);
+    if (activationStatus(namespace, run).state === "dormant") {
+      releaseUnactivatedFence(namespace, run);
       return;
     }
     const minimumCommit = floor.metadata.annotations["chase-sets.com/revocation-minimum-commit"];
-    assertCompatible(options.releaseCommit, minimumCommit);
+    assertCompatible(options.releaseCommit, minimumCommit, run);
     const imageDigests = JSON.parse(floor.metadata.annotations["chase-sets.com/revocation-image-digests"]);
     installFloor(
       admissionResources({
@@ -390,12 +405,13 @@ export async function main(args = process.argv.slice(2)) {
         imageDigests: [...imageDigests, options.imageDigest],
         frozen: false,
       }),
+      run,
     );
     return;
   }
   if (action !== "activate" || !options.out || !/^\d+\/\d+$/.test(options.evidenceId))
     throw new Error("revocation_activation_arguments_invalid");
-  await activate(options, floor);
+  await activate(options, floor, { run, spawn });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
