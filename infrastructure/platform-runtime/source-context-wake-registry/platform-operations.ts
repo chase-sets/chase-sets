@@ -25,6 +25,7 @@ export const platformOperationsWakeRegistryEntry = registryEntry({
     "payments:payments-support-refund-effect",
     "marketplace:marketplace-review-hold-reaction",
     "marketplace:marketplace-review-moderation-reaction",
+    "marketplace:marketplace-listing-moderation-reaction",
     "marketplace:marketplace-review-scoring-reaction",
     "marketplace:marketplace-review-support-source-projection",
     "marketplace:marketplace-seller-metrics-support-source-projection",

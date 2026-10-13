@@ -117,6 +117,36 @@ function createPlatformOperationsServiceProxy(includeRiskAlerts: boolean) {
 }
 
 describe("platform API route collision assembly", () => {
+  it("listing directive delivery preserves the incumbent moderation and review route tables", () => {
+    const observed = observeApiAssembly(createCensusRuntime());
+    const reviews = observed.entries.find(
+      ({ contextName, contextMountOrdinal }) => contextName === "marketplace" && contextMountOrdinal === 2,
+    );
+    expect(reviews?.router.routes.map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: "GET", path: "/reviews/written" },
+      { method: "GET", path: "/reviews/received" },
+      { method: "GET", path: "/reviews/opportunities/orders/:orderId" },
+      { method: "GET", path: "/reviews/:id" },
+      { method: "POST", path: "/reviews" },
+      { method: "POST", path: "/reviews/:id/update" },
+      { method: "POST", path: "/reviews/:id/withdraw" },
+      { method: "POST", path: "/reviews/:id/reply" },
+      { method: "GET", path: "/accounts/:accountId/review-summary" },
+      { method: "GET", path: "/accounts/:accountId/reviews" },
+    ]);
+    const moderation = observed.entries.find(({ mountPath }) => mountPath === "/api/experience");
+    expect(
+      moderation?.router.routes
+        .filter(({ path }) => path.startsWith("/reported-content"))
+        .map(({ method, path }) => ({ method, path })),
+    ).toEqual([
+      { method: "GET", path: "/reported-content" },
+      { method: "GET", path: "/reported-content/metrics" },
+      { method: "GET", path: "/reported-content/:targetType/:targetId" },
+      { method: "POST", path: "/reported-content/:targetType/:targetId/actions" },
+    ]);
+  });
+
   it.each([false, true])(
     "boots all discovered API entries with closed keyed shape and complete coverage (additional entry: %s)",
     (additionalEntry) => {
