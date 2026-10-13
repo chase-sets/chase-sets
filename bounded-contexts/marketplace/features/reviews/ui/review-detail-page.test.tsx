@@ -60,6 +60,77 @@ function expectTintedCard(root: Element | null) {
 }
 
 describe("review detail page", () => {
+  it.each([
+    { rating: null, held: false },
+    { rating: 4, held: false },
+    { rating: null, held: true },
+    { rating: 4, held: true },
+  ])("redacts an operator-withdrawn review before rating=$rating and held=$held branches", ({ rating, held }) => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        viewerAccountId={review.subject_account_id}
+        review={{
+          ...review,
+          status: "withdrawn",
+          rating,
+          held,
+          withdrawn_by_actor_type: "operator",
+          reply_status: "active",
+          reply_feedback: "Private response sentinel",
+        }}
+      />,
+    );
+    expect(markup).toContain("Review withdrawn");
+    expect(markup).toContain("Withdrawn by an operator");
+    for (const hidden of [
+      "Prompt payment and clear communication.",
+      "Private response sentinel",
+      "Account response",
+      "A review is pending",
+      "Pending reveal",
+      "Review paused",
+      "Report review",
+      "Respond to this review",
+      "Review author:",
+      'aria-label="4 rating"',
+    ])
+      expect(markup).not.toContain(hidden);
+  });
+
+  it("redacts held-plus-revealed content even when a rating and response remain", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/received"
+        viewerAccountId={review.subject_account_id}
+        review={{ ...review, held: true, reply_status: "active", reply_feedback: "Private response sentinel" }}
+      />,
+    );
+    expect(markup).toContain("Review paused");
+    for (const hidden of [
+      "Prompt payment and clear communication.",
+      "Private response sentinel",
+      "Report review",
+      "Respond to this review",
+      'aria-label="4 rating"',
+    ])
+      expect(markup).not.toContain(hidden);
+  });
+
+  it("keeps the author's pending preview but hides any private response", () => {
+    const markup = renderToString(
+      <ReviewDetailPage
+        backHref="/account/reviews/written"
+        viewerAccountId={review.author_account_id}
+        review={{ ...review, revealed_at: null, reply_status: "active", reply_feedback: "Private response sentinel" }}
+      />,
+    );
+    expect(markup).toContain("Prompt payment and clear communication.");
+    expect(markup).toContain("Pending reveal");
+    expect(markup).not.toContain("Private response sentinel");
+    expect(markup).not.toContain("Report review");
+  });
+
   it("renders account-to-account review labels", () => {
     const markup = renderToString(<ReviewDetailPage backHref="/account/reviews/received" review={review} />);
 
@@ -93,6 +164,9 @@ describe("review detail page", () => {
 
     expect(markup).not.toContain("Prompt payment and clear communication.");
     expect(markup).not.toContain("Review author:");
+    expect(markup).toContain("A review is pending");
+    expect(markup).not.toContain("Report review");
+    expect(markup).not.toContain("Account response");
   });
 
   it("shows the pending-reveal badge for the author's own pending review", () => {

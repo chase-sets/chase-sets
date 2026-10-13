@@ -15,12 +15,6 @@ import type { ReviewListItem } from "./contracts";
 import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
 import { ReviewScoringContext } from "./review-scoring-context";
 
-function statusTone(status: string) {
-  return status === "withdrawn" ? "danger" : "success";
-}
-
-// Double-blind reveal (m108): rating === null means this row was
-// redacted for the subject's own view of a not-yet-revealed review.
 function isPending(review: ReviewListItem) {
   return review.status !== "withdrawn" && review.revealed_at === null;
 }
@@ -69,7 +63,19 @@ export function ReviewListPage({
             <MarketplaceEmptyState title={emptyTitle} description={emptyDescription} />
           ) : (
             reviews.map((review) =>
-              review.held && review.rating === null ? (
+              review.status === "withdrawn" ? (
+                <Stack key={review.review_id} gap={2}>
+                  <MarketplaceEmptyState
+                    title={t("reputation.features.reviews.ui.reviewListPage.review.withdrawn.title")}
+                    description={t("reputation.features.reviews.ui.reviewListPage.review.withdrawn.description")}
+                  />
+                  {review.withdrawn_by_actor_type === "operator" ? (
+                    <Badge tone="danger">
+                      {t("reputation.features.reviews.ui.reviewListPage.moderated.withdrawn")}
+                    </Badge>
+                  ) : null}
+                </Stack>
+              ) : review.held ? (
                 <Stack key={review.review_id} gap={2}>
                   <MarketplaceEmptyState
                     title={t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.title")}
@@ -98,7 +104,7 @@ export function ReviewListPage({
                           {t("reputation.features.reviews.ui.reviewListPage.reviewed.account")}
                           {review.subject_display_name ?? review.subject_account_id}
                         </Text>
-                        <Badge tone={statusTone(review.status)}>{review.status}</Badge>
+                        <Badge tone="success">{review.status}</Badge>
                         {isPending(review) ? (
                           <Badge tone="warning">
                             {t("reputation.features.reviews.ui.reviewListPage.pending.reveal")}
@@ -118,7 +124,12 @@ export function ReviewListPage({
                     }
                     verified
                     response={
-                      review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined
+                      review.status === "active" &&
+                      review.revealed_at !== null &&
+                      review.reply_status === "active" &&
+                      review.reply_feedback
+                        ? review.reply_feedback
+                        : undefined
                     }
                     responseLabel={t("reputation.features.reviews.ui.reviewListPage.reply.label")}
                     context={<ReviewScoringContext review={review} />}
