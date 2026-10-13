@@ -315,6 +315,7 @@ export function createAccountManagementRuntime(
                 userId: input.actor.userId,
                 keyPrefix: plan.secret.slice(0, 12),
                 secretHash: services.auth.hashSecret(plan.secret),
+                expectedVersion: result.version,
               });
             else if (request.action === "revoke-api-key") await deleteApiKeySecret(tx.db, id);
           }

@@ -63,6 +63,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices, accountManagement?: 
     const apiKeyId = createId("key");
     const secret = services.auth.issueOpaqueToken("key");
     const keyPrefix = secret.slice(0, 12);
+    const secretHash = services.auth.hashSecret(secret);
     const result = await services.commandHandler({
       streamId: `identity.api-key-${apiKeyId}`,
       command: {
@@ -71,6 +72,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices, accountManagement?: 
         userId,
         name: body.name,
         keyPrefix,
+        secretHash,
       },
       context: c.get("context"),
     });
@@ -78,7 +80,8 @@ export function apiKeyRoutes(services: ApiKeyRouteServices, accountManagement?: 
       apiKeyId,
       userId,
       keyPrefix,
-      secretHash: services.auth.hashSecret(secret),
+      secretHash,
+      expectedVersion: result.version,
     });
 
     return c.json(
@@ -110,11 +113,13 @@ export function apiKeyRoutes(services: ApiKeyRouteServices, accountManagement?: 
 
     const secret = services.auth.issueOpaqueToken("key");
     const keyPrefix = secret.slice(0, 12);
+    const secretHash = services.auth.hashSecret(secret);
     const result = await services.commandHandler({
       streamId: `identity.api-key-${apiKeyId}`,
       command: {
         type: "RotateApiKey",
         keyPrefix,
+        secretHash,
       },
       context: c.get("context"),
     });
@@ -122,7 +127,8 @@ export function apiKeyRoutes(services: ApiKeyRouteServices, accountManagement?: 
       apiKeyId,
       userId: apiKey.user_id,
       keyPrefix,
-      secretHash: services.auth.hashSecret(secret),
+      secretHash,
+      expectedVersion: result.version,
     });
 
     return c.json({
