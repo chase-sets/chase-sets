@@ -34,6 +34,21 @@ Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "applicati
 Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "application/json" -Headers $headers -Body '{"jsonrpc":"2.0","id":"sources","method":"tools/call","params":{"name":"inventory.list-import-sources","arguments":{"accountId":"<account-id>"}}}'
 ```
 
+## Platform Profile Negotiation
+
+REST operations read `UCP-Agent: profile="https://platform.example/profile.json"` and the `Idempotency-Key` header. MCP operations read `params.arguments.meta["ucp-agent"].profile` and `params.arguments.meta["idempotency-key"]`. MCP protocol metadata stays at `params._meta`; it is not UCP request metadata. Handlers receive arguments without `meta`. Signed MCP writes also carry `UCP-Agent`; argument and header profiles must agree, as must retry keys supplied in both locations.
+
+Negotiation runs before handlers and idempotency reservations, regardless of whether an access token is valid, invalid, or missing. Failures are `invalid_profile_url` (REST 400), `profile_unreachable` (424), `profile_malformed` (422), and `version_unsupported` (422). MCP returns `-32001` with `error.data.code`. An incompatible operation capability returns REST 200 or an MCP result with `capabilities_incompatible`, without an effect. After negotiation, an OAuth actor's claimed profile must equal its grant's profile; mismatch returns REST 403 or MCP `-32000` with `profile_mismatch`. Disagreeing retry keys return `idempotency_key_mismatch`.
+
+The shared negotiation/signature resolver uses HTTPS without redirects, validates every DNS address and pins the connection to a public address while retaining Host and SNI. It has a 5-second total deadline, a 128 KiB body limit, four concurrent resolutions and 60 fetch starts per rolling minute per process. Concurrent requests for one URL share resolution. Only valid profiles are persisted for 300 seconds; failures are not cached. Failure logs contain the kind and host, never the raw exception or full profile URL.
+
+Two intentional Chase Sets extensions allow profile-less callers:
+
+- Public, read-only catalog search and lookup work on REST and MCP. REST checkout and order operations still require a profile.
+- `/ucp/mcp` is the buyer connector: profile-less checkout/order calls follow normal OAuth handling, with `authentication_required` and `mcp/www_authenticate` for unauthenticated callers. Authenticated buyers use the business capability set without fetching a profile. A supplied or malformed profile never falls back to this extension.
+
+`pnpm run smoke:platform` checks profile-less REST checkout rejection and profile-less catalog success. Pre-merge proof belongs to exact-head hosted `Compose Boot Smoke`; the first post-merge staging smoke supplies deployed proof.
+
 ## ChatGPT App Connector
 
 ChatGPT now calls connectors "apps." Configure Chase Sets as a data-and-action ChatGPT app from the remote MCP endpoint:

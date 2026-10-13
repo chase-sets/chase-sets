@@ -489,6 +489,7 @@
     "infrastructure/platform-runtime/post-write-token-store.ts",
     "infrastructure/platform-runtime/realtime-outbox-store.ts",
     "infrastructure/platform-runtime/retention-sweep.ts",
+    "infrastructure/platform-runtime/ucp-profile-resolver.ts",
     "infrastructure/platform-runtime/ucp.ts",
     "infrastructure/platform-runtime/work-signal-composite.ts",
     "infrastructure/platform-runtime/work-signal-store.ts",

@@ -401,6 +401,7 @@ describe("Auth request actor resolution", () => {
     const linkedPlatformAuthorizations = {
       resolveAccessToken: vi.fn(async () => ({
         authorization_id: "lpa_1",
+        platform_profile_url: "https://agent.example/.well-known/ucp",
         user_id: "usr_1",
         account_id: "acc_1",
         scopes: ["catalog:read", "checkout:write"],
@@ -425,6 +426,7 @@ describe("Auth request actor resolution", () => {
       permissions: ["catalog.view", "orders.manage"],
       agentGrant: {
         grantId: "lpa_1",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["catalog:read", "checkout:write"],
         rolePermissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
       },
@@ -449,6 +451,7 @@ describe("Auth request actor resolution", () => {
     const linkedPlatformAuthorizations = {
       resolveAccessToken: vi.fn(async () => ({
         authorization_id: "lpa_precedence",
+        platform_profile_url: "https://agent.example/.well-known/ucp",
         user_id: "usr_ucp_precedence",
         account_id: "acc_ucp_precedence",
         scopes: ["catalog:read"],
@@ -489,6 +492,7 @@ describe("Auth request actor resolution", () => {
         user_id: "usr_1",
         account_id: "acc_1",
         scopes: ["payouts:request"],
+        platform_profile_url: "https://agent.example/.well-known/ucp",
       })),
     };
 

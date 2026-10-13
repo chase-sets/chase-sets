@@ -11,6 +11,7 @@ import {
   MCP_PROTOCOL_VERSION_HEADER,
 } from "@chase-sets/platform-runtime/mcp-protocol";
 import type { McpAuditSink, McpToolHandler } from "@chase-sets/platform-runtime/mcp";
+import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as orderingModule } from "@chase-sets/ordering";
@@ -172,6 +173,21 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
     subscriptionRunners: [],
   };
   const options: BuildPlatformApiOptions = {
+    ucp: {
+      profileResolver: async () => ({
+        ok: true,
+        profile: {
+          ucp: {
+            version: UCP_VERSION,
+            services: {},
+            payment_handlers: {},
+            capabilities: Object.fromEntries(
+              UCP_MCP_TOOLS.map((tool) => [tool.capability, [{ version: UCP_VERSION }]]),
+            ),
+          },
+        },
+      }),
+    },
     resolveActor: async (request): Promise<ResolvedActor | null> => {
       const roleKey = request.headers.get("x-test-role") ?? "owner";
       if (roleKey === "anonymous") return null;
