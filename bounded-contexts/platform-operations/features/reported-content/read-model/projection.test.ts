@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildReportedContentProjectionHandlers } from "./projection";
+import {
+  buildMarketplaceReportedContentProjectionHandlers,
+  buildPlatformOperationsReportedContentProjectionHandlers,
+} from "./projection";
+
+function buildReportedContentProjectionHandlers(db: ReturnType<typeof createDb>) {
+  return {
+    ...buildMarketplaceReportedContentProjectionHandlers(db),
+    ...buildPlatformOperationsReportedContentProjectionHandlers(db),
+  };
+}
 
 function createDb() {
   const rows = new Map<string, Record<string, unknown>>();
@@ -33,6 +43,19 @@ function createDb() {
           last_action_by_user_id: existing?.last_action_by_user_id ?? null,
         });
         return { rows: [], rowCount: 1 };
+      }
+
+      if (sql.includes("SET status = 'manually-unlisted'")) {
+        const key = `listing:${params[0]}`;
+        const existing = rows.get(key);
+        if (existing && (existing.last_action_at === null || String(existing.last_action_at) <= String(params[1]))) {
+          rows.set(key, {
+            ...existing,
+            status: "manually-unlisted",
+            updated_at: [String(existing.updated_at), String(params[1])].sort().at(-1),
+          });
+        }
+        return { rows: [], rowCount: 0 };
       }
 
       if (sql.includes("last_action")) {
@@ -87,6 +110,190 @@ function event(type: string, data: Record<string, unknown>, streamId = "marketpl
 }
 
 describe("reported content projection", () => {
+  const removalAt = "2026-07-07T00:02:00.000Z";
+  const automaticRemoval = {
+    reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    reportCount: 3,
+    threshold: 3,
+    autoUnlistedAt: removalAt,
+  };
+  const enforcement = {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    source: "automatic-report-threshold",
+    sourceActionId: automaticRemoval.reportId,
+    occurredAt: removalAt,
+  };
+  async function seed(db: ReturnType<typeof createDb>) {
+    const handlers = buildReportedContentProjectionHandlers(db);
+    for (const [id, owner] of [
+      ["lst_1", enforcement.accountId],
+      ["lst_2", "acc_other"],
+    ]) {
+      await handlers["marketplace.report.submitted"]!(
+        event("marketplace.report.submitted", {
+          reportId: `report_${id}`,
+          targetType: "listing",
+          targetId: id,
+          targetOwnerAccountId: owner,
+          reporterKind: "visitor",
+          reporterKey: "visitor:anon_1",
+          reporterAccountId: null,
+          reason: "counterfeit-concern",
+          details: null,
+          submittedAt: "2026-07-07T00:00:00.000Z",
+        }),
+      );
+    }
+    return handlers;
+  }
+
+  it("legacy-modern parity", async () => {
+    // Immutable-base 43d1c261 automatic output, including the existing report enrichment only.
+    for (const data of [automaticRemoval, { ...automaticRemoval, listingEnforcement: enforcement }]) {
+      const db = createDb();
+      const handlers = await seed(db);
+      const before = { ...db.rows.get("listing:lst_1") };
+      await handlers["marketplace.listing.auto-unlisted"]!(
+        event("marketplace.listing.auto-unlisted", data, "marketplace.listing-lst_1"),
+      );
+      expect(db.rows.get("listing:lst_1")).toEqual({
+        ...before,
+        status: "auto-unlisted",
+        auto_unlisted_at: removalAt,
+        auto_unlist_report_id: automaticRemoval.reportId,
+        auto_unlist_threshold: 3,
+      });
+    }
+  });
+
+  it("operator removal alone sets manual visibility and preserves newer update time and provenance", async () => {
+    const db = createDb();
+    const handlers = await seed(db);
+    db.rows.set("listing:lst_1", {
+      ...db.rows.get("listing:lst_1"),
+      updated_at: "2026-07-07T00:05:00.000Z",
+      auto_unlisted_at: "2026-07-07T00:00:00.000Z",
+      auto_unlist_report_id: "rpt_previous",
+      auto_unlist_threshold: 3,
+    });
+    db.rows.set("review:lst_1", {
+      ...db.rows.get("listing:lst_2"),
+      target_type: "review",
+      target_id: "lst_1",
+      target_owner_account_id: "acc_review",
+    });
+    const before = [...db.rows.values()];
+    expect(before[0]).toMatchObject({
+      status: "needs-review",
+      last_action: null,
+      last_action_at: null,
+      last_action_note: null,
+      last_action_by_user_id: null,
+    });
+
+    await handlers["marketplace.listing.operator-unlisted"]!(
+      event(
+        "marketplace.listing.operator-unlisted",
+        {
+          listingEnforcement: {
+            ...enforcement,
+            source: "operator-unlist",
+            sourceActionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          },
+        },
+        "marketplace.listing-lst_1",
+      ),
+    );
+
+    expect([...db.rows.values()]).toEqual([{ ...before[0], status: "manually-unlisted" }, before[1], before[2]]);
+  });
+
+  it.each(["audit-first", "removal-first"])("operator removal matches automatic visibility: %s", async (order) => {
+    const db = createDb();
+    const handlers = await seed(db);
+    const before = { ...db.rows.get("listing:lst_1") };
+    const other = { ...db.rows.get("listing:lst_2") };
+    const remove = () =>
+      handlers["marketplace.listing.operator-unlisted"]!(
+        event(
+          "marketplace.listing.operator-unlisted",
+          {
+            listingEnforcement: {
+              ...enforcement,
+              source: "operator-unlist",
+              sourceActionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            },
+          },
+          "marketplace.listing-lst_1",
+        ),
+      );
+    const audit = () =>
+      handlers["platform-operations.reported-content.action-recorded"]!(
+        event("platform-operations.reported-content.action-recorded", {
+          targetType: "listing",
+          targetId: "lst_1",
+          action: "unlist",
+          note: "Keep provenance",
+          operatorUserId: "usr_ops",
+          recordedAt: removalAt,
+        }),
+      );
+    expect(before.status).toBe("needs-review");
+    if (order === "audit-first") {
+      await audit();
+      await remove();
+    } else {
+      await remove();
+      await audit();
+    }
+    expect(db.rows.get("listing:lst_1")).toEqual({
+      ...before,
+      status: "manually-unlisted",
+      last_action: "unlist",
+      last_action_at: removalAt,
+      last_action_note: "Keep provenance",
+      last_action_by_user_id: "usr_ops",
+      updated_at: removalAt,
+    });
+    expect(db.rows.get("listing:lst_2")).toEqual(other);
+  });
+
+  it.each(["dismiss", "contact-seller"])("delayed operator removal preserves newer %s", async (action) => {
+    const db = createDb();
+    const handlers = await seed(db);
+    await handlers["platform-operations.reported-content.action-recorded"]!(
+      event("platform-operations.reported-content.action-recorded", {
+        targetType: "listing",
+        targetId: "lst_1",
+        action,
+        note: "Newer action",
+        operatorUserId: "usr_new",
+        recordedAt: "2026-07-07T00:03:00.000Z",
+      }),
+    );
+    const before = { ...db.rows.get("listing:lst_1") };
+    await handlers["marketplace.listing.operator-unlisted"]!(
+      event(
+        "marketplace.listing.operator-unlisted",
+        {
+          listingEnforcement: {
+            ...enforcement,
+            source: "operator-unlist",
+            sourceActionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          },
+        },
+        "marketplace.listing-lst_1",
+      ),
+    );
+    expect(db.rows.get("listing:lst_1")).toEqual(before);
+    expect(db.query).toHaveBeenLastCalledWith(
+      expect.stringContaining("AND (last_action_at IS NULL OR last_action_at <= $2::timestamptz)"),
+      ["lst_1", removalAt],
+    );
+  });
+
   it("groups reports by target and marks the queue item auto-unlisted", async () => {
     const db = createDb();
     const handlers = buildReportedContentProjectionHandlers(db);
