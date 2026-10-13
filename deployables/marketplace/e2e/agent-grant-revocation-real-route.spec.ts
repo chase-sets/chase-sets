@@ -4,10 +4,13 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { createAgentGrantRevocations, createLinkedPlatformAuthorizationStore } from "@chase-sets/identity/server";
-import { ownedBrowserIdentityDatabase } from "../../../bounded-contexts/identity/features/account-management/tests/browser-test-support";
+import {
+  createAgentGrantRevocations,
+  createLinkedPlatformAuthorizationStore,
+  ownedBrowserIdentityDatabase,
+} from "@chase-sets/identity/seed-support/account-management-browser";
+import type { Pool } from "pg";
 import { registerSyntheticAccount } from "./support/auth";
-import { resolveWorktreeSandbox } from "../../../scripts/lib/sandbox.mjs";
 
 test.use({ trace: "off", video: "off", screenshot: "off" });
 test("revocation-real-route synthetic Account, completion, retained forms, reload and foreign Account denial @marketplace-account", async ({
@@ -16,19 +19,20 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
 }, info) => {
   if (!baseURL || !["localhost", "127.0.0.1"].includes(new URL(baseURL).hostname))
     throw new Error("local browser sandbox required");
+  const platformApiUrl: unknown = info.config.metadata.platformApiUrl;
+  if (typeof platformApiUrl !== "string" || !["localhost", "127.0.0.1"].includes(new URL(platformApiUrl).hostname))
+    throw new Error("local browser API sandbox required");
   const identity = createHash("sha256").update(randomUUID()).digest("hex");
   const actor = {
     email: `${identity}@chasesets.test`,
     password: `E2e!${identity}`,
     displayName: "Synthetic Revocation Account A",
-    shouldRegister: true,
   };
   await registerSyntheticAccount(page, baseURL, actor, { freshReadRoute: "/account/security" });
   const response = await page.request.get("/api/identity/current-actor-display");
   expect(response.status()).toBe(200);
   const display = await response.json();
-  const sandbox = resolveWorktreeSandbox();
-  const registration = await page.request.post(`${sandbox.urls.platformApi}/ucp/oauth/register`, {
+  const registration = await page.request.post(`${platformApiUrl}/ucp/oauth/register`, {
     data: {
       client_name: "Synthetic Revocation Agent",
       client_uri: "https://synthetic.example/profile",
@@ -138,7 +142,6 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
         email: `${otherId}@chasesets.test`,
         password: `E2e!${otherId}`,
         displayName: "Synthetic Revocation Account B",
-        shouldRegister: true,
       },
       { freshReadRoute: "/account/security" },
     );
@@ -167,6 +170,6 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
       ),
     );
   } finally {
-    await pool.end();
+    await (pool as Pool).end();
   }
 });
