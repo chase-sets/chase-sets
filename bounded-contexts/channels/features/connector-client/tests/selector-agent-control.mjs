@@ -531,14 +531,7 @@ export async function createRunEndpoint(session, binding) {
 }
 
 // Raw browser primitives are private to this offline-only Channels adapter.
-export function createPlaywrightSelectorBrowser({
-  context,
-  preparation,
-  binding,
-  ordersUrl,
-  deadline,
-  cancel = false,
-}) {
+export function createPlaywrightSelectorBrowser({ context, preparation, binding, ordersUrl, deadline }) {
   check(binding.evidence === "synthetic" && preparation.evidence === "synthetic", "live_launch_not_authorized");
   check(context.browser().version() === binding.version, "chrome_version_refused");
   check(
@@ -555,7 +548,8 @@ export function createPlaywrightSelectorBrowser({
     closedBrowser = false;
   let dialogs = 0,
     downloads = 0,
-    dialogFailure = null;
+    dialogFailure = null,
+    cancelBeforeBegin = false;
   const saved = [],
     countReads = new Set();
   async function boundary(page, expectedUrl) {
@@ -610,7 +604,7 @@ export function createPlaywrightSelectorBrowser({
         text ===
         "AGENT: one selector lifecycle with pre-launch T0, including sign-in and removal within T0+15 minutes? Preparation grants no execution; no raw recording or retries."
       ) {
-        if (cancel) await dialog.dismiss();
+        if (cancelBeforeBegin) await dialog.dismiss();
         else await dialog.accept();
       } else if (
         text ===
@@ -724,6 +718,7 @@ export function createPlaywrightSelectorBrowser({
         return { ok: true };
       } else if (op === "capture" || op === "cancel-before-begin") {
         check(binding.mode === "C", "S_helper_refused");
+        cancelBeforeBegin = op === "cancel-before-begin";
         orders = await context.newPage();
         try {
           await orders.goto(ordersUrl, { waitUntil: "commit" });
@@ -735,6 +730,11 @@ export function createPlaywrightSelectorBrowser({
         await settle();
         helper = await context.newPage();
         await helper.goto(preparation.captureUrl, { waitUntil: "commit" });
+        await helper.waitForFunction(
+          () =>
+            typeof globalThis.orderAuthorityCapture?.run === "function" &&
+            typeof globalThis.orderAuthorityCapture?.abort === "function",
+        );
         helper.on("dialog", (dialog) => {
           void nativeDialog(dialog);
         });

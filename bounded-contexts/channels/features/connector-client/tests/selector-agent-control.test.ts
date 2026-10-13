@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createContext, Script } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const control = await import(new URL("./selector-agent-control.mjs", import.meta.url).href);
@@ -83,6 +84,89 @@ function fixture(mode = "S") {
 }
 
 describe("selector-agent-control-capability", () => {
+  it("waits for the actual fixed helper API before cancel-before-begin, not navigation commit", async () => {
+    const f = fixture("C");
+    const digests = { "synthetic-package": "b".repeat(64) };
+    f.binding.packageHash = hash(JSON.stringify(digests));
+    const preparation = {
+      evidence: "synthetic",
+      extensionId: f.binding.packageId,
+      profileDirectory: f.profile,
+      packageDigests: digests,
+      captureUrl: `chrome-extension://${f.binding.packageId}/capture.html`,
+    };
+    const ordersUrl = pathToFileURL(path.join(f.root, "synthetic-orders.html")).href;
+    let url = "",
+      helperReady = false;
+    const doc = documentFor();
+    const orders = {
+      url: () => url,
+      goto: async (next: string) => {
+        url = next;
+      },
+      evaluate: async (_fn: unknown, value: { range: string; previous: unknown }) =>
+        control.inspectOrders(doc, value.range, value.previous),
+      locator: () => ({
+        selectOption: async () => {
+          doc.querySelector("[data-orders-completion]")!.setAttribute("data-load", "load-2");
+        },
+      }),
+    };
+    let helperUrl = "",
+      accepted = false;
+    let resolveDialog: (value: { ok: boolean; code: string }) => void = () => {};
+    const native = {
+      message: () =>
+        "AGENT: one selector lifecycle with pre-launch T0, including sign-in and removal within T0+15 minutes? Preparation grants no execution; no raw recording or retries.",
+      accept: async () => {
+        accepted = true;
+        resolveDialog({ ok: true, code: "scrubbed_export_created" });
+      },
+      dismiss: async () => {
+        resolveDialog({ ok: false, code: "canceled" });
+      },
+    };
+    let onDialog: (dialog: typeof native) => void = () => {};
+    const helper = {
+      url: () => helperUrl,
+      goto: async (next: string) => {
+        helperUrl = next;
+      },
+      on: (event: string, listener: (dialog: typeof native) => void) => {
+        if (event === "dialog") onDialog = listener;
+      },
+      waitForFunction: async (predicate: () => boolean) => {
+        const realm = createContext({ orderAuthorityCapture: { run: () => {}, abort: () => {} } });
+        expect(new Script(`(${predicate.toString()})()`).runInContext(realm)).toBe(true);
+        helperReady = true;
+      },
+      evaluate: async () => {
+        if (!helperReady) throw new Error("synthetic_helper_not_loaded");
+        return new Promise<{ ok: boolean; code: string }>((resolve) => {
+          resolveDialog = resolve;
+          onDialog(native);
+        });
+      },
+    };
+    let pages = 0;
+    const context = {
+      browser: () => ({ version: () => f.binding.version }),
+      newPage: async () => (pages++ === 0 ? orders : helper),
+      close: async () => {},
+    };
+    const browser = control.createPlaywrightSelectorBrowser({
+      context,
+      preparation,
+      binding: f.binding,
+      ordersUrl,
+      deadline: Date.parse(f.binding.startedAt) + 900000,
+    });
+    const session = control.attachSelectorSession({ binding: f.binding, browser });
+    await session.dispatch(command(f.binding, "attach"));
+    expect(await session.dispatch(command(f.binding, "cancel-before-begin"))).toBeNull();
+    expect(session.hostTerminal().cause).toBe("CANCELLED");
+    expect(accepted).toBe(false);
+  });
   it("restart never re-admits a consumed root, even after terminal closure", async () => {
     const f = fixture();
     const session = control.attachSelectorSession({ binding: f.binding, browser: f.browser });
@@ -336,6 +420,11 @@ describe("selector-agent-package-parity", () => {
 });
 
 describe("selector-agent-orders-anchor-contract", () => {
+  it("the code-owned Orders predicate serializes into a browser realm without Node closures", () => {
+    const context = createContext({ document: documentFor() });
+    const result = new Script(`(${control.inspectOrders.toString()})(document, "LastTwoYears")`).runInContext(context);
+    expect(result.payload.currentEpochComplete).toBe(true);
+  });
   it("returns only the nine structural predicates and discriminates missing, duplicate, unrelated and stale completion", () => {
     const result = control.inspectOrders(documentFor(), "LastTwoYears");
     expect(result.payload).toEqual({

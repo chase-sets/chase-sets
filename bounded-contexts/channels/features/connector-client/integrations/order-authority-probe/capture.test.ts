@@ -1431,7 +1431,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           t0: new Date().toISOString(),
           synthetic: true,
         });
-        const clockOffset = Date.parse(hostPackage.t0) - Date.now();
+        const clockOffset = 0;
         const executable = chromium.executablePath();
         const version = execFileSync(executable, ["--version"], { encoding: "utf8" }).match(/\d+\.\d+\.\d+\.\d+/)![0];
         const binding = control.createSyntheticBinding({
@@ -1471,7 +1471,6 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           binding,
           ordersUrl: pathToFileURL(ordersFile).href,
           deadline: Date.parse(hostPackage.t0) + 900000,
-          cancel: scenario === "canceled",
         });
         const session = control.attachSelectorSession({ binding, browser });
         const endpoint = await control.createRunEndpoint(session, binding);
@@ -1552,6 +1551,18 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
           expect(blocked).toBe(0);
           await operate("remove");
           // remove is an actual exact-ID chrome://extensions UI action, not CDP uninstall.
+          const extensions = await context.newPage();
+          await extensions.goto("chrome://extensions/");
+          await expect
+            .poll(async () =>
+              extensions.evaluate((id) => {
+                const list = document
+                  .querySelector("extensions-manager")
+                  ?.shadowRoot?.querySelector("extensions-item-list")?.shadowRoot;
+                return list ? list.querySelector(`extensions-item[id="${id}"]`) !== null : null;
+              }, hostPackage.extensionId),
+            )
+            .toBe(false);
           await operate("close");
         } finally {
           await endpoint.close();
