@@ -21,6 +21,7 @@ import {
   TextInput,
   ValidationSummary,
   type NormalizedFormErrors,
+  hasFormErrors,
 } from "@chase-sets/design-system";
 import type { ShippingAddress } from "./contracts";
 import { SHIPPING_ADDRESS_REQUIRED_MESSAGES } from "../domain/errors";
@@ -51,15 +52,13 @@ function FailureSummary({ failure, focusSummary }: { failure: ShippingAddressFai
   );
 }
 
-function AddressForm({
+function AddressFormContent({
   address,
   failure,
-  onSubmit,
   focusSummary,
 }: {
   address?: ShippingAddress;
   failure?: ShippingAddressFailure | null;
-  onSubmit: () => void;
   focusSummary: FocusSummary;
 }) {
   const id = useId();
@@ -75,21 +74,19 @@ function AddressForm({
     if (failure) focusSummary(ref.current, failure);
   }, [failure, focusSummary]);
   return (
-    <Form spacing="none" method="post" onSubmit={onSubmit} errorAnnouncement={summary.length ? "summary" : "inline"}>
-      <Stack gap={3}>
-        <HiddenInput type="hidden" name="intent" value={address ? "update" : "create"} />
-        {address ? <HiddenInput type="hidden" name="shippingAddressId" value={address.shipping_address_id} /> : null}
-        <ValidationSummary ref={ref} errors={summary} />
-        <AddressFields address={address} id={id} errors={errors} />
-        <Button type="submit" tone={address ? "secondary" : "primary"} leadingIcon={address ? undefined : "plus"}>
-          {t(
-            address
-              ? "identity.features.shippingAddresses.ui.shippingAddressPage.update.address"
-              : "identity.features.shippingAddresses.ui.shippingAddressPage.save.address",
-          )}
-        </Button>
-      </Stack>
-    </Form>
+    <Stack gap={3}>
+      <HiddenInput type="hidden" name="intent" value={address ? "update" : "create"} />
+      {address ? <HiddenInput type="hidden" name="shippingAddressId" value={address.shipping_address_id} /> : null}
+      <ValidationSummary ref={ref} errors={summary} />
+      <AddressFields address={address} id={id} errors={errors} />
+      <Button type="submit" tone={address ? "secondary" : "primary"} leadingIcon={address ? undefined : "plus"}>
+        {t(
+          address
+            ? "identity.features.shippingAddresses.ui.shippingAddressPage.update.address"
+            : "identity.features.shippingAddresses.ui.shippingAddressPage.save.address",
+        )}
+      </Button>
+    </Stack>
   );
 }
 
@@ -293,7 +290,14 @@ export function ShippingAddressPage({
         description={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.description")}
       >
         <Surface elevation="tinted">
-          <AddressForm failure={createFailure} focusSummary={focusSummary} onSubmit={() => setActiveFailure(null)} />
+          <Form
+            spacing="none"
+            method="post"
+            onSubmit={() => setActiveFailure(null)}
+            errorAnnouncement={createFailure && hasFormErrors(createFailure.errors) ? "summary" : "inline"}
+          >
+            <AddressFormContent failure={createFailure} focusSummary={focusSummary} />
+          </Form>
         </Surface>
       </PageSection>
 
@@ -341,14 +345,25 @@ export function ShippingAddressPage({
                         </Button>
                       }
                     >
-                      <AddressForm
-                        address={address}
-                        focusSummary={focusSummary}
-                        failure={
-                          updateFailure?.shippingAddressId === address.shipping_address_id ? updateFailure : null
-                        }
+                      <Form
+                        spacing="none"
+                        method="post"
                         onSubmit={() => setActiveFailure(null)}
-                      />
+                        errorAnnouncement={
+                          updateFailure?.shippingAddressId === address.shipping_address_id &&
+                          hasFormErrors(updateFailure.errors)
+                            ? "summary"
+                            : "inline"
+                        }
+                      >
+                        <AddressFormContent
+                          address={address}
+                          focusSummary={focusSummary}
+                          failure={
+                            updateFailure?.shippingAddressId === address.shipping_address_id ? updateFailure : null
+                          }
+                        />
+                      </Form>
                     </ResponsiveEditSheet>
                     {!address.is_default ? (
                       <Form spacing="none" method="post" onSubmit={() => setActiveFailure(null)}>
