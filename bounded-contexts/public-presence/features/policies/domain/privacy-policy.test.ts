@@ -141,7 +141,7 @@ describe("Privacy Policy candidate", () => {
     );
     const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
     expect(capture.assertion).toContain("records capture");
-    expect(capture.evidenceRef).toContain("runtime.ts:2532-2573");
+    expect(capture.evidenceRef).toContain("runtime.ts:2627-2668");
     expect(capture.evidenceRef).toContain("domain.ts:968-1005");
     expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
     expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");

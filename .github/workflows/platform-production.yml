@@ -3892,16 +3892,6 @@ jobs:
           result="$(jq -r '.result // "failure"' artifacts/release-health/production-rollback-readiness.json)"
           echo "result=${result}" >> "$GITHUB_OUTPUT"
 
-      - name: Enforce Agent Grant revocation compatibility floor
-        if: env.SHOULD_DEPLOY != 'false'
-        env:
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
-          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: |
-          node ./scripts/agent-grant-revocation-release.mjs prepare \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
-
       - name: Deploy production Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
         env:
@@ -3909,10 +3899,15 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
@@ -4315,6 +4310,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          ACTIVATE_AGENT_GRANT_REVOCATION: ${{ inputs.activate_agent_grant_revocation == true }}
         run: |
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
@@ -4323,33 +4319,21 @@ jobs:
             --rollback-target "artifacts/release-health/production-rollback-target.json" \
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
           node ./scripts/production-release-marker.mjs retain-identity
-
-      - name: Activate Agent Grant revocation
-        if: env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
-        env:
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
-          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: |
-          node ./scripts/agent-grant-revocation-release.mjs activate \
-            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
-            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
-            --out artifacts/release-health/agent-grant-revocation-activation.json
-
-      - name: Retain Agent Grant revocation activation proof
-        if: always() && inputs.activate_agent_grant_revocation == true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: agent-grant-revocation-activation
-          path: artifacts/release-health/agent-grant-revocation-activation.json
-          if-no-files-found: warn
-          retention-days: 30
+          if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then
+            node ./scripts/agent-grant-revocation-release.mjs activate \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+              --out artifacts/release-health/agent-grant-revocation-activation.json
+          fi
 
       - name: Upload production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-kubernetes-deployment-transition
-          path: artifacts/release-health/production-kubernetes-deployment-transition.json
+          path: |
+            artifacts/release-health/production-kubernetes-deployment-transition.json
+            artifacts/release-health/agent-grant-revocation-activation.json
           if-no-files-found: error
           retention-days: 30
 
