@@ -423,18 +423,34 @@ export async function readInvitationAcceptanceAuthority(
     if (receiptHistory.length) {
       if (
         receiptHistory[0].eventType !== INVITATION_ACCEPTANCE_RECEIPT_EVENT ||
-        !agrees(parseInvitationAcceptanceOperation(receiptHistory[0].payload), operation) ||
-        invitation.status !== "accepted" ||
-        invitation.acceptedByUserId !== operation.userId
+        !agrees(parseInvitationAcceptanceOperation(receiptHistory[0].payload), operation)
       )
         refuse();
     }
-    if (invitation.status === "accepted" && !receiptHistory.length) refuse();
     const userHistory = await readInvitationAcceptanceHistory(
       store,
       `identity.user-${operation.userId}`,
       params.context,
     );
+    const membershipHistory = await readInvitationAcceptanceHistory(
+      store,
+      `identity.membership-${operation.membershipId}`,
+      params.context,
+    );
+    if (receiptHistory.length || membershipHistory.length) {
+      if (!store.appendToStreams) refuse();
+      // Separate reads may straddle acceptance; prove their versions before judging their agreement.
+      await store.appendToStreams([
+        input(`identity.invitation-${operation.invitationId}`, history, [], params.context),
+        input(`identity.account-${operation.accountId}`, accountHistory, [], params.context),
+        input(`identity.user-${operation.userId}`, userHistory, [], params.context),
+        input(`identity.membership-${operation.membershipId}`, membershipHistory, [], params.context),
+        input(`identity.invitation-acceptance-${operation.attemptId}`, receiptHistory, [], params.context),
+      ]);
+    }
+    if (receiptHistory.length && (invitation.status !== "accepted" || invitation.acceptedByUserId !== operation.userId))
+      refuse();
+    if (invitation.status === "accepted" && !receiptHistory.length) refuse();
     const user = userState(userHistory);
     if (
       userHistory.length &&
@@ -446,11 +462,6 @@ export async function readInvitationAcceptanceAuthority(
     )
       refuse();
     if (receiptHistory.length && !user.id) refuse();
-    const membershipHistory = await readInvitationAcceptanceHistory(
-      store,
-      `identity.membership-${operation.membershipId}`,
-      params.context,
-    );
     const membership = membershipState(membershipHistory);
     if (
       receiptHistory.length &&
@@ -462,16 +473,6 @@ export async function readInvitationAcceptanceAuthority(
     )
       refuse();
     if (!receiptHistory.length && membershipHistory.length) refuse();
-    if (receiptHistory.length) {
-      if (!store.appendToStreams) refuse();
-      await store.appendToStreams([
-        input(`identity.invitation-${operation.invitationId}`, history, [], params.context),
-        input(`identity.account-${operation.accountId}`, accountHistory, [], params.context),
-        input(`identity.user-${operation.userId}`, userHistory, [], params.context),
-        input(`identity.membership-${operation.membershipId}`, membershipHistory, [], params.context),
-        input(`identity.invitation-acceptance-${operation.attemptId}`, receiptHistory, [], params.context),
-      ]);
-    }
     return {
       invitation,
       history,
@@ -536,29 +537,29 @@ export async function acceptInvitationOperation(
   const operation = parseInvitationAcceptanceOperation(params.operation);
   if (!store.appendToStreams) throw new Error("Atomic Invitation acceptance requires appendToStreams.");
   for (let attempt = 0; attempt < 2; attempt++) {
-    const authority = await readInvitationAcceptanceAuthority(store, {
-      ...params,
-      invitationId: operation.invitationId,
-      operation,
-    });
-    if (!authority.userHistory || !authority.user?.id || !authority.membershipHistory || !authority.membership)
-      return refuse();
-    if (authority.receiptHistory.length) return { membershipId: operation.membershipId, snapshots: [] };
-    const accepted = decideInvitation(authority.invitation, {
-      type: "AcceptInvitation",
-      userId: operation.userId as UserId,
-      acceptanceTokenHash: params.acceptanceTokenHash,
-      acceptedAt: new Date().toISOString(),
-    });
-    const granted = decideMembership(authority.membership, {
-      type: "GrantMembership",
-      membershipId: operation.membershipId as MembershipId,
-      userId: operation.userId as UserId,
-      accountId: authority.invitation.accountId!,
-      roleKey: parseGrantableRoleKey(operation.roleKey)!,
-      assignmentAuthority: { type: "system" },
-    });
     try {
+      const authority = await readInvitationAcceptanceAuthority(store, {
+        ...params,
+        invitationId: operation.invitationId,
+        operation,
+      });
+      if (!authority.userHistory || !authority.user?.id || !authority.membershipHistory || !authority.membership)
+        return refuse();
+      if (authority.receiptHistory.length) return { membershipId: operation.membershipId, snapshots: [] };
+      const accepted = decideInvitation(authority.invitation, {
+        type: "AcceptInvitation",
+        userId: operation.userId as UserId,
+        acceptanceTokenHash: params.acceptanceTokenHash,
+        acceptedAt: new Date().toISOString(),
+      });
+      const granted = decideMembership(authority.membership, {
+        type: "GrantMembership",
+        membershipId: operation.membershipId as MembershipId,
+        userId: operation.userId as UserId,
+        accountId: authority.invitation.accountId!,
+        roleKey: parseGrantableRoleKey(operation.roleKey)!,
+        assignmentAuthority: { type: "system" },
+      });
       const results = await store.appendToStreams([
         input(`identity.invitation-${operation.invitationId}`, authority.history, accepted, params.context),
         input(`identity.membership-${operation.membershipId}`, authority.membershipHistory, granted, params.context),

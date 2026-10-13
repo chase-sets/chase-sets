@@ -19,11 +19,13 @@ const base = process.env.TEST_DATABASE_URL;
 if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 (base ? describe : describe.skip)("invitation-acceptance-identity-atomicity", () => {
   let pools: Readonly<Record<"identity", PgTransactionalPool>>;
+  let concurrentPools: Readonly<Record<"identity", PgTransactionalPool>>;
   let pool: PgTransactionalPool;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(base!, ["identity"], "invitation_acceptance_atomicity");
     await ensureMultiContextTestDatabases(base!, urls);
     pools = createMultiContextTestPools(urls);
+    concurrentPools = createMultiContextTestPools(urls);
     pool = pools.identity;
   });
   beforeEach(async () => {
@@ -32,6 +34,7 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+    if (concurrentPools) await closeMultiContextTestPools(concurrentPools);
   });
   it("invitation-acceptance-caller-partition preserves owner-only synthetic seeds across fresh, repeated and retained-history restarts", async () => {
     await bootstrapContextDatabase(identityModule, pool);
@@ -151,4 +154,37 @@ if (!base && process.env.CI) throw new Error("TEST_DATABASE_URL is required for 
       await store.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
     ).toHaveLength(1);
   });
+  it.each(["identity.invitation-ivt_invited", `identity.invitation-acceptance-${acceptanceOperation.attemptId}`])(
+    "converges after another connection commits between participant reads at %s",
+    async (streamId) => {
+      const store = createPostgresEventStore({ pool });
+      const concurrent = createPostgresEventStore({ pool: concurrentPools.identity });
+      await seedAcceptance(store);
+      const input = {
+        operation: acceptanceOperation,
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      };
+      let committed = false;
+      const interleaved = {
+        ...store,
+        readStream: async (params: Parameters<typeof store.readStream>[0]) => {
+          const history = await store.readStream(params);
+          if (!committed && params.streamId === streamId) {
+            committed = true;
+            await acceptInvitationOperation(concurrent, input);
+          }
+          return history;
+        },
+      };
+      await expect(acceptInvitationOperation(interleaved, input)).resolves.toMatchObject({
+        membershipId: acceptanceOperation.membershipId,
+        snapshots: [],
+      });
+      expect(await store.readStream({ streamId: "identity.membership-mbr_reserved" })).toHaveLength(1);
+      expect(
+        await store.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
+      ).toHaveLength(1);
+    },
+  );
 });

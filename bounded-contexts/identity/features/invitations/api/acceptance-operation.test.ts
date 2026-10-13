@@ -43,6 +43,39 @@ async function accept(store: EventStore, operation = acceptanceOperation) {
 }
 
 describe("invitation-acceptance-identity-atomicity", () => {
+  it.each(["identity.invitation-ivt_invited", `identity.invitation-acceptance-${acceptanceOperation.attemptId}`])(
+    "converges when an exact acceptance commits after reading %s",
+    async (streamId) => {
+      const store = createInMemoryEventStore();
+      await seedAcceptance(store);
+      const params = {
+        operation: acceptanceOperation,
+        acceptanceTokenHash: "existing-store-token-hash",
+        context: acceptanceContext,
+      };
+      let committed = false;
+      const interleaved: EventStore = {
+        ...store,
+        readStream: async (input) => {
+          const history = await store.readStream(input);
+          if (!committed && input.streamId === streamId) {
+            committed = true;
+            await acceptInvitationOperation(store, params);
+          }
+          return history;
+        },
+      };
+      await expect(acceptInvitationOperation(interleaved, params)).resolves.toMatchObject({
+        membershipId: acceptanceOperation.membershipId,
+        snapshots: [],
+      });
+      expect(await store.readStream({ streamId: "identity.membership-mbr_reserved" })).toHaveLength(1);
+      expect(
+        await store.readStream({ streamId: `identity.invitation-acceptance-${acceptanceOperation.attemptId}` }),
+      ).toHaveLength(1);
+    },
+  );
+
   it("F2 receipt-bound acceptance remains provable after a one-hour token expires, never pending or wrong-token", async () => {
     const store = createInMemoryEventStore();
     await seedAcceptance(store);
