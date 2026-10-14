@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { managedFixture } from "../tests/managed-fixture";
@@ -24,7 +25,8 @@ describe("managed Offer application and commitment", () => {
             },
             context,
           );
-        const returned = (await append.mock.results.at(-1)!.value)!.flatMap((batch) => batch.storedEvents);
+        const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+        const returned = results.flatMap((batch) => batch.storedEvents);
         expect(returned.map((event) => event.eventType)).toEqual(
           operation === "acceptance"
             ? [

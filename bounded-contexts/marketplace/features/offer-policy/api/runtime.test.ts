@@ -9,6 +9,7 @@ import type { ManagedOfferTarget } from "../../offers/api/managed-authority";
 import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../domain/domain";
 import { buyerOfferPolicyCodec } from "../domain/codec";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
   it("records exactly the returned policy and every Authorize binding event, but not replay or empty decisions", async () => {
@@ -28,7 +29,8 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     } as const;
     const active = await runWithEventCommitMetadata(async () => {
       const result = await runtime.execute("bop_one", command, context);
-      const returned = (await append.mock.results.at(-1)!.value)!.flatMap((batch) => batch.storedEvents);
+      const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+      const returned = results.flatMap((batch) => batch.storedEvents);
       expect(returned.map((event) => event.streamId)).toEqual([
         "marketplace.offer-policy-bop_one",
         "marketplace.offer-off_one",
@@ -73,7 +75,8 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     const append = vi.spyOn(store, "appendToStreams");
     await runWithEventCommitMetadata(async () => {
       await preview(runtime);
-      const returned = (await append.mock.results.at(-1)!.value)!.flatMap((batch) => batch.storedEvents);
+      const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+      const returned = results.flatMap((batch) => batch.storedEvents);
       expect(returned.map((event) => event.streamId)).toEqual(["marketplace.offer-policy-bop_one"]);
       expect(getEventCommitMetadata().committedEvents).toEqual(returned);
     });

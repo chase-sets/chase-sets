@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createMarketplaceOfferRuntime } from "./runtime";
 import { MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
@@ -192,7 +192,8 @@ describe("marketplace offer runtime", () => {
         if (outcome === "failure") await expect(action).rejects.toThrow("injected append failure");
         else expect(await action).toMatchObject({ offerId: "off_1", listingId: "lst_1", version: 3 });
         if (outcome === "commit") {
-          const returned = (await append.mock.results.at(-1)!.value).flatMap((batch) => batch.storedEvents);
+          const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+          const returned = results.flatMap((batch) => batch.storedEvents);
           expect(returned.map((event) => event.eventType)).toEqual([
             "marketplace.offer.accepted",
             "marketplace.listing.evidence-requirements-refreshed",
