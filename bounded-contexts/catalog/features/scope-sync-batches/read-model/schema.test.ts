@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { catalogScopeSyncBatchSchemaSql } from "./schema";
 import { catalogCountHistorySchemaSql, catalogCountHistorySchemaMigrations } from "./count-schema";
-import { countCaptureSchemaMigrations, countCaptureSchemaSql, countCaptureTableSchemaSql } from "./count-capture-schema";
+import {
+  countCaptureSchemaMigrations,
+  countCaptureSchemaSql,
+  countCaptureTableSchemaSql,
+} from "./count-capture-schema";
 import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "../../../support/authoring-support/schema";
 
 describe("Scope Sync Batch schema", () => {
@@ -23,7 +27,9 @@ describe("Scope Sync Batch schema", () => {
   it("ledgers the capture table and keeps its indexes in new-table boot", () => {
     expect(countCaptureSchemaSql.startsWith(countCaptureTableSchemaSql)).toBe(true);
     expect(countCaptureSchemaSql).toContain("catalog_count_capture_run_idx");
-    expect(countCaptureSchemaMigrations.flatMap((migration) => migration.statements)).toEqual([countCaptureTableSchemaSql]);
+    expect(countCaptureSchemaMigrations.flatMap((migration) => migration.statements)).toEqual([
+      countCaptureTableSchemaSql,
+    ]);
     expect(catalogAuthoringSchemaSql).toContain(countCaptureSchemaSql);
     expect(catalogAuthoringSchemaMigrations).toEqual(expect.arrayContaining(countCaptureSchemaMigrations));
   });

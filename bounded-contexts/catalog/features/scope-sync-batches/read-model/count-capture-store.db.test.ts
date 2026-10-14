@@ -39,7 +39,12 @@ const legalSends: Readonly<Record<CountCapturePhase, readonly CountCaptureSend[]
   bootstrap: [usage("bootstrap")],
   quote: [],
   acquisition: [count("cards"), count("sealed")],
-  preview: [usage("readiness"), usage("planImport", setUnit), usage("planImport", cardUnit), usage("planImport", sealedUnit)],
+  preview: [
+    usage("readiness"),
+    usage("planImport", setUnit),
+    usage("planImport", cardUnit),
+    usage("planImport", sealedUnit),
+  ],
   "pre-confirm": [
     usage("readiness"),
     usage("planImport", setUnit),
@@ -128,7 +133,10 @@ describeDb("count-capture possible-send ledger", () => {
         createCountCaptureStore(pool, clock),
       );
       const { binding } = await openPhase(createCountCaptureStore(primary.catalog, clock), "acquisition");
-      const outcomes = await Promise.allSettled([first!.ledger.debit(binding, count("cards")), second!.ledger.debit(binding, count("cards"))]);
+      const outcomes = await Promise.allSettled([
+        first!.ledger.debit(binding, count("cards")),
+        second!.ledger.debit(binding, count("cards")),
+      ]);
       expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(2);
     });
 

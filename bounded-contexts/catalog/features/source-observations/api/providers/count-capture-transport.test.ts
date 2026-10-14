@@ -11,7 +11,11 @@ import {
   type CountCaptureBinding,
   type CountCaptureSend,
 } from "./count-capture-transport";
-import { createProviderSendAdmission, runCatalogProviderWork, sendCatalogProviderRequest } from "./provider-send-admission";
+import {
+  createProviderSendAdmission,
+  runCatalogProviderWork,
+  sendCatalogProviderRequest,
+} from "./provider-send-admission";
 import {
   acquireScrydexPageOneCount,
   createScrydexOnePieceProviderAdapter,
@@ -77,8 +81,11 @@ function fixture(phase: CountCaptureBinding["phase"] = "preview", next: Reply = 
     phase,
   };
   const run = <T>(work: () => Promise<T>) => runCountCaptureRequest({ binding, ledger }, work);
-  const send = (url = usageUrl, category: Parameters<typeof sendCatalogProviderRequest>[4] = "usage", init?: RequestInit) =>
-    sendCatalogProviderRequest("scrydex", transport, url, init, category);
+  const send = (
+    url = usageUrl,
+    category: Parameters<typeof sendCatalogProviderRequest>[4] = "usage",
+    init?: RequestInit,
+  ) => sendCatalogProviderRequest("scrydex", transport, url, init, category);
   return { ledger, transport, debits, order, run, send };
 }
 
@@ -136,11 +143,41 @@ describe("refuses unsafe sends", () => {
     ["an unknown category", "scrydex", `${scrydex}/onepiece/v1/expansions`, "discovery", undefined],
     ["a usage query", "scrydex", `${usageUrl}?extra=1`, "usage", undefined],
     ["usage spoofed as a count", "scrydex", usageUrl, "card-force", undefined],
-    ["a count spoofed as usage", "scrydex", `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`, "usage", undefined],
-    ["a second count page", "scrydex", `${scrydex}/onepiece/v1/cards?page=2&page_size=250&q=printings:OP01&select=id`, "card-force", undefined],
-    ["an extra count key", "scrydex", `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id&x=1`, "card-force", undefined],
-    ["a card search that is not a set count", "scrydex", `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=name:x&select=id`, "card-force", undefined],
-    ["another product domain", "scrydex", `${scrydex}/lorcana/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`, "card-force", undefined],
+    [
+      "a count spoofed as usage",
+      "scrydex",
+      `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`,
+      "usage",
+      undefined,
+    ],
+    [
+      "a second count page",
+      "scrydex",
+      `${scrydex}/onepiece/v1/cards?page=2&page_size=250&q=printings:OP01&select=id`,
+      "card-force",
+      undefined,
+    ],
+    [
+      "an extra count key",
+      "scrydex",
+      `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id&x=1`,
+      "card-force",
+      undefined,
+    ],
+    [
+      "a card search that is not a set count",
+      "scrydex",
+      `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=name:x&select=id`,
+      "card-force",
+      undefined,
+    ],
+    [
+      "another product domain",
+      "scrydex",
+      `${scrydex}/lorcana/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`,
+      "card-force",
+      undefined,
+    ],
   ] as const)("refuses %s before any debit or transport", async (_label, provider, url, category, init) => {
     const f = fixture();
     await expect(
@@ -157,7 +194,11 @@ describe("refuses unsafe sends", () => {
     ["a timeout", "hang"],
   ] as const)("stops on %s, retains the debit and follows nothing", async (_label, next) => {
     const f = fixture("preview", next);
-    const sent = f.run(() => runCountCaptureUsage({ purpose: "readiness" }, () => f.send(usageUrl, "usage", { signal: AbortSignal.timeout(200) })));
+    const sent = f.run(() =>
+      runCountCaptureUsage({ purpose: "readiness" }, () =>
+        f.send(usageUrl, "usage", { signal: AbortSignal.timeout(200) }),
+      ),
+    );
     await expect(sent).rejects.toBeInstanceOf(CountCaptureStopped);
     expect(f.order).toEqual(["debit", "transport", "stop"]);
     expect(f.debits).toHaveLength(1);

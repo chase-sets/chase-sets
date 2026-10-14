@@ -75,7 +75,9 @@ const runSchema = z
       (!run.request || run.request.phase === run.phases.at(-1)) &&
       run.sends.every(
         (send, index) =>
-          send.sequence === index + 1 && run.phases.includes(send.phase) && (send.status === null) === (send.respondedAt === null),
+          send.sequence === index + 1 &&
+          run.phases.includes(send.phase) &&
+          (send.status === null) === (send.respondedAt === null),
       ),
   );
 export type CountCaptureRun = z.infer<typeof runSchema>;
