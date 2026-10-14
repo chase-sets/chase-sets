@@ -336,18 +336,28 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
   };
 }
 
+export const submittedOfferStatuses = ["submitted", "paused", "withdrawn", "accepted"] as const;
+export type SubmittedOfferStatus = (typeof submittedOfferStatuses)[number];
+export type SubmittedOfferStatusCounts = Readonly<Record<SubmittedOfferStatus, number>>;
+
+export function parseSubmittedOfferStatus(value: unknown): SubmittedOfferStatus | undefined {
+  return submittedOfferStatuses.find((status) => status === value);
+}
+
 export async function listSubmittedOffers(
   db: PgQueryable,
-  params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: MarketplaceOfferListRow[]; total: number }> {
+  params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number; status?: SubmittedOfferStatus }>,
+): Promise<{ items: MarketplaceOfferListRow[]; total: number; statusCounts: SubmittedOfferStatusCounts }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
+  const status = params.status ?? null;
 
   const [countResult, itemsResult] = await Promise.all([
-    db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+    db.query<{ status: string; count: string }>(
+      `SELECT status, COUNT(*) AS count
        FROM marketplace_offer_pages
-       WHERE buyer_account_id = $1`,
+       WHERE buyer_account_id = $1
+       GROUP BY status`,
       [params.buyerAccountId],
     ),
     db.query<MarketplaceOfferPageRow>(
@@ -359,15 +369,21 @@ export async function listSubmittedOffers(
        LEFT JOIN marketplace_account_pages AS seller
          ON seller.account_id = offer.accepted_seller_account_id
        WHERE offer.buyer_account_id = $1
+         AND ($4::text IS NULL OR offer.status = $4)
        ORDER BY offer.updated_at DESC, offer.offer_id DESC
        LIMIT $2 OFFSET $3`,
-      [params.buyerAccountId, limit, offset],
+      [params.buyerAccountId, limit, offset, status],
     ),
   ]);
+  const counted = new Map(countResult.rows.map((row) => [row.status, Number(row.count)]));
+  const statusCounts = Object.fromEntries(
+    submittedOfferStatuses.map((value) => [value, counted.get(value) ?? 0]),
+  ) as SubmittedOfferStatusCounts;
 
   return {
     items: itemsResult.rows.map(mapOfferRow),
-    total: Number(countResult.rows[0]?.count ?? 0),
+    total: status ? statusCounts[status] : [...counted.values()].reduce((sum, count) => sum + count, 0),
+    statusCounts,
   };
 }
 
@@ -402,7 +418,8 @@ export async function getPublicOffer(db: PgQueryable, offerId: string): Promise<
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS seller
        ON seller.account_id = offer.accepted_seller_account_id
-     WHERE offer.offer_id = $1`,
+     WHERE offer.offer_id = $1
+       AND offer.status = 'submitted'`,
     [offerId],
   );
 

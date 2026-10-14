@@ -131,6 +131,7 @@ function marketplaceErrorCode(error: unknown): string {
  */
 const OFFER_ACCEPTANCE_STALE_CODES = new Set([
   "fee_quote_stale",
+  "offer_not_open",
   "listing_evidence_incomplete",
   "listing_seller_trust_incomplete",
   "listing_not_eligible",

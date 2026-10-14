@@ -140,6 +140,9 @@
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
         "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted"
       ],
       "order": 30,

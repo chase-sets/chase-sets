@@ -632,6 +632,11 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.api.route.offer.not.found": "Offer not found.",
   "marketplace.features.offers.api.route.offer.match.not.found": "Offer match not found.",
   "marketplace.features.offers.api.route.request.failed": "Request failed.",
+  "marketplace.features.offers.api.route.offer.transition.rejected":
+    "This Offer can no longer make that change. Withdrawn and accepted Offers are final.",
+  "marketplace.features.offers.api.route.offer.conflict": "This Offer changed while your request was running. Try again.",
+  "marketplace.features.offers.api.route.bulk.invalid":
+    "Choose pause, resume or withdraw for 1 to {limit} Offers.",
   "marketplace.features.offers.api.route.submitted.offer.not.found": "Submitted offer not found.",
   "marketplace.features.offers.api.runtime.catalog.item.not.found": "Catalog item not found.",
   "marketplace.features.offers.api.runtime.offer.could.not.be.accepted": "Offer could not be accepted.",

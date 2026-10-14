@@ -71,6 +71,14 @@ class ProductAlertProjectionDb implements PgQueryable {
           status: "active",
           updated_at: values[1],
         });
+      } else if (sql.includes("status = $2")) {
+        if (Number(current.source_stream_version) >= Number(values[2])) return { rows: [], rowCount: 0 };
+        this.activities.set(String(values[0]), {
+          ...current,
+          status: values[1],
+          source_stream_version: values[2],
+          updated_at: values[3],
+        });
       } else if (sql.includes("status = 'paused'") || sql.includes("status = 'withdrawn'")) {
         this.activities.set(String(values[0]), {
           ...current,
@@ -393,5 +401,60 @@ describe("Product Alert notification projector", () => {
     );
 
     expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe("Product Alert Offer lifecycle", () => {
+  it("tracks Pause, Resume and Withdraw without sending a Product Alert on Resume", async () => {
+    const db = new ProductAlertProjectionDb();
+    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    db.alerts.set("pal_offer", {
+      alert_id: "pal_offer",
+      account_id: "acc_seller",
+      market_side: "offer",
+      product_id: "cat_1::raw",
+      threshold_amount: "10.00",
+      threshold_currency_code: "EUR",
+      status: "active",
+    });
+    const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox as never);
+    const lifecycle = { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" };
+
+    await handlers["marketplace.offer.submitted"]!(
+      marketplaceEvent("marketplace.offer.submitted", {
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        catalogItemId: "cat_1",
+        productId: "cat_1::raw",
+        selectedOptions: [],
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        productSummary: "Raw",
+        priceAmount: "8.00",
+        priceCurrencyCode: "EUR",
+        quantityRequested: 1,
+      }),
+    );
+    await handlers["marketplace.offer.paused"]!(marketplaceEvent("marketplace.offer.paused", lifecycle, 2));
+    expect(db.activities.get("off_1")).toMatchObject({ status: "paused", source_stream_version: 2 });
+
+    // Crossing the threshold while paused, then resuming, would look like newly-open demand to the dispatch rule.
+    await handlers["marketplace.offer.price-updated"]!(
+      marketplaceEvent(
+        "marketplace.offer.price-updated",
+        { offerId: "off_1", buyerAccountId: "acc_buyer", priceAmount: "12.00", priceCurrencyCode: "EUR" },
+        3,
+      ),
+    );
+    await handlers["marketplace.offer.resumed"]!(marketplaceEvent("marketplace.offer.resumed", lifecycle, 4));
+    expect(db.activities.get("off_1")).toMatchObject({ status: "submitted", price_amount: "12.00" });
+
+    await handlers["marketplace.offer.paused"]!(marketplaceEvent("marketplace.offer.paused", lifecycle, 2));
+    expect(db.activities.get("off_1")).toMatchObject({ status: "submitted", source_stream_version: 4 });
+
+    await handlers["marketplace.offer.withdrawn"]!(marketplaceEvent("marketplace.offer.withdrawn", lifecycle, 5));
+    expect(db.activities.get("off_1")).toMatchObject({ status: "withdrawn" });
+    expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+    expect(db.notifications.size).toBe(0);
   });
 });
