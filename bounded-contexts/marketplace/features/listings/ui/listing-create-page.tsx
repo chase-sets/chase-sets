@@ -1,8 +1,8 @@
 import { formatBpsPercent, formatMoney as formatMoneyDisplay, t } from "@chase-sets/localization";
+import { Form } from "../../../support/ui-support/mutation-form";
 import { useEffect, useState } from "react";
 import {
   HiddenInput,
-  Form,
   Accordion,
   Banner,
   Button,
@@ -305,6 +305,10 @@ export function MarketplaceListingCreatePage({
       <PageSection title={t("marketplace.features.listings.ui.listingCreatePage.create.listing")}>
         <Card elevation="tinted">
           <Form
+            family="listing-stock-ensure"
+            targetId="listing-stock"
+            enabled={!inventoryItemId}
+            mutationIntents={["create-listing", "create-and-publish-listing"]}
             spacing="none"
             method="post"
             encType="multipart/form-data"

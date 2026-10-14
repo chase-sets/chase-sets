@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
+import { MutationFormProvider } from "../support/ui-support/mutation-form";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
@@ -146,7 +148,7 @@ export default function DiscoveryItemDetailRoute() {
   const data = useLoaderData<typeof loader>() ?? EMPTY_ITEM_DETAIL_RESULT;
   const actionData = useActionData<DiscoveryItemDetailActionData>();
 
-  return (
+  const view = (
     <DiscoveryItemDetailRealtimeView
       key={[
         data.item?.catalog_item_id ?? "empty",
@@ -156,6 +158,14 @@ export default function DiscoveryItemDetailRoute() {
       data={data}
       actionData={actionData}
     />
+  );
+  const authority = "recoveryAuthority" in data ? data.recoveryAuthority : null;
+  return authority ? (
+    <InventoryMutationProvider authority={authority} key={`${authority.accountId}/${authority.actorUserId}`}>
+      <MutationFormProvider value={InventoryMutationForm}>{view}</MutationFormProvider>
+    </InventoryMutationProvider>
+  ) : (
+    view
   );
 }
 

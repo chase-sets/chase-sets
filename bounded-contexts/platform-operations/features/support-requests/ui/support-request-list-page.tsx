@@ -3,7 +3,7 @@ import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-refe
 import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { useMemo, useState } from "react";
-import { RouterForm } from "@chase-sets/design-system/react-router";
+import { ParticipantForm as RouterForm } from "./participant-form";
 import { useNavigation } from "react-router";
 import {
   Badge,

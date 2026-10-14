@@ -1,4 +1,5 @@
 import type { AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { ParticipantReceipt } from "./participant-attempt";
 import type { AccountId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { compareMoneyAmounts, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import { normalizeAffectedLineItemAmounts } from "@chase-sets/primitives/affected-line-item-amount";
@@ -556,6 +557,7 @@ export type SupportRequestReturnRefundReleasedEvent = DomainEvent<
 >;
 
 export type SupportRequestEvent =
+  | DomainEvent<"support.support-request.participant-attempt-recorded", ParticipantReceipt>
   | SupportRequestOpenedEvent
   | SupportEvidenceSubmittedEvent
   | SupportAffectedLineItemsRecordedEvent
@@ -2122,6 +2124,7 @@ export const evolveSupportRequest: AggregateEvolver<SupportRequestState, Support
           }
         : state;
     case supportCsatOutcomeFactEventType:
+    case "support.support-request.participant-attempt-recorded":
       return state;
     default:
       return assertNever(event);

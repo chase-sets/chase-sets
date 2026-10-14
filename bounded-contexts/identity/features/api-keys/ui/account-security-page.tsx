@@ -4,7 +4,6 @@ import type { User } from "../../users/ui/contracts";
 import {
   HiddenInput,
   LinkButton,
-  Form,
   Button,
   Banner,
   MarketplaceDashboardPanel,
@@ -20,6 +19,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
 import {
   apiKeyStatusLabel,
   identityAuthenticationMethodLabel,

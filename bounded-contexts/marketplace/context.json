@@ -36,7 +36,15 @@
     "seed-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
@@ -282,6 +290,18 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "platform-operations",
+      "reactionName": "marketplace-listing-moderation-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
+      "order": 95,
+      "reactionHandlerSetNames": ["marketplace-listing-moderation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
       "sourceContextName": "pricing",
       "reactionName": "marketplace-managed-offer-reaction",
       "subscriptionVersion": 1,
@@ -339,6 +359,14 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "marketplace-listing-moderation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "includeInBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "marketplace-managed-offer-reaction",
       "handlerKind": "reaction",
@@ -1501,7 +1529,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H569cfee4bbc9#1",
         "route-action:bounded-contexts/marketplace/routes/account-listings-new.tsx"
       ],
       "visibleDestination": {
@@ -1752,8 +1780,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -1764,6 +1791,9 @@
             "owner": "marketplace",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -1908,8 +1938,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -1920,6 +1949,9 @@
             "owner": "marketplace",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -1986,8 +2018,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -1998,6 +2029,9 @@
             "owner": "marketplace",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -2012,8 +2046,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -2024,6 +2057,9 @@
             "owner": "marketplace",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -2223,7 +2259,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Expose Marketplace-owned Review presentation and reporting through the deployable-facing web surface.",
-      "expectedConsumers": ["web.ts", "Discovery public-account routes"]
+      "expectedConsumers": ["listings"]
     },
     "routes": {
       "classification": "routes",

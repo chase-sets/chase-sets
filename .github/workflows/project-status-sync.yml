@@ -1,8 +1,11 @@
 name: Project Status Sync
 
 on:
+  issues:
+    types: [closed, reopened]
   schedule:
-    # Delivery and issue creation continue overnight and on weekends.
+    # Hourly fallback for other board changes, including nights and weekends.
+    # Closed and reopened issues trigger reconciliation without waiting for cron.
     - cron: "17 * * * *"
   workflow_dispatch:
 

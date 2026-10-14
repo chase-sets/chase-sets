@@ -1,6 +1,8 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoverySearchSuggestion } from "../../../support/client-support/contracts";
-import { buildSimpleSearchQuery } from "../domain/normalization";
+import { truncateDiscoverySearchSuggestionQuery } from "../domain/normalization";
+import { buildSearchSynonymQueries } from "../domain/search-synonyms";
+import { lookupServedSearchSetCodes } from "./queries";
 
 export const DISCOVERY_SEARCH_SUGGESTION_LIMIT = 8;
 
@@ -17,8 +19,12 @@ export async function suggestDiscoveryItems(
   query: string,
   requestedLimit = DISCOVERY_SEARCH_SUGGESTION_LIMIT,
 ): Promise<DiscoverySearchSuggestion[]> {
-  const prefixQuery = buildSuggestionPrefixQuery(query);
-  if (!prefixQuery) {
+  const queries = await buildSearchSynonymQueries(
+    truncateDiscoverySearchSuggestionQuery(query),
+    (codes) => lookupServedSearchSetCodes(db, codes),
+    true,
+  );
+  if (!queries.simple) {
     return [];
   }
 
@@ -28,12 +34,12 @@ export async function suggestDiscoveryItems(
             CASE WHEN jsonb_array_length(category_names) > 0 THEN category_names ->> 0 ELSE NULL END AS category
        FROM discovery_search_items
       WHERE status = $1
-        AND search_text_simple @@ to_tsquery('simple', $2)
-      ORDER BY ts_rank(search_text_simple, to_tsquery('simple', $2)) DESC,
+        AND (search_text @@ to_tsquery('english', $2) OR search_text_simple @@ to_tsquery('simple', $3))
+      ORDER BY (ts_rank(search_text, to_tsquery('english', $2)) + ts_rank(search_text_simple, to_tsquery('simple', $3))) DESC,
                title ASC,
                catalog_item_id ASC
-      LIMIT $3`,
-    ["active", prefixQuery, limit],
+      LIMIT $4`,
+    ["active", queries.english, queries.simple, limit],
   );
 
   return result.rows.map((row) => ({
@@ -43,15 +49,6 @@ export async function suggestDiscoveryItems(
     slug: row.slug,
     category: row.category,
   }));
-}
-
-function buildSuggestionPrefixQuery(value: string): string {
-  const tokens = buildSimpleSearchQuery(value).split(" ").filter(Boolean);
-  if (tokens.length === 0) {
-    return "";
-  }
-
-  return tokens.map((token, index) => `${token}${index === tokens.length - 1 ? ":*" : ""}`).join(" & ");
 }
 
 function clampSuggestionLimit(value: number): number {

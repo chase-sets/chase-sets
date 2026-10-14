@@ -62,7 +62,7 @@ export async function bootstrapPlatformAdminIdentity(
   let createdMembership = false;
   let repairedMembershipRole = false;
 
-  if (!(await services.accounts.getAccount(accountId))) {
+  if (!(await services.accounts.getAccountState(accountId))) {
     await services.accounts.commandHandler({
       streamId: `identity.account-${accountId}`,
       command: {
@@ -77,7 +77,7 @@ export async function bootstrapPlatformAdminIdentity(
     createdAccount = true;
   }
 
-  if (!(await services.users.getUser(userId))) {
+  if (!(await services.users.getUserState(userId))) {
     const name = splitDisplayName(displayName);
     await services.users.commandHandler({
       streamId: `identity.user-${userId}`,
@@ -110,11 +110,8 @@ export async function bootstrapPlatformAdminIdentity(
     createdUser = true;
   }
 
-  const existingMembership = await services.db.query(
-    "SELECT membership_id, role_key FROM identity_memberships WHERE membership_id = $1",
-    [membershipId],
-  );
-  if (existingMembership.rows.length === 0) {
+  const existingMembership = await services.memberships.getMembershipState(membershipId);
+  if (!existingMembership) {
     await services.memberships.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: {
@@ -128,7 +125,7 @@ export async function bootstrapPlatformAdminIdentity(
       context,
     });
     createdMembership = true;
-  } else if (existingMembership.rows[0]?.role_key !== PLATFORM_ADMIN_ROLE_KEY) {
+  } else if (existingMembership.roleKey !== PLATFORM_ADMIN_ROLE_KEY) {
     await services.memberships.commandHandler({
       streamId: `identity.membership-${membershipId}`,
       command: {

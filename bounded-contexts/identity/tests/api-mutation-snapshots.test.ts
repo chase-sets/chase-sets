@@ -968,6 +968,7 @@ describe("Identity API mutation snapshots", () => {
       userId: actor.userId as never,
       name: "Automation",
       keyPrefix: "key_secret_1",
+      verifierHash: null,
       status,
       lastUsedAt: null,
     });

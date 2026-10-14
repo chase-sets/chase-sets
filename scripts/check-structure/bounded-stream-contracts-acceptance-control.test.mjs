@@ -70,9 +70,22 @@ const expectedInventory = [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
     null,
   ],
+  // Fenced enrollment reads the creation event; its decorator still forwards complete caller requests.
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", "1"],
+  ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts#readStream#1",
+    null,
+  ],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts#readStream#2",
+    null,
+  ],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
+  // The owner-transaction adapter forwards the complete request unchanged.
+  ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
   // The existing corpus includes slice-local .test-support.ts history assertions.
   [
     "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#1",
@@ -99,9 +112,45 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact fifteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("keeps the Identity eligibility adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#2"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments[0].getText(site.source)).toBe("input");
+    expect(site.limit).toBeNull();
+  });
+
+  it("limits the Identity enrollment read to exactly the creation event", () => {
+    const site = candidateInventory.find((candidate) =>
+      candidate.id.endsWith("account-management/api/fences.ts#readStream#1"),
+    );
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual([
+      "{ streamId: input.streamId, fromVersion: 1, limit: 1 }",
+    ]);
+    expect(site.limit).toBe("1");
+    const file = site.file;
+    const source = readSource(file);
+    expect(
+      errorCodes(mutatedInventory(file, source.replace("fromVersion: 1, limit: 1", "fromVersion: 1, limit: 2"))),
+    ).toContain("inventory-mismatch");
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          source.replace(
+            "readStream: (input) => store.readStream(input)",
+            "readStream: (input) => store.readStream({ ...input, limit: 1 })",
+          ),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
   });
 
   it("keeps the promotion authority decorator's page request unchanged", () => {
@@ -110,6 +159,12 @@ describe("bounded-stream-contracts-acceptance-control", () => {
     );
     expect(site).toBeDefined();
     expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["request"]);
+  });
+
+  it("keeps the Inventory owner-transaction adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) => candidate.id.endsWith("mutation-attempt.ts#readStream#1"));
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
   });
 
   it("keeps test support free of a ninth direct readStream call", () => {

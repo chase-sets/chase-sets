@@ -231,6 +231,7 @@ describe("privacy product-truth derivation over the real repository", () => {
       "chase-sets:review-draft:*",
       "discovery.search.loader-cache.v1",
       "discovery.search.restoration.v2",
+      "inventory-mutation/v1:*",
     ]);
 
     expect(factFor("web-storage", "chase-sets-theme").derivationShapes).toEqual(["direct-member-access"]);
@@ -363,11 +364,11 @@ describe("privacy product-truth derivation over the real repository", () => {
       "providerName",
       "providerSubject",
     ]);
-    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:216-219"]);
+    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:217-220"]);
 
     const facebook = factFor("social-provider-profile", "facebook");
     expect(facebook.detail.mappedProfileFields).not.toContain("hostedDomain");
-    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:224-227"]);
+    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:225-228"]);
   });
 
   it("resolves every derived evidence reference to real cited source lines", () => {

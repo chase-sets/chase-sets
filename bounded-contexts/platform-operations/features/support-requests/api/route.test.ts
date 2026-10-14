@@ -21,6 +21,7 @@ import {
   streamedIntakeRequest,
 } from "../tests/attachment-intake.test-support";
 import { SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES, SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS } from "./attachment-intake";
+import { canonicalParticipantRequest } from "../domain/participant-attempt";
 import {
   canonicalizeSupportEvidenceImage,
   createSupportEvidenceCanonicalizationQueue,
@@ -203,6 +204,8 @@ describe("Support evidence submissions use one reference boundary", () => {
     expect(response.status, await response.clone().text()).toBe(200);
   });
 });
+
+const participantReference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
 
 function buildApp(
   services: SupportRequestServices,
@@ -548,7 +551,7 @@ describe("support attachment capability x role x participation", () => {
             submittedByRole: "buyer",
             evidenceType: "support-note",
             summary: "",
-            attachments: ["att_1"],
+            attachments: [participantReference],
           }),
         },
       );
@@ -816,6 +819,17 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
         tenantId: actor.tenantId,
         audit: { performedByUserId: actor.userId, forAccountId: actor.accountId },
       } as never);
+    if (c.req.method === "POST" && /\/support-requests\/[^/]+\/evidence$/.test(new URL(c.req.url).pathname)) {
+      const body = await c.req.raw.clone().json();
+      c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
+      let hash = "a".repeat(64);
+      try {
+        hash = createHash("sha256").update(canonicalParticipantRequest("submit-evidence", body)).digest("hex");
+      } catch {
+        /* invalid input still exercises authorization first */
+      }
+      c.req.raw.headers.set("X-Support-Request-Hash", hash);
+    }
     await next();
   });
   app.route("/support-requests", createAccountSupportRequestRoutes(runtime));
@@ -851,6 +865,7 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
         {
           eventType: "support.support-request.evidence-submitted",
           payload: {
+            supportRequestId: "sup_case",
             evidence: { attachments: [reference], submittedAt: "2026-10-12T00:00:00.000Z" },
             updatedChecklist: [],
           },
@@ -920,6 +935,8 @@ function supportRequestDetail() {
 
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
+    executeParticipantAttempt: vi.fn(),
+    getParticipantAttempt: vi.fn(),
     commandHandler: vi.fn(),
     listFlowDefinitions: vi.fn(async () => []),
     getSupportOrderContext: vi.fn(),
@@ -1157,20 +1174,32 @@ describe("support request routes", () => {
       { id: "sup_1", version: 7, status: "cancelled" },
     ],
   ] as const)("returns a command-owned snapshot for %s", async (methodName, path, body, expected) => {
-    const command = vi.fn(async () => ({
+    const participant = methodName !== "resolveSupportRequest";
+    const executeParticipantAttempt = vi.fn<SupportRequestServices["executeParticipantAttempt"]>(async () => {
+      if (expected.status === "resolved") throw new Error("Adjudication is not a participant command");
+      return { ...expected, evidenceId: null, responseId: null, offerId: null };
+    });
+    const resolveSupportRequest = vi.fn<SupportRequestServices["resolveSupportRequest"]>(async () => ({
       supportRequestId: expected.id,
       version: expected.version,
     }));
-    const services = createServices({ [methodName]: command } as Partial<SupportRequestServices>);
+    const command = participant ? executeParticipantAttempt : resolveSupportRequest;
+    const services = createServices({ executeParticipantAttempt, resolveSupportRequest });
 
     const response = await buildApp(services).request(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "7163_snapshot_test_0123456789",
+        "X-Support-Request-Hash": "a".repeat(64),
+      },
       body: JSON.stringify(body),
     });
 
     expect(response.status).toBe(methodName === "openSupportRequest" ? 201 : 200);
-    await expect(response.json()).resolves.toEqual(expected);
+    await expect(response.json()).resolves.toEqual(
+      participant ? { ...expected, evidenceId: null, responseId: null, offerId: null } : expected,
+    );
     expect(command).toHaveBeenCalledTimes(1);
   });
 

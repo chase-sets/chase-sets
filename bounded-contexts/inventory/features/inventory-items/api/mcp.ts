@@ -11,6 +11,10 @@ import type { StorageLocationServices } from "../../storage-locations/api/runtim
 import type { InventoryItemServices } from "./runtime";
 import type { InventoryHoldCollisionServices } from "../../hold-collisions/api/runtime";
 import {
+  withInventoryMutationAttempt,
+  type createInventoryMutationRuntime,
+} from "../../../support/runtime-support/mutation-attempt";
+import {
   isInventoryCallerSelectableAdjustmentReason,
   type InventoryAdjustmentReason,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -167,6 +171,7 @@ export function createInventoryItemMcpHandlers(
   services: InventoryItemServices,
   storageLocations: Pick<StorageLocationServices, "listStorageLocations">,
   holdCollisions: InventoryHoldCollisionServices,
+  mutations?: Pick<ReturnType<typeof createInventoryMutationRuntime>, "read">,
 ): InventoryItemMcpHandlers {
   const listItems: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
@@ -198,8 +203,27 @@ export function createInventoryItemMcpHandlers(
 
   const adjustItem: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
+    const allowed = [
+      "accountId",
+      "inventoryItemId",
+      "quantityDelta",
+      "reason",
+      "reasonCode",
+      "note",
+      "acquisitionOccurredAt",
+      "idempotencyKey",
+      "confirmationText",
+      "dryRun",
+      "collisionMode",
+      "confirmSellerCannotFulfill",
+    ];
+    if (Object.keys(args).some((key) => !allowed.includes(key))) throw new Error("Invalid Inventory request.");
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    const mutationContext = withInventoryMutationAttempt(
+      createActorEventStoreContext(scopedActor),
+      readRequiredString(args, "idempotencyKey"),
+    );
     const quantityDelta = readQuantityDelta(args);
     if (quantityDelta < 0 && args.acquisitionOccurredAt !== undefined) {
       throw new Error("Stock reductions cannot claim an acquisition occurrence.");
@@ -243,7 +267,7 @@ export function createInventoryItemMcpHandlers(
               mode,
               actorRole: scopedActor.roleKey,
             },
-            createActorEventStoreContext(scopedActor),
+            mutationContext,
           )
         : await services.adjustItem(
             {
@@ -253,10 +277,9 @@ export function createInventoryItemMcpHandlers(
               reason: readRequiredString(args, "reason"),
               ...(reasonCode !== undefined ? { reasonCode } : {}),
               ...(note !== undefined ? { note } : {}),
-              idempotencyKey: readMcpStringArgument(args, "idempotencyKey"),
               acquisitionOccurrence: sellerSuppliedAcquisitionOccurrence(args),
             },
-            createActorEventStoreContext(scopedActor),
+            mutationContext,
           );
 
     const collision = result && "collision" in result ? result.collision : null;
@@ -283,6 +306,21 @@ export function createInventoryItemMcpHandlers(
 
   return {
     toolHandlers: {
+      "inventory.get-mutation-attempt": async ({ actor, arguments: args }) => {
+        try {
+          if (Object.keys(args).some((key) => !["accountId", "attemptId"].includes(key)))
+            throw new Error("Inventory result is unavailable.");
+          const scoped = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
+          const receipt = await mutations?.read(
+            readRequiredString(args, "attemptId"),
+            createActorEventStoreContext(scoped),
+          );
+          if (!receipt) throw new Error("Inventory result is unavailable.");
+          return receipt;
+        } catch {
+          throw new Error("Inventory result is unavailable.");
+        }
+      },
       "inventory.list-items": listItems,
       "inventory.adjust-item": adjustItem,
     },

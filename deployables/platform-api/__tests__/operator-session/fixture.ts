@@ -26,9 +26,9 @@ export function operator(overrides: Partial<ResolvedActor> = {}): ResolvedActor 
   return {
     sessionId: "synthetic-session",
     tenantId: "00000000-0000-4000-8000-000000000001",
-    userId: "00000000-0000-4000-8000-000000000002",
+    userId: "usr_01K6H0Q9R80000000000000002",
     accountId: "00000000-0000-4000-8000-000000000003",
-    membershipId: "00000000-0000-4000-8000-000000000004",
+    membershipId: "mbr_01K6H0Q9R80000000000000004",
     roleKey: "platform-admin",
     permissions: ["catalog.view", "catalog.manage"],
     authenticatedAt: new Date().toISOString(),

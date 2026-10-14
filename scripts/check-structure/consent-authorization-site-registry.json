@@ -1,7 +1,15 @@
 {
   "version": 1,
-  "partitionDigest": "ecbdb4320b5944ba44accbe07b8b12cd73d6c2146854cf9b6f32d056c5402100",
+  "partitionDigest": "4e0241c7442cfc1f4cc7a4b224cb252f9930ecbc096ddb233c6424bc517df96c",
   "sites": [
+    {
+      "file": "bounded-contexts/identity/features/account-management/api/owners.ts",
+      "owner": "planOwnerMutation",
+      "constructor": "authorizeConsentForActor",
+      "ordinal": 1,
+      "classification": "actor",
+      "reason": "Authorizes the authenticated actor before a keyed Consent withdrawal is planned."
+    },
     {
       "file": "bounded-contexts/identity/features/consents/api/terms-route.ts",
       "owner": "termsOfServiceConsentRoutes > POST /accept",

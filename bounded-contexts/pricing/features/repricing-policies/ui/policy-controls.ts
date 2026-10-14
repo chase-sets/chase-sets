@@ -68,6 +68,10 @@ export const policyControls = {
       control: "percentile-input",
     },
     "last-sold": { copyKey: "pricing.features.repricingPolicies.ui.editor.anchor.lastSold", control: "chain-picker" },
+    "curve-objective": {
+      copyKey: "pricing.features.repricingPolicies.ui.editor.anchor.curveObjective",
+      control: "goal-summary",
+    },
   } satisfies Record<RepricingAnchor["source"], Option>,
   offset: {
     percent: { copyKey: "pricing.features.repricingPolicies.ui.editor.mode.percent", control: "percent-input" },

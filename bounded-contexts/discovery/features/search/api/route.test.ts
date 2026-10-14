@@ -81,6 +81,47 @@ function createServices(): DiscoveryItemSearchServices {
 }
 
 describe("discovery item search routes", () => {
+  it.each(["price_asc", "price_desc"])(
+    "selected price cursor restarts over HTTP then continues pv=2: %s",
+    async (sort) => {
+      const calls: string[] = [];
+      const db: PgQueryable = {
+        query: async <Row>(sql: string) => {
+          calls.push(sql);
+          const rows = sql.startsWith("SELECT COUNT(*)")
+            ? [{ count: "2" }]
+            : sql.includes("AS slug, COUNT(DISTINCT")
+              ? [{ slug: "cards", count: 2 }]
+              : sql.startsWith("SELECT catalog_item_id")
+                ? sql.includes("selected_market.lowest_price_amount IS NULL AND")
+                  ? [{ catalog_item_id: "b", title: "B", lowest_price_amount: null }]
+                  : [
+                      { catalog_item_id: "a", title: "A", lowest_price_amount: null },
+                      { catalog_item_id: "b", title: "B", lowest_price_amount: null },
+                    ]
+                : [];
+          return { rows: rows as Row[], rowCount: rows.length };
+        },
+      };
+      const app = discoveryItemSearchRoutes(
+        createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+      );
+      const query = `sort=${sort}&dimension.finish=foil&limit=1`;
+      const legacy = Buffer.from(JSON.stringify({ id: "old", lowestPriceAmount: "2" })).toString("base64url");
+      const restarted = await (await app.request(`/?${query}&cursor=${legacy}&offset=40`)).json();
+      expect(restarted).toMatchObject({
+        cursorRestarted: true,
+        total: 2,
+        category_counts: [{ slug: "cards", count: 2 }],
+      });
+      expect(decodeCursorJson(restarted.nextCursor)).toMatchObject({ pv: 2, id: "a", lowestPriceAmount: null });
+      expect(calls.some((sql) => sql.includes("OFFSET $"))).toBe(false);
+      const next = await (await app.request(`/?${query}&cursor=${restarted.nextCursor}`)).json();
+      expect(next).not.toHaveProperty("cursorRestarted");
+      expect(next).toMatchObject({ total: null, category_counts: [], nextCursor: null });
+      expect(next.items[0].catalog_item_id).toBe("b");
+    },
+  );
   it("threads HTTP cancellation to the runtime without changing the response contract", async () => {
     const controller = new AbortController();
     const services = createServices();
@@ -152,6 +193,14 @@ describe("discovery item search routes", () => {
       ],
       count: 1,
     });
+  });
+
+  it("forwards synonym suggestion text unchanged", async () => {
+    const services = createServices();
+    const app = discoveryItemSearchRoutes(services);
+    const response = await app.request("/suggest?q=zard%204%2F102");
+    expect(response.status).toBe(200);
+    expect(services.suggestItems).toHaveBeenCalledWith("zard 4/102", undefined);
   });
 
   it("returns an empty suggestion list for an empty query", async () => {

@@ -539,6 +539,7 @@ describe("MCP runtime routes", () => {
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
+      "inventory.get-mutation-attempt",
       "inventory.list-import-sources",
       "inventory.list-items",
       "marketplace.accept-offer",
@@ -631,6 +632,7 @@ describe("MCP runtime routes", () => {
       permissions: ["listings.view"],
       agentGrant: {
         grantId: "grant_partial_seller",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["listings:read"],
         rolePermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
       },
@@ -640,6 +642,7 @@ describe("MCP runtime routes", () => {
       permissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
       agentGrant: {
         grantId: "grant_full_seller",
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
         scopes: ["inventory:read", "listings:read", "offers:read", "fulfillment:read", "payouts:read"],
         rolePermissions: ["inventory.view", "listings.view", "offers.view", "fulfillment.view", "payouts.view"],
       },
@@ -1795,6 +1798,7 @@ describe("MCP runtime routes", () => {
         permissions: ["listings.manage"],
         agentGrant: {
           grantId: "lpa_listings",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["listings:write"],
           rolePermissions: ["listings.manage", "payouts.request"],
         },
@@ -1852,6 +1856,7 @@ describe("MCP runtime routes", () => {
         permissions: ["listings.manage"],
         agentGrant: {
           grantId: "lpa_listings",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["listings:write"],
           rolePermissions: ["listings.manage", "payouts.request"],
         },
@@ -1919,6 +1924,7 @@ describe("MCP runtime routes", () => {
         permissions: [],
         agentGrant: {
           grantId: "lpa_viewer",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["payouts:request"],
           rolePermissions: ["payouts.view"],
         },

@@ -8,6 +8,8 @@ import type {
   ChannelPublicationSuccess,
 } from "../../publication-port/domain/contracts";
 import type { ClaimedOrderPullOutcome, OrderPullPayload, orderPullOperationKind } from "./order-pull";
+import type { ClaimedLiveExportOutcome, LiveExportPayload, liveExportOperationKind } from "./live-export-codec";
+import type { ConnectorPolicy } from "../../connector-feed/domain/policy";
 
 export const outboundOperationKinds = ["publish", "update", "delist"] as const;
 export type OutboundOperationKind = (typeof outboundOperationKinds)[number];
@@ -138,7 +140,41 @@ export type ClaimedOrderPullOperation = Readonly<{
   enqueuedAt: string;
 }>;
 
-export type ClaimedSubjectOperation = ClaimedOutboundOperation | ClaimedOrderPullOperation;
+export type ClaimedLiveExportOperation = Readonly<{
+  operationId: string;
+  attemptId: string;
+  claimGeneration: number;
+  connectionId: string;
+  providerIdentity: ChannelProviderIdentity;
+  subject: Readonly<{ kind: "connection"; connectionId: string }>;
+  operationKind: typeof liveExportOperationKind;
+  exportId: string;
+  scheduleGeneration: number;
+  payload: LiveExportPayload;
+  payloadDigest: string;
+  enqueuedAt: string;
+}>;
+
+export type ClaimedSubjectOperation = ClaimedOutboundOperation | ClaimedOrderPullOperation | ClaimedLiveExportOperation;
+
+export type LiveExportOperationRecord = Readonly<{
+  operationId: string;
+  connectionId: string;
+  exportId: string;
+  scheduleGeneration: number;
+  payload: LiveExportPayload;
+  payloadDigest: string;
+  status: OutboundOperationStatus;
+  revision: number;
+  attemptId: string | null;
+  claimGeneration: number;
+  claimantKind: "connector" | null;
+  claimOwnerId: string | null;
+  reservationId: string | null;
+  claimedUntil: string | null;
+  outcome: ClaimedLiveExportOutcome["outcome"] | null;
+  enqueuedAt: string;
+}>;
 
 export type OrderPullOperationRecord = Readonly<{
   operationId: string;
@@ -187,8 +223,8 @@ export type ReserveClaimedOutboundOperationsInput = Readonly<{
   leaseMs: number;
 }>;
 
-/** Only a connector that declares the order-pull capability may receive connection-subject members. */
-export const connectorClaimCapabilities = ["tcgplayer-order-pull"] as const;
+/** Connection-subject members require their corresponding declared capability. */
+export const connectorClaimCapabilities = ["tcgplayer-order-pull", "tcgplayer-live-export"] as const;
 export type ConnectorClaimCapability = (typeof connectorClaimCapabilities)[number];
 
 export type ReserveConnectorClaimedOperationsInput = ReserveClaimedOutboundOperationsInput &
@@ -207,7 +243,7 @@ export type ClaimedOperationOutcome = Readonly<{
 }>;
 
 /** One report member: a listing outcome, or a closed connection-subject order-pull outcome. */
-export type ClaimedSubjectOutcome = ClaimedOperationOutcome | ClaimedOrderPullOutcome;
+export type ClaimedSubjectOutcome = ClaimedOperationOutcome | ClaimedOrderPullOutcome | ClaimedLiveExportOutcome;
 
 /**
  * The reservation-side view of a downstream run while its operation members
@@ -336,6 +372,7 @@ export interface OutboundSyncServices {
     input: ReserveConnectorClaimedOperationsInput,
   ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null>;
   scheduleDueOrderPulls(input: Readonly<{ registry: ChannelProviderRegistry }>): Promise<number>;
+  scheduleDueLiveExports(input: Readonly<{ registry: ChannelProviderRegistry }>): Promise<number>;
   readOrderPullOperations(input: Readonly<{ connectionId: string }>): Promise<readonly OrderPullOperationRecord[]>;
   reportClaimedOperationOutcomes(
     input: Readonly<{
@@ -389,6 +426,7 @@ export type OutboundSyncRuntimeDependencies = Readonly<{
   claimedReservationRunSettlement?: ClaimedReservationRunSettlementPort;
   /** The connection-subject order-pull producer; omitted means no pull is ever scheduled. */
   orderPull?: OrderPullProducerDependencies;
+  liveExport?: Readonly<{ resolveConnectorPolicy: () => Promise<ConnectorPolicy> }>;
   readAdditionalOutboundHold: (
     input: Readonly<{
       connectionId: string;
@@ -415,7 +453,8 @@ export class OutboundSyncError extends Error {
       | "reservation-expired"
       | "reservation-membership-mismatch"
       | "run-settlement-unavailable"
-      | "order-pull-schedule-unavailable",
+      | "order-pull-schedule-unavailable"
+      | "live-export-schedule-unavailable",
     message: string = code,
   ) {
     super(message);

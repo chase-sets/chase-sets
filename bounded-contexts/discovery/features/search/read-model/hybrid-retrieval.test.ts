@@ -8,6 +8,41 @@ import { searchDiscoveryItems, type DiscoverySearchItemRow, type ListResult } fr
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
 
 describe("Discovery hybrid retrieval", () => {
+  it("forwards selected dimensions through both hybrid candidates and batched hydration", async () => {
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    const searchLexical = vi.fn(async () => result([row("lexical")]));
+    const searchSemantic = vi.fn(async () => [{ item: row("semantic"), similarity: 0.9 }]);
+    const hydrateItems = vi.fn(async (_db, items) => [...items]);
+    await retrieveDiscoveryItems(
+      {
+        db: {} as never,
+        provider: fakeProvider(),
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: true,
+        searchLexical,
+        searchSemantic,
+        hydrateItems,
+      },
+      { search: "dragon", dimensionFilters },
+    );
+    expect(searchLexical).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ dimensionFilters }),
+      expect.anything(),
+    );
+    expect(searchSemantic).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ dimensionFilters }),
+      vector,
+      expect.anything(),
+    );
+    expect(hydrateItems).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      expect.any(Array),
+      expect.objectContaining({ dimensionFilters }),
+    );
+  });
   afterEach(() => vi.useRealTimers());
 
   it.each([false, true])("online timeout returns lexical metadata (hybrid=%s)", async (hybridEnabled) => {

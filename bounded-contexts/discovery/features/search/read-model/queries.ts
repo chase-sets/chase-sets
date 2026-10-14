@@ -1,6 +1,12 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
-import { buildSimpleSearchQuery, foldSearchDiacritics, normalizeSimpleSearchText } from "../domain/normalization";
+import {
+  buildSimpleSearchQuery,
+  foldSearchDiacritics,
+  normalizeSimpleSearchText,
+  truncateDiscoverySearchQuery,
+} from "../domain/normalization";
+import { buildSearchSynonymQueries, type SearchSynonymQueries } from "../domain/search-synonyms";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
@@ -11,9 +17,11 @@ import { dimensionFacetValueOrderSql, facetGroupDecisionPriority, fieldFacetValu
 const FACET_VALUE_LIMIT = 50;
 const FACET_GROUP_LIMIT = 10;
 const RELEVANCE_CURSOR_VERSION = 2;
+const SELECTED_PRICE_CURSOR_VERSION = 2;
 const EXPLICIT_SORTS = new Set(["title_asc", "title_desc", "newest", "price_asc", "price_desc"]);
-const SEARCH_ITEM_COLUMNS =
-  "catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, lowest_price_amount::text AS lowest_price_amount, lowest_price_currency_code, visible_quantity, updated_at";
+function searchItemColumns(marketAlias: string = "") {
+  return `catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, ${marketAlias}lowest_price_amount::text AS lowest_price_amount, ${marketAlias}lowest_price_currency_code, ${marketAlias ? `${marketAlias}total_visible_quantity AS visible_quantity` : "visible_quantity"}, updated_at`;
+}
 
 // Exact identity normalization uses explicit code points so it never depends on the
 // database's LC_CTYPE. Each range is a subset of what the oracle
@@ -154,7 +162,30 @@ type SearchIndexItemRow = BaseDiscoverySearchItemRow & {
   search_title_identity?: string | null;
 };
 
-async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly string[]) {
+function listingSummarySql(condition: string) {
+  return `WITH startable_listing AS (
+       SELECT listing.catalog_catalog_item_id, listing.price_amount, listing.price_currency_code,
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
+       FROM discovery_market_listings AS listing
+       INNER JOIN discovery_market_accounts AS account ON account.account_id = listing.account_id
+       WHERE ${buyerVisibleListingPredicateSql("listing", "account")}
+         ${condition}
+     )
+     SELECT catalog_catalog_item_id,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_amount::numeric) ELSE NULL END AS lowest_price_amount,
+       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
+         THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
+       COUNT(*)::integer AS active_listing_count,
+       SUM(visible_quantity)::integer AS total_visible_quantity
+     FROM startable_listing GROUP BY catalog_catalog_item_id`;
+}
+
+async function getMarketSummariesForItems(
+  db: PgQueryable,
+  itemIds: readonly string[],
+  dimensionFilters: DiscoverySearchParams["dimensionFilters"],
+) {
   if (itemIds.length === 0) {
     return new Map<string, DiscoverySearchItemRow["market_summary"]>();
   }
@@ -166,30 +197,9 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
     active_listing_count: number;
     total_visible_quantity: number;
   }>(
-    `WITH startable_listing AS (
-       SELECT
-         listing.catalog_catalog_item_id,
-         listing.price_amount,
-         listing.price_currency_code,
-         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
-       FROM discovery_market_listings AS listing
-       INNER JOIN discovery_market_accounts AS account
-         ON account.account_id = listing.account_id
-       WHERE listing.catalog_catalog_item_id = ANY($1::text[])
-         AND ${buyerVisibleListingPredicateSql("listing", "account")}
-     )
-     SELECT
-       catalog_catalog_item_id,
-       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
-         THEN MIN(price_amount::numeric)::text ELSE NULL END AS lowest_price_amount,
-       CASE WHEN COUNT(DISTINCT price_currency_code) = 1
-         THEN MIN(price_currency_code) ELSE NULL END AS lowest_price_currency_code,
-       COUNT(*)::integer AS active_listing_count,
-       COALESCE(SUM(visible_quantity), 0)::integer AS total_visible_quantity
-     FROM startable_listing
-     WHERE visible_quantity > 0
-     GROUP BY catalog_catalog_item_id`,
-    [itemIds],
+    listingSummarySql(`AND listing.catalog_catalog_item_id = ANY($1::text[])
+      ${selectedOptionMatchSql("listing", groupDimensionFilters(dimensionFilters), 2)}`),
+    [itemIds, ...selectedOptionMatchValues(groupDimensionFilters(dimensionFilters))],
   );
 
   return new Map(
@@ -208,22 +218,43 @@ async function getMarketSummariesForItems(db: PgQueryable, itemIds: readonly str
 type SearchFilterBuildOptions = Readonly<{
   excludeFacet?: Readonly<{ kind: DiscoveryFacetKind | "category"; id: string }>;
   itemAlias?: string;
+  firstParamIndex?: number;
+  searchQueries?: SearchSynonymQueries;
 }>;
 
 type BuiltSearchFilter = Readonly<{
+  from: string;
+  marketAlias: string;
   conditions: string[];
   values: unknown[];
   where: string;
   nextParamIndex: number;
   englishSearchParamIndex: number | null;
   simpleSearchParamIndex: number | null;
+  queryFunction: "plainto_tsquery" | "to_tsquery";
 }>;
 
 function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterBuildOptions = {}): BuiltSearchFilter {
+  const queryFunction = options.searchQueries?.expanded ? "to_tsquery" : "plainto_tsquery";
   const conditions: string[] = [];
   const values: unknown[] = [];
-  let paramIndex = 1;
+  let paramIndex = options.firstParamIndex ?? 1;
   const itemColumn = (name: string) => (options.itemAlias ? `${options.itemAlias}.${name}` : name);
+  const dimensionFilterGroups = marketDimensionFilterGroups(
+    groupDimensionFilters(params.dimensionFilters),
+    options.excludeFacet,
+  );
+  const marketAlias =
+    dimensionFilterGroups.size > 0 &&
+    (params.priceMin !== undefined ||
+      params.priceMax !== undefined ||
+      params.inStock ||
+      params.sort === "price_asc" ||
+      params.sort === "price_desc")
+      ? "selected_market."
+      : "";
+  const marketColumn = (name: string) =>
+    marketAlias ? `${marketAlias}${name === "visible_quantity" ? "total_visible_quantity" : name}` : itemColumn(name);
 
   conditions.push(`${itemColumn("status")} = $${paramIndex}`);
   values.push(params.status ?? "active");
@@ -234,7 +265,7 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
 
   if (params.search) {
     englishSearchParamIndex = paramIndex;
-    values.push(foldSearchDiacritics(params.search));
+    values.push(options.searchQueries?.english ?? foldSearchDiacritics(params.search));
     paramIndex++;
     simpleSearchParamIndex = paramIndex;
     // Product-contents text is folded into the item's own tsvector at projection
@@ -243,9 +274,9 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     // EXISTS over discovery_search_product_contents — that disjunct defeated the
     // GIN bitmap scan and forced a per-row probe of every active item.
     conditions.push(
-      `(${itemColumn("search_text")} @@ plainto_tsquery('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ plainto_tsquery('simple', $${simpleSearchParamIndex}))`,
+      `(${itemColumn("search_text")} @@ ${queryFunction}('english', $${englishSearchParamIndex}) OR ${itemColumn("search_text_simple")} @@ ${queryFunction}('simple', $${simpleSearchParamIndex}))`,
     );
-    values.push(buildSimpleSearchQuery(params.search));
+    values.push(options.searchQueries?.simple ?? buildSimpleSearchQuery(params.search));
     paramIndex++;
   }
 
@@ -276,22 +307,20 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
   }
 
   if (params.priceMin !== undefined) {
-    conditions.push(`${itemColumn("lowest_price_amount")} >= $${paramIndex}::numeric`);
+    conditions.push(`${marketColumn("lowest_price_amount")} >= $${paramIndex}::numeric`);
     values.push(params.priceMin);
     paramIndex++;
   }
 
   if (params.priceMax !== undefined) {
-    conditions.push(`${itemColumn("lowest_price_amount")} <= $${paramIndex}::numeric`);
+    conditions.push(`${marketColumn("lowest_price_amount")} <= $${paramIndex}::numeric`);
     values.push(params.priceMax);
     paramIndex++;
   }
 
   if (params.inStock) {
-    conditions.push(`${itemColumn("visible_quantity")} > 0`);
+    conditions.push(`${marketColumn("visible_quantity")} > 0`);
   }
-
-  const dimensionFilterGroups = groupDimensionFilters(params.dimensionFilters);
 
   for (const [fieldId, selectedValues] of groupFieldFilters(params.fieldFilters).entries()) {
     if (options.excludeFacet?.kind === "field" && options.excludeFacet.id === fieldId) {
@@ -350,20 +379,47 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
       itemColumn("catalog_item_id"),
       marketDimensionFilterGroups(dimensionFilterGroups, options.excludeFacet),
       paramIndex,
+      marketAlias ? "selected_market.active_listing_count > 0" : undefined,
     );
     conditions.push(marketActivity.condition);
     values.push(...marketActivity.values);
     paramIndex += marketActivity.values.length;
   }
 
+  let from = `discovery_search_items${options.itemAlias ? ` AS ${options.itemAlias}` : ""}`;
+  if (marketAlias) {
+    const summary = listingSummarySql(selectedOptionMatchSql("listing", dimensionFilterGroups, paramIndex));
+    from += ` LEFT JOIN (${summary}) AS selected_market
+      ON selected_market.catalog_catalog_item_id = ${options.itemAlias ?? "discovery_search_items"}.catalog_item_id`;
+    const selectedValues = selectedOptionMatchValues(dimensionFilterGroups);
+    values.push(...selectedValues);
+    paramIndex += selectedValues.length;
+  }
+
   return {
+    from,
+    marketAlias,
     conditions,
     values,
     where: conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "",
     nextParamIndex: paramIndex,
     englishSearchParamIndex,
     simpleSearchParamIndex,
+    queryFunction,
   };
+}
+
+export async function lookupServedSearchSetCodes(
+  db: PgQueryable,
+  candidates: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (candidates.length === 0) return new Set();
+  const result = await db.query<{ set_code: string }>(
+    `SELECT candidate.set_code FROM unnest($1::text[]) AS candidate(set_code)
+     WHERE EXISTS (SELECT 1 FROM discovery_search_items AS item WHERE item.set_code = candidate.set_code)`,
+    [candidates],
+  );
+  return new Set(result.rows.map((row) => row.set_code));
 }
 
 function marketDimensionFilterGroups(
@@ -382,11 +438,14 @@ function buildMarketActivityFilter(
   itemIdColumn: string,
   dimensionFilters: ReadonlyMap<string, readonly string[]>,
   firstParamIndex: number,
+  matchingListings?: string,
 ): Readonly<{ condition: string; values: readonly string[] }> {
   const selectedOptionSqlForListings = selectedOptionMatchSql("listing", dimensionFilters, firstParamIndex);
   const selectedOptionSqlForOffers = selectedOptionMatchSql("offer", dimensionFilters, firstParamIndex);
   const values = selectedOptionMatchValues(dimensionFilters);
-  const listingExists = `EXISTS (
+  const listingExists =
+    matchingListings ??
+    `EXISTS (
          SELECT 1
          FROM discovery_market_listings AS listing
          INNER JOIN discovery_market_accounts AS account
@@ -405,7 +464,7 @@ function buildMarketActivityFilter(
 
   switch (marketActivity) {
     case "listings":
-      return { condition: listingExists, values };
+      return { condition: listingExists, values: matchingListings ? [] : values };
     case "offers":
       return { condition: offerExists, values };
     case "any":
@@ -425,7 +484,10 @@ function buildMarketActivityFacetSource(
   const listingRows = `SELECT
          'listing:' || listing.listing_id AS activity_id,
          listing.catalog_catalog_item_id,
-         listing.selected_options
+         listing.selected_options,
+         listing.price_amount::numeric AS price_amount,
+         listing.price_currency_code,
+         ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
        FROM discovery_market_listings AS listing
        INNER JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
@@ -434,7 +496,10 @@ function buildMarketActivityFacetSource(
   const offerRows = `SELECT
          'offer:' || offer.offer_id AS activity_id,
          offer.catalog_catalog_item_id,
-         offer.selected_options
+         offer.selected_options,
+         NULL::numeric AS price_amount,
+         NULL::text AS price_currency_code,
+         0::integer AS visible_quantity
        FROM discovery_offer_demand_matches AS offer
        WHERE offer.status = 'submitted'
          ${selectedOptionSqlForOffers}`;
@@ -535,12 +600,18 @@ export async function searchDiscoveryItems(
   params: DiscoverySearchParams = {},
   options: Readonly<{ loadFacets?: boolean; loadMarketSummaries?: boolean }> = {},
 ): Promise<ListResult<DiscoverySearchItemRow>> {
-  const baseFilter = buildSearchFilter(params);
+  const searchQueries = params.search
+    ? await buildSearchSynonymQueries(truncateDiscoverySearchQuery(params.search), (codes) =>
+        lookupServedSearchSetCodes(db, codes),
+      )
+    : undefined;
+  const baseFilter = buildSearchFilter(params, { searchQueries });
   const values = [...baseFilter.values];
   let paramIndex = baseFilter.nextParamIndex;
   const relevance = usesRelevanceOrdering(params);
   const relevanceCursor = relevance ? decodeRelevanceCursor(params.cursor) : null;
-  const cursor = relevance ? null : decodeKeysetCursor(params.cursor);
+  const cursor = relevance ? null : decodeKeysetCursor(params.cursor, usesSelectedPriceOrdering(params));
+  const priceColumn = `${baseFilter.marketAlias}lowest_price_amount`;
   // Metadata and paging follow the effective cursor: a rejected cursor restarts as a
   // fresh first page, so a supplied offset is discarded with it.
   const continuing = relevanceCursor !== null || cursor !== null;
@@ -575,28 +646,28 @@ export async function searchDiscoveryItems(
       }
       break;
     case "price_asc":
-      orderBy = "lowest_price_amount ASC NULLS LAST, catalog_item_id ASC";
+      orderBy = `${priceColumn} ASC NULLS LAST, catalog_item_id ASC`;
       if (cursor) {
         if (cursor.lowestPriceAmount === null) {
-          cursorCondition = `lowest_price_amount IS NULL AND catalog_item_id > $${paramIndex}`;
+          cursorCondition = `${priceColumn} IS NULL AND catalog_item_id > $${paramIndex}`;
           values.push(cursor.id);
           paramIndex++;
         } else {
-          cursorCondition = `(lowest_price_amount > $${paramIndex}::numeric OR (lowest_price_amount = $${paramIndex}::numeric AND catalog_item_id > $${paramIndex + 1}) OR lowest_price_amount IS NULL)`;
+          cursorCondition = `(${priceColumn} > $${paramIndex}::numeric OR (${priceColumn} = $${paramIndex}::numeric AND catalog_item_id > $${paramIndex + 1}) OR ${priceColumn} IS NULL)`;
           values.push(cursor.lowestPriceAmount, cursor.id);
           paramIndex += 2;
         }
       }
       break;
     case "price_desc":
-      orderBy = "lowest_price_amount DESC NULLS LAST, catalog_item_id DESC";
+      orderBy = `${priceColumn} DESC NULLS LAST, catalog_item_id DESC`;
       if (cursor) {
         if (cursor.lowestPriceAmount === null) {
-          cursorCondition = `lowest_price_amount IS NULL AND catalog_item_id < $${paramIndex}`;
+          cursorCondition = `${priceColumn} IS NULL AND catalog_item_id < $${paramIndex}`;
           values.push(cursor.id);
           paramIndex++;
         } else {
-          cursorCondition = `(lowest_price_amount < $${paramIndex}::numeric OR (lowest_price_amount = $${paramIndex}::numeric AND catalog_item_id < $${paramIndex + 1}) OR lowest_price_amount IS NULL)`;
+          cursorCondition = `(${priceColumn} < $${paramIndex}::numeric OR (${priceColumn} = $${paramIndex}::numeric AND catalog_item_id < $${paramIndex + 1}) OR ${priceColumn} IS NULL)`;
           values.push(cursor.lowestPriceAmount, cursor.id);
           paramIndex += 2;
         }
@@ -605,8 +676,8 @@ export async function searchDiscoveryItems(
     case "relevance":
     default:
       if (relevance) {
-        const englishQuery = `plainto_tsquery('english', $${baseFilter.englishSearchParamIndex})`;
-        const simpleQuery = `plainto_tsquery('simple', $${baseFilter.simpleSearchParamIndex})`;
+        const englishQuery = `${baseFilter.queryFunction}('english', $${baseFilter.englishSearchParamIndex})`;
+        const simpleQuery = `${baseFilter.queryFunction}('simple', $${baseFilter.simpleSearchParamIndex})`;
         const exactQueryParam = `$${paramIndex}`;
         values.push(exactIdentityQuery(params.search ?? ""));
         paramIndex++;
@@ -622,8 +693,8 @@ export async function searchDiscoveryItems(
         candidateSql = `(
       SELECT *, ${exactIdentityTierSql(exactQueryParam)} AS search_exact_tier
       FROM (
-        SELECT ${SEARCH_ITEM_COLUMNS}, (ts_rank(search_text, ${englishQuery}) + ts_rank(search_text_simple, ${simpleQuery})) AS search_rank, (search_text @@ ${englishQuery} OR search_text_simple @@ ${simpleQuery}) AS search_base_match, ${exactIdentitySql("title")} AS search_title_identity
-        FROM discovery_search_items ${baseFilter.where}
+        SELECT ${searchItemColumns(baseFilter.marketAlias)}, (ts_rank(search_text, ${englishQuery}) + ts_rank(search_text_simple, ${simpleQuery})) AS search_rank, (search_text @@ ${englishQuery} OR search_text_simple @@ ${simpleQuery}) AS search_base_match, ${exactIdentitySql("title")} AS search_title_identity
+        FROM ${baseFilter.from} ${baseFilter.where}
         OFFSET 0
       ) AS normalized
     ) AS candidate`;
@@ -674,11 +745,11 @@ export async function searchDiscoveryItems(
   const countPromise =
     !continuing && (params.includeTotal || useLegacyOffset)
       ? db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM discovery_search_items ${baseFilter.where}`,
+          `SELECT COUNT(*) AS count FROM ${baseFilter.from} ${baseFilter.where}`,
           baseFilter.values,
         )
       : Promise.resolve({ rows: [] });
-  const listSql = `${candidateSql ? `SELECT * FROM ${candidateSql}` : `SELECT ${SEARCH_ITEM_COLUMNS} FROM discovery_search_items`}
+  const listSql = `${candidateSql ? `SELECT * FROM ${candidateSql}` : `SELECT ${searchItemColumns(baseFilter.marketAlias)} FROM ${baseFilter.from}`}
     ${listWhere}
     ORDER BY ${orderBy}
     ${listLimitSql}`;
@@ -697,10 +768,11 @@ export async function searchDiscoveryItems(
       : await getMarketSummariesForItems(
           db,
           rows.map((row) => row.catalog_item_id),
+          params.dimensionFilters,
         );
   const loadFacets = options.loadFacets !== false && !continuing;
-  const facets = loadFacets ? await loadSearchFacets(db, params) : [];
-  const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params) : [];
+  const facets = loadFacets ? await loadSearchFacets(db, params, searchQueries) : [];
+  const category_counts = loadFacets ? await loadSearchCategoryCounts(db, params, searchQueries) : [];
 
   return {
     items: rows.map(
@@ -719,7 +791,8 @@ export async function searchDiscoveryItems(
     facets,
     category_counts,
     total: countResult.rows[0]?.count ? Number.parseInt(countResult.rows[0].count, 10) : null,
-    nextCursor: hasNextPage && lastRow ? encodeSearchCursor(lastRow, relevance) : null,
+    nextCursor:
+      hasNextPage && lastRow ? encodeSearchCursor(lastRow, relevance, usesSelectedPriceOrdering(params)) : null,
   };
 }
 
@@ -735,12 +808,19 @@ export function discoverySearchCursorState(params: DiscoverySearchParams): Disco
 
   const decoded = usesRelevanceOrdering(params)
     ? decodeRelevanceCursor(params.cursor)
-    : decodeKeysetCursor(params.cursor);
+    : decodeKeysetCursor(params.cursor, usesSelectedPriceOrdering(params));
   return decoded ? "cursor" : "restarted";
 }
 
 function usesRelevanceOrdering(params: DiscoverySearchParams): boolean {
   return Boolean(params.search) && !EXPLICIT_SORTS.has(params.sort ?? "");
+}
+
+function usesSelectedPriceOrdering(params: DiscoverySearchParams): boolean {
+  return (
+    (params.sort === "price_asc" || params.sort === "price_desc") &&
+    groupDimensionFilters(params.dimensionFilters).size > 0
+  );
 }
 
 /**
@@ -798,7 +878,7 @@ export async function searchDiscoveryItemsByNaturalKey(
   const listValues = [...values, limit];
 
   const listSql = `SELECT catalog_item_id, slug, language_code, title_i18n, title, subtitle_i18n, subtitle, display_badges, description_i18n, description, blueprint_id, blueprint_name, status, category_names, category_slugs, tags, image_urls, product_asset_sets, image_fallback, updated_at
-    FROM discovery_search_items
+    FROM ${filter.from}
     WHERE ${conditions.join(" AND ")}
     ORDER BY title ASC, catalog_item_id ASC
     LIMIT $${listValues.length}`;
@@ -809,6 +889,7 @@ export async function searchDiscoveryItemsByNaturalKey(
       : await getMarketSummariesForItems(
           db,
           listResult.rows.map((row) => row.catalog_item_id),
+          params.dimensionFilters,
         );
 
   return {
@@ -848,14 +929,16 @@ function categoryCountsForItems(
 async function loadSearchCategoryCounts(
   db: PgQueryable,
   params: DiscoverySearchParams,
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryCategoryCount[]> {
   const filter = buildSearchFilter(params, {
     excludeFacet: { kind: "category", id: params.category ?? "" },
     itemAlias: "item",
+    searchQueries,
   });
   const result = await db.query<{ slug: string; count: string | number }>(
     `SELECT category_slug AS slug, COUNT(DISTINCT item.catalog_item_id)::integer AS count
-     FROM discovery_search_items AS item
+     FROM ${filter.from}
      CROSS JOIN LATERAL jsonb_array_elements_text(item.category_slugs) AS category_slug
      ${filter.where}
      GROUP BY category_slug
@@ -902,7 +985,7 @@ export async function searchDiscoverySemanticItems(
             item.blueprint_id, item.blueprint_name, item.status, item.category_names,
             item.category_slugs, item.tags, item.image_urls, item.product_asset_sets,
             item.image_fallback, item.updated_at, -(${distanceExpression}) AS semantic_similarity
-     FROM discovery_search_items AS item
+     FROM ${filter.from}
      WHERE ${conditions.join(" AND ")}
      ORDER BY ${distanceExpression} ASC, item.title ASC, item.catalog_item_id ASC
      LIMIT $${limitParamIndex}`,
@@ -914,6 +997,7 @@ export async function searchDiscoverySemanticItems(
       : await getMarketSummariesForItems(
           db,
           result.rows.map((row) => row.catalog_item_id),
+          params.dimensionFilters,
         );
 
   return result.rows.map((row) => ({
@@ -928,10 +1012,12 @@ export async function searchDiscoverySemanticItems(
 export async function hydrateDiscoverySearchItemMarketSummaries(
   db: PgQueryable,
   items: readonly DiscoverySearchItemRow[],
+  params: Pick<DiscoverySearchParams, "dimensionFilters"> = {},
 ): Promise<DiscoverySearchItemRow[]> {
   const marketSummaries = await getMarketSummariesForItems(
     db,
     items.map((item) => item.catalog_item_id),
+    params.dimensionFilters,
   );
   return items.map((item) => ({
     ...item,
@@ -1261,8 +1347,23 @@ type FacetSummaryRow = Readonly<{
   distinct_count: string | number;
 }>;
 
-async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams): Promise<DiscoveryFacetGroup[]> {
-  const filter = buildSearchFilter(params, { itemAlias: "item" });
+async function loadSearchFacets(
+  db: PgQueryable,
+  params: DiscoverySearchParams,
+  searchQueries: SearchSynonymQueries | undefined,
+): Promise<DiscoveryFacetGroup[]> {
+  const filter = buildSearchFilter(params, { itemAlias: "item", searchQueries });
+  const dimensionFilter = buildSearchFilter(
+    {
+      ...params,
+      dimensionFilters: undefined,
+      priceMin: undefined,
+      priceMax: undefined,
+      inStock: false,
+      marketActivity: undefined,
+    },
+    { itemAlias: "item", firstParamIndex: filter.nextParamIndex, searchQueries },
+  );
   const selectedFields = groupFieldFilters(params.fieldFilters);
   const selectedReferences = groupReferenceFilters(params.referenceFilters);
   const selectedDimensions = groupDimensionFilters(params.dimensionFilters);
@@ -1275,7 +1376,7 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
         MAX(facet.value->>'label') AS label,
         COUNT(DISTINCT item.catalog_item_id)::integer AS coverage,
         COUNT(DISTINCT facet.value->>'value')::integer AS distinct_count
-      FROM discovery_search_items AS item
+      FROM ${filter.from}
       CROSS JOIN LATERAL jsonb_array_elements(item.field_filter_values) AS facet(value)
       ${filter.where}
         AND COALESCE(facet.value->>'valueType', '') <> 'reference'
@@ -1287,7 +1388,7 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
         MAX(facet.value->>'label') AS label,
         COUNT(DISTINCT item.catalog_item_id)::integer AS coverage,
         COUNT(DISTINCT facet.value->>'referenceId')::integer AS distinct_count
-      FROM discovery_search_items AS item
+      FROM ${filter.from}
       CROSS JOIN LATERAL jsonb_array_elements(item.reference_filter_values) AS facet(value)
       ${filter.where}
       GROUP BY facet.value->>'typeKey'
@@ -1298,16 +1399,16 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
         MAX(facet.value->>'label') AS label,
         COUNT(DISTINCT item.catalog_item_id)::integer AS coverage,
         COUNT(DISTINCT facet.value->>'optionId')::integer AS distinct_count
-      FROM discovery_search_items AS item
+      FROM ${dimensionFilter.from}
       CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
-      ${filter.where}
+      ${dimensionFilter.where}
       GROUP BY facet.value->>'dimensionId'
     ) AS summaries
     WHERE id IS NOT NULL
       AND label IS NOT NULL
       AND distinct_count > 0
     ORDER BY coverage DESC, distinct_count DESC, label ASC, id ASC`;
-  const summaryResult = await db.query<FacetSummaryRow>(summarySql, filter.values);
+  const summaryResult = await db.query<FacetSummaryRow>(summarySql, [...filter.values, ...dimensionFilter.values]);
   const topSummaries = summaryResult.rows
     .filter((row) => Number(row.coverage) > 0)
     .filter((row) => Number(row.distinct_count) > 0)
@@ -1336,10 +1437,22 @@ async function loadSearchFacets(db: PgQueryable, params: DiscoverySearchParams):
       [...chosen.values()].map(async (summary): Promise<DiscoveryFacetGroup | null> => {
         const values =
           summary.kind === "field"
-            ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [])
+            ? await loadFieldFacetValues(db, params, summary.id, selectedFields.get(summary.id) ?? [], searchQueries)
             : summary.kind === "reference"
-              ? await loadReferenceFacetValues(db, params, summary.id, selectedReferences.get(summary.id) ?? [])
-              : await loadDimensionFacetValues(db, params, summary.id, selectedDimensions.get(summary.id) ?? []);
+              ? await loadReferenceFacetValues(
+                  db,
+                  params,
+                  summary.id,
+                  selectedReferences.get(summary.id) ?? [],
+                  searchQueries,
+                )
+              : await loadDimensionFacetValues(
+                  db,
+                  params,
+                  summary.id,
+                  selectedDimensions.get(summary.id) ?? [],
+                  searchQueries,
+                );
 
         return values.length > 0
           ? {
@@ -1385,8 +1498,13 @@ async function loadReferenceFacetValues(
   params: DiscoverySearchParams,
   typeKey: string,
   selectedReferenceIds: readonly string[],
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "reference", id: typeKey }, itemAlias: "item" });
+  const filter = buildSearchFilter(params, {
+    excludeFacet: { kind: "reference", id: typeKey },
+    itemAlias: "item",
+    searchQueries,
+  });
   const orderBy = fieldFacetValueOrderSql({
     sortKind: "sort_kind",
     sortValue: "sort_value",
@@ -1409,7 +1527,7 @@ async function loadReferenceFacetValues(
          MAX(facet.value->>'sortValue') AS sort_value,
          MAX(NULLIF(facet.value->>'sortValue', '')::numeric) FILTER (WHERE facet.value->>'sortKind' = 'number-desc') AS sort_number,
          BOOL_OR(facet.value->>'referenceId' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
-       FROM discovery_search_items AS item
+       FROM ${filter.from}
        CROSS JOIN LATERAL jsonb_array_elements(item.reference_filter_values) AS facet(value)
        ${filter.where}
          AND facet.value->>'typeKey' = $${filter.nextParamIndex}
@@ -1439,8 +1557,13 @@ async function loadFieldFacetValues(
   params: DiscoverySearchParams,
   fieldId: string,
   selectedValues: readonly string[],
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "field", id: fieldId }, itemAlias: "item" });
+  const filter = buildSearchFilter(params, {
+    excludeFacet: { kind: "field", id: fieldId },
+    itemAlias: "item",
+    searchQueries,
+  });
   const orderBy = fieldFacetValueOrderSql({
     sortKind: "sort_kind",
     sortValue: "sort_value",
@@ -1463,7 +1586,7 @@ async function loadFieldFacetValues(
          MAX(facet.value->>'sortValue') AS sort_value,
          MAX(NULLIF(facet.value->>'sortValue', '')::numeric) FILTER (WHERE facet.value->>'sortKind' = 'number-desc') AS sort_number,
          BOOL_OR(facet.value->>'value' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
-       FROM discovery_search_items AS item
+       FROM ${filter.from}
        CROSS JOIN LATERAL jsonb_array_elements(item.field_filter_values) AS facet(value)
        ${filter.where}
          AND facet.value->>'fieldId' = $${filter.nextParamIndex}
@@ -1493,8 +1616,24 @@ async function loadDimensionFacetValues(
   params: DiscoverySearchParams,
   dimensionId: string,
   selectedOptionIds: readonly string[],
+  searchQueries: SearchSynonymQueries | undefined,
 ): Promise<DiscoveryFacetValue[]> {
-  const filter = buildSearchFilter(params, { excludeFacet: { kind: "dimension", id: dimensionId }, itemAlias: "item" });
+  const constrained = Boolean(
+    params.marketActivity || params.inStock || params.priceMin !== undefined || params.priceMax !== undefined,
+  );
+  const filter = buildSearchFilter(
+    constrained
+      ? {
+          ...params,
+          priceMin: undefined,
+          priceMax: undefined,
+          inStock: false,
+          marketActivity: undefined,
+          sort: undefined,
+        }
+      : params,
+    { excludeFacet: { kind: "dimension", id: dimensionId }, itemAlias: "item", searchQueries },
+  );
   const activityDimensionFilters = marketDimensionFilterGroups(groupDimensionFilters(params.dimensionFilters), {
     kind: "dimension",
     id: dimensionId,
@@ -1508,18 +1647,42 @@ async function loadDimensionFacetValues(
     id: "option_id",
   });
 
-  if (params.marketActivity) {
-    const activitySource = buildMarketActivityFacetSource(
-      params.marketActivity,
-      activityDimensionFilters,
-      filter.nextParamIndex + 2,
-    );
+  if (constrained) {
+    const activitySource = buildMarketActivityFacetSource("any", activityDimensionFilters, filter.nextParamIndex + 2);
+    const values: unknown[] = [...filter.values, dimensionId, selectedOptionIds, ...activitySource.values];
+    const qualifications: string[] = [];
+    if (params.inStock) qualifications.push("market.visible_quantity > 0");
+    for (const [price, comparison] of [
+      [params.priceMin, ">="],
+      [params.priceMax, "<="],
+    ] as const) {
+      if (price !== undefined) {
+        values.push(price);
+        qualifications.push(`market.lowest_price_amount ${comparison} $${values.length}::numeric`);
+      }
+    }
+    if (params.marketActivity === "listings") qualifications.push("market.listing_count > 0");
+    if (params.marketActivity === "offers") qualifications.push("market.offer_count > 0");
+    if (params.marketActivity === "any") qualifications.push("market.listing_count + market.offer_count > 0");
+    const units =
+      params.marketActivity === "listings"
+        ? "market.listing_count"
+        : params.marketActivity === "offers"
+          ? "market.offer_count"
+          : params.marketActivity === "any"
+            ? "market.listing_count + market.offer_count"
+            : "1";
     const result = await db.query<{
       option_id: string;
       label: string;
       count: number;
     }>(
-      `WITH facet_values AS (
+      `WITH catalog_options AS MATERIALIZED (
+       SELECT DISTINCT item.catalog_item_id, facet.value
+       FROM ${filter.from}
+       CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
+       ${filter.where} AND facet.value->>'dimensionId' = $${filter.nextParamIndex}
+     ), facet_values AS (
        SELECT
          facet.value->>'optionId' AS option_id,
          MAX(facet.value->>'optionLabel') AS label,
@@ -1527,26 +1690,35 @@ async function loadDimensionFacetValues(
          MIN(NULLIF(facet.value->>'displayOrder', '')::integer) AS display_order,
          MAX(NULLIF(facet.value->>'numericValue', '')::numeric) AS numeric_value,
          BOOL_OR(facet.value->>'optionId' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
-       FROM discovery_search_items AS item
-       CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
-       ${filter.where}
-         AND facet.value->>'dimensionId' = $${filter.nextParamIndex}
+       FROM catalog_options AS facet
        GROUP BY facet.value->>'optionId'
      ),
      market_activity AS (
        ${activitySource.sql}
      ),
-     market_counts AS (
+     option_activity AS MATERIALIZED (
        SELECT
+         activity.catalog_catalog_item_id,
          selected_option.value->>'optionId' AS option_id,
-         COUNT(DISTINCT activity.activity_id)::integer AS count
+         activity.activity_id, activity.price_amount, activity.price_currency_code, activity.visible_quantity
        FROM market_activity AS activity
-       INNER JOIN discovery_search_items AS item
-         ON item.catalog_item_id = activity.catalog_catalog_item_id
        CROSS JOIN LATERAL jsonb_array_elements(activity.selected_options) AS selected_option(value)
-       ${filter.where}
-         AND selected_option.value->>'dimensionId' = $${filter.nextParamIndex}
-       GROUP BY selected_option.value->>'optionId'
+       INNER JOIN catalog_options AS option
+         ON option.catalog_item_id = activity.catalog_catalog_item_id
+        AND option.value->>'optionId' = selected_option.value->>'optionId'
+       WHERE selected_option.value->>'dimensionId' = $${filter.nextParamIndex}
+     ), option_market AS (
+       SELECT catalog_catalog_item_id, option_id,
+         COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NOT NULL)::integer AS listing_count,
+         COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NULL)::integer AS offer_count,
+         CASE WHEN COUNT(DISTINCT price_currency_code) = 1 THEN MIN(price_amount) ELSE NULL END AS lowest_price_amount,
+         SUM(visible_quantity) AS visible_quantity
+       FROM option_activity GROUP BY catalog_catalog_item_id, option_id
+     ), market_counts AS (
+       SELECT market.option_id, SUM(${units})::integer AS count
+       FROM option_market AS market
+       WHERE ${qualifications.join(" AND ") || "TRUE"}
+       GROUP BY market.option_id
      ),
      counted AS (
        SELECT
@@ -1571,7 +1743,7 @@ async function loadDimensionFacetValues(
      FROM ranked
      WHERE selected OR (count > 0 AND facet_rank <= ${FACET_VALUE_LIMIT})
      ORDER BY selected DESC, ${orderBy}`,
-      [...filter.values, dimensionId, selectedOptionIds, ...activitySource.values],
+      values,
     );
 
     return result.rows.map((row) => ({
@@ -1596,7 +1768,7 @@ async function loadDimensionFacetValues(
          MIN(NULLIF(facet.value->>'displayOrder', '')::integer) AS display_order,
          MAX(NULLIF(facet.value->>'numericValue', '')::numeric) AS numeric_value,
          BOOL_OR(facet.value->>'optionId' = ANY($${filter.nextParamIndex + 1}::text[])) AS selected
-       FROM discovery_search_items AS item
+       FROM ${filter.from}
        CROSS JOIN LATERAL jsonb_array_elements(item.dimension_filter_values) AS facet(value)
        ${filter.where}
          AND facet.value->>'dimensionId' = $${filter.nextParamIndex}
@@ -1641,7 +1813,7 @@ function clampOffset(offset: number | undefined): number {
   return Math.min(1_000, Math.max(0, Math.trunc(offset as number)));
 }
 
-function encodeSearchCursor(row: SearchIndexItemRow, relevance: boolean): string {
+function encodeSearchCursor(row: SearchIndexItemRow, relevance: boolean, selectedPrice: boolean): string {
   const rank = Number(row.search_rank ?? 0);
   const baseMatch = Boolean(row.search_base_match);
   const value = relevance
@@ -1656,6 +1828,7 @@ function encodeSearchCursor(row: SearchIndexItemRow, relevance: boolean): string
         lowestPriceAmount: row.lowest_price_amount,
       }
     : {
+        ...(selectedPrice ? { pv: SELECTED_PRICE_CURSOR_VERSION } : {}),
         id: row.catalog_item_id,
         title: row.title,
         updatedAt: row.updated_at,
@@ -1686,10 +1859,22 @@ function decodeRelevanceCursor(cursor: string | undefined) {
   return { tier: value.tier, baseMatch: value.baseMatch, rank: value.rank, title: value.title, id: value.id };
 }
 
-/** Explicit sorts and text-free relevance keep their unversioned keyset format. */
-function decodeKeysetCursor(cursor: string | undefined) {
+/** Unfiltered explicit sorts keep their legacy format; selected prices require pv=2. */
+function decodeKeysetCursor(cursor: string | undefined, selectedPrice = false) {
   const value = parseCursorObject(cursor);
   if (!value) {
+    return null;
+  }
+  if (
+    selectedPrice &&
+    (value.pv !== SELECTED_PRICE_CURSOR_VERSION ||
+      typeof value.id !== "string" ||
+      !value.id ||
+      !(
+        value.lowestPriceAmount === null ||
+        (typeof value.lowestPriceAmount === "string" && /^\d+(?:\.\d+)?$/.test(value.lowestPriceAmount))
+      ))
+  ) {
     return null;
   }
 

@@ -246,9 +246,35 @@ to it (`takenFrom`). It shares the candidate assignment predicate with Repricing
 ## Repricing Anchor Chain
 
 A **Repricing Anchor Chain** is the ordered list of Repricing Anchors a Repricing Rule's directive tries in
-sequence -- market-estimate, lowest-competing-ask, comp-percentile, or last-sold -- so a rule degrades
+sequence -- market-estimate, lowest-competing-ask, comp-percentile, last-sold, or curve-objective -- so a rule degrades
 gracefully when its first-choice signal is unavailable, ending in a seller-chosen terminal behavior (hold,
-pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted.
+pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted. Each exhausted
+anchor records its input state; a curve-objective member may also record why it could not solve
+(`economics-unavailable`, `goal-retired`, or `curve-feature-missing:<feature>`).
+
+## Curve-Objective Anchor
+
+A **Curve-Objective Anchor** selects a versioned Pricing Goal and its numeric parameters in a Repricing Anchor Chain. Authoring validates the goal and records filled defaults. Evaluation solves the goal on the product's Demand Curve served at the capture instant, with Economics resolved only when the goal requires it: no curve, a retired goal, or a goal that cannot solve leaves it absent, and an expired curve leaves it stale; a missing or different curve or Economics currency fails closed. Its trace names the goal, goal version and curve version, with the forecast read back at the final price.
+
+## Repricing Guardrail
+
+A **Repricing Guardrail** is an ordered, seller-authored constraint on a Repricing Rule's target. A **Guardrail Kind** registers a version, parameter validation, a pre-offset or post-max-move slot, and a pure hold, clamp, or inert result. Existing fixed floor, ceiling, tolerance, rounding, max move and terminal fields remain fixed, not registered kinds.
+
+## Market-Evidence Floor
+
+A **Market-Evidence Floor** is a post-max-move guardrail: 50 through 100 percent of the fresh, currency-equal Market-Value Estimate, rounded upward to a cent. A lower Second Ask or Curve Low releases that bound; it never lowers a target already above the bound. Unavailable estimates are inert.
+
+## Second Ask
+
+The **Second Ask** is the second-lowest outlier-filtered (through the same ask filter as the hard-ask anchor), currency-equal other-seller hard ask. One eligible ask supplies no Second Ask; the seller's own asks and derived asks are excluded.
+
+## Curve Low
+
+The **Curve Low** is the lowest price on a present, currency-equal Demand Curve. Stale, absent, currency-incomplete or currency-mismatched curves supply no Curve Low.
+
+## Hopeless-Forecast Hold
+
+A **Hopeless-Forecast Hold** is a pre-offset guardrail that keeps the current price only when a Curve-Objective Anchor resolved and the fastest forecast point on its present, currency-equal Demand Curve carries the per-point hopeless marker.
 
 ## Any-Mode Anchor
 
@@ -433,7 +459,9 @@ inside or exactly on that band is `within-tolerance`: the engine records the eva
 ### Terminal Price
 
 A **Terminal Price** is the final bounded price the repricing evaluation engine produces after applying a
-Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing Guardrail clamps).
+Repricing Rule's directive in a fixed stage order: Repricing Anchor Chain resolution, pre-offset Repricing
+Guardrails, offset, rounding, max move, post-max-move Repricing Guardrails, Floor Price, then Ceiling Price.
+Guardrail kinds run in authored order within their slot; a guardrail hold ends evaluation with no Terminal Price.
 It becomes a Marketplace price-update command only when it falls outside Repricing Tolerance and the daily
 change budget admits it.
 

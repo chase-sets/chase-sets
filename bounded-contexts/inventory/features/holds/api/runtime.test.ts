@@ -312,11 +312,30 @@ describe("inventory hold runtime", () => {
       itemRows: [],
       aggregateHoldRows: [
         {
-          hold_id: "hld_existing",
-          account_id: "acc_seller",
-          item_id: "inv_1",
-          quantity: 1,
-          active: true,
+          stream_id: "inventory.hold-hld_existing",
+          total: "1",
+          current_version: "1",
+        },
+      ],
+    });
+    await eventStore.appendToStream({
+      streamId: "inventory.hold-hld_existing",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId: "hld_existing",
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: 1,
+            reason: "Existing manual hold",
+            notes: null,
+            purpose: "manual",
+            sourceRef: null,
+            expiresAt: null,
+          },
         },
       ],
     });
@@ -354,7 +373,11 @@ describe("inventory hold runtime", () => {
     expect(aggregateHoldQuery).toContain("stream_category = 'inventory.hold'");
     expect(aggregateHoldQuery).toContain("payload ->> 'accountId' = $2");
     expect(aggregateHoldQuery).toContain("payload ->> 'itemId' = $3");
-    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(0);
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType === "inventory.hold.placed")
+        .map((event) => event.payload.holdId),
+    ).toEqual(["hld_existing"]);
   });
 
   it("blocks seller release of order holds while system workflows release them with audit context", async () => {

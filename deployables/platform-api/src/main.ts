@@ -35,6 +35,7 @@ import {
 import {
   createPostgresUcpIdempotencyStore,
   createUcpProfileKeyResolver,
+  createUcpProfileResolver,
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
 import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
@@ -513,6 +514,13 @@ if (realtimeWakeSignal?.stop) {
   });
 }
 const ucpObserver = {
+  negotiationRejected: (event) => {
+    recordUcpOperationCompleted({ transport: event.transport, operation: event.operation, status: "error" });
+    logger.warn("UCP profile negotiation rejected.", {
+      type: "ucp.negotiation.rejected",
+      ...event,
+    });
+  },
   signedWriteRejected: (event) => {
     recordUcpSignedWriteRejected(event);
     logger.warn("UCP signed write rejected.", {
@@ -626,6 +634,10 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
       }
     : {}),
 });
+const ucpProfileResolver = createUcpProfileResolver({
+  db: pools.control,
+  onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
+});
 const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
   internalAuthSecret: config.internalAuthSecret,
@@ -703,12 +715,13 @@ const app = buildPlatformApiApp(runtime, {
       }
     : undefined,
   ucp: {
+    profileResolver: ucpProfileResolver,
     businessSigningKeys: config.ucpBusinessSigningKeys,
     idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
       retentionMs: 7 * 24 * 60 * 60 * 1000,
     }),
     signatureVerification: {
-      keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
+      keyResolver: createUcpProfileKeyResolver(ucpProfileResolver),
       createdFreshnessWindowMs: config.ucpSignatureCreatedFreshnessWindowMs,
     },
     observer: ucpObserver,

@@ -195,8 +195,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 15,
-      authoritativeSites: 15,
+      discoveredCallCandidates: 20,
+      authoritativeSites: 20,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -219,12 +219,17 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives the seventeen green grammar instances across sixteen live locations without a registry", () => {
+  it("derives twenty-four green grammar instances across twenty-two live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(17);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(16);
+    expect(green).toHaveLength(24);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(22);
     expect(green).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
+          line: 93,
+        }),
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
@@ -240,6 +245,13 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     const shared = green.filter(
       (entry) => entry.file === "contracts/event-core/complete-stream.ts" && entry.line === 5,
     );
+    expect(
+      green.filter(
+        (entry) =>
+          entry.file ===
+          "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
+      ),
+    ).toHaveLength(3);
     expect(new Set(shared.map((entry) => entry.category))).toEqual(new Set(["member-declaration", "type-position"]));
     expect(
       green.some(

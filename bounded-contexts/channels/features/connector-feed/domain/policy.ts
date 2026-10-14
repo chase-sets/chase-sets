@@ -18,6 +18,7 @@ export const connectorPolicyKeys = [
   "maxOperationsPerClaim",
   "maxIngestBytes",
   "maxIngestRecords",
+  "liveExportIntervalSeconds",
 ] as const;
 export type ConnectorPolicy = Readonly<Record<(typeof connectorPolicyKeys)[number], number>>;
 export const connectorPolicyDefaults: ConnectorPolicy = Object.freeze({
@@ -26,11 +27,17 @@ export const connectorPolicyDefaults: ConnectorPolicy = Object.freeze({
   maxOperationsPerClaim: 100,
   maxIngestBytes: manualSyncIngestContract.maxBytes,
   maxIngestRecords: manualSyncIngestContract.maxRecords,
+  liveExportIntervalSeconds: 21_600,
 });
 
 export function decodeConnectorPolicy(value: unknown): ConnectorPolicy {
   assertClosedRecord(value, connectorPolicyKeys, "connector policy");
   const { leaseMs, pollWindowSeconds, maxOperationsPerClaim, maxIngestBytes, maxIngestRecords } = value;
+  const liveExportIntervalSeconds =
+    value.liveExportIntervalSeconds === undefined
+      ? connectorPolicyDefaults.liveExportIntervalSeconds
+      : value.liveExportIntervalSeconds;
+  integer(liveExportIntervalSeconds, 60, 86_400);
   integer(leaseMs, OUTBOUND_CLAIM_LEASE_MIN_MS, OUTBOUND_CLAIM_LEASE_MAX_MS);
   integer(pollWindowSeconds, 1, 3600);
   integer(maxOperationsPerClaim, 1, connectorMaxOperations);
@@ -44,13 +51,20 @@ export function decodeConnectorPolicy(value: unknown): ConnectorPolicy {
     manualSyncIngestContract.configuredBounds.rows[0],
     manualSyncIngestContract.configuredBounds.rows[1],
   );
-  return { leaseMs, pollWindowSeconds, maxOperationsPerClaim, maxIngestBytes, maxIngestRecords };
+  return {
+    leaseMs,
+    pollWindowSeconds,
+    maxOperationsPerClaim,
+    maxIngestBytes,
+    maxIngestRecords,
+    liveExportIntervalSeconds,
+  };
 }
 
 export const connectorTransportPolicy = definePolicy({
   policyKey: "channels.connector-transport",
   contextName: "channels",
-  schemaSummary: "Closed connector lease, poll window, producer member and manual-ingest bounds.",
+  schemaSummary: "Closed connector lease, poll window, live-export cadence, producer member and manual-ingest bounds.",
   defaultValue: connectorPolicyDefaults,
   decodeValue: decodeConnectorPolicy,
 });

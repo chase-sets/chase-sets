@@ -6,6 +6,7 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
+import { decideAuthorizedConsent, initialConsentState } from "../domain/domain";
 import type { IdentityApiEnv } from "../../../api";
 import {
   authorizeConsentForActor,
@@ -51,20 +52,18 @@ function buildApp(services: ConsentServices, currentActor: ResolvedActor | null 
 
 function buildServices(consent: Record<string, unknown> | null = null) {
   return {
-    commandHandler: vi.fn(async () => ({
+    commandHandler: vi.fn<ConsentServices["commandHandler"]>(async () => ({
       version: 2,
-      state: { status: "withdrawn", withdrawnAt: "2026-07-15T00:00:00.000Z" },
+      state: { ...initialConsentState, status: "withdrawn", withdrawnAt: "2026-07-15T00:00:00.000Z" },
       newEvents: [],
       storedEvents: [],
     })),
-    getConsent: vi.fn(async () => consent),
-    listConsents: vi.fn(async () => ({ items: [], total: 0 })),
+    recordTermsConsent: vi.fn<ConsentServices["recordTermsConsent"]>(),
+    getConsentState: vi.fn<ConsentServices["getConsentState"]>(async () => null),
+    getConsent: vi.fn<ConsentServices["getConsent"]>(async () => consent as never),
+    listConsents: vi.fn<ConsentServices["listConsents"]>(async () => ({ items: [], total: 0 })),
     projectors: [],
-  } as unknown as ConsentServices & {
-    commandHandler: ReturnType<typeof vi.fn>;
-    getConsent: ReturnType<typeof vi.fn>;
-    listConsents: ReturnType<typeof vi.fn>;
-  };
+  } satisfies ConsentServices;
 }
 
 function createRealHarness() {
@@ -82,7 +81,7 @@ function createRealHarness() {
 }
 
 async function recordConsent(
-  runtime: ConsentServices,
+  memory: ReturnType<typeof createInMemoryEventStore>,
   consentId: string,
   subjectType: "account" | "user",
   userId: string,
@@ -93,8 +92,8 @@ async function recordConsent(
     userId,
     accountId,
   });
-  await runtime.commandHandler({
-    streamId: `identity.consent-${consentId}`,
+  const events = decideAuthorizedConsent(initialConsentState, {
+    authorization: authorizeConsentForActor(context),
     command: {
       type: "RecordConsent",
       consentId: consentId as ConsentId,
@@ -105,8 +104,12 @@ async function recordConsent(
       policyVersion: "v1",
       recordedAt: "2026-07-01T00:00:00.000Z",
     },
+  });
+  await memory.eventStore.appendToStream({
+    streamId: `identity.consent-${consentId}`,
+    expectedVersion: "no_stream",
+    events: events.map((event) => ({ eventType: event.type, payload: event.data })),
     context,
-    authorization: authorizeConsentForActor(context),
   });
 }
 
@@ -334,7 +337,7 @@ describe("consent API route", () => {
   ])("returns the existing named forbidden response without writing for $name", async (testCase) => {
     const { appendToStream, memory, runtime } = createRealHarness();
     await recordConsent(
-      runtime,
+      memory,
       testCase.consentId,
       testCase.subjectType,
       testCase.subjectUserId,

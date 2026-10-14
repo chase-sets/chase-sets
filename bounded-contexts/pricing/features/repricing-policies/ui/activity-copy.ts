@@ -32,6 +32,7 @@ export const repricingSkipReasonCopyKeys = {
   "resume-hysteresis": "pricing.features.repricingPolicies.ui.activity.skip.resumeHysteresis",
   "repause-cooldown": "pricing.features.repricingPolicies.ui.activity.skip.repauseCooldown",
   "command-error": "pricing.features.repricingPolicies.ui.activity.skip.commandError",
+  "hopeless-forecast-hold": "pricing.features.repricingPolicies.ui.activity.skip.hopelessForecastHold",
 } as const satisfies Record<RepricingEvaluationSkipReason, string>;
 
 // Key order is the filter strip order; it mirrors the activity API's
@@ -58,6 +59,7 @@ export const repricingClampCopyKeys = {
   floor: "pricing.features.repricingPolicies.ui.activity.clamp.floor",
   ceiling: "pricing.features.repricingPolicies.ui.activity.clamp.ceiling",
   maxMove: "pricing.features.repricingPolicies.ui.activity.clamp.maxMove",
+  evidenceFloor: "pricing.features.repricingPolicies.ui.activity.clamp.evidenceFloor",
 } as const satisfies Record<keyof RepricingClampTrace, string>;
 
 export type RepricingAnchorWording =
@@ -67,7 +69,8 @@ export type RepricingAnchorWording =
   | "lowest-any-listing-band-floor"
   | "market-estimate-no-manual-listings"
   | "market-estimate"
-  | "last-sold";
+  | "last-sold"
+  | "goal-solved";
 
 export const repricingAnchorWordingCopyKeys = {
   "lowest-manual-listing": "pricing.features.repricingPolicies.ui.activity.stratum.lowestManualListing",
@@ -78,6 +81,7 @@ export const repricingAnchorWordingCopyKeys = {
     "pricing.features.repricingPolicies.ui.activity.stratum.marketEstimateNoManualListings",
   "market-estimate": "pricing.features.repricingPolicies.ui.activity.stratum.marketEstimate",
   "last-sold": "pricing.features.repricingPolicies.ui.activity.stratum.lastSold",
+  "goal-solved": "pricing.features.repricingPolicies.ui.activity.anchor.goalSolved",
 } as const satisfies Record<RepricingAnchorWording, string>;
 
 const askAnchorSources = new Set(["lowest-competing-ask", "comp-percentile"]);
@@ -101,6 +105,8 @@ export function resolveRepricingAnchorWording(
         : "market-estimate";
     case "last-sold":
       return "last-sold";
+    case "curve-objective":
+      return "goal-solved";
   }
 }
 
