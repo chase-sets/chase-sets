@@ -86,7 +86,7 @@ export function validateInventoryItemStockHistory(input: {
 }) {
   const streamId = `inventory.item-${input.itemId}`;
   assertEnvelope(input.events, streamId, input.tenantId);
-  requireHistory(input.events.length === input.version);
+  requireHistory(Number.isSafeInteger(input.version) && input.version > 0 && input.events.length >= input.version);
   let total = 0;
   for (let index = 0; index < input.events.length; index++) {
     const event = input.events[index];
@@ -115,8 +115,8 @@ export function validateInventoryItemStockHistory(input: {
       }
     }
     requireHistory(Number.isSafeInteger(total) && total >= 0);
+    if (event.streamVersion === input.version) requireHistory(total === input.totalQuantity);
   }
-  requireHistory(total === input.totalQuantity);
 }
 
 export function foldInventoryStockHold(input: {
