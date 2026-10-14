@@ -1144,7 +1144,11 @@ describe("wallet-funding-card-cohort", () => {
     expect(quoted.status).toBe(200);
     const quote = (await quoted.json()) as { fundingId: string; quote: { quote_fingerprint: string } };
     expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
-    const created = await post({ ...body, fundingId: quote.fundingId, quoteFingerprint: quote.quote.quote_fingerprint });
+    const created = await post({
+      ...body,
+      fundingId: quote.fundingId,
+      quoteFingerprint: quote.quote.quote_fingerprint,
+    });
     expect(created.status).toBe(201);
     expect(await created.json()).toMatchObject({
       outcome: "created",
@@ -1205,7 +1209,10 @@ describe("wallet-funding-card-cohort", () => {
   );
 
   it.each([
-    ["a saved bank account", savedRow({ payment_method_category: "bank-account", provider_reference: "pm_synthetic_bank" })],
+    [
+      "a saved bank account",
+      savedRow({ payment_method_category: "bank-account", provider_reference: "pm_synthetic_bank" }),
+    ],
     ["a saved platform-credit instrument", savedRow({ payment_method_category: "platform-credit" })],
     ["a card still awaiting setup", savedRow({ readiness: "setup-required" })],
     ["a removed card", savedRow({ readiness: "removed", removed_at: at })],

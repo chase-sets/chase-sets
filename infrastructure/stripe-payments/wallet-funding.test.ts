@@ -185,13 +185,19 @@ describe("wallet-funding-card-cohort (synthetic responses only, not provider met
     expect(form.has("transfer_group")).toBe(false);
     expect(form.get("payment_method_options[card][request_three_d_secure]")).toBe("any");
     expect(form.get("metadata[purpose]")).toBe("wallet-funding");
-    expect(created).toMatchObject({ processorPaymentKind: "payment-intent", processorClientSecret: "synthetic-secret" });
+    expect(created).toMatchObject({
+      processorPaymentKind: "payment-intent",
+      processorClientSecret: "synthetic-secret",
+    });
   });
 
   it.each([
     ["a bank-account category", { paymentMethodCategory: "bank-account" as const }],
     ["a platform-credit category", { paymentMethodCategory: "platform-credit" as const }],
-    ["a metadata method hint", { marketplaceRiskMetadata: { purpose: "wallet-funding", payment_method_types: "link" } }],
+    [
+      "a metadata method hint",
+      { marketplaceRiskMetadata: { purpose: "wallet-funding", payment_method_types: "link" } },
+    ],
     ["a saved bank reference", { savedCheckoutInstrument: { ...savedCard, providerReference: "pm_synthetic_bank" } }],
   ])("%s under the wallet purpose cannot widen the card-only request", async (_label, patch) => {
     const { url, form, methodTypes } = await capture(walletRequest(patch));
@@ -246,7 +252,10 @@ describe("wallet-funding-card-cohort (synthetic responses only, not provider met
       { ...walletIntent, metadata: { payment_id: "wfp_other", purpose: "wallet-funding" } },
       { ...walletIntent, id: "pi_other" },
     ]) {
-      vi.stubGlobal("fetch", vi.fn(async () => response(foreign)));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response(foreign)),
+      );
       expect(await gateway().retrieveWalletFundingConfirmation!("wfp_synthetic", "pi_synthetic")).toBeNull();
     }
   });
