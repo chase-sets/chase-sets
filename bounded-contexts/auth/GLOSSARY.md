@@ -62,6 +62,10 @@ The Auth-owned recipient journey that inspects an Identity-owned Invitation, pro
 
 Identity remains the source of truth for Invitation status, expiry, token consumption, and the resulting Membership. Auth owns the tokenized email intent, recipient page, credential ceremony, and authenticated landing.
 
+## Invitation Acceptance Attempt
+
+One nonsecret, actor- and Invitation-bound Auth journey. Its UUID, versioned binding and bounded checkpoints correlate owner reads and reserved identities, not permission to replay a credential, Session Token or cookie. Complete Identity history proves acceptance; status lookup never issues Session authority. Recorded attempts remain readable after deactivation. Terminal retention removes only lookup markers after 30 days, not authoritative event history or nonterminal recovery state.
+
 ## Sign-In Identifier
 
 A **Sign-In Identifier** is the contact value Auth accepts to start an authentication journey.

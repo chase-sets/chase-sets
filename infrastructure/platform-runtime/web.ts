@@ -514,9 +514,27 @@ export function resolveWebHostActiveKey(
   actor?: ShellActor,
   options: WebHostNavOptions & Readonly<{ defaultKey?: string }> = {},
 ): string | undefined {
-  const tree = resolveShellTree(registry, hostName, slot, options);
+  const { defaultKey, ...navOptions } = options;
+  return resolveWebHostActiveKeyAcrossSlots(registry, hostName, { [slot]: navOptions }, pathname, actor, {
+    defaultKey,
+  });
+}
+
+export function resolveWebHostActiveKeyAcrossSlots(
+  registry: WebContextRegistry,
+  hostName: WebHostName,
+  slots: Readonly<Partial<Record<BcShellContributionSlot, WebHostNavOptions>>>,
+  pathname: string,
+  actor?: ShellActor,
+  options: Readonly<{ defaultKey?: string }> = {},
+): string | undefined {
+  const trees = Object.entries(slots).map(([slot, slotOptions]) => ({
+    tree: resolveShellTree(registry, hostName, slot as BcShellContributionSlot, slotOptions),
+    options: slotOptions,
+  }));
   const path = normalizeActivePath(pathname);
-  const matches = flattenShellItems(tree)
+  const matches = trees
+    .flatMap(({ tree }) => flattenShellItems(tree))
     .filter((node) => node.activation !== "action" && node.href && !node.children?.length)
     .flatMap((node) =>
       [node.href!, ...(node.activePathPatterns ?? [])].flatMap((pattern) => {
@@ -537,7 +555,9 @@ export function resolveWebHostActiveKey(
   const key = best?.key ?? options.defaultKey;
   const hasKey = (items: readonly NavigationItem[]): boolean =>
     items.some((item) => item.key === key || hasKey(item.children ?? []));
-  return key !== undefined && hasKey(renderShellTree(tree, actor, options)) ? key : undefined;
+  return key !== undefined && trees.some(({ tree, options }) => hasKey(renderShellTree(tree, actor, options)))
+    ? key
+    : undefined;
 }
 
 export function getWebHostSections(hostName: WebHostName): readonly WebHostSection[] {

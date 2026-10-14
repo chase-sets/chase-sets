@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { supportFlowCatalog } from "../domain/flow-catalog";
@@ -38,6 +38,22 @@ function renderPage(
   );
 
   render(<RouterProvider router={router} />);
+}
+
+// Resolves on the router's own completion event instead of a findBy*/waitFor polling window. Support
+// actions hash through WebCrypto, which settles off the JS thread, so the action outlives act() and
+// a loaded host can exceed the default 1000 ms window (#9533).
+function navigationSettled(router: ReturnType<typeof createMemoryRouter>) {
+  let busy = router.state.navigation.state !== "idle";
+  return new Promise<void>((resolve) => {
+    const unsubscribe = router.subscribe((state) => {
+      if (state.navigation.state !== "idle") busy = true;
+      else if (busy) {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
 }
 
 const buyerOrder = {
@@ -82,6 +98,10 @@ describe("SupportRequestListPage", () => {
       const pause = new Promise<void>((resolve) => {
         releaseUpload = resolve;
       });
+      let markUploadDispatched: (() => void) | undefined;
+      const uploadDispatched = new Promise<void>((resolve) => {
+        markUploadDispatched = resolve;
+      });
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -123,7 +143,10 @@ describe("SupportRequestListPage", () => {
           }
           if (url.endsWith("/attachments")) {
             uploadIds.push(new Headers(init?.headers).get("x-support-attachment-operation-id")!);
-            if (uploadIds.length === 1) await pause;
+            if (uploadIds.length === 1) {
+              markUploadDispatched!();
+              await pause;
+            }
             if (failing && failure === "ambiguous") throw new Error("Connection lost after upload");
             if (failing && failure !== "submit-conflict")
               return json(
@@ -194,28 +217,38 @@ describe("SupportRequestListPage", () => {
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
         expect(snapshot.form?.get("attachments")).toMatchObject({ name: "photo.jpg" });
         expect(router.state.errors).toBeNull();
-        await waitFor(() => expect(uploadIds).toEqual([originalId]));
-        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true"));
+        await act(() => uploadDispatched);
+        expect(uploadIds).toEqual([originalId]);
+        expect(document.querySelector("form")?.getAttribute("aria-busy")).toBe("true");
         expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
+        const released = navigationSettled(router);
         await act(async () => {
           releaseUpload!();
+          await released;
         });
-        await screen.findByText(
-          "Retry the same photos (re-select the same files if needed), or start a new photo batch.",
-        );
-        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
+        // Discriminating control, read once the action has settled: visible retry guidance, the
+        // retained batch id and exactly one dispatched upload. The new-batch action renders only for a
+        // recovered id; without it the field would fall back to the panel's initial id, which is also
+        // originalId.
+        expect(
+          screen.getByText("Retry the same photos (re-select the same files if needed), or start a new photo batch."),
+        ).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Start a new photo batch" })).toBeTruthy();
         expect(field().value).toBe(originalId);
+        expect(uploadIds).toEqual([originalId]);
+        expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull();
         expect(document.querySelector<HTMLInputElement>('input[name="supportRequestId"]')?.value).toBe("sup_1");
         expect(screen.queryByText("You already have an open case for this order")).toBeNull();
         if (failure === "submit-conflict") {
-          const status = await screen.findByRole("heading", {
+          const status = screen.getByRole("heading", {
             name: "Check status before retrying this support action.",
           });
           expect(status.textContent).toContain("Check status before retrying");
           expect(screen.getByRole("button", { name: "Open case" }).matches(":disabled")).toBe(true);
           expect(screen.getByRole("button", { name: "Start a new photo batch" }).matches(":disabled")).toBe(true);
+          const checked = navigationSettled(router);
           await user.click(screen.getByRole("button", { name: "Check status" }));
-          await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+          await act(() => checked);
           expect(uploadIds).toEqual([originalId]);
           expect(
             screen
@@ -227,9 +260,10 @@ describe("SupportRequestListPage", () => {
         }
         // Re-selection and retry preserve the id. Ambiguity never dispatches again.
         await user.upload(screen.getByLabelText("Add evidence photos"), photo);
+        const retried = navigationSettled(router);
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
-        await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
-        await waitFor(() => expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull());
+        await act(() => retried);
+        expect(document.querySelector("form")?.getAttribute("aria-busy")).toBeNull();
         expect(field().value).toBe(originalId);
         expect(uploadIds).toEqual(failure === "ambiguous" ? [originalId] : [originalId, originalId]);
         await user.click(screen.getByRole("button", { name: "Start a new photo batch" }));
@@ -243,10 +277,12 @@ describe("SupportRequestListPage", () => {
           screen.getByLabelText("Add evidence photos"),
           new BrowserFile(["changed"], "changed.jpg", { type: "image/jpeg" }),
         );
+        const submitted = navigationSettled(router);
         fireEvent.submit(screen.getByRole("button", { name: "Open case" }).closest("form")!);
-        await waitFor(() => expect(router.state.location.pathname).toBe("/account/support/sup_1"));
+        await act(() => submitted);
+        expect(router.state.location.pathname).toBe("/account/support/sup_1");
         expect(uploadIds.at(-1)).toBe(freshId);
-        expect(await screen.findByText("Opening photos recorded")).toBeTruthy();
+        expect(screen.getByText("Opening photos recorded")).toBeTruthy();
         expect(document.querySelector('[name="participantRecovery"]')).toBeNull();
       } finally {
         document.removeEventListener("submit", capture, true);
