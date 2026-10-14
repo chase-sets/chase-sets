@@ -85,6 +85,10 @@ describe("projects observed planner reads into planner-read rows", () => {
         })),
       );
       expect(row.plan.resolvedAt).toBe(captureNow);
+      expect(row.plan.scopes[0]!.scopeRecordVersion).toBe("2026-10-13T07:00:00.000Z");
+      expect(row.plan.scopes[0]!.mappingVersions.map((mapping) => mapping.version)).toEqual(
+        countCaptureUnitKeys.map(() => "2026-10-13T07:00:00.000Z"),
+      );
       expect(JSON.stringify(row)).not.toContain("synthetic-explanation-marker");
     }
   });

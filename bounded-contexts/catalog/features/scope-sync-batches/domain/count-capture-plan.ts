@@ -279,6 +279,8 @@ type ResolvedPlan = Readonly<{ preview: ScopeSyncBatchPreview; plans: readonly S
 export function captureCountPlan(plan: ResolvedPlan): CountCapturePlan {
   const blockers = (values: readonly ScopeSyncBatchPreview["blockers"][number][]) =>
     values.map(({ code, scopeRecordId, providerKey }) => ({ code, scopeRecordId, providerKey }));
+  // Postgres returns record and mapping versions as Date despite their string type.
+  const instant = (value: unknown) => (value instanceof Date ? value.toISOString() : value);
   return countCapturePlanSchema.parse({
     selection: plan.preview.selection,
     budget: plan.preview.budget,
@@ -287,8 +289,8 @@ export function captureCountPlan(plan: ResolvedPlan): CountCapturePlan {
     blockers: blockers(plan.preview.blockers),
     scopes: plan.plans.map((entry) => ({
       scopeRecordId: entry.scopeRecordId,
-      scopeRecordVersion: entry.scopeRecordVersion,
-      mappingVersions: entry.mappingVersions,
+      scopeRecordVersion: instant(entry.scopeRecordVersion),
+      mappingVersions: entry.mappingVersions.map((mapping) => ({ ...mapping, version: instant(mapping.version) })),
       profileVersions: entry.profileVersions,
       scope: entry.scope,
       providerUnitCount: entry.providerUnitCount,

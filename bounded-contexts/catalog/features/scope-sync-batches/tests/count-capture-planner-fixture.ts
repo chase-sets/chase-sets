@@ -128,12 +128,13 @@ type UnitRead = (kind: CountCaptureKind) => Promise<ScrydexCountSource | null>;
 // The real batch planner over the capture scope. Its scope preview stands in for
 // adapter planning and estimates each count unit from `readUnit`.
 export function createCapturePlannerFixture(readUnit: UnitRead) {
+  // node-postgres returns timestamptz columns as Date, whatever the row type says.
   const record = {
     scope_record_id: captureScopeRecordId,
     product_domain: "one-piece",
     scope_kind: "set",
     lifecycle_status: "active",
-    updated_at: "2026-10-13T07:00:00.000Z",
+    updated_at: new Date("2026-10-13T07:00:00.000Z"),
   };
   const mappings = countCaptureUnitKeys.map((unitKey, index) => ({
     mapping_id: `mapping-synthetic-${index}`,
@@ -145,7 +146,7 @@ export function createCapturePlannerFixture(readUnit: UnitRead) {
     set_id: "OP01",
     set_name: "Synthetic Romance Dawn",
     review_status: "accepted",
-    updated_at: "2026-10-13T07:00:00.000Z",
+    updated_at: new Date("2026-10-13T07:00:00.000Z"),
   }));
   const db = {
     query: vi.fn(async (sql: string) => ({
