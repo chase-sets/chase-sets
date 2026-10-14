@@ -24,7 +24,10 @@ import {
 // A maximum 10000-target quote with long but valid query fields serializes to
 // roughly 10 MiB; anything larger is refused rather than truncated.
 export const rehearsalCountAdminMaxResponseBytes = 32 * 1024 * 1024;
-const defaultTimeoutMs = 120_000;
+const readTimeoutMs = 120_000;
+// The acquisition sends serially server-side, so its single submission waits longer
+// (inside the 10-minute workflow step); a timeout is still an uncertain stop.
+const acquireTimeoutMs = 8 * 60 * 1000;
 const ageLimitMs = 15 * 60 * 1000;
 
 export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unknown }>;
@@ -65,11 +68,10 @@ export function createRehearsalCountAdminClient(deps: {
   origin: string;
   cookie: string;
   fetch: typeof globalThis.fetch;
-  timeoutMs?: number;
   maxResponseBytes?: number;
 }): RehearsalCountAdmin {
   const base = `${deps.origin}/api/catalog/scope-sync-batches/counts`;
-  async function call(path: string, body?: unknown): Promise<RehearsalCountAdminResponse> {
+  async function call(path: string, body?: unknown, timeoutMs = readTimeoutMs): Promise<RehearsalCountAdminResponse> {
     const response = await deps.fetch(`${base}${path}`, {
       method: body === undefined ? "GET" : "POST",
       headers: {
@@ -80,7 +82,7 @@ export function createRehearsalCountAdminClient(deps: {
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       redirect: "manual",
-      signal: AbortSignal.timeout(deps.timeoutMs ?? defaultTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status < 200 || response.status >= 300) {
       await response.body?.cancel().catch(() => undefined);
@@ -96,7 +98,7 @@ export function createRehearsalCountAdminClient(deps: {
   return {
     quote: (input) => call("/quote", input.cap === undefined ? { selection: input.selection } : input),
     readQuote: (quoteId) => call(`/quote/${encodeURIComponent(quoteId)}`),
-    acquire: (input) => call("/acquire", input),
+    acquire: (input) => call("/acquire", input, acquireTimeoutMs),
   };
 }
 
