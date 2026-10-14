@@ -32,7 +32,7 @@ describe("Support evidence reference grammar", () => {
       ).toThrow("attachment_reference_unknown");
     },
   );
-  it("accepts v1 history references and complete claimed batches, not a subset of a claim", () => {
+  it("accepts history references and complete batches, replays reordered JSONB evidence, not changed evidence or a partial claim (mutant: property-order equality)", () => {
     const state = fold(openProductNotAsDescribed());
     const command = {
       type: "SubmitSupportEvidence",
@@ -45,6 +45,19 @@ describe("Support evidence reference grammar", () => {
     } as const;
     const events = decideSupportRequest(state, command, { claimedAttachments: photoReferences });
     expect(events).toHaveLength(1);
+    const submitted = fold([...openProductNotAsDescribed(), ...events]);
+    const reordered = {
+      ...submitted,
+      evidence: submitted.evidence.map(({ attachments, evidenceId, ...rest }) => ({
+        attachments,
+        ...rest,
+        evidenceId,
+      })),
+    };
+    expect(decideSupportRequest(reordered, command)).toEqual([]);
+    expect(() => decideSupportRequest(reordered, { ...command, summary: "Changed evidence" })).toThrow(
+      "Support evidence id is already used for different evidence.",
+    );
     expect(
       decideSupportRequest(fold([...openProductNotAsDescribed(), ...events]), {
         ...command,

@@ -1125,7 +1125,13 @@ export const decideSupportRequest = (
       const existingEvidence = state.evidence.find((candidate) => candidate.evidenceId === evidence.evidenceId);
       if (existingEvidence) {
         assert(
-          JSON.stringify(existingEvidence) === JSON.stringify(evidence),
+          (existingEvidence.submittedByAccountId ?? null) === evidence.submittedByAccountId &&
+            existingEvidence.submittedByRole === evidence.submittedByRole &&
+            existingEvidence.evidenceType === evidence.evidenceType &&
+            existingEvidence.summary === evidence.summary &&
+            (existingEvidence.occurredAt ?? null) === evidence.occurredAt &&
+            existingEvidence.submittedAt === evidence.submittedAt &&
+            JSON.stringify(existingEvidence.attachments) === JSON.stringify(evidence.attachments),
           "Support evidence id is already used for different evidence.",
         );
         return [];
