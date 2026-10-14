@@ -134,7 +134,7 @@ describe("inventory item runtime", () => {
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: [inventoryRow] };
         }
-        if (sql.includes("FROM inventory_holds")) {
+        if (sql.includes("WITH candidates AS") || sql.includes("FROM inventory_holds")) {
           return { rows: [] };
         }
         if (sql.includes("to_regclass")) {
@@ -349,6 +349,32 @@ describe("inventory item runtime", () => {
 
   it("uses aggregate held quantity to enforce the adjustment floor when projections lag", async () => {
     const { eventStore } = createInMemoryEventStore();
+    for (const [holdId, quantity] of [
+      ["hld_1", 1],
+      ["hld_2", 2],
+    ] as const) {
+      await eventStore.appendToStream({
+        streamId: `inventory.hold-${holdId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "inventory.hold.placed",
+            payload: {
+              holdId,
+              accountId: "acc_seller",
+              itemId: "inv_1",
+              quantity,
+              reason: "Existing manual hold",
+              notes: null,
+              purpose: "manual",
+              sourceRef: null,
+              expiresAt: null,
+            },
+          },
+        ],
+      });
+    }
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM inventory_items AS item")) {
@@ -358,18 +384,14 @@ describe("inventory item runtime", () => {
           return {
             rows: [
               {
-                hold_id: "hld_1",
-                account_id: "acc_seller",
-                item_id: "inv_1",
-                quantity: 1,
-                active: true,
+                stream_id: "inventory.hold-hld_1",
+                total: "2",
+                current_version: "1",
               },
               {
-                hold_id: "hld_2",
-                account_id: "acc_seller",
-                item_id: "inv_1",
-                quantity: 2,
-                active: true,
+                stream_id: "inventory.hold-hld_2",
+                total: "2",
+                current_version: "1",
               },
             ],
           };
@@ -470,6 +492,7 @@ describe("inventory item runtime", () => {
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: existingItem ? [existingItem] : [] };
         }
+        if (sql.includes("WITH candidates AS")) return { rows: [] };
 
         throw new Error(`Unexpected query: ${sql}`);
       }),

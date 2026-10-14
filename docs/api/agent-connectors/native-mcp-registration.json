@@ -1647,7 +1647,19 @@
           },
           "idempotencyKey": {
             "type": "string",
-            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+            "description": "Caller-created Inventory mutation attempt UUIDv4. Reuse only for the same normalized intent; after response loss read the original result."
+          },
+          "collisionMode": {
+            "type": "string",
+            "description": "Stock reduction collision policy.",
+            "enum": [
+              "protect-orders",
+              "honor-offline"
+            ]
+          },
+          "confirmSellerCannotFulfill": {
+            "type": "boolean",
+            "description": "Explicit Honor Offline confirmation."
           },
           "confirmationText": {
             "type": "string",
@@ -1661,9 +1673,47 @@
       },
       "confirmation_required": true,
       "idempotency_key": "required",
-      "dry_run_supported": true,
+      "dry_run_supported": false,
       "expected_usage": [
         "Use for explicit stock corrections after checking active holds and ledger history."
+      ]
+    },
+    {
+      "name": "inventory.get-mutation-attempt",
+      "title": "Get Inventory Mutation Result",
+      "description": "Read the exact original Inventory result without resubmitting a change.",
+      "service_id": "inventory",
+      "risk": "read",
+      "access_scope": "account",
+      "required_permissions": [
+        "inventory.view"
+      ],
+      "required_scopes": [
+        "inventory:read"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "attemptId"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "attemptId": {
+            "type": "string",
+            "description": "Original caller-created attempt UUIDv4."
+          }
+        }
+      },
+      "confirmation_required": false,
+      "idempotency_key": "not-applicable",
+      "dry_run_supported": false,
+      "expected_usage": [
+        "Use after an uncertain response; an unavailable result does not authorize a second write."
       ]
     },
     {

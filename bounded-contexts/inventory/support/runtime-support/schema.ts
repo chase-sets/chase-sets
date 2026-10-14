@@ -1,9 +1,11 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { inventoryMutationAttemptSchemaMigrations, inventoryMutationAttemptSchemaSql } from "./mutation-attempt-schema";
 import { inventoryCatalogItemSchemaMigrations, inventoryCatalogItemSchemaSql } from "../catalog-item-support/schema";
 import {
   inventoryHoldSchemaMigrations,
   inventoryHoldSchemaSql,
   inventoryHoldSourceIndexSchemaMigrations,
+  inventoryHoldStockHistorySchemaMigrations,
 } from "../../features/holds/read-model/schema";
 import { inventoryHoldCollisionSchemaSql } from "../../features/hold-collisions/read-model/schema";
 import {
@@ -25,6 +27,7 @@ import {
 
 export const inventorySchemaSql = [
   eventCorePostgresSchemaSql,
+  inventoryMutationAttemptSchemaSql,
   inventoryCatalogItemSchemaSql,
   inventoryStorageLocationSchemaSql,
   inventoryItemSchemaSql,
@@ -38,9 +41,11 @@ export const inventorySchemaSql = [
 ].join("\n\n");
 
 export const inventorySchemaMigrations = [
+  ...inventoryMutationAttemptSchemaMigrations,
   ...inventoryItemSchemaMigrations,
   ...inventoryHoldSchemaMigrations,
   ...inventoryHoldSourceIndexSchemaMigrations,
+  ...inventoryHoldStockHistorySchemaMigrations,
   ...inventoryCatalogItemSchemaMigrations,
   ...inventoryImportBatchSchemaMigrations,
   ...inventoryChannelStockAllocationSchemaMigrations,
