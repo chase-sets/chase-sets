@@ -421,6 +421,7 @@ describeDb("projection inline apply Postgres integration", () => {
 
       let diagnosticTimer: ReturnType<typeof setTimeout> | undefined;
       let inlineAttempt: ReturnType<typeof applyInline> | undefined;
+      let budgetAdvanced = false;
       const diagnosticBound = new Promise<Readonly<{ kind: "diagnostic-bound" }>>((resolve) => {
         diagnosticTimer = realSetTimeout(() => resolve({ kind: "diagnostic-bound" }), 30_000);
       });
@@ -445,6 +446,7 @@ describeDb("projection inline apply Postgres integration", () => {
         expect(statementDelay.observations).toEqual([expect.objectContaining({ fakeAdvancement: 0, code: null })]);
         await expect(Promise.race([settlement, Promise.resolve("pending")])).resolves.toBe("pending");
 
+        budgetAdvanced = true;
         vi.advanceTimersByTime(25);
         const result = await Promise.race([settlement, diagnosticBound]);
         if (result.kind === "diagnostic-bound") {
@@ -472,6 +474,9 @@ describeDb("projection inline apply Postgres integration", () => {
           claimant.release();
         }
       } finally {
+        if (!budgetAdvanced && vi.isFakeTimers()) {
+          vi.advanceTimersByTime(25);
+        }
         releaseHandler();
         testState.handlerGate = null;
         await inlineAttempt?.catch(() => undefined);
