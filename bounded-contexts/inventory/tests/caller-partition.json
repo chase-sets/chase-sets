@@ -1,4 +1,12 @@
 {
+  "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx": {
+    "families": ["item-read"],
+    "authority": "not Inventory: browser storage",
+    "attempt": "not applicable",
+    "read": "browser storage.getItem",
+    "consumer": "not Inventory",
+    "status": "unrelated"
+  },
   "bounded-contexts/catalog/features/source-observations/ui/primary-workbench-selection-store.ts": {
     "families": ["item-read"],
     "authority": "not Inventory: browser storage",

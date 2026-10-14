@@ -680,7 +680,7 @@ export async function getSavedCheckoutInstrumentByProviderReference(
 
 export async function listSavedCheckoutInstrumentsForAgentGrant(
   db: PgQueryable,
-  params: Readonly<{ accountId: string; agentGrantId: string }>,
+  params: Readonly<{ accountId: string; agentGrantId: string; revokedAt?: string; afterInstrumentId?: string }>,
 ): Promise<SavedCheckoutInstrumentRow[]> {
   const result = await db.query<SavedCheckoutInstrumentRow>(
     `SELECT
@@ -705,12 +705,47 @@ export async function listSavedCheckoutInstrumentsForAgentGrant(
      FROM payments_saved_checkout_instruments
      WHERE account_id = $1
        AND agent_grant_id = $2
-       AND readiness <> 'removed'
-     ORDER BY updated_at ASC, instrument_id ASC`,
-    [params.accountId, params.agentGrantId],
+       ${
+         params.revokedAt
+           ? `AND (readiness <> 'removed' OR removed_at = $3::timestamptz OR (removed_at IS NULL AND is_default))
+       AND instrument_id > $4 ORDER BY instrument_id ASC LIMIT 500`
+           : "AND readiness <> 'removed' ORDER BY updated_at ASC, instrument_id ASC"
+       }`,
+    params.revokedAt
+      ? [params.accountId, params.agentGrantId, params.revokedAt, params.afterInstrumentId ?? ""]
+      : [params.accountId, params.agentGrantId],
   );
 
   return result.rows;
+}
+
+export async function removeSavedCheckoutInstrumentForAgentGrant(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; agentGrantId: string; instrumentId: string; revokedAt: string }>,
+): Promise<boolean> {
+  const result = await db.query(
+    `WITH removed AS (
+       UPDATE payments_saved_checkout_instruments
+       SET readiness = 'removed', is_default = false,
+           removed_at = COALESCE(removed_at, $3::timestamptz), updated_at = $3::timestamptz
+       WHERE account_id = $1 AND instrument_id = $2 AND agent_grant_id = $4
+         AND (readiness <> 'removed' OR removed_at = $3::timestamptz OR (removed_at IS NULL AND is_default))
+       RETURNING instrument_id
+     ), audited AS (
+       INSERT INTO payments_saved_checkout_instrument_audit
+         (audit_id, instrument_id, account_id, action, reason, performed_by_account_id, created_at)
+       SELECT $5, instrument_id, $1, 'agent-grant-revoked', $4, $1, $3::timestamptz FROM removed
+       ON CONFLICT (audit_id) DO NOTHING
+     ) SELECT instrument_id FROM removed`,
+    [
+      params.accountId,
+      params.instrumentId,
+      params.revokedAt,
+      params.agentGrantId,
+      `audit_agent_grant_revoked_${params.agentGrantId}_${params.instrumentId}`,
+    ],
+  );
+  return result.rows.length === 1;
 }
 
 export async function recordRevokedAgentGrant(

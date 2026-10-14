@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      activate_agent_grant_revocation:
+        description: Activate Agent Grant revocation after support rollout with fresh serving-set proof.
+        required: false
+        default: false
+        type: boolean
       catalog_provider_send_window_enabled:
         description: Opt staging API and worker into the supervised Catalog provider-send window. Requires force_deploy.
         required: false
@@ -3894,10 +3899,15 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
@@ -4300,6 +4310,7 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          ACTIVATE_AGENT_GRANT_REVOCATION: ${{ inputs.activate_agent_grant_revocation == true }}
         run: |
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
@@ -4308,6 +4319,12 @@ jobs:
             --rollback-target "artifacts/release-health/production-rollback-target.json" \
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
           node ./scripts/production-release-marker.mjs retain-identity
+          if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then
+            node ./scripts/agent-grant-revocation-release.mjs activate \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+              --out artifacts/release-health/agent-grant-revocation-activation.json
+          fi
 
       - name: Upload production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
@@ -4325,6 +4342,9 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
           pnpm run platform:kubernetes-deployment -- abort \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
@@ -4353,6 +4373,9 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
 
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
@@ -4743,6 +4766,15 @@ jobs:
         with:
           name: served-marketplace-smoke
           path: artifacts/release-health/served-marketplace-smoke.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Agent Grant revocation activation
+        if: always() && env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-activation
+          path: artifacts/release-health/agent-grant-revocation-activation.json
           if-no-files-found: error
           retention-days: 30
 

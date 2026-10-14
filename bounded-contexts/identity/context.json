@@ -11,6 +11,7 @@
     "api-key",
     "consent",
     "registration-operation",
+    "agent-grant-revocation-operation",
     "account-management-mutation-attempt",
     "founders-cohort",
     "shipping-address",
@@ -19,6 +20,7 @@
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
   "slices": [
+    "agent-grants",
     "access-hub",
     "accounts",
     "account-capabilities",
@@ -1923,6 +1925,11 @@
     }
   ],
   "directoryIntent": {
+    "agent-grants": {
+      "classification": "slice",
+      "purpose": "Own retained Agent Grant terminal authority, revocation operations and the active Grant fence.",
+      "expectedConsumers": ["Identity services", "Auth revocation coordination", "Platform worker composition"]
+    },
     "account-management": {
       "classification": "slice",
       "purpose": "Own private interruption-safe mutation receipts, read-only owner-history lookup, eligibility fences, and the five marketplace form controllers; business facts remain with their existing owners.",

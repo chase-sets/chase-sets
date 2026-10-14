@@ -9,6 +9,7 @@ import {
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "./oauth";
 import { authRetentionSweeps } from "../runtime-support/retention-policy";
+import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identity/server";
 
 const actor = {
   sessionId: "sess_1",
@@ -40,6 +41,245 @@ const managementRoutes = [
 ] as const;
 
 describe("UCP OAuth routes", () => {
+  describe("revocation receipt read", () => {
+    const attemptId = "74220000-0000-4000-8000-000000000001";
+    const path = `/authorizations/synthetic-grant/revocation/${attemptId}`;
+    async function fixture() {
+      const options = createOAuthOptions({
+        revokeStoredPaymentMethodsForAgentGrant: async () => ({ detached: 0, alreadyRemoved: 0, instrumentIds: [] }),
+      });
+      await options.linkedPlatformAuthorizations.grant({
+        authorizationId: "synthetic-grant",
+        accountId: actor.accountId,
+        userId: actor.userId,
+        clientId: "synthetic-client",
+        platformProfileUrl: "https://agent.example",
+        scopes: ["order:read"],
+        accessTokenHash: "synthetic-token-hash",
+        accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+        grantedAt: "2026-10-13T00:00:00.000Z",
+      });
+      return { options, app: createUcpOAuthRoutes(options) };
+    }
+
+    it.each([
+      null,
+      { ...actor, sessionId: "" },
+      { ...actor, roleKey: "guest-buyer" },
+      {
+        ...actor,
+        agentGrant: {
+          grantId: "synthetic-grant",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
+          scopes: ["account:manage"] as const,
+          rolePermissions: actor.permissions,
+        },
+      },
+    ])("requires an interactive session before reading an attempt: %j", async (refusedActor) => {
+      const { options, app } = await fixture();
+      vi.spyOn(options, "resolveActor").mockResolvedValue(refusedActor);
+      const read = vi.spyOn(options.agentGrantRevocations!, "read");
+      const response = await app.request(path);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ state: "reauth-required" });
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("denies a Grant outside the actor's Account before reading an attempt", async () => {
+      const { options, app } = await fixture();
+      vi.spyOn(options, "resolveActor").mockResolvedValue({ ...actor, accountId: "synthetic-foreign-account" });
+      const read = vi.spyOn(options.agentGrantRevocations!, "read");
+      const response = await app.request(path);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ state: "route-denied" });
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("returns only the safe receipt fields for a recorded attempt", async () => {
+      const { app } = await fixture();
+      const write = await app.request("/authorizations/synthetic-grant/revoke", {
+        method: "POST",
+        headers: { "Idempotency-Key": attemptId },
+      });
+      expect(write.status).toBe(200);
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        attempt_id: attemptId,
+        operation_id: attemptId,
+        phase: "completed",
+        state: "succeeded",
+      });
+    });
+
+    it("reports an unknown attempt as ambiguous without a write", async () => {
+      const { options, app } = await fixture();
+      const admit = vi.spyOn(options.agentGrantRevocations!, "admit");
+      const response = await app.request(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ attempt_id: attemptId, state: "ambiguous" });
+      expect(admit).not.toHaveBeenCalled();
+    });
+
+    it("reports a recorded attempt read from another session as conflict", async () => {
+      const { options, app } = await fixture();
+      expect(
+        (
+          await app.request("/authorizations/synthetic-grant/revoke", {
+            method: "POST",
+            headers: { "Idempotency-Key": attemptId },
+          })
+        ).status,
+      ).toBe(200);
+      vi.spyOn(options, "resolveActor").mockResolvedValue({ ...actor, sessionId: "synthetic-other-session" });
+      const response = await app.request(path);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ state: "conflict" });
+    });
+
+    it.each(["revocation_conflict", "revocation_binding_invalid"])("maps %s to conflict", async (code) => {
+      const { options, app } = await fixture();
+      vi.spyOn(options.agentGrantRevocations!, "read").mockRejectedValue(new Error(code));
+      const response = await app.request(path);
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ state: "conflict" });
+    });
+
+    it.each([new Error("synthetic pool failure"), new Error("revocation_history_invalid"), "synthetic rejection"])(
+      "keeps a non-binding owner failure resumable: %s",
+      async (error) => {
+        const { options, app } = await fixture();
+        vi.spyOn(options.agentGrantRevocations!, "read").mockRejectedValue(error);
+        const response = await app.request(path);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({ state: "ambiguous" });
+      },
+    );
+
+    it("reports an unavailable owner as ambiguous", async () => {
+      const { options } = await fixture();
+      const app = createUcpOAuthRoutes({ ...options, agentGrantRevocations: undefined });
+      const response = await app.request(path);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ state: "ambiguous" });
+    });
+  });
+
+  it("revocation-floor preserves dormant token and Account revocation without activating receipts", async () => {
+    const base = createOAuthOptions();
+    const options: ReturnType<typeof createOAuthOptions> = {
+      ...base,
+      agentGrantRevocations: {
+        ...base.agentGrantRevocations!,
+        isActivated: async () => false,
+        withMode: async (work) => work(false),
+      },
+    };
+    const linked = options.linkedPlatformAuthorizations;
+    await linked.grant({
+      authorizationId: "dormant-token",
+      accountId: actor.accountId,
+      userId: actor.userId,
+      clientId: "synthetic-client",
+      platformProfileUrl: "https://agent.example",
+      scopes: ["order:read"],
+      accessTokenHash: "hash:dormant-token",
+      accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      grantedAt: "2026-10-12T00:00:00.000Z",
+    });
+    await linked.grant({
+      authorizationId: "dormant-account",
+      accountId: actor.accountId,
+      userId: actor.userId,
+      clientId: "synthetic-client",
+      platformProfileUrl: "https://agent.example",
+      scopes: ["order:read"],
+      accessTokenHash: "hash:dormant-account",
+      accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      grantedAt: "2026-10-12T00:00:00.000Z",
+    });
+    const app = createUcpOAuthRoutes(options);
+    const token = await app.request("/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "dormant-token" }),
+    });
+    expect(token.status).toBe(200);
+    const account = await app.request("/authorizations/dormant-account/revoke", { method: "POST" });
+    expect(account.status).toBe(200);
+    expect(await account.json()).toEqual({ revoked: true });
+    expect((await linked.listForAccount(actor.accountId)).every((row) => row.status === "revoked")).toBe(true);
+    const detail = await app.request("/authorizations/dormant-account");
+    expect(await detail.json()).toMatchObject({ revocation_available: false, revocation_active: false });
+  });
+  it("agent-grant-revocation-authority refuses foreign Grants in a stale mixed Account list", async () => {
+    const options = createOAuthOptions();
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "foreign_grant",
+      accountId: "account_foreign",
+      userId: "foreign_user",
+      clientId: "foreign_client",
+      platformProfileUrl: "https://foreign.example",
+      scopes: ["order:read"],
+      accessTokenHash: "synthetic-foreign-token-hash",
+      accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      grantedAt: "2026-10-12T00:00:00.000Z",
+    });
+    const foreign = await options.linkedPlatformAuthorizations.listForAccount("account_foreign");
+    vi.spyOn(options.linkedPlatformAuthorizations, "listForAccount").mockResolvedValue(foreign);
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const response = await app.request("/ucp/oauth/authorizations/foreign_grant");
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("account_foreign");
+  });
+  it("agent-grant-revocation-authority converges expired access, refresh and Account revokes", async () => {
+    const cleanup = vi.fn(async () => ({ detached: 0, alreadyRemoved: 0, instrumentIds: [] }));
+    const options = createOAuthOptions({ revokeStoredPaymentMethodsForAgentGrant: cleanup });
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "grant_a",
+      accountId: actor.accountId,
+      userId: actor.userId,
+      clientId: "client_a",
+      platformProfileUrl: "https://agent.example/profile",
+      scopes: ["order:read"],
+      accessTokenHash: "hash:expired-access",
+      refreshTokenHash: "hash:expired-refresh",
+      accessTokenExpiresAt: "2020-01-01T00:00:00.000Z",
+      grantedAt: "2020-01-01T00:00:00.000Z",
+    });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    for (const token of ["expired-access", "expired-refresh"]) {
+      expect(
+        (
+          await app.request("/ucp/oauth/revoke", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          })
+        ).status,
+      ).toBe(200);
+    }
+    const replay = await app.request("/ucp/oauth/authorizations/grant_a/revoke", { method: "POST" });
+    expect(await replay.json()).toMatchObject({ state: "already-revoked-cleanup-complete", phase: "completed" });
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect((await options.linkedPlatformAuthorizations.listForAccount(actor.accountId))[0].status).toBe("revoked");
+  });
+  it.each(["unknown", "", null, 1])(
+    "agent-grant-revocation-authority keeps malformed or unknown present tokens private: %s",
+    async (token) => {
+      const options = createOAuthOptions();
+      const admit = vi.spyOn(options.agentGrantRevocations!, "admit");
+      const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+      const response = await app.request("/ucp/oauth/revoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("");
+      expect(admit).not.toHaveBeenCalled();
+    },
+  );
   describe.each([
     [
       "agent bearer",
@@ -895,7 +1135,7 @@ describe("UCP OAuth routes", () => {
 
   it("lists and revokes linked platform authorizations for the current account", async () => {
     const revokeStoredPaymentMethodsForAgentGrant = vi.fn(async () => ({
-      detached: 1,
+      detached: 0,
       alreadyRemoved: 0,
       instrumentIds: ["sci_1"],
     }));
@@ -927,24 +1167,29 @@ describe("UCP OAuth routes", () => {
     });
 
     const revoke = await app.request("/ucp/oauth/authorizations/lpa_1/revoke", { method: "POST" });
-    await expect(revoke.json()).resolves.toEqual({ revoked: true });
+    await expect(revoke.json()).resolves.toMatchObject({ revoked: true, state: "succeeded", phase: "completed" });
     expect(revokeStoredPaymentMethodsForAgentGrant).toHaveBeenCalledWith(
       {
         accountId: "account_1",
         agentGrantId: "lpa_1",
         revokedAt: expect.any(String),
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       },
       {
-        tenantId: "tnt_identity",
+        tenantId: actor.tenantId,
         audit: {
-          performedByUserId: "usr_identity_system",
+          performedByUserId: actor.userId,
           forAccountId: "account_1",
         },
       },
     );
 
     const replay = await app.request("/ucp/oauth/authorizations/lpa_1/revoke", { method: "POST" });
-    await expect(replay.json()).resolves.toEqual({ revoked: false });
+    await expect(replay.json()).resolves.toMatchObject({
+      revoked: true,
+      state: "already-revoked-cleanup-complete",
+      phase: "completed",
+    });
     expect(revokeStoredPaymentMethodsForAgentGrant).toHaveBeenCalledTimes(1);
 
     const after = await app.request("/ucp/oauth/authorizations");
@@ -1136,6 +1381,7 @@ async function managementFixture(configured = true) {
   const consent = createInMemoryConsentDirectory();
   const activity = { listForGrant: vi.fn(async () => ({ items: [], total: 0 })) };
   const outbox = {
+    excludeRevokedGrant: vi.fn(async () => true),
     enqueueDelivery: vi.fn(async () => {}),
     claimPendingDeliveries: vi.fn(async () => []),
     renewClaim: vi.fn(async () => true),
@@ -1185,9 +1431,9 @@ async function managementFixture(configured = true) {
   const resolveMandate = consent.resolveMandate.bind(consent);
   const dataPorts = [
     vi.spyOn(db, "query"),
-    ...(
-      ["listForAccount", "grant", "resolveToken", "rotateRefreshToken", "revokeToken", "revokeAuthorization"] as const
-    ).map((name) => vi.spyOn(linked, name)),
+    ...(["listForAccount", "grant", "resolveToken", "resolveRevocationToken", "rotateRefreshToken"] as const).map(
+      (name) => vi.spyOn(linked, name),
+    ),
     vi.spyOn(consent, "resolveMandate"),
     vi.spyOn(consent, "setMandate"),
     vi.spyOn(consent, "getSpendSummary"),
@@ -1233,6 +1479,70 @@ function createInMemoryConsentDirectory() {
 function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthRoutes>[0]> = {}) {
   const db = createAuthorizationCodeDb();
   const linkedPlatformAuthorizations = createLinkedStore();
+  const operations = new Map<string, RevocationState>();
+  const attempts = new Map<string, string>();
+  const phases = ["admitted", "identity-terminal", "payments-terminal", "webhook-excluded", "completed"] as const;
+  const agentGrantRevocations: AgentGrantRevocations = {
+    isActiveGrant: async (accountId, grantId) =>
+      (await linkedPlatformAuthorizations.listForAccount(accountId)).some(
+        (row) => row.authorization_id === grantId && row.status === "active",
+      ),
+    withActiveGrant: async (accountId, grantId, work) =>
+      (await linkedPlatformAuthorizations.listForAccount(accountId)).some(
+        (row) => row.authorization_id === grantId && row.status === "active",
+      )
+        ? work()
+        : null,
+    isActivated: async () => true,
+    withMode: async (work) => work(true),
+    readProgress: async (_accountId, grantId) => operations.get(grantId)?.phase ?? null,
+    activate: async () => {},
+    activationProof: async () => undefined,
+    pending: async () => [],
+    withActiveGrants: async (_accountId, _clientId, ids, work) => work(ids),
+    admit: async (binding, context) => {
+      const row = (await linkedPlatformAuthorizations.listForAccount(binding.accountId)).find(
+        (value) => value.authorization_id === binding.grantId,
+      );
+      if (!row) return null;
+      const bound = JSON.stringify(binding);
+      if (attempts.has(binding.attemptId) && attempts.get(binding.attemptId) !== bound)
+        throw new Error("revocation_conflict");
+      attempts.set(binding.attemptId, bound);
+      let state = operations.get(binding.grantId);
+      if (!state) {
+        state = {
+          operationId: binding.attemptId,
+          accountId: binding.accountId,
+          grantId: binding.grantId,
+          revokedAt: String(row.revoked_at ?? new Date().toISOString()),
+          reason: binding.reason,
+          provenance: binding.provenance,
+          phase: "admitted",
+          version: 1,
+          effectContext: context,
+        };
+        operations.set(binding.grantId, state);
+      }
+      return state;
+    },
+    read: async (binding) => {
+      if (!attempts.has(binding.attemptId)) return null;
+      if (attempts.get(binding.attemptId) !== JSON.stringify(binding)) throw new Error("revocation_conflict");
+      return operations.get(binding.grantId) ?? null;
+    },
+    advance: async (state) => {
+      if (state.phase === "admitted")
+        await linkedPlatformAuthorizations.revokeAuthorization({
+          authorizationId: state.grantId,
+          accountId: state.accountId,
+          revokedAt: state.revokedAt,
+        });
+      const next = { ...state, phase: phases[state.version], version: state.version + 1 };
+      operations.set(state.grantId, next);
+      return next;
+    },
+  };
   let sequence = 0;
   return {
     auth: {
@@ -1243,6 +1553,8 @@ function createOAuthOptions(overrides: Partial<Parameters<typeof createUcpOAuthR
       },
     },
     linkedPlatformAuthorizations,
+    agentGrantRevocations,
+    agentWebhookOutbox: { excludeRevokedGrant: async () => true },
     resolveActor: async () => actor,
     ...overrides,
   } as unknown as Parameters<typeof createUcpOAuthRoutes>[0];
@@ -1425,6 +1737,9 @@ function createLinkedStore() {
         (row) =>
           row.status === "active" && (row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash),
       ) ?? null,
+    resolveRevocationToken: async (tokenHash: string) =>
+      [...rows.values()].find((row) => row.access_token_hash === tokenHash || row.refresh_token_hash === tokenHash) ??
+      null,
     rotateRefreshToken: async (params: {
       refreshTokenHash: string;
       newAccessTokenHash: string;
