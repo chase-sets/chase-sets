@@ -49,7 +49,10 @@ async function harness(
     expectedVersion: "no_stream",
     context,
     events: [
-      { eventType: "inventory.item.created", payload: { itemId: pending.itemId, accountId: pending.accountId, totalQuantity: 1 } },
+      {
+        eventType: "inventory.item.created",
+        payload: { itemId: pending.itemId, accountId: pending.accountId, totalQuantity: 1 },
+      },
       ...retainedFacts,
     ],
   });
@@ -99,59 +102,141 @@ async function harness(
 }
 
 describe("issue-7169-ac8-atomic-restock: complete retained decision history", () => {
-  it.each([context.audit.forAccountId, "acc_buyer_synthetic", null])(
-    "round-trips the real pending producer with source audit %s without rewriting it",
-    async (forAccountId) => {
+  const sourceCases = (["order-cancelled-after-dispatch", "shipment-returned"] as const).flatMap((sourceKind) =>
+    (
+      [
+        ["seller", context.audit.forAccountId, context.audit.performedByUserId],
+        ["different buyer", "acc_buyer_synthetic", "usr_buyer_synthetic"],
+        ["synthetic system", "acc_system_synthetic", "usr_system_synthetic"],
+      ] as const
+    ).flatMap(([name, forAccountId, performedByUserId]) =>
+      (["restocked", "written-off"] as const).map((outcome) => ({
+        sourceKind,
+        name,
+        forAccountId,
+        performedByUserId,
+        outcome,
+      })),
+    ),
+  );
+  it.each(sourceCases)(
+    "round-trips real $sourceKind pending producer / $name / $outcome without rewriting source",
+    async ({ sourceKind, name, forAccountId, performedByUserId, outcome }) => {
       const fixture = await harness([]);
-      const sourceContext = { ...context, audit: buildTransportEvent("synthetic.source", {}, { audit: { ...context.audit, forAccountId } }).audit };
-      const produced = await fixture.services.markPending({
-        ...pending, reservationRequestId: pending.sourceRef.reservationRequestId,
-        source: "shipment-returned",
-      }, sourceContext);
+      const sourceContext = { ...context, audit: { forAccountId, performedByUserId } };
+      const produced = await fixture.services.markPending(
+        {
+          ...pending,
+          reservationRequestId: pending.sourceRef.reservationRequestId,
+          source: sourceKind,
+        },
+        sourceContext,
+      );
       expect(produced.decisionId).toBe(restockDecisionId(pending));
       const source = structuredClone(fixture.streams.get(`inventory.restock-decision-${produced.decisionId}`)![0]);
-      await expect(fixture.services.recordDecision({ ...fixture.params, ...produced, expectedVersion: 1, outcome: "written-off" }, context))
-        .resolves.toEqual({ ...produced, version: 2 });
+      await expect(
+        fixture.services.recordDecision({ ...fixture.params, ...produced, expectedVersion: 1, outcome }, context),
+        name,
+      ).resolves.toEqual({ ...produced, version: 2 });
       expect(fixture.streams.get(`inventory.restock-decision-${produced.decisionId}`)![0]).toEqual(source);
       expect(source.forAccountId).toBe(forAccountId);
+      expect(source.performedByUserId).toBe(performedByUserId);
+    },
+  );
+
+  it.each([null, "usr_not_an_account", ""])(
+    "rejects malformed pending source audit %s before mutation",
+    async (forAccountId) => {
+      const fixture = await harness();
+      const read = fixture.deps.eventStore.readStream.bind(fixture.deps.eventStore);
+      const services = createRestockDecisionRuntime(
+        {
+          ...fixture.deps,
+          eventStore: {
+            ...fixture.deps.eventStore,
+            readStream: async (input) =>
+              (await read(input)).map((event) => ({
+                ...event,
+                forAccountId: buildTransportEvent(
+                  "synthetic.malformed",
+                  {},
+                  { audit: { ...context.audit, forAccountId } },
+                ).audit.forAccountId,
+              })),
+          },
+        },
+        { adjustItem: fixture.adjustItem },
+      );
+      const before = structuredClone(fixture.streams);
+      await expect(services.recordDecision(fixture.params, context)).rejects.toThrow("reconciliation");
+      expect(fixture.streams).toEqual(before);
+      expect(fixture.adjustItem).not.toHaveBeenCalled();
+      expect(fixture.child).not.toHaveBeenCalled();
     },
   );
 
   it.each(["restocked", "written-off"] as const)("rejects every poisoned item fact before %s", async (outcome) => {
     for (const fact of [
       { eventType: "inventory.item.unknown", payload: { itemId: pending.itemId } },
-      { eventType: "inventory.item.adjusted", payload: { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" } },
-      { eventType: "inventory.item.adjusted", payload: { itemId: pending.itemId, quantityDelta: "1", reason: "correction" } },
+      {
+        eventType: "inventory.item.adjusted",
+        payload: { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" },
+      },
+      {
+        eventType: "inventory.item.adjusted",
+        payload: { itemId: pending.itemId, quantityDelta: "1", reason: "correction" },
+      },
     ]) {
       const fixture = await harness(undefined, false, [fact]);
       const before = structuredClone(fixture.streams);
-      await expect(fixture.services.recordDecision({ ...fixture.params, outcome }, context)).rejects.toThrow("reconciliation");
+      await expect(fixture.services.recordDecision({ ...fixture.params, outcome }, context)).rejects.toThrow(
+        "reconciliation",
+      );
       expect(fixture.streams).toEqual(before);
       expect(fixture.adjustItem).not.toHaveBeenCalled();
       expect(fixture.child).not.toHaveBeenCalled();
     }
   });
 
-  const invalidInstants = ["2026-02-30T00:00:00Z", "2025-02-29T00:00:00Z", "2026-13-01T00:00:00Z", "2026-04-31T00:00:00Z", "2026-01-00T00:00:00Z", "2026-01-01T24:00:00Z", "2026-01-01T00:60:00Z", "2026-01-01T00:00:60Z", "2026-01-01T00:00:00+24:00"];
-  it.each(invalidInstants)("rejects calendar-invalid pending and recorded instant %s before writes", async (instant) => {
-    for (const facts of [
-      [{ eventType: "inventory.restock-decision.pending", payload: { ...pending, pendingAt: instant } }],
-      [{ eventType: "inventory.restock-decision.pending", payload: pending }, { eventType: "inventory.restock-decision.recorded", payload: { ...recorded, decidedAt: instant } }],
-    ]) {
-      const fixture = await harness(facts);
-      const before = structuredClone(fixture.streams);
-      await expect(fixture.services.recordDecision(fixture.params, context)).rejects.toThrow("reconciliation");
-      expect(fixture.streams).toEqual(before);
-      expect(fixture.adjustItem).not.toHaveBeenCalled();
-    }
-  });
+  const invalidInstants = [
+    "2026-02-30T00:00:00Z",
+    "2025-02-29T00:00:00Z",
+    "2026-13-01T00:00:00Z",
+    "2026-04-31T00:00:00Z",
+    "2026-01-00T00:00:00Z",
+    "2026-01-01T24:00:00Z",
+    "2026-01-01T00:60:00Z",
+    "2026-01-01T00:00:60Z",
+    "2026-01-01T00:00:00+24:00",
+  ];
+  it.each(invalidInstants)(
+    "rejects calendar-invalid pending and recorded instant %s before writes",
+    async (instant) => {
+      for (const facts of [
+        [{ eventType: "inventory.restock-decision.pending", payload: { ...pending, pendingAt: instant } }],
+        [
+          { eventType: "inventory.restock-decision.pending", payload: pending },
+          { eventType: "inventory.restock-decision.recorded", payload: { ...recorded, decidedAt: instant } },
+        ],
+      ]) {
+        const fixture = await harness(facts);
+        const before = structuredClone(fixture.streams);
+        await expect(fixture.services.recordDecision(fixture.params, context)).rejects.toThrow("reconciliation");
+        expect(fixture.streams).toEqual(before);
+        expect(fixture.adjustItem).not.toHaveBeenCalled();
+      }
+    },
+  );
   it.each(["2024-02-29T12:34:56Z", "2024-02-29T12:34:56.123456789+05:30", "2024-02-29T12:34:56.1-06:00"])(
-    "accepts real leap-day/offset/fractional pending and recorded instant %s", async (instant) => {
+    "accepts real leap-day/offset/fractional pending and recorded instant %s",
+    async (instant) => {
       const fixture = await harness([
         { eventType: "inventory.restock-decision.pending", payload: { ...pending, pendingAt: instant } },
         { eventType: "inventory.restock-decision.recorded", payload: { ...recorded, decidedAt: instant } },
       ]);
-      expect((await loadRestockDecisionHistory(fixture.deps, pending.decisionId, context)).state.status).toBe("recorded");
+      expect((await loadRestockDecisionHistory(fixture.deps, pending.decisionId, context)).state.status).toBe(
+        "recorded",
+      );
     },
   );
   it("rejects a mixed audit Account even when payload and Tenant match", async () => {
@@ -170,6 +255,42 @@ describe("issue-7169-ac8-atomic-restock: complete retained decision history", ()
     );
     await expect(services.recordDecision(params, context)).rejects.toThrow("reconciliation");
     expect(adjustItem).not.toHaveBeenCalled();
+  });
+
+  it.each(["recorded", "item"] as const)("rejects foreign seller-authored %s audit without mutation", async (role) => {
+    const fixture = await harness(
+      role === "recorded"
+        ? [
+            { eventType: "inventory.restock-decision.pending", payload: pending },
+            { eventType: "inventory.restock-decision.recorded", payload: recorded },
+          ]
+        : undefined,
+    );
+    const read = fixture.deps.eventStore.readStream.bind(fixture.deps.eventStore);
+    const services = createRestockDecisionRuntime(
+      {
+        ...fixture.deps,
+        eventStore: {
+          ...fixture.deps.eventStore,
+          readStream: async (input) =>
+            (await read(input)).map((event) =>
+              (
+                role === "recorded"
+                  ? event.eventType === "inventory.restock-decision.recorded"
+                  : event.streamId.startsWith("inventory.item-")
+              )
+                ? { ...event, forAccountId: "acc_foreign_synthetic" }
+                : event,
+            ),
+        },
+      },
+      { adjustItem: fixture.adjustItem },
+    );
+    const before = structuredClone(fixture.streams);
+    await expect(services.recordDecision(fixture.params, context)).rejects.toThrow("reconciliation");
+    expect(fixture.streams).toEqual(before);
+    expect(fixture.adjustItem).not.toHaveBeenCalled();
+    expect(fixture.child).not.toHaveBeenCalled();
   });
 
   it.each(["tenant", "account"])("conceals a foreign %s exactly like a missing decision", async (scope) => {

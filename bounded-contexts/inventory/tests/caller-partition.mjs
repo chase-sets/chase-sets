@@ -175,7 +175,9 @@ export function discoverInventoryCallers(sources) {
         if (
           ts.isElementAccessExpression(node.expression) &&
           !ts.isStringLiteralLike(node.expression.argumentExpression) &&
-          /\binventory\b|\.holds\b|\.storageLocations\b|\.restockDecisions\b/.test(node.expression.expression.getText(source))
+          /\binventory\b|\.holds\b|\.storageLocations\b|\.restockDecisions\b/.test(
+            node.expression.expression.getText(source),
+          )
         ) {
           throw new Error(
             `Unresolved Inventory call: ${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`,

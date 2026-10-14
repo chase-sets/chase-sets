@@ -8,7 +8,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, createPostgresProjectionStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  createPostgresProjectionStore,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -114,6 +118,7 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
       streams: (await pool.query("SELECT * FROM event_store_streams ORDER BY stream_id")).rows,
       receipts: (await pool.query("SELECT * FROM inventory_mutation_attempts ORDER BY attempt_key")).rows,
       legacy: (await pool.query("SELECT * FROM inventory_item_adjustment_idempotency ORDER BY idempotency_key")).rows,
+      stock: (await pool.query("SELECT * FROM inventory_items ORDER BY item_id")).rows,
     };
   }
 
@@ -126,111 +131,330 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
     });
   }
 
-  it.each(["cancelled", "returned"] as const)(
-    "round-trips the real %s subscription for seller, buyer and null source audit",
-    async (producer) => {
-      const subscriptions = inventoryModule.buildSubscriptions!(services);
-      for (const [index, forAccountId] of [context.audit.forAccountId, "acc_buyer_synthetic", null].entries()) {
-        const orderId = `ord_source_${producer}_${index}_synthetic`;
-        const reservationRequestId = `rsv_source_${producer}_${index}_synthetic`;
-        const holdId = `hld_source_${producer}_${index}_synthetic` as const;
-        const shipmentId = `shp_source_${producer}_${index}_synthetic`;
-        const reservation = await services.reservations.commandHandler({
-          streamId: `inventory.reservation-${reservationRequestId}`,
-          command: { type: "ConfirmInventoryReservation", reservationRequestId, orderId,
-            sellerAccountId: context.audit.forAccountId, inventoryItemId: "inv_c2_synthetic", quantity: 1, holdId },
-          context,
-        });
-        const handlers = buildInventoryReservationProjectionHandlers(pool);
-        for (const event of reservation.storedEvents) await handlers[event.eventType]!(toTransportEvent(event));
-        if (producer === "cancelled") {
-          const hold = await services.holds.commandHandler({
-            streamId: `inventory.hold-${holdId}`,
-            command: { type: "PlaceInventoryHold", holdId, accountId: context.audit.forAccountId,
-              itemId: "inv_c2_synthetic", quantity: 1, reason: "Synthetic dispatched order", purpose: "order",
-              sourceRef: { orderId, reservationRequestId }, expiresAt: null }, context,
-          });
-          const consumed = await services.holds.commandHandler({ streamId: `inventory.hold-${holdId}`,
-            command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-14T00:00:00Z", consumptionReason: "dispatch" }, context });
-          const holds = buildInventoryHoldProjectionHandlers(pool);
-          for (const event of [...hold.storedEvents, ...consumed.storedEvents]) await holds[event.eventType]!(toTransportEvent(event));
-        }
-        const audit = { ...context.audit, forAccountId };
-        const workflow = subscriptions.find((subscription) => subscription.handlers[
-          producer === "cancelled" ? "ordering.order.cancelled" : "fulfillment.shipment.returned"
-        ])!;
-        if (producer === "returned") await workflow.handlers["fulfillment.shipment.created"]!(buildTransportEvent(
-          "fulfillment.shipment.created", { shipmentId, orderId, sellerAccountId: context.audit.forAccountId,
-            buyerAccountId: "acc_buyer_synthetic", createdAt: "2026-10-14T00:00:00Z" },
+  async function prepareSource(
+    producer: "cancelled" | "returned",
+    audit: ReturnType<typeof buildTransportEvent>["audit"],
+  ) {
+    const subscriptions = inventoryModule.buildSubscriptions!(services);
+    const orderId = `ord_source_${producer}_synthetic`;
+    const reservationRequestId = `rsv_source_${producer}_synthetic`;
+    const holdId = `hld_source_${producer}_synthetic` as const;
+    const shipmentId = `shp_source_${producer}_synthetic`;
+    const reservation = await services.reservations.commandHandler({
+      streamId: `inventory.reservation-${reservationRequestId}`,
+      command: {
+        type: "ConfirmInventoryReservation",
+        reservationRequestId,
+        orderId,
+        sellerAccountId: context.audit.forAccountId,
+        inventoryItemId: "inv_c2_synthetic",
+        quantity: 1,
+        holdId,
+      },
+      context,
+    });
+    const handlers = buildInventoryReservationProjectionHandlers(pool);
+    for (const event of reservation.storedEvents) await handlers[event.eventType]!(toTransportEvent(event));
+    if (producer === "cancelled") {
+      const hold = await services.holds.commandHandler({
+        streamId: `inventory.hold-${holdId}`,
+        command: {
+          type: "PlaceInventoryHold",
+          holdId,
+          accountId: context.audit.forAccountId,
+          itemId: "inv_c2_synthetic",
+          quantity: 1,
+          reason: "Synthetic dispatched order",
+          purpose: "order",
+          sourceRef: { orderId, reservationRequestId },
+          expiresAt: null,
+        },
+        context,
+      });
+      const consumed = await services.holds.commandHandler({
+        streamId: `inventory.hold-${holdId}`,
+        command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-14T00:00:00Z", consumptionReason: "dispatch" },
+        context,
+      });
+      const holds = buildInventoryHoldProjectionHandlers(pool);
+      for (const event of [...hold.storedEvents, ...consumed.storedEvents])
+        await holds[event.eventType]!(toTransportEvent(event));
+    }
+    const workflow = subscriptions.find(
+      (subscription) =>
+        subscription.handlers[producer === "cancelled" ? "ordering.order.cancelled" : "fulfillment.shipment.returned"],
+    )!;
+    if (producer === "returned")
+      await workflow.handlers["fulfillment.shipment.created"]!(
+        buildTransportEvent(
+          "fulfillment.shipment.created",
+          {
+            shipmentId,
+            orderId,
+            sellerAccountId: context.audit.forAccountId,
+            buyerAccountId: "acc_buyer_synthetic",
+            createdAt: "2026-10-14T00:00:00Z",
+          },
           { tenantId: context.tenantId, audit },
-        ));
-        await workflow.handlers[producer === "cancelled" ? "ordering.order.cancelled" : "fulfillment.shipment.returned"]!(
-          buildTransportEvent(producer === "cancelled" ? "ordering.order.cancelled" : "fulfillment.shipment.returned",
-            producer === "cancelled" ? { orderId, reason: "buyer cancellation", cancelledAt: "2026-10-14T00:00:00Z",
-              reservationRequests: [{ reservationRequestId, sellerAccountId: context.audit.forAccountId,
-                inventoryItemId: "inv_c2_synthetic", quantity: 1, holdId, status: "confirmed" }] }
-              : { shipmentId, reason: "returned", returnedAt: "2026-10-14T00:00:00Z" },
-            { tenantId: context.tenantId, audit }),
-        );
-        const decisionId = restockDecisionId({ orderId, itemId: "inv_c2_synthetic" });
-        const streamId = `inventory.restock-decision-${decisionId}`;
-        const before = await eventStore.readStream({ streamId });
-        expect(before).toHaveLength(1);
-        expect(before[0].forAccountId).toBe(forAccountId);
-        await expect(services.restockDecisions.recordDecision({ ...choice("written-off"), decisionId },
-          withInventoryMutationAttempt(context, randomUUID()))).resolves.toEqual({ decisionId, version: 2 });
-        const after = await eventStore.readStream({ streamId });
-        expect(after[0]).toEqual(before[0]);
-        expect(after[1].forAccountId).toBe(context.audit.forAccountId);
+        ),
+      );
+    const produce = () =>
+      workflow.handlers[producer === "cancelled" ? "ordering.order.cancelled" : "fulfillment.shipment.returned"]!(
+        buildTransportEvent(
+          producer === "cancelled" ? "ordering.order.cancelled" : "fulfillment.shipment.returned",
+          producer === "cancelled"
+            ? {
+                orderId,
+                reason: "buyer cancellation",
+                cancelledAt: "2026-10-14T00:00:00Z",
+                reservationRequests: [
+                  {
+                    reservationRequestId,
+                    sellerAccountId: context.audit.forAccountId,
+                    inventoryItemId: "inv_c2_synthetic",
+                    quantity: 1,
+                    holdId,
+                    status: "confirmed",
+                  },
+                ],
+              }
+            : { shipmentId, reason: "returned", returnedAt: "2026-10-14T00:00:00Z" },
+          { tenantId: context.tenantId, audit },
+        ),
+      );
+    const decisionId = restockDecisionId({ orderId, itemId: "inv_c2_synthetic" });
+    const streamId = `inventory.restock-decision-${decisionId}`;
+    return { produce, decisionId, streamId, orderId, reservationRequestId, shipmentId };
+  }
+
+  const sourceCases = (["cancelled", "returned"] as const).flatMap((producer) =>
+    (
+      [
+        ["seller", context.audit.forAccountId, context.audit.performedByUserId],
+        ["different buyer", "acc_buyer_synthetic", "usr_buyer_synthetic"],
+        ["synthetic system", "acc_system_synthetic", "usr_system_synthetic"],
+      ] as const
+    ).flatMap(([name, forAccountId, performedByUserId]) =>
+      (["restocked", "written-off"] as const).map((outcome) => ({
+        producer,
+        name,
+        forAccountId,
+        performedByUserId,
+        outcome,
+      })),
+    ),
+  );
+  it.each(sourceCases)(
+    "real $producer subscription / $name source / $outcome preserves audit and exact replay",
+    async ({ producer, forAccountId, performedByUserId, outcome }) => {
+      const audit = { forAccountId, performedByUserId };
+      const { produce, decisionId, streamId, orderId, reservationRequestId, shipmentId } = await prepareSource(
+        producer,
+        audit,
+      );
+      const stockBefore = await eventStore.readStream({ streamId: "inventory.item-inv_c2_synthetic" });
+      await produce();
+      const before = await eventStore.readStream({ streamId });
+      expect(before).toHaveLength(1);
+      expect(before[0].tenantId).toBe(context.tenantId);
+      expect(before[0].forAccountId).toBe(forAccountId);
+      expect(before[0].performedByUserId).toBe(performedByUserId);
+      expect(before[0].payload).toEqual({
+        decisionId,
+        accountId: context.audit.forAccountId,
+        orderId,
+        itemId: "inv_c2_synthetic",
+        quantity: 1,
+        source: producer === "cancelled" ? "order-cancelled-after-dispatch" : "shipment-returned",
+        sourceRef: { orderId, reservationRequestId },
+        shipmentId: producer === "returned" ? shipmentId : null,
+        returnReason: producer === "returned" ? "returned" : "buyer cancellation",
+        pendingAt: "2026-10-14T00:00:00Z",
+      });
+      const attempt = withInventoryMutationAttempt(context, randomUUID());
+      const input = { ...choice(outcome), decisionId };
+      await expect(services.restockDecisions.recordDecision(input, attempt)).resolves.toEqual({
+        decisionId,
+        version: 2,
+      });
+      const after = await eventStore.readStream({ streamId });
+      expect(after).toHaveLength(2);
+      expect(after[0]).toEqual(before[0]);
+      expect(after[1].forAccountId).toBe(context.audit.forAccountId);
+      expect(after[1].performedByUserId).toBe(context.audit.performedByUserId);
+      const stockAfter = await eventStore.readStream({ streamId: "inventory.item-inv_c2_synthetic" });
+      expect(stockAfter.slice(0, stockBefore.length)).toEqual(stockBefore);
+      expect(stockAfter).toHaveLength(stockBefore.length + (outcome === "restocked" ? 1 : 0));
+      if (outcome === "restocked")
+        expect(stockAfter.at(-1)?.payload).toMatchObject({
+          itemId: "inv_c2_synthetic",
+          quantityDelta: 1,
+          reason: "return-restocked",
+          sourceRef: { orderId, reservationRequestId },
+        });
+      const committed = await durableSnapshot();
+      await expect(services.restockDecisions.recordDecision(input, attempt)).resolves.toEqual({
+        decisionId,
+        version: 2,
+      });
+      expect(await durableSnapshot()).toEqual(committed);
+    },
+  );
+
+  it.each(["cancelled", "returned"] as const)(
+    "real %s subscription rejects null source producer contract without any state change",
+    async (producer) => {
+      const audit = buildTransportEvent(
+        "synthetic.null-source",
+        {},
+        {
+          audit: {
+            forAccountId: null,
+            performedByUserId: "usr_null_synthetic",
+          },
+        },
+      ).audit;
+      const { produce, streamId } = await prepareSource(producer, audit);
+      const before = await durableSnapshot();
+      await expect(produce()).rejects.toMatchObject({
+        code: "infrastructure_failure",
+        details: {
+          cause: expect.stringContaining('null value in column "for_account_id"'),
+        },
+      });
+      expect(await eventStore.readStream({ streamId })).toEqual([]);
+      expect(await durableSnapshot()).toEqual(before);
+    },
+  );
+
+  it.each(["restocked", "written-off"] as const)(
+    "rejects poisoned item history before %s without any partial mutation",
+    async (outcome) => {
+      for (const [eventType, payload] of [
+        ["inventory.item.unknown", { itemId: "inv_c2_synthetic" }],
+        ["inventory.item.adjusted", { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" }],
+        ["inventory.item.adjusted", { itemId: "inv_c2_synthetic", quantityDelta: "1", reason: "correction" }],
+      ] as const) {
+        const appended = await eventStore.appendToStream({
+          streamId: "inventory.item-inv_c2_synthetic",
+          expectedVersion: "any",
+          context,
+          events: [{ eventType, payload }],
+        });
+        const before = await durableSnapshot();
+        await expect(
+          services.restockDecisions.recordDecision(
+            choice(outcome),
+            withInventoryMutationAttempt(context, randomUUID()),
+          ),
+        ).rejects.toThrow("reconciliation");
+        expect(await durableSnapshot()).toEqual(before);
+        // Every case has its own frozen poison, not an earlier case's rejection.
+        await pool.query("DELETE FROM event_store_events WHERE event_id = $1", [appended[0].eventId]);
+        await pool.query("UPDATE event_store_streams SET current_version = current_version - 1 WHERE stream_id = $1", [
+          appended[0].streamId,
+        ]);
       }
     },
   );
 
-  it.each(["restocked", "written-off"] as const)("rejects poisoned item history before %s without any partial mutation", async (outcome) => {
-    for (const [eventType, payload] of [
-      ["inventory.item.unknown", { itemId: "inv_c2_synthetic" }],
-      ["inventory.item.adjusted", { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" }],
-      ["inventory.item.adjusted", { itemId: "inv_c2_synthetic", quantityDelta: "1", reason: "correction" }],
-    ] as const) {
-      const appended = await eventStore.appendToStream({ streamId: "inventory.item-inv_c2_synthetic", expectedVersion: "any", context,
-        events: [{ eventType, payload }] });
+  it.each(["restocked", "written-off"] as const)(
+    "rejects foreign item audit before %s without mutation",
+    async (outcome) => {
+      await eventStore.appendToStream({
+        streamId: "inventory.item-inv_c2_synthetic",
+        expectedVersion: "any",
+        context: { ...context, audit: { ...context.audit, forAccountId: "acc_foreign_synthetic" } },
+        events: [
+          {
+            eventType: "inventory.item.adjusted",
+            payload: { itemId: "inv_c2_synthetic", quantityDelta: 1, reason: "correction" },
+          },
+        ],
+      });
       const before = await durableSnapshot();
-      await expect(services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID())))
-        .rejects.toThrow("reconciliation");
-      expect(await durableSnapshot()).toEqual(before);
-      // Every case has its own frozen poison, not an earlier case's rejection.
-      await pool.query("DELETE FROM event_store_events WHERE event_id = $1", [appended[0].eventId]);
-      await pool.query("UPDATE event_store_streams SET current_version = current_version - 1 WHERE stream_id = $1", [appended[0].streamId]);
-    }
-  });
-
-  it.each(["2026-02-30T00:00:00Z", "2025-02-29T00:00:00Z", "2026-13-01T00:00:00Z", "2026-04-31T00:00:00Z", "2026-01-00T00:00:00Z", "2026-01-01T24:00:00Z", "2026-01-01T00:60:00Z", "2026-01-01T00:00:60Z"])(
-    "rejects calendar-invalid pending/recorded %s before stock/decision/receipt writes", async (instant) => {
-      const streamId = `inventory.restock-decision-${pending.decisionId}`;
-      const [first] = await eventStore.readStream({ streamId });
-      await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1", [streamId, JSON.stringify({ pendingAt: instant })]);
-      let before = await durableSnapshot();
-      for (const outcome of ["restocked", "written-off"] as const)
-        await expect(services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID()))).rejects.toThrow("reconciliation");
-      expect(await durableSnapshot()).toEqual(before);
-      await pool.query("UPDATE event_store_events SET payload = $2::jsonb WHERE stream_id = $1", [streamId, JSON.stringify(first.payload)]);
-      await appendDecision([{ eventType: "inventory.restock-decision.recorded", payload: {
-        decisionId: pending.decisionId, accountId: context.audit.forAccountId, orderId: "ord_c2_synthetic", itemId: "inv_c2_synthetic", quantity: 2,
-        outcome: "written-off", reason: "written-off", sourceRef: first.payload.sourceRef, damageNote: null, decidedAt: instant,
-      } }]);
-      before = await durableSnapshot();
-      await expect(services.restockDecisions.recordDecision(choice(), withInventoryMutationAttempt(context, randomUUID()))).rejects.toThrow("reconciliation");
+      await expect(
+        services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID())),
+      ).rejects.toThrow("reconciliation");
       expect(await durableSnapshot()).toEqual(before);
     },
   );
 
+  it.each([
+    "2026-02-30T00:00:00Z",
+    "2025-02-29T00:00:00Z",
+    "2026-13-01T00:00:00Z",
+    "2026-04-31T00:00:00Z",
+    "2026-01-00T00:00:00Z",
+    "2026-01-01T24:00:00Z",
+    "2026-01-01T00:60:00Z",
+    "2026-01-01T00:00:60Z",
+  ])("rejects calendar-invalid pending/recorded %s before stock/decision/receipt writes", async (instant) => {
+    const streamId = `inventory.restock-decision-${pending.decisionId}`;
+    const [first] = await eventStore.readStream({ streamId });
+    await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1", [
+      streamId,
+      JSON.stringify({ pendingAt: instant }),
+    ]);
+    let before = await durableSnapshot();
+    for (const outcome of ["restocked", "written-off"] as const)
+      await expect(
+        services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID())),
+      ).rejects.toThrow("reconciliation");
+    expect(await durableSnapshot()).toEqual(before);
+    await pool.query("UPDATE event_store_events SET payload = $2::jsonb WHERE stream_id = $1", [
+      streamId,
+      JSON.stringify(first.payload),
+    ]);
+    await appendDecision([
+      {
+        eventType: "inventory.restock-decision.recorded",
+        payload: {
+          decisionId: pending.decisionId,
+          accountId: context.audit.forAccountId,
+          orderId: "ord_c2_synthetic",
+          itemId: "inv_c2_synthetic",
+          quantity: 2,
+          outcome: "written-off",
+          reason: "written-off",
+          sourceRef: first.payload.sourceRef,
+          damageNote: null,
+          decidedAt: instant,
+        },
+      },
+    ]);
+    before = await durableSnapshot();
+    await expect(
+      services.restockDecisions.recordDecision(choice(), withInventoryMutationAttempt(context, randomUUID())),
+    ).rejects.toThrow("reconciliation");
+    expect(await durableSnapshot()).toEqual(before);
+  });
+
   it.each(["2024-02-29T12:34:56Z", "2024-02-29T12:34:56.123456789+05:30", "2024-02-29T12:34:56.1-06:00"])(
-    "retains valid leap-day, offset and fractional instant %s", async (instant) => {
+    "retains valid leap-day, offset and fractional instant %s",
+    async (instant) => {
       const streamId = `inventory.restock-decision-${pending.decisionId}`;
-      await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1", [streamId, JSON.stringify({ pendingAt: instant })]);
-      await services.restockDecisions.recordDecision(choice("written-off"), withInventoryMutationAttempt(context, randomUUID()));
-      await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1 AND stream_version = 2", [streamId, JSON.stringify({ decidedAt: instant })]);
-      expect((await loadRestockDecisionHistory({ db: pool, eventStore, checkpointStore: createPostgresProjectionStore({ db: pool }) }, pending.decisionId, context)).state.status).toBe("recorded");
+      await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1", [
+        streamId,
+        JSON.stringify({ pendingAt: instant }),
+      ]);
+      await services.restockDecisions.recordDecision(
+        choice("written-off"),
+        withInventoryMutationAttempt(context, randomUUID()),
+      );
+      await pool.query(
+        "UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1 AND stream_version = 2",
+        [streamId, JSON.stringify({ decidedAt: instant })],
+      );
+      expect(
+        (
+          await loadRestockDecisionHistory(
+            { db: pool, eventStore, checkpointStore: createPostgresProjectionStore({ db: pool }) },
+            pending.decisionId,
+            context,
+          )
+        ).state.status,
+      ).toBe("recorded");
     },
   );
 
@@ -352,13 +576,27 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
         [streamId],
       );
     if (defect === "mixed audit Account")
-      await eventStore.appendToStream({ streamId, expectedVersion: 1,
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 1,
         context: { ...context, audit: { ...context.audit, forAccountId: "acc_foreign_synthetic" } },
-        events: [{ eventType: "inventory.restock-decision.recorded", payload: {
-          decisionId: pending.decisionId, accountId: context.audit.forAccountId, orderId: "ord_c2_synthetic",
-          itemId: "inv_c2_synthetic", quantity: 2, outcome: "written-off", reason: "written-off",
-          sourceRef: first.payload.sourceRef, damageNote: null, decidedAt: "2026-10-14T00:00:01Z",
-        } }],
+        events: [
+          {
+            eventType: "inventory.restock-decision.recorded",
+            payload: {
+              decisionId: pending.decisionId,
+              accountId: context.audit.forAccountId,
+              orderId: "ord_c2_synthetic",
+              itemId: "inv_c2_synthetic",
+              quantity: 2,
+              outcome: "written-off",
+              reason: "written-off",
+              sourceRef: first.payload.sourceRef,
+              damageNote: null,
+              decidedAt: "2026-10-14T00:00:01Z",
+            },
+          },
+        ],
       });
     if (defect === "mixed tenant")
       await eventStore.appendToStream({
@@ -407,6 +645,42 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
         services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID())),
       ).rejects.toThrow("reconciliation");
       expect(await durableSnapshot()).toEqual(before);
+    },
+  );
+
+  it.each(["restocked", "written-off"] as const)(
+    "records %s over a complete representative 501-fact item history",
+    async (outcome) => {
+      await eventStore.appendToStream({
+        streamId: "inventory.item-inv_c2_synthetic",
+        expectedVersion: 1,
+        context,
+        events: Array.from({ length: 500 }, (_, index) => ({
+          eventType: "inventory.item.adjusted",
+          payload: { itemId: "inv_c2_synthetic", quantityDelta: index % 2 === 0 ? 1 : -1, reason: "correction" },
+        })),
+      });
+      const attempt = withInventoryMutationAttempt(context, randomUUID());
+      const started = performance.now();
+      await expect(services.restockDecisions.recordDecision(choice(outcome), attempt)).resolves.toEqual({
+        ...pending,
+        version: 2,
+      });
+      console.info(
+        "N1 synthetic complete-history latency",
+        JSON.stringify({ outcome, itemFacts: 501, elapsedMs: performance.now() - started }),
+      );
+      const item = await eventStore.readStream({ streamId: "inventory.item-inv_c2_synthetic" });
+      const quantity =
+        Number(item[0].payload.totalQuantity) +
+        item.slice(1).reduce((sum, event) => sum + Number(event.payload.quantityDelta), 0);
+      expect(quantity).toBe(outcome === "restocked" ? 3 : 1);
+      const committed = await durableSnapshot();
+      await expect(services.restockDecisions.recordDecision(choice(outcome), attempt)).resolves.toEqual({
+        ...pending,
+        version: 2,
+      });
+      expect(await durableSnapshot()).toEqual(committed);
     },
   );
 
@@ -718,9 +992,13 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
   let pool: PgTransactionalPool;
   let services: ReturnType<typeof inventoryModule.createServices>;
   const seedAccount = demoIdentitySeedIds.accountId;
-  const seedContext: EventStoreContext = { tenantId: "tnt_identity", audit: {
-    forAccountId: seedAccount, performedByUserId: demoIdentitySeedIds.userId,
-  } };
+  const seedContext: EventStoreContext = {
+    tenantId: "tnt_identity",
+    audit: {
+      forAccountId: seedAccount,
+      performedByUserId: demoIdentitySeedIds.userId,
+    },
+  };
   const itemId = inventorySeedIds.items.charizardBaseSetNearMint;
   const itemStream = `inventory.item-${itemId}`;
   const locationId = inventorySeedIds.storageLocations.northShelf;
@@ -757,7 +1035,10 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
     };
   }
   async function projectItems() {
-    const handlers = { ...services.storageLocations.projectors[0].handlers, ...buildInventoryItemProjectionHandlers(pool) };
+    const handlers = {
+      ...services.storageLocations.projectors[0].handlers,
+      ...buildInventoryItemProjectionHandlers(pool),
+    };
     const store = createPostgresEventStore({ pool });
     let afterGlobalPosition = ZERO_GLOBAL_POSITION;
     for (;;) {
@@ -767,24 +1048,51 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
       afterGlobalPosition = events[events.length - 1].globalPosition;
     }
   }
-  async function boot(db = pool) { await inventoryModule.seed!(db); }
+  async function boot(db = pool) {
+    await inventoryModule.seed!(db);
+  }
 
   it.each(["missing-exact-catalog", "old-invalid-late-item", "old-invalid-late-location"] as const)(
-    "seed refuses %s beside unrelated rows before any partial mutation, on both boots", async (defect) => {
+    "seed refuses %s beside unrelated rows before any partial mutation, on both boots",
+    async (defect) => {
       if (defect === "missing-exact-catalog") {
-        await pool.query("DELETE FROM inventory_catalog_items WHERE catalog_item_id = $1", [catalogSeedIds.items.charizardBaseSet]);
-        expect((await pool.query("SELECT COUNT(*)::int AS count FROM inventory_catalog_items")).rows[0].count).toBeGreaterThan(0);
+        await pool.query("DELETE FROM inventory_catalog_items WHERE catalog_item_id = $1", [
+          catalogSeedIds.items.charizardBaseSet,
+        ]);
+        expect(
+          (await pool.query("SELECT COUNT(*)::int AS count FROM inventory_catalog_items")).rows[0].count,
+        ).toBeGreaterThan(0);
       } else {
         const store = createPostgresEventStore({ pool });
-        await store.appendToStream({ streamId: defect === "old-invalid-late-item" ? itemStream
-          : `inventory.storage-location-${inventorySeedIds.storageLocations.vaultAnnex}`,
-          expectedVersion: "no_stream", context: seedContext, events: [{
-            eventType: defect === "old-invalid-late-item" ? "inventory.item.created" : "inventory.storage-location.created",
-            payload: defect === "old-invalid-late-item" ? { itemId, accountId: "acc_foreign_synthetic",
-              catalogItemId: catalogSeedIds.items.charizardBaseSet, totalQuantity: 1 }
-              : { storageLocationId: inventorySeedIds.storageLocations.vaultAnnex, accountId: seedAccount,
-                name: "Synthetic invalid retained sibling", shipFromCode: "WRONG", shipFromAddress: null },
-          }] });
+        await store.appendToStream({
+          streamId:
+            defect === "old-invalid-late-item"
+              ? itemStream
+              : `inventory.storage-location-${inventorySeedIds.storageLocations.vaultAnnex}`,
+          expectedVersion: "no_stream",
+          context: seedContext,
+          events: [
+            {
+              eventType:
+                defect === "old-invalid-late-item" ? "inventory.item.created" : "inventory.storage-location.created",
+              payload:
+                defect === "old-invalid-late-item"
+                  ? {
+                      itemId,
+                      accountId: "acc_foreign_synthetic",
+                      catalogItemId: catalogSeedIds.items.charizardBaseSet,
+                      totalQuantity: 1,
+                    }
+                  : {
+                      storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
+                      accountId: seedAccount,
+                      name: "Synthetic invalid retained sibling",
+                      shipFromCode: "WRONG",
+                      shipFromAddress: null,
+                    },
+            },
+          ],
+        });
       }
       const before = await snapshot();
       for (let invocation = 0; invocation < 2; invocation++) {
@@ -801,20 +1109,30 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
       query: <Row>(sql: string, values?: readonly unknown[]) => pool.query<Row>(sql, values),
       connect: async () => {
         const client = await pool.connect();
-        return { release: client.release.bind(client), query: async <Row>(sql: string, values?: readonly unknown[]) => {
-          if (fail && sql.includes("INSERT INTO event_store_events") && values?.includes("inventory.item.adjusted")) {
-            fail = false;
-            throw new Error("Synthetic seed death before adjustment commit");
-          }
-          return client.query<Row>(sql, values);
-        } };
+        return {
+          release: client.release.bind(client),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (fail && sql.includes("INSERT INTO event_store_events") && values?.includes("inventory.item.adjusted")) {
+              fail = false;
+              throw new Error("Synthetic seed death before adjustment commit");
+            }
+            return client.query<Row>(sql, values);
+          },
+        };
       },
     };
-    await expect(boot(faultPool)).rejects.toThrow("Synthetic seed death");
+    await expect(boot(faultPool)).rejects.toMatchObject({
+      code: "infrastructure_failure",
+      details: {
+        cause: "Synthetic seed death before adjustment commit",
+      },
+    });
     expect(fail).toBe(false);
     const partial = await snapshot();
     expect(partial.events.filter((event) => event.stream_id === itemStream)).toHaveLength(1);
-    expect((await inventoryModule.inspectSeedState!(pool)).find((state) => state.streamId === itemStream)?.kind).toBe("draft");
+    expect((await inventoryModule.inspectSeedState!(pool)).find((state) => state.streamId === itemStream)?.kind).toBe(
+      "draft",
+    );
     await bootstrapContextDatabase(inventoryModule, pool);
     await boot();
     const completed = await snapshot();
@@ -830,28 +1148,52 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
     }
   });
 
-  async function prepareImport() {
+  async function prepareImport(targetLocation: string = locationId) {
     await boot();
     await projectItems();
-    const batch = await services.importBatches.createBatch({ accountId: seedAccount,
-      parsedRows: [{ rowNumber: 1, values: { catalogItemId: catalogSeedIds.items.charizardBaseSet,
-        storageLocationId: locationId, totalQuantity: "2", "option:form": catalogSeedIds.dimensions.form.optionIds.raw,
-        "option:condition": catalogSeedIds.dimensions.condition.optionIds.nearMint } }],
-    }, seedContext);
+    const batch = await services.importBatches.createBatch(
+      {
+        accountId: seedAccount,
+        parsedRows: [
+          {
+            rowNumber: 1,
+            values: {
+              catalogItemId: catalogSeedIds.items.charizardBaseSet,
+              storageLocationId: targetLocation,
+              totalQuantity: "2",
+              "option:form": catalogSeedIds.dimensions.form.optionIds.raw,
+              "option:condition": catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          },
+        ],
+      },
+      seedContext,
+    );
     expect(batch.accepted_count).toBe(1);
     return { accountId: seedAccount, batchId: batch.batch_id };
   }
 
   it("import refuses its absent exact location beside unrelated locations without stock or receipt writes", async () => {
-    const input = await prepareImport();
-    await pool.query("DELETE FROM inventory_storage_locations WHERE storage_location_id = $1", [locationId]);
-    await pool.query(`INSERT INTO inventory_storage_locations (storage_location_id, account_id, name, ship_from_code)
-      VALUES ('loc_unrelated_synthetic', $1, 'Unrelated synthetic shelf', 'UNRELATED')`, [seedAccount]);
+    const exactLocation = "loc_import_exact_synthetic";
+    await pool.query(
+      `INSERT INTO inventory_storage_locations (storage_location_id, account_id, name, ship_from_code)
+      VALUES ($1, $2, 'Synthetic exact import shelf', 'EXACT')`,
+      [exactLocation, seedAccount],
+    );
+    const input = await prepareImport(exactLocation);
+    await pool.query("DELETE FROM inventory_storage_locations WHERE storage_location_id = $1", [exactLocation]);
+    await pool.query(
+      `INSERT INTO inventory_storage_locations (storage_location_id, account_id, name, ship_from_code)
+      VALUES ('loc_unrelated_synthetic', $1, 'Unrelated synthetic shelf', 'UNRELATED')`,
+      [seedAccount],
+    );
     const before = await snapshot();
     for (let bootNumber = 0; bootNumber < 2; bootNumber++) {
       await bootstrapContextDatabase(inventoryModule, pool);
       const restarted = inventoryModule.createServices(pool, {});
-      await expect(restarted.importBatches.commitBatch(input, seedContext)).rejects.toThrow("Storage location not found");
+      await expect(restarted.importBatches.commitBatch(input, seedContext)).rejects.toThrow(
+        "Storage location not found",
+      );
       expect(await snapshot()).toEqual(before);
     }
   });
@@ -869,7 +1211,9 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
       },
       connect: pool.connect.bind(pool),
     };
-    await expect(inventoryModule.createServices(faultPool, {}).importBatches.commitBatch(input, seedContext)).rejects.toThrow("Synthetic import checkpoint death");
+    await expect(
+      inventoryModule.createServices(faultPool, {}).importBatches.commitBatch(input, seedContext),
+    ).rejects.toThrow("Synthetic import checkpoint death");
     expect(fail).toBe(false);
     const retained = await snapshot();
     expect(retained.events.filter((event) => event.stream_id === itemStream)).toHaveLength(4);
