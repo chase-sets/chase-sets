@@ -38,10 +38,20 @@ const recorded = {
 async function harness(
   facts = [{ eventType: "inventory.restock-decision.pending", payload: pending as JsonObject }],
   retained = false,
+  retainedFacts: { eventType: string; payload: JsonObject }[] = [],
 ) {
   const { eventStore, streams } = createInMemoryEventStore();
   const streamId = `inventory.restock-decision-${pending.decisionId}`;
   if (facts.length) await eventStore.appendToStream({ streamId, expectedVersion: "no_stream", context, events: facts });
+  await eventStore.appendToStream({
+    streamId: `inventory.item-${pending.itemId}`,
+    expectedVersion: "no_stream",
+    context,
+    events: [
+      { eventType: "inventory.item.created", payload: { itemId: pending.itemId, accountId: pending.accountId } },
+      ...retainedFacts,
+    ],
+  });
   const adjustItem = vi.fn<InventoryItemServices["adjustItem"]>(async () => ({ itemId: pending.itemId, version: 2 }));
   const child = vi.fn();
   const deps: InventoryRuntimeDeps = {
@@ -52,9 +62,14 @@ async function harness(
       return work(childContext);
     },
     db: {
-      query: async <Row>(sql: string) => ({
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => ({
         rows: (sql.includes("event_store_streams")
-          ? [{ total: String(facts.length), current_version: String(facts.length) }]
+          ? [
+              {
+                total: String(streams.get(String(values[0]))?.length ?? 0),
+                current_version: String(streams.get(String(values[0]))?.length ?? 0),
+              },
+            ]
           : retained
             ? [{ idempotency_key: `restock-decision:${pending.decisionId}:restocked` }]
             : []) as Row[],
@@ -79,6 +94,57 @@ async function harness(
 }
 
 describe("issue-7169-ac8-atomic-restock: complete retained decision history", () => {
+  it("does not treat an unrelated order's retained restock as this decision's stock", async () => {
+    const { services, adjustItem, params } = await harness(undefined, false, [
+      {
+        eventType: "inventory.item.adjusted",
+        payload: {
+          itemId: pending.itemId,
+          quantityDelta: 2,
+          reason: "return-restocked",
+          sourceRef: { orderId: "ord_other_synthetic", reservationRequestId: "rsv_other_synthetic" },
+        },
+      },
+    ]);
+    expect(await services.recordDecision({ ...params, outcome: "written-off" }, context)).toEqual({
+      decisionId: pending.decisionId,
+      version: 2,
+    });
+    expect(adjustItem).not.toHaveBeenCalled();
+  });
+  it("finds decisive retained stock after a complete event-store page", async () => {
+    const facts: { eventType: string; payload: JsonObject }[] = Array.from({ length: 500 }, () => ({
+      eventType: "inventory.item.adjusted",
+      payload: { itemId: pending.itemId, quantityDelta: 0, reason: "correction" },
+    }));
+    facts.push({
+      eventType: "inventory.item.adjusted",
+      payload: { itemId: pending.itemId, quantityDelta: 2, reason: "return-restocked", sourceRef: pending.sourceRef },
+    });
+    const { services, adjustItem, params } = await harness(undefined, false, facts);
+    await expect(services.recordDecision(params, context)).rejects.toThrow("reconciliation");
+    expect(adjustItem).not.toHaveBeenCalled();
+  });
+  it.each(["restocked", "written-off"] as const)(
+    "retains legacy stock evidence after receipt cleanup before %s",
+    async (outcome) => {
+      const { services, adjustItem, params, streams, streamId } = await harness(undefined, false, [
+        {
+          eventType: "inventory.item.adjusted",
+          payload: {
+            itemId: pending.itemId,
+            quantityDelta: 2,
+            reason: "return-restocked",
+            reasonCode: "return-restocked",
+            sourceRef: pending.sourceRef,
+          },
+        },
+      ]);
+      await expect(services.recordDecision({ ...params, outcome }, context)).rejects.toThrow("reconciliation");
+      expect(adjustItem).not.toHaveBeenCalled();
+      expect(streams.get(streamId)).toHaveLength(1);
+    },
+  );
   it.each([
     [
       "unknown pending field",

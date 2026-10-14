@@ -47,6 +47,14 @@ describe("restock decision runtime", () => {
       },
       { adjustItem },
     );
+    for (const itemId of ["inv_restocked", "inv_written_off"]) {
+      await eventStore.appendToStream({
+        streamId: `inventory.item-${itemId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [{ eventType: "inventory.item.created", payload: { itemId, accountId: "acc_seller" } }],
+      });
+    }
     const restocked = await services.markPending(
       {
         accountId: "acc_seller",

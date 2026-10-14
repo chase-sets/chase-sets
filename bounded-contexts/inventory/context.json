@@ -1002,7 +1002,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["inventory-items", "storage-locations"],
+      "expectedConsumers": ["inventory-items", "restock-decisions", "storage-locations"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {

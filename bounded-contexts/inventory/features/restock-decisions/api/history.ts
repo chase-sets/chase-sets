@@ -3,7 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
-import { evolveRestockDecision, initialRestockDecisionState } from "../domain/domain";
+import { evolveRestockDecision, initialRestockDecisionState, type RestockDecisionState } from "../domain/domain";
 
 function requireHistory(condition: unknown): asserts condition {
   if (!condition)
@@ -30,12 +30,7 @@ function instant(value: unknown): string {
   return result;
 }
 
-export async function loadRestockDecisionHistory(
-  deps: InventoryRuntimeDeps,
-  decisionId: string,
-  context: EventStoreContext,
-) {
-  const streamId = `inventory.restock-decision-${decisionId}`;
+async function readOwnerHistory(deps: InventoryRuntimeDeps, streamId: string, context: EventStoreContext) {
   try {
     const events = await readCompleteStream(deps.eventStore, { streamId });
     const ledger = await deps.db.query<{ current_version: string; total: string }>(
@@ -43,13 +38,12 @@ export async function loadRestockDecisionHistory(
        FROM event_store_streams stream WHERE stream.stream_id = $1`,
       [streamId],
     );
-    if (events.length === 0 && ledger.rows.length === 0) return { state: initialRestockDecisionState, version: 0 };
+    if (events.length === 0 && ledger.rows.length === 0) return events;
     requireHistory(
       ledger.rows.length === 1 &&
         events.length === Number(ledger.rows[0].total) &&
         events.length === Number(ledger.rows[0].current_version),
     );
-    let state = initialRestockDecisionState;
     const ids = new Set<string>();
     for (const [index, event] of events.entries()) {
       requireHistory(
@@ -59,6 +53,52 @@ export async function loadRestockDecisionHistory(
           !ids.has(event.eventId),
       );
       ids.add(event.eventId);
+    }
+    return events;
+  } catch {
+    throw new InventoryDomainError("Restock decision history is unavailable; reconciliation is required.");
+  }
+}
+
+export async function assertNoRetainedRestockStock(
+  deps: InventoryRuntimeDeps,
+  state: RestockDecisionState,
+  context: EventStoreContext,
+) {
+  try {
+    const events = await readOwnerHistory(deps, `inventory.item-${state.itemId}`, context);
+    requireHistory(
+      events.length > 0 &&
+        events[0].eventType === "inventory.item.created" &&
+        events[0].payload.itemId === state.itemId &&
+        events[0].payload.accountId === state.accountId,
+    );
+    for (const event of events) {
+      if (
+        event.eventType !== "inventory.item.adjusted" ||
+        (event.payload.reason !== "return-restocked" && event.payload.reasonCode !== "return-restocked")
+      )
+        continue;
+      requireHistory(event.payload.itemId === state.itemId);
+      const source = object(event.payload.sourceRef, ["orderId", "reservationRequestId"]);
+      text(source.orderId);
+      text(source.reservationRequestId);
+      requireHistory(source.orderId !== state.orderId);
+    }
+  } catch {
+    throw new InventoryDomainError("Restock decision history is unavailable; reconciliation is required.");
+  }
+}
+
+export async function loadRestockDecisionHistory(
+  deps: InventoryRuntimeDeps,
+  decisionId: string,
+  context: EventStoreContext,
+) {
+  try {
+    const events = await readOwnerHistory(deps, `inventory.restock-decision-${decisionId}`, context);
+    let state = initialRestockDecisionState;
+    for (const [index, event] of events.entries()) {
       if (index === 0) {
         requireHistory(event.eventType === "inventory.restock-decision.pending");
         const data = object(event.payload, [

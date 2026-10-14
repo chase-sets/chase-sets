@@ -20,7 +20,7 @@ import {
   buildInventoryRestockDecisionProjectionHandlers,
 } from "../read-model/projection";
 import { getFulfillmentShipmentSource, getRestockDecision, listPendingRestockDecisions } from "../read-model/queries";
-import { loadRestockDecisionHistory } from "./history";
+import { assertNoRetainedRestockStock, loadRestockDecisionHistory } from "./history";
 
 export type RestockDecisionServices = Readonly<{
   markPending: (
@@ -172,6 +172,7 @@ export function createRestockDecisionRuntime(
         Number.isSafeInteger(params.expectedVersion) && params.expectedVersion === aggregate.version,
         "Restock decision version conflicts with the current decision.",
       );
+      await assertNoRetainedRestockStock(deps, aggregate.state, context);
       const retained = await deps.db.query(
         "SELECT idempotency_key FROM inventory_item_adjustment_idempotency WHERE idempotency_key = $1",
         [`restock-decision:${params.decisionId}:restocked`],
