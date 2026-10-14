@@ -232,6 +232,7 @@ describe("privacy product-truth derivation over the real repository", () => {
       "chase-sets:review-draft:*",
       "discovery.search.loader-cache.v1",
       "discovery.search.restoration.v2",
+      "inventory-mutation/v1:*",
     ]);
 
     expect(factFor("web-storage", "chase-sets-theme").derivationShapes).toEqual(["direct-member-access"]);

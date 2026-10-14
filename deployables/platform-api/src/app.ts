@@ -14,6 +14,7 @@ import {
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
+  createCheckoutInventoryReservationAuthority,
   lookupCheckoutSupportReference,
   type CheckoutSupportLookupResult,
 } from "@chase-sets/checkout/server";
@@ -707,6 +708,9 @@ export function createPlatformApiHost(
       sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,
+      ...(checkoutPool
+        ? { checkoutReservationAuthority: createCheckoutInventoryReservationAuthority(checkoutPool) }
+        : {}),
       inventoryCleanupAuthority,
       shipmentGroupAdmissionAuthority,
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),

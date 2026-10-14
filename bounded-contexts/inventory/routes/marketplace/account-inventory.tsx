@@ -23,6 +23,7 @@ import { inventoryItemPageQuery } from "../../support/request-support/list-pagin
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { createOfflineSaleFormToken, submitOfflineSaleForm } from "../../features/inventory-items/ui/offline-sale-form";
 import type { InventoryOfflineSaleResult } from "../../client";
+import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
 
 const ACCOUNT_INVENTORY_READ_TIMEOUT_MS = 10_000;
 const TEMPORARY_INVENTORY_ITEMS_LOAD_ERROR =
@@ -206,6 +207,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     ...readModels,
+    recoveryAuthority: { accountId: actor.accountId, actorUserId: actor.userId },
     items,
     offlineSaleFreshItem,
     offlineSaleFreshness,
@@ -231,7 +233,9 @@ export const action = defineFormAction({
   }),
   intents: {
     "create-item": async ({ request, formData }) => {
-      const result = (await createInventoryRequestApiClient(request).createItem({
+      const result = (await createInventoryRequestApiClient(request, {
+        mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+      }).createItem({
         catalogItemId: formData.get("catalogItemId"),
         selectedOptions: formData.get("selectedOptions"),
         storageLocationId: formData.get("storageLocationId"),
@@ -341,24 +345,29 @@ export default function MarketplaceInventoryRoute() {
   const items = data.items as ListResponse<InventoryItemListItem> & { limit: number; offset: number };
 
   return (
-    <InventoryItemListPage
-      data={items}
-      pagination={{ limit: items.limit, offset: items.offset, total: items.total }}
-      locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
-      createItemDraft={data.createItemDraft}
-      currentPath={currentPath}
-      canRecordOfflineSale={data.canRecordOfflineSale}
-      canHonorOffline={data.canHonorOffline}
-      offlineSaleFormTokens={visibleOfflineSaleFormTokens}
-      offlineSaleResult={visibleOfflineSaleResult}
-      errorMessage={actionError?.intent === "create-item" ? actionError.error : (data.loadError ?? null)}
-      offlineSaleErrorMessage={actionError?.intent === "record-offline-sale" ? actionError.error : null}
-      offlineSaleFreshness={visibleOfflineSaleFreshness}
-      offlineSaleAuthoritativeAvailableQuantity={
-        visibleOfflineSaleResult && data.offlineSaleFreshItem?.item_id === visibleOfflineSaleResult.itemId
-          ? data.offlineSaleFreshItem.available_quantity
-          : undefined
-      }
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority}
+      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
+    >
+      <InventoryItemListPage
+        data={items}
+        pagination={{ limit: items.limit, offset: items.offset, total: items.total }}
+        locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
+        createItemDraft={data.createItemDraft}
+        currentPath={currentPath}
+        canRecordOfflineSale={data.canRecordOfflineSale}
+        canHonorOffline={data.canHonorOffline}
+        offlineSaleFormTokens={visibleOfflineSaleFormTokens}
+        offlineSaleResult={visibleOfflineSaleResult}
+        errorMessage={actionError?.intent === "create-item" ? actionError.error : (data.loadError ?? null)}
+        offlineSaleErrorMessage={actionError?.intent === "record-offline-sale" ? actionError.error : null}
+        offlineSaleFreshness={visibleOfflineSaleFreshness}
+        offlineSaleAuthoritativeAvailableQuantity={
+          visibleOfflineSaleResult && data.offlineSaleFreshItem?.item_id === visibleOfflineSaleResult.itemId
+            ? data.offlineSaleFreshItem.available_quantity
+            : undefined
+        }
+      />
+    </InventoryMutationProvider>
   );
 }

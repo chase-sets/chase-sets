@@ -317,6 +317,19 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["agent-grant-revocation:"] }],
   },
   {
+    factId: "web-storage-inventory-recovery",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "inventory-mutation/v1:*",
+    evidenceRefs: [
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:79",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:88",
+    ],
+    factualSummary:
+      "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["inventory-mutation/v1:"] }],
+  },
+  {
     factId: "web-storage-search-restoration",
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.restoration.v2",

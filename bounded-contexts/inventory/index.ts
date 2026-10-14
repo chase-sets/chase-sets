@@ -23,6 +23,13 @@ import type { InventoryHostPorts, InventoryServices } from "./support/runtime-su
 import { buildInventoryApi } from "./api";
 import { reserveOrderInventoryRequest } from "./features/reservations/api/order-reservation-workflow";
 import { withInventorySystemHoldReleaseAuthority } from "./features/holds/api/runtime";
+import {
+  inventoryMutationAttemptFromSource,
+  withInventoryMutationAttempt,
+  withInventoryMutationChildAttempt,
+  withInventoryMutationTargetAccount,
+} from "./support/runtime-support/mutation-attempt";
+import { orderReservationHoldId } from "./features/reservations/api/order-reservation-workflow";
 import { buildInventoryCatalogItemProjectionHandlers } from "./features/inventory-items/integrations/catalog/projection";
 import { buildInventoryFulfillmentSourceProjectionHandlers } from "./features/restock-decisions/read-model/projection";
 import { InventoryDomainError } from "./support/runtime-support/common";
@@ -55,7 +62,12 @@ const baseModule = defineBoundedContextModule<InventoryServices, PgTransactional
   ],
   buildMcpHandlers: (services) => {
     const importBatches = createInventoryImportBatchMcpHandlers(services.importBatches, services.storageLocations);
-    const items = createInventoryItemMcpHandlers(services.items, services.storageLocations, services.holdCollisions);
+    const items = createInventoryItemMcpHandlers(
+      services.items,
+      services.storageLocations,
+      services.holdCollisions,
+      services.mutations,
+    );
 
     return {
       toolHandlers: {
@@ -80,21 +92,49 @@ const baseModule = defineBoundedContextModule<InventoryServices, PgTransactional
             const data = event.data as OrderingOrderCreatedPayload;
 
             for (const request of data.reservationRequests ?? []) {
-              await reserveOrderInventoryRequest(
-                {
-                  holds: services.holds,
-                  reservations: services.reservations,
-                  appendToStreams: services.appendToStreams,
-                },
-                {
-                  orderId: data.orderId,
-                  request,
-                  context: {
-                    tenantId: event.tenantId,
-                    audit: event.audit,
-                    trace: event.trace,
+              const context = withInventoryMutationAttempt(
+                withInventoryMutationTargetAccount(
+                  { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
+                  request.sellerAccountId,
+                ),
+                inventoryMutationAttemptFromSource(event.id, `reserve/${request.reservationRequestId}`),
+              );
+              const holdId = request.holdId ?? orderReservationHoldId(request.reservationRequestId);
+              const intent = {
+                holdId,
+                accountId: request.sellerAccountId,
+                itemId: request.inventoryItemId,
+                quantity: request.quantity,
+                reason: "Ordering commitment",
+                notes: null,
+                purpose: "order",
+                sourceRef: { orderId: data.orderId, reservationRequestId: request.reservationRequestId },
+                expiresAt: null,
+              };
+              await services.mutations.execute("hold-create", holdId, request.sellerAccountId, intent, context, () =>
+                services.mutations.child(
+                  "planned-reservation",
+                  "hold-create",
+                  holdId,
+                  intent,
+                  context,
+                  async (childContext) => {
+                    await reserveOrderInventoryRequest(
+                      {
+                        holds: services.holds,
+                        reservations: services.reservations,
+                        appendToStreams: services.appendToStreams,
+                      },
+                      {
+                        orderId: data.orderId,
+                        request,
+                        context: childContext,
+                      },
+                    );
+                    const state = await services.reservations.getReservationState(request.reservationRequestId);
+                    return { reservationRequestId: request.reservationRequestId, holdId, status: state.status };
                   },
-                },
+                ),
               );
             }
           },
@@ -116,52 +156,69 @@ const baseModule = defineBoundedContextModule<InventoryServices, PgTransactional
                 continue;
               }
 
-              try {
-                const hold = await services.holds.getHold(request.holdId, request.sellerAccountId);
-                if (!hold) {
-                  throw new InventoryDomainError("Inventory hold not found.");
-                }
-
-                if (hold.status === "consumed") {
-                  await services.restockDecisions.markPending(
-                    {
-                      accountId: request.sellerAccountId,
-                      orderId: data.orderId,
-                      itemId: request.inventoryItemId,
-                      quantity: request.quantity,
-                      reservationRequestId: request.reservationRequestId,
-                      source: "order-cancelled-after-dispatch",
-                      shipmentId: null,
-                      returnReason: data.reason ?? null,
-                      pendingAt: data.cancelledAt,
-                    },
-                    context,
-                  );
-                  continue;
-                }
-
-                await services.holds.releaseHold(
+              const hold = await services.holds.getHold(request.holdId, request.sellerAccountId);
+              if (hold?.status === "consumed") {
+                await services.restockDecisions.markPending(
                   {
                     accountId: request.sellerAccountId,
-                    holdId: request.holdId,
-                    releaseReason: data.reason === "payment-deadline" ? "payment-deadline" : "order-cancelled",
+                    orderId: data.orderId,
+                    itemId: request.inventoryItemId,
+                    quantity: request.quantity,
+                    reservationRequestId: request.reservationRequestId,
+                    source: "order-cancelled-after-dispatch",
+                    shipmentId: null,
+                    returnReason: data.reason ?? null,
+                    pendingAt: data.cancelledAt,
                   },
-                  withInventorySystemHoldReleaseAuthority(context),
+                  context,
                 );
-              } catch (error) {
-                if (!(error instanceof InventoryDomainError) || error.message !== "Inventory hold not found.") {
-                  throw error;
-                }
+                continue;
               }
-              await services.reservations.commandHandler({
-                streamId: `inventory.reservation-${request.reservationRequestId}`,
-                command: {
-                  type: "ReleaseInventoryReservation",
-                  releasedAt: data.cancelledAt,
-                  releaseReason: data.reason === "payment-deadline" ? "payment-deadline" : "order-cancelled",
+              const releaseIntent = {
+                accountId: request.sellerAccountId,
+                holdId: request.holdId,
+                releaseReason:
+                  data.reason === "payment-deadline" ? ("payment-deadline" as const) : ("order-cancelled" as const),
+              };
+              const attemptedContext = withInventoryMutationAttempt(
+                withInventoryMutationTargetAccount(context, request.sellerAccountId),
+                inventoryMutationAttemptFromSource(event.id, `release/${request.reservationRequestId}`),
+              );
+              await services.mutations.execute(
+                "hold-release",
+                request.holdId,
+                request.sellerAccountId,
+                releaseIntent,
+                attemptedContext,
+                async () => {
+                  try {
+                    if (!hold) throw new InventoryDomainError("Inventory hold not found.");
+                    await services.holds.releaseHold(
+                      releaseIntent,
+                      withInventorySystemHoldReleaseAuthority(
+                        withInventoryMutationChildAttempt(attemptedContext, "release-hold"),
+                      ),
+                    );
+                  } catch (error) {
+                    if (!(error instanceof InventoryDomainError) || error.message !== "Inventory hold not found.")
+                      throw error;
+                  }
+                  const result = await services.reservations.commandHandler({
+                    streamId: `inventory.reservation-${request.reservationRequestId}`,
+                    command: {
+                      type: "ReleaseInventoryReservation",
+                      releasedAt: data.cancelledAt,
+                      releaseReason: data.reason === "payment-deadline" ? "payment-deadline" : "order-cancelled",
+                    },
+                    context: attemptedContext,
+                  });
+                  return {
+                    holdId: request.holdId,
+                    reservationRequestId: request.reservationRequestId,
+                    version: result.version,
+                  };
                 },
-                context,
-              });
+              );
             }
           },
         }),

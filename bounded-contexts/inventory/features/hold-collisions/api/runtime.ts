@@ -6,7 +6,6 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { AppendToStreamInput, EventRecordToStore, EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   InventoryAdjustmentReason,
-  InventoryHoldOrderSourceRef,
   InventoryOfflineSaleChannel,
 } from "@chase-sets/event-core/public-event-payloads";
 import { isInventoryOfflineSaleChannel } from "@chase-sets/event-core/public-event-payloads";
@@ -15,6 +14,10 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, EventId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
+import {
+  loadInventoryStockHolds,
+  validateInventoryItemStockHistory,
+} from "../../../support/runtime-support/stock-history";
 import {
   claimInventoryAdjustmentIdempotency,
   completeInventoryAdjustmentIdempotency,
@@ -55,14 +58,6 @@ import {
   type InventoryHoldCollisionRecordedEvent,
 } from "../domain/domain";
 import { buildInventoryHoldCollisionProjectionHandlers } from "../read-model/projection";
-
-type ActiveHoldRow = Readonly<{
-  hold_id: string;
-  quantity: string | number;
-  purpose: string;
-  source_ref: unknown;
-  committed_at: string | Date;
-}>;
 
 export type InventoryHoldCollisionResult = InventoryOfflineSaleResult;
 export type { InventoryOfflineSaleResult } from "../../inventory-items/api/contracts";
@@ -215,6 +210,14 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             if (item.state.id !== params.itemId || item.state.accountId !== params.accountId) {
               throw new InventoryDomainError("Inventory item not found.");
             }
+            validateInventoryItemStockHistory({
+              events: await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${params.itemId}` }),
+              itemId: params.itemId,
+              accountId: params.accountId,
+              tenantId: context.tenantId,
+              version: item.version,
+              totalQuantity: item.state.totalQuantity,
+            });
             if (externalChannelSale && item.state.storageLocationId !== externalChannelSale.storageLocationId) {
               throw new InventoryDomainError(
                 "External channel sale storage location does not match the Inventory item.",
@@ -228,6 +231,9 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             }
 
             const activeHolds = await loadActiveHolds(deps, params, context);
+            const retainedHeldQuantity = activeHolds.reduce((total, hold) => total + hold.quantity, 0);
+            if (!Number.isSafeInteger(retainedHeldQuantity) || retainedHeldQuantity > item.state.totalQuantity)
+              throw new InventoryDomainError("Inventory stock history is unavailable; reconciliation is required.");
             if (mode === "honor-offline" && params.reasonCode !== undefined && params.reasonCode !== "sold-offline") {
               throw new InventoryDomainError("Honor offline requires reasonCode sold-offline.");
             }
@@ -394,6 +400,27 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
             }
 
             const results = await appendToStreams(appends);
+            if (deps.mutationChild && collision?.mode === "honor-offline") {
+              for (const [index, affected] of collision.affectedOrders.entries()) {
+                await deps.mutationChild(
+                  `collision-release-${index}`,
+                  "hold-release",
+                  affected.holdId,
+                  {
+                    accountId: params.accountId,
+                    holdId: affected.holdId,
+                    releaseReason: "hold-collision",
+                  },
+                  context,
+                  async () => ({
+                    holdId: affected.holdId,
+                    version: results
+                      .find((entry) => entry.streamId === `inventory.hold-${affected.holdId}`)
+                      ?.storedEvents.at(-1)?.streamVersion,
+                  }),
+                );
+              }
+            }
             claimOwned = false;
             const stored = results.flatMap((result) => result.storedEvents);
             recordCommittedEvents(stored);
@@ -455,67 +482,12 @@ async function loadActiveHolds(
   params: Readonly<{ accountId: string; itemId: string }>,
   context: EventStoreContext,
 ): Promise<readonly ActiveInventoryHoldForCollision[]> {
-  const result = await deps.db.query<ActiveHoldRow>(
-    `WITH placed AS (
-       SELECT stream_id, payload, recorded_at
-       FROM event_store_events
-       WHERE tenant_id = $1
-         AND stream_context_name = 'inventory'
-         AND stream_category = 'inventory.hold'
-         AND event_type = 'inventory.hold.placed'
-         AND payload ->> 'accountId' = $2
-         AND payload ->> 'itemId' = $3
-     )
-     SELECT
-       placed.payload ->> 'holdId' AS hold_id,
-       placed.payload ->> 'quantity' AS quantity,
-       COALESCE(converted.payload ->> 'purpose', placed.payload ->> 'purpose', 'manual') AS purpose,
-       COALESCE(converted.payload -> 'sourceRef', placed.payload -> 'sourceRef') AS source_ref,
-       COALESCE(converted.recorded_at, placed.recorded_at) AS committed_at
-     FROM placed
-     LEFT JOIN LATERAL (
-       SELECT event.payload, event.recorded_at
-       FROM event_store_events AS event
-       WHERE event.tenant_id = $1
-         AND event.stream_id = placed.stream_id
-         AND event.event_type = 'inventory.hold.converted'
-       ORDER BY event.stream_version DESC
-       LIMIT 1
-     ) AS converted ON true
-     WHERE NOT EXISTS (
-       SELECT 1
-       FROM event_store_events AS terminal
-       WHERE terminal.tenant_id = $1
-         AND terminal.stream_id = placed.stream_id
-         AND terminal.event_type IN ('inventory.hold.released', 'inventory.hold.expired', 'inventory.hold.consumed')
-     )
-     ORDER BY placed.recorded_at ASC, placed.stream_id ASC`,
-    [context.tenantId, params.accountId, params.itemId],
-  );
-
-  return result.rows.map((row) => {
-    const quantity = Number(row.quantity);
-    if (!Number.isInteger(quantity) || quantity <= 0) {
-      throw new InventoryDomainError("Inventory hold quantity is invalid.");
-    }
-    return {
-      holdId: row.hold_id,
-      quantity,
-      purpose: row.purpose,
-      sourceRef: orderSourceRef(row.source_ref),
-      committedAt: new Date(row.committed_at).toISOString(),
-    };
-  });
-}
-
-function orderSourceRef(value: unknown): InventoryHoldOrderSourceRef | null {
-  if (!value || typeof value !== "object" || !("orderId" in value) || !("reservationRequestId" in value)) {
-    return null;
-  }
-  return {
-    orderId: String(value.orderId),
-    reservationRequestId: String(value.reservationRequestId),
-  };
+  const holds = await loadInventoryStockHolds({ ...params, context, db: deps.db, eventStore: deps.eventStore });
+  return holds
+    .filter((hold) => hold.active)
+    .sort(
+      (left, right) => left.committedAt.localeCompare(right.committedAt) || left.holdId.localeCompare(right.holdId),
+    );
 }
 
 function normalizeOfflineSaleReduction(

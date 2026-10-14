@@ -141,7 +141,7 @@ function inventoryStorageLocationCommandHandler(runtime: Awaited<ReturnType<type
 }
 
 const seedCommandContext = {
-  tenantId: "tnt_seed_development",
+  tenantId: "tnt_identity",
   audit: {
     performedByUserId: identitySeedIds.demo.userId,
     forAccountId: identitySeedIds.demo.accountId,
@@ -267,6 +267,12 @@ describe("inventory and checkout seed resume from authoritative streams", () => 
     await pools.inventory.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [
       archivedOverflowStream,
     ]);
+    // Model death before the atomic archive commit, not deletion of facts
+    // after an immutable archive receipt has already committed.
+    await pools.inventory.query(
+      "DELETE FROM inventory_mutation_attempts WHERE target_id = $1 AND family IN ('location-update', 'location-archive')",
+      [inventorySeedIds.storageLocations.archivedOverflow],
+    );
     await pools.inventory.query(
       "UPDATE event_store_streams SET current_version = 1, updated_at = now() WHERE stream_id = $1",
       [archivedOverflowStream],

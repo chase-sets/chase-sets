@@ -23,12 +23,12 @@ import {
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-// #9385 adds only explicit deny-all host ports. Historical timing captures remain immutable;
-// these current-source pins bind the adapted bodies without claiming a new measurement.
+// #9385 adds deny-all host ports; #9499 removes receipts with the interrupted archive facts.
+// Historical timing captures remain immutable. Current-source pins do not claim new timings.
 const administrationAdaptedSources: Readonly<Record<string, string>> = {
   "connector-mount-gate-isolation.db.test.ts": "6b6fe6ed4568966bbe926509fd8aa405b84fd293fcf68aafdec29a454a5e87e9",
   "bootstrap-production-reconciliation.db.test.ts": "69f2cd5e0ac26b20a1f7f17ec58c5a62a1e9384c6606e9c2be7ab8a43b0ccf18",
-  "inventory-seed-resume.db.test.ts": "1ce157280ac82183a055ab221d4020c195b66b6584c8ba23ef01b7bd49d2cbf8",
+  "inventory-seed-resume.db.test.ts": "6bb69e5513e513a2178cfff34143ed0b28f2f5ee37f992984acabcc58f38ab9a",
   "bootstrap-scenario.db.test.ts": "0458197a2a210abae4cb987ff225d36b0e0ab939db57458a01aec7396d5a3985",
   "seed-command-full-pools.db.test.ts": "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356",
   "bootstrap-shared-seed-command.db.test.ts": "7e318b7be666a8a157ef907a12cd820490391aee53c90eb00e2430ad7f85be30",
@@ -44,6 +44,9 @@ const administrationAdaptedIdentities: Readonly<Record<string, string>> = {
   "170dd2ca3aa2dca2": "5d22ae06208e8106",
   "18b6a50d157754d5": "f9e31ed90041d384",
   "68dfd0998ec22c33": "0204be7639f55534",
+};
+const inventoryRecoveryAdaptedIdentities: Readonly<Record<string, string>> = {
+  "8c5dc773de3c8363": "2f1e5800d580e926",
 };
 // Generate fixture code, not an environment read by this non-DB test module.
 const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
@@ -1684,9 +1687,13 @@ describe("Platform API bootstrap DB enrollment", () => {
       let historicalShape = currentSource;
       for (const removal of removals.sort((a, b) => b.start - a.start))
         historicalShape = historicalShape.slice(0, removal.start) + historicalShape.slice(removal.end);
-      // Removing only the new deny-all property must recover every historical assertion's identity.
+      // Apart from the explicitly pinned archive interruption adaptation, removing
+      // deny-all host ports must recover every historical assertion's identity.
       expect(deriveBootstrapDbCaseIdentities(file.fileName, historicalShape)).toEqual(
-        file.cases.map(({ name, identity }) => ({ name, identity })),
+        file.cases.map(({ name, identity }) => ({
+          name,
+          identity: inventoryRecoveryAdaptedIdentities[identity] ?? identity,
+        })),
       );
       expect(
         createHash("sha256")
@@ -1696,7 +1703,10 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(partition.cases).toEqual(
         file.cases.map((testCase) => ({
           name: testCase.name,
-          identity: administrationAdaptedIdentities[testCase.identity] ?? testCase.identity,
+          identity:
+            inventoryRecoveryAdaptedIdentities[testCase.identity] ??
+            administrationAdaptedIdentities[testCase.identity] ??
+            testCase.identity,
           referenceDurationMs: Math.ceil(testCase.durationMs),
         })),
       );

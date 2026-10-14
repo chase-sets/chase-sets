@@ -284,7 +284,8 @@
     "bounded-contexts/inventory/features/storage-locations/read-model/queries.ts",
     "bounded-contexts/inventory/index.ts",
     "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
-    "bounded-contexts/inventory/support/runtime-support/stock-snapshot.ts",
+    "bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts",
+    "bounded-contexts/inventory/support/runtime-support/stock-history.ts",
     "bounded-contexts/marketplace/features/channel-inbound-clamp/api/runtime.ts",
     "bounded-contexts/marketplace/features/listing-evidence-policy/api/runtime.ts",
     "bounded-contexts/marketplace/features/listing-evidence-policy/integrations/seed.ts",
@@ -505,7 +506,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 294,
+    "count": 297,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -563,7 +564,9 @@
       "bounded-contexts/inventory/features/recovered-items/api/route.ts": 3,
       "bounded-contexts/inventory/features/restock-decisions/api/route.ts": 2,
       "bounded-contexts/inventory/features/storage-locations/api/route.ts": 2,
+      "bounded-contexts/inventory/index.ts": 2,
       "bounded-contexts/inventory/support/catalog-item-support/route.ts": 3,
+      "bounded-contexts/inventory/support/runtime-support/seed.ts": 1,
       "bounded-contexts/marketplace/features/listings/api/route.ts": 12,
       "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,
       "bounded-contexts/marketplace/features/offers/api/route.ts": 8,
