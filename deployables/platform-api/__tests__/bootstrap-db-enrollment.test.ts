@@ -1863,20 +1863,20 @@ describe("Platform API bootstrap DB enrollment", () => {
       { model: capture.model },
     );
     const { schedule, violations } = runFixture(fixture);
-    expect(violations).toEqual(
-      [
-        ...unitProjections.flatMap((makespan, index) =>
-          makespan > capture.model.executionUnitCeilingMs
-            ? [
-                `test:db:${index + 1} has a projected makespan of ${makespan}ms, exceeding the ${capture.model.executionUnitCeilingMs}ms per-unit ceiling`,
-              ]
-            : [],
-        ),
-        ...(unitProjections.length < minimumUnitCount
-          ? [`the shipped topology spends ${unitProjections.length} execution units below the schedule model's minimumUnitCount of ${minimumUnitCount}`]
-          : []),
-      ],
-    );
+    expect(violations).toEqual([
+      ...unitProjections.flatMap((makespan, index) =>
+        makespan > capture.model.executionUnitCeilingMs
+          ? [
+              `test:db:${index + 1} has a projected makespan of ${makespan}ms, exceeding the ${capture.model.executionUnitCeilingMs}ms per-unit ceiling`,
+            ]
+          : [],
+      ),
+      ...(unitProjections.length < minimumUnitCount
+        ? [
+            `the shipped topology spends ${unitProjections.length} execution units below the schedule model's minimumUnitCount of ${minimumUnitCount}`,
+          ]
+        : []),
+    ]);
     expect(schedule.minimumUnitCount).toBe(minimumUnitCount);
     expect(schedule.units.map((unit) => unit.makespanMs)).toEqual(unitProjections);
     schedule.units.forEach((unit, index) =>
