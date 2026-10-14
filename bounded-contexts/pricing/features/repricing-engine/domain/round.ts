@@ -1,4 +1,5 @@
-import { resolvePricingGoal, type RepricingRule } from "../../repricing-policies/domain/domain";
+import { pricingGoalDefinitions, resolvePricingGoal, type RepricingRule } from "../../repricing-policies/domain/domain";
+import { validateParameters, type PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import {
   evaluateRepricingListing,
   matchRepricingRule,
@@ -6,7 +7,7 @@ import {
   type RepricingListingEvaluationInput,
   type RepricingMarketInputSnapshot,
 } from "./evaluate";
-import type { RepricingEvaluationSkipReason, RepricingPolicyListingTrace } from "./fact";
+import type { RepricingEvaluationSkipReason, RepricingPolicyListingTrace, ShadowGoalTrace } from "./fact";
 import type { RepricingEnginePolicyValue } from "./policy";
 import type { RepricingRoundInputs, RepricingRoundListing } from "../read-model/queries";
 
@@ -18,6 +19,89 @@ export function planRepricingRound(
   return round.listings.map((listing) =>
     evaluateRepricingListing(evaluationInput(listing), listingSnapshot(round, listing, capturedAt, policy)),
   );
+}
+
+/** Live-only evidence, separate from the incumbent plan consumed by every money path. */
+export function planRepricingShadows(
+  round: RepricingRoundInputs,
+  capturedAt: string,
+  policy: RepricingEnginePolicyValue,
+): ReadonlyMap<string, readonly ShadowGoalTrace[]> {
+  const shadows = pricingGoalDefinitions().filter((goal) => goal.lifecycle === "shadow");
+  const traces = new Map<string, readonly ShadowGoalTrace[]>();
+  if (shadows.length === 0) return traces;
+  for (const listing of round.listings) {
+    const entries = evaluateShadowGoals(
+      evaluationInput(listing),
+      listingSnapshot(round, listing, capturedAt, policy),
+      shadows,
+    );
+    if (entries.length > 0) traces.set(listing.listingId, entries);
+  }
+  return traces;
+}
+
+export function evaluateShadowGoals(
+  listing: RepricingListingEvaluationInput,
+  snapshot: RepricingMarketInputSnapshot,
+  definitions: readonly PricingGoalDefinition[],
+): readonly ShadowGoalTrace[] {
+  const shadows = definitions.filter((goal) => goal.lifecycle === "shadow");
+  if (shadows.length === 0) return [];
+  const match = matchRepricingRule(listing, snapshot);
+  if (match === null) return [];
+  return match.rule.directive.anchorChain.flatMap((anchor, anchorIndex): ShadowGoalTrace[] => {
+    if (anchor.source !== "curve-objective") return [];
+    const shadow = shadows.find((goal) => goal.id === anchor.goalId);
+    if (!shadow) return [];
+    const identity = { goalId: shadow.id, goalVersion: shadow.version, anchorIndex };
+    if (validateParameters(shadow.parameterSchema, anchor.parameters).kind === "rejected") {
+      return [
+        {
+          ...identity,
+          curveVersion: null,
+          targetPriceAmount: null,
+          action: null,
+          skipReason: null,
+          anchor: null,
+          flags: [],
+          skipped: "parameters-incompatible",
+        },
+      ];
+    }
+    const rules = listing.rules.map((rule, ruleIndex) =>
+      ruleIndex !== match.ruleIndex
+        ? rule
+        : {
+            ...rule,
+            directive: {
+              ...rule.directive,
+              anchorChain: rule.directive.anchorChain.map((candidate, index) =>
+                index === anchorIndex ? { ...anchor, goalVersion: shadow.version } : candidate,
+              ),
+            },
+          },
+    );
+    const {
+      targetPriceAmount,
+      action,
+      skipReason,
+      anchor: resolvedAnchor,
+      flags,
+    } = evaluateRepricingListing({ ...listing, rules }, snapshot, anchorIndex);
+    return [
+      {
+        ...identity,
+        curveVersion: snapshot.demandCurve?.version ?? null,
+        targetPriceAmount,
+        action,
+        skipReason,
+        anchor: resolvedAnchor,
+        flags,
+        skipped: null,
+      },
+    ];
+  });
 }
 
 /** A curve-objective anchor or any guardrail reads the product's Demand Curve. */
@@ -46,11 +130,11 @@ export function requiresGoalEconomics(
 }
 
 function holdsEconomicsGoal(rule: RepricingRule): boolean {
-  return rule.directive.anchorChain.some(
-    (anchor) =>
-      anchor.source === "curve-objective" &&
-      resolvePricingGoal(anchor.goalId, anchor.goalVersion)?.requiresEconomics === true,
-  );
+  return rule.directive.anchorChain.some((anchor) => {
+    if (anchor.source !== "curve-objective") return false;
+    const goal = resolvePricingGoal(anchor.goalId, anchor.goalVersion);
+    return goal?.lifecycle === "selectable" && goal.requiresEconomics;
+  });
 }
 
 function listingSnapshot(

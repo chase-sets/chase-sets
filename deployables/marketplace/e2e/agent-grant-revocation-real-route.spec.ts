@@ -37,7 +37,7 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
       client_name: "Synthetic Revocation Agent",
       client_uri: "https://synthetic.example/profile",
       redirect_uris: ["https://synthetic.example/callback"],
-      scope: "order:read",
+      scope: "dev.ucp.shopping.order:read",
     },
   });
   expect(registration.status()).toBe(201);
@@ -64,7 +64,7 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
       userId: display.user.user_id,
       clientId,
       platformProfileUrl: "https://synthetic.example/profile",
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: tokenMarker,
       accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
       grantedAt: new Date().toISOString(),

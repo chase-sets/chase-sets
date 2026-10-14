@@ -23,20 +23,21 @@ import {
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-// #9385 adds deny-all host ports; #9499 removes receipts with the interrupted archive facts.
+// #9385 adds deny-all host ports; #9499 removes receipts with the interrupted archive facts;
+// #9461 renames the OAuth scope in the saved-instrument revocation fixture.
 // Historical timing captures remain immutable. Current-source pins do not claim new timings.
 const administrationAdaptedSources: Readonly<Record<string, string>> = {
   "connector-mount-gate-isolation.db.test.ts": "6b6fe6ed4568966bbe926509fd8aa405b84fd293fcf68aafdec29a454a5e87e9",
   "bootstrap-production-reconciliation.db.test.ts": "69f2cd5e0ac26b20a1f7f17ec58c5a62a1e9384c6606e9c2be7ab8a43b0ccf18",
   "inventory-seed-resume.db.test.ts": "6bb69e5513e513a2178cfff34143ed0b28f2f5ee37f992984acabcc58f38ab9a",
-  "bootstrap-scenario.db.test.ts": "0458197a2a210abae4cb987ff225d36b0e0ab939db57458a01aec7396d5a3985",
+  "bootstrap-scenario.db.test.ts": "833dac713818f27c35d04e8abc8d5fd022cd4f811c572930cfb85ff0998d67c0",
   "seed-command-full-pools.db.test.ts": "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356",
   "bootstrap-shared-seed-command.db.test.ts": "7e318b7be666a8a157ef907a12cd820490391aee53c90eb00e2430ad7f85be30",
 };
 const administrationAdaptedIdentities: Readonly<Record<string, string>> = {
   c809c18f34f0e0c6: "4d891cb822a0a334",
   ea12b6d3f3a538ba: "d5d72806700dfd1c",
-  fa0e6fbbe051d0fe: "c25834c5b91d4a6f",
+  fa0e6fbbe051d0fe: "d4f92c858dc82bee",
   "638e411899544781": "fcf65b142a0bbe05",
   b04028e2169c8633: "f749da3c0ba3e000",
   c9351aa5fd10ecb6: "1e91d11294f92825",
@@ -47,6 +48,9 @@ const administrationAdaptedIdentities: Readonly<Record<string, string>> = {
 };
 const inventoryRecoveryAdaptedIdentities: Readonly<Record<string, string>> = {
   "8c5dc773de3c8363": "2f1e5800d580e926",
+};
+const scopeRenameAdaptedHistoricalIdentities: Readonly<Record<string, string>> = {
+  fa0e6fbbe051d0fe: "1890a1a9356cd0c6",
 };
 // Generate fixture code, not an environment read by this non-DB test module.
 const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
@@ -1687,12 +1691,15 @@ describe("Platform API bootstrap DB enrollment", () => {
       let historicalShape = currentSource;
       for (const removal of removals.sort((a, b) => b.start - a.start))
         historicalShape = historicalShape.slice(0, removal.start) + historicalShape.slice(removal.end);
-      // Apart from the explicitly pinned archive interruption adaptation, removing
-      // deny-all host ports must recover every historical assertion's identity.
+      // Apart from the pinned archive interruption and OAuth scope adaptations,
+      // removing deny-all host ports must recover every historical assertion's identity.
       expect(deriveBootstrapDbCaseIdentities(file.fileName, historicalShape)).toEqual(
         file.cases.map(({ name, identity }) => ({
           name,
-          identity: inventoryRecoveryAdaptedIdentities[identity] ?? identity,
+          identity:
+            scopeRenameAdaptedHistoricalIdentities[identity] ??
+            inventoryRecoveryAdaptedIdentities[identity] ??
+            identity,
         })),
       );
       expect(

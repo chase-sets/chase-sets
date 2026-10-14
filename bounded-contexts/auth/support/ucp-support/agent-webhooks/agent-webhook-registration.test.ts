@@ -74,7 +74,7 @@ describe("resolveAgentWebhookTargets", () => {
     };
     expect(await resolveAgentWebhookTargets({ query } as never, clients as never, "acc_buyer")).toEqual([]);
   });
-  it("joins active order:read authorizations (Identity) to callback-bearing clients (Auth)", async () => {
+  it("joins active dev.ucp.shopping.order:read authorizations (Identity) to callback-bearing clients (Auth)", async () => {
     const linkedAuthorizationsQuery = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({
       rows: [{ client_id: "ocl_1", account_id: "acc_buyer", authorization_id: "grant_active" }],
       rowCount: 1,
@@ -102,7 +102,8 @@ describe("resolveAgentWebhookTargets", () => {
     const [grantSql, grantValues] = linkedAuthorizationsQuery.mock.calls[0];
     expect(grantSql).toContain("FROM identity_linked_platform_authorizations");
     expect(grantSql).toContain("scopes ? $2");
-    expect(grantValues).toEqual(["acc_buyer", AGENT_WEBHOOK_ORDER_SCOPE]);
+    expect(AGENT_WEBHOOK_ORDER_SCOPE).toBe("dev.ucp.shopping.order:read");
+    expect(grantValues).toEqual(["acc_buyer", "dev.ucp.shopping.order:read"]);
 
     const [clientSql, clientValues] = oauthClientsQuery.mock.calls[0];
     expect(clientSql).toContain("FROM identity_ucp_oauth_clients");
