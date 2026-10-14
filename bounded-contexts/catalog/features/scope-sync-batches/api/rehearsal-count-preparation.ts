@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { countQueryKey, countQuoteSchema, countTimeIsCurrent } from "../domain/count-acquisition";
+import { countFingerprint, countQueryKey, countQuoteSchema, countTimeIsCurrent } from "../domain/count-acquisition";
 import {
   parseRehearsalCountPreparationApproval,
   rehearsalCountPreparationMaxScopes,
@@ -151,7 +151,8 @@ function inspect(quote: ParsedQuote, pass: RehearsalCountPreparationPass, at: st
   const refuse = (code: RehearsalCountPreparationRefusalCode) => {
     refusal ??= code;
   };
-  if (JSON.stringify(quote.selection) !== JSON.stringify(rehearsalCountPreparationSelection(pass)))
+  // Retained quotes come back from JSONB, which reorders keys; compare canonically.
+  if (countFingerprint(quote.selection) !== countFingerprint(rehearsalCountPreparationSelection(pass)))
     refuse("quote-selection-mismatch");
   if (quote.targets.length > rehearsalCountPreparationMaxTargets) refuse("roster-overflow");
   for (const target of quote.targets) {
@@ -321,7 +322,7 @@ export function admitRehearsalCountAcquisition(input: {
   now: string;
 }): RehearsalCountPreparationApproval {
   const approval = parseRehearsalCountPreparationApproval(input.approval);
-  if (JSON.stringify(approval.pass) !== JSON.stringify(input.pass))
+  if (countFingerprint(approval.pass) !== countFingerprint(input.pass))
     throw new RehearsalCountPreparationRefusal("approval-pass-mismatch");
   if (approval.dispatchId !== input.dispatchId)
     throw new RehearsalCountPreparationRefusal("approval-dispatch-mismatch");

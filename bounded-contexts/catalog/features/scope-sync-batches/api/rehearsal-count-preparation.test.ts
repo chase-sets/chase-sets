@@ -70,6 +70,17 @@ function countQuery(set: string, kind: "cards" | "sealed", languageCode = "en"):
   });
 }
 
+// Postgres JSONB returns object keys shortest-first, so a retained read never keeps insertion order.
+function jsonbOrdered(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(jsonbOrdered);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([a], [b]) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => [key, jsonbOrdered(entry)]),
+  );
+}
+
 type Fault = "none" | "fail-second-send" | "uncertain-first-send";
 
 // Real routes and the real count engine; the provider send and every batch,
@@ -194,7 +205,7 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
             : approved.has(quote.quoteId)
               ? "failed"
               : "quoted";
-      return { ...quote, targets, state };
+      return jsonbOrdered({ ...quote, targets, state });
     },
   } as unknown as ScopeSyncBatchServices;
   const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();

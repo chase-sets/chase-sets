@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { countTimeIsCurrent } from "./count-acquisition";
+import { countFingerprint, countTimeIsCurrent } from "./count-acquisition";
 
 // Governed Scrydex count preparation for a #9224 rehearsal pass (#9591). The
 // receipt is the only artifact the staging workflow may upload: a closed,
@@ -276,7 +276,7 @@ const entryKey = (entry: { scopeRecordId: string; kind: string }) => `${entry.sc
 function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] {
   const errors: string[] = [];
   const expectedSelection = rehearsalCountPreparationSelection(receipt.pass);
-  if (JSON.stringify(receipt.selection) !== JSON.stringify(expectedSelection)) errors.push("selection-not-pass");
+  if (countFingerprint(receipt.selection) !== countFingerprint(expectedSelection)) errors.push("selection-not-pass");
   if ((receipt.outcome === "refused") !== (receipt.refusal !== null)) errors.push("refusal-code-mismatch");
   if (
     (receipt.mode === "quote" && (receipt.approval !== null || !quoteOutcomes.has(receipt.outcome))) ||
