@@ -158,11 +158,14 @@ function New-SelectorSandboxDefinition($Configuration, [string]$Destination) {
   Write-SelectorNewFile (Join-Path $Configuration.staging 'environment.json') $json
   $configurationHash = Get-SelectorDigest $json
   $pwshHash = ($Configuration.assets | Where-Object path -CEQ 'PowerShell/pwsh.exe').sha256
-  $boot = '$ErrorActionPreference="Stop"; ' +
+  $boot = '$ErrorActionPreference="Stop"; try { ' +
     'if ((Get-FileHash C:\SelectorStaging\selector-isolated-environment.ps1).Hash.ToLowerInvariant() -cne "' + $Configuration.definitionHash +
     '" -or (Get-FileHash C:\SelectorStaging\environment.json).Hash.ToLowerInvariant() -cne "' + $configurationHash +
     '" -or (Get-FileHash C:\SelectorStaging\PowerShell\pwsh.exe).Hash.ToLowerInvariant() -cne "' + $pwshHash + '") { exit 1 }; ' +
-    '& C:\SelectorStaging\PowerShell\pwsh.exe -NoProfile -NonInteractive -File C:\SelectorStaging\selector-isolated-environment.ps1 -Action guest -ConfigurationPath C:\SelectorStaging\environment.json'
+    '$c = [IO.File]::ReadAllText("C:\SelectorStaging\environment.json") | ConvertFrom-Json; ' +
+    'foreach ($a in $c.assets) { if ((Get-FileHash -LiteralPath (Join-Path C:\SelectorStaging $a.path)).Hash.ToLowerInvariant() -cne $a.sha256) { exit 1 } }; ' +
+    '& C:\SelectorStaging\PowerShell\pwsh.exe -NoProfile -NonInteractive -File C:\SelectorStaging\selector-isolated-environment.ps1 -Action guest -ConfigurationPath C:\SelectorStaging\environment.json' +
+    ' } catch { [Console]::Error.WriteLine("E_REFUSED"); exit 1 }'
   $builder = [Text.StringBuilder]::new()
   $settings = [Xml.XmlWriterSettings]::new(); $settings.OmitXmlDeclaration = $true
   $writer = [Xml.XmlWriter]::Create($builder, $settings)

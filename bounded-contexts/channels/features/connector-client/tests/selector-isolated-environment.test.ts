@@ -222,6 +222,8 @@ describe("selector-isolated-environment-definition", () => {
     expect(boot).toContain(handoff.definitionHash);
     expect(boot).toContain("-Action guest");
     expect(boot).toContain("Get-FileHash C:\\SelectorStaging\\PowerShell\\pwsh.exe");
+    expect(boot).toContain("foreach ($a in $c.assets)");
+    expect(boot).toContain("Get-FileHash -LiteralPath (Join-Path C:\\SelectorStaging $a.path)");
   });
   for (const name of [
     "tampered-definitionHash",
