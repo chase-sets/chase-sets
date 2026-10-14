@@ -3,9 +3,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { classifyDiscoverySearchCursor, retrieveDiscoveryItems } from "./hybrid-retrieval";
-import { searchDiscoveryItems, type DiscoverySearchItemRow, type ListResult } from "./queries";
+import {
+  searchDiscoveryItems,
+  type DiscoverySearchItemRow,
+  type DiscoverySearchParams,
+  type ListResult,
+} from "./queries";
+import type { SearchInterpretationVocabulary } from "../domain/search-interpretation";
+import type { ProtectedSearchToken } from "../domain/protected-search-tokens";
+import { buildSpellingCorrectionQueries, type SearchCorrectionBudget } from "../domain/spelling-correction";
 
 const vector = Array.from({ length: 1_024 }, (_, index) => (index === 0 ? 1 : 0));
+const vocabulary: SearchInterpretationVocabulary = {
+  gradingCompanyDimensionId: "dim_company",
+  gradeDimensionId: "dim_grade",
+  options: [
+    { dimensionId: "dim_company", optionId: "psa", code: "psa", label: "PSA", numericValue: null },
+    { dimensionId: "dim_grade", optionId: "gem-mint-10", code: "gem-mint-10", label: "Gem Mint 10", numericValue: 10 },
+    {
+      dimensionId: "dim_grade",
+      optionId: "pristine-10",
+      code: "pristine-10",
+      label: "Pristine 10",
+      numericValue: 10.5,
+    },
+  ],
+};
+const inferred = [
+  { dimensionId: "dim_company", optionId: "psa" },
+  { dimensionId: "dim_grade", optionId: "gem-mint-10" },
+];
 
 describe("Discovery hybrid retrieval", () => {
   it.each([false, true])(
@@ -316,6 +343,7 @@ describe("Discovery hybrid retrieval", () => {
         hybridEnabled: false,
         searchLexical: vi.fn(async () => lexical),
         searchCorrected: async () => null,
+        loadInterpretationVocabulary: async () => vocabulary,
         searchSemantic: vi.fn(),
       },
       { search: "semantic intent" },
@@ -697,6 +725,260 @@ describe("Discovery hybrid retrieval", () => {
     expect(cursorPage.cursorState).toBe("cursor");
   });
 });
+
+describe("Discovery search interpretation retrieval", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const explicitFinish = { dimensionId: "dim_finish", optionId: "foil" };
+  // Lexical rows exist only for the remaining words under the explicit plus inferred filters.
+  const interpretedLexical = (remainder: string) =>
+    vi.fn(async (_db: PgQueryable, params: DiscoverySearchParams = {}) =>
+      params.search === remainder && params.dimensionFilters?.some((filter) => filter.optionId === "gem-mint-10")
+        ? result([row("charizard-psa-10")])
+        : result([]),
+    );
+
+  it.each([false, true])(
+    "an interpreted lexical hit returns final non-paging rows without any embedding (hybrid=%s)",
+    async (hybridEnabled) => {
+      const provider = fakeProvider();
+      const searchLexical = interpretedLexical("zard");
+      const searchCorrected = vi.fn();
+      const actual = await retrieveDiscoveryItems(
+        {
+          db: emptyDb(),
+          provider,
+          cache: createQueryEmbeddingCache(),
+          rescueEnabled: true,
+          hybridEnabled,
+          searchLexical,
+          searchCorrected,
+          loadInterpretationVocabulary: async () => vocabulary,
+          searchSemantic: vi.fn(),
+        },
+        { search: "zard psa 10", dimensionFilters: [explicitFinish], limit: 24, includeTotal: true },
+      );
+      expect(actual).toMatchObject({
+        retrievalMode: "lexical",
+        nextCursor: null,
+        interpretation: {
+          remainingQuery: "zard",
+          applied: [
+            { param: "dimension.dim_company", optionId: "psa", label: "PSA" },
+            { param: "dimension.dim_grade", optionId: "gem-mint-10", label: "Gem Mint 10" },
+          ],
+        },
+      });
+      expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["charizard-psa-10"]);
+      expect(searchLexical.mock.calls.at(-1)?.[1]).toMatchObject({
+        search: "zard",
+        limit: 24,
+        dimensionFilters: [explicitFinish, ...inferred],
+      });
+      expect(searchCorrected).not.toHaveBeenCalled();
+      expect(provider.embed).not.toHaveBeenCalled();
+    },
+  );
+
+  it("an interpreted correction hit corrects only the remainder under inferred filters", async () => {
+    const searchCorrected = vi.fn(
+      async (_db: PgQueryable, params: DiscoverySearchParams, _tokens: readonly ProtectedSearchToken[]) =>
+        params.search === "charzard" ? result([row("charizard-psa-10")]) : null,
+    );
+    const provider = fakeProvider();
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: false,
+        searchLexical: async () => result([]),
+        searchCorrected,
+        loadInterpretationVocabulary: async () => vocabulary,
+      },
+      { search: "charzard psa 10" },
+    );
+    expect(actual).toMatchObject({ retrievalMode: "corrected", interpretation: { remainingQuery: "charzard" } });
+    expect(searchCorrected).toHaveBeenCalledOnce();
+    expect(searchCorrected.mock.calls[0]?.[1]).toMatchObject({ search: "charzard", dimensionFilters: inferred });
+    expect(searchCorrected.mock.calls[0]?.[2].map((token) => token.raw)).toEqual(["charzard"]);
+    expect(provider.embed).not.toHaveBeenCalled();
+  });
+
+  it("an interpreted miss discards inferred filters and corrects the original text with explicit filters", async () => {
+    const searchCorrected = vi.fn(async (_db: PgQueryable, params: DiscoverySearchParams) =>
+      params.search === "charzard psa 10" ? result([row("literal-correction")]) : null,
+    );
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchLexical: async () => result([]),
+        searchCorrected,
+        loadInterpretationVocabulary: async () => vocabulary,
+      },
+      { search: "charzard psa 10", dimensionFilters: [explicitFinish] },
+    );
+    expect(actual.retrievalMode).toBe("corrected");
+    expect(actual).not.toHaveProperty("interpretation");
+    expect(searchCorrected.mock.calls.map(([, params]) => [params.search, params.dimensionFilters])).toEqual([
+      ["charzard", [explicitFinish, ...inferred]],
+      ["charzard psa 10", [explicitFinish]],
+    ]);
+  });
+
+  it("shares at most three correction lookups across the interpreted and original-text paths", async () => {
+    const lookup = vi.fn(async (_token: string) => ({ literal: false, prefix: false, candidates: [] as string[] }));
+    const budgets: SearchCorrectionBudget[] = [];
+    const searchCorrected = vi.fn(
+      async (_db: PgQueryable, _params: DiscoverySearchParams, tokens, budget?: SearchCorrectionBudget) => {
+        budgets.push(budget as SearchCorrectionBudget);
+        await buildSpellingCorrectionQueries(tokens, lookup, budget);
+        return null;
+      },
+    );
+    await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchLexical: async () => result([]),
+        searchCorrected,
+        loadInterpretationVocabulary: async () => vocabulary,
+      },
+      { search: "chraizard blastois venosaur psa 10" },
+    );
+    expect(searchCorrected).toHaveBeenCalledTimes(2);
+    expect(budgets[0]).toBe(budgets[1]);
+    expect(lookup.mock.calls.map(([token]) => token)).toEqual(["chraizard", "blastois", "venosaur"]);
+  });
+
+  it.each([
+    ["empty", async () => ({ vectors: [vector], totalTokens: 1 }), 1],
+    ["error", async () => Promise.reject(new Error("provider unavailable")), 0],
+  ] as const)(
+    "an interpreted miss rescues only the original text with one provider attempt (%s)",
+    async (_name, embed, semanticCalls) => {
+      const provider = { ...fakeProvider(), embed: vi.fn(embed) };
+      const searchSemantic = vi.fn(async (_db: PgQueryable, _params: DiscoverySearchParams) => []);
+      const actual = await retrieveDiscoveryItems(
+        {
+          db: emptyDb(),
+          provider,
+          cache: createQueryEmbeddingCache(),
+          rescueEnabled: true,
+          hybridEnabled: false,
+          searchLexical: async () => result([]),
+          searchCorrected: async () => null,
+          loadInterpretationVocabulary: async () => vocabulary,
+          searchSemantic,
+        },
+        { search: "chraizard japanese", dimensionFilters: [explicitFinish] },
+      );
+      expect(actual).toMatchObject({ retrievalMode: "lexical", items: [] });
+      expect(actual).not.toHaveProperty("interpretation");
+      expect(provider.embed).toHaveBeenCalledOnce();
+      expect(provider.embed).toHaveBeenCalledWith(["chraizard japanese"], "query", expect.anything());
+      expect(searchSemantic).toHaveBeenCalledTimes(semanticCalls);
+      for (const [, params] of searchSemantic.mock.calls) {
+        expect(params).toMatchObject({ search: "chraizard japanese", dimensionFilters: [explicitFinish] });
+        expect(params.language).toBeUndefined();
+      }
+    },
+  );
+
+  it("an interpreted miss waits once for the original-text embedding, bounded by the S1 deadline", async () => {
+    vi.useFakeTimers();
+    const provider = { ...fakeProvider(), embed: vi.fn(() => new Promise<never>(() => {})) };
+    const waits: string[] = [];
+    const page = retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        provider,
+        cache: createQueryEmbeddingCache({ timeoutMs: 800 }),
+        rescueEnabled: true,
+        hybridEnabled: true,
+        searchLexical: async () => result([]),
+        searchCorrected: async () => null,
+        loadInterpretationVocabulary: async () => vocabulary,
+        searchSemantic: vi.fn(),
+        onEmbeddingWait: (observation) => waits.push(`${observation.outcome}:${observation.waiterDurationMs}`),
+      },
+      { search: "chraizard japanese" },
+    );
+    await vi.advanceTimersByTimeAsync(800);
+    await expect(page).resolves.toMatchObject({ retrievalMode: "lexical", items: [] });
+    expect(provider.embed).toHaveBeenCalledOnce();
+    expect(provider.embed).toHaveBeenCalledWith(["chraizard japanese"], "query", expect.anything());
+    expect(waits).toEqual(["timeout:800"]);
+  });
+
+  it("a protected original skips rescue after an interpreted miss", async () => {
+    const provider = fakeProvider();
+    await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        provider,
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: true,
+        searchLexical: async () => result([]),
+        searchCorrected: async () => null,
+        loadInterpretationVocabulary: async () => vocabulary,
+        searchSemantic: vi.fn(),
+      },
+      { search: "charzard psa 10" },
+    );
+    expect(provider.embed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a literal hit", { search: "zard psa 10" }, [row("literal")]],
+    ["a marked request", { search: "zard psa 10", interpreted: true }, []],
+    ["a one-word query", { search: "japanese" }, []],
+    ["a cursor page", { search: "zard psa 10", cursor: "bad" }, []],
+    ["an explicit sort", { search: "zard psa 10", sort: "price_asc" }, []],
+  ] as const)("never interprets %s", async (_name, params, rows) => {
+    const loadInterpretationVocabulary = vi.fn(async () => vocabulary);
+    await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchLexical: async () => result([...rows]),
+        searchCorrected: async () => null,
+        loadInterpretationVocabulary,
+      },
+      params,
+    );
+    expect(loadInterpretationVocabulary).not.toHaveBeenCalled();
+  });
+
+  it("an empty remainder discards the interpretation without a browse-all query", async () => {
+    const searchLexical = vi.fn(async (_db: PgQueryable, _params?: DiscoverySearchParams) => result([]));
+    const actual = await retrieveDiscoveryItems(
+      {
+        db: emptyDb(),
+        rescueEnabled: false,
+        hybridEnabled: false,
+        searchLexical,
+        searchCorrected: async () => null,
+        loadInterpretationVocabulary: async () => vocabulary,
+      },
+      { search: "psa 10" },
+    );
+    expect(searchLexical.mock.calls.map(([, params]) => params?.search)).toEqual(["psa 10"]);
+    expect(actual).not.toHaveProperty("interpretation");
+  });
+});
+
+function emptyDb(): PgQueryable {
+  return { query: async () => ({ rows: [], rowCount: 0 }) };
+}
 
 function legacyCursor(): string {
   return encodeCursorJson({

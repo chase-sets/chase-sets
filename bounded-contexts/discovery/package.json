@@ -28,6 +28,7 @@
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
+    "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
     "@chase-sets/collections": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",

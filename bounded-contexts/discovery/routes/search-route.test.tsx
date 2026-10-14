@@ -422,6 +422,135 @@ describe("marketplace search route", () => {
     expect(options).toMatchObject({ preventScrollReset: true, replace: false });
   });
 
+  describe("search interpretation", () => {
+    const company = "dimension.dim_seed_grading_company";
+    const grade = "dimension.dim_seed_grade";
+    const interpretation = {
+      remainingQuery: "charizard",
+      applied: [
+        { param: company, optionId: "psa", label: "PSA" },
+        { param: grade, optionId: "gm10", label: "Gem Mint 10" },
+        { param: grade, optionId: "test10", label: "Test Ten" },
+        { param: "language", language: "ja", label: "Japanese" },
+      ],
+    };
+    function stubSearchApi(response: Record<string, unknown>) {
+      const requests: URL[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+          requests.push(url);
+          return Response.json({
+            items: [],
+            facets: [],
+            total: 0,
+            count: 0,
+            nextCursor: null,
+            retrievalMode: "lexical",
+            lexicalCount: 0,
+            ...response,
+          });
+        }),
+      );
+      return requests;
+    }
+    const load = (url: string, params: Record<string, string> = {}) =>
+      loader({ request: new Request(url), params, context: {} } as unknown as Parameters<typeof loader>[0]);
+
+    it("redirects once to the canonical URL with newly applied keys and every other param", async () => {
+      const requests = stubSearchApi({ interpretation });
+      const thrown = await load(
+        "http://localhost/search?q=charzard+psa+10+japanese&sort=newest&dimension.dim_finish=foil",
+      ).catch((error: unknown) => error);
+      expect(thrown).toBeInstanceOf(Response);
+      const response = thrown as Response;
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get("Location") ?? "", "http://localhost");
+      expect(location.pathname).toBe("/search");
+      expect(location.searchParams.get("q")).toBe("charizard");
+      expect(location.searchParams.get("sort")).toBe("newest");
+      expect(location.searchParams.getAll("dimension.dim_finish")).toEqual(["foil"]);
+      expect(location.searchParams.getAll(company)).toEqual(["psa"]);
+      expect(location.searchParams.getAll(grade)).toEqual(["gm10", "test10"]);
+      expect(location.searchParams.get("language")).toBe("ja");
+      expect(location.searchParams.get("interpreted")).toBe(`${company},${grade},language`);
+      expect(requests.filter((url) => url.pathname.endsWith("/items"))).toHaveLength(1);
+      expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
+    });
+
+    it("forwards the marker to the dispatcher and never redirects a marked URL", async () => {
+      const requests = stubSearchApi({ interpretation });
+      const result = await load(`http://localhost/search?q=charizard&${company}=psa&interpreted=${company}`);
+      expect(result).toMatchObject({ search: "charizard", interpretedFilters: [company] });
+      expect(requests[0]?.searchParams.get("interpreted")).toBe(company);
+    });
+
+    it("an uninterpreted response renders without a redirect or notice keys", async () => {
+      stubSearchApi({});
+      await expect(load("http://localhost/search?q=charizard")).resolves.toMatchObject({ interpretedFilters: [] });
+    });
+
+    it.each([
+      ["removing a marked chip keeps the marker", "Remove Grade: Gem Mint 10", true],
+      ["removing the marked language keeps the marker", "Remove Language: Japanese", true],
+    ])("%s", (_name, button, kept) => {
+      const setSearchParams = vi.fn();
+      const current = new URLSearchParams(`q=charizard&language=ja&${grade}=gm10&interpreted=${grade},language`);
+      mockUseLoaderData.mockReturnValue({
+        ...searchDataWithResults("charizard", "ja"),
+        dynamicFilters: [{ kind: "dimension", id: "dim_seed_grade", value: "gm10" }],
+        interpretedFilters: [grade, "language"],
+        data: {
+          ...searchDataWithResults("charizard", "ja").data,
+          facets: [
+            {
+              id: "dim_seed_grade",
+              kind: "dimension",
+              label: "Grade",
+              values: [{ id: "gm10", label: "Gem Mint 10", count: 1, selected: true }],
+            },
+          ],
+        },
+      });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+      render(<SearchRoute />);
+      expect(screen.getByText("Filters applied from your search: Grade: Gem Mint 10, Japanese")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: button }));
+      const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
+      expect(next.get("interpreted")).toBe(kept ? `${grade},language` : null);
+    });
+
+    it.each(["a new query", "an added filter"] as const)("%s drops the marker", (change) => {
+      const setSearchParams = vi.fn();
+      const current = new URLSearchParams(`q=charizard&${grade}=gm10&interpreted=${grade}`);
+      mockUseLoaderData.mockReturnValue({ ...searchDataWithResults("charizard"), interpretedFilters: [grade] });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+      render(<SearchRoute />);
+      if (change === "a new query") {
+        fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blastoise" } });
+        fireEvent.submit(screen.getByRole("search"));
+      } else {
+        fireEvent.click(
+          within(screen.getByRole("complementary", { name: "Desktop search filters" })).getByRole("button", {
+            name: "Language",
+          }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Japanese" }));
+      }
+      const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
+      expect(next.has("interpreted")).toBe(false);
+      expect(next.getAll(grade)).toEqual(["gm10"]);
+    });
+  });
+
   it("round-trips price and in-stock loader state to the Discovery API", async () => {
     const requests: string[] = [];
     vi.stubGlobal(

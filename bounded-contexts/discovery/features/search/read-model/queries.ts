@@ -1,3 +1,4 @@
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
 import {
@@ -11,8 +12,10 @@ import type { ProtectedSearchToken } from "../domain/protected-search-tokens";
 import {
   buildSpellingCorrectionQueries,
   protectedSearchQuery,
+  type SearchCorrectionBudget,
   type SearchCorrectionTerms,
 } from "../domain/spelling-correction";
+import type { SearchInterpretationVocabulary } from "../domain/search-interpretation";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
@@ -61,6 +64,8 @@ export type DiscoverySearchParams = {
   offset?: number;
   cursor?: string;
   includeTotal?: boolean;
+  /** The request already carries a Search Interpretation (canonical URL marker); never interpret again. */
+  interpreted?: boolean;
 };
 
 export type DiscoveryFieldFilter = Readonly<{ fieldId: string; value: string }>;
@@ -830,8 +835,13 @@ export async function searchDiscoveryCorrectedItems(
   db: PgQueryable,
   params: DiscoverySearchParams,
   tokens: readonly ProtectedSearchToken[],
+  budget?: SearchCorrectionBudget,
 ): Promise<ListResult<DiscoverySearchItemRow> | null> {
-  const queries = await buildSpellingCorrectionQueries(tokens, (token) => lookupDiscoveryCorrectionTerms(db, token));
+  const queries = await buildSpellingCorrectionQueries(
+    tokens,
+    (token) => lookupDiscoveryCorrectionTerms(db, token),
+    budget,
+  );
   if (!queries) return null;
   const page = await searchDiscoveryItems(
     db,
@@ -843,6 +853,47 @@ export async function searchDiscoveryCorrectedItems(
     },
   );
   return { ...page, nextCursor: null, total: page.items.length, facets: [], category_counts: [] };
+}
+
+const INTERPRETED_DIMENSIONS = catalogSeedIds.dimensions;
+
+/**
+ * Active Condition, Grading Company, and Grade options a search word may name: one bounded
+ * read of the Catalog option mirror by stable dimension id.
+ */
+export async function loadDiscoverySearchInterpretationVocabulary(
+  db: PgQueryable,
+): Promise<SearchInterpretationVocabulary> {
+  const result = await db.query<{
+    dimension_id: string;
+    option_id: string;
+    code: string;
+    label: string;
+    numeric_value: string | null;
+  }>(
+    `SELECT dimension_id, option_id, code, label, numeric_value::text AS numeric_value
+     FROM discovery_search_catalog_dimension_options
+     WHERE dimension_id = ANY($1::text[]) AND status = 'active'
+     ORDER BY dimension_id, display_order, option_id`,
+    [
+      [
+        INTERPRETED_DIMENSIONS.condition.dimensionId,
+        INTERPRETED_DIMENSIONS.gradingCompany.dimensionId,
+        INTERPRETED_DIMENSIONS.grade.dimensionId,
+      ],
+    ],
+  );
+  return {
+    gradingCompanyDimensionId: INTERPRETED_DIMENSIONS.gradingCompany.dimensionId,
+    gradeDimensionId: INTERPRETED_DIMENSIONS.grade.dimensionId,
+    options: result.rows.map((row) => ({
+      dimensionId: row.dimension_id,
+      optionId: row.option_id,
+      code: row.code,
+      label: row.label,
+      numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
+    })),
+  };
 }
 
 /**
