@@ -713,7 +713,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "4a2e05ec07e7a5a1fc8738f6cabca0b6b4d20e5c52be45d0665141f0c2fec71c",
+      "0541cbc532eedc5a1ab26d90896d8c86339f161f644750b10aa7ff11ac79d697",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -1808,7 +1808,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-38584224978.json",
       fixtureSha256: "2120235be5c3912314e136c393d1e926eb9db1b70e72103dc1a9b5fbe4712b7b",
       minimumUnitCount: 2,
@@ -1826,6 +1826,31 @@ describe("Platform API bootstrap DB enrollment", () => {
         sourceManifestSha256: "8340ca42c3c1998b7019e76ceca021dfda492d6288d68959dbd4b03f53c085d6",
         caseManifestSha256: "3450b30df6078cce8de02e99c70164652da260ccd403a2c09535a83a3a3fcf77",
         commandsSha256: "7c9496ca70fb2946a57bd646c7dea587d6ad6e3d1c725ca74c5cf90897a20be2",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-38608022640.json",
+      fixtureSha256: "7de4540d87ad221c798e4d7086742a878f863af78f0e3b10820fe4c9fb22fbaa",
+      minimumUnitCount: 2,
+      unitProjections: [333277, 362245],
+      provenance: {
+        runId: "38608022640",
+        runAttempt: "1",
+        referenceJobId: 116003819646,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "1b6bd9551692c315ccf54f0207632ffdf23d7a89",
+        sourceBase: "ead4ebb9e8e78a5aeacb92edcc2c8e21dfd508e7",
+        captureParent: "ead4ebb9e8e78a5aeacb92edcc2c8e21dfd508e7",
+        artifactId: 11916893532,
+        artifactSha256: "74b58146a061b54863d2722bc5a9ba85679a3971d862317f05779946eae283a6",
+        sourceManifestSha256: "b3ecfcd039ee4178aa6a84649723e71b25320ff09ff82a94215fbb190c98855b",
+        caseManifestSha256: "09a6ca6b585d1c18177b9251d0a77e8223089793d3c0ed79bc2beb826d1c116b",
+        commandsSha256: "c1a85539b4028bf4bf5c0e0306d1b7eb022c07fac039103022d3284c2d66052f",
         censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
         maxWorkers: 3,
         laneMode: null,
@@ -1969,13 +1994,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(47094);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(57876);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1835572,
+      1543922,
     );
   });
 
@@ -1985,15 +2010,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 392933],
-      ["test:db:2", 412637],
+      ["test:db:1", 418136],
+      ["test:db:2", 360861],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [33, 33],
-      [33, 33],
+      [34, 34],
+      [32, 32],
     ]);
-    expect(schedule.aggregateMs).toBe(805570);
-    expect(schedule.aggregateWithOverheadMs).toBe(852664);
+    expect(schedule.aggregateMs).toBe(778997);
+    expect(schedule.aggregateWithOverheadMs).toBe(836873);
     expect(schedule.minimumUnitCount).toBe(2);
     expect(schedule.observedUnitCount).toBe(2);
   });
@@ -2005,8 +2030,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 392933],
-      ["test:db:2", 412637],
+      ["test:db:1", 418136],
+      ["test:db:2", 360861],
     ]);
   });
 
@@ -2496,7 +2521,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(843180);
+    expect(worst).toBe(708645);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
@@ -2505,16 +2530,16 @@ describe("Platform API bootstrap DB enrollment", () => {
     // under 420s, the aggregate stays under 1080s, every case keeps its name,
     // file, database suffix, and identity — only the unit count is wasteful.
     const extraUnitAssignment: Record<string, string> = {
-      "bootstrap-production-reconciliation.db.test.ts": "test:db:3",
+      "authoritative-seed-resume-core.db.test.ts": "test:db:3",
       "connector-mount-gate-isolation.db.test.ts": "test:db:1",
-      "authoritative-seed-resume-core.db.test.ts": "test:db:1",
+      "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
       "bootstrap-lock-contention.db.test.ts": "test:db:1",
-      "seed-command-full-pools.db.test.ts": "test:db:1",
       "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
+      "seed-command-full-pools.db.test.ts": "test:db:1",
+      "bootstrap-shared-seed-command.db.test.ts": "test:db:1",
       "bootstrap-scenario.db.test.ts": "test:db:2",
       "inventory-seed-resume.db.test.ts": "test:db:2",
       "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
-      "bootstrap-shared-seed-command.db.test.ts": "test:db:2",
       "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
       "catalog-seed-interruption-resume.db.test.ts": "test:db:2",
     };

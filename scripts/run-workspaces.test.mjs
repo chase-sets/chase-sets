@@ -872,7 +872,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([6, 12]);
+      expect(groups.map((files) => files.length)).toEqual([7, 11]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
