@@ -1,6 +1,8 @@
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AffectedLineItemAmountInput } from "@chase-sets/primitives/affected-line-item-amount";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseSupportEvidenceAttachmentReference } from "./attachment-reference";
 
 export type SupportRequestStatus =
   | "open"
@@ -366,5 +368,41 @@ export function normalizeResolutionType(value: string): SupportResolutionType {
 }
 
 export function normalizeAttachments(value: readonly string[] | undefined): readonly string[] {
-  return [...new Set((value ?? []).map((entry) => entry.trim()).filter(Boolean))];
+  return [...(value ?? [])];
+}
+
+const evidenceSeedContexts = new WeakSet<EventStoreContext>();
+export function createSupportEvidenceSeedContext(context: EventStoreContext): EventStoreContext {
+  const seedContext = { ...context };
+  evidenceSeedContexts.add(seedContext);
+  return seedContext;
+}
+export const isSupportEvidenceSeedContext = (context: EventStoreContext): boolean => evidenceSeedContexts.has(context);
+
+export type SupportEvidenceReferenceAuthority = Readonly<{
+  claimedAttachments?: readonly string[];
+  seedContext?: boolean;
+}>;
+
+export function assertSupportEvidenceReferences(
+  attachments: readonly string[],
+  history: readonly string[],
+  authority: SupportEvidenceReferenceAuthority = {},
+): void {
+  const newReferences = attachments.filter((reference) => !history.includes(reference));
+  if (authority.claimedAttachments && JSON.stringify(attachments) !== JSON.stringify(authority.claimedAttachments))
+    throw new SupportDomainError("attachment_reference_unknown");
+  for (const reference of attachments) {
+    if (
+      typeof reference !== "string" ||
+      (!parseSupportEvidenceAttachmentReference(reference) &&
+        !(authority.seedContext && /^seed:\/\/support\/[^\s]+$/.test(reference)))
+    )
+      throw new SupportDomainError("attachment_reference_unknown");
+  }
+  if (
+    newReferences.some((reference) => !(authority.seedContext && reference.startsWith("seed://support/"))) &&
+    !authority.claimedAttachments
+  )
+    throw new SupportDomainError("attachment_reference_unknown");
 }

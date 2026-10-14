@@ -12,6 +12,7 @@ import type {
   SupportFlowType,
   SupportResolutionType,
   SupportResponseType,
+  SupportEvidenceReferenceAuthority,
 } from "../domain/common";
 import {
   canonicalParticipantRequest,
@@ -34,6 +35,7 @@ import {
   type SupportRequestCommand,
   type SupportRequestEvent,
   type SupportRequestState,
+  type SubmitSupportEvidenceCommand,
 } from "../domain/domain";
 
 export const PARTICIPANT_RECEIPT_EVENT = "support.support-request.participant-attempt-recorded";
@@ -52,8 +54,22 @@ export type ParticipantLookupInput = Readonly<{
   accountId: string;
   tenantId: string;
 }>;
+export type PrepareSupportEvidence = (
+  command: SubmitSupportEvidenceCommand,
+  state: SupportRequestState,
+  caseVersion: number,
+  context: EventStoreContext,
+) => Promise<
+  Readonly<{
+    command: SubmitSupportEvidenceCommand;
+    authority: SupportEvidenceReferenceAuthority;
+    append: EventStore["appendToStream"];
+    confirm: () => Promise<void>;
+  }>
+>;
 type Deps = Readonly<{
   eventStore: EventStore;
+  prepareEvidence: PrepareSupportEvidence;
   prepareOpen: (
     body: ReturnType<typeof payload>,
     accountId: string,
@@ -88,6 +104,7 @@ type NormalizedPayload = Readonly<{
   summary: string;
   occurredAt: string | null;
   attachments: readonly string[];
+  attachmentOperationId?: string;
   responseType: SupportResponseType;
   offerResolutionType: SupportResolutionType | null;
   refundAmount: string | null;
@@ -318,6 +335,32 @@ export function createParticipantRuntime(deps: Deps) {
       throw new ParticipantAttemptError(409, "participant-attempt-conflict");
     return entry.receipt.result;
   }
+  async function confirmRecordedEvidence(
+    loaded: Awaited<ReturnType<typeof load>>,
+    input: ParticipantLookupInput,
+    id: string,
+    canonical: string,
+    context: EventStoreContext,
+  ) {
+    if (input.actionKind !== "submit-evidence") return;
+    const entry = loaded.receipts.find(({ receipt }) => sameOwner(receipt, input, id))!;
+    const fact = entry.facts.find((event) => event.eventType === "support.support-request.evidence-submitted")!;
+    const event = createPassthroughDomainEventCodec<SupportRequestEvent>().decode(fact);
+    if (event.type !== "support.support-request.evidence-submitted")
+      throw new ParticipantAttemptError(503, "history-invalid");
+    const b = payload(canonical);
+    const fence = await deps.prepareEvidence(
+      {
+        ...event.data.evidence,
+        type: "SubmitSupportEvidence",
+        ...(b.attachmentOperationId ? { attachmentOperationId: b.attachmentOperationId } : {}),
+      },
+      loaded.state,
+      loaded.version,
+      context,
+    );
+    await fence.confirm();
+  }
   return {
     execute: async (input: ParticipantCommandInput, context: EventStoreContext): Promise<ParticipantResult> => {
       if (
@@ -347,6 +390,7 @@ export function createParticipantRuntime(deps: Deps) {
         throw new ParticipantAttemptError(400, "participant-hash-mismatch");
       const replay = recorded(loaded, lookupInput, id);
       if (replay) {
+        await confirmRecordedEvidence(loaded, lookupInput, id, canonical, context);
         recordCommittedEvents(
           loaded.receipts.find(({ receipt }) => sameOwner(receipt, lookupInput, id))!.facts,
           "platform-operations",
@@ -375,6 +419,7 @@ export function createParticipantRuntime(deps: Deps) {
             occurredAt: b.occurredAt,
             submittedAt: now,
             attachments: b.attachments,
+            ...(b.attachmentOperationId ? { attachmentOperationId: b.attachmentOperationId } : {}),
           };
           break;
         case "record-response":
@@ -441,7 +486,12 @@ export function createParticipantRuntime(deps: Deps) {
           };
           break;
       }
-      const facts = await decideSupportRequest(loaded.state, command);
+      const evidenceFence =
+        command.type === "SubmitSupportEvidence"
+          ? await deps.prepareEvidence(command, loaded.state, loaded.version, context)
+          : undefined;
+      if (evidenceFence) command = evidenceFence.command;
+      const facts = await decideSupportRequest(loaded.state, command, evidenceFence?.authority);
       if (!facts.length) throw new ParticipantAttemptError(409, "participant-command-not-recorded");
       const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
       const encoded = facts.map(codec.encode);
@@ -457,7 +507,7 @@ export function createParticipantRuntime(deps: Deps) {
         result: firstResult,
       };
       try {
-        const stored = await deps.eventStore.appendToStream({
+        const stored = await (evidenceFence?.append ?? deps.eventStore.appendToStream)({
           streamId: `support.support-request-${id}`,
           expectedVersion: loaded.version,
           wakeSourceContextName: "platform-operations",
@@ -474,6 +524,7 @@ export function createParticipantRuntime(deps: Deps) {
           stored.filter((event) => event.eventType !== PARTICIPANT_RECEIPT_EVENT),
           "platform-operations",
         );
+        await evidenceFence?.confirm();
         return firstResult;
       } catch (error) {
         if ((error as { code?: string }).code !== "concurrency_conflict") throw error;
@@ -481,6 +532,7 @@ export function createParticipantRuntime(deps: Deps) {
         authorize(winner, lookupInput);
         const replay = recorded(winner, lookupInput, id);
         if (replay) {
+          await confirmRecordedEvidence(winner, lookupInput, id, canonical, context);
           recordCommittedEvents(
             winner.receipts.find(({ receipt }) => sameOwner(receipt, lookupInput, id))!.facts,
             "platform-operations",

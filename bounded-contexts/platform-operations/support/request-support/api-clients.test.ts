@@ -10,6 +10,26 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("platform operations request API clients", () => {
+  it.each(["server", "local"] as const)(
+    "presents the re-upload Banner message for %s unknown references without lookup or retry (mutant: discard participant reference error)",
+    async (source) => {
+      const fetchMock = vi.fn(async () => jsonResponse({ error: { code: "attachment_reference_unknown" } }, 400));
+      const client = createSupportRequestApiClient({ fetch: fetchMock });
+      await expect(
+        client.submitSupportEvidence("sup_case", {
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "Photos",
+          attachments: [source === "local" ? "arbitrary" : `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`],
+        }),
+      ).rejects.toMatchObject({
+        phase: "failed-safe",
+        descriptor: null,
+        message: "These photos cannot be submitted. Start a new photo batch and re-upload them.",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(source === "local" ? 0 : 1);
+    },
+  );
   it("returns platform feedback command snapshots from mutating calls", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
