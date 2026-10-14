@@ -246,6 +246,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.minimum.price.filter.label": "Minimum price: {price}",
   "discovery.features.search.ui.searchPage.minimum.price.increase": "Increase minimum price",
   "discovery.features.search.ui.searchPage.closest.matches": "Closest matches",
+  "discovery.features.search.ui.searchPage.close.spellings": "No exact matches for {query}. Showing close spellings.",
   "discovery.features.search.ui.searchPage.closest.matches.semantic.only":
     "No text matches were found. These related items are ranked by semantic similarity.",
   "discovery.features.search.ui.searchPage.closest.matches.with.lexical":

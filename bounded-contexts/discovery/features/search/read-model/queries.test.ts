@@ -7,6 +7,8 @@ import {
   searchDiscoveryItems,
   searchDiscoveryItemsByNaturalKey,
   searchDiscoverySemanticItems,
+  lookupDiscoveryCorrectionTerms,
+  searchDiscoveryCorrectedItems,
 } from "./queries";
 import { buildSimpleSearchQuery } from "../domain/normalization";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
@@ -93,6 +95,78 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("candidate lookups bind input, retain the default trgm threshold and dedupe before limit", async () => {
+    const { db, calls } = createCapturingDb();
+    expect(await lookupDiscoveryCorrectionTerms(db, "charzard")).toEqual({
+      literal: false,
+      prefix: false,
+      candidates: [],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].values).toEqual(["charzard", "charzard%"]);
+    expect(calls[0].sql).toContain("SELECT DISTINCT term FROM discovery_search_item_identity_terms WHERE term % $1");
+    expect(calls[0].sql).toContain("ORDER BY similarity(term, $1) DESC, term ASC LIMIT 20");
+    expect(calls[0].sql).not.toMatch(/set_config|SET |description|field_values|charzard/i);
+  });
+  it("correction reuses lexical ordering, full filters and batched hydration without facets or cursor", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        const rows = sql.startsWith("SELECT EXISTS")
+          ? [{ literal: false, prefix: false, candidates: ["charizard"] }]
+          : sql.startsWith("SELECT * FROM (")
+            ? [listRow("right-a", "Charizard"), listRow("right-b", "Charizard")]
+            : sql.includes("FROM startable_listing GROUP BY")
+              ? [
+                  {
+                    catalog_catalog_item_id: "right-a",
+                    lowest_price_amount: "10.00",
+                    lowest_price_currency_code: "USD",
+                    active_listing_count: 1,
+                    total_visible_quantity: 2,
+                  },
+                ]
+              : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    const page = await searchDiscoveryCorrectedItems(
+      db,
+      {
+        search: "charzard 004/102",
+        limit: 200,
+        category: "pokemon",
+        tag: "foil",
+        language: "en",
+        blueprintId: "card",
+        priceMin: "5",
+        priceMax: "20",
+        inStock: true,
+        marketActivity: "listings",
+        fieldFilters: [{ fieldId: "rarity", value: "rare" }],
+        referenceFilters: [{ typeKey: "set", referenceId: "base" }],
+        dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
+      },
+      [
+        { raw: "charzard", protected: false },
+        { raw: "004/102", protected: true },
+      ],
+    );
+    expect(page).toMatchObject({ total: 2, nextCursor: null, facets: [], category_counts: [] });
+    expect(page?.items[0].market_summary).toMatchObject({ lowest_price_amount: "10.00", total_visible_quantity: 2 });
+    const list = findListCall(calls)!;
+    expect(list.values).toContain("(charzard | charizard) & ((004 <-> 102) | (4 <-> 102))");
+    expect(list.values).toContain("((004 <-> 102) | (4 <-> 102))");
+    expect(list.values.at(-1)).toBe(51);
+    expect(list.sql).toContain(
+      "search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
+    );
+    for (const bound of ['["pokemon"]', '["foil"]', "en", "card", "5", "20", "rare", "base"])
+      expect(list.values.flat()).toContain(bound);
+    expect(calls.filter(({ sql }) => sql.startsWith("WITH startable_listing"))).toHaveLength(1);
+    expect(calls.some(({ sql }) => sql.startsWith("SELECT COUNT(*)"))).toBe(false);
+  });
   it("db-profile-test-leaks-into-non-db-ci", () => {
     const { scripts } = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as {
       scripts: Record<string, string>;

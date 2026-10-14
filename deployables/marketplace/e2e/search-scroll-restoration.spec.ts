@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const searchRestorationStorageKey = "discovery.search.restoration.v2";
@@ -19,11 +20,41 @@ type SearchResponse = Readonly<{
   total: number | null;
   count: number;
   nextCursor: string | null;
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured";
+  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected";
   lexicalCount: number | null;
 }>;
 
 test.describe("marketplace search scroll restoration", () => {
+  test("restores a corrected notice and terminal page after detail roundtrips @marketplace-browse", async ({
+    page,
+  }) => {
+    const correctedQuery = "charzard 4/102";
+    const searchPath = `/search?q=${encodeURIComponent(correctedQuery)}`;
+    const notice = `No exact matches for ${correctedQuery}. Showing close spellings.`;
+    await page.goto(searchPath, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(notice, { exact: true })).toBeVisible();
+    const detail = page.getByRole("link", { name: /^View details for / }).first();
+    await expect(detail).toBeVisible();
+    await expect(detail).toHaveAttribute("href", marketplaceBrowserE2eSeedContract.itemDetail.routePath);
+    await detail.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/items\//);
+    for (let roundtrip = 0; roundtrip < 2; roundtrip++) {
+      await page.goBack({ waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(new URL(searchPath, page.url()).href);
+      await expect(page.getByText(notice, { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Closest matches" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Load more results" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: /^View details for / })).toHaveCount(1);
+      await expect(detail).toHaveAttribute("href", marketplaceBrowserE2eSeedContract.itemDetail.routePath);
+      if (roundtrip === 0) {
+        await page.getByRole("link", { name: /^View details for / }).focus();
+        await page.keyboard.press("Enter");
+        await expect(page).toHaveURL(/\/items\//);
+      }
+    }
+  });
+
   test("restores loaded Result Set context after an item-detail roundtrip @marketplace-browse", async ({ page }) => {
     await page.goto(`/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: "domcontentloaded" });
     const basePage = await page.evaluate(async (query) => {

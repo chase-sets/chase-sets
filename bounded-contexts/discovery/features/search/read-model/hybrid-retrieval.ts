@@ -5,12 +5,17 @@ import type {
   QueryEmbeddingWaitObservation,
   QueryEmbeddingLoadObservation,
 } from "../domain/query-embedding-cache";
-import { foldSearchDiacritics } from "../domain/normalization";
+import { foldSearchDiacritics, truncateDiscoverySearchQuery } from "../domain/normalization";
+import { classifyProtectedSearchTokens, type ProtectedSearchToken } from "../domain/protected-search-tokens";
+import { buildSearchSynonymQueries } from "../domain/search-synonyms";
+import { protectedSearchQuery } from "../domain/spelling-correction";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { parseStructuredNaturalKeyQuery } from "../domain/structured-natural-key-query";
 import {
   discoverySearchCursorState,
   searchDiscoveryItems,
+  searchDiscoveryCorrectedItems,
+  lookupServedSearchSetCodes,
   searchDiscoveryItemsByNaturalKey,
   searchDiscoverySemanticItems,
   hydrateDiscoverySearchItemMarketSummaries,
@@ -25,7 +30,7 @@ export const DISCOVERY_RESCUE_THRESHOLD = 3;
 export const DISCOVERY_SEMANTIC_TOP_K = 24;
 export const DISCOVERY_HYBRID_CANDIDATE_WINDOW = 200;
 
-export type DiscoveryRetrievalMode = "lexical" | "rescue" | "hybrid" | "structured";
+export type DiscoveryRetrievalMode = "lexical" | "rescue" | "hybrid" | "structured" | "corrected";
 export type DiscoverySearchResult = ListResult<DiscoverySearchItemRow> &
   Readonly<{
     retrievalMode: DiscoveryRetrievalMode;
@@ -48,6 +53,7 @@ export type DiscoveryHybridRetrievalDependencies = Readonly<{
   searchLexical?: SearchLexical;
   searchSemantic?: SearchSemantic;
   searchNaturalKey?: SearchNaturalKey;
+  searchCorrected?: typeof searchDiscoveryCorrectedItems;
   hydrateItems?: HydrateItems;
   signal?: AbortSignal;
   onEmbeddingWait?: (observation: QueryEmbeddingWaitObservation) => void;
@@ -58,7 +64,14 @@ export async function retrieveDiscoveryItems(
   dependencies: DiscoveryHybridRetrievalDependencies,
   params: DiscoverySearchParams = {},
 ): Promise<DiscoverySearchResult> {
-  const cursorState = classifyDiscoverySearchCursor(dependencies, params);
+  params = { ...params, search: params.search === undefined ? undefined : truncateDiscoverySearchQuery(params.search) };
+  const tokens = await classifyProtectedSearchTokens(params.search ?? "", (codes) =>
+    lookupServedSearchSetCodes(dependencies.db, codes),
+  );
+  const cursorState =
+    decodeHybridCursor(params.cursor) && tokens.some((token) => token.protected)
+      ? "restarted"
+      : classifyDiscoverySearchCursor(dependencies, params);
   // A rejected cursor restarts as a fresh first page in every branch below, including
   // structured resolution, hybrid, and rescue, with full first-page metadata. Its offset
   // goes with it, so the restart can never skip the leading rows it reports as fresh.
@@ -69,7 +82,10 @@ export async function retrieveDiscoveryItems(
         ? { ...params, cursor: undefined, offset: undefined, includeTotal: true }
         : { ...params, cursor: undefined };
 
-  return { ...(await retrieveDiscoveryPage(dependencies, request)), cursorState };
+  return {
+    ...(await retrieveDiscoveryPage(dependencies, request, !params.cursor && !params.offset, tokens)),
+    cursorState,
+  };
 }
 
 /**
@@ -90,11 +106,13 @@ export function classifyDiscoverySearchCursor(
 async function retrieveDiscoveryPage(
   dependencies: DiscoveryHybridRetrievalDependencies,
   params: DiscoverySearchParams,
+  fresh: boolean,
+  tokens: readonly ProtectedSearchToken[],
 ): Promise<DiscoveryRetrievedPage> {
-  const searchLexical = dependencies.searchLexical ?? searchDiscoveryItems;
+  const lexicalReader = dependencies.searchLexical ?? searchDiscoveryItems;
   const searchSemantic = dependencies.searchSemantic ?? searchDiscoverySemanticItems;
   const searchNaturalKey = dependencies.searchNaturalKey ?? searchDiscoveryItemsByNaturalKey;
-  const query = params.search?.trim() ?? "";
+  const query = truncateDiscoverySearchQuery(params.search?.trim() ?? "");
 
   // Structured set-code + collector-number resolution is tried first, on the
   // first page only (a cursor means the caller is paging an already-chosen
@@ -111,12 +129,51 @@ async function retrieveDiscoveryPage(
     }
   }
 
-  const semanticEligible = isSemanticEligible(dependencies, params);
+  const protectedQuery = protectedSearchQuery(tokens);
+  const searchQueries = await buildSearchSynonymQueries(query, async () => new Set(), false, tokens);
+  const searchLexical: SearchLexical = protectedQuery
+    ? (db, request, options) => lexicalReader(db, request, { ...options, searchQueries, protectedQuery })
+    : lexicalReader;
+  const semanticEligible = !protectedQuery && isSemanticEligible(dependencies, params);
+  const correctionEligible = fresh && query.length > 0 && (params.sort === undefined || params.sort === "relevance");
+  const correct = async (lexical: ListResult<DiscoverySearchItemRow>): Promise<DiscoveryRetrievedPage | null> => {
+    if (!correctionEligible || lexical.items.length > 0) return null;
+    const corrected = await (dependencies.searchCorrected ?? searchDiscoveryCorrectedItems)(
+      dependencies.db,
+      params,
+      tokens,
+    );
+    if (!corrected?.items.length) return null;
+    return { ...corrected, retrievalMode: "corrected", lexicalCount: 0 };
+  };
   const hybridCursor = decodeHybridCursor(params.cursor);
 
   if (semanticEligible && dependencies.hybridEnabled && (params.cursor === undefined || hybridCursor !== null)) {
+    const initial =
+      correctionEligible && !hybridCursor
+        ? await searchLexical(
+            dependencies.db,
+            {
+              ...params,
+              cursor: undefined,
+              offset: undefined,
+              limit: DISCOVERY_HYBRID_CANDIDATE_WINDOW,
+              includeTotal: true,
+            },
+            { loadMarketSummaries: false },
+          )
+        : undefined;
+    const corrected = initial ? await correct(initial) : null;
+    if (corrected) return corrected;
     try {
-      return await retrieveHybridPage(dependencies, params, hybridCursor?.offset ?? 0, searchLexical, searchSemantic);
+      return await retrieveHybridPage(
+        dependencies,
+        params,
+        hybridCursor?.offset ?? 0,
+        searchLexical,
+        searchSemantic,
+        initial,
+      );
     } catch {
       return lexicalResult(
         await searchLexical(dependencies.db, {
@@ -129,6 +186,8 @@ async function retrieveDiscoveryPage(
   }
 
   const lexical = await searchLexical(dependencies.db, params);
+  const corrected = await correct(lexical);
+  if (corrected) return corrected;
   if (
     !semanticEligible ||
     !dependencies.rescueEnabled ||
@@ -169,6 +228,7 @@ async function retrieveHybridPage(
   offset: number,
   searchLexical: SearchLexical,
   searchSemantic: SearchSemantic,
+  initial?: ListResult<DiscoverySearchItemRow>,
 ): Promise<DiscoveryRetrievedPage> {
   const query = params.search?.trim() ?? "";
   const queryEmbedding = await loadQueryEmbedding(dependencies, query);
@@ -180,7 +240,7 @@ async function retrieveHybridPage(
     includeTotal: offset === 0,
   };
   const [lexical, semantic] = await Promise.all([
-    searchLexical(dependencies.db, candidateParams, { loadMarketSummaries: false }),
+    initial ?? searchLexical(dependencies.db, candidateParams, { loadMarketSummaries: false }),
     searchSemantic(dependencies.db, candidateParams, queryEmbedding, {
       limit: DISCOVERY_HYBRID_CANDIDATE_WINDOW,
       loadMarketSummaries: false,
