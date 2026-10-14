@@ -114,7 +114,10 @@ describeDb("authoring prerequisites", () => {
     await pools.pricing.query(
       "UPDATE pricing_inventory_item_inputs SET acquisition_cost_amount = 999 WHERE seller_account_id = 'acc_b'",
     );
-    expect(await (await route().request("/policies/authoring-prerequisites")).json()).toEqual(expected);
+    expect(await (await route().request("/policies/authoring-prerequisites")).json()).toEqual({
+      ...expected,
+      goalAdoption: [],
+    });
     await pools.pricing.query(
       "UPDATE pricing_inventory_item_inputs SET acquisition_cost_amount = 0 WHERE item_id = 'inv_a'",
     );
