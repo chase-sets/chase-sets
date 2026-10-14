@@ -17,7 +17,7 @@ export const lexicalLaw = {
     "--dark-chase-logo-end",
   ],
   identifiers: ["chaseLogoStart", "chaseLogoMid", "chaseLogoEnd"],
-  light: ["#8a682a", "#c9a44e", "#a87e2f"],
+  light: ["#806127", "#a38132", "#9a742b"],
   dark: ["#b9863b", "#edd28d", "#d4a94e"],
   constructor: "--chase-logo-${stop}",
 };
@@ -493,10 +493,10 @@ function proofExpressions(source) {
 // Candidate-bound definition fingerprints cover only named AST declarations.
 // They never exempt a file, its other declarations, comments, or executable samples.
 const definitionContracts = {
-  validator: [["variable:lexicalLaw", "3894e8d558441567a2b555dbc2c3421c3e47d708c3386c7f6934c41138a805c5"]],
+  validator: [["variable:lexicalLaw", "2e15fa7f758e9239f3ff704eca1e8e51dd98683377e2565e7c63a0b45f79f4b9"]],
   tests: [
-    ["function:lexicalCases", "a17b68e2a414787145c3c5c2f1a8a3d741b73e4d374a884cfc4bb44310345296"],
-    ["function:misplacedUses", "a9bda6f89aa2ccf5e3e1d767d8d47d2303a2b01a641a8b2a9b0b5e18e1373a7e"],
+    ["function:lexicalCases", "b4e371f26eba92ed72df7a77130442b208405e3a325b494851b409e53c014642"],
+    ["function:misplacedUses", "b6414e0dc1e3ce83a6701c123e18a06c3a8f91fb30da800480353c8a85fc62cf"],
   ],
 };
 const definitionPaths = {
