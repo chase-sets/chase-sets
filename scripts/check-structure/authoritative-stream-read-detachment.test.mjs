@@ -228,7 +228,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
-          line: 167,
+          line: 168,
         }),
         expect.objectContaining({
           category: "member-declaration",

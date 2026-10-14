@@ -1572,11 +1572,11 @@ describe("design system components", () => {
     const badgeMarkup = renderToString(<SellerBadge name="Chase Sets" verified />);
 
     expect(chaseSetsLogoSvg).toContain("logoGradient");
-    expect(chaseSetsLogoSvg).toContain("#c9a44e");
+    expect(chaseSetsLogoSvg).toContain("#a38132");
     expect(chaseSetsLogoSvg).toContain("prefers-color-scheme: dark");
     expect(logoMarkup).toContain('role="img"');
     expect(logoMarkup).toContain("Chase Sets logo");
-    expect(logoMarkup).toContain("var(--chase-logo-mid, #c9a44e)");
+    expect(logoMarkup).toContain("var(--chase-logo-mid, #a38132)");
     expect(badgeMarkup).toContain("Chase Sets");
     expect(badgeMarkup).toContain("Verified");
     expect(badgeMarkup).toContain("<svg");

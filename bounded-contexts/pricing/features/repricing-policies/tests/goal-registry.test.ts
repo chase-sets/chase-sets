@@ -6,6 +6,7 @@ import { fixedPercentileGoal } from "../domain/goals/fixed-percentile";
 import { profitPerDayGoal } from "../domain/goals/profit-per-day";
 import {
   createPricingGoalRegistry,
+  definePricingGoal,
   validateParameters,
   type GoalCurve,
   type GoalDecision,
@@ -49,6 +50,33 @@ const relativeOnlyTerms = (handlingBps: number): GoalFeeTerms => ({
 });
 const goals = [fixedPercentileGoal, targetHorizonGoal, profitPerDayGoal] as const;
 const curveOnlyGoals = [fixedPercentileGoal, targetHorizonGoal] as const;
+
+describe("Goal Lifecycle", () => {
+  it("defaults version one to selectable and later versions to shadow", () => {
+    const goal = definePricingGoal({
+      id: "synthetic-lifecycle",
+      version: 2,
+      parameterSchema: {},
+      requiredCurveFeatures: [],
+      requiresEconomics: false,
+      select: ({ curve }) => curve.byPercentile[0]!,
+      drivers: () => ({}),
+    });
+    expect(goals.map((entry) => entry.lifecycle)).toEqual(["selectable", "selectable", "selectable"]);
+    expect(goal.lifecycle).toBe("shadow");
+  });
+
+  it("rejects a second shadow version for the same goal id without registering it", () => {
+    const registry = createPricingGoalRegistry([
+      fixedPercentileGoal,
+      { ...fixedPercentileGoal, version: 2, lifecycle: "shadow" },
+    ]);
+    expect(() => registry.registerPricingGoal({ ...fixedPercentileGoal, version: 3, lifecycle: "shadow" })).toThrow(
+      "already has a shadow version",
+    );
+    expect(registry.resolve(fixedPercentileGoal.id, 3)).toBeNull();
+  });
+});
 
 /** One observed point with no competing seller, so Store Win Share is 1 and the median is ln 2 x interval. */
 function point(percentile: number, priceAmount: string, medianSellDays: number | null): CurvePoint {

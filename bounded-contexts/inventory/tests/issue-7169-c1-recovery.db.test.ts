@@ -15,6 +15,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { buildInventoryHoldProjectionHandlers } from "../features/holds/read-model/projection";
 import { buildInventoryItemProjectionHandlers } from "../features/inventory-items/read-model/projection";
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import {
   withInventoryMutationAttempt,
   withInventoryMutationChildAttempt,
@@ -832,11 +833,30 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
                     (phase === "receipt" && sql.includes("UPDATE inventory_mutation_attempts")))
                 ) {
                   interrupted = true;
-                  const terminated = await pool.query<{ terminated: boolean }>(
-                    "SELECT pg_terminate_backend($1) AS terminated",
-                    [pid],
-                  );
-                  expect(terminated.rows[0].terminated).toBe(true);
+                  const terminatingClient = client as typeof client & Pick<PoolClient, "once" | "removeListener">;
+                  let timer: ReturnType<typeof setTimeout> | undefined;
+                  let onTermination: (() => void) | undefined;
+                  const observedTermination =
+                    phase === "fact"
+                      ? new Promise<void>((resolve, reject) => {
+                          onTermination = resolve;
+                          terminatingClient.once("error", onTermination);
+                          timer = setTimeout(
+                            () => reject(new Error("Client did not observe backend termination")),
+                            5_000,
+                          );
+                        })
+                      : Promise.resolve();
+                  try {
+                    const [terminated] = await Promise.all([
+                      pool.query<{ terminated: boolean }>("SELECT pg_terminate_backend($1) AS terminated", [pid]),
+                      observedTermination,
+                    ]);
+                    expect(terminated.rows[0].terminated).toBe(true);
+                  } finally {
+                    clearTimeout(timer);
+                    if (onTermination) terminatingClient.removeListener("error", onTermination);
+                  }
                   throw new Error("Synthetic connection interruption");
                 }
                 return result;
@@ -846,7 +866,14 @@ describeDb("issue-7169-ac3-stock-invariants: PostgreSQL authority", () => {
         };
         const normal = services;
         services = inventoryModule.createServices(faultPool, {});
-        await expect(runLocation(attempt)).rejects.toThrow(/Synthetic connection interruption|terminating connection/);
+        if (phase === "fact") {
+          await expect(runLocation(attempt)).rejects.toMatchObject({
+            code: "infrastructure_failure",
+            details: { cause: "Synthetic connection interruption" },
+          });
+        } else {
+          await expect(runLocation(attempt)).rejects.toThrow(new Error("Synthetic connection interruption"));
+        }
         expect(interrupted).toBe(true);
         services = normal;
         expect(await services.mutations.read(attempt.id, context)).toBeNull();

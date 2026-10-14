@@ -61,6 +61,47 @@ function toAuthenticatedSessionRead(
 }
 
 describe("Auth request actor resolution", () => {
+  it.each([
+    // retired scope fixture: old authority is not upgraded to capability scopes or defaults.
+    { scopes: ["checkout:write", "order:read"], expectedScopes: [], permissions: [] },
+    {
+      scopes: ["checkout:write", "inventory:read"],
+      expectedScopes: ["inventory:read"],
+      permissions: ["inventory.view"],
+    },
+  ])("stored buyer grants keep only registered scopes: $scopes", async ({ scopes, expectedScopes, permissions }) => {
+    const services = createServices({
+      membership: {
+        membership_id: "mem_retired",
+        user_id: "usr_retired",
+        account_id: "acc_retired",
+        role_key: "owner",
+        role_permissions: ["catalog.view", "orders.view", "orders.manage", "inventory.view"],
+        status: "active",
+        updated_at: "2026-10-12T00:00:00.000Z",
+      },
+    });
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/mcp", {
+        headers: { authorization: "Bearer ucp_at_retired" },
+      }),
+      {
+        linkedPlatformAuthorizations: {
+          resolveAccessToken: vi.fn(async () => ({
+            authorization_id: "lpa_retired",
+            platform_profile_url: "https://agent.example/.well-known/ucp",
+            user_id: "usr_retired",
+            account_id: "acc_retired",
+            scopes,
+          })),
+        },
+      },
+    );
+    expect(actor?.permissions).toEqual(permissions);
+    expect(actor?.agentGrant?.scopes).toEqual(expectedScopes);
+  });
+
   it.each(["owner", "manager"])("applies pricing email boundaries for %s", async (roleKey) => {
     for (const emailState of [
       "unverified",
@@ -404,7 +445,7 @@ describe("Auth request actor resolution", () => {
         platform_profile_url: "https://agent.example/.well-known/ucp",
         user_id: "usr_1",
         account_id: "acc_1",
-        scopes: ["catalog:read", "checkout:write"],
+        scopes: ["catalog:read", "dev.ucp.shopping.checkout:manage"],
       })),
     };
 
@@ -423,11 +464,11 @@ describe("Auth request actor resolution", () => {
       accountId: "acc_1",
       membershipId: "mem_1",
       roleKey: "owner",
-      permissions: ["catalog.view", "orders.manage"],
+      permissions: ["catalog.view", "orders.manage", "orders.view"],
       agentGrant: {
         grantId: "lpa_1",
         platformProfileUrl: "https://agent.example/.well-known/ucp",
-        scopes: ["catalog:read", "checkout:write"],
+        scopes: ["catalog:read", "dev.ucp.shopping.checkout:manage"],
         rolePermissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
       },
     });

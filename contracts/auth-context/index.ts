@@ -93,9 +93,8 @@ export function resolveRecentAuthenticationStatus(
 
 export type AgentOAuthScope =
   | "catalog:read"
-  | "checkout:read"
-  | "checkout:write"
-  | "order:read"
+  | "dev.ucp.shopping.checkout:manage"
+  | "dev.ucp.shopping.order:read"
   | "inventory:read"
   | "inventory:write"
   | "listings:read"
@@ -152,16 +151,10 @@ export const AGENT_OAUTH_SCOPE_FAMILIES = [
     description: "Review and update cart and checkout state.",
     scopes: [
       {
-        scope: "checkout:read",
-        label: "Read checkout",
-        description: "Read cart and checkout state for the selected account.",
-        permissions: ["orders.view"],
-      },
-      {
-        scope: "checkout:write",
+        scope: "dev.ucp.shopping.checkout:manage",
         label: "Manage checkout",
-        description: "Update cart and checkout state after confirmation.",
-        permissions: ["orders.manage"],
+        description: "Read cart and checkout state, and update it after confirmation.",
+        permissions: ["orders.view", "orders.manage"],
       },
     ],
   },
@@ -171,7 +164,7 @@ export const AGENT_OAUTH_SCOPE_FAMILIES = [
     description: "Read purchase and order history.",
     scopes: [
       {
-        scope: "order:read",
+        scope: "dev.ucp.shopping.order:read",
         label: "Read orders",
         description: "Read order and purchase history for the selected account.",
         permissions: ["orders.view"],
@@ -323,16 +316,12 @@ export function isAgentOAuthScope(value: unknown): value is AgentOAuthScope {
   return typeof value === "string" && AGENT_OAUTH_SCOPE_SET.has(value);
 }
 
-export function normalizeAgentOAuthScopes(
-  value: unknown,
-  fallback: readonly AgentOAuthScope[] = [],
-): AgentOAuthScope[] {
+export function normalizeAgentOAuthScopes(value: unknown): AgentOAuthScope[] {
   const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\s+/) : [];
-  const scopes = raw
+  return raw
     .filter(isAgentOAuthScope)
     .filter((scope, index, values) => values.indexOf(scope) === index)
     .sort();
-  return scopes.length > 0 ? scopes : [...fallback];
 }
 
 export function agentOAuthScopesForPermission(permission: string): readonly AgentOAuthScope[] {

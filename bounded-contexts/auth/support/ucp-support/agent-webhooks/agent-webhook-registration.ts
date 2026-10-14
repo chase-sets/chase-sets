@@ -23,7 +23,7 @@ ALTER TABLE identity_ucp_oauth_clients
   ADD COLUMN IF NOT EXISTS webhook_signing_secret_created_at timestamptz NULL;
 `;
 
-export const AGENT_WEBHOOK_ORDER_SCOPE = "order:read";
+export const AGENT_WEBHOOK_ORDER_SCOPE = "dev.ucp.shopping.order:read";
 const MAX_CALLBACK_URL_LENGTH = 2048;
 
 export type ParsedWebhookRegistration = Readonly<{ callbackUrl: string }>;
@@ -99,7 +99,7 @@ export type AgentWebhookTarget = Readonly<{
 
 /**
  * Every agent-platform callback that should receive order updates for
- * `accountId`: an active linked-platform authorization granting `order:read`
+ * `accountId`: an active linked-platform authorization granting `dev.ucp.shopping.order:read`
  * whose OAuth client has registered a webhook callback. One order can fan out to
  * several linked platforms.
  *

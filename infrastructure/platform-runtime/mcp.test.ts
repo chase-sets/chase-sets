@@ -403,14 +403,19 @@ describe("MCP runtime routes", () => {
     const response = await app.request("https://marketplace.example/oauth-protected-resource");
 
     expect(response.status).toBe(200);
+    const metadata = await response.clone().json();
+    expect(metadata.scopes_supported).toHaveLength(17);
+    expect(metadata.scopes_supported.filter((scope: string) => /checkout|order/.test(scope))).toEqual([
+      "dev.ucp.shopping.checkout:manage",
+      "dev.ucp.shopping.order:read",
+    ]);
     await expect(response.json()).resolves.toMatchObject({
       resource: "https://marketplace.example/mcp",
       authorization_servers: ["https://marketplace.example"],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
-        "checkout:read",
-        "checkout:write",
-        "order:read",
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read",
         "listings:write",
         "payouts:request",
         "account:read",

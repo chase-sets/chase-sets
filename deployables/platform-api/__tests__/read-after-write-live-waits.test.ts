@@ -129,6 +129,42 @@ function expectCriticalRouteTuning(mountPath: string, routePath: string) {
 }
 
 describe("read-after-write live wait declarations", () => {
+  it.each(["/account/offers/matches/:id", "/account/offers/matches"])(
+    "pins %s to Offer, policy and managed audit projection dependencies",
+    (routePath) => {
+      const routes = findLiveFreshnessRoutes("marketplace", routePath);
+      expect(routes).toEqual([
+        {
+          mountPath: "/api/marketplace",
+          route: {
+            routePath,
+            methods: ["GET", "HEAD"],
+            dependencies: [
+              { readModelTable: "marketplace_offer_pages" },
+              { readModelTable: "marketplace_offer_seller_controls" },
+              { readModelTable: "marketplace_offer_seller_declines" },
+              { readModelTable: "marketplace_buyer_offer_policy_pages" },
+              { readModelTable: "marketplace_managed_offer_audit" },
+            ],
+          },
+        },
+      ]);
+      expect(
+        routes.flatMap(({ route }) =>
+          route.dependencies.flatMap((dependency) =>
+            resolveReadConsistencyDependency("marketplace", dependency, mountedProjectionGroups),
+          ),
+        ),
+      ).toEqual([
+        { targetContextName: "marketplace", projectionName: "marketplace-offer-projection" },
+        { targetContextName: "marketplace", projectionName: "marketplace-offer-projection" },
+        { targetContextName: "marketplace", projectionName: "marketplace-offer-projection" },
+        { targetContextName: "marketplace", projectionName: "marketplace-offer-policy-projection" },
+        { targetContextName: "marketplace", projectionName: "marketplace-managed-offer-projection" },
+      ]);
+    },
+  );
+
   it("has inventory entries to validate and live entries that point at projection-backed reads", () => {
     expect(diskContexts.length).toBeGreaterThan(0);
     expect(liveInventoryEntries.length).toBeGreaterThan(0);

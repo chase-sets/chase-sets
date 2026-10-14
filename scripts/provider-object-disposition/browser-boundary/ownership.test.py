@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 import sys
 import io
+import json
 import errno
 import os
 import re
@@ -323,7 +324,164 @@ rm() {{ printf 'SYNTHETIC_DELETE\\n' >> '{shell_path(effects)}'; return 91; }}
                     with redirect_stdout(output), redirect_stderr(error):
                         self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
-        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:census\n')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:census\nprovider-boundary-observer-detail:none:unknown\n')
+
+    def observer_read_failure(self, stage, failure, current=None, stat_error=None, image=(1, 2), image_error=None, preceding=False):
+        status = ''.join(f'{key}:\t0\n' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'))
+        records = {20: record(), 21: record(pid=21)}
+        if preceding:
+            records[19] = record(pid=19)
+        current = dict(start=100, parent=1, state='S') | (current or {})
+        inspected = []
+        def fail():
+            if observer.stage == stage:
+                raise failure
+        def text(path):
+            if '20' in path.parts:
+                if stage == 'status-field' and path.name == 'status':
+                    return 'PRIVATE'
+                fail()
+            return status if path.name == 'status' else 'chase-sets-provider-window (unconfined)'
+        def link(path):
+            if '20' in Path(path).parts:
+                fail()
+            return 'SYNTHETIC_NAMESPACE'
+        def scope(selected, owner):
+            if selected['pid'] == 20:
+                fail()
+            return 'launch'
+        def root(selected, census):
+            inspected.append(selected['pid'])
+            if selected['pid'] == 20:
+                fail()
+            return dict(hostHelper=False, oldRootDetached=True, rootObservation='path-checked')
+        def identity(selected):
+            if selected['pid'] == 20 and stage == 'identity-recheck':
+                if failure is None:
+                    return False
+                fail()
+            return True
+        output, error = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(observer.os, 'getuid', return_value=0, create=True))
+            stack.enter_context(mock.patch.object(sys, 'argv', ['observe.py', '1']))
+            stack.enter_context(mock.patch.object(observer, 'snapshot', return_value=records))
+            stack.enter_context(mock.patch.object(observer.Path, 'read_text', autospec=True, side_effect=text))
+            stack.enter_context(mock.patch.object(observer.os, 'readlink', side_effect=link))
+            stack.enter_context(mock.patch.object(observer, 'launch_owner', return_value=record()))
+            stack.enter_context(mock.patch.object(observer, 'user_namespace_scope', side_effect=scope))
+            stack.enter_context(mock.patch.object(observer, 'inspect_root', side_effect=root))
+            stack.enter_context(mock.patch.object(observer, 'same_identity', side_effect=identity))
+            stack.enter_context(mock.patch.object(observer, 'bounded_read', side_effect=stat_error, return_value='SYNTHETIC_STAT'))
+            stack.enter_context(mock.patch.object(observer, 'parse_stat', return_value=current))
+            stack.enter_context(mock.patch.object(observer.Path, 'stat', side_effect=image_error, return_value=mock.Mock(st_dev=image[0], st_ino=image[1])))
+            with redirect_stdout(output), redirect_stderr(error):
+                result = observer.main()
+        return result, output.getvalue(), error.getvalue(), inspected
+
+    def assert_observer_omits(self, stage, failure, **recheck):
+        result, output, error, inspected = self.observer_read_failure(stage, failure, **recheck)
+        self.assertEqual(result, 0, error)
+        self.assertEqual(error, '')
+        self.assertEqual(json.loads(output), [dict(pid=21, parent=1, start=100, image='launcher',
+                         **{key: '0' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp')},
+                         label='expected', network='host', pidNamespace='host', userNamespace='launch',
+                         hostHelper=False, oldRootDetached=True, rootObservation='path-checked')])
+        self.assertIn(21, inspected)
+
+    def test_observer_omits_zombie_at_namespaces(self):
+        self.assert_observer_omits('namespaces', OSError(errno.ENOENT, 'PRIVATE'), current={'state': 'Z'})
+
+    def test_observer_omits_reaped_process_at_status(self):
+        for code in (errno.ENOENT, errno.ESRCH):
+            with self.subTest(code=code):
+                self.assert_observer_omits('status', OSError(errno.ENOENT, 'PRIVATE'), stat_error=OSError(code, 'PRIVATE'))
+
+    def test_observer_omits_zombie_at_identity_recheck(self):
+        self.assert_observer_omits('identity-recheck', None, current={'state': 'Z'})
+
+    def test_observer_omits_changed_start_time(self):
+        for stage in ('status', 'label', 'namespaces', 'user-namespace', 'identity-recheck'):
+            with self.subTest(stage=stage):
+                self.assert_observer_omits(stage, OSError(errno.ENOENT, 'PRIVATE'), current={'start': 101})
+
+    def test_observer_live_read_failures_keep_exact_stage_errno_and_no_partial_records(self):
+        for stage in ('status', 'label', 'namespaces', 'user-namespace', 'identity-recheck'):
+            for code, label in ((errno.EACCES, 'EACCES'), (errno.EPERM, 'EPERM'), (errno.ENOENT, 'ENOENT'),
+                                (errno.ESRCH, 'ESRCH'), (errno.ENOTDIR, 'ENOTDIR'), (errno.ELOOP, 'ELOOP'),
+                                (errno.EIO, 'EIO'), (123456, 'other')):
+                with self.subTest(stage=stage, code=code):
+                    result, output, error, _ = self.observer_read_failure(stage, OSError(code, 'PRIVATE', 'PRIVATE_PATH'))
+                    self.assertEqual(result, 1)
+                    self.assertEqual(output, '')
+                    self.assertEqual(error, f'provider-boundary-observer-refused:{stage}\nprovider-boundary-observer-detail:{label}:same\n')
+                    self.assertNotIn('PRIVATE', error)
+
+    def test_observer_live_image_and_parent_drift_still_refuse(self):
+        for recheck in ({'current': {'parent': 2}}, {'image': (1, 3)}):
+            with self.subTest(recheck=recheck):
+                result, output, error, _ = self.observer_read_failure('identity-recheck', None, **recheck)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:identity-recheck\nprovider-boundary-observer-detail:none:changed\n')
+
+    def test_observer_refusal_after_a_complete_record_emits_no_partial_records(self):
+        result, output, error, inspected = self.observer_read_failure('namespaces', OSError(errno.EACCES, 'PRIVATE'), preceding=True)
+        self.assertEqual(inspected, [19])
+        self.assertEqual(result, 1)
+        self.assertEqual(output, '')
+        self.assertEqual(error, 'provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:EACCES:same\n')
+
+    def test_observer_ambiguous_recheck_never_proves_disappearance(self):
+        for failure in (OSError(errno.EACCES, 'PRIVATE'), OSError(errno.EIO, 'PRIVATE'),
+                        ValueError('PRIVATE'), observer.CensusError('PRIVATE'), KeyError('PRIVATE')):
+            with self.subTest(failure=type(failure), code=getattr(failure, 'errno', None)):
+                result, output, error, _ = self.observer_read_failure('namespaces', OSError(errno.ENOENT, 'PRIVATE'), stat_error=failure)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:ENOENT:unknown\n')
+
+    def test_observer_non_os_errors_keep_stage_and_identity(self):
+        for failure in (ValueError('PRIVATE'), KeyError('PRIVATE'), observer.CensusError('PRIVATE')):
+            with self.subTest(failure=type(failure)):
+                result, output, error, _ = self.observer_read_failure('label', failure)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:label\nprovider-boundary-observer-detail:none:same\n')
+
+    def test_observer_unreadable_image_is_not_missing_stat_proof(self):
+        for code in (errno.ENOENT, errno.ESRCH, errno.EACCES):
+            with self.subTest(code=code):
+                result, output, error, _ = self.observer_read_failure('namespaces', OSError(errno.ENOENT, 'PRIVATE'), image_error=OSError(code, 'PRIVATE'))
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:ENOENT:unknown\n')
+
+    def test_observer_malformed_status_still_refuses_even_after_exit(self):
+        for current, identity in (({}, 'same'), ({'state': 'Z'}, 'zombie'), ({'start': 101}, 'changed')):
+            with self.subTest(current=current):
+                result, output, error, _ = self.observer_read_failure('status-field', None, current=current)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, f'provider-boundary-observer-refused:status-field\nprovider-boundary-observer-detail:none:{identity}\n')
+
+    def test_observer_root_stage_never_omits_a_vanished_record(self):
+        for failure in (OSError(errno.ENOENT, 'PRIVATE'), ValueError('PRIVATE'), KeyError('PRIVATE'), observer.CensusError('PRIVATE')):
+            with self.subTest(failure=type(failure)):
+                result, output, error, inspected = self.observer_read_failure('root', failure, stat_error=OSError(errno.ENOENT, 'PRIVATE'))
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:root\n')
+                self.assertEqual(inspected, [20])
+
+    def test_observer_descendant_cap_refuses_without_a_selected_record(self):
+        records = {pid: record(pid=pid, parent=pid - 1) for pid in range(2, 67)}
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(observer, 'snapshot', return_value=records), mock.patch.object(observer.os, 'getuid', return_value=0, create=True), mock.patch.object(sys, 'argv', ['observe.py', '1']):
+            with redirect_stdout(output), redirect_stderr(error):
+                self.assertEqual(observer.main(), 1)
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:descendants\nprovider-boundary-observer-detail:none:unknown\n')
 
     def test_observer_argument_refusal_does_not_echo_argv(self):
         output, error = io.StringIO(), io.StringIO()
@@ -331,7 +489,7 @@ rm() {{ printf 'SYNTHETIC_DELETE\\n' >> '{shell_path(effects)}'; return 91; }}
             with redirect_stdout(output), redirect_stderr(error):
                 self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
-        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\n')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\nprovider-boundary-observer-detail:none:unknown\n')
 
     def test_observer_identity_drift_after_root_inspection_publishes_no_partial_records(self):
         status = ''.join(f'{key}:\t0\n' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'))
@@ -346,10 +504,13 @@ rm() {{ printf 'SYNTHETIC_DELETE\\n' >> '{shell_path(effects)}'; return 91; }}
             stack.enter_context(mock.patch.object(observer, 'user_namespace_scope', return_value='launch'))
             stack.enter_context(mock.patch.object(observer, 'inspect_root', return_value={}))
             stack.enter_context(mock.patch.object(observer, 'same_identity', return_value=False))
+            stack.enter_context(mock.patch.object(observer, 'bounded_read', return_value='SYNTHETIC_LIVE_STAT'))
+            stack.enter_context(mock.patch.object(observer, 'parse_stat', return_value=dict(start=100, parent=1, state='S')))
+            stack.enter_context(mock.patch.object(observer.Path, 'stat', return_value=mock.Mock(st_dev=1, st_ino=3)))
             with redirect_stdout(output), redirect_stderr(error):
                 self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
-        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:identity-recheck\n')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:identity-recheck\nprovider-boundary-observer-detail:none:changed\n')
 
     def test_observer_root_error_retains_closed_identity_path_kind_and_errno(self):
         for kind in ('host-helper', 'old-root'):
