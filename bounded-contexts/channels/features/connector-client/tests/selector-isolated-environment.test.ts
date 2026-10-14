@@ -154,7 +154,10 @@ Case 'rebaselined-repo' {
 & {
   $alias = Clone; $alias.export = $alias.journal.ToUpperInvariant()
   # Unix CI creates both spellings; the mapping boundary still enforces Windows identities.
-  if (-not $IsWindows) { [void][IO.Directory]::CreateDirectory($alias.export) }
+  if (-not $IsWindows) {
+    $alias.export = Join-Path ([IO.Path]::GetDirectoryName($alias.journal)) ([IO.Path]::GetFileName($alias.journal).ToUpperInvariant())
+    [void][IO.Directory]::CreateDirectory($alias.export)
+  }
   $writes = [Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::OrdinalIgnoreCase)
   function Write-SelectorNewFile([string]$File, [byte[]]$Bytes) { $writes.Add($File, $Bytes) }
   function Get-FileHash {
