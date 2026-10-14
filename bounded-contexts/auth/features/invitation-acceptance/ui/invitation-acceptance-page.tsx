@@ -76,6 +76,14 @@ export function InvitationAcceptancePage(props: Props) {
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const passkeyForm = useRef<HTMLFormElement | null>(null);
+  const completedPasskeyForm = useRef<HTMLFormElement | null>(null);
+  useEffect(() => {
+    const form = completedPasskeyForm.current;
+    if (passkeyPayload && form && passkeyForm.current === form) {
+      completedPasskeyForm.current = null;
+      form.requestSubmit();
+    }
+  }, [passkeyPayload]);
   const warningId = useId();
   const feedback = useAuthFormFeedback(props);
   const { summary } = authFormErrors(feedback.error);
@@ -220,10 +228,8 @@ export function InvitationAcceptancePage(props: Props) {
         email: pendingInvitation.email,
       });
       if (passkeyForm.current !== form) return;
+      completedPasskeyForm.current = form;
       setPasskeyPayload(payload);
-      window.setTimeout(() => {
-        if (passkeyForm.current === form) form.requestSubmit();
-      }, 0);
     } catch {
       if (passkeyForm.current === form)
         setPasskeyError(t("auth.features.invitationAcceptance.ui.invitationAcceptancePage.passkey.failed"));
