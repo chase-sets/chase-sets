@@ -264,6 +264,17 @@ function validChannelsCandidate(
   > = {},
 ) {
   return {
+    ebayAccountDeletionReceipts: {
+      recordEbayAccountDeletionReceipt:
+        vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["recordEbayAccountDeletionReceipt"]>(),
+      lookup: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["lookup"]>(),
+      countSubjectData: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["countSubjectData"]>(),
+      assertKeyringContinuity: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["assertKeyringContinuity"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionReceipts"],
+    ebayReceiptExpiry: {
+      cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
+      batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
+    } satisfies ChannelsServices["ebayReceiptExpiry"],
     connections: { getConnection: async () => null },
     ebayAccountDeletion: { config: null },
     storageLocationAuthority: { resolve: async () => null },

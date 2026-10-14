@@ -419,6 +419,14 @@
       "synthetic": false
     },
     {
+      "family": "adminContextRouteSuiteOwnership:channels",
+      "pattern": "/^bounded-contexts\\/channels\\/routes\\/(?:admin|access-admin|catalog-admin)\\//",
+      "suites": ["admin_support"],
+      "path": "bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
       "family": "adminContextRouteSuiteOwnership:commercial-terms",
       "pattern": "/^bounded-contexts\\/commercial-terms\\/routes\\/(?:admin|access-admin|catalog-admin)\\//",
       "suites": ["admin_commerce"],
@@ -1379,6 +1387,11 @@
       "changedFiles": ["bounded-contexts/channels/features/connector-client/api/client.ts"],
       "suiteIds": ["tcgplayer_connector_extension"],
       "batches": ["tcgplayer_connector_extension"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
     },
     {
       "changedFiles": [
