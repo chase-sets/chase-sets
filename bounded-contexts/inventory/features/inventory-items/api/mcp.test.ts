@@ -27,7 +27,10 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
   return {
     actor: requestActor,
     tool: null as never,
-    arguments: arguments_,
+    arguments: {
+      ...(arguments_.quantityDelta === undefined ? {} : { idempotencyKey: "559885de-4aa8-49a8-82eb-3fa4413dbe59" }),
+      ...arguments_,
+    },
     request: new Request("https://api.test/mcp"),
     protocol: legacyMcpProtocol,
   };
@@ -283,7 +286,7 @@ describe("inventory item MCP handlers", () => {
         reason: "Found during count",
         reasonCode: "found",
         note: "  Behind display case  ",
-        idempotencyKey: "adjust-found-1",
+        idempotencyKey: "bfe62e5f-2c1b-47f2-8279-9a0d138c9d21",
       }),
     );
     await handlers.toolHandlers["inventory.adjust-item"]?.(
@@ -292,7 +295,7 @@ describe("inventory item MCP handlers", () => {
         inventoryItemId: "inv_1",
         quantityDelta: 1,
         reason: "Legacy count",
-        idempotencyKey: "adjust-legacy-1",
+        idempotencyKey: "03ec52b6-c35b-4e24-bac0-36d037e28021",
       }),
     );
 
@@ -310,6 +313,19 @@ describe("inventory item MCP handlers", () => {
     const collisions = collisionServices();
     const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisions);
     const acquiredAt = "2026-09-01T05:00:00-05:00";
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: 1,
+          reason: "Intake",
+          acquisitionOccurredAt: acquiredAt,
+          acquisitionSource: "forged",
+        }),
+      ),
+    ).rejects.toThrow("Invalid Inventory request");
+    expect(fakeServices.adjustItem).not.toHaveBeenCalled();
     await handlers.toolHandlers["inventory.adjust-item"]?.(
       mcpRequest({
         accountId: "acc_1",
@@ -317,7 +333,6 @@ describe("inventory item MCP handlers", () => {
         quantityDelta: 1,
         reason: "Intake",
         acquisitionOccurredAt: acquiredAt,
-        acquisitionSource: "forged",
       }),
     );
     expect(fakeServices.adjustItem).toHaveBeenCalledWith(

@@ -255,7 +255,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "resumes an archived storage location committed before its archive step",
         referenceDurationMs: 28374,
-        identity: "8c5dc773de3c8363",
+        identity: "2f1e5800d580e926",
       }),
       Object.freeze({
         name: "resumes a checkout cart holding only one of its two seeded lines",

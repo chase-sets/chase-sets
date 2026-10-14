@@ -84,6 +84,8 @@ const expectedInventory = [
     null,
   ],
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
+  // The owner-transaction adapter forwards the complete request unchanged.
+  ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
   // The existing corpus includes slice-local .test-support.ts history assertions.
   [
     "bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts#readStream#1",
@@ -110,7 +112,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact nineteen-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-call corpus and eight production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
@@ -157,6 +159,12 @@ describe("bounded-stream-contracts-acceptance-control", () => {
     );
     expect(site).toBeDefined();
     expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["request"]);
+  });
+
+  it("keeps the Inventory owner-transaction adapter's complete read request unchanged", () => {
+    const site = candidateInventory.find((candidate) => candidate.id.endsWith("mutation-attempt.ts#readStream#1"));
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
   });
 
   it("keeps test support free of a ninth direct readStream call", () => {

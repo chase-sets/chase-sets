@@ -663,6 +663,11 @@ function batchDurationSeconds(batch) {
 }
 
 describe("change-scope", () => {
+  it("enrolls the Inventory recovery browser spec in the hosted seller suite", () => {
+    const scope = classifyChanges({ changedFiles: ["deployables/marketplace/e2e/inventory-recovery.spec.ts"] });
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["marketplace_seller"]);
+  });
   it("selects the Chromium authority caller for package and connector-client changes", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const extension = workspaceWithScripts(
