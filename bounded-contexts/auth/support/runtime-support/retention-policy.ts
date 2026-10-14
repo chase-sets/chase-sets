@@ -3,6 +3,14 @@ import type { BcRetentionExemption, BcRetentionSweep, BcSchemaMigration } from "
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
 export const authRetentionSweeps: readonly BcRetentionSweep[] = [
+  {
+    name: "terminal-invitation-acceptance-attempts",
+    tableName: "auth_invitation_acceptance_attempts",
+    predicateSql: "candidate.terminal_at IS NOT NULL AND candidate.terminal_at < now() - interval '30 days'",
+    orderBySql: "candidate.terminal_at ASC",
+    intervalMs: DAY_MS,
+    batchLimit: 500,
+  },
   expired("sessions", "identity_sessions"),
   expired("session-lookup", "identity_session_lookup"),
   // Deleting expired magic-link rows is the retention half of the PII policy;

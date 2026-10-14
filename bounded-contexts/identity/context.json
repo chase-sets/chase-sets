@@ -926,6 +926,25 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "identity.invitation-acceptance-authority-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/acceptance-authority"
+      ],
+      "visibleDestination": {
+        "description": "Auth receives the complete bounded Invitation, Account, User and Membership authority snapshot. Receipt replay version-guards all participants atomically; this read grants no Session authority."
+      },
+      "proof": {
+        "authoritativeResponse": "readInvitationAcceptanceAuthority folds the complete histories and returns only exact bound current authority after validating receipt and participant versions.",
+        "tests": [
+          "bounded-contexts/identity/features/invitations/api/acceptance-operation.test.ts",
+          "bounded-contexts/identity/features/invitations/api/acceptance-operation.db.test.ts"
+        ]
+      }
+    },
+    {
       "id": "identity.consent-activation-authority-snapshot",
       "owner": "identity",
       "risk": "critical",
