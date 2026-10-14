@@ -34,14 +34,16 @@ describe("restock decision runtime", () => {
         mutationChild: async (_name, _family, _target, _params, childContext, work) => work(childContext),
         db: {
           query: vi.fn(async (sql: string, values: readonly unknown[]) => ({
-            rows: sql.includes("event_store_streams")
-              ? [
-                  {
-                    current_version: String(streams.get(String(values[0]))?.length ?? 0),
-                    total: String(streams.get(String(values[0]))?.length ?? 0),
-                  },
-                ]
-              : [],
+            rows: sql.includes("SELECT event_id FROM event_store_events")
+              ? [{ event_id: "synthetic-owner" }]
+              : sql.includes("event_store_streams")
+                ? [
+                    {
+                      current_version: String(streams.get(String(values[0]))?.length ?? 0),
+                      total: String(streams.get(String(values[0]))?.length ?? 0),
+                    },
+                  ]
+                : [],
           })),
         } as never,
       },

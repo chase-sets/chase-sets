@@ -49,6 +49,7 @@ async function readOwnerHistory(deps: InventoryRuntimeDeps, streamId: string, co
       requireHistory(
         event.streamId === streamId &&
           event.tenantId === context.tenantId &&
+          event.forAccountId === context.audit.forAccountId &&
           event.streamVersion === index + 1 &&
           !ids.has(event.eventId),
       );
@@ -96,6 +97,12 @@ export async function loadRestockDecisionHistory(
   context: EventStoreContext,
 ) {
   try {
+    const owner = await deps.db.query(
+      `SELECT event_id FROM event_store_events
+       WHERE stream_id = $1 AND stream_version = 1 AND tenant_id = $2 AND payload ->> 'accountId' = $3`,
+      [`inventory.restock-decision-${decisionId}`, context.tenantId, context.audit.forAccountId],
+    );
+    if (owner.rows.length === 0) return { state: initialRestockDecisionState, version: 0 };
     const events = await readOwnerHistory(deps, `inventory.restock-decision-${decisionId}`, context);
     let state = initialRestockDecisionState;
     for (const [index, event] of events.entries()) {

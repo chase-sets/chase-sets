@@ -63,16 +63,20 @@ async function harness(
     },
     db: {
       query: async <Row>(sql: string, values: readonly unknown[] = []) => ({
-        rows: (sql.includes("event_store_streams")
-          ? [
-              {
-                total: String(streams.get(String(values[0]))?.length ?? 0),
-                current_version: String(streams.get(String(values[0]))?.length ?? 0),
-              },
-            ]
-          : retained
-            ? [{ idempotency_key: `restock-decision:${pending.decisionId}:restocked` }]
-            : []) as Row[],
+        rows: (sql.includes("SELECT event_id FROM event_store_events")
+          ? values[1] === context.tenantId && values[2] === pending.accountId
+            ? [{ event_id: "synthetic-owner" }]
+            : []
+          : sql.includes("event_store_streams")
+            ? [
+                {
+                  total: String(streams.get(String(values[0]))?.length ?? 0),
+                  current_version: String(streams.get(String(values[0]))?.length ?? 0),
+                },
+              ]
+            : retained
+              ? [{ idempotency_key: `restock-decision:${pending.decisionId}:restocked` }]
+              : []) as Row[],
       }),
     },
   };
@@ -94,6 +98,44 @@ async function harness(
 }
 
 describe("issue-7169-ac8-atomic-restock: complete retained decision history", () => {
+  it("rejects a mixed audit Account even when payload and Tenant match", async () => {
+    const { deps, adjustItem, params } = await harness();
+    const read = deps.eventStore.readStream.bind(deps.eventStore);
+    const services = createRestockDecisionRuntime(
+      {
+        ...deps,
+        eventStore: {
+          ...deps.eventStore,
+          readStream: async (input) =>
+            (await read(input)).map((event) => ({ ...event, forAccountId: "acc_foreign_synthetic" })),
+        },
+      },
+      { adjustItem },
+    );
+    await expect(services.recordDecision(params, context)).rejects.toThrow("reconciliation");
+    expect(adjustItem).not.toHaveBeenCalled();
+  });
+
+  it.each(["tenant", "account"])("conceals a foreign %s exactly like a missing decision", async (scope) => {
+    const { services, adjustItem, params, deps } = await harness();
+    const foreign: EventStoreContext =
+      scope === "tenant"
+        ? { ...context, tenantId: "tnt_foreign_synthetic" }
+        : { ...context, audit: { ...context.audit, forAccountId: "acc_foreign_synthetic" } };
+    const missing = createRestockDecisionRuntime(
+      {
+        ...deps,
+        eventStore: { ...deps.eventStore, readStream: async () => [] },
+        db: { query: async () => ({ rows: [] }) },
+      },
+      { adjustItem },
+    );
+    const foreignParams = { ...params, accountId: foreign.audit.forAccountId };
+    await expect(missing.recordDecision(foreignParams, foreign)).rejects.toThrow("Restock decision not found.");
+    await expect(services.recordDecision(foreignParams, foreign)).rejects.toThrow("Restock decision not found.");
+    expect(adjustItem).not.toHaveBeenCalled();
+  });
+
   it("does not treat an unrelated order's retained restock as this decision's stock", async () => {
     const { services, adjustItem, params } = await harness(undefined, false, [
       {
