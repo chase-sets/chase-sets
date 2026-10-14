@@ -14,6 +14,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -671,7 +672,7 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
         "N1 synthetic complete-history latency",
         JSON.stringify({ outcome, itemFacts: 501, elapsedMs: performance.now() - started }),
       );
-      const item = await eventStore.readStream({ streamId: "inventory.item-inv_c2_synthetic" });
+      const item = await readCompleteStream(eventStore, { streamId: "inventory.item-inv_c2_synthetic" });
       const quantity =
         Number(item[0].payload.totalQuantity) +
         item.slice(1).reduce((sum, event) => sum + Number(event.payload.quantityDelta), 0);
@@ -1002,7 +1003,7 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
   };
   const itemId = inventorySeedIds.items.charizardBaseSetNearMint;
   const itemStream = `inventory.item-${itemId}`;
-  const locationId = inventorySeedIds.storageLocations.northShelf;
+  const locationId = inventorySeedIds.storageLocations.vaultAnnex;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog", "inventory"], "c2_seed_callers");
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
@@ -1173,6 +1174,13 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
       seedContext,
     );
     expect(batch.accepted_count).toBe(1);
+    expect(batch.rows[0].storage_location_id).toBe(targetLocation);
+    if (targetLocation === locationId) {
+      const target = await services.items.getItem(itemId, seedAccount);
+      expect(target?.storage_location_id).toBe(targetLocation);
+      expect(batch.rows[0].product_id).toBe(target?.product_id);
+      expect(batch.rows[0].selected_options).toEqual(target?.selected_options);
+    }
     return { accountId: seedAccount, batchId: batch.batch_id };
   }
 
