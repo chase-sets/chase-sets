@@ -28,8 +28,12 @@ function collectCredentialFindings(value: unknown, path = "$"): string[] {
 describe("agent connector packaging", () => {
   it("derives platform manifests from the available native MCP registry", () => {
     const packaging = buildAgentConnectorPackaging("https://marketplace.example/");
-    const toolNames = flattenAvailableMcpTools().map((tool) => tool.name);
-    const resourceTemplates = flattenAvailableMcpResources().map((resource) => resource.uriTemplate);
+    const toolNames = flattenAvailableMcpTools()
+      .filter((tool) => tool.permissionBoundary.scope !== "operator")
+      .map((tool) => tool.name);
+    const resourceTemplates = flattenAvailableMcpResources()
+      .filter((resource) => resource.permissionBoundary.scope !== "operator")
+      .map((resource) => resource.uriTemplate);
 
     expect(packaging.registration.endpoint).toBe("https://marketplace.example/mcp");
     expect(packaging.registration.protocol_versions).toEqual(SUPPORTED_MCP_PROTOCOL_VERSIONS);
@@ -42,6 +46,23 @@ describe("agent connector packaging", () => {
       expect(manifest.tool_names).toEqual(toolNames);
       expect(manifest.resource_uri_templates).toEqual(resourceTemplates);
     }
+  });
+
+  it("packages no operator capability or operator scope", () => {
+    const packaging = buildAgentConnectorPackaging("https://marketplace.example");
+    const operatorTools = flattenAvailableMcpTools().filter((tool) => tool.permissionBoundary.scope === "operator");
+    const operatorResources = flattenAvailableMcpResources().filter(
+      (resource) => resource.permissionBoundary.scope === "operator",
+    );
+    const serialized = JSON.stringify(packaging);
+
+    expect(operatorTools.map((tool) => tool.name)).toContain("platform-operations.get-offer-economics-summary");
+    expect(operatorResources.length).toBeGreaterThan(0);
+    for (const capability of [...operatorTools.map((tool) => tool.name), ...operatorResources.map((r) => r.uriTemplate)]) {
+      expect(serialized).not.toContain(`"${capability}"`);
+    }
+    expect(serialized).not.toContain('"operator"');
+    expect(serialized).not.toContain("operations:");
   });
 
   it("keeps OAuth-DCR metadata truthful and secret-free", () => {

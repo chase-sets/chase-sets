@@ -33,7 +33,7 @@
           "Public OAuth clients only; token_endpoint_auth_method must be none.",
           "No client_secret, jwks, or jwks_uri is accepted, stored, or returned.",
           "redirect_uris and platform_profile_url/client_uri must be HTTPS URLs or localhost HTTP URLs.",
-          "Registered scopes are limited to the advertised UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
+          "Registered scopes must be recognized UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
           "Authorization Code with PKCE S256 is required."
         ],
         "confidential_credential_policy": "not-used"
@@ -99,8 +99,7 @@
     "settlement.create-payout-onboarding-link",
     "platform-operations.get-seller-insight-summary",
     "platform-operations.list-support-requests",
-    "platform-operations.get-support-request",
-    "platform-operations.get-offer-economics-summary"
+    "platform-operations.get-support-request"
   ],
   "resource_uri_templates": [
     "chase-sets://authenticity/cases/{caseId}",
@@ -120,8 +119,7 @@
     "chase-sets://settlement/{accountId}/wallet",
     "chase-sets://settlement/{accountId}/payouts/{payoutId}",
     "chase-sets://platform-operations/{accountId}/insights/summary",
-    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
-    "chase-sets://platform-operations/offer-economics/summary"
+    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}"
   ],
   "platform_notes": [
     "Register as a Gemini extension backed by the native remote MCP endpoint.",

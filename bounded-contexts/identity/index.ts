@@ -1,4 +1,5 @@
 export { default as contextManifest } from "./context.json" with { type: "json" };
+export { createIdentityOperatorAuthority } from "./features/memberships/api/operator-authority";
 
 import {
   buildEventReactionsFromManifest,

@@ -8,6 +8,7 @@ import {
   agentOAuthScopesForPermissions,
   missingAgentOAuthScopesForPermissions,
   type AgentOAuthScope,
+  type OperatorAuthorityDecision,
 } from "@chase-sets/auth-context";
 
 import {
@@ -193,6 +194,23 @@ export function authorizeMcpToolInvocation(
     return { allowed: false, reason: "Confirmation is required for this MCP tool." };
   }
 
+  const matchInputValue = tool.guardrails.confirmation.matchInputValue;
+  if (tool.guardrails.confirmation.required && matchInputValue) {
+    const boundValue = input?.[matchInputValue];
+    if (typeof boundValue !== "string" || !boundValue.trim()) {
+      return {
+        allowed: false,
+        reason: `Confirmation input field '${matchInputValue}' is required for this MCP tool.`,
+      };
+    }
+    if (confirmation.text !== boundValue) {
+      return {
+        allowed: false,
+        reason: `Confirmation text must exactly match the '${matchInputValue}' input value.`,
+      };
+    }
+  }
+
   if (
     tool.guardrails.confirmation.required &&
     tool.guardrails.confirmation.matchInputField &&
@@ -234,6 +252,48 @@ export function authorizeMcpToolInvocation(
   }
 
   return { allowed: true };
+}
+
+export type McpOperatorAdmission =
+  | Readonly<{ allowed: true; authority: Extract<OperatorAuthorityDecision, { kind: "granted" }> }>
+  | Readonly<{ allowed: false; reason: string }>;
+
+/**
+ * The single predicate for every `operator` capability on discovery,
+ * invocation and resource reads. A grant must hold `operations:write`, or
+ * `operations:read` for a read; a session actor needs no scope. The authority
+ * must then grant, and its role permissions (never the actor's) must cover
+ * the capability. Scopes are checked first, so a commerce-only grant costs
+ * no authority read. Denial reasons are audit codes that name no OAuth scope.
+ */
+export async function isOperatorToolAllowed(
+  capability: Readonly<{ risk: McpToolRisk; permissionBoundary: McpPermissionBoundary }>,
+  actor: McpActor | null,
+  authority: () => Promise<OperatorAuthorityDecision>,
+): Promise<McpOperatorAdmission> {
+  if (!actor) {
+    return { allowed: false, reason: "operator-actor-required" };
+  }
+  const grantedScopes = actor.agentGrant?.scopes;
+  if (
+    grantedScopes &&
+    !grantedScopes.includes("operations:write") &&
+    !(capability.risk === "read" && grantedScopes.includes("operations:read"))
+  ) {
+    return { allowed: false, reason: "operator-grant-scope-missing" };
+  }
+  const decision = await authority();
+  if (decision.kind !== "granted") {
+    return { allowed: false, reason: `operator-authority-${decision.reason}` };
+  }
+  if (
+    !capability.permissionBoundary.requiredPermissions.every((permission) =>
+      decision.rolePermissions.includes(permission),
+    )
+  ) {
+    return { allowed: false, reason: "operator-role-permission-missing" };
+  }
+  return { allowed: true, authority: decision };
 }
 
 function missingOAuthScopesForAuthorization(
@@ -301,6 +361,19 @@ export function validateMcpServiceCatalog(
         errors.push(`${tool.name} must define an audit event and target type.`);
       }
 
+      errors.push(...operatorScopeErrors(tool.name, tool.permissionBoundary));
+
+      const { matchInputField, matchInputValue } = tool.guardrails.confirmation;
+      if (matchInputField && matchInputValue) {
+        errors.push(`${tool.name} cannot set both confirmation matchInputField and matchInputValue.`);
+      } else if (
+        matchInputValue &&
+        (tool.inputSchema.properties[matchInputValue]?.type !== "string" ||
+          !tool.inputSchema.required?.includes(matchInputValue))
+      ) {
+        errors.push(`${tool.name} confirmation matchInputValue '${matchInputValue}' must name a required string input.`);
+      }
+
       if (tool.risk !== "read") {
         if (tool.permissionBoundary.scope === "public") {
           errors.push(`${tool.name} cannot be public because it is ${tool.risk}.`);
@@ -340,8 +413,16 @@ export function validateMcpServiceCatalog(
         errors.push(`Duplicate MCP resource '${descriptor.uriTemplate}'.`);
       }
       resourceTemplates.add(descriptor.uriTemplate);
+
+      errors.push(...operatorScopeErrors(descriptor.uriTemplate, descriptor.permissionBoundary));
     }
   }
 
   return errors;
+}
+
+function operatorScopeErrors(capabilityName: string, boundary: McpPermissionBoundary): string[] {
+  return boundary.scope === "operator" && (!boundary.requiredScopes || boundary.requiredScopes.length > 0)
+    ? [`${capabilityName} is an operator capability and must declare requiredScopes: [].`]
+    : [];
 }

@@ -3,9 +3,17 @@ import { Hono } from "hono";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  isAgentOAuthOperatorScope,
+  type AgentOAuthScope,
+  type OperatorAuthority,
+  type OperatorAuthorityDecision,
+} from "@chase-sets/auth-context";
+import {
   buildMcpHandlersFromModules,
   createMcpOAuthProtectedResourceMetadataRoutes,
   createMcpRoutes,
+  MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED,
   MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
   validateMcpModuleRegistrations,
   type McpAuditRecord,
@@ -32,7 +40,7 @@ import {
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
-import { flattenAvailableMcpTools, type McpServiceDescriptor } from "./mcp-contracts";
+import { flattenAvailableMcpTools, validateMcpServiceCatalog, type McpServiceDescriptor } from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -568,7 +576,6 @@ describe("MCP runtime routes", () => {
       "payments.get-payment",
       "payments.get-refund-status",
       "payments.start-payment-method-setup",
-      "platform-operations.get-offer-economics-summary",
       "platform-operations.get-seller-insight-summary",
       "platform-operations.get-support-request",
       "platform-operations.list-support-requests",
@@ -661,7 +668,17 @@ describe("MCP runtime routes", () => {
   });
 
   it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
-    const app = createActorApp(actor);
+    const app = createActorApp(
+      { ...actor, roleKey: "platform-admin" },
+      {
+        operatorAuthority: async () => ({
+          kind: "granted",
+          membershipId: actor.membershipId,
+          roleKey: "platform-admin",
+          rolePermissions: ["insights-dashboards.view"],
+        }),
+      },
+    );
     const response = await app.request("/", {
       method: "POST",
       body: JSON.stringify(createRequest("tools/list")),
@@ -875,13 +892,6 @@ describe("MCP runtime routes", () => {
           annotations: expect.objectContaining({
             availability: "available",
             requiredPermissions: ["support.view"],
-          }),
-        }),
-        expect.objectContaining({
-          uriTemplate: "chase-sets://platform-operations/offer-economics/summary",
-          annotations: expect.objectContaining({
-            availability: "available",
-            requiredPermissions: ["insights-dashboards.view"],
           }),
         }),
       ],
@@ -2514,5 +2524,487 @@ describe("MCP runtime routes", () => {
         reason: "Import batch read failed.",
       }),
     );
+  });
+});
+
+const OPERATOR_DENIAL = "This MCP capability is not available to the authenticated actor.";
+
+const grantedPlatformAdmin = {
+  kind: "granted",
+  membershipId: "mem_op",
+  roleKey: "platform-admin",
+  rolePermissions: ["catalog.manage", "catalog.view", "insights-dashboards.view", "listings.view"],
+} as const satisfies OperatorAuthorityDecision;
+
+const operatorMatrixServices: readonly McpServiceDescriptor[] = [
+  {
+    serviceId: "platform-operations",
+    serviceName: "Platform Operations",
+    kind: "bounded-context",
+    owner: "bounded-contexts/platform-operations",
+    serviceBoundary: "Synthetic operator and commerce capabilities for the operator predicate matrix.",
+    tools: [
+      {
+        name: "platform-operations.inspect-catalog-plan",
+        title: "Inspect Catalog Plan",
+        description: "Read-risk operator tool gated on a manage permission.",
+        availability: "available",
+        serviceId: "platform-operations",
+        risk: "read",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+        permissionBoundary: {
+          scope: "operator",
+          requiredPermissions: ["catalog.manage"],
+          requiredScopes: [],
+          accountScoped: false,
+          auditPrincipal: "actor",
+        },
+        guardrails: { confirmation: { required: false }, idempotencyKey: "not-applicable", dryRunSupported: false, notes: [] },
+        audit: { eventName: "mcp.platform-operations.inspect-catalog-plan", targetType: "catalog-plan", sensitiveInputFields: [] },
+        expectedUsage: ["Synthetic operator read."],
+      },
+      {
+        name: "platform-operations.apply-catalog-plan",
+        title: "Apply Catalog Plan",
+        description: "Write-risk operator tool bound to its plan fingerprint input.",
+        availability: "available",
+        serviceId: "platform-operations",
+        risk: "sensitive",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["planFingerprint", "idempotencyKey"],
+          properties: {
+            planFingerprint: { type: "string", description: "Reviewed plan fingerprint." },
+            idempotencyKey: { type: "string", description: "Idempotency key." },
+          },
+        },
+        permissionBoundary: {
+          scope: "operator",
+          requiredPermissions: ["catalog.manage"],
+          requiredScopes: [],
+          accountScoped: false,
+          auditPrincipal: "actor",
+        },
+        guardrails: {
+          confirmation: { required: true, prompt: "Confirm the plan fingerprint.", matchInputValue: "planFingerprint" },
+          idempotencyKey: "required",
+          idempotencyAuthority: "platform",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: { eventName: "mcp.platform-operations.apply-catalog-plan", targetType: "catalog-plan", sensitiveInputFields: [] },
+        expectedUsage: ["Synthetic operator write."],
+      },
+      {
+        name: "platform-operations.list-own-listings",
+        title: "List Own Listings",
+        description: "Commerce read tool gated on a commerce scope.",
+        availability: "available",
+        serviceId: "platform-operations",
+        risk: "read",
+        inputSchema: { type: "object", additionalProperties: false, properties: {} },
+        permissionBoundary: {
+          scope: "account",
+          requiredPermissions: ["listings.view"],
+          requiredScopes: ["listings:read"],
+          accountScoped: true,
+          auditPrincipal: "actor",
+        },
+        guardrails: { confirmation: { required: false }, idempotencyKey: "not-applicable", dryRunSupported: false, notes: [] },
+        audit: { eventName: "mcp.platform-operations.list-own-listings", targetType: "listing", sensitiveInputFields: [] },
+        expectedUsage: ["Synthetic commerce read."],
+      },
+    ],
+    resources: [
+      {
+        uriTemplate: "chase-sets://platform-operations/catalog-plans/summary",
+        title: "Catalog Plan Summary",
+        description: "Operator resource.",
+        availability: "available",
+        serviceId: "platform-operations",
+        permissionBoundary: {
+          scope: "operator",
+          requiredPermissions: ["insights-dashboards.view"],
+          requiredScopes: [],
+          accountScoped: false,
+          auditPrincipal: "actor",
+        },
+        expectedUsage: ["Synthetic operator resource."],
+      },
+    ],
+  },
+];
+
+function operatorGrant(scopes: readonly AgentOAuthScope[]) {
+  return {
+    grantId: "lpa_operator",
+    platformProfileUrl: "https://agent.example/.well-known/ucp",
+    scopes,
+    rolePermissions: [...grantedPlatformAdmin.rolePermissions],
+  };
+}
+
+type OperatorMatrixRow = Readonly<{
+  label: string;
+  actor: ResolvedActor;
+  authority: OperatorAuthorityDecision;
+  operatorRead: boolean;
+  operatorWrite: boolean;
+  commerce: boolean;
+}>;
+
+const platformAdminSession: ResolvedActor = {
+  ...actor,
+  userId: "usr_op",
+  accountId: "acc_op",
+  membershipId: "mem_op",
+  roleKey: "platform-admin",
+  permissions: ["listings.view"],
+};
+// Every self-registered owner holds catalog.manage: the predicate must not read actor.permissions.
+const ownerSession: ResolvedActor = {
+  ...platformAdminSession,
+  roleKey: "owner",
+  permissions: ["catalog.manage", "catalog.view", "insights-dashboards.view", "listings.view"],
+};
+const grantActor = (scopes: readonly AgentOAuthScope[], permissions: readonly string[] = []): ResolvedActor => ({
+  ...platformAdminSession,
+  sessionId: "ucp:lpa_operator",
+  permissions,
+  agentGrant: operatorGrant(scopes),
+});
+const demoted = { kind: "denied", reason: "not-platform-admin" } as const satisfies OperatorAuthorityDecision;
+
+const operatorMatrix: readonly OperatorMatrixRow[] = [
+  {
+    label: "session, platform-admin",
+    actor: platformAdminSession,
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: true,
+    commerce: true,
+  },
+  {
+    label: "session, owner holding catalog.manage",
+    actor: ownerSession,
+    authority: demoted,
+    operatorRead: false,
+    operatorWrite: false,
+    commerce: true,
+  },
+  {
+    label: "grant with every commerce scope and no operations scope, platform-admin",
+    actor: grantActor(["catalog:read", "listings:read", "listings:write"], ["catalog.view", "listings.view"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: false,
+    operatorWrite: false,
+    commerce: true,
+  },
+  {
+    label: "grant operations:read, platform-admin",
+    actor: grantActor(["operations:read"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: false,
+    commerce: false,
+  },
+  {
+    label: "grant operations:write, platform-admin",
+    actor: grantActor(["operations:write"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: true,
+    commerce: false,
+  },
+  {
+    label: "mixed commerce and operations:write grant, platform-admin",
+    actor: grantActor(["listings:read", "operations:write"], ["listings.view"]),
+    authority: grantedPlatformAdmin,
+    operatorRead: true,
+    operatorWrite: true,
+    commerce: true,
+  },
+  {
+    label: "grant operations:write, role no longer platform-admin",
+    actor: grantActor(["listings:read", "operations:write"], ["listings.view"]),
+    authority: demoted,
+    operatorRead: false,
+    operatorWrite: false,
+    commerce: true,
+  },
+];
+
+async function postMcp(app: Hono<{ Variables: { actor: ResolvedActor } }>, method: string, params?: unknown) {
+  const response = await app.request("/", { method: "POST", body: JSON.stringify(createRequest(method, params)) });
+  const text = await response.text();
+  return { response, text, body: JSON.parse(text) as Record<string, unknown> };
+}
+
+describe("operator predicate matrix", () => {
+  it.each(operatorMatrix)("$label", async (row) => {
+    const authority = vi.fn(async () => row.authority);
+    const toolHandler = vi.fn(async () => ({ ok: true }));
+    const resourceHandler = vi.fn(async () => ({ ok: true }));
+    const audit = vi.fn();
+    const reserve = vi.fn(async () => ({ outcome: "reserved" as const, record: { key: "k", requestHash: "h" } }));
+    const app = createActorApp(row.actor, {
+      services: operatorMatrixServices,
+      operatorAuthority: authority,
+      audit,
+      idempotencyStore: { reserve, complete: vi.fn(async () => undefined), abandon: vi.fn(async () => undefined) } as never,
+      toolHandlers: {
+        "platform-operations.inspect-catalog-plan": toolHandler,
+        "platform-operations.apply-catalog-plan": toolHandler,
+        "platform-operations.list-own-listings": toolHandler,
+      },
+      resourceHandlers: { "chase-sets://platform-operations/catalog-plans/summary": resourceHandler },
+    });
+
+    const tools = await postMcp(app, "tools/list");
+    const listedTools = (tools.body.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name);
+    expect(authority.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(listedTools.includes("platform-operations.inspect-catalog-plan")).toBe(row.operatorRead);
+    expect(listedTools.includes("platform-operations.apply-catalog-plan")).toBe(row.operatorWrite);
+    expect(listedTools.includes("platform-operations.list-own-listings")).toBe(row.commerce);
+
+    const resources = await postMcp(app, "resources/list");
+    const listedResources = (resources.body.result as { resources: Array<{ uriTemplate: string }> }).resources.map(
+      (resource) => resource.uriTemplate,
+    );
+    expect(listedResources.includes("chase-sets://platform-operations/catalog-plans/summary")).toBe(row.operatorRead);
+
+    const read = await postMcp(app, "tools/call", { name: "platform-operations.inspect-catalog-plan", arguments: {} });
+    const write = await postMcp(app, "tools/call", {
+      name: "platform-operations.apply-catalog-plan",
+      arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_matrix" },
+      confirmation: { confirmed: true, text: "plan-7f3a" },
+    });
+    const resource = await postMcp(app, "resources/read", { uri: "chase-sets://platform-operations/catalog-plans/summary" });
+
+    for (const [result, admitted] of [
+      [read, row.operatorRead],
+      [write, row.operatorWrite],
+      [resource, row.operatorRead],
+    ] as const) {
+      // Rule 2b: a refusal is a plain JSON-RPC denial, never an OAuth scope challenge naming operator scopes.
+      expect(result.response.status).toBe(200);
+      expect(result.response.headers.get("WWW-Authenticate")).toBeNull();
+      expect(result.text).not.toContain("operations:");
+      expect(result.text.includes(OPERATOR_DENIAL)).toBe(!admitted);
+    }
+    expect(toolHandler).toHaveBeenCalledTimes(Number(row.operatorRead) + Number(row.operatorWrite));
+    expect(resourceHandler).toHaveBeenCalledTimes(Number(row.operatorRead));
+    expect(reserve).toHaveBeenCalledTimes(Number(row.operatorWrite));
+    const deniedOperatorAudits = audit.mock.calls.filter(
+      ([record]) => (record as McpAuditRecord).outcome === "denied",
+    ).length;
+    expect(deniedOperatorAudits).toBe(Number(!row.operatorRead) * 2 + Number(!row.operatorWrite));
+  });
+
+  it("rule 2a: the registry rejects an operator capability that declares required scopes", () => {
+    const [service] = operatorMatrixServices;
+    const scoped = {
+      ...service!,
+      tools: service!.tools.map((tool) =>
+        tool.permissionBoundary.scope === "operator"
+          ? { ...tool, permissionBoundary: { ...tool.permissionBoundary, requiredScopes: ["catalog:read" as const] } }
+          : tool,
+      ),
+    };
+    expect(validateMcpServiceCatalog([scoped], ["platform-operations"])).toEqual([
+      "platform-operations.inspect-catalog-plan is an operator capability and must declare requiredScopes: [].",
+      "platform-operations.apply-catalog-plan is an operator capability and must declare requiredScopes: [].",
+    ]);
+  });
+
+  it("hides operator capabilities from every actor when no operator authority is composed", async () => {
+    const app = createActorApp(platformAdminSession, { services: operatorMatrixServices });
+    const tools = await postMcp(app, "tools/list");
+    expect((tools.body.result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name)).toEqual([
+      "platform-operations.list-own-listings",
+    ]);
+  });
+
+  it("filters operator capabilities on the GET discovery routes with the same predicate", async () => {
+    const authority = vi.fn(async () => demoted);
+    const app = createActorApp(ownerSession, { services: operatorMatrixServices, operatorAuthority: authority });
+    const tools = (await (await app.request("/tools")).json()) as { tools: Array<{ name: string }> };
+    const resources = (await (await app.request("/resources")).json()) as { resources: unknown[] };
+    const services = (await (await app.request("/services")).json()) as { services: McpServiceDescriptor[] };
+    expect(tools.tools.map((tool) => tool.name)).toEqual(["platform-operations.list-own-listings"]);
+    expect(resources.resources).toEqual([]);
+    expect(JSON.stringify(services.services)).not.toContain("catalog-plan");
+  });
+});
+
+describe("operator invocation context", () => {
+  const offerEconomicsTool = "platform-operations.get-offer-economics-summary";
+  const offerEconomicsResource = "chase-sets://platform-operations/offer-economics/summary";
+  const operatorWriteGrant = grantActor(["operations:write"]);
+
+  it("runs the offer-economics tool and resource for an operations:write grant with Identity role permissions", async () => {
+    const seen: ResolvedActor[] = [];
+    const app = createActorApp(operatorWriteGrant, {
+      operatorAuthority: async () => grantedPlatformAdmin,
+      toolHandlers: {
+        [offerEconomicsTool]: vi.fn(async ({ actor: handlerActor }) => {
+          seen.push(handlerActor!);
+          return { snapshot: {} };
+        }),
+      },
+      resourceHandlers: {
+        [offerEconomicsResource]: vi.fn(async ({ actor: handlerActor }) => {
+          seen.push(handlerActor!);
+          return { snapshot: {} };
+        }),
+      },
+    });
+
+    const tool = await postMcp(app, "tools/call", { name: offerEconomicsTool, arguments: {} });
+    const resource = await postMcp(app, "resources/read", { uri: offerEconomicsResource });
+
+    expect(tool.body).toEqual(toolSuccessResponse("request_1", { snapshot: {} }));
+    expect(resource.body).toMatchObject({ result: { contents: [{ uri: offerEconomicsResource }] } });
+    expect(seen).toHaveLength(2);
+    for (const handlerActor of seen) {
+      expect(handlerActor).toEqual({
+        ...operatorWriteGrant,
+        roleKey: "platform-admin",
+        permissions: grantedPlatformAdmin.rolePermissions,
+      });
+      expect(handlerActor.agentGrant).toEqual(operatorWriteGrant.agentGrant);
+    }
+    // The widened actor is per call: the request actor itself is never mutated or reused.
+    expect(operatorWriteGrant.permissions).toEqual([]);
+    expect(seen[0]).not.toBe(seen[1]);
+  });
+
+  it("refuses the next call after demotion even though the first call succeeded", async () => {
+    const decisions: OperatorAuthorityDecision[] = [grantedPlatformAdmin, demoted];
+    const handler = vi.fn(async () => ({ snapshot: {} }));
+    const app = createActorApp(operatorWriteGrant, {
+      operatorAuthority: async () => decisions.shift()!,
+      toolHandlers: { [offerEconomicsTool]: handler },
+    });
+
+    expect((await postMcp(app, "tools/call", { name: offerEconomicsTool, arguments: {} })).text).not.toContain(
+      OPERATOR_DENIAL,
+    );
+    expect((await postMcp(app, "tools/call", { name: offerEconomicsTool, arguments: {} })).text).toContain(
+      OPERATOR_DENIAL,
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: "demotion", authority: async () => demoted, reason: "operator-authority-not-platform-admin" },
+    {
+      label: "revocation",
+      authority: async () => ({ kind: "denied", reason: "inactive" }) as const,
+      reason: "operator-authority-inactive",
+    },
+    {
+      label: "a mismatched membership",
+      authority: async () => ({ kind: "denied", reason: "membership-mismatch" }) as const,
+      reason: "operator-authority-membership-mismatch",
+    },
+    {
+      label: "a throwing authority",
+      authority: async () => {
+        throw new Error("event store unavailable");
+      },
+      reason: "operator-authority-authority-unavailable",
+    },
+    { label: "a missing port", authority: undefined, reason: "operator-authority-authority-unavailable" },
+  ])("$label blocks before idempotency and the handler with an awaited denied audit", async ({ authority, reason }) => {
+    const auditDone = createDeferred();
+    const auditRecords: McpAuditRecord[] = [];
+    const reserve = vi.fn();
+    const handler = vi.fn();
+    const app = createActorApp(operatorWriteGrant, {
+      services: operatorMatrixServices,
+      operatorAuthority: authority as OperatorAuthority | undefined,
+      idempotencyStore: { reserve, complete: vi.fn(), abandon: vi.fn() } as never,
+      toolHandlers: { "platform-operations.apply-catalog-plan": handler },
+      resourceHandlers: { "chase-sets://platform-operations/catalog-plans/summary": handler },
+      audit: async (record) => {
+        auditRecords.push(record);
+        await auditDone.promise;
+      },
+    });
+
+    let settled = false;
+    const pending = postMcp(app, "tools/call", {
+      name: "platform-operations.apply-catalog-plan",
+      arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_denied" },
+      confirmation: { confirmed: true, text: "plan-7f3a" },
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.waitFor(() => expect(auditRecords).toHaveLength(1));
+    expect(settled).toBe(false);
+    auditDone.resolve();
+    const result = await pending;
+
+    expect(result.body).toEqual(toolErrorResponse("request_1", OPERATOR_DENIAL));
+    expect(reserve).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditRecords).toEqual([
+      expect.objectContaining({
+        outcome: "denied",
+        method: "tools/call",
+        toolName: "platform-operations.apply-catalog-plan",
+        actorId: "usr_op",
+        agentGrantId: "lpa_operator",
+        reason,
+      }),
+    ]);
+
+    const resource = await postMcp(app, "resources/read", { uri: "chase-sets://platform-operations/catalog-plans/summary" });
+    expect(resource.body).toEqual({ jsonrpc: "2.0", id: "request_1", error: { code: -32001, message: OPERATOR_DENIAL } });
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditRecords.at(-1)).toMatchObject({ outcome: "denied", method: "resources/read", reason });
+  });
+
+  it("evaluates the operator authority at most once per request", async () => {
+    const authority = vi.fn(async () => grantedPlatformAdmin);
+    const app = createActorApp(platformAdminSession, { services: operatorMatrixServices, operatorAuthority: authority });
+    await postMcp(app, "tools/list");
+    expect(authority).toHaveBeenCalledTimes(1);
+    await postMcp(app, "resources/list");
+    expect(authority).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses an input-bound operator write whose confirmation text differs from the bound input", async () => {
+    const handler = vi.fn();
+    const app = createActorApp(platformAdminSession, {
+      services: operatorMatrixServices,
+      operatorAuthority: async () => grantedPlatformAdmin,
+      toolHandlers: { "platform-operations.apply-catalog-plan": handler },
+    });
+    const result = await postMcp(app, "tools/call", {
+      name: "platform-operations.apply-catalog-plan",
+      arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_mismatch" },
+      confirmation: { confirmed: true, text: "Apply Catalog Plan." },
+    });
+    expect(result.body).toEqual(
+      toolErrorResponse("request_1", "Confirmation text must exactly match the 'planFingerprint' input value."),
+    );
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe("operator scopes are never advertised", () => {
+  it("keeps operations:* out of protected-resource metadata and the default scope list", async () => {
+    const app = new Hono().route("/.well-known", createMcpOAuthProtectedResourceMetadataRoutes());
+    const metadata = (await (await app.request(MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH)).json()) as {
+      scopes_supported: string[];
+    };
+    expect(metadata.scopes_supported).toHaveLength(17);
+    expect(JSON.stringify(metadata)).not.toContain("operations:");
+    expect(MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED).toEqual(AGENT_OAUTH_COMMERCE_SCOPES);
+    expect(MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED.some(isAgentOAuthOperatorScope)).toBe(false);
   });
 });

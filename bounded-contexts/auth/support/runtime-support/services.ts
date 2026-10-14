@@ -7,7 +7,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { isSocialLoginProviderKey, type ResolvedActor } from "@chase-sets/auth-context";
+import { isSocialLoginProviderKey, type OperatorAuthority, type ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "../auth-support/adapters";
@@ -84,6 +84,8 @@ type AuthIdentityReadServices = Readonly<{
     tenantId: string,
     accountId: string,
   ) => ReturnType<typeof listGrantedAuthAccountCapabilities>;
+  /** Identity's aggregate-backed operator authority; absent means every operator check is denied. */
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type RegistrationAdmissionHostConfig = RegistrationAdmissionConfig &
@@ -153,6 +155,7 @@ export type AuthHostPorts = Readonly<{
    * `bounded-contexts/auth/docs/security-lifetimes.md`.
    */
   securityLifetimes?: Partial<AuthSecurityLifetimesMs>;
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
@@ -229,6 +232,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       findPendingInvitationByEmail: (email) => getPendingAuthIdentityInvitationByEmail(db, email),
       listGrantedAccountCapabilities: (tenantId, accountId) =>
         listGrantedAuthAccountCapabilities(db, tenantId, accountId),
+      operatorAuthority: ports.operatorAuthority,
     },
     awaitInvitationProjectionFreshness: createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),

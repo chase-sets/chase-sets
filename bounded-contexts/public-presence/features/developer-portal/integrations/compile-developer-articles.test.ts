@@ -66,6 +66,19 @@ describe("developer article compiler", () => {
     );
   });
 
+  it("publishes no operator capability or operator scope", async () => {
+    const { flattenMcpTools } = await import("../../../../../infrastructure/platform-runtime/mcp-contracts.ts");
+    const operatorToolNames = flattenMcpTools()
+      .filter((tool) => tool.permissionBoundary.scope === "operator")
+      .map((tool) => tool.name);
+    const catalog = compileMcpToolCatalog();
+
+    expect(operatorToolNames).toContain("platform-operations.get-offer-economics-summary");
+    for (const name of operatorToolNames) expect(catalog.map((tool) => tool.name)).not.toContain(name);
+    expect(catalog.filter((tool) => tool.permissionBoundary.scope === "operator")).toEqual([]);
+    expect(JSON.stringify(catalog)).not.toContain("operations:");
+  });
+
   it("publishes inventory adjustment reasonCode and note as optional catalog fields", () => {
     const tool = compileMcpToolCatalog().find((candidate) => candidate.name === "inventory.adjust-item");
 

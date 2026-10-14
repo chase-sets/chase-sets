@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AgentOAuthScope } from "@chase-sets/auth-context";
 import {
   CORE_MCP_SERVICE_IDS,
   EXTERNAL_MCP_SERVICE_IDS,
@@ -8,12 +9,14 @@ import {
   flattenAvailableMcpTools,
   flattenMcpTools,
   getMcpToolConfirmationExpectedValue,
+  isOperatorToolAllowed,
   mcpServiceCatalog,
   validateMcpServiceCatalog,
   type McpActor,
   type McpJsonSchema,
   type McpJsonSchemaProperty,
   type McpServiceDescriptor,
+  type McpToolDescriptor,
 } from "./mcp-contracts";
 
 const accountActor: McpActor = {
@@ -926,5 +929,275 @@ describe("MCP tool authorization", () => {
       expect(tool.guardrails.idempotencyKey).toBe("required");
       expect(tool.audit.sensitiveInputFields).toContain("idempotencyKey");
     }
+  });
+});
+
+const inputBoundTool: McpToolDescriptor = {
+  name: "platform-operations.apply-plan",
+  title: "Apply Plan",
+  description: "Apply one reviewed plan.",
+  serviceId: "platform-operations",
+  risk: "sensitive",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["planFingerprint", "idempotencyKey"],
+    properties: {
+      planFingerprint: { type: "string", description: "Fingerprint of the reviewed plan." },
+      idempotencyKey: { type: "string", description: "Idempotency key." },
+    },
+  },
+  permissionBoundary: {
+    scope: "operator",
+    requiredPermissions: ["catalog.manage"],
+    requiredScopes: [],
+    accountScoped: false,
+    auditPrincipal: "actor",
+  },
+  guardrails: {
+    confirmation: { required: true, prompt: "Confirm the plan fingerprint.", matchInputValue: "planFingerprint" },
+    idempotencyKey: "required",
+    idempotencyAuthority: "platform",
+    dryRunSupported: false,
+    notes: [],
+  },
+  audit: { eventName: "mcp.platform-operations.apply-plan", targetType: "plan", sensitiveInputFields: [] },
+  expectedUsage: ["Use after reviewing the plan."],
+};
+
+const operatorActor: McpActor = { actorId: "usr_op", accountId: "acc_op", permissions: ["catalog.manage"] };
+
+function catalogWith(tool: McpToolDescriptor): readonly McpServiceDescriptor[] {
+  return [
+    {
+      serviceId: "platform-operations",
+      serviceName: "Platform Operations",
+      kind: "bounded-context",
+      owner: "bounded-contexts/platform-operations",
+      serviceBoundary: "Synthetic operator service.",
+      tools: [tool],
+      resources: [],
+    },
+  ];
+}
+
+describe("MCP input-bound confirmation", () => {
+  const input = { planFingerprint: "plan-7f3a", idempotencyKey: "idem_1" };
+
+  it("accepts confirmation text equal to the bound input value", () => {
+    expect(
+      authorizeMcpToolInvocation(inputBoundTool, operatorActor, { confirmed: true, text: "plan-7f3a" }, input),
+    ).toEqual({ allowed: true });
+    expect(getMcpToolConfirmationExpectedValue(inputBoundTool)).toBeNull();
+  });
+
+  it.each([
+    { label: "a mismatched value", text: "plan-0000" },
+    { label: "the tool title", text: "Apply Plan." },
+    { label: "a whitespace-padded value", text: " plan-7f3a" },
+    { label: "no confirmation text", text: null },
+  ])("rejects $label", ({ text }) => {
+    expect(authorizeMcpToolInvocation(inputBoundTool, operatorActor, { confirmed: true, text }, input)).toEqual({
+      allowed: false,
+      reason: "Confirmation text must exactly match the 'planFingerprint' input value.",
+    });
+  });
+
+  it.each([
+    { label: "missing", value: undefined },
+    { label: "empty", value: "" },
+    { label: "blank", value: "   " },
+    { label: "non-string", value: 7 },
+  ])("rejects a $label bound input even when the text matches it", ({ value }) => {
+    expect(
+      authorizeMcpToolInvocation(
+        inputBoundTool,
+        operatorActor,
+        { confirmed: true, text: typeof value === "string" ? value : "" },
+        { idempotencyKey: "idem_1", ...(value === undefined ? {} : { planFingerprint: value }) },
+      ),
+    ).toEqual({ allowed: false, reason: "Confirmation input field 'planFingerprint' is required for this MCP tool." });
+  });
+
+  it("still requires confirmed: true", () => {
+    expect(
+      authorizeMcpToolInvocation(inputBoundTool, operatorActor, { confirmed: false, text: "plan-7f3a" }, input),
+    ).toEqual({ allowed: false, reason: "Confirmation is required for this MCP tool." });
+  });
+
+  it("leaves title-bound tools unchanged", () => {
+    const tool = findMcpTool("settlement.request-payout")!;
+    expect(tool.guardrails.confirmation.matchInputValue).toBeUndefined();
+    expect(getMcpToolConfirmationExpectedValue(tool)).toBe("Request Payout.");
+    expect(flattenMcpTools().filter((candidate) => candidate.guardrails.confirmation.matchInputValue)).toEqual([]);
+  });
+
+  it("rejects a tool that sets both confirmation modes or binds a field that is not a required string input", () => {
+    const both = {
+      ...inputBoundTool,
+      guardrails: {
+        ...inputBoundTool.guardrails,
+        confirmation: { ...inputBoundTool.guardrails.confirmation, matchInputField: "planFingerprint" },
+      },
+    };
+    const unknownField = {
+      ...inputBoundTool,
+      guardrails: {
+        ...inputBoundTool.guardrails,
+        confirmation: { ...inputBoundTool.guardrails.confirmation, matchInputValue: "missing" },
+      },
+    };
+    const optionalField = {
+      ...inputBoundTool,
+      inputSchema: { ...inputBoundTool.inputSchema, required: ["idempotencyKey"] },
+    };
+    const nonStringField = {
+      ...inputBoundTool,
+      inputSchema: {
+        ...inputBoundTool.inputSchema,
+        properties: {
+          ...inputBoundTool.inputSchema.properties,
+          planFingerprint: { type: "integer" as const, description: "Numeric fingerprint." },
+        },
+      },
+    };
+
+    expect(validateMcpServiceCatalog(catalogWith(inputBoundTool), ["platform-operations"])).toEqual([]);
+    expect(validateMcpServiceCatalog(catalogWith(both), ["platform-operations"])).toEqual([
+      "platform-operations.apply-plan cannot set both confirmation matchInputField and matchInputValue.",
+    ]);
+    for (const tool of [unknownField, optionalField, nonStringField]) {
+      expect(validateMcpServiceCatalog(catalogWith(tool), ["platform-operations"])).toEqual([
+        `platform-operations.apply-plan confirmation matchInputValue '${tool.guardrails.confirmation.matchInputValue}' must name a required string input.`,
+      ]);
+    }
+  });
+});
+
+describe("MCP operator capability registry", () => {
+  it("gives every cataloged operator capability empty required scopes", () => {
+    const operatorCapabilities = mcpServiceCatalog.flatMap((service) =>
+      [...service.tools, ...service.resources].filter(
+        (capability) => capability.permissionBoundary.scope === "operator",
+      ),
+    );
+    expect(operatorCapabilities.length).toBeGreaterThan(0);
+    for (const capability of operatorCapabilities) {
+      expect(capability.permissionBoundary.requiredScopes).toEqual([]);
+    }
+  });
+
+  it("rejects an operator tool or resource that declares required scopes (rule 2a)", () => {
+    const scopedTool = {
+      ...inputBoundTool,
+      permissionBoundary: { ...inputBoundTool.permissionBoundary, requiredScopes: ["listings:write" as const] },
+    };
+    const [service] = catalogWith(inputBoundTool);
+    const scopedResource = {
+      ...service!,
+      resources: [
+        {
+          uriTemplate: "chase-sets://platform-operations/plans",
+          title: "Plans",
+          description: "Synthetic operator resource.",
+          serviceId: "platform-operations",
+          permissionBoundary: { ...inputBoundTool.permissionBoundary, requiredScopes: ["catalog:read" as const] },
+          expectedUsage: ["Synthetic."],
+        },
+      ],
+    };
+
+    expect(validateMcpServiceCatalog(catalogWith(scopedTool), ["platform-operations"])).toEqual([
+      "platform-operations.apply-plan is an operator capability and must declare requiredScopes: [].",
+    ]);
+    expect(validateMcpServiceCatalog([scopedResource], ["platform-operations"])).toEqual([
+      "chase-sets://platform-operations/plans is an operator capability and must declare requiredScopes: [].",
+    ]);
+  });
+});
+
+describe("isOperatorToolAllowed", () => {
+  const readTool = { ...inputBoundTool, risk: "read" as const };
+  const writeTool = inputBoundTool;
+  const granted = {
+    kind: "granted",
+    membershipId: "mem_op",
+    roleKey: "platform-admin",
+    rolePermissions: ["catalog.manage"],
+  } as const;
+  const grantActor = (scopes: readonly AgentOAuthScope[]): McpActor => ({
+    ...operatorActor,
+    permissions: [],
+    agentGrant: {
+      grantId: "lpa_op",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      scopes,
+      rolePermissions: ["catalog.manage"],
+    },
+  });
+
+  it.each([
+    { label: "session actor, read tool", actor: operatorActor, tool: readTool, allowed: true },
+    { label: "session actor, write tool", actor: operatorActor, tool: writeTool, allowed: true },
+    { label: "operations:read grant, read tool", actor: grantActor(["operations:read"]), tool: readTool, allowed: true },
+    {
+      label: "operations:read grant, write tool",
+      actor: grantActor(["operations:read"]),
+      tool: writeTool,
+      allowed: false,
+    },
+    {
+      label: "operations:write grant, read tool",
+      actor: grantActor(["operations:write"]),
+      tool: readTool,
+      allowed: true,
+    },
+    {
+      label: "operations:write grant, write tool",
+      actor: grantActor(["operations:write"]),
+      tool: writeTool,
+      allowed: true,
+    },
+    {
+      label: "commerce-only grant, read tool",
+      actor: grantActor(["catalog:read", "listings:write"]),
+      tool: readTool,
+      allowed: false,
+    },
+    { label: "no actor", actor: null, tool: readTool, allowed: false },
+  ])("$label: allowed=$allowed with a granted authority", async ({ actor, tool, allowed }) => {
+    const admission = await isOperatorToolAllowed(tool, actor, async () => granted);
+    expect(admission.allowed).toBe(allowed);
+  });
+
+  it.each(["no-membership", "inactive", "not-platform-admin", "membership-mismatch", "authority-unavailable"] as const)(
+    "denies a %s authority for every actor",
+    async (reason) => {
+      for (const actor of [operatorActor, grantActor(["operations:write"])]) {
+        await expect(
+          isOperatorToolAllowed(readTool, actor, async () => ({ kind: "denied", reason })),
+        ).resolves.toEqual({ allowed: false, reason: `operator-authority-${reason}` });
+      }
+    },
+  );
+
+  it("denies when the authority's role permissions lack the tool's required permission", async () => {
+    await expect(
+      isOperatorToolAllowed(readTool, operatorActor, async () => ({ ...granted, rolePermissions: ["catalog.view"] })),
+    ).resolves.toEqual({ allowed: false, reason: "operator-role-permission-missing" });
+  });
+
+  it("checks the grant's scopes before reading the authority and names no scope in the reason", async () => {
+    let reads = 0;
+    const admission = await isOperatorToolAllowed(
+      writeTool,
+      grantActor(["operations:read", "catalog:read"]),
+      async () => {
+        reads += 1;
+        return granted;
+      },
+    );
+    expect(admission).toEqual({ allowed: false, reason: "operator-grant-scope-missing" });
+    expect(reads).toBe(0);
   });
 });

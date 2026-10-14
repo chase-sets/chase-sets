@@ -119,7 +119,7 @@ function oauthConfiguration(origin: string): AgentConnectorOAuthConfiguration {
         "Public OAuth clients only; token_endpoint_auth_method must be none.",
         "No client_secret, jwks, or jwks_uri is accepted, stored, or returned.",
         "redirect_uris and platform_profile_url/client_uri must be HTTPS URLs or localhost HTTP URLs.",
-        "Registered scopes are limited to the advertised UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
+        "Registered scopes must be recognized UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
         "Authorization Code with PKCE S256 is required.",
       ],
       confidential_credential_policy: "not-used",
@@ -159,6 +159,11 @@ function resourceRegistration(resource: McpResourceDescriptor): AgentConnectorRe
   };
 }
 
+// Operator capabilities are reached only by platform-admin operators over unadvertised scopes; never packaged.
+function isPackagedCapability(capability: Pick<McpToolDescriptor | McpResourceDescriptor, "permissionBoundary">) {
+  return capability.permissionBoundary.scope !== "operator";
+}
+
 function buildRegistration(origin: string): AgentConnectorRegistration {
   const baseUrl = normalizeOrigin(origin);
   return {
@@ -170,8 +175,8 @@ function buildRegistration(origin: string): AgentConnectorRegistration {
       type: "oauth2-pkce",
       oauth: oauthConfiguration(baseUrl),
     },
-    tools: flattenAvailableMcpTools().map(toolRegistration),
-    resources: flattenAvailableMcpResources().map(resourceRegistration),
+    tools: flattenAvailableMcpTools().filter(isPackagedCapability).map(toolRegistration),
+    resources: flattenAvailableMcpResources().filter(isPackagedCapability).map(resourceRegistration),
   };
 }
 
