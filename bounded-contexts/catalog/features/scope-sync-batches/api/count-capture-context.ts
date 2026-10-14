@@ -15,9 +15,6 @@ export type CountCapturePlannerObservation<T> = Readonly<{
   winners: readonly CountSourceWinner[];
 }>;
 
-// One planner read of the capture scope selects at most six winners; more is
-// not the bounded read this observation describes.
-const maxWinners = 6;
 const observations = new AsyncLocalStorage<Observation>();
 
 // The planner reports its own result; outside an observed read this does nothing.
@@ -27,8 +24,8 @@ export function observeCountCapturePlan(result: PlannerResult): void {
 
 // Observes the one planner read `work` performs and binds every selected Scrydex
 // unit's count source to exactly one winner that read selected. Missing,
-// duplicate, extra, nested or excess evidence stops the read; nothing is
-// re-planned or re-read to infer what the read consumed.
+// duplicate, extra or nested evidence stops the read; nothing is re-planned or
+// re-read to infer what the read consumed.
 export async function collectCountCapturePlannerRead<T>(
   work: () => Promise<T>,
 ): Promise<CountCapturePlannerObservation<T>> {
@@ -39,10 +36,7 @@ export async function collectCountCapturePlannerRead<T>(
   }
   const observation: Observation = { plans: [], winners: [], stopped: false };
   const value = await observations.run(observation, () =>
-    observeCountSourceWinners((winner) => {
-      if (observation.winners.length >= maxWinners) observation.stopped = true;
-      else observation.winners.push(structuredClone(winner));
-    }, work),
+    observeCountSourceWinners((winner) => observation.winners.push(structuredClone(winner)), work),
   );
   const plans = [...observation.plans];
   const winners = [...observation.winners];
@@ -51,36 +45,37 @@ export async function collectCountCapturePlannerRead<T>(
   return { value, plan: plans[0]!, winners };
 }
 
+// Each winner belongs to exactly one selected Scrydex unit and no unit has two.
+// A unit's winner is the source its estimate consumed, matched by query key and
+// source fingerprint, or null when it consumed none; every consumed source has
+// its winner. A source the plan did not consume is not this read's evidence,
+// even when its totals match a consumed one.
 function winnersMatchPlan(plan: PlannerResult, winners: readonly CountSourceWinner[]): boolean {
   try {
     const units = plan.plans.flatMap((scope) =>
       scope.participationPreview.units.filter((unit) => unit.selected && unit.providerKey === "scrydex"),
     );
-    const keys = winners.map((winner) => countQueryKey(winner.query));
-    if (new Set(keys).size !== keys.length) return false;
-    const consumed = new Set<CountSourceWinner>();
-    for (const unit of units) {
-      const source = unit.estimate.countSource;
-      if (!source) continue;
-      const winner = winners[keys.indexOf(countQueryKey(source.query))];
-      if (!winner || countFingerprint(winner.source) !== countFingerprint(source)) return false;
-      consumed.add(winner);
+    const claimed = new Set<(typeof units)[number]>();
+    for (const winner of winners) {
+      const owners = units.filter(
+        (unit) =>
+          unit.unitKey === winner.query.unitKey &&
+          unit.profileKey === winner.query.profileKey &&
+          unit.profileVersion === winner.query.profileVersion,
+      );
+      const unit = owners[0];
+      if (owners.length !== 1 || !unit || claimed.has(unit)) return false;
+      claimed.add(unit);
+      const source = unit.estimate.countSource ?? null;
+      if (
+        source
+          ? countQueryKey(winner.query) !== countQueryKey(source.query) ||
+            countFingerprint(winner.source) !== countFingerprint(source)
+          : winner.source !== null
+      )
+        return false;
     }
-    // Any other winner must be a selected unit's read that found no current
-    // source; a source the plan did not consume is not this read's evidence,
-    // even when its totals match a consumed one.
-    return winners.every(
-      (winner) =>
-        consumed.has(winner) ||
-        (winner.source === null &&
-          units.some(
-            (unit) =>
-              !unit.estimate.countSource &&
-              unit.unitKey === winner.query.unitKey &&
-              unit.profileKey === winner.query.profileKey &&
-              unit.profileVersion === winner.query.profileVersion,
-          )),
-    );
+    return units.every((unit) => !unit.estimate.countSource || claimed.has(unit));
   } catch {
     return false;
   }

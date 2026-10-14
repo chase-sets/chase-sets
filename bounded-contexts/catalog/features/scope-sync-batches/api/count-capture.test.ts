@@ -164,6 +164,15 @@ describe("captures actual winners", () => {
     await expect(collectCountCapturePlannerRead(() => planner.resolve(input))).rejects.toThrow(CountCaptureStopped);
   });
 
+  it("stops on a duplicate absent winner for a unit that consumed no source", async () => {
+    const reader = createCaptureReaderFixture({ counts: {} });
+    const { planner, input } = createCapturePlannerFixture(async (kind) => {
+      if (kind === "cards") await reader.read(captureCountQuery(kind));
+      return reader.read(captureCountQuery(kind));
+    });
+    await expect(collectCountCapturePlannerRead(() => planner.resolve(input))).rejects.toThrow(CountCaptureStopped);
+  });
+
   it("stops a second planner request or a read without one", async () => {
     const reader = createCaptureReaderFixture();
     const { planner, input } = createCapturePlannerFixture((kind) => reader.read(captureCountQuery(kind)));
@@ -171,6 +180,17 @@ describe("captures actual winners", () => {
       collectCountCapturePlannerRead(async () => {
         await planner.resolve(input);
         return planner.resolve(input);
+      }),
+    ).rejects.toThrow(CountCaptureStopped);
+    // Without count reads, only the plan count tells two planner requests from one.
+    const unread = createCapturePlannerFixture(async () => null);
+    await expect(collectCountCapturePlannerRead(() => unread.planner.resolve(unread.input))).resolves.toMatchObject({
+      winners: [],
+    });
+    await expect(
+      collectCountCapturePlannerRead(async () => {
+        await unread.planner.resolve(unread.input);
+        return unread.planner.resolve(unread.input);
       }),
     ).rejects.toThrow(CountCaptureStopped);
     await expect(collectCountCapturePlannerRead(() => reader.read(captureCountQuery("cards")))).rejects.toThrow(
