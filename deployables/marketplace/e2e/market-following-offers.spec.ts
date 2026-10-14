@@ -336,6 +336,14 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
         });
         expect(preview.ok()).toBe(true);
         const reviewed = await preview.json();
+        expect(reviewed.preview.outcomes).toEqual(
+          offerIds.map((offerId) =>
+            expect.objectContaining({
+              offerId,
+              result: expect.objectContaining({ status: "target", unitItemAmount: fixture.amount }),
+            }),
+          ),
+        );
         const authorized = await page.request.post(commandUrl, {
           data: {
             type: "AuthorizeBuyerOfferPolicy",
@@ -388,9 +396,21 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
                 const response = await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`, {
                   headers: freshReadHeaders("marketplace"),
                 });
-                return { httpStatus: response.status(), ...(await response.json()) };
+                const match = await response.json();
+                return {
+                  httpStatus: response.status(),
+                  ...match,
+                  hasStock: match.seller_available_quantity >= match.quantity_requested,
+                };
               })
-              .toMatchObject({ httpStatus: 200, can_fulfill: true, listing_id: listingId });
+              .toMatchObject({
+                httpStatus: 200,
+                can_fulfill: true,
+                listing_id: listingId,
+                managed_status: null,
+                seller_listing_availability_status: "available",
+                hasStock: true,
+              });
             const match = await (
               await seller.request.get(`/api/marketplace/account/offers/matches/${offerId}`, {
                 headers: freshReadHeaders("marketplace"),
