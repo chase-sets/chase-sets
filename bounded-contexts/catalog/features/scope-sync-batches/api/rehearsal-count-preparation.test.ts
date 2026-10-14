@@ -240,6 +240,9 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     advance: (ms: number) => {
       clock = later(ms, clock);
     },
+    driftQuery: () => {
+      definitions[0] = { ...definitions[0]!, query: countQuery("OP09", "cards") };
+    },
     setMembership: (value: string) => {
       membership = value;
     },
@@ -426,11 +429,12 @@ describe("rehearsal count preparation (AC1)", () => {
 });
 
 describe("rehearsal count preparation stops (AC3)", () => {
-  it("refuses drift: membership, profile/query and authority drift stop without sends", async () => {
-    for (const drift of ["membership", "authority"] as const) {
+  it("refuses drift: membership/profile, exact-query and authority drift stop without sends", async () => {
+    for (const drift of ["membership", "query", "authority"] as const) {
       const h = harness();
       const approval = approvalFor(await quoted(h), h.now());
       if (drift === "membership") h.setMembership("9".repeat(64));
+      else if (drift === "query") h.driftQuery();
       else h.setAuthority("9".repeat(64));
       const receipt = await acquire(h, approval);
       expect(receipt).toMatchObject({ outcome: "failed", acquisition: { response: { status: 409, state: null } } });
