@@ -162,6 +162,11 @@ function lawCases(): Case[] {
     }),
     census("L2 exactly 20000 profile entries", "CLEAR", { bulk: { dir: `${PROFILE}\\Default`, count: 19997 } }),
     census("L2 collection timeout", "CENSUS_INCOMPLETE", { clockStepMs: 200000 }),
+    census("L2 root resolution past the deadline", "CENSUS_INCOMPLETE", { slow: { path: ROOT, ms: 121000 } }),
+    census("L2 reference resolution past the deadline", "CENSUS_INCOMPLETE", {
+      ...withProcesses(tool(800, "C:\\slow\\reference")),
+      slow: { path: "C:\\slow\\reference", ms: 121000 },
+    }),
     census("L2 absent profile is zero entries", "CLEAR", {
       fs: fs({}, [PROFILE, `${PROFILE}\\Default`, `${PROFILE}\\Default\\Cookies`, `${ROOT}\\PROFIL~1`]),
     }),
@@ -184,6 +189,22 @@ function lawCases(): Case[] {
     census("L3 ungranted driver alive", "RUN_TRACKING_INCOMPLETE", job([700], { 700: { ...MEMBER, created: 70 } }), {
       run: { ...GRANTED, state: "PENDING" },
     }),
+    // The PID list held only 701, which created 702 and exited before its handle was opened.
+    census(
+      "L3 member born behind the job PID list as its parent exits",
+      "RUN_TRACKING_INCOMPLETE",
+      {
+        ...job([701], { 701: "vanished", 702: { ...MEMBER, created: 72 } }),
+        ...withProcesses({ ...chrome(702, "--type=renderer"), parentPid: 701, created: 72 }),
+      },
+      { run: GRANTED },
+    ),
+    census(
+      "L3 job accounting failure with no listed member",
+      "RUN_TRACKING_INCOMPLETE",
+      { job: { limits: "0x0/0x0", pids: [], open: {}, activeThrow: true } },
+      { run: GRANTED },
+    ),
     census(
       "L4 switchless grandchild after intermediate and driver exit is RUN",
       "RUN_TREE_ALIVE",
@@ -348,6 +369,11 @@ function startCases(): Case[] {
     start("start withholds the grant after a limit change", "REFUSED", { limitsAfter: "0x1000/0x0" }),
     start("start withholds the grant without a readable start time", "REFUSED", { created: null }),
     start("start withholds after a failed grant write", "REFUSED", { writeOk: false }),
+    start("start closes the grant pipe after a thrown grant write", "REFUSED", { writeOk: "throw" }),
+    start("start keeps a thrown grant write PENDING until the driver exits", "PENDING", {
+      writeOk: "throw",
+      exits: false,
+    }),
     start("start keeps an unexited ungranted driver PENDING", "PENDING", { inJob: false, exits: false }),
     start("start keeps a withheld run with live members PENDING", "PENDING", { inJob: false, active: 1 }),
     start("start keeps an owner failure after creation PENDING", "PENDING", { inJob: "throw", exits: "throw" }),
@@ -425,6 +451,18 @@ function witnessCases(): Case[] {
     }),
     witness("witness is INVALID when the default Chrome roots changed", "INVALID", {
       phases: phase(2, { processes: [SELF_ROW, { ...CHROME_ROOT, created: 55 }, CHROME_CHILD] }),
+    }),
+    witness("witness is INVALID when a W3 default-root removal is restored by W4", "INVALID", {
+      phases: phase(2, { processes: [SELF_ROW, CHROME_CHILD] }),
+    }),
+    witness("witness is INVALID when a default Chrome root restarts between W3 and W4", "INVALID", {
+      phases: phase(3, { processes: [SELF_ROW, { ...CHROME_ROOT, created: 999 }, CHROME_CHILD] }),
+    }),
+    witness("witness is INVALID when the default Chrome root is gone at W4", "INVALID", {
+      phases: phase(3, { processes: [SELF_ROW, CHROME_CHILD] }),
+    }),
+    witness("witness is INVALID when a default Chrome root is added at W4", "INVALID", {
+      phases: phase(3, { processes: [...DEFAULT_ONLY, chrome(5100)] }),
     }),
     witness("witness fails without a browser event and still closes normally", "FAIL", { witness: { line: null } }),
     witness("witness fails when scratch is still present after deletion", "FAIL", {
@@ -510,7 +548,11 @@ function New-SyntheticNative($Spec) {
       foreach ($row in $script:current.processes) { @{} + $row }
     }
     DriveFixed = { param($Drive) $Drive -in $script:current.fixed }
-    Open = { param($Path, $Follow) Invoke-SyntheticOpen $Path $Follow 0 }
+    Open = {
+      param($Path, $Follow)
+      if ($script:current.slow -and $script:current.slow.path -ceq $Path) { $script:clock = $script:clock.AddMilliseconds([double]$script:current.slow.ms) }
+      Invoke-SyntheticOpen $Path $Follow 0
+    }
     Entry = { param($Path) Invoke-SyntheticOpen $Path $false 0 }
     List = {
       param($Directory)
@@ -558,10 +600,22 @@ function New-SyntheticNative($Spec) {
     }
     InJob = { param($Process, $Job) $script:calls.Add('InJob'); if ("$($script:current.start.inJob)" -ceq 'throw') { throw 'synthetic' }; [bool]$script:current.start.inJob }
     Created = { param($Process) $script:calls.Add('Created'); if ($null -eq $script:current.start.created) { throw 'synthetic' }; [long]$script:current.start.created }
-    WriteLine = { param($Writer, $Line) $script:calls.Add('Grant:' + $Line); [bool]$script:current.start.writeOk }
+    WriteLine = {
+      param($Writer, $Line)
+      if ("$($script:current.start.writeOk)" -ceq 'throw') { throw 'synthetic pipe write failure' }
+      $script:calls.Add('Grant:' + $Line); [bool]$script:current.start.writeOk
+    }
     CloseWriter = { param($Writer) $script:calls.Add('CloseWriter') }
     WaitExit = { param($Process, $Ms) $script:calls.Add('WaitExit'); if ("$($script:current.start.exits)" -ceq 'throw') { throw 'synthetic' }; [bool]$script:current.start.exits }
-    JobActive = { param($Job) [int]$script:current.start.active }
+    JobActive = {
+      param($Job)
+      $script:calls.Add('JobActive')
+      if ($script:current.job.activeThrow) { throw 'synthetic job accounting failure' }
+      if ($null -ne $script:current.job.active) { return [int]$script:current.job.active }
+      # The job's own count: every live in-job process, listed or not.
+      if ($script:current.job) { return @($script:current.job.open.Values | Where-Object { $_ -isnot [string] -and $_.inJob -and $_.alive }).Count }
+      [int]$script:current.start.active
+    }
     WitnessDriver = { 'C:\seat\selector-run-profile-census-witness.mjs' }
     ScriptSha256 = { 'b' * 64 }
     DriverSha256 = { 'c' * 64 }
@@ -621,6 +675,23 @@ type Witness = {
   scratchDeleted: boolean;
   scratchAbsent: boolean;
 };
+const WITNESS_KEYS = [
+  "format",
+  "verdict",
+  "code",
+  "at",
+  "scriptSha256",
+  "driverSha256",
+  "chromiumSha256",
+  "d0",
+  "d1",
+  "w1",
+  "w2",
+  "w3",
+  "w4",
+  "scratchDeleted",
+  "scratchAbsent",
+];
 type Started = { state: string; code: string; censusAfter: string };
 type Outcome = { value: unknown; calls: string[] };
 const asCensus = (outcome: Outcome) => outcome.value as Census;
@@ -746,6 +817,21 @@ describe("selector-run-profile-census-law", () => {
     }
   });
 
+  it("accepts a zero-member run as empty only on the same job's zero active count", () => {
+    expect(outcomes["L3 member born behind the job PID list as its parent exits"].calls).toContain("JobActive");
+    for (const name of [
+      "L4 vanished job member is ignored",
+      "L4 reused PID non-member is not RUN",
+      "L4 empty job ignores a reused admitted PID",
+    ]) {
+      expect(code(outcomes[name])).toBe("CLEAR");
+      expect(outcomes[name].calls).toContain("JobActive");
+    }
+    expect(outcomes["L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR"].calls).not.toContain(
+      "JobActive",
+    );
+  });
+
   it("digests only the default Chrome roots by PID and start, so a restarted root changes D1", () => {
     const first = asCensus(outcomes["L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR"]);
     const second = asCensus(outcomes["L7 other user-data-dir is OTHER and never blocks"]);
@@ -825,6 +911,39 @@ const MUTANTS: Array<{ name: string; from: string; to: string; killedBy: string 
     to: "$result.code = 'CLEAR'",
     killedBy: "L2 process enumeration failure",
   },
+  {
+    name: "stale PID list as empty job",
+    from: "if (-not $members.Count -and (& $Native.JobActive $Run.job) -ne 0) { return @{ state = 'LOST'; members = @() } }",
+    to: "",
+    killedBy: "L3 member born behind the job PID list as its parent exits",
+  },
+  {
+    name: "deadline after root resolution",
+    from: "$deadline = (& $Native.Now).AddMilliseconds($script:SelectorCensusTimeoutMs)\n    $context = Get-SelectorRunPaths $Root $Native",
+    to: "$context = Get-SelectorRunPaths $Root $Native\n    $deadline = (& $Native.Now).AddMilliseconds($script:SelectorCensusTimeoutMs)",
+    killedBy: "L2 root resolution past the deadline",
+  },
+  {
+    name: "no classification deadline",
+    from: "if ((& $Native.Now) -gt $deadline) { throw 'CLASSIFICATION_TIMEOUT' }",
+    to: "",
+    killedBy: "L2 reference resolution past the deadline",
+  },
+];
+
+const WITNESS_MUTANTS: Array<{ name: string; from: string; to: string; killedBy: string }> = [
+  {
+    name: "W3-bound D1",
+    from: "$result.d1 = $result.w4.defaultRootDigest",
+    to: "",
+    killedBy: "witness is INVALID when a default Chrome root restarts between W3 and W4",
+  },
+  {
+    name: "final-only D1",
+    from: " -or $Result.w3.defaultRootDigest -cne $Result.d0",
+    to: "",
+    killedBy: "witness is INVALID when a W3 default-root removal is restored by W4",
+  },
 ];
 
 describe("selector-run-profile-census-law mutants", () => {
@@ -841,6 +960,26 @@ describe("selector-run-profile-census-law mutants", () => {
     expectClosedCensus(outcomes[target!.name].value);
     expect(code(outcomes[target!.name])).not.toBe(target!.expect);
   });
+});
+
+describe("selector-run-profile-census-witness mutants", () => {
+  const source = readFileSync(script, "utf8");
+  const cases = witnessCases();
+  it.each(WITNESS_MUTANTS.map((mutant) => [mutant.name, mutant] as const))(
+    "%s FAILS its named witness case",
+    (_name, mutant) => {
+      expect(source.split(mutant.from)).toHaveLength(2);
+      const target = cases.find((entry) => entry.name === mutant.killedBy);
+      expect(target).toBeDefined();
+      const mutated = path.join(scratch, `witness-mutant-${mutant.name.replaceAll(/[^a-z0-9]+/gi, "-")}.ps1`);
+      writeFileSync(mutated, source.replace(mutant.from, mutant.to));
+      const value = run([target!], mutated)[target!.name].value as Witness;
+      // Killed behaviourally: a closed witness result that reaches the false PASS.
+      expect(Object.keys(value)).toEqual(WITNESS_KEYS);
+      expect(value.verdict).not.toBe(target!.expect);
+      expect(value.verdict).toBe("PASS");
+    },
+  );
 });
 
 describe("selector-run-profile-census-boundary", () => {
@@ -934,25 +1073,12 @@ describe("selector-run-profile-census-boundary", () => {
     const outcome = outcomes[entry.name];
     const value = outcome.value as Witness;
     expect({ verdict: value.verdict, code: value.code }).toMatchObject({ verdict: entry.expect });
-    expect(Object.keys(value)).toEqual([
-      "format",
-      "verdict",
-      "code",
-      "at",
-      "scriptSha256",
-      "driverSha256",
-      "chromiumSha256",
-      "d0",
-      "d1",
-      "w1",
-      "w2",
-      "w3",
-      "w4",
-      "scratchDeleted",
-      "scratchAbsent",
-    ]);
+    expect(Object.keys(value)).toEqual(WITNESS_KEYS);
     for (const step of [value.w1, value.w2, value.w3, value.w4]) if (step !== null) expectClosedCensus(step);
     expect(JSON.stringify(value)).not.toMatch(/\\|synthetic|seat/i);
+    // D1 is the final post-deletion census whenever one exists.
+    if (value.w4 !== null) expect(value.d1).toBe(value.w4.defaultRootDigest);
+    if (entry.expect === "INVALID") expect(value.code).toBe("DEFAULT_ROOTS_CHANGED");
     const removals = outcome.calls.filter((call) => call === "RemoveScratch");
     if (entry.expect === "REFUSED") {
       expect(outcome.calls).not.toContain("CreateRoot");

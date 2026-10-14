@@ -8,6 +8,8 @@
 $ErrorActionPreference = 'Stop'
 $script:SelectorPathComparison = [StringComparison]::OrdinalIgnoreCase
 $script:SelectorEntryLimit = 20000
+# Checked between primitive calls from root resolution to completion. A native call in progress is
+# not cancelled (CIM enumeration has its own 60 s operation timeout), so it is not a hard wall clock.
 $script:SelectorCensusTimeoutMs = 120000
 $script:SelectorGrantTimeoutMs = 30000
 $script:SelectorLaunchTimeoutMs = 120000
@@ -196,6 +198,9 @@ function Get-SelectorRunTracking($Run, $Native, $Held) {
     if ($Run.state -cne 'GRANTED' -or $null -eq $Run.job) { return @{ state = 'LOST'; members = @() } }
     if ((& $Native.JobLimits $Run.job) -cne $Run.limits) { return @{ state = 'LOST'; members = @() } }
     $members = @(Get-SelectorJobMembers $Run $Native $Held)
+    # The PID list is not atomic: a listed process can create a child and exit before its handle opens.
+    # No live member means an empty job only when the same job counts no active process.
+    if (-not $members.Count -and (& $Native.JobActive $Run.job) -ne 0) { return @{ state = 'LOST'; members = @() } }
     return @{ state = 'HELD'; members = $members }
   } catch { return @{ state = 'LOST'; members = @() } }
 }
@@ -242,9 +247,9 @@ function Get-SelectorRunProfileCensus {
   $held = [Collections.Generic.List[object]]::new()
   try {
     if ($null -eq $Native) { $Native = New-SelectorRunProfileNative }
+    $deadline = (& $Native.Now).AddMilliseconds($script:SelectorCensusTimeoutMs)
     $context = Get-SelectorRunPaths $Root $Native
     if ($context.conflict) { $result.code = 'ROOT_CONFLICT'; return $result }
-    $deadline = (& $Native.Now).AddMilliseconds($script:SelectorCensusTimeoutMs)
     $self = & $Native.Self
     $tracking = Get-SelectorRunTracking $Run $Native $held
     $processes = @(& $Native.Processes)
@@ -293,6 +298,7 @@ function Get-SelectorRunProfileCensus {
     $counts.referenced = $tally.REFERENCED; $counts.unresolved = $tally.UNRESOLVED
     $counts.unreadable = $tally.unreadable; $counts.holders = $foreign.Count
     $result.defaultRootDigest = Get-SelectorDigest @($roots | Sort-Object { [long]($_ -split ':')[0] }, { [long]($_ -split ':')[1] })
+    if ((& $Native.Now) -gt $deadline) { throw 'CLASSIFICATION_TIMEOUT' }
     $result.complete = $true
     $result.code = if ($members.Count) {
       $named = @($members | Where-Object { $_.pid -eq $Admitted.pid })
@@ -340,9 +346,12 @@ function Start-SelectorRunOwned {
     } catch { $valid = $false }
     if ($valid) {
       $grant = [ordered]@{ format = 'selector-run-grant/v1'; pid = $run.driver.pid; payload = $Payload } | ConvertTo-Json -Compress -Depth 3
-      if (& $Native.WriteLine $start.Stdin $grant) { $run.state = 'GRANTED'; $run.code = 'RUN_GRANTED'; return $run }
+      $written = $false
+      try { $written = & $Native.WriteLine $start.Stdin $grant } catch { $written = $false }
+      if ($written) { $run.state = 'GRANTED'; $run.code = 'RUN_GRANTED'; return $run }
     }
-    # Withheld grant: EOF on the driver's own grant pipe makes it exit normally.
+    # Withheld grant, including a failed or thrown write: EOF on the driver's own grant pipe makes it
+    # exit normally.
     $run.state = 'PENDING'; $run.code = 'RUN_TRACKING_INCOMPLETE'
     & $Native.CloseWriter $start.Stdin
     if ((& $Native.WaitExit $start.Process $script:SelectorGrantTimeoutMs) -and (& $Native.JobActive $run.job) -eq 0) {
@@ -393,7 +402,8 @@ function Get-SelectorWitnessVerdict($Result, $Run) {
     if ($step[0] -ceq 'NO_SWITCHLESS_CHROME_ROOT') { return @('NOT_EXERCISED', $step[0]) }
     return @('FAIL', $step[0])
   }
-  if ($Result.d1 -cne $Result.d0) { return @('INVALID', 'DEFAULT_ROOTS_CHANGED') }
+  # D1 (final) must equal D0, and a W3 change stays a violation even if the roots return by W4.
+  if ($Result.d1 -cne $Result.d0 -or $Result.w3.defaultRootDigest -cne $Result.d0) { return @('INVALID', 'DEFAULT_ROOTS_CHANGED') }
   return @('PASS', 'WITNESS_PASS')
 }
 
@@ -450,6 +460,8 @@ function Invoke-SelectorRunProfileWitness {
       $result.scratchDeleted = $true
       $result.scratchAbsent = -not (& $Native.Exists $Root)
       $result.w4 = Get-SelectorRunProfileCensus -Root $Root -Run $run -Admitted $admitted -Native $Native
+      # D1 is the final post-deletion observation of the default roots.
+      $result.d1 = $result.w4.defaultRootDigest
     }
     $verdict = Get-SelectorWitnessVerdict $result $run
     $result.verdict = $verdict[0]; $result.code = $verdict[1]
