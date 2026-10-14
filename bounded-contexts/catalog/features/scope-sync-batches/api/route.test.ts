@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { scopeSyncBatchRoutes } from "./route";
+import { createScopeSyncCountRuntime } from "./count-runtime";
 import { ScopeSyncBatchStalePreviewError } from "../domain/batch";
 import { heldSetExportContract } from "../domain/held-set-export";
 import type { ResolvedActor } from "@chase-sets/auth-context";
@@ -69,6 +70,75 @@ describe("Scope Sync Batch routes", () => {
     });
     expect(response.status).toBe(200);
     expect(acquireCounts).toHaveBeenCalledWith({ ...body, context });
+  });
+  it("forwards only the closed whole-quote admission and the opt-in preparation read", async () => {
+    const acquireCounts = vi.fn(async () => ({ state: "complete" }));
+    const getCountQuote = vi.fn(async () => ({ state: "quoted" }));
+    const admin = app({ acquireCounts, getCountQuote }, countActor("platform-admin"));
+    const body = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const post = (value: unknown) =>
+      admin.request("/counts/acquire", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify(value),
+      });
+    expect((await post({ ...body, admission: "whole-quote" })).status).toBe(200);
+    expect(acquireCounts).toHaveBeenCalledExactlyOnceWith({ ...body, admission: "whole-quote", context });
+    for (const admission of ["partial", "WHOLE-QUOTE", null, true])
+      expect((await post({ ...body, admission })).status, String(admission)).toBe(400);
+    expect(acquireCounts).toHaveBeenCalledOnce();
+
+    expect((await admin.request(`/counts/quote/${body.quoteId}`)).status).toBe(200);
+    expect((await admin.request(`/counts/quote/${body.quoteId}?view=preparation`)).status).toBe(200);
+    expect(getCountQuote.mock.calls).toEqual([
+      [{ quoteId: body.quoteId, context }],
+      [{ quoteId: body.quoteId, view: "preparation", context }],
+    ]);
+    for (const query of ["view=debits", "view=preparation&page=2", "cursor=1"])
+      expect((await admin.request(`/counts/quote/${body.quoteId}?${query}`)).status, query).toBe(400);
+    expect(getCountQuote).toHaveBeenCalledTimes(2);
+  });
+  it("serves the preparation read only in staging through the count runtime", async () => {
+    const quoteId = "00000000-0000-4000-8000-000000000001";
+    const quote = { quoteId, state: "quoted" };
+    const counts = (environment: string) => {
+      const store = {
+        loadQuote: vi.fn(async () => quote),
+        retainedQuote: vi.fn(async () => quote),
+        preparationView: vi.fn(async () => ({ ...quote, view: "preparation" })),
+      };
+      const runtime = createScopeSyncCountRuntime({
+        pool: {} as never,
+        store: store as never,
+        environment,
+        accountRevision: "runtime",
+        profiles: {} as never,
+        adapterOptions: {},
+      });
+      return { store, admin: app(runtime, countActor("platform-admin")) };
+    };
+
+    const staging = counts("staging");
+    const prepared = await staging.admin.request(`/counts/quote/${quoteId}?view=preparation`);
+    expect(prepared.status).toBe(200);
+    expect(await prepared.json()).toEqual({ ...quote, view: "preparation" });
+    expect(staging.store.preparationView).toHaveBeenCalledExactlyOnceWith(quote);
+
+    for (const environment of ["production", "test", "local", "", "Staging"]) {
+      const f = counts(environment);
+      const refused = await f.admin.request(`/counts/quote/${quoteId}?view=preparation`);
+      expect(refused.status, environment).toBe(409);
+      expect(await refused.json(), environment).toMatchObject({ error: { code: "count-acquisition-refused" } });
+      expect(f.store.loadQuote, environment).not.toHaveBeenCalled();
+      expect(f.store.preparationView, environment).not.toHaveBeenCalled();
+    }
+
+    const production = counts("production");
+    const ordinary = await production.admin.request(`/counts/quote/${quoteId}`);
+    expect(ordinary.status).toBe(200);
+    expect(await ordinary.json()).toEqual(quote);
+    expect(production.store.retainedQuote).toHaveBeenCalledExactlyOnceWith(quote);
+    expect(production.store.preparationView).not.toHaveBeenCalled();
   });
   it("resolves one closed multipart file without logging or retaining its body", async () => {
     const resolveHeldSets = vi.fn().mockResolvedValue({ resolved: [], unresolved: [], totals: {} });

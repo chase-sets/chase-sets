@@ -57,7 +57,11 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
   });
   app.post("/counts/acquire", async (c) => {
     const body = z
-      .object({ quoteId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) })
+      .object({
+        quoteId: z.uuid(),
+        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+        admission: z.literal("whole-quote").optional(),
+      })
       .strict()
       .parse(await c.req.json());
     return c.json(await services.acquireCounts({ ...body, context: c.get("context") }));
@@ -74,7 +78,11 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
   });
   app.get("/counts/quote/:quoteId", async (c) => {
     const quoteId = z.uuid().parse(c.req.param("quoteId"));
-    return c.json(await services.getCountQuote({ quoteId, context: c.get("context") }));
+    const query = z
+      .object({ view: z.literal("preparation").optional() })
+      .strict()
+      .parse(c.req.query());
+    return c.json(await services.getCountQuote({ quoteId, ...query, context: c.get("context") }));
   });
 
   app.post("/resolve-held-sets", async (c) => {
