@@ -83,6 +83,7 @@ describe("Catalog provider UAT immutable admission", () => {
 const workflowSource = (file) => readFileSync(resolve(file), "utf8");
 const sharedResetConcurrencyWorkflowFiles = [
   ".github/workflows/catalog-integration-staging-reset.yml",
+  ".github/workflows/catalog-staging-count-preparation.yml",
   ".github/workflows/catalog-staging-provider-uat.yml",
   ".github/workflows/platform-staging-wake-drills.yml",
   ".github/workflows/platform-staging-mixed-version-wake-drills.yml",
