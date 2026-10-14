@@ -250,7 +250,7 @@ export function syntheticCountLifecycleReceipt() {
     usage: {
       bootstrap: "skipped",
       creditState: "available",
-      totalCredits: 1000,
+      totalCredits: 1000 as number | null,
       remainingCredits: 100,
       usedCredits: 900,
       observedAt: "2026-10-13T08:01:00.000Z",
@@ -275,8 +275,8 @@ export function syntheticCountLifecycleReceipt() {
       comparedFingerprint: planFingerprint,
       currentFingerprint: planFingerprint,
       eligible: true,
-      refusal: null,
-      blockers: [],
+      refusal: null as string | null,
+      blockers: [] as string[],
       effectsCapability: false,
     },
     effects: {
@@ -319,7 +319,7 @@ export function syntheticCountLifecycleStopReceipt() {
 export function syntheticCountCapturePlannerRead(phase: "preview" | "pre-confirm" = "preview") {
   const receipt = syntheticCountLifecycleReceipt();
   const units = receipt.units.map((unit, index) => {
-    const acquired = receipt.acquisitions[index - 1];
+    const acquired = index === 0 ? undefined : receipt.acquisitions[index - 1];
     return {
       providerKey: "scrydex",
       unitKey: unit.unitKey,
