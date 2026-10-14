@@ -381,7 +381,7 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
     },
   );
 
-  it.each([
+  const invalidInstants = [
     "2026-02-30T00:00:00Z",
     "2025-02-29T00:00:00Z",
     "2026-13-01T00:00:00Z",
@@ -390,46 +390,46 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
     "2026-01-01T24:00:00Z",
     "2026-01-01T00:60:00Z",
     "2026-01-01T00:00:60Z",
-  ])("rejects calendar-invalid pending/recorded %s before stock/decision/receipt writes", async (instant) => {
-    const streamId = `inventory.restock-decision-${pending.decisionId}`;
-    const [first] = await eventStore.readStream({ streamId });
-    await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1", [
-      streamId,
-      JSON.stringify({ pendingAt: instant }),
-    ]);
-    let before = await durableSnapshot();
-    for (const outcome of ["restocked", "written-off"] as const)
-      await expect(
-        services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID())),
-      ).rejects.toThrow("reconciliation");
-    expect(await durableSnapshot()).toEqual(before);
-    await pool.query("UPDATE event_store_events SET payload = $2::jsonb WHERE stream_id = $1", [
-      streamId,
-      JSON.stringify(first.payload),
-    ]);
-    await appendDecision([
-      {
-        eventType: "inventory.restock-decision.recorded",
-        payload: {
-          decisionId: pending.decisionId,
-          accountId: context.audit.forAccountId,
-          orderId: "ord_c2_synthetic",
-          itemId: "inv_c2_synthetic",
-          quantity: 2,
-          outcome: "written-off",
-          reason: "written-off",
-          sourceRef: first.payload.sourceRef,
-          damageNote: null,
-          decidedAt: instant,
-        },
-      },
-    ]);
-    before = await durableSnapshot();
-    await expect(
-      services.restockDecisions.recordDecision(choice(), withInventoryMutationAttempt(context, randomUUID())),
-    ).rejects.toThrow("reconciliation");
-    expect(await durableSnapshot()).toEqual(before);
-  });
+  ];
+  it.each(invalidInstants.flatMap((instant) => (["pending", "recorded"] as const).map((role) => ({ instant, role }))))(
+    "rejects calendar-invalid $role $instant before stock/decision/receipt writes",
+    async ({ instant, role }) => {
+      const streamId = `inventory.restock-decision-${pending.decisionId}`;
+      const [first] = await eventStore.readStream({ streamId });
+      if (role === "pending")
+        await pool.query("UPDATE event_store_events SET payload = payload || $2::jsonb WHERE stream_id = $1", [
+          streamId,
+          JSON.stringify({ pendingAt: instant }),
+        ]);
+      else
+        await appendDecision([
+          {
+            eventType: "inventory.restock-decision.recorded",
+            payload: {
+              decisionId: pending.decisionId,
+              accountId: context.audit.forAccountId,
+              orderId: "ord_c2_synthetic",
+              itemId: "inv_c2_synthetic",
+              quantity: 2,
+              outcome: "written-off",
+              reason: "written-off",
+              sourceRef: first.payload.sourceRef,
+              damageNote: null,
+              decidedAt: instant,
+            },
+          },
+        ]);
+      const before = await durableSnapshot();
+      for (const outcome of ["restocked", "written-off"] as const)
+        await expect(
+          services.restockDecisions.recordDecision(
+            choice(outcome),
+            withInventoryMutationAttempt(context, randomUUID()),
+          ),
+        ).rejects.toThrow("reconciliation");
+      expect(await durableSnapshot()).toEqual(before);
+    },
+  );
 
   it.each(["2024-02-29T12:34:56Z", "2024-02-29T12:34:56.123456789+05:30", "2024-02-29T12:34:56.1-06:00"])(
     "retains valid leap-day, offset and fractional instant %s",

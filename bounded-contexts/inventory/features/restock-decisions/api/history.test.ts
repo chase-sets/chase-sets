@@ -210,22 +210,21 @@ describe("issue-7169-ac8-atomic-restock: complete retained decision history", ()
     "2026-01-01T00:00:60Z",
     "2026-01-01T00:00:00+24:00",
   ];
-  it.each(invalidInstants)(
-    "rejects calendar-invalid pending and recorded instant %s before writes",
-    async (instant) => {
-      for (const facts of [
-        [{ eventType: "inventory.restock-decision.pending", payload: { ...pending, pendingAt: instant } }],
-        [
-          { eventType: "inventory.restock-decision.pending", payload: pending },
-          { eventType: "inventory.restock-decision.recorded", payload: { ...recorded, decidedAt: instant } },
-        ],
-      ]) {
-        const fixture = await harness(facts);
-        const before = structuredClone(fixture.streams);
-        await expect(fixture.services.recordDecision(fixture.params, context)).rejects.toThrow("reconciliation");
-        expect(fixture.streams).toEqual(before);
-        expect(fixture.adjustItem).not.toHaveBeenCalled();
-      }
+  it.each(invalidInstants.flatMap((instant) => (["pending", "recorded"] as const).map((role) => ({ instant, role }))))(
+    "rejects calendar-invalid $role instant $instant before writes",
+    async ({ instant, role }) => {
+      const facts =
+        role === "pending"
+          ? [{ eventType: "inventory.restock-decision.pending", payload: { ...pending, pendingAt: instant } }]
+          : [
+              { eventType: "inventory.restock-decision.pending", payload: pending },
+              { eventType: "inventory.restock-decision.recorded", payload: { ...recorded, decidedAt: instant } },
+            ];
+      const fixture = await harness(facts);
+      const before = structuredClone(fixture.streams);
+      await expect(fixture.services.recordDecision(fixture.params, context)).rejects.toThrow("reconciliation");
+      expect(fixture.streams).toEqual(before);
+      expect(fixture.adjustItem).not.toHaveBeenCalled();
     },
   );
   it.each(["2024-02-29T12:34:56Z", "2024-02-29T12:34:56.123456789+05:30", "2024-02-29T12:34:56.1-06:00"])(
