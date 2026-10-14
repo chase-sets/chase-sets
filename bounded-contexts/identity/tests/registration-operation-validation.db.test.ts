@@ -31,6 +31,7 @@ import {
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -77,6 +78,7 @@ describeDb("registration operation semantic validation", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
   let eventStore: EventStore;
   let services: IdentityServices;
+  let consentFixture: Awaited<ReturnType<typeof activeRegistrationConsentFixture>>;
   const context: EventStoreContext = createBootstrapContext();
 
   function createServices(store: EventStore): IdentityServices {
@@ -86,6 +88,7 @@ describeDb("registration operation semantic validation", () => {
       db: pool,
     } as const;
     return {
+      ...consentFixture,
       eventStore: store,
       db: pool,
       accounts: createAccountRuntime(dependencies),
@@ -113,6 +116,7 @@ describeDb("registration operation semantic validation", () => {
     await pool.query(identityAccountSchemaSql);
 
     eventStore = createPostgresEventStore({ pool });
+    consentFixture = await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" });
     services = createServices(eventStore);
   });
 
@@ -697,6 +701,7 @@ describeDb("registration operation semantic validation", () => {
   });
 
   it("captures authoritative state beyond the first event-store page", async () => {
+    const before = await stateSnapshot();
     await appendEvents(
       "identity.snapshot-pagination-control",
       Array.from({ length: 501 }, (_, ordinal) => ({
@@ -707,7 +712,7 @@ describeDb("registration operation semantic validation", () => {
 
     const snapshot = await stateSnapshot();
 
-    expect(snapshot.events).toHaveLength(501);
+    expect(snapshot.events).toHaveLength(before.events.length + 501);
     expect(snapshot.events.at(-1)).toMatchObject({
       streamId: "identity.snapshot-pagination-control",
       streamVersion: 501,
