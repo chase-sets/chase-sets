@@ -757,6 +757,10 @@
       }
     }
   ],
+  "agentCoverage": {
+    "ordering-postage-policies": { "pending": "#9238" },
+    "ordering-postage-policies-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

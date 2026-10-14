@@ -707,6 +707,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "inventory-recovered-items": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

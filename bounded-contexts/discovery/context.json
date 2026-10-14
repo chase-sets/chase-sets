@@ -1041,6 +1041,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "google-shopping": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
