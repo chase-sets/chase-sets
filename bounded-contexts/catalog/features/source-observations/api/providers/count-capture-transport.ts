@@ -132,6 +132,8 @@ export function countCaptureTransport(
         classified.category === "usage" && usage ? { ...classified, usage } : classified,
       );
       if (!Number.isSafeInteger(sequence) || sequence < 1) throw new CountCaptureStopped();
+      // A sibling send may have stopped the request while this debit committed; the debit stays.
+      if (request.stopped) throw new CountCaptureStopped();
       // A followed redirect would be an undebited second send.
       const response = await transport(input, { ...init, redirect: "manual" });
       if (!response.ok || response.redirected) {

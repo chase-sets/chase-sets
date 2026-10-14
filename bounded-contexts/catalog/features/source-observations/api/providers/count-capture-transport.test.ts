@@ -23,8 +23,9 @@ import {
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
 } from "./scrydex/adapter";
 
-// Credential-free loopback: the guard classifies the real Scrydex target, and the
-// test transport alone rewrites that origin to a local server it can observe.
+// Credential-free loopback: the guard classifies the real target, and the test
+// transport sends only its path and query to a local server it can observe, so
+// even a guard-disabled hostile target never leaves loopback.
 const scrydex = "https://api.scrydex.com";
 const credentials = { apiKey: "synthetic-capture-key", teamId: "synthetic-capture-team" };
 const usageUrl = `${scrydex}/account/v1/usage`;
@@ -72,8 +73,8 @@ function fixture(phase: CountCaptureBinding["phase"] = "preview", next: Reply = 
   };
   const transport = vi.fn<typeof fetch>(async (input, init) => {
     order.push("transport");
-    const target = input instanceof Request ? input.url : String(input);
-    return fetch(target.replace(scrydex, origin), init);
+    const target = new URL(input instanceof Request ? input.url : String(input));
+    return fetch(`${origin}${target.pathname}${target.search}`, init);
   });
   const binding: CountCaptureBinding = {
     runId: "00000000-0000-4000-8000-000000000001",
@@ -101,6 +102,61 @@ const countQuery = (kind: "cards" | "sealed") =>
     languageCode: "en",
     parentValue: "OP01",
   });
+
+const cardsCountUrl = `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`;
+
+// Holds the acknowledgement of the next debit after it commits until the test releases it.
+function holdNextDebit(f: ReturnType<typeof fixture>) {
+  let committed!: () => void;
+  let release!: () => void;
+  const debited = new Promise<void>((resolve) => (committed = resolve));
+  const acknowledged = new Promise<void>((resolve) => (release = resolve));
+  f.ledger.debit.mockImplementationOnce(async (_binding, send) => {
+    f.order.push("debit");
+    f.debits.push(send);
+    committed();
+    await acknowledged;
+    return f.debits.length;
+  });
+  return { debited, release };
+}
+
+const hostileSends = [
+  ["another provider", "tcgdex", usageUrl, "usage", undefined],
+  ["another origin", "scrydex", "https://attacker.invalid/account/v1/usage", "usage", undefined],
+  ["another port", "scrydex", "https://api.scrydex.com:8443/account/v1/usage", "usage", undefined],
+  ["plain http", "scrydex", "http://api.scrydex.com/account/v1/usage", "usage", undefined],
+  ["embedded credentials", "scrydex", "https://user:pass@api.scrydex.com/account/v1/usage", "usage", undefined],
+  ["a fragment", "scrydex", `${usageUrl}#x`, "usage", undefined],
+  ["a non-GET method", "scrydex", usageUrl, "usage", { method: "POST" }],
+  ["an unclassified category", "scrydex", usageUrl, undefined, undefined],
+  ["an unknown category", "scrydex", `${scrydex}/onepiece/v1/expansions`, "discovery", undefined],
+  ["a usage query", "scrydex", `${usageUrl}?extra=1`, "usage", undefined],
+  ["usage spoofed as a count", "scrydex", usageUrl, "card-force", undefined],
+  ["a count spoofed as usage", "scrydex", cardsCountUrl, "usage", undefined],
+  [
+    "a second count page",
+    "scrydex",
+    `${scrydex}/onepiece/v1/cards?page=2&page_size=250&q=printings:OP01&select=id`,
+    "card-force",
+    undefined,
+  ],
+  ["an extra count key", "scrydex", `${cardsCountUrl}&x=1`, "card-force", undefined],
+  [
+    "a card search that is not a set count",
+    "scrydex",
+    `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=name:x&select=id`,
+    "card-force",
+    undefined,
+  ],
+  [
+    "another product domain",
+    "scrydex",
+    `${scrydex}/lorcana/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`,
+    "card-force",
+    undefined,
+  ],
+] as const;
 
 describe("refuses unsafe sends", () => {
   it.each(["cards", "sealed"] as const)("debits a %s count before its one manual-redirect send", async (kind) => {
@@ -131,54 +187,7 @@ describe("refuses unsafe sends", () => {
     ]);
   });
 
-  it.each([
-    ["another provider", "tcgdex", usageUrl, "usage", undefined],
-    ["another origin", "scrydex", "https://attacker.invalid/account/v1/usage", "usage", undefined],
-    ["another port", "scrydex", "https://api.scrydex.com:8443/account/v1/usage", "usage", undefined],
-    ["plain http", "scrydex", "http://api.scrydex.com/account/v1/usage", "usage", undefined],
-    ["embedded credentials", "scrydex", "https://user:pass@api.scrydex.com/account/v1/usage", "usage", undefined],
-    ["a fragment", "scrydex", `${usageUrl}#x`, "usage", undefined],
-    ["a non-GET method", "scrydex", usageUrl, "usage", { method: "POST" }],
-    ["an unclassified category", "scrydex", usageUrl, undefined, undefined],
-    ["an unknown category", "scrydex", `${scrydex}/onepiece/v1/expansions`, "discovery", undefined],
-    ["a usage query", "scrydex", `${usageUrl}?extra=1`, "usage", undefined],
-    ["usage spoofed as a count", "scrydex", usageUrl, "card-force", undefined],
-    [
-      "a count spoofed as usage",
-      "scrydex",
-      `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`,
-      "usage",
-      undefined,
-    ],
-    [
-      "a second count page",
-      "scrydex",
-      `${scrydex}/onepiece/v1/cards?page=2&page_size=250&q=printings:OP01&select=id`,
-      "card-force",
-      undefined,
-    ],
-    [
-      "an extra count key",
-      "scrydex",
-      `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id&x=1`,
-      "card-force",
-      undefined,
-    ],
-    [
-      "a card search that is not a set count",
-      "scrydex",
-      `${scrydex}/onepiece/v1/cards?page=1&page_size=250&q=name:x&select=id`,
-      "card-force",
-      undefined,
-    ],
-    [
-      "another product domain",
-      "scrydex",
-      `${scrydex}/lorcana/v1/cards?page=1&page_size=250&q=printings:OP01&select=id`,
-      "card-force",
-      undefined,
-    ],
-  ] as const)("refuses %s before any debit or transport", async (_label, provider, url, category, init) => {
+  it.each(hostileSends)("refuses %s before any debit or transport", async (_label, provider, url, category, init) => {
     const f = fixture();
     await expect(
       f.run(() => sendCatalogProviderRequest(provider, f.transport, url, init, category)),
@@ -186,6 +195,28 @@ describe("refuses unsafe sends", () => {
     expect(f.ledger.debit).not.toHaveBeenCalled();
     expect(f.transport).not.toHaveBeenCalled();
     expect(f.ledger.stop).toHaveBeenCalled();
+  });
+
+  it("keeps every guard-bypassed fixture send on the loopback server", async () => {
+    const f = fixture();
+    const loopbackFetch = globalThis.fetch;
+    const emitted: string[] = [];
+    // Refuses a non-loopback target before any I/O so this containment check is itself contained.
+    const sent = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const target = new URL(input instanceof Request ? input.url : String(input));
+      emitted.push(target.origin);
+      if (target.origin !== origin) throw new Error(`non-loopback fixture send to ${target.origin}`);
+      return loopbackFetch(input, init);
+    });
+    try {
+      for (const [, , url, , init] of hostileSends) await (await f.transport(url, init)).text();
+      await (await f.transport(usageUrl)).text();
+    } finally {
+      sent.mockRestore();
+    }
+    expect(emitted).toEqual(Array.from({ length: hostileSends.length + 1 }, () => origin));
+    expect(hits).toHaveLength(hostileSends.length + 1);
+    expect(hits.at(-1)).toBe("/account/v1/usage");
   });
 
   it.each([
@@ -248,6 +279,41 @@ describe("refuses unsafe sends", () => {
     expect(hits).toHaveLength(1);
     expect(swallowed).toHaveLength(2);
     expect(f.order.filter((step) => step === "debit")).toHaveLength(1);
+  });
+
+  it("sends nothing when a refused sibling stops the request while a debit is acknowledged", async () => {
+    const f = fixture("acquisition");
+    const held = holdNextDebit(f);
+    const outcome = f.run(async () => {
+      const pending = f.send(cardsCountUrl, "card-force");
+      await held.debited;
+      await f.send("https://attacker.invalid/account/v1/usage", "usage").catch(() => undefined);
+      held.release();
+      return pending;
+    });
+    await expect(outcome).rejects.toBeInstanceOf(CountCaptureStopped);
+    expect(f.transport).not.toHaveBeenCalled();
+    expect(hits).toHaveLength(0);
+    expect(f.debits).toHaveLength(1);
+    expect(f.order).toEqual(["debit", "stop"]);
+  });
+
+  it("sends nothing when a sibling's failed result commit stops the request while a debit is acknowledged", async () => {
+    const f = fixture();
+    const held = holdNextDebit(f);
+    f.ledger.result.mockRejectedValueOnce(new Error("synthetic result commit failure"));
+    const outcome = f.run(async () => {
+      const pending = f.send();
+      await held.debited;
+      await f.send().catch(() => undefined);
+      held.release();
+      return pending;
+    });
+    await expect(outcome).rejects.toBeInstanceOf(CountCaptureStopped);
+    expect(f.transport).toHaveBeenCalledTimes(1);
+    expect(hits).toEqual(["/account/v1/usage"]);
+    expect(f.debits).toHaveLength(2);
+    expect(f.order).toEqual(["debit", "debit", "transport", "stop"]);
   });
 
   it("refuses a nested capture request and stops the outer one even when the refusal is swallowed", async () => {
