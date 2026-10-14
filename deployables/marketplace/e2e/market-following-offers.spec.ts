@@ -440,7 +440,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           const sales = await seller.request.get("/api/marketplace/account/sales?limit=100", {
             headers: freshReadHeaders("ordering"),
           });
-          expect(sales.ok(), "receipted Sales handoff waits for accepted Offers and their Order projections").toBe(true);
+          expect(sales.ok(), "receipted Sales handoff waits for accepted Offers and their Order projections").toBe(
+            true,
+          );
           const committedSales = await sales.json();
           expect(committedSales.count).toBe(committedSales.total);
           const offerOrders = committedSales.items.filter(
