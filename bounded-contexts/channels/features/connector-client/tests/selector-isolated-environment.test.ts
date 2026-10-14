@@ -22,6 +22,7 @@ let handoff: {
   maxMessageBytes: number;
   actualEnvironment: string;
   acceptance: string;
+  guestRunRoot: string;
   operations: { S: string[]; C: string[] };
 };
 
@@ -84,8 +85,8 @@ beforeAll(() => {
     relayHash: codeHash,
     landedHead: git("rev-parse", "HEAD").trim(),
     stagingReadOnly: true,
-    guestRoot: "C:\\SelectorRuns\\selector-capability-synthetic",
-    guestProfile: "C:\\SelectorRuns\\selector-capability-synthetic\\profile",
+    guestRoot: "C:\\SelectorRepo\\artifacts\\9115\\selector-capability-synthetic",
+    guestProfile: "C:\\SelectorRepo\\artifacts\\9115\\selector-capability-synthetic\\profile",
     staging: stage,
     export: exported,
     journal,
@@ -117,15 +118,16 @@ Case 'folded-mode-hash' { $m = Clone; $m.definitionHash = Get-SelectorDigest ([T
 Case 'writable-staging' { $m = Clone; $m.stagingReadOnly = $false; Assert-SelectorConfiguration $m }
 Case 'mapped-profile' { $m = Clone; $m.guestProfile = 'C:\SelectorStaging\profile'; Assert-SelectorConfiguration $m }
 Case 'mapped-root' { $m = Clone; $m.guestRoot = 'C:\SelectorExport\run'; Assert-SelectorConfiguration $m }
+Case 'non-repo-local-root' { $m = Clone; $m.guestRoot = 'C:\SelectorRuns\' + $m.runId; $m.guestProfile = $m.guestRoot + '\profile'; Assert-SelectorConfiguration $m }
 Case 'unknown-property' { $m = Clone; $m.command = 'whoami'; Assert-SelectorConfiguration $m }
 Case 'unknown-environment' { $m = Clone; $m.environment = 'host-desktop'; Assert-SelectorConfiguration $m }
 Case 'wrong-scope' { $m = Clone; $m.purpose = 'B'; $m.modeHash = Get-SelectorModeHash $m; Assert-SelectorConfiguration $m }
 foreach ($purpose in @('A', 'B')) {
-  Case ($purpose + '-provider-reachable') { $m = Clone; $m.purpose = $purpose; if ($purpose -ceq 'B') { $m.runId = 'selector-rehearsal-synthetic'; $m.guestRoot = 'C:\SelectorRuns\' + $m.runId; $m.guestProfile = $m.guestRoot + '\profile' }; $m.networkMode = 'provider-reachable'; $m.osEgressBlocked = $false; $m.resolverRules = ''; $m.modeHash = Get-SelectorModeHash $m; Assert-SelectorConfiguration $m }
+  Case ($purpose + '-provider-reachable') { $m = Clone; $m.purpose = $purpose; if ($purpose -ceq 'B') { $m.runId = 'selector-rehearsal-synthetic'; $m.guestRoot = 'C:\SelectorRepo\artifacts\9115\' + $m.runId; $m.guestProfile = $m.guestRoot + '\profile' }; $m.networkMode = 'provider-reachable'; $m.osEgressBlocked = $false; $m.resolverRules = ''; $m.modeHash = Get-SelectorModeHash $m; Assert-SelectorConfiguration $m }
 }
 foreach ($purpose in @('S', 'C')) {
   $live = Clone; $live.purpose = $purpose; $live.endpointMode = $purpose; $live.runId = 'selector-' + $purpose + '-synthetic'
-  $live.guestRoot = 'C:\SelectorRuns\' + $live.runId; $live.guestProfile = $live.guestRoot + '\profile'
+  $live.guestRoot = 'C:\SelectorRepo\artifacts\9115\' + $live.runId; $live.guestProfile = $live.guestRoot + '\profile'
   Case ($purpose + '-offline') { $live.modeHash = Get-SelectorModeHash $live; Assert-SelectorConfiguration $live }
   $live.networkMode = 'provider-reachable'; $live.osEgressBlocked = $false; $live.resolverRules = ''; $live.modeHash = Get-SelectorModeHash $live
   Case ($purpose + '-provider-definition') { Assert-SelectorConfiguration $live }
@@ -233,6 +235,7 @@ describe("selector-isolated-environment-definition", () => {
     "writable-staging",
     "mapped-profile",
     "mapped-root",
+    "non-repo-local-root",
     "unknown-property",
     "unknown-environment",
     "wrong-scope",
@@ -308,6 +311,10 @@ describe("selector-isolated-environment-handoff", () => {
     expect(handoff.tool).toBe("channels-selector-run-endpoint/v1");
     expect(handoff.policyHash).toBe("582200a0897dd14df915d17c12cb5965ff17524dc057320a9f5693c5442bc58d");
     expect(handoff.maxMessageBytes).toBe(512);
+    expect(handoff.guestRunRoot).toBe("C:\\SelectorRepo\\artifacts\\9115\\<runId>");
+    expect(readFileSync(path.join(repo, packagePath), "utf8")).toContain(
+      'const parent = path.join(repo, "artifacts", "9115")',
+    );
     expect(handoff.operations.S).toEqual([
       "attach",
       "pause",

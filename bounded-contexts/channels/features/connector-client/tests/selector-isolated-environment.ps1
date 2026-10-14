@@ -76,7 +76,7 @@ function Assert-SelectorConfiguration($Configuration) {
   if ($Configuration.definitionHash -cne $codeHash -or $Configuration.relayHash -cne $codeHash -or
       $Configuration.modeHash -cne (Get-SelectorModeHash $Configuration)) { throw 'E_HASH_REFUSED' }
   if ($Configuration.stagingReadOnly -isnot [bool] -or -not $Configuration.stagingReadOnly) { throw 'E_STAGING_WRITABLE_REFUSED' }
-  $root = 'C:\SelectorRuns\' + $Configuration.runId
+  $root = 'C:\SelectorRepo\artifacts\9115\' + $Configuration.runId
   if ($Configuration.guestRoot -cne $root -or $Configuration.guestProfile -cne ($root + '\profile')) { throw 'E_PROFILE_REFUSED' }
   if ($Configuration.assets -isnot [array] -or $Configuration.assets.Count -lt 6 -or $Configuration.assets.Count -gt 20000) {
     throw 'E_ASSET_REFUSED'
@@ -337,6 +337,7 @@ function Get-SelectorEnvironmentHandoff {
     maxMessageBytes = 512; endpoint = 'http://127.0.0.1:<run-bound-port>/operation'; methods = @('POST')
     operations = $script:SelectorOperations; responses = @('closed-ok', 'closed-payload', '204')
     guestEndpointFile = 'C:\SelectorRelay\<runId>\endpoint.private.json'
+    guestRunRoot = 'C:\SelectorRepo\artifacts\9115\<runId>'
     acceptance = 'PENDING_HOST_REVIEW'; actualEnvironment = 'PENDING_OPERATOR_ACTION' }
 }
 
