@@ -54,7 +54,7 @@ describe("UCP OAuth routes", () => {
     ]);
   });
 
-  it("metadata advertises only current buyer capability scopes", async () => {
+  it("metadata advertises only current UCP capability scopes", async () => {
     const app = new Hono().route("/.well-known", createUcpOAuthMetadataRoutes());
     const response = await app.request("/.well-known/oauth-authorization-server");
     const metadata = await response.json();
