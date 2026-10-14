@@ -3,6 +3,7 @@ import { RetentionError } from "./raw-export-record";
 import type { ClaimedOperationReservation, ClaimedSubjectOperation } from "../../outbound-sync/domain/contracts";
 import { browserCheckpointDigest } from "./order-pull-handoff";
 import { createOrderPullExecution } from "./order-pull-execution";
+import { createLiveExportExecution, liveExportOutcome } from "./live-export-execution";
 import { prepareStagedImportDispatch } from "./staged-import-dispatch";
 import { StagedImportDispatchError } from "../../connector-feed/domain/staged-import-dispatch-policy";
 import { orderPullFitsLease, orderPullProviderReady } from "../../outbound-sync/domain/order-pull-codec";
@@ -80,6 +81,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         !(
           (pair[0] === "delist" && pair[1] === "delist") ||
           (pair[0] === "tcgplayer-order-pull" && pair[1] === "order-pull" && executor.unit === "operation") ||
+          (pair[0] === "tcgplayer-live-export" && pair[1] === "live-export" && executor.unit === "operation") ||
           (["publish", "update"].includes(pair[0]) && pair[1] === "draft")
         )
       )
@@ -88,6 +90,10 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     }
     executors.set(executor.key, executor);
   }
+  // A connection-subject capability is advertised exactly when a registered executor accepts its pair.
+  const capabilities = (["tcgplayer-order-pull", "tcgplayer-live-export"] as const).filter((kind) =>
+    [...executors.values()].some((executor) => executor.accepts.some(([accepted]) => accepted === kind)),
+  );
   const origin = new URL(ports.platformOrigin);
   if (
     origin.origin !== ports.platformOrigin ||
@@ -125,7 +131,12 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       ),
     });
   }
-  async function request(input: CoordinatorInput, action: "claim" | "report", body: object) {
+  async function request(
+    input: CoordinatorInput,
+    action: "claim" | "report" | "ingest",
+    body: object | string,
+    signal?: AbortSignal,
+  ) {
     return ports.request(
       new Request(
         `${origin.origin}/channel-connector/oauth/connections/${encodeURIComponent(input.connectionId)}/${action}`,
@@ -133,7 +144,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
           method: "POST",
           redirect: "error",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${input.accessToken}` },
-          body: canonicalJson(body),
+          body: typeof body === "string" ? body : canonicalJson(body),
+          ...(signal ? { signal } : {}),
         },
       ),
     );
@@ -156,31 +168,38 @@ export function createConnectorOperationCoordinator(ports: Ports) {
   ): ExecutorResult {
     return {
       outcomes: members.map((member) =>
-        member.operationKind === "tcgplayer-order-pull"
-          ? {
-              operationKind: member.operationKind,
-              operationId: member.operationId,
-              attemptId: member.attemptId,
-              claimGeneration: member.claimGeneration,
-              pullId: member.payload.pullId,
-              payloadDigest: member.payloadDigest,
-              outcome:
-                kind === "abandoned"
-                  ? { kind, reason: "claimant-cancelled" }
-                  : { kind: "order-pull-unknown", reason: "admission-ambiguous" },
-            }
-          : {
-              operationId: member.operationId,
-              attemptId: member.attemptId,
-              claimGeneration: member.claimGeneration,
-              desiredStateSequence: member.desiredStateSequence,
-              outcome:
-                kind === "abandoned"
-                  ? { kind, reason: "claimant-cancelled" }
-                  : kind === "rejected"
-                    ? { kind, code: "validation" }
-                    : { kind },
-            },
+        member.operationKind === "tcgplayer-live-export"
+          ? liveExportOutcome(
+              member,
+              kind === "abandoned"
+                ? { kind, reason: "claimant-cancelled" }
+                : { kind: "live-export-unknown", exportId: member.payload.exportId, reason: "download-unproven" },
+            )
+          : member.operationKind === "tcgplayer-order-pull"
+            ? {
+                operationKind: member.operationKind,
+                operationId: member.operationId,
+                attemptId: member.attemptId,
+                claimGeneration: member.claimGeneration,
+                pullId: member.payload.pullId,
+                payloadDigest: member.payloadDigest,
+                outcome:
+                  kind === "abandoned"
+                    ? { kind, reason: "claimant-cancelled" }
+                    : { kind: "order-pull-unknown", reason: "admission-ambiguous" },
+              }
+            : {
+                operationId: member.operationId,
+                attemptId: member.attemptId,
+                claimGeneration: member.claimGeneration,
+                desiredStateSequence: member.desiredStateSequence,
+                outcome:
+                  kind === "abandoned"
+                    ? { kind, reason: "claimant-cancelled" }
+                    : kind === "rejected"
+                      ? { kind, code: "validation" }
+                      : { kind },
+              },
       ),
     };
   }
@@ -193,7 +212,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     state: OperationJournal,
   ) {
     const operations = claim.operations.map((operation) => {
-      if (operation.operationKind === "tcgplayer-live-export") refuse();
+      if (operation.operationKind === "tcgplayer-live-export" && !capabilities.includes("tcgplayer-live-export"))
+        refuse();
       return operation;
     });
     if (
@@ -225,8 +245,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         (old.payloadDigest !== operation.payloadDigest ||
           old.state === "acked" ||
           old.operationKind !== operation.operationKind ||
-          (old.operationKind !== "tcgplayer-order-pull" &&
-            operation.operationKind !== "tcgplayer-order-pull" &&
+          ("desiredStateSequence" in old &&
+            "desiredStateSequence" in operation &&
             old.desiredStateSequence !== operation.desiredStateSequence) ||
           canonicalJson(old.payload) !== canonicalJson(operation.payload))
       )
@@ -257,11 +277,19 @@ export function createConnectorOperationCoordinator(ports: Ports) {
               scheduleGeneration: operation.scheduleGeneration,
               ...(old?.operationKind === "tcgplayer-order-pull" && old.handoff ? { handoff: old.handoff } : {}),
             }
-          : {
-              operationKind: operation.operationKind,
-              payload: operation.payload,
-              desiredStateSequence: operation.desiredStateSequence,
-            }),
+          : operation.operationKind === "tcgplayer-live-export"
+            ? {
+                operationKind: operation.operationKind,
+                payload: operation.payload,
+                scheduleGeneration: operation.scheduleGeneration,
+                // A same-operationId re-claim carries the retained handoff unchanged; only attempt identity rebinds.
+                ...(old?.operationKind === "tcgplayer-live-export" && old.handoff ? { handoff: old.handoff } : {}),
+              }
+            : {
+                operationKind: operation.operationKind,
+                payload: operation.payload,
+                desiredStateSequence: operation.desiredStateSequence,
+              }),
         payloadDigest: operation.payloadDigest,
         state: old?.state === "dispatched" ? "outcome-unknown" : (old?.state ?? "prepared"),
         preparedAt: old?.preparedAt ?? instant(),
@@ -283,9 +311,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
               ...prior,
               attemptId: operation.attemptId,
               claimGeneration: operation.claimGeneration,
-              ...(operation.operationKind === "tcgplayer-order-pull"
-                ? {}
-                : { desiredStateSequence: operation.desiredStateSequence }),
+              ...("desiredStateSequence" in operation ? { desiredStateSequence: operation.desiredStateSequence } : {}),
             },
           ],
         },
@@ -408,6 +434,29 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         },
       });
     };
+    const liveExecution = (operationId: string, signal: AbortSignal) => {
+      const current = () => {
+        const member = state.members.find((row) => row.operationId === operationId);
+        if (!member || member.operationKind !== "tcgplayer-live-export") refuse();
+        return member;
+      };
+      if (state.members.find((row) => row.operationId === operationId)?.operationKind !== "tcgplayer-live-export")
+        return undefined;
+      return createLiveExportExecution({
+        current,
+        signal,
+        now: () => ports.clock.now(),
+        fence: async () =>
+          (await authority(input)) === "paired-idle" &&
+          input.reason !== "unpair" &&
+          canonicalJson(await journal.read(input.connectionId)) === canonicalJson(state),
+        save: async (handoff) => {
+          state = await write(input, state, revise(reservation, {}), [revise(current(), { handoff })]);
+          reservation = state.reservations.find((row) => row.reservationId === reservation.reservationId)!;
+        },
+        post: (body, postSignal) => request(input, "ingest", body, postSignal),
+      });
+    };
     const executor = executors.get(reservation.executorKey);
     if (
       executor?.providerRequests === "tcgplayer-staged-import" &&
@@ -430,13 +479,12 @@ export function createConnectorOperationCoordinator(ports: Ports) {
     }
     if (exact.members.some((member) => member.state === "outcome-unknown")) {
       if ((await authority(input)) === "absent") return { outcome: "unknown" };
-      const recovery = execution(
-        exact.members[0]!.operationId,
-        AbortSignal.timeout(executor?.dispatchDeadlineMs ?? 1000),
-      );
-      if (recovery && ((await authority(input)) !== "paired-idle" || input.reason === "unpair"))
+      const recoverySignal = AbortSignal.timeout(executor?.dispatchDeadlineMs ?? 1000);
+      const recovery = execution(exact.members[0]!.operationId, recoverySignal);
+      const liveRecovery = liveExecution(exact.members[0]!.operationId, recoverySignal);
+      if ((recovery || liveRecovery) && ((await authority(input)) !== "paired-idle" || input.reason === "unpair"))
         return { outcome: "unknown" };
-      const reconciled = await executor?.reconcileAmbiguous?.(exact, recovery);
+      const reconciled = await executor?.reconcileAmbiguous?.(exact, recovery, liveRecovery);
       exact = unit(state, reservation);
       if (!reconciled) {
         if (executor?.unit !== "operation") return { outcome: "unknown" };
@@ -543,7 +591,8 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         result.outcomes.some(
           (outcome) =>
             (outcome.outcome.kind !== "rejected" || outcome.outcome.code !== "validation") &&
-            outcome.outcome.kind !== "order-pull-unknown",
+            outcome.outcome.kind !== "order-pull-unknown" &&
+            !(outcome.outcome.kind === "live-export-unknown" && outcome.outcome.reason === "authority-unavailable"),
         ) ||
         (executor.unit === "reservation" && !result.runSettlement)
       )
@@ -632,6 +681,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
               stagedImport
                 ? { send: (requestId, request) => stagedImport.send(requestId, request, signal) }
                 : undefined,
+              liveExecution(dispatched[0]!.operationId, signal),
             ),
             new Promise<never>((_resolve, reject) =>
               signal.addEventListener("abort", () => reject(new OperationProtocolError("incomplete-authority")), {
@@ -704,12 +754,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       const seen = new Set<string>();
       for (let count = 0; count < 8; count++) {
         if (input.reason === "unpair" || (await authority(input)) !== "paired-idle") break;
-        const capabilities = [...executors.values()].some((executor) =>
-          executor.accepts.some(([kind]) => kind === "tcgplayer-order-pull"),
-        )
-          ? { capabilities: ["tcgplayer-order-pull"] }
-          : {};
-        const response = await request(input, "claim", capabilities);
+        const response = await request(input, "claim", capabilities.length ? { capabilities } : {});
         if (!response.ok)
           return {
             outcome:
