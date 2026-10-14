@@ -219,7 +219,7 @@
   },
   "inventory-seed-resume.db.test.ts": {
     "executionUnit": "test:db:2",
-    "sourceSha256": "1ce157280ac82183a055ab221d4020c195b66b6584c8ba23ef01b7bd49d2cbf8",
+    "sourceSha256": "6bb69e5513e513a2178cfff34143ed0b28f2f5ee37f992984acabcc58f38ab9a",
     "cases": [
       {
         "name": "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
@@ -235,7 +235,7 @@
       },
       {
         "name": "resumes an archived storage location committed before its archive step",
-        "identity": "8c5dc773de3c8363"
+        "identity": "2f1e5800d580e926"
       },
       {
         "name": "resumes a checkout cart holding only one of its two seeded lines",

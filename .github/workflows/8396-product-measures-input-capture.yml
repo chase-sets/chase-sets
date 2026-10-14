@@ -135,8 +135,8 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
             githubSha: process.env.GITHUB_SHA, pushAfter: eventPayload.after,
-            captureParent: '99eb460868de1726790cff0c8339978df5cb3c50',
-            sourceBase: '99eb460868de1726790cff0c8339978df5cb3c50',
+            captureParent: '502100be6b87b7cda115498217af0e094e201087',
+            sourceBase: '502100be6b87b7cda115498217af0e094e201087',
             jobName: 'Diagnostic API Bootstrap Measurement Only',
             parents: commandText('git', ['cat-file', '-p', 'HEAD']).split('\n\n', 1)[0]
               .split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7)),
@@ -171,7 +171,7 @@ jobs:
           const assert = (await import('node:assert/strict')).default;
           const hash = bytes => createHash('sha256').update(bytes).digest('hex');
           const manifestBytes = readFileSync(resolve(cwd, 'scripts/8396-capture-manifest.json'));
-          assert.equal(hash(manifestBytes), '56e754e81f8a9385b807937e0449c8285f5f1444831947873d5e980b90983409', 'frozen manifest bytes');
+          assert.equal(hash(manifestBytes), '03011b41a6a674420a496ccae92cb68d64ac14504c7d6756e4575dc1828492fe', 'frozen manifest bytes');
           const manifest = JSON.parse(manifestBytes);
           const sourceFiles = commandText('git', ['ls-files', 'bounded-contexts', 'contracts',
             'infrastructure', 'deployables/platform-api', 'packages', 'scripts', 'pnpm-lock.yaml',
@@ -180,7 +180,7 @@ jobs:
           const sourceBytes = Buffer.from(JSON.stringify({ sourceBase: identity.sourceBase,
             files: Object.fromEntries(sourceFiles.map(file => [file, hash(readFileSync(resolve(root, file)))])),
           }, null, 2) + '\n');
-          assert.equal(hash(sourceBytes), 'f172e4e8f118073e1a28d83c478a163d09a5f267b1bfbaf5733ab917c339ba04', 'frozen runtime/helper/dependency source list');
+          assert.equal(hash(sourceBytes), '1a0c8bb7b9246285e6d54d2be2ec06d06dc185102532f68236314596eaca758a', 'frozen runtime/helper/dependency source list');
           const sourceBinding = JSON.parse(sourceBytes);
           assert.equal(sourceBinding.sourceBase, identity.sourceBase);
           for (const [file, expected] of Object.entries(sourceBinding.files)) {
