@@ -70,6 +70,7 @@ describe("UCP OAuth routes", () => {
         ...actor,
         agentGrant: {
           grantId: "synthetic-grant",
+          platformProfileUrl: "https://agent.example/.well-known/ucp",
           scopes: ["account:manage"] as const,
           rolePermissions: actor.permissions,
         },
