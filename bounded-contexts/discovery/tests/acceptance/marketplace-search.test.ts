@@ -2434,6 +2434,7 @@ describe("marketplace search", () => {
       ).items,
     ).toEqual([]);
     await variantListing("corr_listing", "10.00", [], "USD", "corr_char_a");
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
     const filtered = await retrieveDiscoveryItems(
       { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
       {
@@ -2475,7 +2476,7 @@ describe("marketplace search", () => {
       VALUES ('corr_description', 'corr-description', 'Unrelated', 'descriptioncandidate',
         '[{"fieldId":"corr_field","value":"fieldcandidate"}]', 'active')`);
     await rebuildSearchIndex();
-    await pools.discovery.query(`ANALYZE discovery_search_item_identity_terms`);
+    await pools.discovery.query(`VACUUM (ANALYZE) discovery_search_item_identity_terms`);
     const statements: Array<{ sql: string; values: readonly unknown[] }> = [];
     const db: PgQueryable = {
       query: async <Row>(sql: string, values: readonly unknown[] = []) => {
