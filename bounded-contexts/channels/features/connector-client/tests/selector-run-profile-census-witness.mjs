@@ -18,7 +18,9 @@ const emit = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 export function parseGrant(line, pid) {
   try {
     const grant = JSON.parse(line);
-    const keys = Object.keys(grant ?? {}).sort().join(",");
+    const keys = Object.keys(grant ?? {})
+      .sort()
+      .join(",");
     const payload = grant?.payload;
     if (keys !== "format,payload,pid" || grant.format !== "selector-run-grant/v1" || grant.pid !== pid) return null;
     if (Object.keys(payload ?? {}).join(",") !== "profile" || typeof payload.profile !== "string") return null;

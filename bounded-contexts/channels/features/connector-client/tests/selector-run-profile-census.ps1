@@ -420,7 +420,13 @@ function Invoke-SelectorRunProfileWitness {
       $run = Start-SelectorRunOwned -Driver (& $Native.WitnessDriver) -Payload @{ profile = "$Root\profile" } -Native $Native
       if ($run.state -ceq 'GRANTED') {
         try {
-          $driverEvent = ConvertFrom-SelectorDriverEvent (& $Native.ReadLine $run $script:SelectorLaunchTimeoutMs)
+          # Stderr shares the report pipe: skip unparseable lines (never echoed) until the event, EOF or the deadline.
+          $deadline = (& $Native.Now).AddMilliseconds($script:SelectorLaunchTimeoutMs)
+          do {
+            $remaining = [Math]::Max(0, [int]($deadline - (& $Native.Now)).TotalMilliseconds)
+            $line = & $Native.ReadLine $run $remaining
+            $driverEvent = ConvertFrom-SelectorDriverEvent $line
+          } while (-not $driverEvent -and $null -ne $line -and $remaining -gt 0)
           if ($driverEvent) {
             $result.chromiumSha256 = $driverEvent['chromium']
             $admitted = & $Native.AdmitBrowser $run $driverEvent['pid']
@@ -732,6 +738,8 @@ public static class SelectorRunProfileNative {
 }
 
 function ConvertTo-SelectorMicroseconds([DateTime]$Value) {
+  # WMI CreationDate is local time; ToFileTimeUtc would read an Unspecified kind as UTC.
+  if ($Value.Kind -eq [DateTimeKind]::Unspecified) { $Value = [DateTime]::SpecifyKind($Value, [DateTimeKind]::Local) }
   return [long][decimal]::Floor([decimal]$Value.ToFileTimeUtc() / 10)
 }
 
@@ -747,6 +755,7 @@ function Get-SelectorWin32Processes {
 
 function New-SelectorRunProfileNative {
   Initialize-SelectorRunProfileNative
+  $censusScript = $PSCommandPath
   $driver = Join-Path $PSScriptRoot 'selector-run-profile-census-witness.mjs'
   return @{
     Now = { [DateTime]::UtcNow }
@@ -789,10 +798,15 @@ function New-SelectorRunProfileNative {
     WaitExit = { param($Process, $Ms) [SelectorRunProfileNative]::Exited($Process, $Ms) }
     JobActive = { param($Job) [int][SelectorRunProfileNative]::Active($Job) }
     WitnessDriver = { $driver }.GetNewClosure()
-    ScriptSha256 = { (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+    ScriptSha256 = { (Get-FileHash -LiteralPath $censusScript -Algorithm SHA256).Hash.ToLowerInvariant() }.GetNewClosure()
     DriverSha256 = { (Get-FileHash -LiteralPath $driver -Algorithm SHA256).Hash.ToLowerInvariant() }.GetNewClosure()
     Exists = { param($Path) Test-Path -LiteralPath $Path }
-    CreateRoot = { param($Path) [void][IO.Directory]::CreateDirectory($Path) }
+    CreateRoot = {
+      param($Path)
+      # Only the fresh root itself; never parents the gated deletion would leave behind.
+      if (-not [IO.Directory]::Exists([IO.Path]::GetDirectoryName($Path))) { throw 'WITNESS_PARENT_REQUIRED' }
+      [void][IO.Directory]::CreateDirectory($Path)
+    }
     RemoveScratch = { param($Path) Remove-SelectorWitnessScratch $Path }
     ReadLine = {
       param($Run, $Ms)

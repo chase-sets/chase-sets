@@ -71,7 +71,16 @@ function native(overrides: Spec = {}): Spec {
 }
 
 function census(name: string, expected: string, overrides: Spec = {}, extra: Spec = {}): Case {
-  return { name, kind: "census", root: ROOT, run: null, admitted: null, native: native(overrides), expect: expected, ...extra };
+  return {
+    name,
+    kind: "census",
+    root: ROOT,
+    run: null,
+    admitted: null,
+    native: native(overrides),
+    expect: expected,
+    ...extra,
+  };
 }
 
 const tool = (pid: number, ...argv: string[]) => ({
@@ -134,34 +143,54 @@ function lawCases(): Case[] {
     census("L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR", "CLEAR"),
     census("L1 root equal to default User Data", "ROOT_CONFLICT", {}, { root: USER_DATA }),
     census("L1 nonexistent root inside default User Data", "ROOT_CONFLICT", {}, { root: `${USER_DATA}\\selector-new` }),
-    census("L1 case-variant root inside Chrome SxS User Data", "ROOT_CONFLICT", {}, {
-      root: `${LOCAL}\\GOOGLE\\CHROME SXS\\USER DATA\\x`,
-    }),
+    census(
+      "L1 case-variant root inside Chrome SxS User Data",
+      "ROOT_CONFLICT",
+      {},
+      {
+        root: `${LOCAL}\\GOOGLE\\CHROME SXS\\USER DATA\\x`,
+      },
+    ),
     census("L1 root ancestor of Chromium User Data", "ROOT_CONFLICT", {}, { root: LOCAL }),
     census("L1 root through a junction into User Data", "ROOT_CONFLICT", {}, { root: "C:\\links\\userdata\\x" }),
     census("L1 relative root refused", "CENSUS_INCOMPLETE", {}, { root: "scratch\\selector-witness-synthetic" }),
     census("L2 process enumeration failure", "CENSUS_INCOMPLETE", { processesThrow: true }),
     census("L2 vanished profile entry", "CENSUS_INCOMPLETE", { vanished: [`${PROFILE}\\Default\\Cookies`] }),
     census("L2 directory listing failure", "CENSUS_INCOMPLETE", { listThrow: [`${PROFILE}\\Default`] }),
-    census("L2 more than 20000 profile entries", "CENSUS_INCOMPLETE", { bulk: { dir: `${PROFILE}\\Default`, count: 19998 } }),
+    census("L2 more than 20000 profile entries", "CENSUS_INCOMPLETE", {
+      bulk: { dir: `${PROFILE}\\Default`, count: 19998 },
+    }),
     census("L2 exactly 20000 profile entries", "CLEAR", { bulk: { dir: `${PROFILE}\\Default`, count: 19997 } }),
     census("L2 collection timeout", "CENSUS_INCOMPLETE", { clockStepMs: 200000 }),
     census("L2 absent profile is zero entries", "CLEAR", {
       fs: fs({}, [PROFILE, `${PROFILE}\\Default`, `${PROFILE}\\Default\\Cookies`, `${ROOT}\\PROFIL~1`]),
     }),
-    census("L3 launched run whose job handle fails", "RUN_TRACKING_INCOMPLETE", { job: { limitsThrow: true } }, { run: GRANTED }),
+    census(
+      "L3 launched run whose job handle fails",
+      "RUN_TRACKING_INCOMPLETE",
+      { job: { limitsThrow: true } },
+      { run: GRANTED },
+    ),
     census("L3 launched run without a job", "RUN_TRACKING_INCOMPLETE", {}, { run: { ...GRANTED, job: null } }),
     census("L3 changed job limits", "RUN_TRACKING_INCOMPLETE", job([], {}, "0x2000/0x0"), { run: GRANTED }),
-    census("L3 member query failure", "RUN_TRACKING_INCOMPLETE", { job: { limits: "0x0/0x0", pids: [710], openDenied: [710] } }, {
-      run: GRANTED,
-    }),
+    census(
+      "L3 member query failure",
+      "RUN_TRACKING_INCOMPLETE",
+      { job: { limits: "0x0/0x0", pids: [710], openDenied: [710] } },
+      {
+        run: GRANTED,
+      },
+    ),
     census("L3 ungranted driver alive", "RUN_TRACKING_INCOMPLETE", job([700], { 700: { ...MEMBER, created: 70 } }), {
       run: { ...GRANTED, state: "PENDING" },
     }),
     census(
       "L4 switchless grandchild after intermediate and driver exit is RUN",
       "RUN_TREE_ALIVE",
-      { ...job([702], { 702: { ...MEMBER, created: 72 } }), ...withProcesses({ ...chrome(702), parentPid: 701, created: 72 }) },
+      {
+        ...job([702], { 702: { ...MEMBER, created: 72 } }),
+        ...withProcesses({ ...chrome(702), parentPid: 701, created: 72 }),
+      },
       { run: GRANTED },
     ),
     census(
@@ -174,7 +203,10 @@ function lawCases(): Case[] {
     census(
       "L4 admitted member with another creation time",
       "RUN_IDENTITY_MISMATCH",
-      { ...job([710], { 710: { ...MEMBER, created: 71 } }), ...withProcesses({ ...chrome(710, `--user-data-dir=${PROFILE}`), created: 71 }) },
+      {
+        ...job([710], { 710: { ...MEMBER, created: 71 } }),
+        ...withProcesses({ ...chrome(710, `--user-data-dir=${PROFILE}`), created: 71 }),
+      },
       { run: GRANTED, admitted: { pid: 710, created: 72 } },
     ),
     census(
@@ -189,32 +221,63 @@ function lawCases(): Case[] {
       job([710], { 710: { ...MEMBER, created: 71 } }),
       { run: GRANTED, admitted: { pid: 711, created: 711 } },
     ),
-    census("L4 empty job ignores a reused admitted PID", "CLEAR", { ...job([], {}), ...withProcesses(chrome(720)) }, {
-      run: GRANTED,
-      admitted: { pid: 720, created: 1 },
-    }),
+    census(
+      "L4 empty job ignores a reused admitted PID",
+      "CLEAR",
+      { ...job([], {}), ...withProcesses(chrome(720)) },
+      {
+        run: GRANTED,
+        admitted: { pid: 720, created: 1 },
+      },
+    ),
     census(
       "L4 run tree precedes a profile reference",
       "RUN_TREE_ALIVE",
       { ...job([710], { 710: { ...MEMBER, created: 71 } }), ...withProcesses(tool(800, PROFILE)) },
       { run: GRANTED },
     ),
-    ...ALIASES.map(([name, argv]) => census(`L5 alias blocks: ${name}`, "RUN_PROFILE_REFERENCED", withProcesses(tool(800, ...argv)))),
+    ...ALIASES.map(([name, argv]) =>
+      census(`L5 alias blocks: ${name}`, "RUN_PROFILE_REFERENCED", withProcesses(tool(800, ...argv))),
+    ),
     census("L5 case-variant tail before the profile exists", "RUN_PROFILE_REFERENCED", {
       fs: fs({}, [PROFILE, `${PROFILE}\\Default`, `${PROFILE}\\Default\\Cookies`, `${ROOT}\\PROFIL~1`]),
       ...withProcesses(tool(800, `${ROOT}\\PROFILE`)),
     }),
-    census("L5 user-data-dir switch is case-insensitive", "RUN_PROFILE_REFERENCED", withProcesses(tool(800, `/User-Data-Dir=${ROOT}`))),
-    ...NOT_REFERENCES.map(([name, argv]) => census(`L5 not a reference: ${name}`, "CLEAR", withProcesses(tool(800, ...argv)))),
-    census("L5 denied lexically unrelated alias is UNRESOLVED", "REFERENCE_UNRESOLVED", withProcesses(tool(800, "C:\\gate\\alias"))),
+    census(
+      "L5 user-data-dir switch is case-insensitive",
+      "RUN_PROFILE_REFERENCED",
+      withProcesses(tool(800, `/User-Data-Dir=${ROOT}`)),
+    ),
+    ...NOT_REFERENCES.map(([name, argv]) =>
+      census(`L5 not a reference: ${name}`, "CLEAR", withProcesses(tool(800, ...argv))),
+    ),
+    census(
+      "L5 denied lexically unrelated alias is UNRESOLVED",
+      "REFERENCE_UNRESOLVED",
+      withProcesses(tool(800, "C:\\gate\\alias")),
+    ),
     census("L5 reparse loop is UNRESOLVED", "REFERENCE_UNRESOLVED", withProcesses(tool(800, "C:\\links\\loop\\x"))),
-    census("L5 existing dangling junction is UNRESOLVED", "REFERENCE_UNRESOLVED", withProcesses(tool(800, "C:\\links\\dangling"))),
-    census("L5 volume GUID device path is UNRESOLVED", "REFERENCE_UNRESOLVED", withProcesses(tool(800, "\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\x"))),
-    census("L5 reference precedes unresolved", "RUN_PROFILE_REFERENCED", withProcesses(tool(800, "C:\\gate\\alias"), tool(801, PROFILE))),
+    census(
+      "L5 existing dangling junction is UNRESOLVED",
+      "REFERENCE_UNRESOLVED",
+      withProcesses(tool(800, "C:\\links\\dangling")),
+    ),
+    census(
+      "L5 volume GUID device path is UNRESOLVED",
+      "REFERENCE_UNRESOLVED",
+      withProcesses(tool(800, "\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\x")),
+    ),
+    census(
+      "L5 reference precedes unresolved",
+      "RUN_PROFILE_REFERENCED",
+      withProcesses(tool(800, "C:\\gate\\alias"), tool(801, PROFILE)),
+    ),
     census("L6 non-run file holder", "RUN_PROFILE_HELD", { holders: { [`${PROFILE}\\Default\\Cookies`]: [8100] } }),
     census("L6 non-run directory holder", "RUN_PROFILE_HELD", { holders: { [`${PROFILE}\\Default`]: [8100] } }),
     census("L6 profile directory holder", "RUN_PROFILE_HELD", { holders: { [PROFILE]: [8100] } }),
-    census("L6 census process holder is excluded by PID", "CLEAR", { holders: { [`${PROFILE}\\Default`]: [SELF.pid] } }),
+    census("L6 census process holder is excluded by PID", "CLEAR", {
+      holders: { [`${PROFILE}\\Default`]: [SELF.pid] },
+    }),
     census("L6 same-name non-run holder is HELD", "RUN_PROFILE_HELD", {
       holders: { [`${PROFILE}\\Default`]: [SELF.pid, 9100] },
       ...withProcesses({ ...SELF_ROW, pid: 9100, created: 91 }),
@@ -227,12 +290,32 @@ function lawCases(): Case[] {
     census("L7 unreadable Chrome command line", "CHROME_UNREADABLE", withProcesses({ ...chrome(810), argv: null })),
     census("L7 unreadable Chrome creation", "CHROME_UNREADABLE", withProcesses({ ...chrome(810), created: null })),
     census("L7 unreadable Chrome executable", "CHROME_UNREADABLE", withProcesses({ ...chrome(810), executable: null })),
-    census("L7 Chromium missing user-data-dir value", "CHROME_AMBIGUOUS", withProcesses({ ...chrome(810, "--user-data-dir="), name: "chromium.exe" })),
-    census("L7 bare user-data-dir switch", "CHROME_AMBIGUOUS", withProcesses(chrome(810, "--user-data-dir", "C:\\elsewhere"))),
-    census("L7 multiple user-data-dir values", "CHROME_AMBIGUOUS", withProcesses(chrome(810, "--user-data-dir=C:\\a", "-user-data-dir=C:\\b"))),
+    census(
+      "L7 Chromium missing user-data-dir value",
+      "CHROME_AMBIGUOUS",
+      withProcesses({ ...chrome(810, "--user-data-dir="), name: "chromium.exe" }),
+    ),
+    census(
+      "L7 bare user-data-dir switch",
+      "CHROME_AMBIGUOUS",
+      withProcesses(chrome(810, "--user-data-dir", "C:\\elsewhere")),
+    ),
+    census(
+      "L7 multiple user-data-dir values",
+      "CHROME_AMBIGUOUS",
+      withProcesses(chrome(810, "--user-data-dir=C:\\a", "-user-data-dir=C:\\b")),
+    ),
     census("L7 relative user-data-dir", "CHROME_AMBIGUOUS", withProcesses(chrome(810, "--user-data-dir=profile"))),
-    census("L7 user-data-dir inside the root outside the profile", "ROOT_CONFLICT", withProcesses(chrome(810, `--user-data-dir=${ROOT}\\other`))),
-    census("L7 other user-data-dir is OTHER and never blocks", "CLEAR", withProcesses(chrome(810, "--user-data-dir=C:\\Users\\synthetic\\elsewhere"))),
+    census(
+      "L7 user-data-dir inside the root outside the profile",
+      "ROOT_CONFLICT",
+      withProcesses(chrome(810, `--user-data-dir=${ROOT}\\other`)),
+    ),
+    census(
+      "L7 other user-data-dir is OTHER and never blocks",
+      "CLEAR",
+      withProcesses(chrome(810, "--user-data-dir=C:\\Users\\synthetic\\elsewhere")),
+    ),
     census("L7 unreadable non-Chrome is counted, never blocking", "CLEAR", withProcesses({ ...tool(820), argv: null })),
   ];
 }
@@ -273,11 +356,22 @@ function startCases(): Case[] {
 
 const DEFAULT_ONLY = [SELF_ROW, CHROME_ROOT, CHROME_CHILD];
 const RUN_ROWS = [
-  { pid: 700, parentPid: SELF.pid, name: "node.exe", executable: "C:\\node\\node.exe", created: 70, argv: ["node", "C:\\seat\\witness.mjs"] },
+  {
+    pid: 700,
+    parentPid: SELF.pid,
+    name: "node.exe",
+    executable: "C:\\node\\node.exe",
+    created: 70,
+    argv: ["node", "C:\\seat\\witness.mjs"],
+  },
   { ...chrome(710, `--user-data-dir=${PROFILE}`), parentPid: 700, created: 71 },
   { ...chrome(711, "--type=renderer"), parentPid: 710, created: 72 },
 ];
-const RUN_JOB = { limits: "0x0/0x0", pids: [700, 710, 711], open: { 700: { ...MEMBER, created: 70 }, 710: { ...MEMBER, created: 71 }, 711: { ...MEMBER, created: 72 } } };
+const RUN_JOB = {
+  limits: "0x0/0x0",
+  pids: [700, 710, 711],
+  open: { 700: { ...MEMBER, created: 70 }, 710: { ...MEMBER, created: 71 }, 711: { ...MEMBER, created: 72 } },
+};
 const EMPTY_JOB = { limits: "0x0/0x0", pids: [], open: {} };
 const NO_PROFILE = fs({}, [PROFILE, `${PROFILE}\\Default`, `${PROFILE}\\Default\\Cookies`, `${ROOT}\\PROFIL~1`]);
 const PHASES = [
@@ -293,23 +387,39 @@ const witness = (name: string, expected: string, overrides: Spec = {}, root = RO
   root,
   native: native({
     start: START,
-    witness: { exists: [false, false], line: BROWSER_LINE, admitted: { pid: 710, created: 71 }, empties: true, ...(overrides.witness as Spec) },
+    witness: {
+      exists: [false, false],
+      line: BROWSER_LINE,
+      admitted: { pid: 710, created: 71 },
+      empties: true,
+      ...(overrides.witness as Spec),
+    },
     phases: (overrides.phases as unknown[]) ?? PHASES,
   }),
   expect: expected,
 });
 
 function witnessCases(): Case[] {
-  const phase = (index: number, value: Spec) => PHASES.map((entry, i) => (i === index ? { ...entry, ...value } : entry));
+  const phase = (index: number, value: Spec) =>
+    PHASES.map((entry, i) => (i === index ? { ...entry, ...value } : entry));
   return [
     witness("witness passes only through W1 CLEAR, W2 TREE_ALIVE, W3 CLEAR, gated deletion and W4", "PASS"),
-    witness("witness refuses a root in default User Data before any creation or deletion", "REFUSED", {}, `${USER_DATA}\\selector-witness-x`),
+    witness(
+      "witness refuses a root in default User Data before any creation or deletion",
+      "REFUSED",
+      {},
+      `${USER_DATA}\\selector-witness-x`,
+    ),
     witness("witness refuses an existing scratch root", "REFUSED", { witness: { exists: [true] } }),
     witness("witness is NOT_EXERCISED without a switchless Chrome root", "NOT_EXERCISED", {
       phases: phase(0, { processes: [SELF_ROW, CHROME_CHILD] }),
     }),
-    witness("witness keeps PENDING and never deletes when the job does not empty", "PENDING", { witness: { empties: false } }),
-    witness("witness never deletes after a W3 holder", "FAIL", { phases: phase(2, { holders: { [PROFILE]: [8100] } }) }),
+    witness("witness keeps PENDING and never deletes when the job does not empty", "PENDING", {
+      witness: { empties: false },
+    }),
+    witness("witness never deletes after a W3 holder", "FAIL", {
+      phases: phase(2, { holders: { [PROFILE]: [8100] } }),
+    }),
     witness("witness fails a W2 run tree with fewer than three members", "FAIL", {
       phases: phase(1, { job: { ...RUN_JOB, pids: [700, 710] } }),
     }),
@@ -317,7 +427,9 @@ function witnessCases(): Case[] {
       phases: phase(2, { processes: [SELF_ROW, { ...CHROME_ROOT, created: 55 }, CHROME_CHILD] }),
     }),
     witness("witness fails without a browser event and still closes normally", "FAIL", { witness: { line: null } }),
-    witness("witness fails when scratch is still present after deletion", "FAIL", { witness: { exists: [false, true] } }),
+    witness("witness fails when scratch is still present after deletion", "FAIL", {
+      witness: { exists: [false, true] },
+    }),
   ];
 }
 
@@ -488,7 +600,30 @@ foreach ($case in $cases) {
 $results | ConvertTo-Json -Depth 12 -Compress
 `;
 
-type Outcome = { value: Record<string, any> | string; calls: string[] };
+type Census = {
+  format: string;
+  complete: boolean;
+  verdict: string;
+  code: string;
+  counts: Record<string, number | null>;
+  at: string;
+  defaultRootDigest: string | null;
+};
+type Witness = {
+  verdict: string;
+  code: string;
+  d0: string | null;
+  d1: string | null;
+  w1: Census | null;
+  w2: Census | null;
+  w3: Census | null;
+  w4: Census | null;
+  scratchDeleted: boolean;
+  scratchAbsent: boolean;
+};
+type Started = { state: string; code: string; censusAfter: string };
+type Outcome = { value: unknown; calls: string[] };
+const asCensus = (outcome: Outcome) => outcome.value as Census;
 let runIndex = 0;
 
 function run(cases: Case[], source = script): Record<string, Outcome> {
@@ -510,8 +645,10 @@ function run(cases: Case[], source = script): Record<string, Outcome> {
 }
 
 function code(outcome: Outcome | undefined) {
-  if (!outcome || typeof outcome.value === "string") return outcome?.value;
-  return outcome.value.code ?? outcome.value.state;
+  const value = outcome?.value;
+  if (typeof value !== "object" || value === null) return value;
+  const result = value as { code?: string; state?: string };
+  return result.code ?? result.state;
 }
 
 const COUNT_KEYS = [
@@ -544,7 +681,7 @@ const CODES = [
 ];
 
 function expectClosedCensus(value: unknown) {
-  const census = value as Record<string, any>;
+  const census = value as Census;
   expect(Object.keys(census)).toEqual(["format", "complete", "verdict", "code", "counts", "at", "defaultRootDigest"]);
   expect(census.format).toBe("selector-run-profile-census/v1");
   expect(typeof census.complete).toBe("boolean");
@@ -572,34 +709,47 @@ describe("selector-run-profile-census-law", () => {
   });
 
   it("reports class counts for the census categories without zeroing unreadable processes", () => {
-    const clear = outcomes["L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR"].value as Record<string, any>;
+    const clear = asCensus(outcomes["L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR"]);
     expect(clear.complete).toBe(true);
-    expect(clear.counts).toMatchObject({ processes: 3, members: 0, default: 2, defaultRoots: 1, other: 0, entries: 3, holders: 0 });
-    const unreadable = outcomes["L7 unreadable non-Chrome is counted, never blocking"].value as Record<string, any>;
+    expect(clear.counts).toMatchObject({
+      processes: 3,
+      members: 0,
+      default: 2,
+      defaultRoots: 1,
+      other: 0,
+      entries: 3,
+      holders: 0,
+    });
+    const unreadable = asCensus(outcomes["L7 unreadable non-Chrome is counted, never blocking"]);
     expect(unreadable.counts.unreadable).toBe(1);
-    const tree = outcomes["L4 switchless grandchild after intermediate and driver exit is RUN"].value as Record<string, any>;
+    const tree = asCensus(outcomes["L4 switchless grandchild after intermediate and driver exit is RUN"]);
     expect(tree.counts.members).toBe(1);
     expect(tree.counts.default).toBe(2);
-    const reused = outcomes["L4 reused PID non-member is not RUN"].value as Record<string, any>;
+    const reused = asCensus(outcomes["L4 reused PID non-member is not RUN"]);
     expect(reused.counts).toMatchObject({ members: 0, default: 3, defaultRoots: 2 });
-    const absent = outcomes["L2 absent profile is zero entries"].value as Record<string, any>;
+    const absent = asCensus(outcomes["L2 absent profile is zero entries"]);
     expect(absent.counts.entries).toBe(0);
-    const bound = outcomes["L2 exactly 20000 profile entries"].value as Record<string, any>;
+    const bound = asCensus(outcomes["L2 exactly 20000 profile entries"]);
     expect(bound.counts.entries).toBe(20000);
   });
 
   it("never classifies possible run descendants as DEFAULT or OTHER while tracking is incomplete", () => {
     for (const entry of cases.filter((candidate) => candidate.expect === "RUN_TRACKING_INCOMPLETE")) {
-      const value = outcomes[entry.name].value as Record<string, any>;
+      const value = asCensus(outcomes[entry.name]);
       expect(value.complete).toBe(false);
-      expect([value.counts.default, value.counts.other, value.counts.defaultRoots, value.defaultRootDigest]).toEqual([null, null, null, null]);
+      expect([value.counts.default, value.counts.other, value.counts.defaultRoots, value.defaultRootDigest]).toEqual([
+        null,
+        null,
+        null,
+        null,
+      ]);
     }
   });
 
   it("digests only the default Chrome roots by PID and start, so a restarted root changes D1", () => {
-    const first = outcomes["L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR"].value as Record<string, any>;
-    const second = outcomes["L7 other user-data-dir is OTHER and never blocks"].value as Record<string, any>;
-    const third = outcomes["L4 reused PID non-member is not RUN"].value as Record<string, any>;
+    const first = asCensus(outcomes["L0 pre-launch switchless Chrome is DEFAULT and the census is CLEAR"]);
+    const second = asCensus(outcomes["L7 other user-data-dir is OTHER and never blocks"]);
+    const third = asCensus(outcomes["L4 reused PID non-member is not RUN"]);
     expect(second.defaultRootDigest).toBe(first.defaultRootDigest);
     expect(third.defaultRootDigest).not.toBe(first.defaultRootDigest);
   });
@@ -697,13 +847,50 @@ describe("selector-run-profile-census-boundary", () => {
   const starts = startCases();
   const witnesses = witnessCases();
   const admissions: Case[] = [
-    { name: "admission valid", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: ROOT }) },
-    { name: "admission extra key", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: ROOT, x: 1 }) },
-    { name: "admission relative root", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: "scratch\\selector-witness-x" }) },
-    { name: "admission non-normalized root", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: `${ROOT}\\..\\selector-witness-x` }) },
-    { name: "admission unscoped root name", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: "C:\\Users\\synthetic\\scratch\\anything" }) },
-    { name: "admission nested root", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: { path: ROOT } }) },
-    { name: "admission wrong format", kind: "admission", text: JSON.stringify({ format: "selector-run-profile-census/v1", root: ROOT }) },
+    {
+      name: "admission valid",
+      kind: "admission",
+      text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: ROOT }),
+    },
+    {
+      name: "admission extra key",
+      kind: "admission",
+      text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: ROOT, x: 1 }),
+    },
+    {
+      name: "admission relative root",
+      kind: "admission",
+      text: JSON.stringify({
+        format: "selector-run-profile-census-witness-admission/v1",
+        root: "scratch\\selector-witness-x",
+      }),
+    },
+    {
+      name: "admission non-normalized root",
+      kind: "admission",
+      text: JSON.stringify({
+        format: "selector-run-profile-census-witness-admission/v1",
+        root: `${ROOT}\\..\\selector-witness-x`,
+      }),
+    },
+    {
+      name: "admission unscoped root name",
+      kind: "admission",
+      text: JSON.stringify({
+        format: "selector-run-profile-census-witness-admission/v1",
+        root: "C:\\Users\\synthetic\\scratch\\anything",
+      }),
+    },
+    {
+      name: "admission nested root",
+      kind: "admission",
+      text: JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: { path: ROOT } }),
+    },
+    {
+      name: "admission wrong format",
+      kind: "admission",
+      text: JSON.stringify({ format: "selector-run-profile-census/v1", root: ROOT }),
+    },
     { name: "admission not an object", kind: "admission", text: JSON.stringify([ROOT]) },
   ];
   let outcomes: Record<string, Outcome>;
@@ -713,22 +900,31 @@ describe("selector-run-profile-census-boundary", () => {
 
   it.each(starts.map((entry) => [entry.name, entry] as const))("%s", (_name, entry) => {
     const outcome = outcomes[entry.name];
-    const value = outcome.value as Record<string, string>;
+    const value = outcome.value as Started;
+    const startSpec = (entry.native as { start: typeof START }).start;
     expect(value.state).toBe(entry.expect);
     expect(value.code).toBe(
-      entry.expect === "GRANTED" ? "RUN_GRANTED" : entry.expect === "PENDING" ? "RUN_TRACKING_INCOMPLETE" : "RUN_START_REFUSED",
+      entry.expect === "GRANTED"
+        ? "RUN_GRANTED"
+        : entry.expect === "PENDING"
+          ? "RUN_TRACKING_INCOMPLETE"
+          : "RUN_START_REFUSED",
     );
     const grants = outcome.calls.filter((call) => call.startsWith("Grant:"));
     if (entry.expect === "GRANTED") {
       // The grant follows creation-time membership, unchanged limits and the recorded PID+start.
       expect(outcome.calls).toEqual(["NewJob", "JobLimits", "StartDriver", "InJob", "JobLimits", "Created", grants[0]]);
-      expect(JSON.parse(grants[0].slice(6))).toEqual({ format: "selector-run-grant/v1", pid: 700, payload: { profile: "C:\\seat\\run\\profile" } });
+      expect(JSON.parse(grants[0].slice(6))).toEqual({
+        format: "selector-run-grant/v1",
+        pid: 700,
+        payload: { profile: "C:\\seat\\run\\profile" },
+      });
       expect(value.censusAfter).not.toBe("RUN_TRACKING_INCOMPLETE");
       return;
     }
-    expect(outcome.calls.filter((call) => call.startsWith("Grant:") && (entry.native as any).start.writeOk !== false)).toEqual([]);
-    const created = (entry.native as any).start.createError === 0 && (entry.native as any).start.limits === "0x0/0x0";
-    expect(outcome.calls.includes("StartDriver")).toBe((entry.native as any).start.limits === "0x0/0x0");
+    expect(startSpec.writeOk ? grants : []).toEqual([]);
+    const created = startSpec.createError === 0 && startSpec.limits === "0x0/0x0";
+    expect(outcome.calls.includes("StartDriver")).toBe(startSpec.limits === "0x0/0x0");
     // A created driver is released only through EOF on its own grant pipe, never ended.
     expect(outcome.calls.includes("CloseWriter")).toBe(created);
     if (entry.expect === "PENDING") expect(value.censusAfter).toBe("RUN_TRACKING_INCOMPLETE");
@@ -736,7 +932,7 @@ describe("selector-run-profile-census-boundary", () => {
 
   it.each(witnesses.map((entry) => [entry.name, entry] as const))("%s", (_name, entry) => {
     const outcome = outcomes[entry.name];
-    const value = outcome.value as Record<string, any>;
+    const value = outcome.value as Witness;
     expect({ verdict: value.verdict, code: value.code }).toMatchObject({ verdict: entry.expect });
     expect(Object.keys(value)).toEqual([
       "format",
@@ -755,7 +951,7 @@ describe("selector-run-profile-census-boundary", () => {
       "scratchDeleted",
       "scratchAbsent",
     ]);
-    for (const step of ["w1", "w2", "w3", "w4"]) if (value[step] !== null) expectClosedCensus(value[step]);
+    for (const step of [value.w1, value.w2, value.w3, value.w4]) if (step !== null) expectClosedCensus(step);
     expect(JSON.stringify(value)).not.toMatch(/\\|synthetic|seat/i);
     const removals = outcome.calls.filter((call) => call === "RemoveScratch");
     if (entry.expect === "REFUSED") {
@@ -765,20 +961,26 @@ describe("selector-run-profile-census-boundary", () => {
     }
     if (entry.expect === "PASS") {
       expect(value).toMatchObject({ code: "WITNESS_PASS", scratchDeleted: true, scratchAbsent: true, d1: value.d0 });
-      expect([value.w1.code, value.w2.code, value.w3.code, value.w4.code]).toEqual(["CLEAR", "RUN_TREE_ALIVE", "CLEAR", "CLEAR"]);
-      expect(value.w2.counts.members).toBe(3);
-      expect(value.w3.counts).toMatchObject({ members: 0, default: 2 });
+      expect([value.w1?.code, value.w2?.code, value.w3?.code, value.w4?.code]).toEqual([
+        "CLEAR",
+        "RUN_TREE_ALIVE",
+        "CLEAR",
+        "CLEAR",
+      ]);
+      expect(value.w2?.counts.members).toBe(3);
+      expect(value.w3?.counts).toMatchObject({ members: 0, default: 2 });
     }
     // Deletion happens at most once and only right after a CLEAR census.
     expect(removals.length).toBeLessThanOrEqual(1);
     if (removals.length) {
       const before = outcome.calls.slice(0, outcome.calls.indexOf("RemoveScratch"));
       expect(before.lastIndexOf("Self")).toBeGreaterThan(-1);
-      expect(value.w3 === null ? value.w1.code : value.w3.code).toBe("CLEAR");
+      expect((value.w3 ?? value.w1)?.code).toBe("CLEAR");
     }
     if (entry.expect === "PENDING" || entry.name.includes("W3 holder")) expect(removals).toEqual([]);
     if (entry.expect === "NOT_EXERCISED") expect(outcome.calls).not.toContain("StartDriver");
-    if (outcome.calls.includes("StartDriver") && entry.expect !== "PENDING") expect(outcome.calls).toContain("ReleaseRun");
+    if (outcome.calls.includes("StartDriver") && entry.expect !== "PENDING")
+      expect(outcome.calls).toContain("ReleaseRun");
   });
 
   it("admits only the closed witness admission shape", () => {
@@ -805,9 +1007,21 @@ describe("selector-run-profile-census-boundary", () => {
   });
 
   it.each([
-    ["oversize admission", `{"format":"selector-run-profile-census-witness-admission/v1","root":"${SECRET.replaceAll("\\", "\\\\")}${"x".repeat(5000)}"}`],
-    ["extra-key admission", JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: SECRET, extra: SECRET })],
-    ["relative admission", JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: "secret-path-9628\\selector-witness-x" })],
+    [
+      "oversize admission",
+      `{"format":"selector-run-profile-census-witness-admission/v1","root":"${SECRET.replaceAll("\\", "\\\\")}${"x".repeat(5000)}"}`,
+    ],
+    [
+      "extra-key admission",
+      JSON.stringify({ format: "selector-run-profile-census-witness-admission/v1", root: SECRET, extra: SECRET }),
+    ],
+    [
+      "relative admission",
+      JSON.stringify({
+        format: "selector-run-profile-census-witness-admission/v1",
+        root: "secret-path-9628\\selector-witness-x",
+      }),
+    ],
     ["malformed admission", `{"root":"${SECRET.replaceAll("\\", "\\\\")}"`],
     ["empty admission", ""],
   ])("CLI refuses an %s with exit 1, a fixed code and no echo", (_name, input) => {
@@ -834,7 +1048,9 @@ describe("selector-run-profile-census-boundary", () => {
     const witness = await import(new URL("./selector-run-profile-census-witness.mjs", import.meta.url).href);
     const profile = path.join(scratch, "profile");
     const grant = (value: unknown) => JSON.stringify(value);
-    expect(witness.parseGrant(grant({ format: "selector-run-grant/v1", pid: 42, payload: { profile } }), 42)).toBe(profile);
+    expect(witness.parseGrant(grant({ format: "selector-run-grant/v1", pid: 42, payload: { profile } }), 42)).toBe(
+      profile,
+    );
     for (const value of [
       { format: "selector-run-grant/v1", pid: 43, payload: { profile } },
       { format: "selector-run-grant/v1", pid: 42, payload: { profile }, extra: true },
@@ -875,7 +1091,8 @@ describe("selector-run-profile-census-boundary", () => {
       expect(census).not.toMatch(pattern);
       expect(witness).not.toMatch(pattern);
     }
-    const deletion = /Remove-Item|::Delete\(|DeleteFile|RemoveDirectory|DELETE_ON_CLOSE|DeleteOnClose|SetFileInformationByHandle|FileDisposition|rmSync|unlink|rmdir|\brm\(/i;
+    const deletion =
+      /Remove-Item|::Delete\(|DeleteFile|RemoveDirectory|DELETE_ON_CLOSE|DeleteOnClose|SetFileInformationByHandle|FileDisposition|rmSync|unlink|rmdir|\brm\(/i;
     expect(witness).not.toMatch(deletion);
     const gated = census.match(/\r?\nfunction Remove-SelectorWitnessScratch[\s\S]*?\r?\n}\r?\n/);
     expect(gated).not.toBeNull();
