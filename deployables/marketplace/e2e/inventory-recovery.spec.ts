@@ -4,7 +4,7 @@ import { identitySeedIds } from "@chase-sets/identity-seed";
 import { captureAccessibilityEvidence } from "@chase-sets/playwright-evidence";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
-import { registerRestockRecoveryBrowserTests } from "@chase-sets/inventory/test-support/restock-recovery-browser";
+import { registerRestockRecoveryBrowserTests } from "@chase-sets/inventory/seed-support/restock-recovery-browser";
 
 registerRestockRecoveryBrowserTests((page, baseUrl) =>
   signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials()),
