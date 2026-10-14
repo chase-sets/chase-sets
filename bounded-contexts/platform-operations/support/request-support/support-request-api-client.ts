@@ -143,11 +143,11 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         body: JSON.stringify(body),
       });
       if ([400, 401, 403].includes(response.status)) {
-        const body = await response.json().catch(() => null);
+        const rejection = await response.json().catch(() => null);
         throw new SupportParticipantSendError(
           "failed-safe",
           null,
-          body?.error?.code === "attachment_reference_unknown"
+          rejection?.error?.code === "attachment_reference_unknown"
             ? t("support.features.support_requests.api.route.attachment.reference.unknown")
             : undefined,
         );

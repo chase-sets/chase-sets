@@ -9,6 +9,8 @@ import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime 
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { File as NodeFile } from "node:buffer";
@@ -32,6 +34,13 @@ import {
   createAttachmentManifest,
 } from "../domain/attachment-operation";
 import { createSupportEvidenceSeedContext } from "../domain/common";
+
+function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
+  return {
+    tenantId: parseTypedId(actor.tenantId, "tnt"),
+    audit: { performedByUserId: parseTypedId(actor.userId, "usr"), forAccountId: parseTypedId(actor.accountId, "acc") },
+  };
+}
 
 describe("Support evidence submissions use one reference boundary", () => {
   const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -141,7 +150,7 @@ describe("Support evidence submissions use one reference boundary", () => {
                 body,
                 attempt: { attemptId: "9391_direct_boundary_0123456789", requestHash },
               },
-              { tenantId: actor.tenantId, audit: { performedByUserId: actor.userId, forAccountId: actor.accountId } },
+              evidenceActorContext(actor),
             ),
           ).rejects.toThrow("attachment_reference_unknown");
         }
@@ -154,10 +163,7 @@ describe("Support evidence submissions use one reference boundary", () => {
   it("runtime and direct command reject bare or forged references; seed placeholders require actual seed context (mutant: sibling runtime or seed bypass)", async () => {
     const fixture = await attachmentRouteFixture();
     const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
-    const actorContext = {
-      tenantId: actor.tenantId,
-      audit: { performedByUserId: actor.userId, forAccountId: actor.accountId },
-    };
+    const actorContext = evidenceActorContext(actor);
     for (const attachments of [["arbitrary"], ["seed://support/photo"], await batch(fixture)]) {
       const before = fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-")).length;
       await expect(

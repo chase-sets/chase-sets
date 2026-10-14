@@ -5,6 +5,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -18,6 +19,7 @@ import {
   createAttachmentManifest,
   decideAttachmentOperation,
   replayAttachmentOperation,
+  type AttachmentOperationEvent,
 } from "../domain/attachment-operation";
 import { createSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
 import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
@@ -40,6 +42,7 @@ const owner = {
   operationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
 };
 const operationStream = attachmentOperationStreamId(owner);
+const operationCodec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
 const caseStream = `support.support-request-${owner.supportRequestId}`;
 const manifest = createAttachmentManifest({
   owner,
@@ -273,10 +276,7 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
   it("put admission after claim rejects (mutant: allow claimed operation writes)", async () => {
     await lifecycle().claim(claim, context);
     const state = replayAttachmentOperation(
-      (await readCompleteStream(store, { streamId: operationStream })).map((event) => ({
-        type: event.eventType,
-        data: event.payload,
-      })) as Parameters<typeof replayAttachmentOperation>[0],
+      (await readCompleteStream(store, { streamId: operationStream })).map(operationCodec.decode),
     );
     expect(() =>
       decideAttachmentOperation(state, { type: "AdmitSupportAttachmentPut", data: { index: 0, attempt: 1 } }),
@@ -305,13 +305,7 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
         "support.attachment-operation.reference-claimed",
         "support.attachment-operation.referenced",
       ]);
-      expect(
-        replayAttachmentOperation(
-          history.map((event) => ({ type: event.eventType, data: event.payload })) as Parameters<
-            typeof replayAttachmentOperation
-          >[0],
-        ).status,
-      ).toBe("referenced");
+      expect(replayAttachmentOperation(history.map(operationCodec.decode)).status).toBe("referenced");
       expect(
         (await readCompleteStream(store, { streamId: caseStream })).filter(
           (event) => event.eventType === "support.support-request.evidence-submitted",
