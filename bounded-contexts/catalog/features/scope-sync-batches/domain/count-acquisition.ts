@@ -168,6 +168,91 @@ export const countSpendSchema = z
     expiresAt: instant.nullable(),
   })
   .strict();
+/**
+ * Whole-quote admission reserves a quote's entire approved P as one allocation
+ * before any debit or send. The allocation is capacity, not spend: each claim
+ * converts one credit of it to a debit, and terminal end or quote expiry
+ * releases only what was never converted.
+ */
+export type CountAdmission = "whole-quote";
+const hex64 = z.string().regex(/^[a-f0-9]{64}$/);
+export const countAllocationSchemaVersion = "catalog-count-quote-allocation/v1";
+export const countAllocationSchema = z
+  .object({
+    schemaVersion: z.literal(countAllocationSchemaVersion),
+    admission: z.literal("whole-quote"),
+    plannedCredits: integer.min(1).max(10_000),
+    quoteFingerprint: hex64,
+    authorityFingerprint: z.string().min(1),
+    expiresAt: instant,
+  })
+  .strict();
+export const countAllocationEndSchemaVersion = "catalog-count-quote-allocation-end/v1";
+export const countAllocationEndSchema = z
+  .object({
+    schemaVersion: z.literal(countAllocationEndSchemaVersion),
+    executionId: z.uuid(),
+    state: z.enum(["complete", "failed", "uncertain"]),
+  })
+  .strict();
+export const countQuoteDebitsMax = 10_000;
+/** One retained possible-send debit of a quote; a debit without a result is still `acquiring`. */
+export const countQuoteDebitSchema = z
+  .object({
+    quoteId: z.uuid(),
+    scopeRecordId: z.string().min(1),
+    kind: z.enum(["cards", "sealed"]),
+    queryFingerprint: hex64,
+    debitId: z.uuid(),
+    credits: z.literal(1),
+    debitedAt: instant,
+    outcome: z.enum(["acquiring", "complete", "failed", "uncertain"]),
+    observedAt: instant.nullable(),
+    expiresAt: instant.nullable(),
+  })
+  .strict();
+export type CountQuoteDebit = z.infer<typeof countQuoteDebitSchema>;
+export const countPreparationViewSchemaVersion = "catalog-count-quote-preparation-view/v1";
+/**
+ * The opt-in preparation read of an owned quote: the unchanged retained quote,
+ * current net authority from retained usage only (never a provider request),
+ * its admission state and every debit it owns. `unknown` debits are never zero spend.
+ */
+export const countPreparationViewSchema = z
+  .object({
+    schemaVersion: z.literal(countPreparationViewSchemaVersion),
+    quote: countQuoteSchema,
+    currentAuthority: z
+      .object({
+        readAt: instant,
+        usageFingerprint: hex64,
+        usageObservedAt: instant.nullable(),
+        state: z.enum(["allowed", "unknown"]),
+        headroom: integer.nullable(),
+      })
+      .strict(),
+    admission: z
+      .object({
+        state: z.enum(["none", "active", "ended", "expired"]),
+        plannedCredits: integer.max(10_000).nullable(),
+        admittedAt: instant.nullable(),
+        endedAt: instant.nullable(),
+      })
+      .strict(),
+    debits: z
+      .object({
+        status: z.enum(["complete", "unknown"]),
+        reason: z.enum(["overflow", "invalid-row"]).nullable(),
+        readAt: instant,
+        fingerprint: hex64.nullable(),
+        rows: z.array(countQuoteDebitSchema).max(countQuoteDebitsMax),
+      })
+      .strict(),
+  })
+  .strict();
+export type CountPreparationView = Readonly<
+  Omit<z.infer<typeof countPreparationViewSchema>, "quote"> & { quote: CountQuote }
+>;
 export function projectCountSpend(value: unknown, generatedAt: string): CountSpend[] {
   if (!Array.isArray(value) || !instant.safeParse(generatedAt).success) return [];
   return value.slice(0, 100).flatMap((candidate) => {

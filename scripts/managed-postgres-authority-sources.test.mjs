@@ -133,6 +133,51 @@ const reviewedPreviewWildcardDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #9591 threads the canonical staging Admin keys into only the count preparation run and receipt-validation steps.
+const catalogCountPreparationDelta = [
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Prepare governed Scrydex counts#3",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Prepare governed Scrydex counts#3",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Prepare governed Scrydex counts#3",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+];
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
 const ebayAccountDeletionDelta = [
   {
@@ -412,9 +457,10 @@ describe("managed Postgres authority source generator", () => {
         ...[...original.grants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...catalogCountPreparationDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1632);
+    expect(expected.grants).toHaveLength(1638);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
