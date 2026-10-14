@@ -4,9 +4,22 @@ import {
   parseCookieHeader,
   readAuthSessionToken,
   resolveRecentAuthenticationStatus,
+  agentOAuthScopesForPermissions,
+  resolveAgentOAuthScopedPermissions,
 } from "./index";
 
 describe("auth request context helpers", () => {
+  it("maps capability scopes without widening role permissions or native read-tool visibility", () => {
+    expect(agentOAuthScopesForPermissions(["orders.view"])).toEqual([
+      "dev.ucp.shopping.checkout:manage",
+      "dev.ucp.shopping.order:read",
+    ]);
+    expect(agentOAuthScopesForPermissions(["orders.manage"])).toEqual(["dev.ucp.shopping.checkout:manage"]);
+    expect(resolveAgentOAuthScopedPermissions(["dev.ucp.shopping.checkout:manage"], ["orders.view"])).toEqual([
+      "orders.view",
+    ]);
+  });
+
   it("parses cookie headers with empty and encoded values", () => {
     expect([...parseCookieHeader(" chase_sets_session=tok%201 ; flag ; empty= ").entries()]).toEqual([
       ["chase_sets_session", "tok 1"],

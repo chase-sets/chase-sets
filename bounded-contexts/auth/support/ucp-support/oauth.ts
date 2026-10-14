@@ -139,8 +139,7 @@ function createAgentGrantRevocationContext(accountId: AccountId): EventStoreCont
 
 const UCP_OAUTH_DEFAULT_SCOPES = [
   "catalog:read",
-  "checkout:read",
-  "order:read",
+  "dev.ucp.shopping.order:read",
 ] as const satisfies readonly AgentOAuthScope[];
 
 export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_SUPPORTED_SCOPES;
@@ -1244,12 +1243,20 @@ async function refreshAccessToken(c: Context, options: UcpOAuthRoutesOptions, bo
     return c.json({ error: "invalid_grant", error_description: "Refresh token is invalid or expired." }, 400);
   }
 
+  const scopes = normalizeScopes(authorization.scopes);
+  if (scopes.length === 0) {
+    return c.json(
+      { error: "invalid_grant", error_description: "No supported scopes remain. Reconnect the agent." },
+      400,
+    );
+  }
+
   return c.json({
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: Math.floor(tokenLifetimes.ucpAccessTokenTtlMs / 1000),
     refresh_token: newRefreshToken,
-    scope: normalizeScopes(authorization.scopes).join(" "),
+    scope: scopes.join(" "),
   });
 }
 
@@ -1299,7 +1306,7 @@ async function readFormOrJson(request: Request) {
 }
 
 function normalizeScopes(value: unknown): readonly string[] {
-  return normalizeAgentOAuthScopes(value, UCP_OAUTH_DEFAULT_SCOPES);
+  return normalizeAgentOAuthScopes(value);
 }
 
 function parseClientRegistrationMetadata(

@@ -7,6 +7,7 @@ import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
   UCP_OAUTH_SUPPORTED_SCOPES,
+  resolveUcpScopedPermissions,
 } from "./oauth";
 import { authRetentionSweeps } from "../runtime-support/retention-policy";
 import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identity/server";
@@ -41,6 +42,89 @@ const managementRoutes = [
 ] as const;
 
 describe("UCP OAuth routes", () => {
+  it("buyer scopes use UCP capability tokens", () => {
+    const permissions = ["orders.view", "orders.manage", "inventory.view", "inventory.manage"];
+    expect(resolveUcpScopedPermissions(["dev.ucp.shopping.checkout:manage"], permissions)).toEqual([
+      "orders.view",
+      "orders.manage",
+    ]);
+    expect(resolveUcpScopedPermissions(["dev.ucp.shopping.order:read"], permissions)).toEqual(["orders.view"]);
+    expect(resolveUcpScopedPermissions(["inventory:read", "inventory:write"], permissions)).toEqual([
+      "inventory.view",
+      "inventory.manage",
+    ]);
+  });
+
+  it("metadata advertises only current UCP capability scopes", async () => {
+    const app = new Hono().route("/.well-known", createUcpOAuthMetadataRoutes());
+    const response = await app.request("/.well-known/oauth-authorization-server");
+    const metadata = await response.json();
+    expect(metadata.scopes_supported).toHaveLength(17);
+    expect(metadata.scopes_supported.filter((scope: string) => /checkout|order/.test(scope))).toEqual([
+      "dev.ucp.shopping.checkout:manage",
+      "dev.ucp.shopping.order:read",
+    ]);
+  });
+
+  it.each([
+    // retired scope fixture: stored grants must never receive request defaults or aliases.
+    { scopes: ["checkout:write", "order:read"], expected: [] },
+    { scopes: ["checkout:write", "inventory:read"], expected: ["inventory:read"] },
+    { scopes: [], expected: [] },
+  ])("stored normalizeScopes never falls back to UCP_OAUTH_DEFAULT_SCOPES: $scopes", async ({ scopes, expected }) => {
+    const options = createOAuthOptions();
+    await options.linkedPlatformAuthorizations.grant({
+      authorizationId: "lpa_retired",
+      platformProfileUrl: "https://agent.example/.well-known/ucp",
+      clientId: "ocl_retired",
+      userId: actor.userId,
+      accountId: actor.accountId,
+      scopes,
+      accessTokenHash: "hash:retired_access",
+      refreshTokenHash: "hash:retired_refresh",
+      accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      refreshTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      grantedAt: "2026-10-12T00:00:00.000Z",
+    });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+    const introspection = await app.request("/ucp/oauth/introspect", {
+      method: "POST",
+      body: new URLSearchParams({ token: "retired_access" }),
+    });
+    expect((await introspection.json()).scope).toBe(expected.join(" "));
+    const grants = await app.request("/ucp/oauth/authorizations");
+    expect(await grants.json()).toMatchObject({ authorizations: [expect.objectContaining({ scopes: expected })] });
+    const refresh = await app.request("/ucp/oauth/token", {
+      method: "POST",
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: "retired_refresh" }),
+    });
+    expect(refresh.status).toBe(expected.length === 0 ? 400 : 200);
+    const body = await refresh.json();
+    if (expected.length === 0) {
+      expect(body).toMatchObject({ error: "invalid_grant" });
+      expect(body.access_token).toBeUndefined();
+    } else expect(body.scope).toBe("inventory:read");
+  });
+
+  it("omitted request scope defaults to catalog and order read without checkout authority", async () => {
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(createOAuthOptions()));
+    const registration = await registerClient(app, { redirect_uris: ["https://agent.example/callback"] });
+    const client = await registration.json();
+    expect(client.scope).toBe("catalog:read dev.ucp.shopping.order:read");
+    const path = authorizeUrl({
+      clientId: client.client_id,
+      redirectUri: "https://agent.example/callback",
+      scope: "",
+      challenge: pkceChallenge("synthetic-verifier"),
+    });
+    const response = await app.request(path);
+    const token = new URL(response.headers.get("location")!, "http://localhost").searchParams.get("consent_token")!;
+    const consent = await app.request(`/ucp/oauth/consent?consent_token=${token}`);
+    expect(await consent.json()).toMatchObject({
+      consent: { scopes: ["catalog:read", "dev.ucp.shopping.order:read"] },
+    });
+  });
+
   describe("revocation receipt read", () => {
     const attemptId = "74220000-0000-4000-8000-000000000001";
     const path = `/authorizations/synthetic-grant/revocation/${attemptId}`;
@@ -54,7 +138,7 @@ describe("UCP OAuth routes", () => {
         userId: actor.userId,
         clientId: "synthetic-client",
         platformProfileUrl: "https://agent.example",
-        scopes: ["order:read"],
+        scopes: ["dev.ucp.shopping.order:read"],
         accessTokenHash: "synthetic-token-hash",
         accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
         grantedAt: "2026-10-13T00:00:00.000Z",
@@ -182,7 +266,7 @@ describe("UCP OAuth routes", () => {
       userId: actor.userId,
       clientId: "synthetic-client",
       platformProfileUrl: "https://agent.example",
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: "hash:dormant-token",
       accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
       grantedAt: "2026-10-12T00:00:00.000Z",
@@ -193,7 +277,7 @@ describe("UCP OAuth routes", () => {
       userId: actor.userId,
       clientId: "synthetic-client",
       platformProfileUrl: "https://agent.example",
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: "hash:dormant-account",
       accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
       grantedAt: "2026-10-12T00:00:00.000Z",
@@ -220,7 +304,7 @@ describe("UCP OAuth routes", () => {
       userId: "foreign_user",
       clientId: "foreign_client",
       platformProfileUrl: "https://foreign.example",
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: "synthetic-foreign-token-hash",
       accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
       grantedAt: "2026-10-12T00:00:00.000Z",
@@ -241,7 +325,7 @@ describe("UCP OAuth routes", () => {
       userId: actor.userId,
       clientId: "client_a",
       platformProfileUrl: "https://agent.example/profile",
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: "hash:expired-access",
       refreshTokenHash: "hash:expired-refresh",
       accessTokenExpiresAt: "2020-01-01T00:00:00.000Z",
@@ -698,7 +782,7 @@ describe("UCP OAuth routes", () => {
         client_name: "Agent Platform",
         client_uri: "https://agent.example/.well-known/ucp",
         redirect_uris: ["https://agent.example/callback"],
-        scope: "order:read",
+        scope: "dev.ucp.shopping.order:read",
         webhook_callback_url: "https://agent.example/hooks",
       }),
       headers: { "Content-Type": "application/json" },
@@ -740,7 +824,7 @@ describe("UCP OAuth routes", () => {
       body: JSON.stringify({
         redirect_uris: ["https://agent.example/callback"],
         client_uri: "https://agent.example/.well-known/ucp",
-        scope: "order:read",
+        scope: "dev.ucp.shopping.order:read",
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -758,7 +842,7 @@ describe("UCP OAuth routes", () => {
         client_name: "Agent Platform",
         client_uri: "https://agent.example/.well-known/ucp",
         redirect_uris: ["https://agent.example/callback"],
-        scope: "order:read",
+        scope: "dev.ucp.shopping.order:read",
         webhook_callback_url: "https://agent.example/hooks",
       }),
       headers: { "Content-Type": "application/json" },
@@ -770,7 +854,7 @@ describe("UCP OAuth routes", () => {
       clientId,
       userId: actor.userId,
       accountId: actor.accountId,
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: "hash:access",
       accessTokenExpiresAt: "2026-07-13T00:00:00.000Z",
       grantedAt: "2026-07-12T00:00:00.000Z",
@@ -857,7 +941,7 @@ describe("UCP OAuth routes", () => {
       clientId: "ocl_1",
       userId: actor.userId,
       accountId: actor.accountId,
-      scopes: ["order:read"],
+      scopes: ["dev.ucp.shopping.order:read"],
       accessTokenHash: "hash:access",
       accessTokenExpiresAt: "2026-07-13T00:00:00.000Z",
       grantedAt: "2026-07-12T00:00:00.000Z",
@@ -877,7 +961,7 @@ describe("UCP OAuth routes", () => {
         client_name: "Agent Platform",
         client_uri: "https://agent.example/.well-known/ucp",
         redirect_uris: ["https://agent.example/callback"],
-        scope: "checkout:write order:read",
+        scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -892,7 +976,7 @@ describe("UCP OAuth routes", () => {
     expect(registrationBody.client_id).toMatch(/^ocl_/);
     expect(registrationBody.client_secret).toBeUndefined();
     expect(registrationBody.redirect_uris).toEqual(["https://agent.example/callback"]);
-    expect(registrationBody.scope).toBe("checkout:write order:read");
+    expect(registrationBody.scope).toBe("dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read");
 
     const verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
     const challenge = pkceChallenge(verifier);
@@ -901,7 +985,7 @@ describe("UCP OAuth routes", () => {
       authorizeUrl({
         clientId: registrationBody.client_id,
         redirectUri: "https://evil.example/callback",
-        scope: "checkout:write order:read",
+        scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
         challenge,
       }),
     );
@@ -909,7 +993,7 @@ describe("UCP OAuth routes", () => {
       authorizeUrl({
         clientId: registrationBody.client_id,
         redirectUri: "https://agent.example/callback",
-        scope: "checkout:write catalog:read",
+        scope: "dev.ucp.shopping.checkout:manage catalog:read",
         challenge,
       }),
     );
@@ -918,7 +1002,7 @@ describe("UCP OAuth routes", () => {
       authorizeUrl({
         clientId: registrationBody.client_id,
         redirectUri: "https://agent.example/callback",
-        scope: "checkout:write order:read",
+        scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
         challenge,
         state: "state_1",
       }),
@@ -950,7 +1034,7 @@ describe("UCP OAuth routes", () => {
     };
 
     expect(token.status).toBe(200);
-    expect(tokenBody.scope).toBe("checkout:write order:read");
+    expect(tokenBody.scope).toBe("dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read");
 
     const introspection = await app.request("/ucp/oauth/introspect", {
       method: "POST",
@@ -961,7 +1045,7 @@ describe("UCP OAuth routes", () => {
       active: true,
       client_id: registrationBody.client_id,
       account_id: "account_1",
-      scope: "checkout:write order:read",
+      scope: "dev.ucp.shopping.checkout:manage dev.ucp.shopping.order:read",
     });
 
     const refresh = await app.request("/ucp/oauth/token", {
@@ -996,7 +1080,7 @@ describe("UCP OAuth routes", () => {
         client_name: "Agent Platform",
         client_uri: "https://agent.example/.well-known/ucp",
         redirect_uris: ["https://agent.example/callback"],
-        scope: "order:read",
+        scope: "dev.ucp.shopping.order:read",
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -1010,7 +1094,7 @@ describe("UCP OAuth routes", () => {
       authorizeUrl({
         clientId: registrationBody.client_id,
         redirectUri: "https://agent.example/callback",
-        scope: "order:read",
+        scope: "dev.ucp.shopping.order:read",
         challenge,
       }),
     );
@@ -1056,7 +1140,7 @@ describe("UCP OAuth routes", () => {
           client_name: "Agent Metadata Client",
           client_uri: "https://agent.example/.well-known/ucp",
           redirect_uris: ["https://agent.example/callback"],
-          scope: "catalog:read order:read",
+          scope: "catalog:read dev.ucp.shopping.order:read",
           grant_types: ["authorization_code", "refresh_token"],
           response_types: ["code"],
           token_endpoint_auth_method: "none",
@@ -1072,7 +1156,7 @@ describe("UCP OAuth routes", () => {
       authorizeUrl({
         clientId: "https://agent.example/oauth-client.json",
         redirectUri: "https://agent.example/callback",
-        scope: "catalog:read order:read",
+        scope: "catalog:read dev.ucp.shopping.order:read",
         challenge,
       }),
     );
@@ -1093,7 +1177,7 @@ describe("UCP OAuth routes", () => {
     });
     const tokenBody = (await token.json()) as { access_token: string; scope: string };
     expect(token.status).toBe(200);
-    expect(tokenBody.scope).toBe("catalog:read order:read");
+    expect(tokenBody.scope).toBe("catalog:read dev.ucp.shopping.order:read");
 
     const introspection = await app.request("/ucp/oauth/introspect", {
       method: "POST",

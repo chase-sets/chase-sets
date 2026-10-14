@@ -332,7 +332,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 158, "deps.db"],
-      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 305, "options.auth.db"],
+      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 304, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
       ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
