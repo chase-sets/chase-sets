@@ -425,6 +425,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
               data: { listingId: match.listing_id, feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint },
             });
             expect(acceptance.status()).toBe(201);
+            rememberWrite(acceptance);
             const accepted = await acceptance.json();
             expect(accepted).toMatchObject({
               id: offerId,
@@ -436,6 +437,21 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
               match.last_stream_version,
             );
           }
+          const sales = await seller.request.get("/api/marketplace/account/sales?limit=100", {
+            headers: freshReadHeaders("ordering"),
+          });
+          expect(sales.ok(), "receipted Sales handoff waits for accepted Offers and their Order projections").toBe(true);
+          const committedSales = await sales.json();
+          expect(committedSales.count).toBe(committedSales.total);
+          const offerOrders = committedSales.items.filter(
+            (order: { source_type: string; source_reference_id: string }) =>
+              order.source_type === "offer-acceptance" && offerIds.includes(order.source_reference_id),
+          );
+          for (const offerId of offerIds)
+            expect(
+              offerOrders.filter((order: { source_reference_id: string }) => order.source_reference_id === offerId),
+            ).toHaveLength(1);
+          expect(new Set(offerOrders.map((order: { order_id: string }) => order.order_id)).size).toBe(2);
         } finally {
           try {
             if (listingId) {
