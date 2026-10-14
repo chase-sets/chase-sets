@@ -10,6 +10,7 @@ import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { buildPaymentsApi } from "../../../api";
 import { createPaymentsServices } from "../../../support/runtime-support/services";
 import { quoteMarketplaceCheckoutFee } from "../../payments/api/marketplace-checkout-fee-policy";
+import type { SavedCheckoutInstrumentRow } from "../../payments/read-model/queries";
 import { createWalletFundingRuntime, type WalletFundingRuntimeDeps } from "./runtime";
 import { defaultWalletFundingLimits, decodeWalletFundingLimits } from "./limits-policy";
 import type { PrepaidRefundAuthority, PrepaidRefundReservation } from "./prepaid-refund-authority";
@@ -1071,5 +1072,182 @@ describe("wallet-funding-dispute-fraud-reconcile", () => {
     expect(
       events.some((e) => e.eventType.startsWith("payments.payment-") || e.eventType.startsWith("payments.refund-")),
     ).toBe(false);
+  });
+});
+
+describe("wallet-funding-card-cohort", () => {
+  const savedRow = (patch: Partial<SavedCheckoutInstrumentRow> = {}): SavedCheckoutInstrumentRow => ({
+    instrument_id: "sci_synthetic_card",
+    account_id: identity.accountId,
+    agent_grant_id: null,
+    payment_method_category: "card",
+    provider: "stripe",
+    provider_customer_reference: "cus_synthetic",
+    provider_reference: "pm_synthetic_card",
+    display_label: "Synthetic card",
+    confirmation_experience: "trusted-payment-step",
+    is_default: false,
+    readiness: "ready",
+    allow_redisplay: "always",
+    consent_id: null,
+    consent_text: null,
+    removed_at: null,
+    created_at: at,
+    updated_at: at,
+    ...patch,
+  });
+  function savedHarness(rows: readonly SavedCheckoutInstrumentRow[]) {
+    const sql: string[] = [];
+    const query: PgQueryFunction = async <Row>(text: string, values?: readonly unknown[]) => {
+      sql.push(text);
+      if (text.includes("FROM payments_saved_checkout_instruments"))
+        return {
+          rows: rows.filter((row) => row.account_id === values?.[0] && row.instrument_id === values?.[1]) as Row[],
+        };
+      return { rows: (text.includes("COALESCE(sum") ? [{ amount: "0.00" }] : []) as Row[] };
+    };
+    const pool: PgTransactionalPool = { query, connect: async () => ({ query, release: () => {} }) };
+    return { ...harness({ pool }), sql };
+  }
+  function routeApp(h: ReturnType<typeof harness>) {
+    const app = new Hono<AuthenticatedApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        tenantId: "tnt_synthetic",
+        accountId: "acc_synthetic",
+        userId: "usr_synthetic",
+        sessionId: "synthetic-session",
+        membershipId: "synthetic-membership",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      });
+      c.set("context", context);
+      await next();
+    });
+    app.route("/account", createWalletFundingRoutes(h.runtime));
+    return (body: Record<string, unknown>) =>
+      app.request("/account/wallet-fundings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+  }
+  const gatewayRequest = (h: ReturnType<typeof harness>) =>
+    vi.mocked(h.gateway.createPaymentSession).mock.calls[0]?.[0];
+  const savedInput = { ...createInput, savedInstrumentId: "sci_synthetic_card" };
+
+  it("the funding route quotes then creates exactly one card-only wallet request", async () => {
+    const h = harness();
+    const post = routeApp(h);
+    const body = { requestedAmount: "10.00", currencyCode: "usd", paymentMethodCategory: "card" };
+    const quoted = await post(body);
+    expect(quoted.status).toBe(200);
+    const quote = (await quoted.json()) as { fundingId: string; quote: { quote_fingerprint: string } };
+    expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
+    const created = await post({ ...body, fundingId: quote.fundingId, quoteFingerprint: quote.quote.quote_fingerprint });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({
+      outcome: "created",
+      processorClientSecret: "synthetic-client-secret",
+      funding: { processorPaymentReference: "pi_synthetic" },
+    });
+    expect(h.gateway.createPaymentSession).toHaveBeenCalledOnce();
+    const request = gatewayRequest(h);
+    expect(request).toMatchObject({
+      paymentId: quote.fundingId,
+      purpose: "wallet-funding",
+      paymentMethodCategory: "card",
+      currencyCode: "usd",
+      orderIds: [],
+      amount: h.quote.processor_amount,
+      idempotencyKey: `payments:wallet-funding:${quote.fundingId}:create`,
+      cardAuthentication: { requestThreeDSecure: "any", reasonCodes: ["wallet-funding"] },
+      marketplaceRiskMetadata: { purpose: "wallet-funding" },
+    });
+    expect(request.purpose).toBe("wallet-funding");
+    expect(request).not.toHaveProperty("savedCheckoutInstrument");
+    expect(request).not.toHaveProperty("savePaymentMethod");
+    expect(request).not.toHaveProperty("returnUrl");
+  });
+
+  it.each(["bank-account", "link", "Card", "platform-credit"])(
+    "the route refuses the %s method category before quota or provider work",
+    async (paymentMethodCategory) => {
+      const h = savedHarness([]);
+      const refused = await routeApp(h)({ requestedAmount: "10.00", currencyCode: "usd", paymentMethodCategory });
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({ error: { code: "funding_method_not_allowed" } });
+      expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
+      expect(h.sql.some((text) => text.includes("payments_wallet_funding_creation_reservations"))).toBe(false);
+    },
+  );
+
+  it.each(["trusted-payment-step", "off-session-token"] as const)(
+    "a ready saved card stored with the %s experience is carried under the same purpose as an on-session card step",
+    async (confirmation_experience) => {
+      const h = savedHarness([savedRow({ confirmation_experience })]);
+      const result = await h.runtime.create({ ...savedInput, quoteFingerprint: h.quote.quote_fingerprint }, context);
+      expect(result.outcome).toBe("created");
+      expect(h.gateway.createPaymentSession).toHaveBeenCalledOnce();
+      expect(gatewayRequest(h)).toMatchObject({
+        purpose: "wallet-funding",
+        paymentMethodCategory: "card",
+        cardAuthentication: { requestThreeDSecure: "any", reasonCodes: ["wallet-funding"] },
+        savedCheckoutInstrument: {
+          instrumentId: "sci_synthetic_card",
+          providerReference: "pm_synthetic_card",
+          providerCustomerReference: "cus_synthetic",
+          confirmationExperience: "trusted-payment-step",
+        },
+      });
+      expect((await h.runtime.stateFor(fundingId)).quote?.savedInstrumentId).toBe("sci_synthetic_card");
+    },
+  );
+
+  it.each([
+    ["a saved bank account", savedRow({ payment_method_category: "bank-account", provider_reference: "pm_synthetic_bank" })],
+    ["a saved platform-credit instrument", savedRow({ payment_method_category: "platform-credit" })],
+    ["a card still awaiting setup", savedRow({ readiness: "setup-required" })],
+    ["a removed card", savedRow({ readiness: "removed", removed_at: at })],
+    ["a card owned by another account", savedRow({ account_id: "acc_other" })],
+    ["an unknown instrument", savedRow({ instrument_id: "sci_other" })],
+  ])("%s is refused before quota reservation or provider work", async (_label, row) => {
+    const h = savedHarness([row]);
+    await expect(
+      h.runtime.create({ ...savedInput, quoteFingerprint: h.quote.quote_fingerprint }, context),
+    ).rejects.toThrow("funding_instrument_unavailable");
+    expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
+    expect(h.sql.some((text) => text.includes("payments_wallet_funding_creation_reservations"))).toBe(false);
+    expect(
+      JSON.stringify(await h.store.readStream({ streamId: `payments.wallet-funding-${fundingId}` })),
+    ).not.toContain("wallet-funding-quoted");
+  });
+
+  it("reload returns the same PaymentIntent without a second create, and a changed saved reference cannot re-quote", async () => {
+    const h = savedHarness([savedRow()]);
+    const retrieve = vi.fn<NonNullable<PaymentProcessorGateway["retrieveWalletFundingConfirmation"]>>(async () => ({
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_synthetic",
+      processorClientSecret: "synthetic-client-secret-reload",
+      processorRedirectUrl: null,
+      processorStatus: "requires_payment_method",
+    }));
+    h.gateway.retrieveWalletFundingConfirmation = retrieve;
+    const input = { ...savedInput, quoteFingerprint: h.quote.quote_fingerprint };
+    expect((await h.runtime.create(input, context)).outcome).toBe("created");
+    const reload = await h.runtime.create(input, context);
+    expect(reload).toMatchObject({
+      outcome: "created",
+      processorClientSecret: "synthetic-client-secret-reload",
+      funding: { processorPaymentReference: "pi_synthetic", status: "pending-confirmation" },
+    });
+    expect(h.gateway.createPaymentSession).toHaveBeenCalledOnce();
+    expect(retrieve).toHaveBeenCalledExactlyOnceWith(fundingId, "pi_synthetic");
+    await expect(h.runtime.create({ ...input, savedInstrumentId: null }, context)).rejects.toThrow(
+      "funding_identity_conflict",
+    );
+    expect(h.gateway.createPaymentSession).toHaveBeenCalledOnce();
+    expect(retrieve).toHaveBeenCalledOnce();
   });
 });
