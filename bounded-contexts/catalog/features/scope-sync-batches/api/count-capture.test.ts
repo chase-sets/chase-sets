@@ -152,6 +152,12 @@ describe("captures actual winners", () => {
       await reader.read(scrydexCountQuery({ ...captureCountQuery("cards"), profileVersion: "2026.06.23" }));
       return pageOneEvidence("cards");
     },
+    // Every consumed source has its winner, plus a read no selected unit owns.
+    "unowned winner": async (reader, kind) => {
+      if (kind === "cards")
+        await reader.read(scrydexCountQuery({ ...captureCountQuery(kind), profileVersion: "2026.06.23" }));
+      return reader.read(captureCountQuery(kind));
+    },
     "excess winners": async (reader, kind) => {
       for (const parentValue of ["OP02", "OP03", "OP04", "OP05", "OP06"])
         await reader.read(scrydexCountQuery({ ...captureCountQuery(kind), parentValue }));
