@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -243,7 +244,7 @@ export function createBuyerOfferPolicyRuntime(
     if (events.length === 0) return snapshot(current.state, current.version);
     assertPolicy(deps.eventStore.appendToStreams, "Buyer Offer Policy commands require atomic append support.");
     try {
-      await deps.eventStore.appendToStreams([
+      const results = await deps.eventStore.appendToStreams([
         {
           streamId: streamId(policyId),
           expectedVersion: current.version,
@@ -252,6 +253,7 @@ export function createBuyerOfferPolicyRuntime(
         },
         ...guards,
       ]);
+      recordCommittedEvents(results.flatMap((result) => result.storedEvents));
     } catch (error) {
       if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
         const latest = await owned(policyId, buyerAccountId);
