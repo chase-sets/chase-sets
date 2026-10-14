@@ -847,6 +847,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.submittedOfferLifecycle.pause.offer": "Pause Offer",
   "marketplace.features.offers.ui.submittedOfferLifecycle.resume.offer": "Resume Offer",
   "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.offer": "Withdraw Offer",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.select.row": "Select {title}",
   "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.selected": "{count} Offers selected",
   "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.pause": "Pause selected",
   "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.resume": "Resume selected",

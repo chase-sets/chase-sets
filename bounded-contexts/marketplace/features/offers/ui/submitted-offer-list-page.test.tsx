@@ -87,8 +87,8 @@ describe("Submitted Offers list lifecycle controls", () => {
 
   it("runs bulk Pause and Resume on the selection and confirms bulk Withdraw", async () => {
     const { onLifecycleAction } = renderPage();
-    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select row off_open" })[0]!);
-    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select row off_paused" })[0]!);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Charizard" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Blastoise" }));
     expect(screen.getByText("2 Offers selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Pause selected" }));
     expect(onLifecycleAction).toHaveBeenLastCalledWith("pause", ["off_open", "off_paused"]);
