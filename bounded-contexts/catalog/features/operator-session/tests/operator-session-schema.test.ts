@@ -13,6 +13,21 @@ import {
 } from "../read-model/grant-schema";
 
 describe("operator-session schema enrollment", () => {
+  it("registers a forward text creator-id migration after the unchanged UUID v1", () => {
+    const [v1, v2] = catalogOperatorSessionGrantSchemaMigrations;
+    expect(v1!.migrationId).toBe("20261002_catalog_operator_session_grants_v1");
+    expect(v1!.statements[0]).toContain("creator_user_id uuid NOT NULL");
+    expect(v1!.statements[0]).toContain("creator_membership_id uuid NOT NULL");
+    expect(v2?.migrationId).toBe("20261013_catalog_operator_session_grant_creator_ids_text_v2");
+    expect(catalogAuthoringSchemaMigrations).toContain(v2);
+    expect(catalogModule.schemaMigrations).toContain(v2);
+    const statements = v2!.statements.join("\n");
+    expect(statements).toContain("SET LOCAL lock_timeout = '5s'");
+    expect(statements).toContain("NOT VALID");
+    expect(statements).toContain("VALIDATE CONSTRAINT catalog_operator_session_grants_creator_user_id_bounded");
+    expect(statements).toContain("VALIDATE CONSTRAINT catalog_operator_session_grants_creator_membership_id_bounded");
+    expect(statements).not.toContain("SET NOT NULL");
+  });
   it("registers identical additive boot DDL and a ledger migration in the existing module registry", () => {
     expect(catalogAuthoringSchemaSql).toContain(catalogOperatorSessionSchemaSql);
     expect(catalogOperatorSessionSchemaMigrations[0]!.statements).toEqual([catalogOperatorSessionSchemaSql]);
