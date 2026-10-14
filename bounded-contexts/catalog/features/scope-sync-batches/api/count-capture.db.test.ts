@@ -231,7 +231,12 @@ describe("pre-confirm has no effect capability", () => {
         sealedUnit,
       ]);
     const confirmation = { ...input, planFingerprint: preview.planFingerprint };
+    // The pre-confirm read plans for real, so it makes its own usage reads; only
+    // those are set aside. Every other provider call and effect must match.
+    const calls = () => f.fetch.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    const before = calls().length;
     const check = preConfirm ? await f.runtime.preConfirmPlannerRead(confirmation) : null;
+    const preConfirmCalls = calls().length - before;
     const confirmed = await f.runtime.confirm(confirmation).then(
       (batch) => ({ batch, error: null }),
       (error: Error & { code?: string; currentPreview?: ScopeSyncBatchPreview }) => ({ batch: null, error }),
@@ -249,10 +254,10 @@ describe("pre-confirm has no effect capability", () => {
         units: await rows("catalog_scope_sync_batch_units"),
         countHistory: Object.fromEntries(history.rows.map((row) => [row.event_kind, Number(row.count)])),
         enqueues: f.enqueue.mock.calls.length,
-        providerCalls: f.fetch.mock.calls.map(([url]) => new URL(String(url)).pathname),
+        providerCalls: calls().filter((_, index) => index < before || index >= before + preConfirmCalls),
       },
     };
-    return { preview, check, confirmed, outcome };
+    return { preview, check, confirmed, outcome, preConfirmCalls };
   }
 
   it("pre-confirm has no effect capability", async () => {
@@ -280,11 +285,15 @@ describe("pre-confirm has no effect capability", () => {
       effectsCapability: false,
     });
     expect(observation.plan.preview.planFingerprint).toBe(planFingerprint);
-    expect(observation.winners.map((winner) => [winner.query.kind, winner.source?.validationKind])).toEqual([
+    const byKind = (winners: typeof observation.winners) =>
+      [...winners].sort((left, right) => left.query.kind.localeCompare(right.query.kind));
+    expect(byKind(observation.winners).map((winner) => [winner.query.kind, winner.source?.validationKind])).toEqual([
       ["cards", "page-1-count"],
       ["sealed", "page-1-count"],
     ]);
-    expect(observation.winners.map((winner) => winner.source)).toEqual(preview.winners.map((winner) => winner.source));
+    expect(byKind(observation.winners).map((winner) => winner.source)).toEqual(
+      byKind(preview.winners).map((winner) => winner.source),
+    );
     expect(observation.winners.every((winner) => winner.readAt === plannedAt)).toBe(true);
     expect(reserve).not.toHaveBeenCalled();
     expect(f.enqueue).not.toHaveBeenCalled();
@@ -314,8 +323,10 @@ describe("pre-confirm has no effect capability", () => {
   it("pre-confirm reports the refusal or eligibility real confirm reaches, and leaves confirm's outcome unchanged", async () => {
     const outcomes = [];
     for (const name of confirmCases) {
-      const { check, confirmed, outcome } = await confirmCase(name, true);
+      const { check, confirmed, outcome, preConfirmCalls } = await confirmCase(name, true);
       outcomes.push(outcome);
+      // A real planner read, not a stub resolver: it read provider usage itself.
+      expect(preConfirmCalls).toBeGreaterThan(0);
       const current = confirmed.batch?.planFingerprint ?? confirmed.error?.currentPreview?.planFingerprint;
       expect(check).toMatchObject({
         currentFingerprint: current,
