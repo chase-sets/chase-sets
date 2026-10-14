@@ -8,6 +8,10 @@ describe("issue-7169-ac1-caller-partition", () => {
   it.each([
     "services.restockDecisions[method]({}, context);",
     "const mutate = services.restockDecisions[method]; mutate({}, context);",
+    'services["restockDecisions"][method]({}, context);',
+    'const mutate = services["restockDecisions"][method]; mutate({}, context);',
+    "services['restockDecisions'][method]({}, context);",
+    "const mutate = services['restockDecisions'][method]; mutate({}, context);",
   ])("rejects unresolved restock access at an arbitrary path: %s", (source) => {
     expect(() =>
       discoverInventoryCallers([{ path: "bounded-contexts/arbitrary/api/dynamic-restock.ts", source }]),
