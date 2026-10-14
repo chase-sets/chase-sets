@@ -16,7 +16,7 @@ $script:SelectorOperations = @{
 
 function Assert-SelectorClosed($Value, [string[]]$Keys) {
   if ($Value -isnot [System.Collections.IDictionary] -or
-      @(Compare-Object @($Value.Keys | Sort-Object) @($Keys | Sort-Object)).Count) { throw 'E_SCHEMA_REFUSED' }
+      @(Compare-Object @($Value.Keys | Sort-Object) @($Keys | Sort-Object) -CaseSensitive).Count) { throw 'E_SCHEMA_REFUSED' }
 }
 
 function Get-SelectorDigest([byte[]]$Bytes) {
@@ -208,6 +208,8 @@ function Assert-SelectorResponse([int]$Status, [string]$Text) {
   if ($Status -eq 204 -and $Text -ceq '') { return }
   if ($Status -ne 200 -or [Text.Encoding]::UTF8.GetByteCount($Text) -gt 512) { throw 'E_RESPONSE_REFUSED' }
   $value = $Text | ConvertFrom-Json -AsHashtable
+  # Never return ignored duplicate values or escaped/extra data from the original bytes.
+  if (($value | ConvertTo-Json -Compress -Depth 3 -WarningAction Stop) -cne $Text) { throw 'E_RESPONSE_REFUSED' }
   if ($value -is [Collections.IDictionary] -and $value.Count -eq 1) {
     Assert-SelectorClosed $value @('ok'); if ($value.ok -is [bool] -and $value.ok) { return }
   } else {
@@ -222,12 +224,19 @@ function Assert-SelectorResponse([int]$Status, [string]$Text) {
   throw 'E_RESPONSE_REFUSED'
 }
 
-function Invoke-SelectorLoopback($Endpoint, [string]$Text, $Configuration) {
+function Assert-SelectorEndpoint($Endpoint, $Configuration) {
   Assert-SelectorClosed $Endpoint @('tool', 'runId', 'policyIdentity', 'policyHash', 'url', 'token')
+  foreach ($key in @('tool', 'runId', 'policyIdentity', 'policyHash', 'url', 'token')) {
+    if ($Endpoint[$key] -isnot [string]) { throw 'E_ENDPOINT_REFUSED' }
+  }
   if ($Endpoint.tool -cne 'channels-selector-run-endpoint/v1' -or $Endpoint.runId -cne $Configuration.runId -or
       $Endpoint.policyIdentity -cne 'selector-agent-operation-capability-policy/v1' -or $Endpoint.policyHash -cne $script:SelectorEndpointPolicyHash -or
       $Endpoint.url -cnotmatch '^http://127\.0\.0\.1:([1-9][0-9]{0,4})/operation$' -or
       [int]$Matches[1] -gt 65535 -or $Endpoint.token -cnotmatch '^[a-f0-9]{64}$') { throw 'E_ENDPOINT_REFUSED' }
+}
+
+function Invoke-SelectorLoopback($Endpoint, [string]$Text, $Configuration) {
+  Assert-SelectorEndpoint $Endpoint $Configuration
   [void](Assert-SelectorMessage $Text $Configuration)
   $handler = [Net.Http.HttpClientHandler]::new(); $handler.AllowAutoRedirect = $false; $handler.UseProxy = $false
   $client = [Net.Http.HttpClient]::new($handler); $client.Timeout = [TimeSpan]::FromSeconds(5)

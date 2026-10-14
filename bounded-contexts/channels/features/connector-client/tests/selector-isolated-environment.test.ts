@@ -162,12 +162,17 @@ Case 'response-ok' { Assert-SelectorResponse 200 '{"ok":true}' }
 Case 'response-204' { Assert-SelectorResponse 204 '' }
 Case 'response-204-body' { Assert-SelectorResponse 204 '{"ok":true}' }
 Case 'response-extra' { Assert-SelectorResponse 200 '{"ok":true,"token":"synthetic"}' }
+Case 'response-cased-key' { Assert-SelectorResponse 200 '{"OK":true}' }
+Case 'response-duplicate-secret' { Assert-SelectorResponse 200 '{"ok":"synthetic-private-value","ok":true}' }
+Case 'response-duplicate-escaped-token' { Assert-SelectorResponse 200 ('{"ok":"' + ('\u0061' * 64) + '","ok":true}') }
 Case 'response-false' { Assert-SelectorResponse 200 '{"ok":false}' }
 Case 'response-status' { Assert-SelectorResponse 302 '' }
 Case 'response-payload' { Assert-SelectorResponse 200 '{"rangeSemanticsValid":true,"selectedRangeValid":false,"quickFilterRelationshipValid":true,"currentEpochComplete":false,"oldCompletionInvalidated":true,"rangeControlMatches":1,"quickFilterLabelMatches":"many","adjacentCountMatches":0,"completionSignalMatches":1}' }
 Case 'response-boolean-count' { Assert-SelectorResponse 200 '{"rangeSemanticsValid":true,"selectedRangeValid":false,"quickFilterRelationshipValid":true,"currentEpochComplete":false,"oldCompletionInvalidated":true,"rangeControlMatches":true,"quickFilterLabelMatches":"many","adjacentCountMatches":0,"completionSignalMatches":1}' }
 Case 'exposed-listener' { Invoke-SelectorLoopback @{ tool='channels-selector-run-endpoint/v1'; runId=$c.runId; policyIdentity='selector-agent-operation-capability-policy/v1'; policyHash=$script:SelectorEndpointPolicyHash; url='http://0.0.0.0:1234/operation'; token=('a'*64) } $message $c | Out-Null }
 Case 'redirect-endpoint' { Invoke-SelectorLoopback @{ tool='channels-selector-run-endpoint/v1'; runId=$c.runId; policyIdentity='selector-agent-operation-capability-policy/v1'; policyHash=$script:SelectorEndpointPolicyHash; url='http://127.0.0.1:1234/operation?next=external'; token=('a'*64) } $message $c | Out-Null }
+Case 'endpoint-valid' { Assert-SelectorEndpoint @{ tool='channels-selector-run-endpoint/v1'; runId=$c.runId; policyIdentity='selector-agent-operation-capability-policy/v1'; policyHash=$script:SelectorEndpointPolicyHash; url='http://127.0.0.1:1234/operation'; token=('a'*64) } $c }
+Case 'endpoint-nonstring' { Assert-SelectorEndpoint @{ tool='channels-selector-run-endpoint/v1'; runId=$true; policyIdentity='selector-agent-operation-capability-policy/v1'; policyHash=$script:SelectorEndpointPolicyHash; url='http://127.0.0.1:1234/operation'; token=('a'*64) } $c }
 
 # Synchronous closed exchange seam, not an E or loopback acceptance witness.
 function Write-SelectorNewFile([string]$File, [byte[]]$Bytes) {
@@ -277,6 +282,7 @@ describe("selector-isolated-environment-transport", () => {
     "response-payload",
     "roundtrip-ok",
     "roundtrip-204",
+    "endpoint-valid",
     "discard-keeps-pending",
   ])
     it("closed fixture " + name, () => expect(results[name]).toBe("ACCEPTED"));
@@ -290,11 +296,15 @@ describe("selector-isolated-environment-transport", () => {
     "noncanonical",
     "response-204-body",
     "response-extra",
+    "response-cased-key",
+    "response-duplicate-secret",
+    "response-duplicate-escaped-token",
     "response-false",
     "response-status",
     "response-boolean-count",
     "exposed-listener",
     "redirect-endpoint",
+    "endpoint-nonstring",
     "replay",
     "export-hash-mismatch",
     "token-echo",
