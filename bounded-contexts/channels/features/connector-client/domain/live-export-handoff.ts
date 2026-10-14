@@ -6,7 +6,8 @@ export const liveExportPostStates = ["planned", "dispatched", "captured202"] as 
 export type LiveExportPostState = (typeof liveExportPostStates)[number];
 /**
  * Journaled before parse so a restart resumes the same raw record, digest and reference without refetching.
- * The parsed row count joins the post when it is dispatched, so a captured202 report survives raw removal.
+ * Each post state has one closed field set: planned precedes parse and carries no count; dispatched and
+ * captured202 carry the landed parser's count, so a captured202 report survives raw removal.
  */
 export type LiveExportHandoff = Readonly<{
   rawExportId: string;
@@ -20,6 +21,11 @@ export type LiveExportHandoff = Readonly<{
 
 const referenceProfile = "tcgplayer-live-export/v1";
 const referencePattern = /^tcgx\.v1:[a-f0-9]{64}$/;
+const postFields = {
+  planned: ["externalReference", "state"],
+  dispatched: ["externalReference", "state", "parsedRowCount"],
+  captured202: ["externalReference", "state", "parsedRowCount"],
+} as const satisfies Record<LiveExportPostState, readonly string[]>;
 
 export async function liveExportExternalReference(
   connectionId: string,
@@ -36,13 +42,15 @@ export async function liveExportExternalReference(
 
 export function parseLiveExportHandoff(value: unknown, payload: LiveExportPayload): LiveExportHandoff {
   const row = record(value, ["rawExportId", "fileSha256", "downloadedAt", "byteLength", "post"]);
-  const post = record(row.post, ["externalReference", "state"], ["parsedRowCount"]);
+  // The state selects exactly one closed field set; there is no optional field and no fallback shape.
+  const state = (row.post as { state?: unknown } | null)?.state;
+  if (!liveExportPostStates.includes(state as LiveExportPostState)) refuse();
+  const post = record(row.post, postFields[state as LiveExportPostState]);
   if (
-    (post.state === "planned") === Object.hasOwn(post, "parsedRowCount") ||
-    (Object.hasOwn(post, "parsedRowCount") &&
-      (!Number.isSafeInteger(post.parsedRowCount) ||
-        (post.parsedRowCount as number) < 1 ||
-        (post.parsedRowCount as number) > payload.limits.maxRecords))
+    state !== "planned" &&
+    (!Number.isSafeInteger(post.parsedRowCount) ||
+      (post.parsedRowCount as number) < 1 ||
+      (post.parsedRowCount as number) > payload.limits.maxRecords)
   )
     refuse();
   if (
@@ -54,14 +62,16 @@ export function parseLiveExportHandoff(value: unknown, payload: LiveExportPayloa
     (row.byteLength as number) < 1 ||
     (row.byteLength as number) > payload.limits.maxBytes ||
     typeof post.externalReference !== "string" ||
-    !referencePattern.test(post.externalReference) ||
-    !liveExportPostStates.includes(post.state as LiveExportPostState)
+    !referencePattern.test(post.externalReference)
   )
     refuse();
   return structuredClone(row) as LiveExportHandoff;
 }
 
-/** Identity is immutable and the post state only advances; a dropped or rewound handoff is refused. */
+/**
+ * Identity and the dispatched count are immutable and the post state only advances; a dropped or rewound handoff
+ * is refused. The count is journaled with dispatched before any POST, so captured202 never follows planned.
+ */
 export function assertLiveExportHandoffTransition(previous: LiveExportHandoff, next: LiveExportHandoff): void {
   if (
     previous.rawExportId !== next.rawExportId ||
@@ -71,7 +81,8 @@ export function assertLiveExportHandoffTransition(previous: LiveExportHandoff, n
     previous.post.externalReference !== next.post.externalReference ||
     (previous.post.state !== "planned" &&
       (next.post.state === "planned" || previous.post.parsedRowCount !== next.post.parsedRowCount)) ||
-    liveExportPostStates.indexOf(next.post.state) < liveExportPostStates.indexOf(previous.post.state)
+    liveExportPostStates.indexOf(next.post.state) < liveExportPostStates.indexOf(previous.post.state) ||
+    (previous.post.state === "planned" && next.post.state === "captured202")
   )
     refuse();
 }
