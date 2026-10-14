@@ -124,6 +124,7 @@ export async function action({ request }: ActionFunctionArgs) {
         evidenceType: "photo",
         summary: t("support.routes.marketplace.accountSupport.photos.summary"),
         attachments: uploadedAttachmentReferences,
+        attachmentOperationId,
       });
     }
     return redirect(`/account/support?opened=${encodeURIComponent(supportRequestId)}`);

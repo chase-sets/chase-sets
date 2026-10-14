@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
+import { createSupportEvidenceAttachmentReference } from "./attachment-reference";
 import {
   SUPPORT_EVIDENCE_ATTACHMENT_MAX_BYTES,
   SUPPORT_EVIDENCE_ATTACHMENT_MAX_COUNT,
@@ -39,20 +40,32 @@ type PutAdmission = Readonly<{ index: number; attempt: number }>;
 type PutSettlement = PutAdmission & Readonly<{ outcome: "completed" | "failed" }>;
 type StoredIndex = Readonly<{ index: number }>;
 type CleanupRequirement = Readonly<{ reason: "verification-conflict" | "verification-absent" | "put-failed" }>;
+export type AttachmentReferenceClaim = Readonly<{
+  evidenceId: string;
+  attachments: readonly string[];
+  submittedAt: string;
+}>;
 export type AttachmentOperationEvent =
   | Readonly<{ type: "support.attachment-operation.staged"; data: AttachmentManifest }>
   | Readonly<{ type: "support.attachment-operation.put-admitted"; data: PutAdmission }>
   | Readonly<{ type: "support.attachment-operation.put-settled"; data: PutSettlement }>
   | Readonly<{ type: "support.attachment-operation.stored"; data: StoredIndex }>
-  | Readonly<{ type: "support.attachment-operation.cleanup-required"; data: CleanupRequirement }>;
+  | Readonly<{ type: "support.attachment-operation.cleanup-required"; data: CleanupRequirement }>
+  | Readonly<{ type: "support.attachment-operation.reference-claimed"; data: AttachmentReferenceClaim }>
+  | Readonly<{ type: "support.attachment-operation.reference-claim-released"; data: Readonly<{ evidenceId: string }> }>
+  | Readonly<{ type: "support.attachment-operation.referenced"; data: Readonly<{ evidenceId: string }> }>;
 export type AttachmentOperationCommand =
   | Readonly<{ type: "StageSupportAttachmentOperation"; data: AttachmentManifest }>
   | Readonly<{ type: "AdmitSupportAttachmentPut"; data: PutAdmission }>
   | Readonly<{ type: "SettleSupportAttachmentPut"; data: PutSettlement }>
   | Readonly<{ type: "RecordSupportAttachmentStored"; data: StoredIndex }>
-  | Readonly<{ type: "RequireSupportAttachmentCleanup"; data: CleanupRequirement }>;
+  | Readonly<{ type: "RequireSupportAttachmentCleanup"; data: CleanupRequirement }>
+  | Readonly<{ type: "ClaimSupportAttachmentReference"; data: AttachmentReferenceClaim }>
+  | Readonly<{ type: "ReleaseSupportAttachmentReferenceClaim"; data: Readonly<{ evidenceId: string }> }>
+  | Readonly<{ type: "ConfirmSupportAttachmentReferenced"; data: Readonly<{ evidenceId: string }> }>;
 export type AttachmentOperationState = Readonly<{
-  status: "absent" | "staged" | "partially-stored" | "stored" | "cleanup-required";
+  status: "absent" | "staged" | "partially-stored" | "stored" | "cleanup-required" | "reference-claimed" | "referenced";
+  referenceClaim: AttachmentReferenceClaim | null;
   manifest: AttachmentManifest | null;
   stored: readonly number[];
   attempts: Readonly<Record<number, readonly Readonly<{ attempt: number; outcome: "completed" | "failed" | null }>[]>>;
@@ -220,6 +233,32 @@ function evolve(state: AttachmentOperationState, event: AttachmentOperationEvent
     if (state.status !== "absent") invalid();
     return { ...state, status: "staged", manifest: validateManifest(event.data) };
   }
+  if (event.type === "support.attachment-operation.reference-claimed") {
+    object(event.data, ["evidenceId", "attachments", "submittedAt"]);
+    if (
+      state.status !== "stored" ||
+      !state.manifest ||
+      Object.values(state.attempts).some((attempts) => attempts.some((attempt) => attempt.outcome !== "completed")) ||
+      typeof event.data.evidenceId !== "string" ||
+      !safeId.test(event.data.evidenceId) ||
+      typeof event.data.submittedAt !== "string" ||
+      !Number.isFinite(Date.parse(event.data.submittedAt)) ||
+      canonicalJson(event.data.attachments) !== canonicalJson(attachmentManifestReferences(state.manifest))
+    )
+      invalid();
+    return { ...state, status: "reference-claimed", referenceClaim: event.data };
+  }
+  if (
+    event.type === "support.attachment-operation.reference-claim-released" ||
+    event.type === "support.attachment-operation.referenced"
+  ) {
+    object(event.data, ["evidenceId"]);
+    if (state.status !== "reference-claimed" || event.data.evidenceId !== state.referenceClaim?.evidenceId) invalid();
+    return event.type === "support.attachment-operation.referenced"
+      ? { ...state, status: "referenced" }
+      : { ...state, status: "stored", referenceClaim: null };
+  }
+  if (state.status === "reference-claimed" || state.status === "referenced") invalid();
   if (event.type === "support.attachment-operation.cleanup-required") {
     const data = object(event.data, ["reason"]);
     if (
@@ -289,6 +328,7 @@ export function replayAttachmentOperation(events: readonly AttachmentOperationEv
     manifest: null,
     stored: [],
     attempts: {},
+    referenceClaim: null,
   } as AttachmentOperationState);
 }
 
@@ -296,6 +336,22 @@ export function decideAttachmentOperation(
   state: AttachmentOperationState,
   command: AttachmentOperationCommand,
 ): readonly AttachmentOperationEvent[] {
+  if (command.type === "ClaimSupportAttachmentReference" && state.referenceClaim) {
+    if (canonicalJson(command.data) !== canonicalJson(state.referenceClaim))
+      throw new AttachmentOperationError("operation-conflict");
+    return [];
+  }
+  if (command.type === "ConfirmSupportAttachmentReferenced" && state.status === "referenced") {
+    object(command.data, ["evidenceId"]);
+    if (command.data.evidenceId !== state.referenceClaim?.evidenceId) invalid();
+    return [];
+  }
+  if (
+    (state.status === "reference-claimed" || state.status === "referenced") &&
+    command.type !== "ReleaseSupportAttachmentReferenceClaim" &&
+    command.type !== "ConfirmSupportAttachmentReferenced"
+  )
+    throw new AttachmentOperationError("operation-terminal");
   if (command.type === "StageSupportAttachmentOperation") {
     const manifest = validateManifest(command.data);
     if (state.manifest) {
@@ -330,8 +386,21 @@ export function decideAttachmentOperation(
     SettleSupportAttachmentPut: "support.attachment-operation.put-settled",
     RecordSupportAttachmentStored: "support.attachment-operation.stored",
     RequireSupportAttachmentCleanup: "support.attachment-operation.cleanup-required",
+    ClaimSupportAttachmentReference: "support.attachment-operation.reference-claimed",
+    ReleaseSupportAttachmentReferenceClaim: "support.attachment-operation.reference-claim-released",
+    ConfirmSupportAttachmentReferenced: "support.attachment-operation.referenced",
   } as const;
   const event = { type: types[command.type], data: command.data } as AttachmentOperationEvent;
   evolve(state, event);
   return [event];
+}
+
+export function attachmentManifestReferences(manifest: AttachmentManifest): readonly string[] {
+  return manifest.items.map((item) =>
+    createSupportEvidenceAttachmentReference({
+      attachmentId: item.attachmentId,
+      sha256: item.canonicalSha256,
+      contentType: item.contentType,
+    }),
+  );
 }

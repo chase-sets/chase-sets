@@ -24,6 +24,10 @@ A **Support Request** is the Platform Operations-owned case through which an acc
 
 An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. Malformed case identifiers return the same non-disclosing 404 without an event.
 
+## Reference Claim
+
+A **Reference Claim** binds one Support Attachment Operation's complete ordered stored batch to evidence for its owning case and account. Claiming guards the complete case history; submission atomically guards the claimed operation version. Confirmation is separate and recoverable from committed case evidence. Release requires a complete case history proving no reference committed and an atomic guard on that history. Elapsed time never releases a claim, and no serial append substitutes for the atomic fence.
+
 ## Support Attachment Operation
 
 A **Support Attachment Operation** identifies one photo batch with `sao_` plus a canonical ULID, created by the client before dispatch and retained through retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account and Support Request together; the id alone is never access authority. The required `x-support-attachment-operation-id` header names the operation.

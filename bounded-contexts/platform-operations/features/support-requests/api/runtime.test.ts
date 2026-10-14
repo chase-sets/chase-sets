@@ -13,6 +13,11 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSupportRequestRuntime } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
+import {
+  attachmentManifestReferences,
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+} from "../domain/attachment-operation";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -1327,6 +1332,7 @@ describe("support request runtime", () => {
     async function openAndResolveReturnRequest(
       runtime: ReturnType<typeof createSupportRequestRuntime>,
       setPendingId: (id: string) => void,
+      eventStore: EventStore,
     ) {
       const opened = await runtime.openSupportRequest(
         { orderId: "ord_1", accountId: "acc_buyer", flowType: "return-request" },
@@ -1334,6 +1340,29 @@ describe("support request runtime", () => {
       );
       const supportRequestId = opened.supportRequestId;
       setPendingId(supportRequestId);
+      const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      const manifest = createAttachmentManifest({
+        owner: { tenantId: context.tenantId, accountId: context.audit.forAccountId, supportRequestId, operationId },
+        profile: "support-evidence-raster/v1",
+        encoderFingerprint: {
+          profile: "support-evidence-raster/v1",
+          sharp: "test",
+          libvips: "test",
+          platform: "test",
+          arch: "test",
+          libc: "test",
+        },
+        images: [{ canonicalSha256: "a".repeat(64), contentType: "image/jpeg", byteSize: 10 }],
+      });
+      await eventStore.appendToStream({
+        streamId: attachmentOperationStreamId(manifest.owner),
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          { eventType: "support.attachment-operation.staged", payload: manifest },
+          { eventType: "support.attachment-operation.stored", payload: { index: 0 } },
+        ],
+      });
 
       await runtime.submitEvidence(
         {
@@ -1354,7 +1383,8 @@ describe("support request runtime", () => {
           evidenceType: "photo",
           summary: "As-received front and back photos.",
           actor: { ...evidenceActor("owner", ["support.manage"], true), tenantId: "tnt_test", userId: "usr_test" },
-          attachments: ["att_1"],
+          attachments: attachmentManifestReferences(manifest),
+          attachmentOperationId: operationId,
           scope: "operations",
         },
         context,
@@ -1397,9 +1427,13 @@ describe("support request runtime", () => {
         db: db as never,
       });
 
-      await openAndResolveReturnRequest(runtime, (id) => {
-        pendingId = id;
-      });
+      await openAndResolveReturnRequest(
+        runtime,
+        (id) => {
+          pendingId = id;
+        },
+        eventStore,
+      );
 
       const resolvedEvent = allEvents.find((event) => event.eventType === "support.support-request.resolved");
       expect(resolvedEvent?.payload).toMatchObject({ resolution: { resolutionType: "return-for-refund" } });
@@ -1443,9 +1477,13 @@ describe("support request runtime", () => {
         db: db as never,
       });
 
-      await openAndResolveReturnRequest(runtime, (id) => {
-        pendingId = id;
-      });
+      await openAndResolveReturnRequest(
+        runtime,
+        (id) => {
+          pendingId = id;
+        },
+        eventStore,
+      );
       await runtime.recordReturnDelivery(
         {
           supportRequestId: pendingId,

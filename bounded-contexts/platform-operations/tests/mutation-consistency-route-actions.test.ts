@@ -613,7 +613,7 @@ describe("platform operations mutation consistency route actions", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("retries an uploaded attachment reference without opening a duplicate case", async () => {
+  it("retries recovered references under the original upload operation (mutant: omit or replace recovery id)", async () => {
     const reference =
       "support-attachment:v1:sea_photo:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:jpg";
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -650,6 +650,7 @@ describe("platform operations mutation consistency route actions", () => {
           evidenceType: "photo",
           summary: "Photos submitted when the support case was opened.",
           attachments: [reference],
+          attachmentOperationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         }),
       }),
     );

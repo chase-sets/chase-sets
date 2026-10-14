@@ -32,6 +32,15 @@ function evidenceAccessResponse(error: EvidenceAccessError) {
   );
 }
 
+function evidenceValidationError(error: unknown) {
+  return error instanceof SupportDomainError && error.message === "attachment_reference_unknown"
+    ? {
+        code: "attachment_reference_unknown",
+        message: t("support.features.support_requests.api.route.attachment.reference.unknown"),
+      }
+    : { code: "validation_failed", message: errorMessage(error) };
+}
+
 function requireSupportAccess(
   c: {
     get(key: "actor"): SupportApiEnv["Variables"]["actor"];
@@ -286,6 +295,9 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           summary: String(body.summary ?? ""),
           occurredAt: typeof body.occurredAt === "string" ? body.occurredAt : null,
           attachments,
+          ...(typeof body.attachmentOperationId === "string"
+            ? { attachmentOperationId: body.attachmentOperationId }
+            : {}),
           scope: "operations",
         },
         contextResult.context ?? undefined,
@@ -295,7 +307,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
       if (attachments.length && !(error instanceof SupportDomainError))
         return evidenceAccessResponse(new EvidenceAccessError(503));
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: evidenceValidationError(error) }, 400);
     }
   });
 
@@ -976,6 +988,9 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           summary: String(body.summary ?? ""),
           occurredAt: typeof body.occurredAt === "string" ? body.occurredAt : null,
           attachments,
+          ...(typeof body.attachmentOperationId === "string"
+            ? { attachmentOperationId: body.attachmentOperationId }
+            : {}),
         },
         context ?? undefined,
       );
@@ -984,7 +999,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
       if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
       if (attachments.length && !(error instanceof SupportDomainError))
         return evidenceAccessResponse(new EvidenceAccessError(503));
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      return c.json({ error: evidenceValidationError(error) }, 400);
     }
   });
 

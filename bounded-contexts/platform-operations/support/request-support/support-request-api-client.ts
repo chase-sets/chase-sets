@@ -147,6 +147,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         summary: string;
         occurredAt?: string | null;
         attachments?: readonly string[];
+        attachmentOperationId?: string;
       }>,
     ) =>
       parseJsonResponse<SupportRequestCommandSnapshot>(

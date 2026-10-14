@@ -13,6 +13,53 @@ function fold(events: readonly SupportRequestEvent[]): SupportRequestState {
 }
 
 const openedAt = "2026-05-09T12:00:00.000Z";
+const photoReferences = ["front", "back"].map((id) => `support-attachment:v1:sea_${id}:${"a".repeat(64)}:jpg`);
+
+describe("Support evidence reference grammar", () => {
+  it.each(["arbitrary", "seed://support/photo", `support-attachment:v1:sea_foreign:${"a".repeat(64)}:jpg`])(
+    "rejects %s (mutant: normalize arbitrary strings without reference authority)",
+    (reference) => {
+      expect(() =>
+        decideSupportRequest(fold(openProductNotAsDescribed()), {
+          type: "SubmitSupportEvidence",
+          evidenceId: "sev_unknown",
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "Evidence",
+          submittedAt: openedAt,
+          attachments: [reference],
+        }),
+      ).toThrow("attachment_reference_unknown");
+    },
+  );
+  it("accepts v1 history references and complete claimed batches, not a subset of a claim", () => {
+    const state = fold(openProductNotAsDescribed());
+    const command = {
+      type: "SubmitSupportEvidence",
+      evidenceId: "sev_complete",
+      submittedByRole: "buyer",
+      evidenceType: "photo",
+      summary: "Evidence",
+      submittedAt: openedAt,
+      attachments: photoReferences,
+    } as const;
+    const events = decideSupportRequest(state, command, { claimedAttachments: photoReferences });
+    expect(events).toHaveLength(1);
+    expect(
+      decideSupportRequest(fold([...openProductNotAsDescribed(), ...events]), {
+        ...command,
+        evidenceId: "sev_history",
+      }),
+    ).toHaveLength(1);
+    expect(() =>
+      decideSupportRequest(
+        state,
+        { ...command, attachments: photoReferences.slice(0, 1) },
+        { claimedAttachments: photoReferences },
+      ),
+    ).toThrow("attachment_reference_unknown");
+  });
+});
 
 function operatorFinding(flowType: string, responsibility: string, reason: string) {
   return {
@@ -121,16 +168,20 @@ function submitReturnEvidence(state: SupportRequestState) {
     submittedAt: "2026-05-09T13:00:00.000Z",
   });
   const afterReason = fold([...openReturnRequest(), ...reason]);
-  const photo = decideSupportRequest(afterReason, {
-    type: "SubmitSupportEvidence",
-    evidenceId: "ev_photo",
-    submittedByAccountId: "acc_buyer" as never,
-    submittedByRole: "buyer",
-    evidenceType: "photo",
-    summary: "As-received front and back photos.",
-    attachments: ["att_front", "att_back"],
-    submittedAt: "2026-05-09T13:05:00.000Z",
-  });
+  const photo = decideSupportRequest(
+    afterReason,
+    {
+      type: "SubmitSupportEvidence",
+      evidenceId: "ev_photo",
+      submittedByAccountId: "acc_buyer" as never,
+      submittedByRole: "buyer",
+      evidenceType: "photo",
+      summary: "As-received front and back photos.",
+      attachments: photoReferences,
+      submittedAt: "2026-05-09T13:05:00.000Z",
+    },
+    { claimedAttachments: photoReferences },
+  );
   const afterPhoto = fold([...openReturnRequest(), ...reason, ...photo]);
   const notes = decideSupportRequest(afterPhoto, {
     type: "SubmitSupportEvidence",
@@ -591,7 +642,7 @@ describe("support request domain", () => {
       submittedByRole: "seller",
       evidenceType: "return-discrepancy-photo",
       summary: "Returned card has a different certification number.",
-      attachments: ["att_discrepancy"],
+      attachments: photoReferences,
       submittedAt: "2026-05-12T13:00:00.000Z",
     });
     const converted = fold([...opened, ...evidence, ...delivered, ...discrepancy]);
