@@ -175,27 +175,28 @@ describe("issue-7169-ac8-atomic-restock: complete retained decision history", ()
     },
   );
 
-  it.each(["restocked", "written-off"] as const)("rejects every poisoned item fact before %s", async (outcome) => {
-    for (const fact of [
-      { eventType: "inventory.item.unknown", payload: { itemId: pending.itemId } },
-      {
-        eventType: "inventory.item.adjusted",
-        payload: { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" },
-      },
-      {
-        eventType: "inventory.item.adjusted",
-        payload: { itemId: pending.itemId, quantityDelta: "1", reason: "correction" },
-      },
-    ]) {
-      const fixture = await harness(undefined, false, [fact]);
-      const before = structuredClone(fixture.streams);
-      await expect(fixture.services.recordDecision({ ...fixture.params, outcome }, context)).rejects.toThrow(
-        "reconciliation",
-      );
-      expect(fixture.streams).toEqual(before);
-      expect(fixture.adjustItem).not.toHaveBeenCalled();
-      expect(fixture.child).not.toHaveBeenCalled();
-    }
+  const itemPoisonCases = [
+    { name: "unknown kind", eventType: "inventory.item.unknown", payload: { itemId: pending.itemId } },
+    {
+      name: "mixed item identity",
+      eventType: "inventory.item.adjusted",
+      payload: { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" },
+    },
+    {
+      name: "malformed adjustment quantity",
+      eventType: "inventory.item.adjusted",
+      payload: { itemId: pending.itemId, quantityDelta: "1", reason: "correction" },
+    },
+  ].flatMap((fact) => (["restocked", "written-off"] as const).map((outcome) => ({ ...fact, outcome })));
+  it.each(itemPoisonCases)("rejects $name item poison before $outcome", async ({ eventType, payload, outcome }) => {
+    const fixture = await harness(undefined, false, [{ eventType, payload }]);
+    const before = structuredClone(fixture.streams);
+    await expect(fixture.services.recordDecision({ ...fixture.params, outcome }, context)).rejects.toThrow(
+      "reconciliation",
+    );
+    expect(fixture.streams).toEqual(before);
+    expect(fixture.adjustItem).not.toHaveBeenCalled();
+    expect(fixture.child).not.toHaveBeenCalled();
   });
 
   const invalidInstants = [

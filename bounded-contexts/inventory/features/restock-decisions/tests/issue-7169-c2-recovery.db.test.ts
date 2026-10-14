@@ -327,34 +327,35 @@ describeDb("issue-7169-ac8-atomic-restock: PostgreSQL stock/decision/receipt", (
     },
   );
 
-  it.each(["restocked", "written-off"] as const)(
-    "rejects poisoned item history before %s without any partial mutation",
-    async (outcome) => {
-      for (const [eventType, payload] of [
-        ["inventory.item.unknown", { itemId: "inv_c2_synthetic" }],
-        ["inventory.item.adjusted", { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" }],
-        ["inventory.item.adjusted", { itemId: "inv_c2_synthetic", quantityDelta: "1", reason: "correction" }],
-      ] as const) {
-        const appended = await eventStore.appendToStream({
-          streamId: "inventory.item-inv_c2_synthetic",
-          expectedVersion: "any",
-          context,
-          events: [{ eventType, payload }],
-        });
-        const before = await durableSnapshot();
-        await expect(
-          services.restockDecisions.recordDecision(
-            choice(outcome),
-            withInventoryMutationAttempt(context, randomUUID()),
-          ),
-        ).rejects.toThrow("reconciliation");
-        expect(await durableSnapshot()).toEqual(before);
-        // Every case has its own frozen poison, not an earlier case's rejection.
-        await pool.query("DELETE FROM event_store_events WHERE event_id = $1", [appended[0].eventId]);
-        await pool.query("UPDATE event_store_streams SET current_version = current_version - 1 WHERE stream_id = $1", [
-          appended[0].streamId,
-        ]);
-      }
+  const itemPoisonCases = (
+    [
+      { name: "unknown kind", eventType: "inventory.item.unknown", payload: { itemId: "inv_c2_synthetic" } },
+      {
+        name: "mixed item identity",
+        eventType: "inventory.item.adjusted",
+        payload: { itemId: "inv_foreign_synthetic", quantityDelta: 1, reason: "correction" },
+      },
+      {
+        name: "malformed adjustment quantity",
+        eventType: "inventory.item.adjusted",
+        payload: { itemId: "inv_c2_synthetic", quantityDelta: "1", reason: "correction" },
+      },
+    ] as const
+  ).flatMap((fact) => (["restocked", "written-off"] as const).map((outcome) => ({ ...fact, outcome })));
+  it.each(itemPoisonCases)(
+    "rejects $name poisoned item history before $outcome without any partial mutation",
+    async ({ eventType, payload, outcome }) => {
+      await eventStore.appendToStream({
+        streamId: "inventory.item-inv_c2_synthetic",
+        expectedVersion: "any",
+        context,
+        events: [{ eventType, payload }],
+      });
+      const before = await durableSnapshot();
+      await expect(
+        services.restockDecisions.recordDecision(choice(outcome), withInventoryMutationAttempt(context, randomUUID())),
+      ).rejects.toThrow("reconciliation");
+      expect(await durableSnapshot()).toEqual(before);
     },
   );
 
