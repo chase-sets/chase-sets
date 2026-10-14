@@ -346,7 +346,12 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           },
         });
         expect(authorized.ok()).toBe(true);
-        rememberWrite(authorized);
+        expect(await authorized.json()).toMatchObject({
+          policyId: acceptancePolicyId,
+          status: "active",
+          version: reviewed.version + 1,
+          authority: { offers: offerIds.map((offerId) => ({ offerId })) },
+        });
         const seller = await sellerContext!.newPage();
         let listingId: string | undefined;
         try {
@@ -400,7 +405,16 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
               data: { listingId: match.listing_id, feeQuoteFingerprint: (await quote.json()).fee_quote_fingerprint },
             });
             expect(acceptance.status()).toBe(201);
-            rememberWrite(acceptance);
+            const accepted = await acceptance.json();
+            expect(accepted).toMatchObject({
+              id: offerId,
+              listingId,
+              inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
+              status: "accepted",
+            });
+            expect(accepted.version, "acceptance advances this exact Offer's stream").toBeGreaterThan(
+              match.last_stream_version,
+            );
           }
         } finally {
           try {
@@ -413,9 +427,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
           }
         }
         const readOrders = async () => {
-          const response = await page.request.get("/api/marketplace/account/purchases?limit=100", {
-            headers: freshReadHeaders("ordering"),
-          });
+          const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
           expect(response.ok()).toBe(true);
           const result = await response.json();
           expect(result.count).toBe(result.total);
