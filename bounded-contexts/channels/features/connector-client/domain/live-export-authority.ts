@@ -3,9 +3,9 @@ import { tcgplayerLiveExportHeader } from "../../tcgplayer-csv/domain/profile";
 export const tcgplayerLiveExportAuthorityVersion = "TcgplayerLiveExportAuthority/v1";
 
 /**
- * Closed provider authority for the worker-origin Export From Live GET. Captured facts come from
- * #7924 comment 5647783852 and #7026 comment 5555055372; credentials and redirect are client policy
- * (#7328 A.5). Changing a captured field needs a new capture and authority version.
+ * Closed provider authority for the worker-origin Export From Live GET. Captured fields must equal the
+ * verbatim worker-origin and live-header capture bodies; credentials and redirect are client policy under
+ * the exact-host fence. Changing a captured field needs a new capture and authority version.
  */
 export const tcgplayerLiveExportAuthority = Object.freeze({
   host: "store.tcgplayer.com",
