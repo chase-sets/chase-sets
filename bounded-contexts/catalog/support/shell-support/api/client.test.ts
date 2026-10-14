@@ -1,7 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
+import { normalizeScopeSyncBatchBudget } from "../../../features/scope-sync-batches/domain/batch";
 
 describe("count capture planner client", () => {
+  it("binds count quote and acquisition on the existing endpoints without changing ordinary calls", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({ retained: true }));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog",
+      fetch,
+      headers: { origin: "https://admin.staging.chasesets.com" },
+    });
+    const input = {
+      selection: { mode: "ids" as const, scopeRecordIds: ["synthetic-scope"] },
+      budget: normalizeScopeSyncBatchBudget(),
+    };
+    const acquisition = { ...input, quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    await client.captureScopeSyncCountQuote(input);
+    await client.captureScopeSyncCountAcquisition(acquisition);
+    await client.quoteScopeSyncCounts(input);
+    await client.acquireScopeSyncCounts(acquisition);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual(
+      ["quote", "acquire", "quote", "acquire"].map((path) => `/api/catalog/scope-sync-batches/counts/${path}`),
+    );
+    expect(fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get("x-catalog-count-capture"))).toEqual([
+      "1",
+      "1",
+      null,
+      null,
+    ]);
+    expect(fetch.mock.calls.map(([, init]) => init?.body)).toEqual(
+      [input, acquisition, input, acquisition].map((value) => JSON.stringify(value)),
+    );
+    for (const [, init] of fetch.mock.calls) {
+      expect(new Headers(init?.headers).get("origin")).toBe("https://admin.staging.chasesets.com");
+      expect(init?.credentials).toBe("include");
+    }
+  });
   it("keeps capture on the real preview endpoint with an explicit request-only selector", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()

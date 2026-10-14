@@ -3,6 +3,7 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCatalogAuthoringApi } from "../../authoring-support/api";
 import type { CountCapturePlannerRuntime } from "../../../features/scope-sync-batches/api/count-capture-runtime";
+import type { CountCaptureCountRuntime } from "../../../features/scope-sync-batches/api/count-capture-counts";
 
 type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
 
@@ -2098,6 +2099,20 @@ export function createCatalogApiClient({
     },
     async quoteScopeSyncCounts<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/quote", input);
+    },
+    async captureScopeSyncCountQuote(
+      input: Parameters<CountCaptureCountRuntime["quote"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureCountRuntime["quote"]>>> {
+      const captureHeaders = new Headers(headers);
+      captureHeaders.set("x-catalog-count-capture", "1");
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders, baseUrl, "/counts/quote", input);
+    },
+    async captureScopeSyncCountAcquisition(
+      input: Parameters<CountCaptureCountRuntime["acquire"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureCountRuntime["acquire"]>>> {
+      const captureHeaders = new Headers(headers);
+      captureHeaders.set("x-catalog-count-capture", "1");
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders, baseUrl, "/counts/acquire", input);
     },
     async acquireScopeSyncCounts<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/acquire", input);

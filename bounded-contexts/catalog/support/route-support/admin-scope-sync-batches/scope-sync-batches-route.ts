@@ -45,6 +45,17 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
       try {
         if (formData.getAll("countCapture").length !== 1 || formData.get("countCapture") !== "1")
           throw new Error("capture-stopped");
+        if (intent === "count-quote")
+          return Response.json(await api.captureScopeSyncCountQuote(captureRequest(formData)), { headers });
+        if (intent === "count-acquire")
+          return Response.json(
+            await api.captureScopeSyncCountAcquisition({
+              ...captureRequest(formData),
+              quoteId: requiredString(formData.get("quoteId"), "capture-stopped"),
+              fingerprint: requiredString(formData.get("countFingerprint"), "capture-stopped"),
+            }),
+            { headers },
+          );
         if (intent === "preview") {
           const preview = await api.captureScopeSyncBatchPreview(captureRequest(formData));
           return Response.json({ planFingerprint: preview.planFingerprint }, { headers });
@@ -122,6 +133,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
 function captureRequest(formData: FormData) {
   const allowed = ["intent", "countCapture", "captureInput"];
   if (formData.get("intent") === "pre-confirm-planner-read") allowed.push("planFingerprint");
+  if (formData.get("intent") === "count-acquire") allowed.push("quoteId", "countFingerprint");
   if ([...formData.keys()].some((key) => !allowed.includes(key) || formData.getAll(key).length !== 1))
     throw new Error("capture-stopped");
   const value = formData.get("captureInput");

@@ -22,6 +22,8 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
     previewScopeSyncBatch: vi.fn(),
     captureScopeSyncBatchPreview: vi.fn(),
     readScopeSyncBatchPreConfirm: vi.fn(),
+    captureScopeSyncCountQuote: vi.fn(),
+    captureScopeSyncCountAcquisition: vi.fn(),
     quoteScopeSyncCounts: vi.fn(),
     acquireScopeSyncCounts: vi.fn(),
     confirmScopeSyncBatch: vi.fn(),
@@ -35,9 +37,50 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
 vi.mock("../../request-support/api-client", () => ({ createCatalogRequestApiClient }));
 
 describe("Scope Sync Batch admin action callers", () => {
-  it("composes the capture driver with the real Admin planner actions and unchanged baseline input", async () => {
+  it.each(["count-quote", "count-acquire"])(
+    "composes capture %s without using the unbound count client",
+    async (intent) => {
+      const quoteId = "00000000-0000-4000-8000-000000000001";
+      const fingerprint = "a".repeat(64);
+      const expected =
+        intent === "count-quote" ? { quoteId, fingerprint, plannedCount: 1, serverCap: 1 } : { retained: true };
+      api.captureScopeSyncCountQuote.mockResolvedValue(expected);
+      api.captureScopeSyncCountAcquisition.mockResolvedValue(expected);
+      const response = await runRequest(
+        formRequest({
+          intent,
+          countCapture: "1",
+          captureInput: JSON.stringify(plannerInput),
+          ...(intent === "count-acquire" ? { quoteId, countFingerprint: fingerprint } : {}),
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(200);
+      expect((response as Response).headers.get("cache-control")).toBe("no-store");
+      expect(await (response as Response).json()).toEqual(expected);
+      if (intent === "count-quote")
+        expect(api.captureScopeSyncCountQuote).toHaveBeenCalledExactlyOnceWith(plannerInput);
+      else
+        expect(api.captureScopeSyncCountAcquisition).toHaveBeenCalledExactlyOnceWith({
+          ...plannerInput,
+          quoteId,
+          fingerprint,
+        });
+      expect(api.quoteScopeSyncCounts).not.toHaveBeenCalled();
+      expect(api.acquireScopeSyncCounts).not.toHaveBeenCalled();
+    },
+  );
+  it("composes the capture driver with the real Admin count and planner actions and unchanged baseline input", async () => {
     const receipt = syntheticCountLifecycleReceipt();
     const fingerprint = receipt.preConfirm.currentFingerprint;
+    const quote = {
+      quoteId: receipt.notices.quoteId,
+      fingerprint: receipt.notices.quoteFingerprint,
+      plannedCount: 2,
+      serverCap: 2,
+    };
+    api.captureScopeSyncCountQuote.mockResolvedValue(quote);
+    api.captureScopeSyncCountAcquisition.mockResolvedValue({ retained: true });
     api.captureScopeSyncBatchPreview.mockResolvedValue({ planFingerprint: fingerprint });
     api.readScopeSyncBatchPreConfirm.mockResolvedValue({
       comparedFingerprint: fingerprint,
@@ -51,7 +94,7 @@ describe("Scope Sync Batch admin action callers", () => {
       { sha: receipt.authority.runnerSha, dispatchId: receipt.authority.dispatchId, scopeRecordId: "synthetic-scope" },
       async (intent, fields) => {
         calls.push(intent);
-        if (intent === "preview" || intent === "pre-confirm-planner-read") {
+        if (["count-quote", "count-acquire", "preview", "pre-confirm-planner-read"].includes(intent)) {
           const response = await runRequest(formRequest({ ...fields, intent, countCapture: "1" }));
           if (!(response instanceof Response) || !response.ok) throw new Error("synthetic-route-refused");
           expect(response.headers.get("cache-control")).toBe("no-store");
@@ -68,13 +111,7 @@ describe("Scope Sync Batch admin action callers", () => {
             bootstrapRequired: false,
             providerEgressDenied: true,
           };
-        if (intent === "count-quote" || intent === "capture-quote-readback")
-          return {
-            quoteId: receipt.notices.quoteId,
-            fingerprint: receipt.notices.quoteFingerprint,
-            plannedCount: 2,
-            serverCap: 2,
-          };
+        if (intent === "capture-quote-readback") return quote;
         if (intent === "capture-freeze") return receipt;
         return { retained: true };
       },
@@ -82,6 +119,12 @@ describe("Scope Sync Batch admin action callers", () => {
       async () => receipt.freezeCollection,
     );
     expect(result).toEqual(receipt);
+    expect(api.captureScopeSyncCountQuote).toHaveBeenCalledExactlyOnceWith(plannerInput);
+    expect(api.captureScopeSyncCountAcquisition).toHaveBeenCalledExactlyOnceWith({
+      ...plannerInput,
+      quoteId: quote.quoteId,
+      fingerprint: quote.fingerprint,
+    });
     expect(api.captureScopeSyncBatchPreview).toHaveBeenCalledExactlyOnceWith(plannerInput);
     expect(api.readScopeSyncBatchPreConfirm).toHaveBeenCalledExactlyOnceWith({
       ...plannerInput,
@@ -133,7 +176,7 @@ describe("Scope Sync Batch admin action callers", () => {
     expect(api.previewScopeSyncBatch).not.toHaveBeenCalled();
   });
   it.each(["confirm", "cancel", "resume", "retry-unit", "count-quote", "count-acquire"])(
-    "refuses capture-marked %s until its own lifecycle boundary is composed",
+    "refuses capture-marked %s with unsupported or incomplete input",
     async (intent) => {
       const response = await runRequest(formRequest({ intent, countCapture: "1", batchId: "synthetic" }));
       expect(response).toBeInstanceOf(Response);

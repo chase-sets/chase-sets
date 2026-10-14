@@ -15,6 +15,8 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { CountAcquisitionRefused } from "../domain/count-acquisition";
 import { z } from "zod";
 import { CountCaptureStopped } from "./count-capture-context";
+import { countCapturePlannerInputSchema } from "../domain/count-capture-plan";
+import { countCaptureAcquisitionInputSchema } from "../domain/count-capture-counts";
 
 type Env = { Variables: { context: EventStoreContext; actor: ResolvedActor | null } };
 
@@ -56,6 +58,15 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
     throw error;
   });
   app.post("/counts/quote", async (c) => {
+    if (c.req.header("x-catalog-count-capture") !== undefined) {
+      if (c.req.header("x-catalog-count-capture") !== "1" || !services.capture?.counts) throw new CountCaptureStopped();
+      return c.json(
+        await services.capture.counts.quote(
+          { request: c.req.raw, actor: c.get("actor"), context: c.get("context") },
+          countCapturePlannerInputSchema.parse(await c.req.json()),
+        ),
+      );
+    }
     const body = z
       .object({ selection: z.unknown(), cap: z.number().int().min(0).max(10_000).optional() })
       .strict()
@@ -69,6 +80,15 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
     );
   });
   app.post("/counts/acquire", async (c) => {
+    if (c.req.header("x-catalog-count-capture") !== undefined) {
+      if (c.req.header("x-catalog-count-capture") !== "1" || !services.capture?.counts) throw new CountCaptureStopped();
+      return c.json(
+        await services.capture.counts.acquire(
+          { request: c.req.raw, actor: c.get("actor"), context: c.get("context") },
+          countCaptureAcquisitionInputSchema.parse(await c.req.json()),
+        ),
+      );
+    }
     const body = z
       .object({ quoteId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) })
       .strict()

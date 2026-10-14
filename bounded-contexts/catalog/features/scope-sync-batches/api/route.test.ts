@@ -6,6 +6,7 @@ import { ScopeSyncBatchStalePreviewError } from "../domain/batch";
 import { heldSetExportContract } from "../domain/held-set-export";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { CountCaptureStopped } from "./count-capture-context";
+import { normalizeScopeSyncBatchBudget } from "../domain/batch";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -36,6 +37,50 @@ function app(services: Record<string, unknown>, actor?: ResolvedActor) {
 }
 
 describe("Scope Sync Batch routes", () => {
+  it.each(["quote", "acquire"] as const)(
+    "routes capture count %s only through the session-bound count service",
+    async (operation) => {
+      const captured = vi.fn(async () => ({ retained: true }));
+      const ordinary = vi.fn();
+      const actor = countActor("platform-admin");
+      const root = app(
+        { capture: { counts: { [operation]: captured } }, quoteCounts: ordinary, acquireCounts: ordinary },
+        actor,
+      );
+      const input = {
+        selection: { mode: "ids", scopeRecordIds: ["synthetic-scope"] },
+        budget: normalizeScopeSyncBatchBudget(),
+        ...(operation === "acquire"
+          ? { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) }
+          : {}),
+      };
+      const response = await root.request(`https://admin.staging.chasesets.com/counts/${operation}`, {
+        method: "POST",
+        headers: { origin: "https://admin.staging.chasesets.com", "x-catalog-count-capture": "1" },
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(captured).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ actor, context }), input);
+      expect(ordinary).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["quote", "acquire"])("never falls back for unavailable or malformed capture count %s", async (operation) => {
+    for (const marker of ["1", "0"]) {
+      const ordinary = vi.fn();
+      const response = await app(
+        { capture: null, quoteCounts: ordinary, acquireCounts: ordinary },
+        countActor("platform-admin"),
+      ).request(`https://admin.staging.chasesets.com/counts/${operation}`, {
+        method: "POST",
+        headers: { origin: "https://admin.staging.chasesets.com", "x-catalog-count-capture": marker },
+        body: "{}",
+      });
+      expect(response.status).toBe(409);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(ordinary).not.toHaveBeenCalled();
+    }
+  });
   it("routes only an explicit capture preview through the session-bound runtime with no-store", async () => {
     const preview = vi.fn(async () => ({ normal: true }));
     const captured = vi.fn(async () => ({ captured: true }));

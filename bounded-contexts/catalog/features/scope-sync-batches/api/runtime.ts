@@ -13,6 +13,7 @@ import { resolveHeldSetExport } from "./held-set-resolution";
 import { createScopeSyncBatchPlanner } from "./planner";
 import { createScopeSyncBatchPlannerReads } from "./count-capture-planner";
 import { createCountCapturePlannerRuntime } from "./count-capture-runtime";
+import { createCountCaptureCountRuntime } from "./count-capture-counts";
 import type { CountCaptureStore } from "../read-model/count-capture-store";
 import { createScopeSyncBatchWorker } from "./worker";
 
@@ -125,12 +126,17 @@ export function createScopeSyncBatchRuntime(deps: {
       resolveHeldSetExport(deps.db, input.bytes),
     preview,
     capture: deps.capture
-      ? createCountCapturePlannerRuntime({
-          ...deps.capture,
-          preview,
-          preConfirmPlannerRead: plannerReads.preConfirmPlannerRead,
-          now: deps.now,
-        })
+      ? {
+          ...createCountCapturePlannerRuntime({
+            ...deps.capture,
+            preview,
+            preConfirmPlannerRead: plannerReads.preConfirmPlannerRead,
+            now: deps.now,
+          }),
+          counts: deps.counts
+            ? createCountCaptureCountRuntime({ ...deps.capture, counts: deps.counts, now: deps.now })
+            : null,
+        }
       : null,
     preConfirmPlannerRead: plannerReads.preConfirmPlannerRead,
     confirm,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { countCapturePlannerInputSchema } from "../domain/count-capture-plan";
+import { countCaptureQuoteSchema } from "../domain/count-capture-counts";
 import {
   countCaptureAuthoritySchema,
   countLifecycleReceiptSchema,
@@ -38,14 +39,6 @@ const preConfirmSchema = z
       .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
       .nullable(),
     effectsCapability: z.literal(false),
-  })
-  .strict();
-const quoteSchema = z
-  .object({
-    quoteId: z.uuid(),
-    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-    plannedCount: z.number().int().min(0).max(2),
-    serverCap: z.number().int().min(0).max(2),
   })
   .strict();
 
@@ -100,20 +93,21 @@ export async function runCountCaptureJourney(
       acknowledgementSchema.parse(await action("capture-usage", {}));
     }
     phase = "quote";
-    const quote = quoteSchema.parse(await action("count-quote", {}));
+    const plannerFields = { captureInput: JSON.stringify(baseline.plannerInput) };
+    const quote = countCaptureQuoteSchema.parse(await action("count-quote", plannerFields));
     if (quote.serverCap !== quote.plannedCount) return stop("capture-stopped");
-    const readBack = quoteSchema.parse(await action("capture-quote-readback", {}));
+    const readBack = countCaptureQuoteSchema.parse(await action("capture-quote-readback", {}));
     if (JSON.stringify(readBack) !== JSON.stringify(quote)) return stop("capture-stopped");
     acknowledgementSchema.parse(await action("capture-final-notice", {}));
     phase = "acquisition";
     acknowledgementSchema.parse(
       await action("count-acquire", {
+        ...plannerFields,
         quoteId: quote.quoteId,
         countFingerprint: quote.fingerprint,
       }),
     );
     phase = "preview";
-    const plannerFields = { captureInput: JSON.stringify(baseline.plannerInput) };
     const preview = z
       .object({ planFingerprint: z.string().regex(/^[a-f0-9]{64}$/) })
       .strict()
