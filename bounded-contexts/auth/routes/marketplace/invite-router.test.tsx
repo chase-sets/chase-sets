@@ -32,9 +32,12 @@ afterEach(() => {
 describe("invitation-acceptance-real-route", () => {
   it("invitation-acceptance-compatibility-floor activates the real route from the shared rollout", async () => {
     api.inspectInvitation.mockResolvedValue(pending);
+    const url = new URL("https://marketplace.test/invite/ivt_invited?token=synthetic-secret");
     expect(
       await loader({
-        request: new Request("https://marketplace.test/invite/ivt_invited?token=synthetic-secret"),
+        request: new Request(url),
+        url,
+        pattern: "/invite/:invitationId",
         params: { invitationId: "ivt_invited" },
         context: {},
       }),
