@@ -79,8 +79,11 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
     const engine = createCountAcquisition({
       ledger: {
         ...store,
+        admit: (quote, owner, authority) => store.admit(pool, quote, owner, authority),
         approve: (id, fingerprint, owner) => store.approve(pool, id, fingerprint, owner),
-        claim: (quote, target, owner, authority) => store.claim(pool, quote, target, owner, authority),
+        claim: (quote, target, owner, authority, executionId) =>
+          store.claim(pool, quote, target, owner, authority, executionId),
+        end: (quoteId, executionId, owner, state) => store.end(pool, quoteId, executionId, owner, state),
       },
       resolve: async () => ({
         membershipFingerprint: "synthetic-membership",

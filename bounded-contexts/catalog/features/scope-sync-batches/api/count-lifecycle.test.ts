@@ -34,6 +34,7 @@ function fixture(cap = 2) {
       quote = value;
     }),
     loadQuote: vi.fn(async () => quote),
+    admit: vi.fn(async () => "execution-1"),
     approve: vi.fn(async () => quote),
     claim: vi.fn(async (_quote, target) => {
       if (evidence.has(target.query.kind)) return null;
@@ -45,6 +46,7 @@ function fixture(cap = 2) {
     result: vi.fn(async (_debit, _quote, q, outcome, source) => {
       if (outcome === "complete" && source) evidence.set(q.kind, source);
     }),
+    end: vi.fn(async () => undefined),
   };
   const resolve = vi.fn(async () => ({
     membershipFingerprint: "membership",
@@ -156,5 +158,99 @@ describe("Count quote and acquisition lifecycle", () => {
     expect(result.state).toBe("uncertain");
     expect(f.send).toHaveBeenCalledOnce();
     expect(f.ledger.result).toHaveBeenCalledWith("debit-1", quote.quoteId, query, "uncertain", null);
+  });
+  it("ordinary acquisition never admits or ends a whole-quote allocation", async () => {
+    const f = fixture(1);
+    const quote = await f.runtime.quote({ selection: {}, cap: 1, owner: "owner" });
+    await f.runtime.acquire({ quoteId: quote.quoteId, fingerprint: quote.fingerprint, owner: "owner" });
+    expect(f.ledger.admit).not.toHaveBeenCalled();
+    expect(f.ledger.end).not.toHaveBeenCalled();
+    expect(vi.mocked(f.ledger.claim).mock.calls.every((call) => call[4] === undefined)).toBe(true);
+  });
+});
+
+describe("Whole-quote count admission", () => {
+  const acquire = (f: ReturnType<typeof fixture>, quote: CountQuote) =>
+    f.runtime.acquire({
+      quoteId: quote.quoteId,
+      fingerprint: quote.fingerprint,
+      owner: "owner",
+      admission: "whole-quote",
+    });
+  it("admits the whole approved P once before approval or any claim, claims under it, then ends it", async () => {
+    const f = fixture();
+    const quote = await f.runtime.quote({ selection: {}, owner: "owner" });
+    expect((await acquire(f, quote)).state).toBe("complete");
+    expect(f.ledger.admit).toHaveBeenCalledOnce();
+    expect(f.ledger.admit).toHaveBeenCalledWith(expect.objectContaining({ quoteId: quote.quoteId }), "owner", {
+      fingerprint: "authority",
+      allowed: true,
+      headroom: 10,
+    });
+    const admitted = vi.mocked(f.ledger.admit).mock.invocationCallOrder[0]!;
+    expect(admitted).toBeLessThan(vi.mocked(f.ledger.approve).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(f.ledger.claim).mock.calls.map((call) => call[4])).toEqual(["execution-1", "execution-1"]);
+    expect(f.ledger.end).toHaveBeenCalledExactlyOnceWith(quote.quoteId, "execution-1", "owner", "complete");
+    expect(vi.mocked(f.ledger.end).mock.invocationCallOrder[0]!).toBeGreaterThan(
+      Math.max(...vi.mocked(f.ledger.result).mock.invocationCallOrder),
+    );
+    expect(f.send).toHaveBeenCalledTimes(2);
+  });
+  it("refuses before admission when P is zero, the cap is below P or a missing target is blocked", async () => {
+    for (const variant of ["zero", "cap", "blocked"] as const) {
+      const f = fixture();
+      if (variant === "zero")
+        f.resolve.mockResolvedValue({
+          membershipFingerprint: "membership",
+          targets: targets.map((target) => ({
+            ...target,
+            source: {
+              query: target.query,
+              validationKind: "page-1-count" as const,
+              sourceId: "reused",
+              totalCount: 1,
+              pageSize: 100,
+              observedAt: now,
+              expiresAt: "2026-10-12T12:15:00Z",
+            },
+          })),
+        });
+      const quote = await f.runtime.quote({ selection: {}, cap: variant === "cap" ? 1 : undefined, owner: "owner" });
+      if (variant === "blocked")
+        f.resolve.mockResolvedValue({
+          membershipFingerprint: "membership",
+          targets: targets.map((target, index) => ({ ...target, blocked: index === 1 })),
+        });
+      await expect(acquire(f, quote), variant).rejects.toBeInstanceOf(CountAcquisitionRefused);
+      expect(f.ledger.admit).not.toHaveBeenCalled();
+      expect(f.ledger.claim).not.toHaveBeenCalled();
+      expect(f.send).not.toHaveBeenCalled();
+    }
+  });
+  it("a refused admission sends nothing and records no approval, claim or end", async () => {
+    const f = fixture();
+    const quote = await f.runtime.quote({ selection: {}, owner: "owner" });
+    vi.mocked(f.ledger.admit).mockRejectedValueOnce(new CountAcquisitionRefused());
+    await expect(acquire(f, quote)).rejects.toBeInstanceOf(CountAcquisitionRefused);
+    expect(f.ledger.approve).not.toHaveBeenCalled();
+    expect(f.ledger.claim).not.toHaveBeenCalled();
+    expect(f.ledger.end).not.toHaveBeenCalled();
+    expect(f.send).not.toHaveBeenCalled();
+  });
+  it("ends the allocation after a refused claim, an uncertain send or a failed end without changing the state", async () => {
+    const refused = fixture();
+    const quote = await refused.runtime.quote({ selection: {}, owner: "owner" });
+    vi.mocked(refused.ledger.claim).mockRejectedValueOnce(new CountAcquisitionRefused());
+    expect((await acquire(refused, quote)).state).toBe("failed");
+    expect(refused.ledger.end).toHaveBeenCalledExactlyOnceWith(quote.quoteId, "execution-1", "owner", "failed");
+    expect(refused.send).not.toHaveBeenCalled();
+
+    const uncertain = fixture();
+    const second = await uncertain.runtime.quote({ selection: {}, owner: "owner" });
+    uncertain.send.mockRejectedValueOnce(new TypeError("synthetic transport failure"));
+    vi.mocked(uncertain.ledger.end).mockRejectedValueOnce(new Error("synthetic end write failure"));
+    expect((await acquire(uncertain, second)).state).toBe("uncertain");
+    expect(uncertain.ledger.end).toHaveBeenCalledExactlyOnceWith(second.quoteId, "execution-1", "owner", "uncertain");
+    expect(uncertain.send).toHaveBeenCalledOnce();
   });
 });

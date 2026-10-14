@@ -19,6 +19,9 @@ import {
   CountAcquisitionRefused,
   countFingerprint,
   countQueryKey,
+  type CountAdmission,
+  type CountPreparationView,
+  type CountQuote,
   type CountTarget,
 } from "../domain/count-acquisition";
 import type { ScopeSyncBatchSelection } from "../domain/batch";
@@ -131,8 +134,11 @@ export function createScopeSyncCountRuntime(deps: {
   const engine = createCountAcquisition({
     ledger: {
       ...deps.store,
+      admit: (quote, owner, authority) => deps.store.admit(deps.pool, quote, owner, authority),
       approve: (id, fingerprint, owner) => deps.store.approve(deps.pool, id, fingerprint, owner),
-      claim: (quote, target, owner, authority) => deps.store.claim(deps.pool, quote, target, owner, authority),
+      claim: (quote, target, owner, authority, executionId) =>
+        deps.store.claim(deps.pool, quote, target, owner, authority, executionId),
+      end: (quoteId, executionId, owner, state) => deps.store.end(deps.pool, quoteId, executionId, owner, state),
     },
     resolve,
     now: deps.now,
@@ -161,16 +167,29 @@ export function createScopeSyncCountRuntime(deps: {
   return {
     quoteCounts: (input: { selection: ScopeSyncBatchSelection; cap?: number; context: EventStoreContext }) =>
       engine.quote({ ...input, owner: owner(input.context) }),
-    acquireCounts: (input: { quoteId: string; fingerprint: string; context: EventStoreContext }) =>
-      engine.acquire({ ...input, owner: owner(input.context) }),
-    getCountQuote: async (input: { quoteId: string; context: EventStoreContext }) => {
+    acquireCounts: async (input: {
+      quoteId: string;
+      fingerprint: string;
+      admission?: CountAdmission;
+      context: EventStoreContext;
+    }) => {
+      // Whole-quote admission exists for staging count preparation only.
+      if (input.admission && deps.environment !== "staging") throw new CountAcquisitionRefused();
+      return engine.acquire({ ...input, owner: owner(input.context) });
+    },
+    getCountQuote: async (input: {
+      quoteId: string;
+      view?: "preparation";
+      context: EventStoreContext;
+    }): Promise<CountQuote | CountPreparationView> => {
       const quote = await deps.store.loadQuote(input.quoteId, owner(input.context));
-      return deps.store.retainedQuote(quote);
+      return input.view === "preparation" ? deps.store.preparationView(quote) : deps.store.retainedQuote(quote);
     },
     countSpend: (input: { before?: string; limit?: number }) => deps.store.history(input.limit, input.before),
     reserveBatch: (input: Parameters<ReturnType<typeof createScopeSyncBatchStore>["create"]>[0]) =>
       withPgTransaction(deps.pool, async (tx) => {
         await lockCountHeadroom(tx, deps.store.slot);
+        if (await deps.store.allocationConflict(tx)) throw new CountAcquisitionRefused();
         for (const plan of input.plans)
           for (const unit of plan.participationPreview.units.filter(
             (unit) => unit.selected && unit.providerKey === "scrydex",
