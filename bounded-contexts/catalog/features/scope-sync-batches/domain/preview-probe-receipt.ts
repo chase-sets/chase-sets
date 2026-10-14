@@ -1164,7 +1164,7 @@ function isCountMap(value: unknown, allowNull = false): boolean {
 
 // Every object key and every string or number value at any depth, decoded.
 // Iterative, so a deeply nested receipt cannot hide a value past a depth cap.
-function decodedReceiptText(value: unknown): Readonly<{ keys: readonly string[]; texts: readonly string[] }> {
+export function decodedReceiptText(value: unknown): Readonly<{ keys: readonly string[]; texts: readonly string[] }> {
   const keys: string[] = [];
   const texts: string[] = [];
   const pending: unknown[] = [value];

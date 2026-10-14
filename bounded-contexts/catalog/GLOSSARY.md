@@ -162,6 +162,10 @@ A `Scope Sync Batch` is Catalog-owned orchestration over existing Scope Sync Run
 
 The batch advances a bounded number of scope units per leased worker turn. It never fans out the complete catalog in one request and never creates a provider-specific execution shortcut. Completed units remain completed through cancel, resume, and failed-unit retry; an unchanged settled fingerprint is a fast no-op.
 
+## Scope Sync Count Lifecycle Receipt
+
+A `scope-sync-count-lifecycle` receipt is the closed, support-safe staging artifact of one combined count-lifecycle capture for #9424 AC5 and #9431 AC7: the host authority envelope it ran under, the approved page-1 count acquisitions, the card and sealed count sources each preview and pre-confirm planner read consumed, every possible provider send, and the zero-effects comparison. It classifies itself `CONFORMING` only when every claim holds, otherwise `INCOMPLETE` for missing evidence or `FAILED` for contradicted evidence, separately per acceptance criterion; a complete-cache source never satisfies a page-1 claim. Validating it proves shape and causal consistency only; the live deployment, pods, review and spend authority are bound by the host verifier. Contract: `features/scope-sync-batches/domain/count-lifecycle-receipt.ts`.
+
 ## Held-Set Export
 
 A `Held-Set Export` is a seller's TCGplayer Live CSV used by a Catalog operator to select Scope Sync Batch scope. Catalog reads only the exact `Product Line` and `Set Name` columns, resolves their distinct normalized pairs through TCGplayer single-card units and accepted Provider Scope Mappings, and discards the upload after the read-only response.

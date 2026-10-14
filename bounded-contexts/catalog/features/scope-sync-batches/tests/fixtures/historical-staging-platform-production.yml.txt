@@ -1,0 +1,321 @@
+# Reduced head-bound definition of .github/workflows/platform-production.yml at
+# 7d81f3f3309fc2a83ca3a70ee0ed5f51b45e4c0a (Platform Deploy run 38349636491).
+# Generated from `git show <sha>:<path>`: each job keeps its name, if, needs, runs-on,
+# environment, permissions, concurrency, uses and strategy exactly; its steps are
+# replaced by one step that references exactly the secrets the real job referenced.
+name: Platform Deploy
+on:
+  workflow_dispatch: null
+permissions:
+  contents: write
+  actions: read
+  checks: read
+  pull-requests: read
+concurrency:
+  group: ${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}
+  cancel-in-progress: false
+jobs:
+  decommission-live-plan:
+    name: App Platform Decommission Live Plans
+    if: github.event_name == 'workflow_dispatch' && inputs.decommission_plan_only == true
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'preview' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Reduced secret references
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: "true"
+  resolve-release:
+    name: Resolve Release
+    if: github.event_name == 'workflow_dispatch' && inputs.decommission_plan_only != true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  deployment-contract-preflight:
+    name: Preflight Deployment Contract (${{ matrix.environment }})
+    if: needs.resolve-release.outputs.deployment_required == 'true'
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - environment: staging
+            argo_rollouts_variable: STAGING_ARGO_ROLLOUTS_ENABLED
+          - environment: production
+            argo_rollouts_variable: PRODUCTION_ARGO_ROLLOUTS_ENABLED
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  build-image:
+    name: Build Release Image
+    if: needs.resolve-release.outputs.deployment_required == 'true'
+    needs:
+      - resolve-release
+      - deployment-contract-preflight
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Reduced secret references
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: "true"
+  reconcile-managed-postgres-ca-staging:
+    name: Reconcile Managed Postgres CA (staging)
+    if: needs.resolve-release.outputs.deployment_required != 'true'
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Reduced secret references
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: "true"
+  reconcile-managed-postgres-ca-production:
+    name: Reconcile Managed Postgres CA (production)
+    if: |
+      needs.resolve-release.outputs.deployment_required != 'true' && needs['reconcile-managed-postgres-ca-staging'].result == 'success'
+    needs:
+      - resolve-release
+      - reconcile-managed-postgres-ca-staging
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    concurrency:
+      group: platform-deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Reduced secret references
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: "true"
+  deploy-staging:
+    name: Deploy Staging
+    if: needs.resolve-release.outputs.deployment_required == 'true'
+    needs:
+      - resolve-release
+      - build-image
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Reduced secret references
+        env:
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON }}
+          CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET }}
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY }}
+          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID }}
+          SES_AWS_ACCESS_KEY_ID: ${{ secrets.SES_AWS_ACCESS_KEY_ID }}
+          SES_AWS_SECRET_ACCESS_KEY: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY }}
+          SES_SOURCE_ARN: ${{ secrets.SES_SOURCE_ARN }}
+          SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE }}
+          UCP_AP2_VERIFIER_AUTH_TOKEN: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN }}
+          UCP_AP2_VERIFIER_TIMEOUT_MS: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS }}
+          UCP_AP2_VERIFIER_URL: ${{ secrets.UCP_AP2_VERIFIER_URL }}
+          UCP_BUSINESS_SIGNING_ALG: ${{ secrets.UCP_BUSINESS_SIGNING_ALG }}
+          UCP_BUSINESS_SIGNING_KEY_ID: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID }}
+          UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS }}
+          UCP_BUSINESS_SIGNING_PRIVATE_JWK: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: "true"
+  notify-staging-advisory-dispatch-failure:
+    name: Notify Staging Advisory Dispatch Failure
+    if: always() && needs.deploy-staging.outputs.advisory_dispatch_result == 'failure'
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  record-staging-release-health:
+    name: Record Staging Release Health
+    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.applied != 'true'
+    needs:
+      - resolve-release
+      - deploy-staging
+      - deploy-production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  deploy-production:
+    name: Deploy Production
+    if: needs.deploy-staging.outputs.deployed == 'true'
+    needs:
+      - resolve-release
+      - deploy-staging
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: platform-deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Reduced secret references
+        env:
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON }}
+          CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON }}
+          CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+          EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID }}
+          FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID }}
+          GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET }}
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
+          PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
+          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY }}
+          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID }}
+          SES_AWS_ACCESS_KEY_ID: ${{ secrets.SES_AWS_ACCESS_KEY_ID }}
+          SES_AWS_SECRET_ACCESS_KEY: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY }}
+          SES_SOURCE_ARN: ${{ secrets.SES_SOURCE_ARN }}
+          SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE }}
+          UCP_AP2_VERIFIER_AUTH_TOKEN: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN }}
+          UCP_AP2_VERIFIER_TIMEOUT_MS: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS }}
+          UCP_AP2_VERIFIER_URL: ${{ secrets.UCP_AP2_VERIFIER_URL }}
+          UCP_BUSINESS_SIGNING_ALG: ${{ secrets.UCP_BUSINESS_SIGNING_ALG }}
+          UCP_BUSINESS_SIGNING_KEY_ID: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID }}
+          UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS }}
+          UCP_BUSINESS_SIGNING_PRIVATE_JWK: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK }}
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: "true"
+  dispatch-ephemeral-verification:
+    name: Dispatch Ephemeral Verification
+    if: |
+      always() && needs.deploy-production.result == 'success' && vars.PLATFORM_EPHEMERAL_VERIFICATION_ENABLED == 'true'
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  notify-production-deploy-incident:
+    name: Notify Production Deploy Incident
+    if: |
+      always() && (
+        contains(fromJSON('["failure", "cancelled"]'), needs.resolve-release.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.deployment-contract-preflight.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.build-image.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.deploy-staging.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.deploy-production.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.record-staging-release-health.result) ||
+        (
+          needs.resolve-release.result == 'success' &&
+          needs.build-image.result == 'success' &&
+          needs.deploy-staging.result == 'success' &&
+          needs.deploy-production.result == 'skipped' &&
+          needs.deploy-staging.outputs.applied != 'true'
+        )
+      )
+    needs:
+      - resolve-release
+      - deployment-contract-preflight
+      - build-image
+      - deploy-staging
+      - deploy-production
+      - record-staging-release-health
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  notify-production-rollback-incident:
+    name: Notify Production Rollback Incident
+    if: always() && needs.deploy-production.outputs.rollback_result == 'failure'
+    needs:
+      - resolve-release
+      - deploy-production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
+  close-resolved-deploy-incidents:
+    name: Close Resolved Production Deploy Incidents
+    if: |
+      always() && needs.deploy-production.result == 'success'
+    needs:
+      - resolve-release
+      - deploy-production
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Reduced secret references
+        env: {}
+        run: "true"
