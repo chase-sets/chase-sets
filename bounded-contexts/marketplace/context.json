@@ -1711,6 +1711,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "listing-evidence-policy": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

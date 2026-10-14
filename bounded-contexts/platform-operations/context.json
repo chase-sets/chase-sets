@@ -898,6 +898,26 @@
       }
     }
   ],
+  "agentCoverage": {
+    "support-requests": { "pending": "#9238" },
+    "support-requests-detail": { "pending": "#9238" },
+    "reported-content": { "pending": "#9238" },
+    "reported-content-detail": { "pending": "#9238" },
+    "risk-alerts": { "pending": "#9238" },
+    "support-reference-lookup": { "pending": "#9238" },
+    "risk-alert-detail": { "pending": "#9238" },
+    "platform-feedback": { "pending": "#9238" },
+    "platform-feedback-detail": { "pending": "#9238" },
+    "csat-dashboard": { "pending": "#9238" },
+    "provider-connections": { "pending": "#9238" },
+    "operations-attention": { "pending": "#9238" },
+    "projection-operations": { "pending": "#9237" },
+    "projection-operations-reference": { "pending": "#9237" },
+    "policy-console": { "pending": "#9238" },
+    "policy-console-detail": { "pending": "#9238" },
+    "ops-dashboard": { "pending": "#9238" },
+    "offer-economics": { "tools": ["platform-operations.get-offer-economics-summary"] }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

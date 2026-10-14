@@ -312,6 +312,26 @@ export type BcMcpCapabilities = Readonly<{
   readonly resources?: readonly BcMcpResourceDeclaration[];
 }>;
 
+export type BcAgentCoverageExemptionCode =
+  | "sign-in-flow"
+  | "navigation-only"
+  | "human-presence-required"
+  | "file-upload";
+
+/**
+ * How operators reach one admin-web route through MCP: the tools that cover
+ * it (at least one), a closed exemption code with its note, or the `#N` issue
+ * that owns the gap. The admin-web Agent Coverage guard enforces the shape.
+ */
+export type BcAgentCoverageDeclaration = Readonly<
+  | { readonly tools: readonly string[] }
+  | { readonly exempt: BcAgentCoverageExemptionCode; readonly note: string; readonly tools: readonly string[] }
+  | { readonly pending: string }
+>;
+
+/** Keyed by the `routeId` of each admin-web route this context contributes. */
+export type BcAgentCoverage = Readonly<Record<string, BcAgentCoverageDeclaration>>;
+
 export type BcMcpHandlers<TToolHandler = unknown, TResourceHandler = unknown> = Readonly<{
   readonly toolHandlers?: Readonly<Record<string, TToolHandler>>;
   readonly resourceHandlers?: Readonly<Record<string, TResourceHandler>>;
@@ -483,6 +503,7 @@ export type BcContextManifest = Readonly<{
   readonly apiMounts?: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
+  readonly agentCoverage?: BcAgentCoverage;
   readonly accountCapabilities?: readonly BcAccountCapabilityDeclaration[];
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
@@ -904,6 +925,7 @@ export function normalizeContextManifest(manifest: BcContextManifestInput): BcCo
     ...(manifest.apiMounts ? { apiMounts: manifest.apiMounts as readonly BcApiMount[] } : {}),
     ...(manifest.anonymousRoutes ? { anonymousRoutes: manifest.anonymousRoutes as readonly BcAnonymousRoute[] } : {}),
     ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.agentCoverage ? { agentCoverage: manifest.agentCoverage } : {}),
     ...(manifest.accountCapabilities
       ? {
           accountCapabilities: normalizeAccountCapabilityDeclarations(

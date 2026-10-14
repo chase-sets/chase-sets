@@ -1607,6 +1607,18 @@
       }
     }
   ],
+  "agentCoverage": {
+    "accounts": { "pending": "#9238" },
+    "accounts-detail": { "pending": "#9238" },
+    "api-keys": { "pending": "#9238" },
+    "api-keys-detail": { "pending": "#9238" },
+    "invitations": { "pending": "#9238" },
+    "invitations-detail": { "pending": "#9238" },
+    "memberships": { "pending": "#9238" },
+    "memberships-detail": { "pending": "#9238" },
+    "users": { "pending": "#9238" },
+    "users-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

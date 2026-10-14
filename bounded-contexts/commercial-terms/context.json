@@ -432,6 +432,14 @@
       }
     }
   ],
+  "agentCoverage": {
+    "commercial-terms-home": { "pending": "#9238" },
+    "commercial-terms-schedules": { "pending": "#9238" },
+    "commercial-terms-schedules-detail": { "pending": "#9238" },
+    "commercial-terms-agreements": { "pending": "#9238" },
+    "commercial-terms-account-agreement-new": { "pending": "#9238" },
+    "commercial-terms-agreements-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

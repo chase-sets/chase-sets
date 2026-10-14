@@ -156,6 +156,38 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
+  "agentCoverage": {
+    "blueprints": { "pending": "#9238" },
+    "blueprints-detail": { "pending": "#9238" },
+    "catalog-items": { "pending": "#9238" },
+    "catalog-items-detail": { "pending": "#9238" },
+    "categories": { "pending": "#9238" },
+    "categories-detail": { "pending": "#9238" },
+    "components": { "pending": "#9238" },
+    "components-detail": { "pending": "#9238" },
+    "dimensions": { "pending": "#9238" },
+    "dimensions-detail": { "pending": "#9238" },
+    "display-templates": { "pending": "#9238" },
+    "display-templates-detail": { "pending": "#9238" },
+    "fields": { "pending": "#9238" },
+    "fields-detail": { "pending": "#9238" },
+    "reference-types": { "pending": "#9238" },
+    "reference-types-detail": { "pending": "#9238" },
+    "reference-records": { "pending": "#9238" },
+    "reference-records-detail": { "pending": "#9238" },
+    "integrations": { "pending": "#9238" },
+    "provider-detail": { "pending": "#9236" },
+    "integrations-governance": { "pending": "#9238" },
+    "integrations-settings": { "pending": "#9238" },
+    "integrations-health": { "pending": "#9238" },
+    "integrations-observation-evidence": { "pending": "#9238" },
+    "source-observations-detail": { "pending": "#9238" },
+    "scope-coverage": { "pending": "#9236" },
+    "scope-coverage-detail": { "pending": "#9236" },
+    "scope-landing": { "pending": "#9236" },
+    "scope-sync-batches": { "pending": "#9236" },
+    "scope-detail": { "pending": "#9236" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

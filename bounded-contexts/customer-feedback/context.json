@@ -165,6 +165,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "customer-feedback-attention": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

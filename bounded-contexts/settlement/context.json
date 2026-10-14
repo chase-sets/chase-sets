@@ -430,6 +430,11 @@
       }
     }
   ],
+  "agentCoverage": {
+    "settlement-money-health": { "pending": "#9238" },
+    "settlement-payout-operations": { "pending": "#9238" },
+    "settlement-wallet-workbench": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
