@@ -305,6 +305,18 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["chase-sets:review-draft:"] }],
   },
   {
+    factId: "web-storage-agent-grant-revocation",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "agent-grant-revocation:*",
+    evidenceRefs: [
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:269",
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:273",
+    ],
+    factualSummary:
+      "The connected-agent page reads and writes an Account-and-Grant-scoped sessionStorage entry holding only a revocation attempt UUID, so a reload can retain the same attempt without storing receipts or credentials.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["agent-grant-revocation:"] }],
+  },
+  {
     factId: "web-storage-inventory-recovery",
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "inventory-mutation/v1:*",

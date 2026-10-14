@@ -6,7 +6,8 @@ const { mockCreateUcpOAuthRequestApiClient } = vi.hoisted(() => ({
   mockCreateUcpOAuthRequestApiClient: vi.fn(),
 }));
 
-vi.mock("../../support/request-support/api-client", () => ({
+vi.mock("../../support/request-support/api-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../support/request-support/api-client")>()),
   createUcpOAuthRequestApiClient: mockCreateUcpOAuthRequestApiClient,
 }));
 
@@ -21,8 +22,35 @@ function createActionArgs(request: Request, params: ActionFunctionArgs["params"]
 }
 
 describe("connected-agent detail action", () => {
-  it("revokes the grant and redirects back to the detail page", async () => {
-    const revokeAgentGrant = vi.fn(async () => ({ revoked: true }));
+  it("agent-grant-revocation-real-route reads once after loss without a second write", async () => {
+    const attemptId = "eea0342d-079b-460e-9dfe-06c42a0a8a70";
+    const revokeAgentGrant = vi.fn(async () => {
+      throw new Error("synthetic-sensitive-error");
+    });
+    const getAgentGrantRevocation = vi.fn(async () => ({
+      attempt_id: attemptId,
+      state: "succeeded",
+      phase: "completed",
+    }));
+    mockCreateUcpOAuthRequestApiClient.mockReturnValue({ revokeAgentGrant, getAgentGrantRevocation });
+    const request = new Request("http://localhost/account/agents/lpa_1", {
+      method: "POST",
+      body: new URLSearchParams({ intent: "revoke", attempt_id: attemptId }),
+    });
+    const result = await action(createActionArgs(request, { id: "lpa_1" }));
+    expect(result).toEqual({
+      grantId: "lpa_1",
+      revocation: { attempt_id: attemptId, state: "succeeded", phase: "completed" },
+    });
+    expect(revokeAgentGrant).toHaveBeenCalledTimes(1);
+    expect(revokeAgentGrant).toHaveBeenCalledWith("lpa_1", attemptId);
+    expect(getAgentGrantRevocation).toHaveBeenCalledTimes(1);
+    expect(getAgentGrantRevocation).toHaveBeenCalledWith("lpa_1", attemptId);
+    expect(JSON.stringify(result)).not.toContain("synthetic-sensitive-error");
+  });
+  it("revokes the grant with a retained attempt and returns a completion receipt", async () => {
+    const attemptId = "eea0342d-079b-460e-9dfe-06c42a0a8a70";
+    const revokeAgentGrant = vi.fn(async () => ({ attempt_id: attemptId, state: "succeeded", phase: "completed" }));
     mockCreateUcpOAuthRequestApiClient.mockReturnValue({
       revokeAgentGrant,
       updateAgentGrantMandate: vi.fn(),
@@ -30,13 +58,14 @@ describe("connected-agent detail action", () => {
 
     const request = new Request("http://localhost/account/agents/lpa_1", {
       method: "POST",
-      body: new URLSearchParams({ intent: "revoke" }),
+      body: new URLSearchParams({ intent: "revoke", attempt_id: attemptId }),
     });
-    const response = (await action(createActionArgs(request, { id: "lpa_1" }))) as Response;
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/agents/lpa_1");
-    expect(revokeAgentGrant).toHaveBeenCalledWith("lpa_1");
+    const response = await action(createActionArgs(request, { id: "lpa_1" }));
+    expect(response).toEqual({
+      grantId: "lpa_1",
+      revocation: { attempt_id: attemptId, state: "succeeded", phase: "completed" },
+    });
+    expect(revokeAgentGrant).toHaveBeenCalledWith("lpa_1", attemptId);
   });
 
   it("converts decimal-string caps to cents, treats blank fields as no cap, and defaults empty rails to handoff-only", async () => {

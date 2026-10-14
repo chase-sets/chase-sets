@@ -225,6 +225,7 @@ describe("privacy product-truth derivation over the real repository", () => {
 
   it("derives Web Storage subjects through direct, helper, alias, Pick<Storage>, and dynamic-key shapes", () => {
     expect(subjectsOf("web-storage")).toEqual([
+      "agent-grant-revocation:*",
       "catalog.primaryWorkbench.observationSelection.*",
       "chase-sets-theme",
       "chase-sets:marketplace:recent-searches",

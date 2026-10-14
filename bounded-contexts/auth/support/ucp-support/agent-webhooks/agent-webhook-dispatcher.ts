@@ -1,6 +1,7 @@
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ProjectorRunResult } from "@chase-sets/event-core/projector";
 import type { AgentWebhookOutbox, ClaimedAgentWebhookDelivery } from "./agent-webhook-outbox";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import {
   AGENT_WEBHOOK_EVENT_TYPE_HEADER,
   AGENT_WEBHOOK_ID_HEADER,
@@ -27,6 +28,7 @@ export type AgentWebhookSender = (request: AgentWebhookSendRequest) => Promise<A
 export type AgentWebhookDispatcher = Readonly<{ runOnce: () => Promise<ProjectorRunResult> }>;
 
 export type AgentWebhookDispatcherOptions = Readonly<{
+  withActiveGrants?: AgentGrantRevocations["withActiveGrants"];
   outbox: AgentWebhookOutbox;
   /** Plaintext signing secret for a client (never logged). */
   resolveSigningSecret: (clientId: string) => Promise<string | null>;
@@ -59,19 +61,55 @@ export function createAgentWebhookDispatcher(options: AgentWebhookDispatcherOpti
         now: now().toISOString(),
       });
 
+      let persistenceFailed = false;
       for (const delivery of deliveries) {
-        const renewed = await options.outbox.renewClaim({
-          deliveryId: delivery.deliveryId,
-          claimOwnerId: options.claimOwnerId,
-          claimTtlMs,
-          now: now().toISOString(),
-        });
-        if (!renewed) {
-          continue;
+        let settlement: Promise<void> | undefined;
+        try {
+          const renewed = await options.outbox.renewClaim({
+            deliveryId: delivery.deliveryId,
+            claimOwnerId: options.claimOwnerId,
+            claimTtlMs,
+            now: now().toISOString(),
+          });
+          if (!renewed) continue;
+          const signingSecret = await options.resolveSigningSecret(delivery.clientId);
+          const allowed =
+            options.withActiveGrants &&
+            (await options.withActiveGrants(
+              delivery.accountId,
+              delivery.clientId,
+              delivery.grantIds ?? [],
+              async () => {
+                settlement = attemptDelivery(options, delivery, retryDelayMs, now, signingSecret);
+                return true;
+              },
+            ));
+          if (!allowed)
+            await options.outbox.markFailed({
+              deliveryId: delivery.deliveryId,
+              error: "agent_grant_revoked",
+              retryAt: null,
+              now: now().toISOString(),
+            });
+        } catch {
+          if (!settlement) {
+            await failDelivery(options, delivery, retryDelayMs, now, "delivery_admission_unavailable", null).catch(
+              () => {
+                persistenceFailed = true;
+              },
+            );
+          }
+        } finally {
+          // A failed settlement stays claimed until lease recovery; it never
+          // prevents the rest of this claimed batch from being processed.
+          if (settlement)
+            await settlement.catch(() => {
+              persistenceFailed = true;
+            });
         }
-        await attemptDelivery(options, delivery, retryDelayMs, now);
       }
 
+      if (persistenceFailed) throw new Error("agent_webhook_delivery_recovery_pending");
       return { processed: deliveries.length, lastGlobalPosition: ZERO_GLOBAL_POSITION };
     },
   };
@@ -82,8 +120,8 @@ async function attemptDelivery(
   delivery: ClaimedAgentWebhookDelivery,
   retryDelayMs: (attemptCount: number) => number,
   now: () => Date,
+  signingSecret: string | null,
 ): Promise<void> {
-  const signingSecret = await options.resolveSigningSecret(delivery.clientId);
   if (!signingSecret) {
     // The client withdrew (or never held) a webhook secret — retrying cannot
     // succeed, so dead-letter immediately for ops visibility.
@@ -125,8 +163,23 @@ async function attemptDelivery(
     }
 
     await failDelivery(options, delivery, retryDelayMs, now, `callback responded ${result.status}`, result.status);
-  } catch (error) {
-    await failDelivery(options, delivery, retryDelayMs, now, describeError(error), null);
+  } catch {
+    const active = await options.withActiveGrants?.(
+      delivery.accountId,
+      delivery.clientId,
+      delivery.grantIds ?? [],
+      async () => true,
+    );
+    if (active && delivery.attemptCount < delivery.maxAttempts) {
+      await failDelivery(options, delivery, retryDelayMs, now, "delivery_transport_unavailable", null);
+    } else {
+      await options.outbox.markFailed({
+        deliveryId: delivery.deliveryId,
+        error: "delivery_outcome_unknown",
+        retryAt: null,
+        now: now().toISOString(),
+      });
+    }
   }
 }
 
@@ -146,10 +199,6 @@ async function failDelivery(
     retryAt: canRetry ? new Date(now().getTime() + retryDelayMs(delivery.attemptCount)).toISOString() : null,
     now: now().toISOString(),
   });
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** Default HTTP sender: POST JSON, refuse redirects, bounded timeout. */
