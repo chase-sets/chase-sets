@@ -8,6 +8,7 @@ import { InventoryApiError, type InventoryRestockDecision } from "../../support/
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { RestockDecisionQueuePage } from "../../features/restock-decisions/ui/restock-decision-queue-page";
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
 
 const DEFAULT_QUERY = "limit=100&offset=0";
 
@@ -17,8 +18,16 @@ export const loader = defineResourceRoute({
   authorization: { permission: "inventory.view" },
   errorAdapter: inventoryApiErrorAdapter,
   load: ({ request }) => createInventoryRequestApiClient(request).listRestockDecisions(DEFAULT_QUERY),
-  map: (decisions) => ({ decisions }),
-  messages: { pending: "Restock decisions are still updating. Reload this page in a moment." },
+  map: (decisions, { actor }) => ({
+    decisions,
+    loadError: null,
+    recoveryAuthority: { accountId: actor!.accountId, actorUserId: actor!.userId },
+  }),
+  onPending: (_result, { actor }) => ({
+    decisions: { items: [], total: 0, count: 0 },
+    loadError: "Restock decisions are still updating. Reload this page in a moment.",
+    recoveryAuthority: { accountId: actor!.accountId, actorUserId: actor!.userId },
+  }),
 });
 
 export const action = defineFormAction({
@@ -61,9 +70,14 @@ export default function MarketplaceInventoryRestockDecisionsRoute() {
   const actionData = useActionData<typeof action>();
 
   return (
-    <RestockDecisionQueuePage
-      decisions={(data.decisions.items ?? []) as InventoryRestockDecision[]}
-      errorMessage={actionData?.error ?? null}
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority}
+      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
+    >
+      <RestockDecisionQueuePage
+        decisions={(data.decisions.items ?? []) as InventoryRestockDecision[]}
+        errorMessage={actionData?.error ?? data.loadError ?? null}
+      />
+    </InventoryMutationProvider>
   );
 }

@@ -3,10 +3,13 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { closeMultiContextTestPools } from "@chase-sets/bounded-context-runtime/test-support";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { inventorySeedIds } from "../../../support/seed-support/ids";
+import { buildInventoryItemProjectionHandlers } from "../../inventory-items/read-model/projection";
+import { buildInventoryRestockDecisionProjectionHandlers } from "../read-model/projection";
 
 const path = "/account/inventory/restock-decisions";
 
@@ -57,7 +60,7 @@ async function fixture(page: Page, info: TestInfo, signIn: SignIn) {
     );
     expect(original.rows).toHaveLength(1);
     if (!events.appendToStreams) throw new Error("Atomic fixture append required");
-    await events.appendToStreams([
+    const seeded = await events.appendToStreams([
       {
         streamId: `inventory.item-${itemId}`,
         expectedVersion: "no_stream",
@@ -92,6 +95,12 @@ async function fixture(page: Page, info: TestInfo, signIn: SignIn) {
         ],
       },
     ]);
+    const handlers = {
+      ...buildInventoryItemProjectionHandlers(pool),
+      ...buildInventoryRestockDecisionProjectionHandlers(pool),
+    };
+    for (const stream of seeded)
+      for (const event of stream.storedEvents) await handlers[event.eventType]!(toTransportEvent(event));
     await expect
       .poll(async () =>
         (await page.request.get("/api/inventory/restock-decisions?limit=250&offset=0"))
