@@ -172,6 +172,11 @@ function executedRevision(run, references) {
   return [...merged][0];
 }
 
+// The executed revision of a listed run's attempt, read from that attempt's own object.
+export function readCountCaptureExecutedRevision(run, attempt, value) {
+  return executedRevision(run, readAttemptReferences(value, run, attempt));
+}
+
 // A same-repository callee runs from the caller's revision, and the attempt must
 // record exactly that one reference to it.
 function calleeRevision(references, callee, revision) {

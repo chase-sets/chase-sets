@@ -4,6 +4,7 @@ import {
   classifyCountCaptureJob,
   collectCountCaptureDeployment,
   readCountCaptureExecutedDeployment,
+  readCountCaptureExecutedRevision,
   readCountCaptureWorkflowCapabilities,
 } from "./catalog-count-capture-deployment.mjs";
 
@@ -22,8 +23,11 @@ const historicalLog = fixture("historical-staging-deployment.txt");
 const historicalDefinition = fixture("historical-staging-platform-production.yml.txt");
 // Recorded attempt metadata of Platform PR run 38528671789 (GET .../runs/38528671789/attempts/1):
 // head d2a2c4e2 executed its same-repository callee at the PR merge commit c77c0260.
+// Only its own binding test reads it; no synthetic fact is keyed by its identity.
 const recordedPrAttempt = JSON.parse(fixture("historical-pr-attempt.json"));
-const recordedMergeSha = recordedPrAttempt.referenced_workflows[0].sha;
+const [, recordedCallee, recordedMergeSha] = /^[^/]+\/[^/]+\/(.+)@([a-f0-9]{40})$/.exec(
+  recordedPrAttempt.referenced_workflows[0].path,
+);
 const sha = "7d81f3f3309fc2a83ca3a70ee0ed5f51b45e4c0a";
 const digest = "sha256:bde13c7a962cb4d6d0937bc8ac8b669ba9fd2d07a476dfc06cd05b3e602111e2";
 const deployment = {
@@ -86,9 +90,19 @@ jobs:
           GH_TOKEN: \${{ github.token }}
         run: pnpm exec tsx scripts/catalog-staging-count-lifecycle.mjs capture
 `;
+// The positive fixture's synthetic pull_request CI run executes its caller and its
+// callee at its merge commit, which differs from its head.
+const syntheticCiHead = "1".repeat(40);
+const syntheticCiMerge = "2".repeat(40);
+const syntheticCiCallee = ".github/workflows/synthetic-ci-callee.yml";
+const reference = (path, sha, ref = "refs/pull/123/merge") => ({
+  path: `synthetic/repository/${path}@${sha}`,
+  ref,
+  sha,
+});
 const syntheticCiDefinition = `
 name: Synthetic Pull Request CI
-on: pull_request
+on: [pull_request, push]
 permissions:
   contents: read
   pull-requests: write
@@ -107,7 +121,7 @@ jobs:
       - run: "true"
   compose-smoke:
     name: Compose Boot Smoke
-    uses: ./.github/workflows/platform-compose-boot-smoke.yml
+    uses: ./.github/workflows/synthetic-ci-callee.yml
 `;
 const syntheticSafeCallee = `
 name: Synthetic Callee
@@ -206,10 +220,9 @@ function syntheticJob(run, id, name, overrides = {}) {
   };
 }
 
-// The positive recorded fixture: the historical deploy run, the still-running
-// synthetic #9587-shaped capture job and ordinary proven non-mutating CI jobs. The
-// CI run carries the recorded pull_request attempt binding; its timing, jobs and
-// definitions (served only at the recorded merge commit) are synthetic.
+// The positive fixture: the recorded historical deploy run, the still-running
+// synthetic #9587-shaped capture job and the ordinary proven non-mutating jobs of a
+// synthetic pull_request CI run whose definitions are served only at its merge commit.
 function positiveFixture() {
   const captureRun = syntheticRun(900001, ".github/workflows/catalog-staging-provider-uat.yml", syntheticRunnerSha, {
     status: "in_progress",
@@ -217,8 +230,8 @@ function positiveFixture() {
     created_at: "2026-10-13T08:00:05Z",
     updated_at: "2026-10-13T08:01:00Z",
   });
-  const ciRun = syntheticRun(recordedPrAttempt.id, recordedPrAttempt.path, recordedPrAttempt.head_sha, {
-    event: recordedPrAttempt.event,
+  const ciRun = syntheticRun(900002, ".github/workflows/synthetic-pr-ci.yml", syntheticCiHead, {
+    event: "pull_request",
     created_at: "2026-10-13T07:55:00Z",
     updated_at: "2026-10-13T08:01:30Z",
     status: "in_progress",
@@ -262,12 +275,17 @@ function positiveFixture() {
       ],
     ],
   ]);
-  const attempts = new Map([[`${ciRun.id}/1`, recordedPrAttempt]]);
+  const attempts = new Map([
+    [
+      `${ciRun.id}/1`,
+      { ...ciRun, referenced_workflows: [reference(syntheticCiCallee, syntheticCiMerge, "refs/pull/456/merge")] },
+    ],
+  ]);
   const definitions = new Map([
     [`${historicalRun.path}@${sha}`, historicalDefinition],
     [`${captureRun.path}@${syntheticRunnerSha}`, syntheticCaptureDefinition],
-    [`${ciRun.path}@${recordedMergeSha}`, syntheticCiDefinition],
-    [`.github/workflows/platform-compose-boot-smoke.yml@${recordedMergeSha}`, syntheticSafeCallee],
+    [`${ciRun.path}@${syntheticCiMerge}`, syntheticCiDefinition],
+    [`${syntheticCiCallee}@${syntheticCiMerge}`, syntheticSafeCallee],
     [`.github/workflows/synthetic-staging.yml@${"9".repeat(40)}`, syntheticStagingDefinition],
   ]);
   const logs = new Map([[deployment.jobId, historicalLog]]);
@@ -346,9 +364,11 @@ function addDispatcher(value, workflowPermissions, jobPermissions) {
 
 // A synthetic pull_request run whose head and merge commits are distinct; each
 // attempt's object records the callee GitHub executed and at which revision.
+// Exactly one of its jobs executes: "Smoke" through the callee, or the caller's
+// own "Direct" job, which only the caller's executed revision decides.
 const syntheticPrHead = "d".repeat(40);
 const syntheticMerge = "b".repeat(40);
-const syntheticCaller = `
+const syntheticCaller = (directMutates) => `
 name: Synthetic Pull Request Caller
 on: pull_request
 permissions:
@@ -357,12 +377,28 @@ jobs:
   smoke:
     name: Smoke
     uses: ./.github/workflows/synthetic-callee.yml
+  direct:
+    name: Direct
+    runs-on: ubuntu-latest
+${directMutates ? "    environment: staging\n" : ""}    steps:
+      - env:
+          TOKEN: \${{ secrets.${directMutates ? "DIGITALOCEAN_ACCESS_TOKEN" : "GITHUB_TOKEN"} }}
+        run: "true"
 `;
-const reference = (path, sha, ref = "refs/pull/123/merge") => ({
-  path: `synthetic/repository/${path}@${sha}`,
-  ref,
-  sha,
-});
+// The hostile run is listed after the positive fixture's pull_request CI run, so
+// its cases make that run head-sourced: a wrong-revision read of the base cannot
+// end collection before the hostile run's own attempt is reached.
+function headSourcedCi(value) {
+  const run = { ...value.ciRun, event: "push" };
+  value.runs[value.runs.indexOf(value.ciRun)] = run;
+  value.ciRun = run;
+  value.attempts.set(`${run.id}/1`, {
+    ...run,
+    referenced_workflows: [reference(syntheticCiCallee, run.head_sha, "refs/heads/main")],
+  });
+  value.definitions.set(`${run.path}@${run.head_sha}`, syntheticCiDefinition);
+  value.definitions.set(`${syntheticCiCallee}@${run.head_sha}`, syntheticSafeCallee);
+}
 function addPullRequestRun(
   value,
   {
@@ -371,10 +407,12 @@ function addPullRequestRun(
     laterReferences = references,
     runAttempt = 1,
     attemptOverrides = {},
-    headCallee = syntheticSafeCallee,
+    executes = "Smoke / Verify",
     mergeCallee = syntheticSafeCallee,
+    mergeDirectMutates = false,
   } = {},
 ) {
+  headSourcedCi(value);
   const run = syntheticRun(960001, ".github/workflows/synthetic-pr.yml", syntheticPrHead, {
     event,
     run_attempt: runAttempt,
@@ -382,13 +420,23 @@ function addPullRequestRun(
     updated_at: "2026-10-13T07:58:00Z",
   });
   value.runs.push(run);
+  const skipped = executes === "Direct" ? "Smoke" : "Direct";
   for (let attempt = 1; attempt <= runAttempt; attempt++) {
-    value.jobs.set(`${run.id}/${attempt}`, [
-      {
-        ...syntheticJob(run, 961000 + attempt, "Smoke / Verify", { completed_at: "2026-10-13T07:58:00Z" }),
-        run_attempt: attempt,
-      },
-    ]);
+    value.jobs.set(
+      `${run.id}/${attempt}`,
+      [
+        syntheticJob(run, 961000 + attempt, executes, {
+          started_at: "2026-10-13T07:50:10Z",
+          completed_at: "2026-10-13T07:58:00Z",
+        }),
+        syntheticJob(run, 962000 + attempt, skipped, {
+          conclusion: "skipped",
+          started_at: "2026-10-13T07:50:10Z",
+          completed_at: "2026-10-13T07:50:10Z",
+          steps: [],
+        }),
+      ].map((job) => ({ ...job, run_attempt: attempt })),
+    );
     value.attempts.set(`${run.id}/${attempt}`, {
       ...run,
       run_attempt: attempt,
@@ -396,13 +444,14 @@ function addPullRequestRun(
       ...attemptOverrides,
     });
   }
-  for (const [sha, callee] of [
-    [syntheticPrHead, headCallee],
-    [syntheticMerge, mergeCallee],
+  for (const [revision, directMutates, callee] of [
+    [syntheticPrHead, false, syntheticSafeCallee],
+    [syntheticMerge, mergeDirectMutates, mergeCallee],
   ]) {
-    value.definitions.set(`${run.path}@${sha}`, syntheticCaller);
-    value.definitions.set(`.github/workflows/synthetic-callee.yml@${sha}`, callee);
+    value.definitions.set(`${run.path}@${revision}`, syntheticCaller(directMutates));
+    value.definitions.set(`.github/workflows/synthetic-callee.yml@${revision}`, callee);
   }
+  return run;
 }
 
 describe("rejects unbound deployment collector", () => {
@@ -430,9 +479,33 @@ describe("rejects unbound deployment collector", () => {
     expect(reader.jobLog).toHaveBeenCalledExactlyOnceWith(deployment.jobId);
     expect(reader.json).not.toHaveBeenCalledWith(expect.stringContaining("/actions/runs/900003/"));
     // The pull_request caller and its callee are read at the attempt's merge commit, never its head.
-    expect(reader.workflow).toHaveBeenCalledWith(value.ciRun.path, recordedMergeSha);
-    expect(reader.workflow).toHaveBeenCalledWith(".github/workflows/platform-compose-boot-smoke.yml", recordedMergeSha);
+    expect(reader.workflow).toHaveBeenCalledWith(value.ciRun.path, syntheticCiMerge);
+    expect(reader.workflow).toHaveBeenCalledWith(syntheticCiCallee, syntheticCiMerge);
     expect(reader.workflow).not.toHaveBeenCalledWith(expect.anything(), value.ciRun.head_sha);
+  });
+
+  it("binds the recorded pull_request attempt to its merge commit, never its head", () => {
+    // The attempt object is its own listed run: every field read here is GitHub's.
+    expect(readCountCaptureExecutedRevision(recordedPrAttempt, recordedPrAttempt.run_attempt, recordedPrAttempt)).toBe(
+      "c77c02608571d9ce55827bfa877fe68d3d85b1d0",
+    );
+    expect(recordedPrAttempt.head_sha).toBe("d2a2c4e2c69deed324900c1da32c0bec1b6cc96a");
+  });
+
+  it("keys no synthetic fixture fact by the recorded pull_request attempt", () => {
+    const hostile = positiveFixture();
+    addPullRequestRun(hostile);
+    for (const value of [positiveFixture(), hostile]) {
+      const synthetic = JSON.stringify([value.runs, [...value.jobs], [...value.attempts], [...value.definitions]]);
+      for (const recorded of [
+        String(recordedPrAttempt.id),
+        recordedPrAttempt.head_sha,
+        recordedMergeSha,
+        recordedPrAttempt.path,
+        recordedCallee,
+      ])
+        expect(synthetic).not.toContain(recorded);
+    }
   });
 
   it("keeps a genuinely completed earlier mutator outside the window", async () => {
@@ -669,56 +742,6 @@ ${nested ? "  again:\n    uses: ./.github/workflows/synthetic-callee.yml" : ""}
       "staging-mutation-overlap",
     ],
     [
-      "a pull_request caller whose callee changed capability at its merge commit",
-      (value) => addPullRequestRun(value, { headCallee: syntheticSafeCallee, mergeCallee: syntheticUnsafeCallee }),
-      "staging-mutation-overlap",
-    ],
-    [
-      "a pull_request attempt without a merge-bound reference",
-      (value) => addPullRequestRun(value, { references: [] }),
-      "deployment-capability-unknown",
-    ],
-    [
-      "a pull_request attempt with ambiguous merge revisions",
-      (value) =>
-        addPullRequestRun(value, {
-          references: [
-            reference(".github/workflows/synthetic-callee.yml", syntheticMerge),
-            reference(".github/workflows/synthetic-other.yml", "e".repeat(40)),
-          ],
-        }),
-      "deployment-capability-unknown",
-    ],
-    [
-      "a pull_request re-run attempt that lost its merge-bound reference",
-      (value) => addPullRequestRun(value, { runAttempt: 2, laterReferences: [] }),
-      "deployment-capability-unknown",
-    ],
-    [
-      "an attempt object that disagrees with its listed run",
-      (value) => addPullRequestRun(value, { attemptOverrides: { head_sha: "e".repeat(40) } }),
-      "malformed-response",
-    ],
-    [
-      "a pull_request_target run whose executed revision is not recorded",
-      (value) => addPullRequestRun(value, { event: "pull_request_target" }),
-      "deployment-capability-unknown",
-    ],
-    [
-      "a head-bound caller whose callee reference names another revision",
-      (value) =>
-        addPullRequestRun(value, {
-          event: "workflow_dispatch",
-          references: [reference(".github/workflows/synthetic-callee.yml", syntheticMerge, "refs/heads/main")],
-        }),
-      "deployment-capability-unknown",
-    ],
-    [
-      "a head-bound caller whose callee is not referenced",
-      (value) => addPullRequestRun(value, { event: "workflow_dispatch", references: [] }),
-      "deployment-capability-unknown",
-    ],
-    [
       "an unclassified job",
       (value) => {
         const run = stagingRun();
@@ -940,6 +963,84 @@ ${nested ? "  again:\n    uses: ./.github/workflows/synthetic-callee.yml" : ""}
     mutate(value);
     const result = await collectCountCaptureDeployment(value.reader ?? fakeReader(value), deployment, now);
     expect(result).toMatchObject({ outcome: "unknown", reason, binding: null });
+  });
+
+  // Each executed-revision case counts only once collection reached the hostile
+  // run's own last attempt; the caller and callee are harmless at its head.
+  it.each([
+    [
+      "a pull_request caller whose own job changed capability at its merge commit",
+      { executes: "Direct", mergeDirectMutates: true },
+      "staging-mutation-overlap",
+    ],
+    [
+      "a pull_request caller whose callee changed capability at its merge commit",
+      { mergeCallee: syntheticUnsafeCallee },
+      "staging-mutation-overlap",
+    ],
+    [
+      "a pull_request attempt without a merge-bound reference",
+      { executes: "Direct", references: [] },
+      "deployment-capability-unknown",
+    ],
+    [
+      "a pull_request attempt with ambiguous merge revisions",
+      {
+        executes: "Direct",
+        references: [
+          reference(".github/workflows/synthetic-callee.yml", syntheticMerge),
+          reference(".github/workflows/synthetic-other.yml", "e".repeat(40)),
+        ],
+      },
+      "deployment-capability-unknown",
+    ],
+    [
+      "a pull_request re-run attempt that lost its merge-bound reference",
+      { executes: "Direct", runAttempt: 2, laterReferences: [] },
+      "deployment-capability-unknown",
+    ],
+    [
+      "an attempt object that disagrees with its listed run",
+      { attemptOverrides: { head_sha: "e".repeat(40) } },
+      "malformed-response",
+    ],
+    [
+      "a pull_request_target run whose executed revision is not recorded",
+      { executes: "Direct", event: "pull_request_target" },
+      "deployment-capability-unknown",
+    ],
+    [
+      "a head-bound caller whose callee reference names another revision",
+      {
+        event: "workflow_dispatch",
+        references: [reference(".github/workflows/synthetic-callee.yml", syntheticMerge, "refs/heads/main")],
+      },
+      "deployment-capability-unknown",
+    ],
+    [
+      "a head-bound caller whose callee is not referenced",
+      { event: "workflow_dispatch", references: [] },
+      "deployment-capability-unknown",
+    ],
+  ])("returns unknown for %s", async (_case, options, reason) => {
+    const value = positiveFixture();
+    const target = addPullRequestRun(value, options);
+    const reader = fakeReader(value);
+    const result = await collectCountCaptureDeployment(reader, deployment, now);
+    expect(reader.json).toHaveBeenCalledWith(`/actions/runs/${target.id}/attempts/${target.run_attempt}`);
+    expect(result).toMatchObject({ outcome: "unknown", reason, binding: null });
+  });
+
+  it("binds the isolated base with a hostile run that is harmless at both revisions", async () => {
+    const value = positiveFixture();
+    const target = addPullRequestRun(value, { executes: "Direct" });
+    const reader = fakeReader(value);
+    expect(await collectCountCaptureDeployment(reader, deployment, now)).toMatchObject({
+      outcome: "bound",
+      binding: bound,
+    });
+    expect(reader.workflow).toHaveBeenCalledWith(target.path, syntheticMerge);
+    expect(reader.workflow).not.toHaveBeenCalledWith(target.path, syntheticPrHead);
   });
 
   it("returns unknown for a selected deployment claim that does not match the executed job", async () => {
