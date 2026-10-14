@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { countQueryKey, countQuerySchema } from "./count-acquisition";
 
-// Closed vocabulary of the one combined #9424 AC5 / #9431 AC7 staging capture:
+// Closed vocabulary of the one combined count-lifecycle staging capture:
 // one One Piece OP01 English scope and its three Scrydex units. Card and sealed
 // units each consume one count source; set reference data consumes none.
 export const countCaptureUnitKeys = [

@@ -12,8 +12,8 @@ import {
 } from "./count-capture-plan";
 import { decodedReceiptText } from "./preview-probe-receipt";
 
-// The closed, support-safe staging receipt of one combined #9424 AC5 / #9431 AC7
-// count-lifecycle capture, and the host authority envelope it was admitted under.
+// The closed, support-safe staging receipt of one combined count-lifecycle capture
+// (acceptance keys 9431-ac7 and 9424-ac5), and the host authority envelope it was admitted under.
 // The FINAL packet's Required Receipt Fields are the contract; the packet hash is
 // an envelope field the verifier binds, so a successor packet needs no product change.
 // Validation proves shape and causal consistency only. It never proves that a
@@ -428,8 +428,8 @@ export type CountLifecycleStopReceipt = z.infer<typeof countLifecycleStopReceipt
 type Acceptance = keyof CountLifecycleClassification["acceptance"];
 type Finding = Readonly<{ failed: boolean; reason: string; acceptance: readonly Acceptance[] }>;
 const both: readonly Acceptance[] = ["9431-ac7", "9424-ac5"];
-// #9431 AC7 owns the approved page-1/debit of every acquired kind and the card
-// reads; #9424 AC5 owns the sealed writer facts and the sealed reads.
+// 9431-ac7 owns the approved page-1/debit of every acquired kind and the card
+// reads; 9424-ac5 owns the sealed writer facts and the sealed reads.
 const consumedBy = (kind: CountCaptureKind): readonly Acceptance[] => (kind === "cards" ? ["9431-ac7"] : ["9424-ac5"]);
 const acquiredBy = (kind: CountCaptureKind): readonly Acceptance[] => (kind === "cards" ? ["9431-ac7"] : both);
 
