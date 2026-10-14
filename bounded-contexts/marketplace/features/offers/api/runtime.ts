@@ -354,9 +354,11 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         version: result.version,
       };
     } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
-        throw classify((await repository.load(streamId)).state) ?? new MarketplaceOfferLifecycleError("offer_conflict");
-      }
+      // A concurrent change can land between the check above and the decision or append.
+      const latest = classify((await repository.load(streamId)).state);
+      if (latest) throw latest;
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict")
+        throw new MarketplaceOfferLifecycleError("offer_conflict");
       throw error;
     }
   }

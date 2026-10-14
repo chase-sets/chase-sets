@@ -930,6 +930,41 @@ describe("marketplace offer lifecycle runtime", () => {
     expect(events[1]!.payload).toMatchObject({ offerId: "off_1", buyerAccountId: "acc_buyer" });
   });
 
+  it.each(["decision", "append"] as const)(
+    "rejects a Pause as offer_transition_rejected when a Withdraw lands before its %s",
+    async (window) => {
+      const { memory, services } = await lifecycleServices();
+      const withdraw = () =>
+        memory.appendToStream({
+          streamId: "marketplace.offer-off_1",
+          expectedVersion: 1,
+          context: buyerContext,
+          events: [
+            {
+              eventType: "marketplace.offer.withdrawn",
+              payload: { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" },
+            },
+          ],
+        });
+      let reads = 0;
+      const readStream = memory.readStream.bind(memory);
+      const appendToStream = memory.appendToStream.bind(memory);
+      vi.spyOn(memory, "readStream").mockImplementation(async (input) => {
+        if (window === "decision" && input.streamId === "marketplace.offer-off_1" && ++reads === 2) await withdraw();
+        return readStream(input);
+      });
+      vi.spyOn(memory, "appendToStream").mockImplementation(async (input) => {
+        if (window === "append" && input.streamId === "marketplace.offer-off_1" && reads++ === 0) await withdraw();
+        return appendToStream(input);
+      });
+      await expect(change(services, "pause")).rejects.toMatchObject({ code: "offer_transition_rejected" });
+      expect((await readStream({ streamId: "marketplace.offer-off_1" })).map((event) => event.eventType)).toEqual([
+        "marketplace.offer.submitted",
+        "marketplace.offer.withdrawn",
+      ]);
+    },
+  );
+
   it("reports the command result status when a paused Offer is re-priced", async () => {
     const { services } = await lifecycleServices();
     await change(services, "pause");
