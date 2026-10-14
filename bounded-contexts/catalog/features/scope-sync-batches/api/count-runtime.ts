@@ -182,6 +182,8 @@ export function createScopeSyncCountRuntime(deps: {
       view?: "preparation";
       context: EventStoreContext;
     }): Promise<CountQuote | CountPreparationView> => {
+      // The preparation read serves staging count preparation only.
+      if (input.view === "preparation" && deps.environment !== "staging") throw new CountAcquisitionRefused();
       const quote = await deps.store.loadQuote(input.quoteId, owner(input.context));
       return input.view === "preparation" ? deps.store.preparationView(quote) : deps.store.retainedQuote(quote);
     },
