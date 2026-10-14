@@ -31,7 +31,8 @@ test.describe("marketplace search scroll restoration", () => {
     await page.goto(searchPath, { waitUntil: "domcontentloaded" });
     const detail = page.getByRole("link", { name: /^View details for / }).first();
     await expect(detail).toBeVisible();
-    await detail.click();
+    await detail.focus();
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/items\//);
     // Synthetic corrected response: this proves the real client-loader/cache/UI
     // roundtrip, while projected correction and printing safety belong to DB tests.
@@ -64,7 +65,8 @@ test.describe("marketplace search scroll restoration", () => {
       await expect(page.getByRole("button", { name: "Load more results" })).toHaveCount(0);
       await expect(page.getByRole("link", { name: /^View details for / })).toHaveCount(1);
       if (roundtrip === 0) {
-        await page.getByRole("link", { name: /^View details for / }).click();
+        await page.getByRole("link", { name: /^View details for / }).focus();
+        await page.keyboard.press("Enter");
         await expect(page).toHaveURL(/\/items\//);
       }
     }
