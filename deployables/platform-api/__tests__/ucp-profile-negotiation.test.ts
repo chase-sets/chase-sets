@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildAccountCapabilityRegistry } from "@chase-sets/platform-runtime/api";
 import {
   createUcpEnvelope,
@@ -64,11 +65,16 @@ function fixture(response: () => Response | Promise<Response> = () => Response.j
     fetch,
     lookup: async () => [{ address: "8.8.8.8", family: 4 }],
   });
+  const grantOwner = {
+    isActiveGrant: vi.fn<AgentGrantRevocations["isActiveGrant"]>(
+      async (accountId, grantId) => accountId === "buyer_1" && grantId === "grant_1",
+    ),
+  } satisfies Pick<AgentGrantRevocations, "isActiveGrant">;
   const runtime: Parameters<typeof buildPlatformApiApp>[0] = {
     accountCapabilityRegistry: buildAccountCapabilityRegistry([]),
     mountedContexts: [],
     mountedModules: [],
-    services: { auth: {}, identity: {} },
+    services: { auth: {}, identity: { agentGrantRevocations: grantOwner } },
     projectionGroups: [],
     subscriptionRunners: [],
   };

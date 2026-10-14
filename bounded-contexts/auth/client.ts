@@ -272,8 +272,23 @@ export function createUcpOAuthApiClient({
         await configuredFetch(search ? `${buildUrl(path)}?${search}` : buildUrl(path), { headers }),
       );
     },
-    async revokeAgentGrant<T>(id: string): Promise<T> {
-      return postJson<T>(configuredFetch, buildUrl(`authorizations/${id}/revoke`), {}, headers);
+    async revokeAgentGrant<T>(id: string, attemptId?: string): Promise<T> {
+      const requestHeaders = new Headers(headers);
+      if (attemptId) requestHeaders.set("Idempotency-Key", attemptId);
+      return postJson<T>(
+        configuredFetch,
+        buildUrl(`authorizations/${id}/revoke`),
+        attemptId ? { attempt_id: attemptId } : {},
+        requestHeaders,
+      );
+    },
+    async getAgentGrantRevocation<T>(id: string, attemptId: string): Promise<T> {
+      return parseJsonResponse<T>(
+        await configuredFetch(
+          buildUrl(`authorizations/${encodeURIComponent(id)}/revocation/${encodeURIComponent(attemptId)}`),
+          { headers },
+        ),
+      );
     },
     async updateAgentGrantMandate<T>(id: string, mandate: Record<string, unknown>): Promise<T> {
       return putJson<T>(configuredFetch, buildUrl(`authorizations/${id}/mandate`), mandate, headers);

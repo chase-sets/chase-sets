@@ -151,7 +151,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 66, scannedSurfaces: 27, totalSurfaces: 27 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 66, scannedSurfaces: 28, totalSurfaces: 28 });
     expect(current.findings).toHaveLength(21);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
@@ -164,6 +164,12 @@ jobs:
         expect.objectContaining({
           workflowFile: ".github/workflows/platform-production.yml",
           outPath: "artifacts/release-health/production-kubernetes-deployment-transition.json",
+        }),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/platform-production.yml",
+          outPath: "artifacts/release-health/agent-grant-revocation-activation.json",
+          uploadPath: "artifacts/release-health/agent-grant-revocation-activation.json",
+          missingFileBehavior: "error",
         }),
         expect.objectContaining({
           workflowFile: ".github/workflows/backlog-roadmap-status.yml",

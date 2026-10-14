@@ -10,6 +10,7 @@ import { module as settlementModule } from "@chase-sets/settlement";
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createUcpEnvelope, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
 
 /**
@@ -555,6 +556,11 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         capCents: 100,
       })),
     };
+    const grantOwner = {
+      isActiveGrant: vi.fn<AgentGrantRevocations["isActiveGrant"]>(
+        async (accountId, grantId) => accountId === "acc_1" && grantId === "grant_full_journey",
+      ),
+    } satisfies Pick<AgentGrantRevocations, "isActiveGrant">;
     const paymentServices = {
       publicConfig: {
         processorName: "stripe",
@@ -609,6 +615,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             offers: guardedOffers,
             reviews: {},
           },
+          identity: { agentGrantRevocations: grantOwner },
         },
         [
           {
@@ -743,6 +750,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         ],
       });
       expect(paymentsFetch).toHaveBeenCalledTimes(1);
+      expect(grantOwner.isActiveGrant).toHaveBeenCalledWith("acc_1", "grant_full_journey");
       expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
         expect.objectContaining({
           orderIds: ["order_1"],

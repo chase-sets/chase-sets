@@ -316,16 +316,12 @@ export function isAgentOAuthScope(value: unknown): value is AgentOAuthScope {
   return typeof value === "string" && AGENT_OAUTH_SCOPE_SET.has(value);
 }
 
-export function normalizeAgentOAuthScopes(
-  value: unknown,
-  fallback: readonly AgentOAuthScope[] = [],
-): AgentOAuthScope[] {
+export function normalizeAgentOAuthScopes(value: unknown): AgentOAuthScope[] {
   const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/\s+/) : [];
-  const scopes = raw
+  return raw
     .filter(isAgentOAuthScope)
     .filter((scope, index, values) => values.indexOf(scope) === index)
     .sort();
-  return scopes.length > 0 ? scopes : [...fallback];
 }
 
 export function agentOAuthScopesForPermission(permission: string): readonly AgentOAuthScope[] {

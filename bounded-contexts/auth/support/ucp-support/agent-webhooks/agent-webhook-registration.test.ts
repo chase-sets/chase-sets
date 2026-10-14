@@ -60,9 +60,23 @@ describe("parseWebhookConfiguration", () => {
 });
 
 describe("resolveAgentWebhookTargets", () => {
+  it("agent-grant-revocation-downstream-fence denies a Grant revoked during the Auth lookup", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [{ client_id: "ocl_1", account_id: "acc_buyer", authorization_id: "grant_active" }],
+      })
+      .mockResolvedValue({ rows: [] });
+    const clients = {
+      query: vi.fn(async () => ({
+        rows: [{ client_id: "ocl_1", webhook_callback_url: "https://synthetic.example/hooks" }],
+      })),
+    };
+    expect(await resolveAgentWebhookTargets({ query } as never, clients as never, "acc_buyer")).toEqual([]);
+  });
   it("joins active dev.ucp.shopping.order:read authorizations (Identity) to callback-bearing clients (Auth)", async () => {
     const linkedAuthorizationsQuery = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({
-      rows: [{ client_id: "ocl_1", account_id: "acc_buyer" }],
+      rows: [{ client_id: "ocl_1", account_id: "acc_buyer", authorization_id: "grant_active" }],
       rowCount: 1,
     }));
     const oauthClientsQuery = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({
@@ -77,7 +91,12 @@ describe("resolveAgentWebhookTargets", () => {
     );
 
     expect(targets).toEqual([
-      { clientId: "ocl_1", accountId: "acc_buyer", callbackUrl: "https://agent.example/hooks" },
+      {
+        clientId: "ocl_1",
+        accountId: "acc_buyer",
+        callbackUrl: "https://agent.example/hooks",
+        grantIds: ["grant_active"],
+      },
     ]);
 
     const [grantSql, grantValues] = linkedAuthorizationsQuery.mock.calls[0];
