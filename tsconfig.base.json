@@ -528,6 +528,9 @@
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
       ],
+      "@chase-sets/inventory/test-support/restock-recovery-browser": [
+        "./bounded-contexts/inventory/features/restock-decisions/tests/recovery.browser.ts"
+      ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"
       ],
