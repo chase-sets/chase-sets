@@ -713,7 +713,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "a87dba19e79cf21d35428dc6f72efc00b3c320429040928509f8dfbdb9593d6a",
+      "2f564060827d3bccec0adc106531edc57f48c4b228653bb3f65714fdf45ad377",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -1705,6 +1705,30 @@ describe("Platform API bootstrap DB enrollment", () => {
         laneMode: null,
       },
     },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-38491485544.json",
+      fixtureSha256: "72d0d47bba93a9d5ba8b9acb23e8b3d01e570056b8974c90edd3bd4df56a2ef3",
+      unitProjections: [369695, 410108],
+      provenance: {
+        runId: "38491485544",
+        runAttempt: "1",
+        referenceJobId: 115617460502,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "4d98e441e9143cdeb02baebd426ca38fccdffebb",
+        sourceBase: "502100be6b87b7cda115498217af0e094e201087",
+        captureParent: "502100be6b87b7cda115498217af0e094e201087",
+        artifactId: 11862234069,
+        artifactSha256: "8f3806218e650167a427733b0af8c88bd98e17d1e87b2be34de28dcb812cfe70",
+        sourceManifestSha256: "1a0c8bb7b9246285e6d54d2be2ec06d06dc185102532f68236314596eaca758a",
+        caseManifestSha256: "03011b41a6a674420a496ccae92cb68d64ac14504c7d6756e4575dc1828492fe",
+        commandsSha256: "8751ac4f86520df16f8aabf15b7701e7d4412c994f91b6d41bf3bae273c07a2d",
+        censusSha256: "de20ed8bbd70f4a3877cabff894778d2ab7c7ef129d6b8318bdc14c4d89396dd",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
   ])("$label", async ({ current, fileName, fixtureSha256, unitProjections, provenance }) => {
     const bytes = readFileSync(join(testDirectory, "fixtures", fileName));
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(fixtureSha256);
@@ -1831,13 +1855,13 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(43949);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(53058);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1908888,
+      1842271,
     );
   });
 
@@ -1847,15 +1871,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 387933],
-      ["test:db:2", 416500],
+      ["test:db:1", 369695],
+      ["test:db:2", 410108],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
       [33, 33],
       [33, 33],
     ]);
-    expect(schedule.aggregateMs).toBe(804433);
-    expect(schedule.aggregateWithOverheadMs).toBe(848382);
+    expect(schedule.aggregateMs).toBe(779803);
+    expect(schedule.aggregateWithOverheadMs).toBe(832861);
     expect(schedule.minimumUnitCount).toBe(2);
     expect(schedule.observedUnitCount).toBe(2);
   });
@@ -1867,8 +1891,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 387933],
-      ["test:db:2", 416500],
+      ["test:db:1", 369695],
+      ["test:db:2", 410108],
     ]);
   });
 
@@ -2358,7 +2382,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(853682);
+    expect(worst).toBe(828621);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
