@@ -55,7 +55,7 @@ export type ShadowGoalTrace = Readonly<{
         action: null;
         skipReason: null;
         anchor: null;
-        flags: readonly [];
+        flags: readonly never[];
         skipped: "parameters-incompatible";
       }>
   );

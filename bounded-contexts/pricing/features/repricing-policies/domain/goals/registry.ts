@@ -111,7 +111,7 @@ type GoalEconomics<RequiresEconomics extends boolean> = RequiresEconomics extend
 type PricingGoalSpecification<Parameter extends string, RequiresEconomics extends boolean> = Readonly<{
   id: string;
   version: number;
-  /** Reviewed registration change; selecting a later version cites #7708 adoption evidence. */
+  /** Reviewed registration change; selecting a later version cites graded adoption evidence. */
   lifecycle?: PricingGoalDefinition["lifecycle"];
   parameterSchema: Readonly<Record<Parameter, GoalParameterBounds>>;
   requiredCurveFeatures: readonly GoalCurveFeature[];

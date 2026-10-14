@@ -219,8 +219,8 @@ describeDb("shadow goals are trace-only live-round comparisons", () => {
       }
       expect(solve).toHaveBeenCalledTimes(3);
       expect(h.resolve).not.toHaveBeenCalled();
-      expect(h.queries.filter((sql) => sql.includes("FROM pricing_demand_curve_versions"))).toHaveLength(1);
-      expect(h.queries.filter((sql) => sql.includes("FROM pricing_demand_curve_points"))).toHaveLength(1);
+      expect(h.queries.filter((sql) => sql.includes("pricing_demand_curve_versions"))).toHaveLength(1);
+      expect(h.queries.filter((sql) => sql.includes("pricing_demand_curve_points"))).toHaveLength(1);
     },
   );
 
