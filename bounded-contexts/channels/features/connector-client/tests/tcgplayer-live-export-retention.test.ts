@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { OperationProtocolError } from "../domain/operation-codec";
 import { parseRawExport, rawExportLifetime } from "../domain/raw-export-record";
 import { connectionId, liveExportExecutorMutant, liveExportFixture, sentinel } from "./live-export-test-support";
 
@@ -109,5 +110,85 @@ describe("tcgplayer-live-export-retention", () => {
     expect(new Set(rows.map((row) => row.expiresAt)).size).toBe(2);
     const earliest = Math.min(...writes.map((write) => Date.parse(write.expiresAt)));
     expect(f.scheduleDeadline.mock.calls.map(([when]) => when)).toEqual([earliest, earliest]);
+  });
+});
+
+async function counters(f: Fixture) {
+  return {
+    fetches: f.provider.calls.length,
+    posts: f.platform.posts.length,
+    reports: f.platform.reports.length,
+    raw: (await f.rawRows()).length,
+  };
+}
+async function liveMember(f: Fixture) {
+  const member = (await f.journal.read(connectionId)).members[0];
+  if (member?.operationKind !== "tcgplayer-live-export") throw new Error("live-export-member-missing");
+  return member;
+}
+
+describe("tcgplayer-live-export-retention cleanup failure", () => {
+  it("a key-deletion failure after 202 surfaces cleanup-failed, keeps captured202, and the retry completes without refetch or repost", async () => {
+    const f = await liveExportFixture();
+    // Only the real retention store's session-key deletion fails, once, inside accept.
+    f.sessionPort.remove.mockRejectedValueOnce(new Error("synthetic-session-remove-failed"));
+    f.platform.claims.push(await f.claim());
+    expect(await f.coordinator().coordinate(f.input)).toEqual({ outcome: "cleanup-failed" });
+    const retained = await liveMember(f);
+    expect(retained).toMatchObject({
+      state: "outcome-unknown",
+      handoff: { post: { state: "captured202", parsedRowCount: 3 } },
+    });
+    expect(await counters(f)).toEqual({ fetches: 1, posts: 1, reports: 0, raw: 1 });
+    // The bounded retry sweep removes the accepted record; completion then projects the journal.
+    expect(await f.retentionStore.run({ reason: "retention", deleteAll: false })).toEqual({
+      ok: true,
+      nextDeadline: null,
+    });
+    const decrypt = vi.spyOn(crypto.subtle, "decrypt");
+    expect((await f.coordinator().coordinate(f.input)).outcome).toBe("ok");
+    expect(decrypt).not.toHaveBeenCalled();
+    expect(await counters(f)).toEqual({ fetches: 1, posts: 1, reports: 1, raw: 0 });
+    expect(f.lastOutcome()).toEqual({
+      kind: "live-export-complete",
+      exportId: retained.payload.exportId,
+      fileSha256: retained.handoff!.fileSha256,
+      capturedAt: retained.handoff!.downloadedAt,
+      parsedRowCount: 3,
+      externalReference: retained.handoff!.post.externalReference,
+    });
+    expect((await liveMember(f)).handoff).toEqual(retained.handoff);
+  });
+  it("a terminal cap refusal whose cleanup fails surfaces cleanup-failed; the retry re-runs accept and reports with zero posts", async () => {
+    const f = await liveExportFixture({ limits: { maxBytes: 1_048_576, maxRecords: 2 } });
+    // accept marks the record refused, then fails before changing it: the record stays keyed and unaccepted.
+    f.store.accept.mockImplementationOnce(async (rawExportId) => {
+      f.sessionPort.setAccessLevel.mockRejectedValueOnce(new Error("synthetic-session-unavailable"));
+      return f.retentionStore.accept(rawExportId);
+    });
+    f.platform.claims.push(await f.claim());
+    expect(await f.coordinator().coordinate(f.input)).toEqual({ outcome: "cleanup-failed" });
+    expect(await liveMember(f)).toMatchObject({ state: "outcome-unknown", handoff: { post: { state: "planned" } } });
+    expect(await counters(f)).toEqual({ fetches: 1, posts: 0, reports: 0, raw: 1 });
+    // A periodic sweep does not own an unexpired, keyed, unaccepted record; only the accept path removes it.
+    expect((await f.retentionStore.run({ reason: "retention", deleteAll: false })).ok).toBe(true);
+    expect((await f.rawRows()).length).toBe(1);
+    expect((await f.coordinator().coordinate(f.input)).outcome).toBe("ok");
+    expect(f.lastOutcome()).toMatchObject({ kind: "live-export-unknown", reason: "raw-unreadable" });
+    expect(await counters(f)).toEqual({ fetches: 1, posts: 0, reports: 1, raw: 0 });
+  });
+  it("an expected read refusal stays raw-unreadable and never becomes cleanup-failed", async () => {
+    const f = await liveExportFixture();
+    f.store.read.mockImplementationOnce(async () => {
+      throw new OperationProtocolError("stale-fence");
+    });
+    f.platform.claims.push(await f.claim());
+    expect((await f.coordinator().coordinate(f.input)).outcome).toBe("unknown");
+    // Browser relaunch: keys are lost and the boot sweep removes the keyless record.
+    f.relaunch();
+    expect((await f.retentionStore.run({ reason: "boot", deleteAll: false })).ok).toBe(true);
+    expect((await f.coordinator().coordinate(f.input)).outcome).toBe("ok");
+    expect(f.lastOutcome()).toMatchObject({ kind: "live-export-unknown", reason: "raw-unreadable" });
+    expect(await counters(f)).toEqual({ fetches: 1, posts: 0, reports: 1, raw: 0 });
   });
 });

@@ -1,16 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildConnectorManifest } from "@chase-sets/channels";
-import type { composeConnectorBackground } from "../src/compose";
-import { connectorExecutors } from "../src/executors";
-import { exportSentinel, startLoopback } from "../__tests__/harness/loopback";
+import { exportSentinel, startLoopback, syntheticExportCsv } from "../__tests__/harness/loopback";
 import { syntheticLiveExportClaim } from "../__tests__/harness/claim";
 import { portalOrigin } from "../__tests__/harness/origins";
 import { manifestInput } from "../vite.config";
-import { compose, journal } from "./connector-composition-support";
+import { compose, composeProduct, journal } from "./connector-composition-support";
 
-type Registration = Parameters<typeof composeConnectorBackground>[0]["executors"];
+type Composition = ReturnType<typeof compose>;
 /** The product registration against the labelled synthetic loopback provider. */
-const liveExport: Registration = (ports) => connectorExecutors({ ...ports, providerOrigin: portalOrigin });
+const liveExport = (indexedDB?: IDBFactory, local?: Record<string, unknown>, session?: Record<string, unknown>) =>
+  composeProduct(portalOrigin, indexedDB, local, session);
 
 let server: Awaited<ReturnType<typeof startLoopback>> | undefined;
 afterEach(async () => {
@@ -22,9 +21,9 @@ afterEach(async () => {
   vi.doUnmock("../src/host-registry");
 });
 
-async function paired(registration: Registration) {
+async function paired(composition: () => Composition) {
   server = await startLoopback();
-  const f = await compose(registration);
+  const f = await composition();
   await f.fixture.click();
   expect((await f.product.background.status()).state).toBe("paired-idle");
   return f;
@@ -96,7 +95,7 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     expect(() => expect(server!.ingests).toHaveLength(1)).toThrow();
   });
   it("an unregistered client advertises nothing and receives no export member", async () => {
-    const f = await paired(() => []);
+    const f = await paired(() => compose(() => []));
     server!.claims.push(syntheticLiveExportClaim());
     await f.fixture.alarm("connector-work");
     expect(server!.claimBodies).toEqual(expect.arrayContaining([{}]));
@@ -123,7 +122,7 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     const lostWorker = f.fixture.alarm("connector-work");
     await vi.waitFor(() => expect(server!.ingests).toHaveLength(1), { timeout: 10_000 });
     // Worker restart: a fresh production composition over the same IndexedDB, profile and session-only keys.
-    const restarted = await compose(liveExport, f.indexedDB, f.fixture.local.rows, f.fixture.session.rows);
+    const restarted = await liveExport(f.indexedDB, f.fixture.local.rows, f.fixture.session.rows);
     await restarted.fixture.alarm("connector-work");
     server!.dropLostIngests();
     await lostWorker;
@@ -135,6 +134,44 @@ describe("tcgplayer-live-export-loopback-production-path", () => {
     expect((await journal(f.indexedDB)).reservations.map(({ phase }) => phase)).toEqual(["acked"]);
     expect(await rawCount(f.indexedDB)).toBe(0);
   });
+  it.each([
+    ["after 202", 3, { kind: "live-export-complete", parsedRowCount: 3 }, "captured202", 1],
+    // cap+1 rows: the terminal refusal's own cleanup fails; the raw-gone retry reports per the handoff law.
+    ["terminal cap refusal", 1001, { kind: "live-export-unknown", reason: "raw-unreadable" }, "planned", 0],
+  ] as const)(
+    "a real cleanup failure %s pauses cleanup-failed before the next wake; the bounded retry completes without refetch or repost",
+    async (_boundary, rows, outcome, postState, ingests) => {
+      const f = await paired(liveExport);
+      server!.provider.csv = syntheticExportCsv(rows);
+      // Only the real retention store's session-key deletion fails, once.
+      f.fixture.session.remove.mockRejectedValueOnce(new Error("synthetic-session-remove-failed"));
+      server!.claims.push(syntheticLiveExportClaim());
+      await f.fixture.alarm("connector-work");
+      expect(await f.product.background.status()).toMatchObject({ state: "paused", pauseReason: "cleanup-failed" });
+      expect(f.fixture.alarmRows.has("connector-work")).toBe(false);
+      const retry = f.fixture.alarmRows.get("connector-retention-deadline") as { when: number };
+      expect(retry.when - Date.now()).toBeLessThanOrEqual(30_000);
+      const retained = await journal(f.indexedDB);
+      expect(retained.reservations.map(({ phase }) => phase)).toEqual(["outcome-unknown"]);
+      expect(retained.members[0]).toMatchObject({ state: "outcome-unknown", handoff: { post: { state: postState } } });
+      expect(transport(f.fixture.request.mock.calls)).toEqual({ exports: 1, ingests, reports: 0 });
+      await f.fixture.alarm("connector-retention-deadline");
+      expect(await f.product.background.status()).toMatchObject({ state: "paired-idle", pauseReason: null });
+      expect(await rawCount(f.indexedDB)).toBe(0);
+      await f.fixture.alarm("connector-work");
+      expect(transport(f.fixture.request.mock.calls)).toEqual({ exports: 1, ingests, reports: 1 });
+      expect(server!.provider.exports).toBe(1);
+      expect(server!.report().outcomes[0]?.outcome).toMatchObject(outcome);
+      const settled = await journal(f.indexedDB);
+      expect(settled.reservations.map(({ phase }) => phase)).toEqual(["acked"]);
+      const kept = retained.members[0];
+      const handoff = kept?.operationKind === "tcgplayer-live-export" ? kept.handoff : undefined;
+      expect(handoff).toBeDefined();
+      expect(settled.members[0]).toMatchObject({ handoff });
+      await f.fixture.alarm("connector-work");
+      expect(transport(f.fixture.request.mock.calls)).toEqual({ exports: 1, ingests, reports: 1 });
+    },
+  );
   it("custody: permissions stay identity, storage, alarms and hosts equal the registry plus the platform", () => {
     const manifest = buildConnectorManifest(manifestInput);
     expect(manifest.permissions).toEqual(["identity", "storage", "alarms"]);

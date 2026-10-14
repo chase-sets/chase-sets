@@ -135,6 +135,20 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
     expect(await retainedRows(f.raw.indexedDB)).toEqual([]);
   });
 
+  it("a coordinator cleanup failure pauses before the next wake and arms only a bounded retention retry", async () => {
+    const f = fixture();
+    await f.background.boot();
+    expect(f.alarms.has("connector-work")).toBe(true);
+    vi.mocked(f.ports.transport.coordinate!).mockResolvedValueOnce({ outcome: "cleanup-failed" });
+    await f.alarm("connector-work");
+    expect(await f.background.status()).toMatchObject({ state: "paused", pauseReason: "cleanup-failed" });
+    expect(f.alarms.has("connector-work")).toBe(false);
+    expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: f.ports.clock.now() + 30_000 });
+    await f.alarm("connector-retention-deadline");
+    expect(await f.background.status()).toMatchObject({ state: "paired-idle", pauseReason: null });
+    expect(f.alarms.has("connector-work")).toBe(true);
+  });
+
   it("unpair cleans raw bytes before even an unavailable revocation transport", async () => {
     const f = fixture();
     await f.store.write(f.input);

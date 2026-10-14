@@ -19,6 +19,7 @@ import * as handoff from "../domain/live-export-handoff";
 import { createConnectorOperationCoordinator } from "../domain/operation-coordinator";
 import * as protocol from "../domain/operation-protocol";
 import { browserPayloadDigest, type ConnectorExecutor } from "../domain/operation-protocol";
+import * as rawExportRecord from "../domain/raw-export-record";
 import { createTcgplayerLiveExportExecutor } from "../domain/tcgplayer-live-export-executor";
 import { createOperationJournal } from "../integrations/connector-indexeddb";
 import { retainedRows } from "./raw-retention-test-support";
@@ -226,6 +227,7 @@ export async function liveExportFixture(options: Options = {}) {
   return {
     indexedDB,
     session,
+    sessionPort,
     store,
     retentionStore,
     scheduleDeadline,
@@ -276,6 +278,7 @@ export function liveExportExecutorMutant(
     "./live-export-handoff": handoff,
     "./live-export-execution": execution,
     "./operation-protocol": protocol,
+    "./raw-export-record": rawExportRecord,
     ...bindings,
   };
   const exports: Record<string, unknown> = {};

@@ -41,7 +41,8 @@ export type CoordinatorResult = Readonly<{
     | "unknown"
     | "upgrade-required"
     | "protocol-violation"
-    | "unsupported-operation";
+    | "unsupported-operation"
+    | "cleanup-failed";
   pollWindowSeconds?: number;
   refusal?: StagedImportDispatchError["code"];
 }>;
@@ -697,7 +698,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
         if (executor.unit === "reservation" && !result.runSettlement) refuse();
         if (signal.aborted) throw new OperationProtocolError("incomplete-authority");
         await stagedImport?.finish();
-      } catch {
+      } catch (error) {
         dispatched = unit(state, reservation).members.filter((member) =>
           members.some((original) => original.operationId === member.operationId),
         );
@@ -709,7 +710,10 @@ export function createConnectorOperationCoordinator(ports: Ports) {
             revise(member, { state: "outcome-unknown", unknownReason: "unprovable-response" }),
           ),
         );
-        return { outcome: "unknown" };
+        // The journaled handoff stays recoverable; the connector must still pause for the failed cleanup.
+        return {
+          outcome: error instanceof RetentionError && error.code === "cleanup-failed" ? "cleanup-failed" : "unknown",
+        };
       }
       state = await write(
         input,
@@ -798,6 +802,7 @@ export function createConnectorOperationCoordinator(ports: Ports) {
       };
     } catch (error) {
       if (error instanceof RetentionError && error.code === "upgrade-required") return { outcome: "upgrade-required" };
+      if (error instanceof RetentionError && error.code === "cleanup-failed") return { outcome: "cleanup-failed" };
       if (error instanceof StagedImportDispatchError) return { outcome: "unknown", refusal: error.code };
       return {
         outcome:

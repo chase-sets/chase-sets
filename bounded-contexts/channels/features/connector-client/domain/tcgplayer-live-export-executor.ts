@@ -14,6 +14,7 @@ import {
 import { liveExportAuthorityUrl, tcgplayerLiveExportAuthority } from "./live-export-authority";
 import { liveExportExternalReference, type LiveExportHandoff } from "./live-export-handoff";
 import { liveExportOutcome, type LiveExportExecution } from "./live-export-execution";
+import { RetentionError } from "./raw-export-record";
 import {
   OperationProtocolError,
   browserPayloadDigest,
@@ -133,6 +134,25 @@ export function createTcgplayerLiveExportExecutor(ports: Ports): ConnectorExecut
     return { bytes };
   }
 
+  /** A failed removal is a cleanup failure for the connector's pause path, never an unreadable or unproven export. */
+  async function accept(rawExportId: string): Promise<void> {
+    try {
+      await ports.retentionStore.accept(rawExportId);
+    } catch (error) {
+      if (
+        error instanceof OperationProtocolError ||
+        (error instanceof RetentionError && error.code === "upgrade-required")
+      )
+        throw error;
+      throw new RetentionError("cleanup-failed");
+    }
+  }
+  /** Terminal for this exportId: the raw record leaves through the accept path before the named unknown. */
+  async function retire(attempt: LiveExportAttempt, handoff: LiveExportHandoff, reason: Reason) {
+    await accept(handoff.rawExportId);
+    return unknown(attempt, reason);
+  }
+
   /** Decrypts only under a live fence: a store refusal is unreadable raw, a fence failure an interruption. */
   async function readRaw(handoff: LiveExportHandoff, execution: LiveExportExecution): Promise<Uint8Array | null> {
     await execution.guard();
@@ -153,10 +173,7 @@ export function createTcgplayerLiveExportExecutor(ports: Ports): ConnectorExecut
     execution: LiveExportExecution,
   ): Promise<ExecutorResult> {
     const { limits, bounds } = attempt.payload;
-    const terminal = async (reason: Reason) => {
-      await ports.retentionStore.accept(handoff.rawExportId);
-      return unknown(attempt, reason);
-    };
+    const terminal = (reason: Reason) => retire(attempt, handoff, reason);
     let csv: string;
     try {
       csv = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
@@ -211,7 +228,7 @@ export function createTcgplayerLiveExportExecutor(ports: Ports): ConnectorExecut
     if (!admitted) return unknown(attempt, "admission-ambiguous");
     const captured: LiveExportHandoff = { ...posted, post: { ...posted.post, state: "captured202" } };
     await execution.save(captured);
-    await ports.retentionStore.accept(captured.rawExportId);
+    await accept(captured.rawExportId);
     return complete(attempt, captured);
   }
 
@@ -281,7 +298,7 @@ export function createTcgplayerLiveExportExecutor(ports: Ports): ConnectorExecut
       };
       await execution.save(handoff);
       const plaintext = await readRaw(handoff, execution);
-      if (!plaintext) return unknown(attempt, "raw-unreadable");
+      if (!plaintext) return retire(attempt, handoff, "raw-unreadable");
       return admit(attempt, handoff, plaintext, budget, execution);
     },
     async reconcileAmbiguous(unit, _pull, execution) {
@@ -292,11 +309,12 @@ export function createTcgplayerLiveExportExecutor(ports: Ports): ConnectorExecut
       if (!execution) refuse();
       await execution.guard();
       if (handoff.post.state === "captured202") {
-        await ports.retentionStore.accept(handoff.rawExportId);
+        await accept(handoff.rawExportId);
         return complete(attempt, handoff);
       }
       const plaintext = await readRaw(handoff, execution);
-      if (!plaintext) return unknown(attempt, "raw-unreadable");
+      // A retried terminal cleanup lands here once its record is refused; accept again rather than strand it.
+      if (!plaintext) return retire(attempt, handoff, "raw-unreadable");
       return admit(attempt, handoff, plaintext, AbortSignal.timeout(attempt.payload.bounds.budgetMs), execution);
     },
   };
