@@ -279,6 +279,7 @@
     "bounded-contexts/inventory/features/recovered-items/read-model/queries.ts",
     "bounded-contexts/inventory/features/reservations/read-model/projection.ts",
     "bounded-contexts/inventory/features/reservations/read-model/queries.ts",
+    "bounded-contexts/inventory/features/restock-decisions/api/history.ts",
     "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts",
     "bounded-contexts/inventory/features/restock-decisions/read-model/projection.ts",
     "bounded-contexts/inventory/features/restock-decisions/read-model/queries.ts",

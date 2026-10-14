@@ -27,14 +27,20 @@ export const action = defineFormAction({
   intents: {
     restock: async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).recordRestockDecision(String(formData.get("decisionId") ?? ""), {
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).recordRestockDecision(String(formData.get("decisionId") ?? ""), {
+          expectedVersion: Number(formData.get("expectedVersion")),
           outcome: "restocked",
         }),
         new URL(request.url).pathname,
       ),
     "write-off": async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).recordRestockDecision(String(formData.get("decisionId") ?? ""), {
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).recordRestockDecision(String(formData.get("decisionId") ?? ""), {
+          expectedVersion: Number(formData.get("expectedVersion")),
           outcome: "written-off",
           damageNote: String(formData.get("damageNote") ?? "").trim() || null,
         }),

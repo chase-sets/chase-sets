@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   Card,
-  Form,
   HiddenInput,
   Inline,
   LinkButton,
@@ -15,6 +14,7 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryRestockDecision } from "../api/contracts";
+import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
 
 function itemLabel(decision: InventoryRestockDecision) {
   return decision.item_title ?? decision.item_id;
@@ -92,15 +92,17 @@ export function RestockDecisionQueuePage({
                   </Inline>
                   {decision.return_reason ? <Text>{decision.return_reason}</Text> : null}
                   <Inline>
-                    <Form spacing="none" method="post">
+                    <Form family="restock-record" targetId={decision.decision_id} spacing="none" method="post">
                       <HiddenInput type="hidden" name="intent" value="restock" />
                       <HiddenInput type="hidden" name="decisionId" value={decision.decision_id} />
+                      <HiddenInput name="expectedVersion" value={decision.version} />
                       <Button type="submit">{t("inventory.features.restockDecisions.ui.queue.restock")}</Button>
                     </Form>
-                    <Form spacing="none" method="post">
+                    <Form family="restock-record" targetId={decision.decision_id} spacing="none" method="post">
                       <Stack gap={2}>
                         <HiddenInput type="hidden" name="intent" value="write-off" />
                         <HiddenInput type="hidden" name="decisionId" value={decision.decision_id} />
+                        <HiddenInput name="expectedVersion" value={decision.version} />
                         <Textarea
                           label={t("inventory.features.restockDecisions.ui.queue.damage.note")}
                           name="damageNote"

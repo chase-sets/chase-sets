@@ -422,8 +422,13 @@ describe("inventory api", () => {
       inventoryContext,
     );
     await services.restockDecisions.recordDecision(
-      { accountId: "acc_inventory", decisionId: pending.decisionId, outcome: "written-off" },
-      inventoryContext,
+      {
+        accountId: "acc_inventory",
+        decisionId: pending.decisionId,
+        expectedVersion: pending.version,
+        outcome: "written-off",
+      },
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 

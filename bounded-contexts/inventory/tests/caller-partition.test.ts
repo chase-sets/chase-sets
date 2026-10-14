@@ -5,6 +5,20 @@ import path from "node:path";
 import { discoverInventoryCallers, partitionInventoryCallers, trackedInventorySources } from "./caller-partition.mjs";
 
 describe("issue-7169-ac1-caller-partition", () => {
+  it("discovers restock service aliases, HTTP clients and direct decision commands", () => {
+    const discovery = discoverInventoryCallers([
+      {
+        path: "bounded-contexts/arbitrary/features/restock/api/new.ts",
+        source: `const { recordDecision: record } = services.restockDecisions;
+        record({}, context); client.recordRestockDecision(id, {});
+        services.restockDecisions.commandHandler({command: {type: "RecordRestockDecision"}});`,
+      },
+    ]);
+    expect(discovery.callers.map((caller: { family: string }) => caller.family)).toEqual(
+      Array(3).fill("restock-record"),
+    );
+    expect(() => partitionInventoryCallers(discovery, {})).toThrow("Unclassified Inventory caller");
+  });
   it("discovers the complete tracked repository corpus", () => {
     const discovery = discoverInventoryCallers(trackedInventorySources());
     if (process.env.CHASE_SETS_C1_CENSUS_EVIDENCE)

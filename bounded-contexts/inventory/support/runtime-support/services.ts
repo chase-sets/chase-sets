@@ -37,6 +37,7 @@ import {
   recoverInventoryItems,
   recoverInventoryReductions,
   recoverStorageLocations,
+  recoverRestockDecisions,
 } from "./recovery-services";
 
 export type InventoryServices = Readonly<{
@@ -144,7 +145,7 @@ export function createInventoryServices(
   const holdCollisions = recoverInventoryReductions(rawHoldCollisions, mutations);
   const channelSales = createInventoryExternalChannelSaleRuntime(deps, rawHoldCollisions);
   const channelStockAllocations = createInventoryChannelStockAllocationRuntime(deps);
-  const restockDecisions = createRestockDecisionRuntime(deps, pendingItems, reservations);
+  const restockDecisions = recoverRestockDecisions(createRestockDecisionRuntime(deps, pendingItems), mutations);
   const recoveredItems = createRecoveredItemRuntime(deps);
 
   return {

@@ -558,8 +558,8 @@
       "strategy": "fresh-read",
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/restock-decisions/api/route.ts:POST /:id/decision",
-        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:H2df726441e2a#1",
-        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:H2df726441e2a#2",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#1",
+        "post-form:bounded-contexts/inventory/features/restock-decisions/ui/restock-decision-queue-page.tsx:Hc1f1674003a0#2",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx"
       ],
       "visibleDestination": {
@@ -573,10 +573,12 @@
         }
       },
       "proof": {
-        "authoritativeResponse": "recordRestockDecision returns the committed restock-decision aggregate id/version; restock uses a deterministic inventory adjustment idempotency key before recording the decision outcome.",
+        "authoritativeResponse": "recordRestockDecision binds a caller attempt, expected decision version and normalized choice. Stock, decision, child receipt and first result commit in one Inventory transaction; recovery reads the exact private receipt without submitting again.",
         "tests": [
           "bounded-contexts/inventory/tests/order-cancellation-subscription.test.ts",
-          "bounded-contexts/inventory/features/restock-decisions/domain/domain.test.ts"
+          "bounded-contexts/inventory/features/restock-decisions/domain/domain.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/tests/issue-7169-c2-recovery.test.ts",
+          "bounded-contexts/inventory/features/restock-decisions/tests/issue-7169-c2-recovery.db.test.ts"
         ]
       }
     },

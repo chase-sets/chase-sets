@@ -31,6 +31,7 @@ const methods = {
   commitImportBatch: "import-commit",
   resolveImportBatchRow: "import-resolve",
   recordRestockDecision: "restock-record",
+  recordDecision: "restock-record",
 };
 const commands = {
   CreateInventoryItem: "item-create",
@@ -41,6 +42,7 @@ const commands = {
   CreateStorageLocation: "location-create",
   UpdateStorageLocation: "location-update",
   ArchiveStorageLocation: "location-archive",
+  RecordRestockDecision: "restock-record",
 };
 const methodFamily = (symbol) => (Object.hasOwn(methods, symbol) ? methods[symbol] : null);
 const commandFamily = (symbol) => (Object.hasOwn(commands, symbol) ? commands[symbol] : null);

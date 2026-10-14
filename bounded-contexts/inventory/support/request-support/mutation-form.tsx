@@ -14,7 +14,9 @@ const families: readonly InventoryMutationFamily[] = [
   "location-create",
   "location-update",
   "location-archive",
+  "restock-record",
 ];
+
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
 const RecoveryContext = createContext<Readonly<{
   controllers: ReadonlyMap<InventoryMutationFamily, Controller>;
