@@ -1297,6 +1297,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     const rowsToCommit = detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
     let completed = rowsToCommit.filter((row) => row.status === "committed").length;
     await onProgress?.(importBatchJobProgress("processing", completed, rowsToCommit.length, null, "Committing rows."));
+    if (detail.status === "committed" && rowsToCommit.every((row) => row.status === "committed")) {
+      options.throwIfCancelled?.();
+      return detail;
+    }
 
     for (const row of rowsToCommit) {
       options.throwIfCancelled?.();
