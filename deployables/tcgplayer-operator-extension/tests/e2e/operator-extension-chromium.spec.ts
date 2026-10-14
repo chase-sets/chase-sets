@@ -19,7 +19,7 @@ const identity = operatorEvidenceIdentity(resolve(root, "../.."));
 
 test("operator-extension-deterministic-build @tcgplayer-operator-extension", async () => {
   const first = operatorFileInventory(dist);
-  await build({ root, configFile: resolve(root, "vite.config.ts"), logLevel: "error" });
+  await build({ root, configFile: resolve(root, "vite.config.ts"), configLoader: "runner", logLevel: "error" });
   const second = operatorFileInventory(dist);
   expect(second).toEqual(first);
   expect({ ...second, "unlisted.js": "unexpected" }).not.toEqual(first);
