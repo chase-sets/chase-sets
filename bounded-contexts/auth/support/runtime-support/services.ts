@@ -1,5 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AgentGrantRevocations } from "../../features/agent-grants/api/api";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
@@ -155,6 +156,7 @@ export type AuthHostPorts = Readonly<{
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
+  withActiveGrants?: AgentGrantRevocations["withActiveGrants"];
   resolveOrderRecipient: (orderId: string) => Promise<string | null>;
   resolveShipmentOrderId: (shipmentId: string) => Promise<string | null>;
   resolveWebhookTargets: (accountId: string) => Promise<readonly AgentWebhookTarget[]>;
@@ -193,7 +195,10 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
-  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({ db });
+  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({
+    db,
+    withActiveGrants: ports.agentWebhookOrderResolvers?.withActiveGrants,
+  });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,

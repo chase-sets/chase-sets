@@ -235,6 +235,8 @@
     "bounded-contexts/identity/features/account-management/api/fences.ts",
     "bounded-contexts/identity/features/accounts/read-model/projection.ts",
     "bounded-contexts/identity/features/accounts/read-model/queries.ts",
+    "bounded-contexts/identity/features/agent-grants/api/revocation-release.ts",
+    "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
     "bounded-contexts/identity/features/api-keys/api/secret-store.ts",
     "bounded-contexts/identity/features/api-keys/read-model/projection.ts",
     "bounded-contexts/identity/features/api-keys/read-model/queries.ts",
