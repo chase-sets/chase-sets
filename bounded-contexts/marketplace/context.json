@@ -1529,7 +1529,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H569cfee4bbc9#1",
         "route-action:bounded-contexts/marketplace/routes/account-listings-new.tsx"
       ],
       "visibleDestination": {
@@ -2259,7 +2259,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Expose Marketplace-owned Review presentation and reporting through the deployable-facing web surface.",
-      "expectedConsumers": ["web.ts", "Discovery public-account routes"]
+      "expectedConsumers": ["listings"]
     },
     "routes": {
       "classification": "routes",

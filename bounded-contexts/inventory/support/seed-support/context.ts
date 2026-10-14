@@ -3,7 +3,7 @@ import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import type { TenantId } from "@chase-sets/primitives/typed-ids";
 
 export const seedContext: EventStoreContext = {
-  tenantId: "tnt_seed_development" as TenantId,
+  tenantId: "tnt_identity" as TenantId,
   audit: {
     performedByUserId: demoIdentitySeedIds.userId,
     forAccountId: demoIdentitySeedIds.accountId,

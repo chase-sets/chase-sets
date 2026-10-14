@@ -52,6 +52,7 @@
     "inventory.get-import-batch",
     "inventory.commit-import-batch",
     "inventory.adjust-item",
+    "inventory.get-mutation-attempt",
     "marketplace.get-seller-attention-queue",
     "marketplace.list-listings",
     "marketplace.get-seller-insights",

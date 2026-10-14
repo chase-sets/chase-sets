@@ -50,6 +50,8 @@ export type StorageLocationServices = Readonly<{
 }>;
 
 export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): StorageLocationServices {
+  const child: NonNullable<InventoryRuntimeDeps["mutationChild"]> =
+    deps.mutationChild ?? (async (_name, _family, _target, _params, context, work) => work(context));
   const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<StorageLocationEvent>(),
@@ -93,29 +95,49 @@ export function createStorageLocationRuntime(deps: InventoryRuntimeDeps): Storag
         throw new InventoryDomainError("Storage location not found.");
       }
 
-      const updated = await commandHandler({
-        streamId: `inventory.storage-location-${params.storageLocationId}`,
-        command: {
-          type: "UpdateStorageLocation",
-          name: params.name,
-          description: params.description,
-          shipFromCode: params.shipFromCode,
-          shipFromAddress: params.shipFromAddress,
-        },
+      const updated = await child(
+        "update",
+        "location-update",
+        params.storageLocationId,
+        { ...params, isArchived: false },
         context,
-      });
-      await projectStoredEvents(updated.storedEvents);
+        async (childContext) => {
+          const result = await commandHandler({
+            streamId: `inventory.storage-location-${params.storageLocationId}`,
+            command: {
+              type: "UpdateStorageLocation",
+              name: params.name,
+              description: params.description,
+              shipFromCode: params.shipFromCode,
+              shipFromAddress: params.shipFromAddress,
+            },
+            context: childContext,
+          });
+          await projectStoredEvents(result.storedEvents);
+          return { version: result.version };
+        },
+      );
 
       if (params.isArchived && !existing.is_archived) {
-        const archived = await commandHandler({
-          streamId: `inventory.storage-location-${params.storageLocationId}`,
-          command: {
-            type: "ArchiveStorageLocation",
-          },
+        const archived = await child(
+          "archive",
+          "location-archive",
+          params.storageLocationId,
+          params,
           context,
-          expectedVersion: updated.version,
-        });
-        await projectStoredEvents(archived.storedEvents);
+          async (childContext) => {
+            const result = await commandHandler({
+              streamId: `inventory.storage-location-${params.storageLocationId}`,
+              command: {
+                type: "ArchiveStorageLocation",
+              },
+              context: childContext,
+              expectedVersion: updated.version,
+            });
+            await projectStoredEvents(result.storedEvents);
+            return { version: result.version };
+          },
+        );
 
         return {
           storageLocationId: params.storageLocationId,

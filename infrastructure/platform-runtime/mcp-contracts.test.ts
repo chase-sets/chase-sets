@@ -166,6 +166,7 @@ describe("MCP service catalog", () => {
       "inventory.commit-import-batch",
       "inventory.create-import-batch",
       "inventory.get-import-batch",
+      "inventory.get-mutation-attempt",
       "inventory.list-import-sources",
       "inventory.list-items",
       "marketplace.accept-offer",
