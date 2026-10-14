@@ -70,6 +70,14 @@ from the seller connector. Pairing is per environment; unpairing revokes the
 grant, not custody or the browser/provider session. The popup cannot read
 stored grants or cookies.
 
+- `Admin pair handoff` is the primary pairing path: after a successful mint,
+  the Admin TCGplayer provider page sends the grant once to the extension
+  without displaying it. The extension takes the environment from the Admin
+  origin, which is the trust principal, not proof of a mint. `paired` means the
+  grant was committed to local storage only. Otherwise Admin shows the grant as
+  not confirmed for popup paste, which is not proof of non-receipt. The grant
+  is never recorded.
+
 - `Provider-send quota` is an installed, durable maximum of admitted application HTTP attempts for a supervised staging window. Retries, redirects and uncertain sends retain their debits; unused quota is not transferable or refillable.
 - `Enforced admission maximum` is a policy reservation enforced before sending, not a measured provider inventory or page-count estimate. Ordinal 18 may use its installed 256-attempt maximum while its estimate remains unavailable.
 

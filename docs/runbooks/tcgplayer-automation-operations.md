@@ -45,19 +45,30 @@ Each environment's one-time first pairing for #9374 instead follows
    shared `Pokebash TCG` or work profile. In Chrome Extensions, enable Developer
    mode and choose Load unpacked for the supplied `dist` directory. Updates use
    Reload on the same extension identity, not a second installation.
-3. Open Admin's `/catalog/providers/tcgplayer` in the target environment, then
-   Operator session > Pair extension. Minting requires `catalog.manage`, the
-   platform-admin role, and authentication within ten minutes; use Sign in again
-   if prompted. Minting replaces the environment's previous active grant.
-4. Copy the once-shown grant only into the extension popup's Pairing grant field,
-   choose Staging or Production to match Admin, and choose Pair. Dismiss grant
-   in Admin. Never record the grant or inspect/export extension storage.
-5. If the gate permits a provider session change, sign in to TCGplayer in that
+3. In that browser, open Admin's `/catalog/providers/tcgplayer` in the target
+   environment, then Operator session > Pair extension. Minting requires
+   `catalog.manage`, the platform-admin role, and authentication within ten
+   minutes; use Sign in again if prompted. Minting replaces the environment's
+   previous active grant.
+4. Admin pair handoff (primary): after a successful mint, Admin sends the new
+   grant once to the installed extension without displaying it, waits at most
+   15 seconds, and never retries or mints again. The extension takes the
+   environment from the Admin origin that sent the grant, never from the
+   message. That origin is the trust principal, not proof of a recent mint.
+   Paired with extension means only that the extension committed the grant to
+   its local storage; it is not a session push or provider acceptance.
+5. Popup paste (fallback): if Admin instead shows the grant with Automatic
+   pairing was not confirmed, that is not proof the extension did not receive
+   the grant or that anything was rolled back. Copy the once-shown grant only
+   into the extension popup's Pairing grant field, choose Staging or Production
+   to match Admin, and choose Pair. Dismiss grant in Admin. In either path,
+   never record the grant or inspect/export extension storage.
+6. If the gate permits a provider session change, sign in to TCGplayer in that
    paired browser. Refresh the popup and reload Admin. Record only Revision,
    Stored at, Custody available, and Extension grant metadata. A new stored
    session advances Revision; an identical cookie under the same active key is
    `unchanged`, not revision-increment proof. Do not rotate again for evidence.
-6. Follow [Verification](#verification) through the next already-scheduled
+7. Follow [Verification](#verification) through the next already-scheduled
    ordinary capture, without manual provider queries, deploys, or restarts.
 
 ### Initial Cutover (#9374)
@@ -171,6 +182,10 @@ it.
   the extension reconciles every 30 minutes while running. Expired or revoked
   grants cannot revive. A Re-pair required badge means mint a new grant in Admin
   and pair that environment again, subject to the recovery gate.
+- Each mint pairs through the Admin pair handoff first and falls back to popup
+  paste only when Admin shows the grant as not confirmed ([Pairing](#pairing)).
+  A not-confirmed handoff may still have been committed; neither path retries,
+  mints again or rolls back automatically, and the grant is never recorded.
 - Re-pair staging after every staging integration-data reset; do not assume a
   locally retained grant survived the reset. Unpair the old local pairing first.
 - Disconnect in the target Admin Operator session panel is break-glass: it
