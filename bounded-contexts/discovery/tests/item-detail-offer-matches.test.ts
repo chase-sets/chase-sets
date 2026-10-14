@@ -614,7 +614,12 @@ describe("item detail offer matches", () => {
 
 describe("item detail Offer lifecycle projection", () => {
   function lifecycleDb() {
-    const row = { offer_id: "offer_charizard", catalog_catalog_item_id: "cat_charizard", status: "submitted", version: 1 };
+    const row = {
+      offer_id: "offer_charizard",
+      catalog_catalog_item_id: "cat_charizard",
+      status: "submitted",
+      version: 1,
+    };
     const statusUpdates: Array<readonly unknown[] | undefined> = [];
     const patches: Array<{ changes: Array<{ op: string; entity: string; id: string }> }> = [];
     const db = {

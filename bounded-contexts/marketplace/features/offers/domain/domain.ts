@@ -442,10 +442,7 @@ function decideOffer(
     case "UpdateOfferPrice": {
       assert(!state.buyerOfferPolicyId || managed, "Managed Offer price changes require fresh policy authority.");
       assert(state.offerId !== null, "Offer must be submitted first.");
-      assert(
-        state.status === "submitted" || state.status === "paused",
-        "Only open or paused Offers can change price.",
-      );
+      assert(state.status === "submitted" || state.status === "paused", "Only open or paused Offers can change price.");
       assert(state.buyerAccountId === command.buyerAccountId, "Only the Offer's buyer can change its price.");
       const priceAmount = normalizeMoneyAmount(command.priceAmount);
       const priceCurrencyCode = normalizeOfferPriceCurrencyCode(command.priceCurrencyCode);

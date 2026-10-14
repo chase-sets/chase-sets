@@ -4,7 +4,7 @@ import {
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
@@ -331,39 +331,40 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     return c.json({ action: request.action, items, total: items.length, count: items.length });
   });
 
-  for (const action of offerLifecycleActions) {
-    app.post(`/offers/submitted/:id/${action}`, async (c) => {
-      const access = requireOfferAccess(c, "offers.manage");
-      if (access.response) {
-        return access.response;
-      }
-      const context = c.get("context");
-      if (!context) {
-        return c.json(
-          {
-            error: {
-              code: "authentication_required",
-              message: t("marketplace.features.offers.api.route.authentication.required"),
-            },
+  const changeLifecycle = (action: OfferLifecycleAction) => async (c: Context<MarketplaceApiEnv>) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
           },
-          401,
-        );
-      }
-      try {
-        const result = await services.changeOfferLifecycle(
-          {
-            offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
-            buyerAccountId: access.actor.accountId as AccountId,
-            action,
-          },
-          context,
-        );
-        return c.json({ id: result.offerId, version: result.version, status: result.status, outcome: result.outcome });
-      } catch (error) {
-        return lifecycleErrorResponse(c, error);
-      }
-    });
-  }
+        },
+        401,
+      );
+    }
+    try {
+      const result = await services.changeOfferLifecycle(
+        {
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
+          buyerAccountId: access.actor.accountId as AccountId,
+          action,
+        },
+        context,
+      );
+      return c.json({ id: result.offerId, version: result.version, status: result.status, outcome: result.outcome });
+    } catch (error) {
+      return lifecycleErrorResponse(c, error);
+    }
+  };
+  app.post("/offers/submitted/:id/pause", changeLifecycle("pause"));
+  app.post("/offers/submitted/:id/resume", changeLifecycle("resume"));
+  app.post("/offers/submitted/:id/withdraw", changeLifecycle("withdraw"));
 
   app.get("/offers/submitted/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");

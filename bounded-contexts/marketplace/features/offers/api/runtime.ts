@@ -87,10 +87,10 @@ export class MarketplaceOfferAcceptanceReadinessError extends Error {
         : code === "offer_not_open"
           ? "Offer is not open for acceptance."
           : code === "listing_evidence_incomplete"
-          ? "Listing Evidence requirements are incomplete."
-          : code === "listing_seller_trust_incomplete"
-            ? "Seller trust requirements are incomplete for this Listing."
-            : "The selected Listing is no longer eligible for this Offer.",
+            ? "Listing Evidence requirements are incomplete."
+            : code === "listing_seller_trust_incomplete"
+              ? "Seller trust requirements are incomplete for this Listing."
+              : "The selected Listing is no longer eligible for this Offer.",
     );
     this.name = "MarketplaceOfferAcceptanceReadinessError";
   }
@@ -601,7 +601,10 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       for (const offerId of params.offerIds) {
         try {
           outcomes.push(
-            await changeOfferLifecycle({ offerId, buyerAccountId: params.buyerAccountId, action: params.action }, context),
+            await changeOfferLifecycle(
+              { offerId, buyerAccountId: params.buyerAccountId, action: params.action },
+              context,
+            ),
           );
         } catch (error) {
           if (!(error instanceof MarketplaceOfferLifecycleError)) throw error;

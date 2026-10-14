@@ -14,7 +14,8 @@ import { buildMarketplaceOfferProjectionHandlers } from "../read-model/projectio
 import { getOfferMatch, getPublicOffer, listOfferMatches, listSubmittedOffers } from "../read-model/queries";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
-if (!databaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Offer lifecycle DB tests in CI.");
+if (!databaseUrl && process.env.CI)
+  throw new Error("TEST_DATABASE_URL is required for Offer lifecycle DB tests in CI.");
 const describeDb = databaseUrl ? describe : describe.skip;
 
 describeDb("Offer lifecycle visibility on Postgres", () => {
@@ -93,7 +94,9 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
     expect(current.publicOffer).toBeNull();
     expect(current.submitted).toMatchObject({ items: [], total: 0 });
     const filtered = await listSubmittedOffers(pools.marketplace, { buyerAccountId: "acc_buyer", status });
-    expect(filtered.items).toEqual([expect.objectContaining({ offer_id: "off_one", status, price_amount: priceAmount })]);
+    expect(filtered.items).toEqual([
+      expect.objectContaining({ offer_id: "off_one", status, price_amount: priceAmount }),
+    ]);
     expect(filtered.total).toBe(1);
     expect(current.all.statusCounts).toEqual({
       submitted: 0,
@@ -112,7 +115,14 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
       itemSubtitle: null,
       selectedOptions: [],
       productSummary: null,
-      shippingDestinationSnapshot: { name: "Buyer", line1: "1 Main", city: "Chicago", state: "IL", postalCode: "60601", country: "US" },
+      shippingDestinationSnapshot: {
+        name: "Buyer",
+        line1: "1 Main",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
       priceAmount: "5.00",
       priceCurrencyCode: "USD",
       quantityRequested: 1,

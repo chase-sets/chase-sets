@@ -382,7 +382,9 @@ function partitionShardModules(moduleFileNames: readonly string[], reExportedFil
 
 describe("marketplace Offer lifecycle payloads", () => {
   it("registers paused, resumed and withdrawn on one closed buyer lifecycle payload", () => {
-    expectTypeOf<ChaseSetsEventPayloads["marketplace.offer.paused"]>().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.paused"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
     expectTypeOf<
       ChaseSetsEventPayloads["marketplace.offer.resumed"]
     >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();

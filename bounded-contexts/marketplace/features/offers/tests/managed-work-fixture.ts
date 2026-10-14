@@ -6,7 +6,7 @@ import type { MarketplaceOfferServices } from "../api/runtime";
 
 export function managedWorkFixture(
   eventStore: EventStore,
-  products: readonly { offer_id: string; catalog_catalog_item_id: string; product_id: string }[],
+  products: readonly { offer_id: string; catalog_catalog_item_id: string; product_id: string; status?: string }[],
   applyManagedOfferPage: MarketplaceOfferServices["applyManagedOfferPage"] = vi.fn(async () => {}),
 ) {
   let clock = Date.parse("2026-09-27T00:00:00Z");
@@ -79,14 +79,18 @@ export function managedWorkFixture(
         };
       }
       if (sql.includes("SELECT offer.offer_id")) {
+        // Mirrors the Offer-page predicate both work queries carry; rows default to submitted.
+        const open = sql.includes("offer.status = 'submitted'")
+          ? products.filter((row) => (row.status ?? "submitted") === "submitted")
+          : products;
         const page = sql.includes("offer.catalog_catalog_item_id = $1")
-          ? products.filter(
+          ? open.filter(
               (row) =>
                 row.catalog_catalog_item_id === values[0] &&
                 row.product_id === values[1] &&
                 row.offer_id > String(values[2]),
             )
-          : products.filter((row) => row.offer_id > String(values[0]));
+          : open.filter((row) => row.offer_id > String(values[0]));
         return { rows: page.slice(0, 100) };
       }
       throw new Error(`Unexpected work query: ${sql}`);

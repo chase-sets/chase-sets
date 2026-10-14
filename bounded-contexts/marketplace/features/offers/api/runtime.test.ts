@@ -935,7 +935,12 @@ describe("marketplace offer lifecycle runtime", () => {
     await change(services, "pause");
     expect(
       await services.updateOfferPrice(
-        { offerId: "off_1" as never, buyerAccountId: "acc_buyer" as never, priceAmount: "360.00", priceCurrencyCode: "USD" },
+        {
+          offerId: "off_1" as never,
+          buyerAccountId: "acc_buyer" as never,
+          priceAmount: "360.00",
+          priceCurrencyCode: "USD",
+        },
         buyerContext,
       ),
     ).toEqual({ offerId: "off_1", version: 3, status: "paused" });
@@ -945,7 +950,12 @@ describe("marketplace offer lifecycle runtime", () => {
     const { services } = await lifecycleServices();
     const accept = () =>
       services.acceptOffer(
-        { offerId: "off_1" as never, sellerAccountId: "acc_seller" as never, listingId: "lst_1", feeQuoteFingerprint: fingerprint },
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: fingerprint,
+        },
         buyerContext,
       );
     await change(services, "pause");
@@ -971,7 +981,12 @@ describe("marketplace offer lifecycle runtime", () => {
     });
     await expect(
       services.acceptOffer(
-        { offerId: "off_1" as never, sellerAccountId: "acc_seller" as never, listingId: "lst_1", feeQuoteFingerprint: fingerprint },
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: fingerprint,
+        },
         buyerContext,
       ),
     ).rejects.toMatchObject({ code: "offer_not_open", details: { status: "paused" } });
