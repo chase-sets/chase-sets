@@ -83,6 +83,14 @@
       "projectionHandlerSetNames": ["auth-identity-invitation-projection"]
     },
     {
+      "sourceContextName": "identity",
+      "projectionName": "auth-identity-account-capability-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account-capability.granted", "identity.account-capability.revoked"],
+      "order": 35,
+      "projectionHandlerSetNames": ["auth-identity-account-capability-projection"]
+    },
+    {
       "sourceContextName": "ordering",
       "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
@@ -139,6 +147,13 @@
       "projectionName": "auth-identity-invitation-projection",
       "sourceContextNames": ["identity"],
       "ownedTables": ["auth_identity_invitations"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "auth-identity-account-capability-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_account_capabilities"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -576,6 +591,32 @@
           }
         },
         {
+          "routeId": "account-agents-consent",
+          "routePath": "account/agents/consent",
+          "fileExport": "./routes/marketplace/account-agents-consent",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Session-bound OAuth consent is not a public resource."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "OAuth consent requires an interactive browser session."
+          }
+        },
+        {
           "routeId": "account-agents-detail",
           "routePath": "account/agents/:id",
           "fileExport": "./routes/marketplace/account-agents-detail",
@@ -718,12 +759,12 @@
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Deployable composition for auth", "sessions"]
+      "expectedConsumers": ["invitation-acceptance"]
     },
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Multiple auth slices"]
+      "expectedConsumers": ["invitation-acceptance"]
     },
     "request-support": {
       "classification": "support",
@@ -734,12 +775,12 @@
     "route-support": {
       "classification": "support",
       "purpose": "Provide reusable route-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["registration", "sign-in"]
+      "expectedConsumers": ["invitation-acceptance", "registration", "sign-in"]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["sessions"]
+      "expectedConsumers": ["invitation-acceptance", "sessions"]
     },
     "seed-support": {
       "classification": "support",
@@ -858,6 +899,26 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "auth.invitation-acceptance-status-snapshot",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
+        "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/acceptance-status"
+      ],
+      "visibleDestination": {
+        "description": "Invitation status recovery returns only the nonsecret status derived from complete Auth attempt and Identity owner histories. It never repeats acceptance, issues a Session or token, or sets a cookie."
+      },
+      "proof": {
+        "authoritativeResponse": "lookupInvitationAttempt revalidates current owner and credential authority, then returns only confirming, ambiguous or accepted-reauth-required.",
+        "tests": [
+          "bounded-contexts/auth/features/invitation-acceptance/api/journey.test.ts",
+          "bounded-contexts/auth/routes/marketplace/invite-router.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "auth.deployable-shell-sign-out-forms",
       "owner": "auth",
       "risk": "important",
@@ -926,7 +987,7 @@
       "surfaces": [
         "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
         "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:H5c166225bc84#1",
-        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#2",
         "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H40557e616e62#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#1",
@@ -1022,6 +1083,29 @@
         "tests": [
           "bounded-contexts/auth/features/sessions/domain/domain.test.ts",
           "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "auth.oauth-consent-interaction",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /authorize",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-consent-page.tsx:H2bf092fe7eee#1",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-consent-page.tsx:Hd5e991ad8d78#1",
+        "route-action:bounded-contexts/auth/routes/marketplace/account-agents-consent.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Consent decisions redirect with a code or access_denied only after direct SQL single-use consumption. Account switching awaits the existing Session command, then restarts authorize; Auth resolves the current account from the authoritative Session stream, not the lagging session projection."
+      },
+      "proof": {
+        "authoritativeResponse": "GET creates only a hashed request. POST validates the bound actor and current client, conditionally consumes the unexpired row, and builds the callback from RETURNING values. Account-switch completion precedes authorize re-entry; getSessionForAuth reads readAuthenticatedSession before presentation-only enrichment.",
+        "tests": [
+          "bounded-contexts/auth/support/ucp-support/oauth.test.ts",
+          "bounded-contexts/auth/routes/marketplace/account-agents-consent.test.ts",
+          "bounded-contexts/auth/support/runtime-support/authoritative-session-expiry.db.test.ts"
         ]
       }
     },

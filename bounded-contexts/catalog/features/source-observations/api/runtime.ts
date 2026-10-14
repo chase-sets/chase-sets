@@ -371,6 +371,10 @@ export function createSourceObservationRuntime(
       credentials: scrydexOnePieceCredentialsFromEnv(),
       profileVersions,
       cacheStore: createPgCatalogProviderOptionQueryCacheStore(deps.db),
+      countReader: deps.scopeSyncCountState?.store,
+      countEnvironment: deps.scopeSyncCountState?.environment,
+      countAccountRevision: deps.scopeSyncCountState?.accountRevision,
+      onUsageObserved: deps.scopeSyncCountState?.store.retainUsage,
     }),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
@@ -423,6 +427,9 @@ export function createSourceObservationRuntime(
     jobStore: mergeCandidateBulkJobStore,
     workUnitStore: mergeCandidateBulkWorkUnitStore,
     mergeCandidates,
+    referenceData,
+    profileVersions,
+    rolloutControlPolicy,
   });
   const bulkReviewJobs = createSourceObservationBulkReviewJobRuntime({
     deps,

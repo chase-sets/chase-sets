@@ -151,6 +151,7 @@ export type ChannelListingCompositionInput = Readonly<{
         listingId: string;
         listingRevision: number;
         listingStatus: "draft" | "active" | "paused" | "withdrawn" | "auto-unlisted";
+        pauseReason: string | null;
         sellerAvailabilityStatus: "available" | "unavailable";
         identity: ChannelListingIdentity;
         offer: ChannelListingOffer;

@@ -22,7 +22,7 @@ type SaleEvidenceRow = Readonly<{
   order_shipping: string;
   capture_id: string;
   capture_started_at: string;
-  currency: string;
+  currency: string | null;
   observation_policy_revision_id: string;
   sales_coverage: string | null;
 }>;

@@ -3,6 +3,12 @@ import {
   hasPermission as hasActorPermission,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
+export type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
+export {
+  DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  parseCapabilityAdministrationAuthority,
+} from "./features/account-capabilities/api/authority";
+export type { CapabilityAdministrationAuthority } from "./features/account-capabilities/api/authority";
 import {
   createPlatformInternalAuthHeaders,
   createForwardedAuthFetch,
@@ -153,11 +159,14 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         userId,
         roleKey,
       }),
-    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash }) =>
+    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash, operation }) =>
       postJson(`invitations/${invitationId}/accept`, {
         userId,
         acceptanceTokenHash,
+        ...(operation ? { operation } : {}),
       }),
+    readInvitationAcceptanceAuthority: ({ invitationId, ...params }) =>
+      postJson(`invitations/${invitationId}/acceptance-authority`, params),
     issueInvitationAcceptanceToken: ({ invitationId, tokenHash, expiresAt }) =>
       postJson(`invitations/${invitationId}/acceptance-token`, {
         tokenHash,

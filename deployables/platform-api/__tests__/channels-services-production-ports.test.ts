@@ -43,7 +43,10 @@ describe("channels-services-production-ports", () => {
       createPlatformApiHost({
         pools,
         runtimeProfile: "public",
-        hostPorts: { processorGateway: createFakePaymentProcessorGateway() },
+        hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+          processorGateway: createFakePaymentProcessorGateway(),
+        },
       }),
     ).toThrow("Channels reconciliation requires the typed Inventory channelSaleRecorder host port.");
     expect(createServices).toHaveBeenCalled();
@@ -65,6 +68,7 @@ describe("channels-services-production-ports", () => {
               pools,
               runtimeProfile: "public",
               hostPorts: {
+                capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
                 processorGateway,
                 moneyMovementGateway: createFakeMoneyMovementGateway(),
                 operationsRecorder: { record: () => undefined },
@@ -80,7 +84,14 @@ describe("channels-services-production-ports", () => {
                 },
               },
             })
-          : createPlatformApiHost({ pools, runtimeProfile: "public", hostPorts: { processorGateway } });
+          : createPlatformApiHost({
+              pools,
+              runtimeProfile: "public",
+              hostPorts: {
+                capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+                processorGateway,
+              },
+            });
       const services = runtime.services.channels;
       if (!isChannelsServices(services)) throw new Error("Channels services missing from production registry");
       await memory.eventStore.appendToStream({

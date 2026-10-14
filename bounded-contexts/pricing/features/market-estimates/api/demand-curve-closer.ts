@@ -12,7 +12,7 @@ import {
 import { marketEstimatePolicy } from "../domain/estimate-policy";
 import { marketStatHygienePolicy } from "../../market-trades/domain/stat-hygiene-policy";
 import { demandCurvePolicy, type DemandCurvePolicyValue } from "../domain/demand-curve-policy";
-import { calculateDemandCurve, type CurveSupply } from "../domain/demand-curve/curve";
+import { calculateDemandCurve, knownCurveSales, type CurveSupply } from "../domain/demand-curve/curve";
 import {
   createCurveBuilderRegistry,
   type CurveBuilderDefinition,
@@ -63,6 +63,7 @@ export function createDemandCurveCloser(
               sale.providerVariant === identity.variant &&
               sale.providerLanguage === identity.language &&
               sale.listingType !== null &&
+              sale.currency !== null &&
               policy.conditionOrder.includes(sale.providerCondition) &&
               effectiveSaleAmountExact(
                 {
@@ -81,6 +82,8 @@ export function createDemandCurveCloser(
           );
           return relevant
             .flatMap((sale): CurveSale[] => {
+              if (sale.currency === null) return [];
+              const currencyCode = sale.currency.toUpperCase();
               const amount = effectiveSaleAmountExact(
                 {
                   quantity: sale.quantity,
@@ -91,6 +94,7 @@ export function createDemandCurveCloser(
               );
               return Array.from({ length: sale.maxObservedTupleMultiplicity }, () => ({
                 price: amount,
+                currencyCode,
                 soldAt: sale.soldAt,
                 condition: sale.providerCondition,
                 variant: sale.providerVariant,
@@ -109,18 +113,19 @@ export function createDemandCurveCloser(
         load: async (identity, window) => {
           const result = await db.query<{
             unit_price_amount: string;
+            currency_code: string;
             sold_at: Date;
             verified: boolean;
             buyer_account_id: string;
           }>(
-            `SELECT chosen.unit_price_amount,chosen.sold_at,chosen.verified,chosen.buyer_account_id
+            `SELECT chosen.unit_price_amount,chosen.currency_code,chosen.sold_at,chosen.verified,chosen.buyer_account_id
            FROM (
              SELECT DISTINCT ON (trade.buyer_account_id,trade.seller_account_id)
-                    trade.unit_price_amount::text,trade.sold_at,trade.verified,trade.buyer_account_id,
+                    trade.unit_price_amount::text,trade.currency_code,trade.sold_at,trade.verified,trade.buyer_account_id,
                     trade.order_id,trade.line_id
              FROM pricing_market_trades AS trade
              WHERE trade.catalog_catalog_item_id=$1 AND trade.product_id=$2 AND trade.excluded=false
-               AND trade.sold_at >= $3 AND trade.sold_at <= $4 AND trade.currency_code = 'USD'
+               AND trade.sold_at >= $3 AND trade.sold_at <= $4 AND trade.currency_code IS NOT NULL
              ORDER BY trade.buyer_account_id,trade.seller_account_id,trade.sold_at DESC,trade.order_id DESC,trade.line_id DESC
            ) AS chosen
            ORDER BY sold_at DESC, order_id DESC, line_id DESC LIMIT $5`,
@@ -129,6 +134,7 @@ export function createDemandCurveCloser(
           return result.rows.map(
             (row): CurveSale => ({
               price: Number(row.unit_price_amount),
+              currencyCode: row.currency_code,
               soldAt: new Date(row.sold_at).toISOString(),
               condition: identity.condition,
               variant: identity.variant,
@@ -162,6 +168,7 @@ export function createDemandCurveCloser(
       unchanged = 0,
       superseded = 0,
       supplyUnscoped = 0,
+      mixedCurrency = 0,
       unknownCondition = 0;
     for (const candidate of page.candidates) {
       const identity = {
@@ -252,6 +259,20 @@ export function createDemandCurveCloser(
           supply = { ...supply, status: matching ? "truncated" : "unavailable" };
         }
       }
+      const currencies = new Set(knownCurveSales(sales, policy, now).map((sale) => sale.currencyCode));
+      const currencyCode = currencies.values().next().value;
+      if (
+        currencies.size !== 1 ||
+        typeof currencyCode !== "string" ||
+        !/^[A-Z]{3}$/.test(currencyCode) ||
+        ((supply.status === "observed" || supply.status === "truncated") &&
+          supply.asks.length > 0 &&
+          capture?.currency?.toUpperCase() !== currencyCode)
+      ) {
+        if (await supersedeDemandCurve(db, identity, now)) superseded++;
+        mixedCurrency++;
+        continue;
+      }
       const result = calculateDemandCurve({
         sales,
         siblingMarketPrices: siblingPrices,
@@ -270,6 +291,7 @@ export function createDemandCurveCloser(
         continue;
       }
       const fingerprint = curveFingerprint({
+        currencyCode,
         sales,
         weekly,
         snapshots: captureSnapshots,
@@ -290,6 +312,8 @@ export function createDemandCurveCloser(
         providerVariant: candidate.variant,
         providerLanguage: candidate.language,
         fingerprint,
+        currencyCode,
+        freshUntil: new Date(Date.parse(now) + policy.freshForHours * 3_600_000).toISOString(),
         policyRevisionId: curveResolution.documentId
           ? `${curveResolution.documentId}:${curveResolution.effectiveFrom}`
           : "fallback",
@@ -303,7 +327,8 @@ export function createDemandCurveCloser(
         builtAt: now,
       });
       if (written === "built") built++;
-      else unchanged++;
+      else if (written === "unchanged") unchanged++;
+      else throw new Error("Demand-curve version changed concurrently.");
     }
     const last = page.candidates.at(-1);
     const next = last && page.candidates.length === limit ? last : null;
@@ -316,6 +341,7 @@ export function createDemandCurveCloser(
       superseded,
       unmapped: page.unmapped,
       supplyUnscoped,
+      mixedCurrency,
       unknownCondition,
     };
   };

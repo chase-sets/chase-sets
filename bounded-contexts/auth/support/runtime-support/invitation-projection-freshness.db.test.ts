@@ -76,52 +76,81 @@ describeDb("invitation projection freshness (database)", () => {
   });
 
   it("settles once the projection checkpoint reaches the forwarded version (stale then fresh)", async () => {
-    const reader = createAuthIdentityInvitationProjectionProbe(db);
+    const reader = createAuthIdentityInvitationProjectionProbe(db, "3");
     await upsertCheckpointPosition(db, "3");
 
+    // A frozen clock never times the wait out, so only a fresh read can settle it.
     const wait = createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: reader.read,
       timeoutMs: 1_000,
       pollIntervalMs: 5,
+      nowMs: () => 0,
     });
 
-    // Advance the durable checkpoint to the forwarded version mid-wait.
-    setTimeout(() => {
-      void upsertCheckpointPosition(db, "5");
-    }, 30);
+    const settlement = wait(invitationReceipt("5")).then(() => ({
+      freshReadBeforeSettlement: reader.positions().includes("5"),
+    }));
 
-    const startedAt = performance.now();
-    await wait(invitationReceipt("5"));
+    // Advance the durable checkpoint only after the waiter has observed it stale.
+    await reader.firstStaleRead;
+    const readsBeforeWrite = reader.positions();
+    await upsertCheckpointPosition(db, "5");
 
-    expect(performance.now() - startedAt).toBeLessThan(900);
-    expect(reader.reads()).toBeGreaterThan(1);
+    await expect(settlement).resolves.toEqual({ freshReadBeforeSettlement: true });
+    expect(readsBeforeWrite[0]).toBe("3");
+    expect(readsBeforeWrite).not.toContain("5");
   });
 
   it("falls back gracefully and bounded when the checkpoint never reaches the version", async () => {
+    const timeoutMs = 60;
+    const clock = createSteppedClock(10);
     await upsertCheckpointPosition(db, "1");
     const wait = createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
-      timeoutMs: 60,
+      timeoutMs,
       pollIntervalMs: 5,
+      nowMs: clock.nowMs,
     });
 
-    const startedAt = performance.now();
     await expect(wait(invitationReceipt("5"))).resolves.toBeUndefined();
-    const elapsed = performance.now() - startedAt;
 
-    expect(elapsed).toBeGreaterThanOrEqual(40);
-    expect(elapsed).toBeLessThan(2_000);
+    // The stepped clock starts at 0, so each reading is the elapsed time the
+    // waiter saw: it gave up exactly when that first reached timeoutMs.
+    const readings = clock.readings();
+    expect(readings.at(-1)).toBeGreaterThanOrEqual(timeoutMs);
+    expect(readings.filter((elapsedMs) => elapsedMs >= timeoutMs)).toHaveLength(1);
   });
 });
 
-function createAuthIdentityInvitationProjectionProbe(db: PgQueryable) {
+function createAuthIdentityInvitationProjectionProbe(db: PgQueryable, stalePosition: string) {
   const read = createAuthIdentityInvitationProjectionPositionReader(db);
-  let count = 0;
+  const positions: string[] = [];
+  let markFirstStaleRead: () => void = () => undefined;
+  const firstStaleRead = new Promise<void>((resolve) => {
+    markFirstStaleRead = resolve;
+  });
   return {
     read: async () => {
-      count += 1;
-      return read();
+      const position = await read();
+      positions.push(position);
+      if (position === stalePosition) {
+        markFirstStaleRead();
+      }
+      return position;
     },
-    reads: () => count,
+    positions: () => [...positions],
+    firstStaleRead,
+  };
+}
+
+function createSteppedClock(stepMs: number) {
+  const readings: number[] = [];
+  return {
+    nowMs: () => {
+      const readingMs = readings.length * stepMs;
+      readings.push(readingMs);
+      return readingMs;
+    },
+    readings: () => [...readings],
   };
 }

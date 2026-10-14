@@ -20,10 +20,39 @@ import type { AgentGrantActivityDirectory } from "@chase-sets/platform-runtime/m
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
+import { isGuestCheckoutActor } from "../runtime-support/runtime";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import type { AuthServices } from "../runtime-support/services";
 import type { AgentWebhookOutbox } from "./agent-webhooks/agent-webhook-outbox";
 import { generateAgentWebhookSigningSecret, previewAgentWebhookSigningSecret } from "./agent-webhooks/webhook-signing";
 import { parseWebhookConfiguration, parseWebhookRegistration } from "./agent-webhooks/agent-webhook-registration";
+
+const consentSchemaStatements = [
+  `CREATE TABLE IF NOT EXISTS identity_ucp_oauth_consent_requests (
+    token_hash text PRIMARY KEY,
+    session_id text NOT NULL,
+    user_id text NOT NULL,
+    account_id text NOT NULL,
+    client_id text NOT NULL,
+    redirect_uri text NOT NULL,
+    scopes jsonb NOT NULL,
+    state text NULL,
+    code_challenge text NOT NULL,
+    code_challenge_method text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    consumed_at timestamptz NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS identity_ucp_oauth_consent_requests_expires_at_idx
+    ON identity_ucp_oauth_consent_requests (expires_at);`,
+] as const;
+
+export const authUcpOAuthConsentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261012_auth_ucp_oauth_consent",
+    description: "Store session-bound single-use OAuth consent requests before code issuance.",
+    statements: consentSchemaStatements,
+  },
+];
 
 export const authUcpOAuthSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_ucp_oauth_clients (
@@ -65,6 +94,8 @@ ALTER TABLE identity_ucp_oauth_authorization_codes
 
 CREATE INDEX IF NOT EXISTS identity_ucp_oauth_authorization_codes_expires_at_idx
   ON identity_ucp_oauth_authorization_codes (expires_at);
+
+${consentSchemaStatements.join("\n")}
 `;
 
 export type UcpOAuthRoutesOptions = Readonly<{
@@ -213,6 +244,57 @@ type OAuthClientRow = Readonly<{
   token_endpoint_auth_method: string;
 }>;
 
+type ConsentRequestRow = Readonly<{
+  token_hash: string;
+  session_id: string;
+  user_id: string;
+  account_id: string;
+  client_id: string;
+  redirect_uri: string;
+  scopes: readonly string[];
+  state: string | null;
+  code_challenge: string;
+  code_challenge_method: string;
+}>;
+
+function isInteractiveSessionActor(actor: ResolvedActor | null): actor is ResolvedActor {
+  return Boolean(actor?.sessionId && !actor.agentGrant && !isGuestCheckoutActor(actor));
+}
+
+async function readConsentRequest(auth: AuthServices, token: string, actor: ResolvedActor) {
+  if (!token) return null;
+  const result = await auth.db.query<ConsentRequestRow>(
+    `SELECT * FROM identity_ucp_oauth_consent_requests
+     WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
+       AND consumed_at IS NULL AND expires_at > now()`,
+    [auth.auth.hashSecret(token), actor.sessionId, actor.userId, actor.accountId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function resolveConsentClient(options: UcpOAuthRoutesOptions, consent: ConsentRequestRow) {
+  const client = await resolveOAuthClientMetadata(options, consent.client_id);
+  return client?.responseTypes.includes("code") &&
+    client.grantTypes.includes("authorization_code") &&
+    client.redirectUris.includes(consent.redirect_uri) &&
+    isScopeSubset(consent.scopes, client.scopes)
+    ? client
+    : null;
+}
+
+function consentAuthorizePath(consent: ConsentRequestRow) {
+  const query = new URLSearchParams({
+    response_type: "code",
+    client_id: consent.client_id,
+    redirect_uri: consent.redirect_uri,
+    scope: consent.scopes.join(" "),
+    code_challenge: consent.code_challenge,
+    code_challenge_method: consent.code_challenge_method,
+  });
+  if (consent.state !== null) query.set("state", consent.state);
+  return `/ucp/oauth/authorize?${query}`;
+}
+
 export function resolveUcpScopedPermissions(
   scopes: readonly string[],
   membershipPermissions: readonly string[],
@@ -264,7 +346,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       return c.json({ error: "invalid_client_metadata", error_description: "Client metadata is required." }, 400);
     }
 
-    const metadataResult = parseClientRegistrationMetadata(body);
+    const metadataResult = parseClientRegistrationMetadata(body, "dynamic-registration");
     if (!metadataResult.ok) {
       return c.json({ error: "invalid_client_metadata", error_description: metadataResult.error }, 400);
     }
@@ -396,16 +478,103 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
     }
 
     const actor = await options.resolveActor(c.req.raw);
-    if (!actor) {
-      return c.json(
-        {
-          error: "login_required",
-          error_description: "Sign in before linking this platform to a marketplace account.",
-        },
-        401,
-      );
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    if (!isInteractiveSessionActor(actor)) {
+      return c.redirect(`/sign-in?${new URLSearchParams({ returnTo: `${url.pathname}${url.search}` })}`, 302);
     }
 
+    const token = options.auth.auth.issueOpaqueToken("ucp_consent");
+    await options.auth.db.query(
+      `INSERT INTO identity_ucp_oauth_consent_requests (
+        token_hash, session_id, user_id, account_id, client_id, redirect_uri, scopes, state,
+        code_challenge, code_challenge_method, expires_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::timestamptz)`,
+      [
+        options.auth.auth.hashSecret(token),
+        actor.sessionId,
+        actor.userId,
+        actor.accountId,
+        clientId,
+        redirectUri,
+        JSON.stringify(scopes),
+        state,
+        codeChallenge,
+        codeChallengeMethod,
+        new Date(Date.now() + 10 * 60 * 1_000).toISOString(),
+      ],
+    );
+    return c.redirect(`/account/agents/consent?${new URLSearchParams({ consent_token: token })}`, 302);
+  });
+
+  app.get("/consent", async (c) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    const actor = await options.resolveActor(c.req.raw);
+    if (!isInteractiveSessionActor(actor)) return c.json({ error: "login_required" }, 401);
+    const consent = await readConsentRequest(options.auth, c.req.query("consent_token") ?? "", actor);
+    if (!consent) return c.json({ error: "invalid_request" }, 400);
+    const client = await resolveConsentClient(options, consent);
+    if (!client) return c.json({ error: "invalid_request" }, 400);
+    const memberships = await options.auth.db.query<{ accountId: string; accountName: string }>(
+      `SELECT accounts.account_id AS "accountId", accounts.display_name AS "accountName"
+       FROM auth_identity_user_memberships AS memberships
+       JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+       WHERE memberships.user_id = $1 AND memberships.status = 'active' AND accounts.status = 'active'
+       ORDER BY accounts.display_name, accounts.account_id`,
+      [actor.userId],
+    );
+    return c.json({
+      consent: {
+        clientName: client.clientName ?? client.clientId,
+        redirectOrigin: new URL(consent.redirect_uri).origin,
+        sessionId: actor.sessionId,
+        accountId: actor.accountId,
+        accountName:
+          memberships.rows.find((membership) => membership.accountId === actor.accountId)?.accountName ??
+          actor.accountId,
+        scopes: consent.scopes,
+        memberships: memberships.rows,
+        authorizePath: consentAuthorizePath(consent),
+      },
+    });
+  });
+
+  app.post("/authorize", async (c) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Referrer-Policy", "no-referrer");
+    if (
+      c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
+      c.req.header("sec-fetch-site") === "cross-site"
+    ) {
+      return c.json({ error: "invalid_request" }, 403);
+    }
+    const actor = await options.resolveActor(c.req.raw);
+    if (!isInteractiveSessionActor(actor)) return c.json({ error: "login_required" }, 401);
+    const body = await readFormOrJson(c.req.raw);
+    const decision = readString(body.decision);
+    if (decision !== "approve" && decision !== "deny") return c.json({ error: "invalid_request" }, 400);
+    const consent = await readConsentRequest(options.auth, readString(body.consent_token) ?? "", actor);
+    if (!consent) return c.json({ error: "invalid_request" }, 400);
+    const client = await resolveConsentClient(options, consent);
+    if (!client) return c.json({ error: "invalid_request" }, 400);
+    const consumed = await options.auth.db.query<ConsentRequestRow>(
+      `UPDATE identity_ucp_oauth_consent_requests SET consumed_at = now()
+       WHERE token_hash = $1 AND session_id = $2 AND user_id = $3 AND account_id = $4
+         AND consumed_at IS NULL AND expires_at > now()
+       RETURNING *`,
+      [consent.token_hash, actor.sessionId, actor.userId, actor.accountId],
+    );
+    const bound = consumed.rows[0];
+    if (!bound) return c.json({ error: "invalid_request" }, 400);
+    const redirect = new URL(bound.redirect_uri);
+    redirect.searchParams.delete("code");
+    redirect.searchParams.delete("error");
+    if (bound.state !== null) redirect.searchParams.set("state", bound.state);
+    if (decision === "deny") {
+      redirect.searchParams.set("error", "access_denied");
+      return c.redirect(redirect.toString(), 302);
+    }
     const code = options.auth.auth.issueOpaqueToken("ucp_code");
     const expiresAt = new Date(
       Date.now() + authSecurityLifetimesOf(options.auth).ucpAuthorizationCodeTtlMs,
@@ -428,24 +597,20 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
       [
         createId("cmd"),
         options.auth.auth.hashSecret(code),
-        clientId,
+        bound.client_id,
         client.platformProfileUrl,
-        redirectUri,
-        actor.userId,
-        actor.accountId,
-        JSON.stringify(scopes),
-        state,
-        codeChallenge,
-        codeChallengeMethod,
+        bound.redirect_uri,
+        bound.user_id,
+        bound.account_id,
+        JSON.stringify(bound.scopes),
+        bound.state,
+        bound.code_challenge,
+        bound.code_challenge_method,
         expiresAt,
       ],
     );
 
-    const redirect = new URL(redirectUri);
     redirect.searchParams.set("code", code);
-    if (state) {
-      redirect.searchParams.set("state", state);
-    }
     return c.redirect(redirect.toString(), 302);
   });
 
@@ -556,7 +721,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.get("/authorizations", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -576,7 +741,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Single-grant detail read, backing the connected-agents detail page. Ownership is enforced
   // the same way the mandate route enforces it: the grant must appear in the account's list.
   app.get("/authorizations/:id", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -595,13 +760,13 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Activity view: a read model over the MCP audit sink, filtered to one grant. Backs the
   // "watches tool activity accrue" acceptance criterion for the connected-agents UI.
   app.get("/authorizations/:id/activity", async (c) => {
-    if (!options.agentGrantActivity) {
-      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
-    }
-
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
+    }
+
+    if (!options.agentGrantActivity) {
+      return c.json({ error: "unsupported", error_description: "Agent grant activity is not configured." }, 404);
     }
 
     const authorizationId = c.req.param("id");
@@ -639,7 +804,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // surface addresses it through a grant so account ownership is checked before
   // the client registration is read or replaced.
   app.get("/authorizations/:id/webhook", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -657,7 +822,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.put("/authorizations/:id/webhook", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -699,7 +864,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.get("/authorizations/:id/webhook-deliveries", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -724,7 +889,7 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   app.post("/authorizations/:id/revoke", async (c) => {
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
     }
@@ -754,13 +919,13 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   // Configure the spending mandate for a linked agent grant. This is the opt-in a person
   // makes (during consent or the connected-agents UI) to move off the conservative default.
   app.put("/authorizations/:id/mandate", async (c) => {
-    if (!options.agentGrantConsent) {
-      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
-    }
-
-    const actor = await options.resolveActor(c.req.raw);
+    const actor = await resolveInteractiveSessionActor(options, c.req.raw);
     if (!actor) {
       return c.json({ error: "login_required" }, 401);
+    }
+
+    if (!options.agentGrantConsent) {
+      return c.json({ error: "unsupported", error_description: "Spending mandates are not configured." }, 404);
     }
 
     const authorizationId = c.req.param("id");
@@ -785,6 +950,11 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
   });
 
   return app;
+}
+
+async function resolveInteractiveSessionActor(options: UcpOAuthRoutesOptions, request: Request) {
+  const actor = await options.resolveActor(request);
+  return isInteractiveSessionActor(actor) ? actor : null;
 }
 
 async function resolveAccountAuthorization(options: UcpOAuthRoutesOptions, accountId: string, authorizationId: string) {
@@ -1029,6 +1199,7 @@ function normalizeScopes(value: unknown): readonly string[] {
 
 function parseClientRegistrationMetadata(
   body: Readonly<Record<string, unknown>>,
+  source: "dynamic-registration" | "client-id-metadata-document",
 ): { ok: true; metadata: Omit<OAuthClientMetadata, "clientId"> } | { ok: false; error: string } {
   if (readString(body.client_secret) || readString(body.jwks_uri) || readObject(body.jwks)) {
     return { ok: false, error: "Confidential client credentials are not supported for agent-platform clients." };
@@ -1075,7 +1246,13 @@ function parseClientRegistrationMetadata(
   }
 
   const clientUri = readString(body.client_uri);
-  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri;
+  // Stock MCP clients register with neither client_uri nor platform_profile_url, so such a dynamic registration is
+  // attributed to the origin of its first sorted redirect_uri. A registration that sends either field, and every
+  // Client ID Metadata Document, keeps the explicit-value rules.
+  const omitsProfileUrls = body.platform_profile_url === undefined && body.client_uri === undefined;
+  const redirectOrigin =
+    source === "dynamic-registration" && omitsProfileUrls ? new URL(redirectUris[0]!).origin : undefined;
+  const platformProfileUrl = readString(body.platform_profile_url) ?? clientUri ?? redirectOrigin;
   const clientName = readString(body.client_name);
   if (clientName && clientName.length > MAX_CLIENT_NAME_LENGTH) {
     return { ok: false, error: "client_name is too long." };
@@ -1162,7 +1339,7 @@ async function readClientIdMetadataDocument(
   if (!body) {
     return null;
   }
-  const parsed = parseClientRegistrationMetadata(body);
+  const parsed = parseClientRegistrationMetadata(body, "client-id-metadata-document");
   if (!parsed.ok) {
     return null;
   }

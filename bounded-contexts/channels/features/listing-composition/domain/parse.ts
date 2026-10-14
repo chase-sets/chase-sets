@@ -68,6 +68,7 @@ function validateInput(value: unknown): asserts value is ChannelListingCompositi
       "listingId",
       "listingRevision",
       "listingStatus",
+      "pauseReason",
       "sellerAvailabilityStatus",
       "identity",
       "offer",
@@ -75,6 +76,7 @@ function validateInput(value: unknown): asserts value is ChannelListingCompositi
     text(listing.listingId, 128);
     safeInteger(listing.listingRevision);
     member(listing.listingStatus, ["draft", "active", "paused", "withdrawn", "auto-unlisted"]);
+    if (listing.pauseReason !== null) text(listing.pauseReason, 128, true);
     member(listing.sellerAvailabilityStatus, ["available", "unavailable"]);
     validateIdentity(listing.identity);
     validateOffer(listing.offer);

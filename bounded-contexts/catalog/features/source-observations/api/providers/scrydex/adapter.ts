@@ -6,6 +6,16 @@ import {
   currentProviderSendBinding,
 } from "../provider-send-admission";
 import { createHash } from "node:crypto";
+import {
+  countQuerySchema,
+  countFingerprint,
+  countSourceIsCurrent,
+  countTimeIsCurrent,
+  newestCountSource,
+  type ScrydexCountQuery,
+  type ScrydexCountReader,
+  type ScrydexCountSource,
+} from "../../../../scope-sync-batches/domain/count-acquisition";
 
 import { t } from "@chase-sets/localization";
 import type { JsonValue } from "@chase-sets/primitives/json";
@@ -125,6 +135,10 @@ export type ScrydexOnePieceProviderAdapterOptions = Readonly<{
   lorcanaProfileVersion?: string;
   cacheStore?: CatalogProviderOptionQueryCacheStore | null;
   profileVersions?: CatalogProviderIntegrationProfileVersionReader;
+  countReader?: ScrydexCountReader;
+  countEnvironment?: string;
+  countAccountRevision?: string;
+  onUsageObserved?: (snapshot: ProviderUsageSnapshot) => Promise<void>;
 }>;
 
 export type ScrydexOnePieceExpansion = Readonly<{
@@ -392,7 +406,7 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
         return planScrydexCardImport(scope, usageReadiness, productDomain, options);
       }
 
-      return planScrydexSealedImport(scope, usageReadiness, productDomain);
+      return planScrydexSealedImport(scope, usageReadiness, productDomain, options);
     },
     async *fetchPayloads(plan, fetchOptions) {
       assertScrydexOnePieceUnit(plan.unitKey);
@@ -553,13 +567,18 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
         plan.scope.values.expansionId,
         `Scrydex ${productLabel} expansion sealed-product payload fetch requires expansionId.`,
       );
+      let validatedPagination: ProviderOptionQueryResult["validatedPagination"] = null;
       const pages = await fetchScrydexExpansionChildPagedJson<ScrydexOnePieceSealedProduct>({
         expansionId,
         childPath: "sealed",
         query: { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
         options,
         productDomain,
+        onCompleted: (pagination) => {
+          validatedPagination = pagination;
+        },
       });
+      await cacheScrydexSealedObservation(plan.scope, pages, validatedPagination, options);
       const sealedProducts = pages.flatMap((page) =>
         page.items.map((sealedProduct) => ({
           sealedProduct: sanitizeScrydexSealedProduct(sealedProduct),
@@ -681,7 +700,11 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
       ];
     },
     async getUsageSnapshot() {
-      return scrydexUsageSnapshot(scrydexCredentialState(options).configured ? await usageObservations.read() : null);
+      const snapshot = scrydexUsageSnapshot(
+        scrydexCredentialState(options).configured ? await usageObservations.read() : null,
+      );
+      await options.onUsageObserved?.(snapshot);
+      return snapshot;
     },
   };
 }
@@ -1031,18 +1054,35 @@ async function listScrydexOnePieceOptions(
       input.parentValues?.expansionId ?? input.parentValues?.setId ?? input.parentValues?.parentValue,
       `Scrydex ${productLabel} sealed-product option queries require an expansionId parent value.`,
     );
+    let validatedPagination: ProviderOptionQueryResult["validatedPagination"] = null;
     const pages = await fetchScrydexPagedJson<ScrydexOnePieceSealedProduct>(
       `expansions/${encodeURIComponent(expansionId)}/sealed`,
       { page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
       options,
       productDomain,
+      (pagination) => {
+        validatedPagination = pagination;
+      },
     );
+    if (input.cacheObservation !== false) {
+      await cacheScrydexSealedObservation(
+        {
+          unitKey: input.unitKey,
+          scopeKey: "expansion-sealed-products",
+          values: { expansionId, language: input.parentValues?.language ?? "en" },
+        },
+        pages,
+        validatedPagination,
+        options,
+      );
+    }
     return {
       items: pages.flatMap((page) =>
         page.items.map((sealedProduct) =>
           sealedProductOptionItem(sanitizeScrydexSealedProduct(sealedProduct), expansionId),
         ),
       ),
+      validatedPagination,
     };
   }
 
@@ -1069,10 +1109,11 @@ export function scrydexCardOptionRecords(
   }));
 }
 
-async function scrydexCardCacheIdentity(
+async function scrydexOptionCacheIdentity(
   scope: ProviderImportScope,
   expansionId: string,
   options: ScrydexOnePieceProviderAdapterOptions,
+  queryKind: "cards" | "sealed-products" = "cards",
 ) {
   // The profile registry imports this adapter's unit constants; resolve it after module initialization.
   const { catalogProviderProfileVersionIngestionUnitKey } = await import("../../provider-integration-profiles");
@@ -1087,7 +1128,7 @@ async function scrydexCardCacheIdentity(
     (version) =>
       isActiveProviderOptionQueryProfileVersion(version) &&
       catalogProviderProfileVersionIngestionUnitKey(version) === scope.unitKey &&
-      version.profile.optionQueries.some((query) => query.queryKind === "cards"),
+      version.profile.optionQueries.some((query) => query.queryKind === queryKind),
   );
   const version = matches.length === 1 ? matches[0] : null;
   if (!version) return null;
@@ -1099,7 +1140,7 @@ async function scrydexCardCacheIdentity(
     profileKey: version.profileKey,
     profileVersion: version.profileVersion,
     ingestionUnitKey: scope.unitKey,
-    queryKind: "cards",
+    queryKind,
     languageCode: (scope.values.language ?? scope.values.languageCode ?? "en").trim().toLowerCase(),
     parentValue: expansionId.trim(),
   };
@@ -1111,13 +1152,76 @@ async function readScrydexCardEstimate(
   expansionId: string,
   options: ScrydexOnePieceProviderAdapterOptions,
 ) {
+  return readScrydexExpansionEstimate(scope, expansionId, options, "cards");
+}
+
+async function readScrydexExpansionEstimate(
+  scope: ProviderImportScope,
+  expansionId: string,
+  options: ScrydexOnePieceProviderAdapterOptions,
+  kind: "cards" | "sealed",
+) {
+  const identity = await scrydexOptionCacheIdentity(
+    scope,
+    expansionId,
+    options,
+    kind === "sealed" ? "sealed-products" : "cards",
+  );
+  if (!identity?.request.profileKey) return null;
+  const query = scrydexCountQuery({
+    environment: options.countEnvironment ?? "runtime",
+    accountRevision: options.countAccountRevision ?? "runtime",
+    productDomain: scrydexProductDomainForUnit(scope.unitKey),
+    profileKey: identity.request.profileKey,
+    profileVersion: identity.request.profileVersion,
+    unitKey: scope.unitKey,
+    kind,
+    languageCode: identity.request.languageCode ?? "en",
+    parentValue: expansionId,
+  });
+  const source = await readScrydexCountSource(query, options);
+  return source
+    ? {
+        pageSize: source.pageSize,
+        estimatedRequestCount: Math.max(1, Math.ceil(source.totalCount / source.pageSize)),
+        countSource: source,
+      }
+    : null;
+}
+
+export async function readScrydexCountSource(
+  query: ScrydexCountQuery,
+  options: ScrydexOnePieceProviderAdapterOptions,
+): Promise<ScrydexCountSource | null> {
+  const now = (options.now ?? (() => new Date()))().toISOString();
+  const cache = await readScrydexCompletedCount(query, options);
+  let count = null;
+  try {
+    const candidate = await options.countReader?.read(query);
+    if (countSourceIsCurrent(candidate, query, now)) count = candidate;
+  } catch {
+    /* Missing read authority is unavailable, never refreshed. */
+  }
+  return newestCountSource(cache, count);
+}
+
+async function readScrydexCompletedCount(
+  query: ScrydexCountQuery,
+  options: ScrydexOnePieceProviderAdapterOptions,
+): Promise<ScrydexCountSource | null> {
   if (!options.cacheStore) return null;
   try {
-    const identity = await scrydexCardCacheIdentity(scope, expansionId, options);
-    if (!identity) return null;
-    const record = await options.cacheStore.read(identity.request);
+    const request: CatalogProviderOptionQueryRequest = {
+      providerKey: "scrydex",
+      profileKey: query.profileKey,
+      profileVersion: query.profileVersion,
+      ingestionUnitKey: query.unitKey,
+      queryKind: query.kind === "sealed" ? "sealed-products" : "cards",
+      languageCode: query.languageCode,
+      parentValue: query.parentValue,
+    };
+    const record = await options.cacheStore.read(request);
     if (!record) return null;
-    const request = identity.request;
     const now = (options.now ?? (() => new Date()))().getTime();
     const fetched = Date.parse(record.fetchedAt);
     const expires = Date.parse(record.expiresAt);
@@ -1129,9 +1233,13 @@ async function readScrydexCardEstimate(
       record.profileKey !== request.profileKey ||
       record.profileVersion !== request.profileVersion ||
       record.ingestionUnitKey !== request.ingestionUnitKey ||
-      record.queryKind !== "cards" ||
+      record.queryKind !== request.queryKind ||
       record.languageCode !== request.languageCode ||
       record.parentValue !== request.parentValue ||
+      !countTimeIsCurrent(
+        { observedAt: record.fetchedAt, expiresAt: record.expiresAt },
+        (options.now ?? (() => new Date()))().toISOString(),
+      ) ||
       !Number.isFinite(now) ||
       !Number.isFinite(fetched) ||
       !Number.isFinite(expires) ||
@@ -1150,7 +1258,15 @@ async function readScrydexCardEstimate(
       size > 2147483647
     )
       return null;
-    return { pageSize: size, estimatedRequestCount: Math.max(1, Math.ceil(count / size)) };
+    return {
+      query,
+      validationKind: "complete-cache",
+      sourceId: record.cacheKey,
+      totalCount: count,
+      pageSize: size,
+      observedAt: record.fetchedAt,
+      expiresAt: record.expiresAt,
+    };
   } catch {
     return null;
   }
@@ -1164,7 +1280,7 @@ async function cacheScrydexCardObservation(
 ) {
   if (!options.cacheStore) return;
   const expansionId = requireString(scope.values.expansionId, "Scrydex card observation requires expansionId.");
-  const identity = await scrydexCardCacheIdentity(scope, expansionId, options);
+  const identity = await scrydexOptionCacheIdentity(scope, expansionId, options);
   if (!identity) return;
   const records = scrydexCardOptionRecords(
     pages.flatMap((page) => page.items.map((card) => cardOptionItem(sanitizeScrydexCard(card), expansionId))),
@@ -1178,6 +1294,51 @@ async function cacheScrydexCardObservation(
     parentValue: expansionId,
     defaultProviderKey: "scrydex",
     transports: { listScrydexOnePieceCards: async () => records, listScrydexLorcanaCards: async () => records },
+  });
+  await options.cacheStore.write(
+    createCatalogProviderOptionQueryCacheRecord({
+      request: identity.request,
+      items,
+      pagination,
+      now: (options.now ?? (() => new Date()))(),
+    }),
+  );
+}
+
+async function cacheScrydexSealedObservation(
+  scope: ProviderImportScope,
+  pages: readonly ScrydexPage<ScrydexOnePieceSealedProduct>[],
+  pagination: ProviderOptionQueryResult["validatedPagination"],
+  options: ScrydexOnePieceProviderAdapterOptions,
+) {
+  if (!options.cacheStore) return;
+  const expansionId = requireString(scope.values.expansionId, "Scrydex sealed observation requires expansionId.");
+  const identity = await scrydexOptionCacheIdentity(scope, expansionId, options, "sealed-products");
+  if (!identity) return;
+  const records = pages.flatMap((page) =>
+    page.items.map((product) => {
+      const item = sealedProductOptionItem(sanitizeScrydexSealedProduct(product), expansionId);
+      return {
+        sealedProductId: item.value,
+        name: item.label,
+        expansionId: item.parentValue ?? expansionId,
+        type: item.metadata?.type ?? null,
+        language: item.metadata?.language ?? null,
+        languageCode: item.metadata?.languageCode ?? null,
+      };
+    }),
+  );
+  const items = await listCatalogProviderIntegrationOptionsFromProfiles({
+    profiles: [identity.profile],
+    providerKey: "scrydex",
+    queryKind: "sealed-products",
+    languageCode: identity.request.languageCode,
+    parentValue: expansionId,
+    defaultProviderKey: "scrydex",
+    transports: {
+      listScrydexOnePieceSealedProducts: async () => records,
+      listScrydexLorcanaSealedProducts: async () => records,
+    },
   });
   await options.cacheStore.write(
     createCatalogProviderOptionQueryCacheRecord({
@@ -1270,8 +1431,9 @@ async function planScrydexCardImport(
       estimatedRequestCount: observation?.estimatedRequestCount,
       selectedFields: productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
       estimateReason:
-        "Card page count requires a fresh completed exact-query Scrydex count observation; set imports use q=printings:<set> to include reprints.",
+        "Card page count requires fresh exact-query Scrydex count evidence; set imports use q=printings:<set> to include reprints.",
       usageReadiness,
+      countSource: observation?.countSource,
     }),
   };
 }
@@ -1280,6 +1442,7 @@ async function planScrydexSealedImport(
   scope: ProviderImportScope,
   usageReadiness: ScrydexUsageReadiness,
   productDomain: ScrydexProductDomain,
+  options: ScrydexOnePieceProviderAdapterOptions,
 ): Promise<ProviderImportPlan> {
   const productLabel = scrydexProductLabel(productDomain);
   const productSegment = scrydexProductSegment(productDomain);
@@ -1323,6 +1486,7 @@ async function planScrydexSealedImport(
     coordinate: expansionId,
   });
   if (binding && maximum !== 256) throw new ProviderSendStoppedError("unknown-request");
+  const observation = await readScrydexExpansionEstimate(scope, expansionId, options, "sealed");
   return {
     unitKey: scope.unitKey,
     planKey: `scrydex:${productSegment}:expansion:${normalizePlanSegment(expansionId)}:sealed`,
@@ -1334,10 +1498,12 @@ async function planScrydexSealedImport(
     ],
     usageEstimate: {
       ...scrydexBulkFirstUsageEstimate({
-        pageSize: scrydexSealedPageSize,
+        pageSize: observation?.pageSize ?? scrydexSealedPageSize,
+        estimatedRequestCount: observation?.estimatedRequestCount,
         selectedFields: scrydexSealedSelect,
-        estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+        estimateReason: "Sealed-product page count requires fresh exact-query Scrydex count evidence.",
         usageReadiness,
+        countSource: observation?.countSource,
       }),
       ...(maximum === 256 && binding
         ? {
@@ -1353,6 +1519,7 @@ async function planScrydexSealedImport(
 }
 
 function scrydexBulkFirstUsageEstimate(input: {
+  countSource?: ScrydexCountSource;
   pageSize: number;
   selectedFields: string;
   estimateReason: string;
@@ -1360,6 +1527,7 @@ function scrydexBulkFirstUsageEstimate(input: {
   estimatedRequestCount?: number;
 }): ProviderUsageEstimate {
   return {
+    ...(input.countSource ? { countSource: input.countSource } : {}),
     requestStrategy: "bulk-first",
     estimateState: input.estimatedRequestCount === undefined ? "estimate-unavailable" : "estimated",
     estimatedRequestCount: input.estimatedRequestCount ?? null,
@@ -1461,10 +1629,17 @@ async function fetchScrydexExpansionChildPagedJson<TItem>(input: {
   query: Readonly<Record<string, string>>;
   options: ScrydexOnePieceProviderAdapterOptions;
   productDomain: ScrydexProductDomain;
+  onCompleted?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
 }): Promise<readonly ScrydexPage<TItem>[]> {
   const path = (expansionId: string) => `expansions/${encodeURIComponent(expansionId)}/${input.childPath}`;
   try {
-    return await fetchScrydexPagedJson<TItem>(path(input.expansionId), input.query, input.options, input.productDomain);
+    return await fetchScrydexPagedJson<TItem>(
+      path(input.expansionId),
+      input.query,
+      input.options,
+      input.productDomain,
+      input.onCompleted,
+    );
   } catch (error) {
     if (!isScrydexMissingExpansionDetailError(error)) {
       throw error;
@@ -1528,22 +1703,10 @@ async function fetchScrydexPagedJson<TItem>(
     pages.push({ items, sourceUrl });
     const totalCountValue = recordValue(body, "total_count") ?? recordValue(body, "totalCount");
     if (totalCountValue !== undefined || countPagination !== null) {
-      const total = totalCountValue;
-      const size = recordValue(body, "page_size") ?? recordValue(body, "pageSize");
-      const returnedPage = recordValue(body, "page");
-      const count = recordValue(body, "count");
-      if (
-        typeof total !== "number" ||
-        !Number.isSafeInteger(total) ||
-        total < 0 ||
-        typeof size !== "number" ||
-        !Number.isSafeInteger(size) ||
-        size <= 0 ||
-        returnedPage !== page ||
-        (count !== undefined && count !== items.length) ||
-        (countPagination !== null && (total !== countPagination.total || size !== countPagination.size)) ||
-        items.length !== Math.min(size, Math.max(0, total - (page - 1) * size))
-      ) {
+      const validated = validateScrydexPaginationPage(body, page);
+      const total = validated.totalCount;
+      const size = validated.pageSize;
+      if (countPagination !== null && (total !== countPagination.total || size !== countPagination.size)) {
         throw new Error("Scrydex pagination metadata is inconsistent or incomplete.");
       }
       countPagination ??= { total, size };
@@ -1593,6 +1756,86 @@ async function fetchScrydexPagedJson<TItem>(
       : null,
   );
   return pages;
+}
+
+export function validateScrydexCountPage(body: unknown, page: number) {
+  const validated = validateScrydexPaginationPage(body, page);
+  const value = isJsonRecord(body) ? body : {};
+  if (
+    validated.totalCount > 2147483647 ||
+    validated.pageSize > 2147483647 ||
+    (value.total_count !== undefined && value.totalCount !== undefined && value.total_count !== value.totalCount) ||
+    (value.page_size !== undefined && value.pageSize !== undefined && value.page_size !== value.pageSize)
+  )
+    throw new Error("Scrydex pagination metadata is inconsistent or incomplete.");
+  return validated;
+}
+
+function validateScrydexPaginationPage(body: unknown, page: number) {
+  const value = isJsonRecord(body) ? body : {};
+  const total = value.total_count ?? value.totalCount;
+  const size = value.page_size ?? value.pageSize;
+  const items = value.data;
+  if (
+    !Array.isArray(items) ||
+    typeof total !== "number" ||
+    !Number.isSafeInteger(total) ||
+    total < 0 ||
+    typeof size !== "number" ||
+    !Number.isSafeInteger(size) ||
+    size < 1 ||
+    value.page !== page ||
+    (value.count !== undefined && value.count !== items.length) ||
+    items.length !== Math.min(size, Math.max(0, total - (page - 1) * size))
+  )
+    throw new Error("Scrydex pagination metadata is inconsistent or incomplete.");
+  return { totalCount: total, pageSize: size, returnedPage: page, returnedItemCount: items.length };
+}
+
+export function scrydexCountQuery(
+  input: Omit<ScrydexCountQuery, "providerKey" | "requestFingerprint">,
+): ScrydexCountQuery {
+  const request = scrydexCountRequest(input);
+  return countQuerySchema.parse({
+    ...input,
+    providerKey: "scrydex",
+    requestFingerprint: countFingerprint({ method: "GET", ...request }),
+  });
+}
+
+function scrydexCountRequest(input: Pick<ScrydexCountQuery, "kind" | "productDomain" | "parentValue">): {
+  path: string;
+  query: Readonly<Record<string, string>>;
+} {
+  if (input.kind === "sealed" && input.productDomain !== "one-piece")
+    throw new Error("Lorcana sealed counts are not supported.");
+  return input.kind === "cards"
+    ? {
+        path: "cards",
+        query: {
+          page: "1",
+          page_size: String(scrydexCardPageSize),
+          q: `printings:${input.parentValue}`,
+          select: input.productDomain === "lorcana" ? scrydexLorcanaCardSelect : scrydexCardSelect,
+        },
+      }
+    : {
+        path: `expansions/${encodeURIComponent(input.parentValue)}/sealed`,
+        query: { page: "1", page_size: String(scrydexSealedPageSize), select: scrydexSealedSelect },
+      };
+}
+
+export async function acquireScrydexPageOneCount(
+  query: ScrydexCountQuery,
+  options: ScrydexOnePieceProviderAdapterOptions,
+) {
+  const expected = scrydexCountQuery(query);
+  if (expected.requestFingerprint !== query.requestFingerprint) throw new Error("Count query changed.");
+  const request = scrydexCountRequest(query);
+  const url = scrydexUrl(request.path, request.query, options, query.productDomain);
+  const body = await fetchScrydexJson(url, options, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
+  const value = validateScrydexCountPage(body, 1);
+  return { ...value, returnedPage: 1 as const, observedAt: (options.now ?? (() => new Date()))().toISOString() };
 }
 
 async function getScrydexUsageReadiness(
@@ -1796,13 +2039,18 @@ function scrydexUsageTransportDiagnostics(
   return diagnostics;
 }
 
-async function fetchScrydexJson(url: string, options: ScrydexOnePieceProviderAdapterOptions): Promise<JsonValue> {
+async function fetchScrydexJson(
+  url: string,
+  options: ScrydexOnePieceProviderAdapterOptions,
+  init?: RequestInit,
+): Promise<JsonValue> {
   const credentials = requireScrydexCredentials(options);
   const response = await sendCatalogProviderRequest(
     "scrydex",
     options.fetch ?? globalThis.fetch,
     url,
     {
+      ...init,
       headers: {
         Accept: "application/json",
         "X-Api-Key": credentials.apiKey,

@@ -618,9 +618,15 @@ describe("Epic and Tracking derivation contract", () => {
 });
 
 describe("planner correction and lane ownership", () => {
-  it("schedules reconciliation hourly including nights and weekends", () => {
+  it("reconciles close and reopen events with serialized hourly and manual fallback runs", () => {
     const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/project-status-sync.yml"), "utf8"));
-    expect(workflow.on.schedule).toEqual([{ cron: "17 * * * *" }]);
+    expect(workflow.on).toEqual({
+      issues: { types: ["closed", "reopened"] },
+      schedule: [{ cron: "17 * * * *" }],
+      workflow_dispatch: null,
+    });
+    expect(workflow.concurrency).toEqual({ group: "project-status-sync", "cancel-in-progress": false });
+    expect(workflow.permissions).toEqual({ contents: "read" });
   });
 
   const LANE_OWNED_STATUSES = ["In lane", "In review"];

@@ -4,7 +4,9 @@ Discovery owns the Search Query vocabulary and Result Set click event. The platf
 
 ## Search Query signal
 
-`searchItems` emits exactly one `DiscoverySearchQuerySignal` for every invocation, including failed retrievals. The payload contains a SHA-256 hash of normalized query text, an opaque SHA-256 Result Set key, Filter State names, Sort Order, fresh-versus-cursor state, result count, total when requested, zero-result state, retrieval mode, outcome, and normalization/retrieval/total timings.
+`searchItems` emits exactly one `DiscoverySearchQuerySignal` for every invocation, including failed retrievals. The payload contains a SHA-256 hash of normalized query text, an opaque SHA-256 Result Set key, Filter State names, Sort Order, effective cursor state, result count, total when requested, zero-result state, retrieval mode, outcome, and normalization/retrieval/total timings.
+
+Cursor state is the effective state, not raw cursor presence: `fresh` (no cursor), `cursor` (a cursor the active ordering or enabled hybrid retrieval continues), or `restarted` (a rejected cursor — unversioned, malformed, or from another retrieval mode — served as a fresh first page with full metadata and HTTP `cursorRestarted: true`). Failed retrievals report how their cursor classified.
 
 The signal has one record per invocation. Exported metrics use only bounded Filter State, Sort Order, cursor state, zero-result, retrieval-mode, outcome, and timing-phase labels. Query hashes, Result Set keys, counts, totals, and raw query text are not metric labels.
 

@@ -3,6 +3,23 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as inventoryModule } from "../index";
 import type { InventoryServices } from "../support/runtime-support/services";
+import {
+  inventoryMutationAttemptFromSource,
+  withInventoryMutationAttempt,
+  withInventoryMutationTargetAccount,
+} from "../support/runtime-support/mutation-attempt";
+
+function createMutationExecutor() {
+  const execute: InventoryServices["mutations"]["execute"] = async (
+    _family,
+    _targetId,
+    _accountId,
+    _params,
+    _context,
+    work,
+  ) => work();
+  return vi.fn(execute);
+}
 
 function createCancellationEvent(reason: string): TransportEvent {
   return buildTransportEvent(
@@ -54,7 +71,9 @@ describe("inventory ordering cancellation subscription", () => {
     const releaseHold = vi.fn(async () => ({ holdId: "hld_1", version: 2 }));
     const reservationCommandHandler = vi.fn(async () => ({ version: 2, storedEvents: [] }));
     const markPending = vi.fn();
+    const executeMutation = createMutationExecutor();
     const services = {
+      mutations: { execute: executeMutation },
       holds: {
         getHold: vi.fn(async () => ({ status: "active" })),
         releaseHold,
@@ -72,6 +91,22 @@ describe("inventory ordering cancellation subscription", () => {
 
     await getOrderingCancellationHandler(services)(createCancellationEvent("payment-deadline"));
 
+    const event = createCancellationEvent("payment-deadline");
+    const attemptedContext = withInventoryMutationAttempt(
+      withInventoryMutationTargetAccount(
+        { tenantId: event.tenantId, audit: event.audit, trace: event.trace },
+        "acc_seller",
+      ),
+      inventoryMutationAttemptFromSource(event.id, "release/rsv_1"),
+    );
+    expect(executeMutation).toHaveBeenCalledExactlyOnceWith(
+      "hold-release",
+      "hld_1",
+      "acc_seller",
+      { accountId: "acc_seller", holdId: "hld_1", releaseReason: "payment-deadline" },
+      attemptedContext,
+      expect.any(Function),
+    );
     expect(releaseHold).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_seller",
@@ -98,7 +133,9 @@ describe("inventory ordering cancellation subscription", () => {
     const releaseHold = vi.fn();
     const reservationCommandHandler = vi.fn();
     const markPending = vi.fn(async () => ({ decisionId: "rstk_1", version: 1 }));
+    const executeMutation = createMutationExecutor();
     const services = {
+      mutations: { execute: executeMutation },
       holds: {
         getHold: vi.fn(async () => ({ status: "consumed" })),
         releaseHold,
@@ -133,6 +170,7 @@ describe("inventory ordering cancellation subscription", () => {
       }),
     );
     expect(releaseHold).not.toHaveBeenCalled();
+    expect(executeMutation).not.toHaveBeenCalled();
     expect(reservationCommandHandler).not.toHaveBeenCalled();
   });
 });

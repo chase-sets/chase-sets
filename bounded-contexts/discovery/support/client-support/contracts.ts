@@ -87,6 +87,12 @@ export interface DiscoverySearchResponse {
   lexicalCount: number | null;
   queryHash: string;
   resultSetKey: string;
+  /**
+   * Present only when the submitted cursor was rejected (unversioned, malformed, or from
+   * another retrieval mode): this response is a fresh first page with full metadata, so
+   * callers replace their pages and metadata instead of appending. Absent means paging.
+   */
+  cursorRestarted?: true;
 }
 
 export interface DiscoverySearchSuggestion {

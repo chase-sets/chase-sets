@@ -16,6 +16,28 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
 
+## Support Request Participant Attempt
+
+A **Support Request Participant Attempt** is one account's intended mutation of one Support Request within its authenticated tenant. Its opaque attempt id locates a private receipt; action and canonical request hash are immutable comparisons, not identity partitions. An exact retry returns the first result without another command. Another authorized owner may independently use the same opaque id. Attachment Operations remain separate staging identities.
+
+## Any-case Evidence Access
+
+**Any-case Evidence Access** requires the current Identity `support.evidence.any-case` assignment on the Auth-resolved actor and the independent Support base permission. A role or capability declaration grants no access. Without that assignment, attachment access is limited to buyer or seller participation in the authoritative Support Request stream. Audit reads and operations submissions with attachments require the assignment; participant submissions with attachments remain participant-only.
+
+## Evidence Access Attempt
+
+An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. Malformed case identifiers return the same non-disclosing 404 without an event.
+
+## Support Attachment Operation
+
+A **Support Attachment Operation** identifies one photo batch with `sao_` plus a canonical ULID, created by the client before dispatch and retained through retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account and Support Request together; the id alone is never access authority. The required `x-support-attachment-operation-id` header names the operation.
+
+It durably stages one ordered canonical evidence manifest on `support.attachment-operation-{supportRequestId}-{operationId}` before any storage write. Its fingerprint binds the owner, client operation, canonical hashes, profile and encoder fingerprint. Each put has a version-guarded admission and is settled only by an actual provider response; ambiguous outcomes remain unresolved. Only independent byte verification records Stored. Exact retries match the manifest, resume unstored items and never re-put a stored item. Known failures record CleanupRequired; cleanup execution belongs to a later slice.
+
+## Support Evidence Attachment
+
+A **Support Evidence Attachment** is one private, canonical image referenced by `support-attachment:v1`. New attachment ids are `sea_` plus the complete 52-character lowercase, unpadded base32 SHA-256 of the versioned tenant/account/case/operation/index/canonical-hash tuple. Legacy ids, references, object keys and bytes remain unchanged and readable. A reference is returned only when the entire operation is verified Stored, never from put success, a provider key or ETag.
+
 ## Platform Remedy Policy
 
 The **Platform Remedy Policy** is the versioned Platform Operations policy that determines which support reasons are eligible for platform funding, capability-based amount and percentage limits, split funding, return requirements, refund triggers, dual control, reservation expiry, and exception or escalation reasons.
@@ -75,6 +97,12 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 
 **Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.
 
+## Listing Removal Directive
+
+A **Listing Removal Directive** is the operator's intent to unlist one Listing, recorded atomically after its Reported Content action audit. Marketplace owns the removal decision and its durable enforcement identity; the directive is not removal authority. Only newly authored directives are delivered, never historical audit actions.
+
+Disabling delivery retains the Listing aggregate reader and all visibility consumers. Stored removals remain readable and hidden, and pending directives resume when delivery is enabled again. After the first operator removal event, roll forward rather than reverting the aggregate reader; never delete events or checkpoints.
+
 ## Moderation Queue
 
 **Moderation Queue** is the Platform Operations queue that groups content reports by target and highlights auto-unlisted targets for operator review.
@@ -121,6 +149,14 @@ terminally failed, or waived. Financial truth cannot be created by a Support ove
 ## Support Evidence Basis
 
 A **Support Evidence Basis** is the structured indication of how Support established responsibility: `party-accepted-resolution`, `deterministic-policy`, `operator-finding`, `insufficient-evidence`, or `legacy`. It includes a stable reference to the accepted offer, policy rule, adjudication workflow, insufficiency finding, or compatibility rule without exposing private evidence contents or internal notes.
+
+## Support Evidence Raster Profile
+
+The **Support Evidence Raster Profile** (`support-evidence-raster/v1`) is Support's versioned raster canonicalization for evidence images. It accepts only JPEG, PNG, and WebP whose declared media type matches their signature, at most 10 MiB encoded and 24,000,000 pixels, with exactly one frame and no decoder warning. It applies orientation, strips all metadata, converts to sRGB, and re-encodes only the decoded pixels in the matching format: baseline 4:4:4 JPEG at quality 90 with alpha flattened onto white, non-paletted truecolor PNG at compression 9, or lossless WebP at effort 6, keeping PNG and WebP alpha. Canonical output above 10 MiB is rejected. It is raster canonicalization, not malware detection: no caller metadata, trailing data, or encoding choice survives, but it judges nothing about what an image depicts or whether the original file was malicious.
+
+## Encoder Fingerprint
+
+An **Encoder Fingerprint** identifies the encoder that produced canonical evidence bytes: the profile, resolved Sharp version, libvips version, platform, architecture, and libc family. One fingerprint yields one byte sequence for a given input. Golden canonical hashes are recorded per fingerprint; opened for a production-like host, the canonicalizer is certified only when that host's fingerprint has goldens its startup self-test reproduces exactly, and otherwise reports itself unavailable. Opened for development or test, it canonicalizes under its own uncertified fingerprint and never certifies goldens. Evidence upload intake does not use the canonicalizer yet; #9390 composes it.
 
 ## Responsibility Reason Code
 

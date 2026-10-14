@@ -31,7 +31,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "boots every non-production profile on one shared max-one seed command pool",
         referenceDurationMs: 106865,
-        identity: "c809c18f34f0e0c6",
+        identity: "4d891cb822a0a334",
       }),
     ]),
   }),
@@ -43,12 +43,12 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "boots with context-owned pools and replays cross-context projections",
         referenceDurationMs: 101476,
-        identity: "ea12b6d3f3a538ba",
+        identity: "d5d72806700dfd1c",
       }),
       Object.freeze({
         name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
         referenceDurationMs: 1641,
-        identity: "fa0e6fbbe051d0fe",
+        identity: "c25834c5b91d4a6f",
       }),
       Object.freeze({
         name: "records context schema migrations once during concurrent bootstrap",
@@ -65,27 +65,27 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
         referenceDurationMs: 8627,
-        identity: "638e411899544781",
+        identity: "fcf65b142a0bbe05",
       }),
       Object.freeze({
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
         referenceDurationMs: 17754,
-        identity: "b04028e2169c8633",
+        identity: "f749da3c0ba3e000",
       }),
       Object.freeze({
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
         referenceDurationMs: 17425,
-        identity: "c9351aa5fd10ecb6",
+        identity: "1e91d11294f92825",
       }),
       Object.freeze({
         name: "limits and reconciles every production-like seed context against current-code state",
         referenceDurationMs: 23043,
-        identity: "6b7c87db7e1a0d46",
+        identity: "91ce1f9bea42efa9",
       }),
       Object.freeze({
         name: "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
         referenceDurationMs: 22902,
-        identity: "170dd2ca3aa2dca2",
+        identity: "5d22ae06208e8106",
       }),
       Object.freeze({
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
@@ -115,7 +115,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
         referenceDurationMs: 41908,
-        identity: "18b6a50d157754d5",
+        identity: "f9e31ed90041d384",
       }),
     ]),
   }),
@@ -149,7 +149,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "completes representative commerce seeds, projections, fan-outs and post-state",
         referenceDurationMs: 28431,
-        identity: "68dfd0998ec22c33",
+        identity: "0204be7639f55534",
       }),
       Object.freeze({
         name: "completes admin-QA fixtures and retains their seeded identity post-state",
@@ -255,7 +255,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "resumes an archived storage location committed before its archive step",
         referenceDurationMs: 28374,
-        identity: "8c5dc773de3c8363",
+        identity: "2f1e5800d580e926",
       }),
       Object.freeze({
         name: "resumes a checkout cart holding only one of its two seeded lines",

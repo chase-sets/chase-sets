@@ -59,7 +59,7 @@ export type AnonymousSavedListIntentStatus = "active" | "claiming" | "claimed" |
 
 export type AnonymousSavedListIntent = Readonly<{
   intentId: string;
-  anonymousOwnerId: string;
+  anonymousOwnerFingerprint: string;
   sourcePath: string;
   sourceSurface: SavedListDiscoverySurface;
   product: SavedListProductSelection;

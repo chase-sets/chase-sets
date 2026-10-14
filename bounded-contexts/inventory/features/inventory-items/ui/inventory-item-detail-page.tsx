@@ -1,7 +1,6 @@
 import { formatDateTime, formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   Button,
   Badge,
   Card,
@@ -23,6 +22,7 @@ import {
 import type { InventoryItemDetail } from "./contracts";
 import { ListFromInventoryDrawer } from "./list-from-inventory-drawer";
 import { OfflineSaleForm } from "./offline-sale-form";
+import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
 
 function displayItemLabel(item: InventoryItemDetail) {
   return item.item_title ?? item.catalog_catalog_item_id;
@@ -264,7 +264,7 @@ export function InventoryItemDetailPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjust.quantity")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form spacing="none" method="post">
+          <Form family="item-adjust" targetId={item.item_id} spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="adjust-item" />
               <NumberField
@@ -321,7 +321,7 @@ export function InventoryItemDetailPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form spacing="none" method="post">
+          <Form family="hold-create" targetId={item.item_id} spacing="none" method="post">
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-hold" />
               <NumberField
@@ -389,7 +389,7 @@ export function InventoryItemDetailPage({
                     {hold.created_at}
                   </Text>
                   {hold.status === "active" && hold.purpose === "manual" ? (
-                    <Form spacing="none" method="post">
+                    <Form family="hold-release" targetId={hold.hold_id} spacing="none" method="post">
                       <HiddenInput type="hidden" name="intent" value="release-hold" />
                       <HiddenInput type="hidden" name="holdId" value={hold.hold_id} />
                       <Button type="submit" tone="secondary">

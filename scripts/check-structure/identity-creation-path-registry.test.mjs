@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { compileFunction } from "node:vm";
@@ -196,7 +197,6 @@ describe("identity creation path registry", () => {
   });
 
   it("classifies every Auth caller of the personal-identity constructor", () => {
-    const authRoutesDirectory = path.join(repoRoot, "bounded-contexts/auth/support/api-support");
     const registered = new Set(
       registry.paths.flatMap((entry) => entry.sites.map((site) => `${site.file}:${site.line}`)),
     );
@@ -208,29 +208,34 @@ describe("identity creation path registry", () => {
       }
     }
 
-    // Independent rediscovery: every createPersonalIdentity call in the Auth
-    // API surface must already be a registered site. A new caller shows up here
-    // as an unregistered position rather than as a silently bound one.
     const callSites = [];
-    for (const file of [
-      "invitation-routes",
-      "magic-link-routes",
-      "passkey-routes",
-      "phone-code-routes",
-      "register-routes",
-      "social-login-routes",
-      "guest-checkout-routes",
-    ]) {
-      const relative = `bounded-contexts/auth/support/api-support/${file}.ts`;
-      const lines = readFileSync(path.join(authRoutesDirectory, `${file}.ts`), "utf8").split(/\r?\n/);
-      lines.forEach((line, index) => {
-        if (line.includes("await identityMutations.createPersonalIdentity(")) {
-          callSites.push(`${relative}:${index + 1}`);
-        }
-      });
+    const files = execFileSync("git", ["ls-files", "--", "bounded-contexts/auth"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+      .trim()
+      .split(/\r?\n/)
+      .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file));
+    for (const file of files) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(path.join(repoRoot, file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      for (const node of walk(source, (node) => ts.isCallExpression(node))) {
+        const expression = node.expression;
+        const name = ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : ts.isElementAccessExpression(expression)
+            ? literal(expression.argumentExpression)
+            : null;
+        if (name === "createPersonalIdentity")
+          callSites.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`);
+      }
     }
 
-    expect(callSites.length).toBe(6);
+    expect(callSites.length).toBe(7);
     expect(callSites.filter((site) => !registered.has(site))).toEqual([]);
     expect(discovered.sort()).toEqual(callSites.sort());
   });
@@ -409,7 +414,10 @@ const commandsFor = (workflow, prefix, fixture) =>
 // Slot meaning comes from the introduction history, never from the current numeric pin.
 const landingSelectors = {
   "password-direct-registration": [personalIdentity("registerRegistrationRoutes", "post", "/register")],
-  "invitation-registration": [personalIdentity("registerInvitationRoutes", "post", "/invitations/accept")],
+  "invitation-registration": [
+    personalIdentity("registerInvitationRoutes", "post", "/invitations/accept"),
+    call("identity.createPersonalIdentity", "acceptInvitationAttempt"),
+  ],
   "first-use-magic-link": [personalIdentity("registerMagicLinkRoutes", "post", "/magic-link/consume")],
   "passkey-registration": [personalIdentity("registerPasskeyRoutes", "post", "/passkeys/register")],
   "phone-code-registration": [personalIdentity("registerPhoneCodeRoutes", "post", "/phone-code/consume")],
@@ -550,7 +558,7 @@ describe("identity creation pin landing", () => {
   it("every registry pin lands on its creation call", () => {
     const sources = parseRegisteredSources(registry);
     const landings = discoverLandingTargets(registry, sources);
-    expect(landings).toHaveLength(48);
+    expect(landings).toHaveLength(49);
     expect(landings.filter((landing) => landing.wholeFile)).toHaveLength(6);
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
     for (const slot of landings) {

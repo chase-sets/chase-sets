@@ -11,7 +11,7 @@ import type { CurvePoint, SupplyStatus } from "../domain/demand-curve/curve";
 import type { DemandCurveIdentity } from "./demand-curve-queries";
 
 export const liquidityEstimatedEventType = "pricing.liquidity-estimated" as const;
-export const demandCurveModelVersion = "pooled-supply-v1" as const;
+export const demandCurveModelVersion = "pooled-supply-v2" as const;
 
 export type LiquidityEstimatedPayload = Readonly<{
   schemaVersion: 1;
@@ -55,6 +55,8 @@ type CurveWrite = DemandCurveIdentity &
     ownSellerExclusionApplied: boolean | null;
     points: readonly CurvePoint[];
     builtAt: string;
+    currencyCode: string;
+    freshUntil: string;
   }>;
 
 /** The event stream is authoritative for the last authored fingerprint and version, not the asynchronously served row. */
@@ -82,10 +84,18 @@ export async function writeDemandCurve(
     if (
       prior?.fingerprint === input.fingerprint &&
       row &&
+      prior.curveVersion === Number(row.version) &&
       row.superseded_at === null &&
       row.fingerprint === input.fingerprint
-    )
-      return "unchanged";
+    ) {
+      const refreshed = await client.query(
+        `UPDATE pricing_demand_curve_versions AS curve SET fresh_until = GREATEST(curve.fresh_until, $3::timestamptz)
+         WHERE curve.catalog_item_id = $1 AND curve.product_id = $2 AND curve.superseded_at IS NULL
+           AND curve.version = $4 AND curve.fingerprint = $5`,
+        [input.catalogItemId, input.productId, input.freshUntil, row.version, row.fingerprint],
+      );
+      return refreshed.rowCount === 1 ? "unchanged" : "conflict";
+    }
     const version = (prior?.curveVersion ?? 0) + 1;
     // A row CAS proves this writer still sees the same served version. The stream append has its own expected-version fence.
     if (row && row.superseded_at === null) {
@@ -100,8 +110,8 @@ export async function writeDemandCurve(
       `INSERT INTO pricing_demand_curve_versions
       (catalog_item_id,product_id,version,provider_condition,provider_variant,provider_language,fingerprint,model_version,
        policy_revision_id,ladder_method,anchor_condition,exposure_start_reason,sales_coverage,supply_status,
-       own_seller_exclusion_applied,built_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+       own_seller_exclusion_applied,built_at,currency_code,fresh_until)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [
         input.catalogItemId,
         input.productId,
@@ -119,6 +129,8 @@ export async function writeDemandCurve(
         input.supplyStatus,
         input.ownSellerExclusionApplied,
         input.builtAt,
+        input.currencyCode,
+        input.freshUntil,
       ],
     );
     await client.query(

@@ -25,7 +25,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildDiscoveryApi } from "../../api";
@@ -41,6 +41,18 @@ import {
   populateDiscoverySearchIdentityTerms,
   verifyDiscoverySearchIdentityTerms,
 } from "../../support/runtime-support/search-identity-terms-population";
+import {
+  searchDiscoveryItems,
+  searchDiscoveryItemsByNaturalKey,
+  searchDiscoverySemanticItems,
+  type DiscoverySearchParams,
+} from "../../features/search/read-model/queries";
+import { retrieveDiscoveryItems } from "../../features/search/read-model/hybrid-retrieval";
+import { createQueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
+import { refreshAllSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
+import { suggestDiscoveryItems } from "../../features/search/read-model/suggestions";
+import { classifyProtectedSearchTokens } from "../../features/search/domain/protected-search-tokens";
+import { lookupServedSearchSetCodes } from "../../features/search/read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const discoveryContextNames = [
@@ -109,7 +121,491 @@ const itemSeed = {
   japaneseItemId: "cat_japanese_charizard",
 };
 
+describe("Discovery removal handler reachability", () => {
+  it("legacy-modern parity", async () => {
+    const legacy = {
+      reportId: "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      reportCount: 3,
+      threshold: 3,
+      autoUnlistedAt: "2026-07-23T03:00:01.000Z",
+    };
+    for (const data of [
+      legacy,
+      {
+        ...legacy,
+        listingEnforcement: {
+          version: 1,
+          listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          source: "automatic-report-threshold",
+          sourceActionId: legacy.reportId,
+          occurredAt: legacy.autoUnlistedAt,
+        },
+      },
+    ]) {
+      const writes: { sql: string; values: readonly unknown[] }[] = [];
+      const db: PgQueryable = {
+        async query(sql: string, values: readonly unknown[] = []) {
+          if (sql.startsWith("UPDATE ")) writes.push({ sql, values });
+          return { rows: [], rowCount: 0 };
+        },
+      };
+      await buildDiscoveryMarketProjectionHandlers(db)["marketplace.listing.auto-unlisted"]!(
+        projectionEvent("marketplace.listing.auto-unlisted", data, "marketplace.listing-lst_1", 1),
+      );
+      // Independent expected SQL contract from immutable base 43d1c261; no new identity column or write.
+      expect(writes).toEqual([
+        {
+          sql: "UPDATE discovery_market_listings SET status = $1, updated_at = $2 WHERE listing_id = $3",
+          values: ["paused", "2026-07-23T03:00:01.000Z", "lst_1"],
+        },
+      ]);
+    }
+  });
+
+  it("operator removal matches automatic visibility without erasing another source row", async () => {
+    const rows = new Map([
+      ["lst_1", { account_id: "acc_1", status: "active" }],
+      ["lst_2", { account_id: "acc_2", status: "active" }],
+    ]);
+    const db: PgQueryable = {
+      async query(sql: string, values: readonly unknown[] = []) {
+        if (sql.startsWith("UPDATE discovery_market_listings")) {
+          const row = rows.get(String(values[2]));
+          if (row) row.status = String(values[0]);
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+    expect(rows.get("lst_1")?.status).toBe("active");
+    await handlers["marketplace.listing.operator-unlisted"]!(
+      projectionEvent("marketplace.listing.operator-unlisted", {}, "marketplace.listing-lst_1", 1),
+    );
+    expect(rows.get("lst_1")).toEqual({ account_id: "acc_1", status: "paused" });
+    expect(rows.get("lst_2")).toEqual({ account_id: "acc_2", status: "active" });
+  });
+});
+
 describe("marketplace search", () => {
+  const foil = [{ dimensionId: "finish", optionId: "foil" }];
+  const variants = ["nonfoil", "foil", "etched"].map((optionId) => ({
+    dimensionId: "finish",
+    label: "Finish",
+    optionId,
+    optionLabel: optionId,
+  }));
+
+  async function variantItem(id = "variant", options = variants) {
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_items
+       (catalog_item_id, slug, title, status, dimension_filter_values, category_slugs, set_code, card_number, search_text, search_text_simple, search_embedding)
+       VALUES ($1, $1, 'Variant dragon', 'active', $2::jsonb, '["cards"]', 'sv04', '123',
+         to_tsvector('english', 'variant dragon'), to_tsvector('simple', 'variant dragon'), $3::halfvec(1024))`,
+      [id, JSON.stringify(options), `[1,${Array(1023).fill(0).join(",")}]`],
+    );
+  }
+
+  async function variantListing(id: string, price: string, options = foil, currency = "USD", item = "variant") {
+    await pools.discovery.query(
+      `INSERT INTO discovery_market_accounts (account_id) VALUES ('variant-seller') ON CONFLICT DO NOTHING`,
+    );
+    await pools.discovery.query(
+      `INSERT INTO discovery_market_listings
+       (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code,
+        listing_stream_version, quantity_cap, supply_total_quantity, active_held_quantity, status, product_measure_snapshot, selected_options)
+       VALUES ($1, 'variant-seller', $1, $2, $1, $3, $4, 1, 4, 10, 2, 'active', '{}', $5::jsonb)`,
+      [id, item, price, currency, JSON.stringify(options)],
+    );
+  }
+
+  async function variantOffer(id: string, options = foil, item = "variant") {
+    await pools.discovery.query(
+      `INSERT INTO discovery_offer_demand_matches
+       (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code, selected_options)
+       VALUES ($1, 'synthetic-buyer', $2, $1, 'Variant dragon', '99', 'USD', $3::jsonb)`,
+      [id, item, JSON.stringify(options)],
+    );
+  }
+
+  async function variantSearch(params: DiscoverySearchParams = {}) {
+    return searchDiscoveryItems(pools.discovery, { search: "variant", includeTotal: true, ...params });
+  }
+
+  it("same-listing variant commerce", async () => {
+    await variantItem();
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
+    await variantListing("foil", "20");
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
+    const selected = { dimensionFilters: foil };
+    expect((await variantSearch({ ...selected, priceMax: "3" })).total).toBe(0);
+    await variantListing("nonfoil-eur", "2", [{ dimensionId: "finish", optionId: "nonfoil" }], "EUR");
+    expect((await variantSearch({ ...selected, priceMin: "10" })).items[0]?.market_summary).toEqual({
+      lowest_price_amount: "20",
+      lowest_price_currency_code: "USD",
+      active_listing_count: 1,
+      total_visible_quantity: 4,
+    });
+    await variantListing("etched", "25", [{ dimensionId: "finish", optionId: "etched" }]);
+    expect(
+      (await variantSearch({ dimensionFilters: [...foil, { dimensionId: "finish", optionId: "etched" }] })).items[0]
+        ?.market_summary?.active_listing_count,
+    ).toBe(2);
+    await variantListing("foil-eur", "15", foil, "EUR");
+    expect((await variantSearch(selected)).items[0]?.market_summary).toMatchObject({
+      lowest_price_amount: null,
+      lowest_price_currency_code: null,
+    });
+    expect((await variantSearch({ ...selected, priceMin: "10" })).total).toBe(0);
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil-eur'`);
+    await pools.discovery.query(
+      `UPDATE discovery_market_listings SET active_held_quantity = 9 WHERE listing_id = 'foil'`,
+    );
+    expect((await variantSearch(selected)).items[0]?.market_summary?.total_visible_quantity).toBe(1);
+    for (const restriction of [
+      "active_held_quantity = 10",
+      "product_measure_snapshot = NULL",
+      "status = 'withdrawn'",
+      "listing_stream_version = 0",
+      "quantity_cap = 0",
+    ]) {
+      await pools.discovery.query(`UPDATE discovery_market_listings SET ${restriction} WHERE listing_id = 'foil'`);
+      expect((await variantSearch({ ...selected, inStock: true })).total, restriction).toBe(0);
+      await pools.discovery.query(
+        `UPDATE discovery_market_listings SET active_held_quantity = 2, product_measure_snapshot = '{}', status = 'active', listing_stream_version = 1, quantity_cap = 4 WHERE listing_id = 'foil'`,
+      );
+    }
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'unavailable'`,
+    );
+    expect((await variantSearch({ ...selected, inStock: true })).total).toBe(0);
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'available'`,
+    );
+    const disjoint = [
+      ...variants,
+      { dimensionId: "condition", label: "Condition", optionId: "mint", optionLabel: "Mint" },
+      { dimensionId: "grade", label: "Grade", optionId: "10", optionLabel: "10" },
+    ];
+    await pools.discovery.query(`UPDATE discovery_search_items SET dimension_filter_values = $1::jsonb`, [
+      JSON.stringify(disjoint),
+    ]);
+    await variantListing("mint", "30", [...foil, { dimensionId: "condition", optionId: "mint" }]);
+    await variantListing("grade", "40", [...foil, { dimensionId: "grade", optionId: "10" }]);
+    const groups = [...foil, { dimensionId: "condition", optionId: "mint" }, { dimensionId: "grade", optionId: "10" }];
+    expect((await variantSearch({ dimensionFilters: groups })).total).toBe(1);
+    expect((await variantSearch({ dimensionFilters: groups, inStock: true })).total).toBe(0);
+    await variantListing("both", "50", groups);
+    expect((await variantSearch({ dimensionFilters: groups, inStock: true })).total).toBe(1);
+  });
+
+  it("prospective variant facet counts", async () => {
+    await variantItem();
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
+    await variantListing("foil", "20");
+    await variantOffer("demand-1");
+    await variantOffer("demand-2");
+    const count = async (params: DiscoverySearchParams, optionId = "foil", expectedSelectedCount?: number) => {
+      const selection = params.dimensionFilters ?? foil;
+      const result = await variantSearch({ dimensionFilters: foil, ...params });
+      const group = result.facets.find((group) => group.id === "finish");
+      const value = group?.values.find((value) => value.id === optionId);
+      if (selection.some((filter) => filter.dimensionId === "finish" && filter.optionId === optionId)) {
+        expect(group).toBeDefined();
+        expect(value).toEqual({
+          id: optionId,
+          label: optionId,
+          count: expectedSelectedCount ?? expect.any(Number),
+          selected: true,
+        });
+      }
+      return value?.count ?? 0;
+    };
+    for (const marketActivity of [undefined, "listings", "offers", "any"] as const) {
+      expect(await count({ marketActivity, priceMax: "3" }, "foil", 0)).toBe(0);
+      expect(await count({ marketActivity, priceMin: "10" })).toBe(
+        marketActivity === "offers" ? 2 : marketActivity === "any" ? 3 : 1,
+      );
+    }
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil'`);
+    for (const marketActivity of ["offers", "any"] as const) {
+      expect(await count({ marketActivity })).toBe(2);
+      for (const restriction of [{ inStock: true }, { priceMin: "10" }, { priceMax: "30" }]) {
+        expect(await count({ marketActivity, ...restriction }, "foil", 0)).toBe(0);
+        expect((await variantSearch({ dimensionFilters: foil, marketActivity, ...restriction })).total).toBe(0);
+      }
+    }
+    await variantListing("foil", "20");
+    for (const marketActivity of ["offers", "any"] as const) {
+      for (const restriction of [{ inStock: true }, { priceMin: "10" }, { priceMax: "30" }]) {
+        expect(await count({ marketActivity, ...restriction })).toBe(marketActivity === "offers" ? 2 : 3);
+      }
+    }
+    await variantListing("foil-eur", "21", foil, "EUR");
+    expect(await count({ priceMin: "10" })).toBe(0);
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'unavailable'`,
+    );
+    expect(await count({ marketActivity: "listings" })).toBe(0);
+    expect(await count({ marketActivity: "any" })).toBe(2);
+    expect(await count({ marketActivity: "offers", inStock: true })).toBe(0);
+    expect(await count({})).toBe(1);
+    // Independent contributor oracle: every substituted query and count agree,
+    // including zero supply and two distinct submitted offer IDs for one item.
+    for (const marketActivity of ["listings", "offers", "any"] as const) {
+      for (const optionId of ["foil", "nonfoil", "etched"]) {
+        const selection = [{ dimensionId: "finish", optionId }];
+        const result = await variantSearch({ dimensionFilters: selection, marketActivity });
+        const expectedIds = marketActivity === "listings" || optionId !== "foil" ? [] : ["demand-1", "demand-2"];
+        expect(result.total).toBe(expectedIds.length ? 1 : 0);
+        expect(await count({ marketActivity }, optionId)).toBe(expectedIds.length);
+      }
+    }
+    await pools.discovery.query(
+      `UPDATE discovery_market_accounts SET seller_listing_availability_status = 'available'`,
+    );
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil-eur'`);
+    await variantItem("other-card");
+    await variantListing("other-foil", "22", foil, "USD", "other-card");
+    await variantOffer("other-demand", foil, "other-card");
+    const rows = await variantSearch({ marketActivity: "any", dimensionFilters: foil, priceMin: "10" });
+    expect(rows.total).toBe(2);
+    expect(rows.category_counts).toEqual([{ slug: "cards", count: 2 }]);
+    expect(await count({ marketActivity: "any", priceMin: "10" })).toBe(5);
+    const multiOptions = [
+      ...variants,
+      { dimensionId: "condition", label: "Condition", optionId: "mint", optionLabel: "Mint" },
+      { dimensionId: "condition", label: "Condition", optionId: "good", optionLabel: "Good" },
+      { dimensionId: "grade", label: "Grade", optionId: "10", optionLabel: "10" },
+    ];
+    await pools.discovery.query(`UPDATE discovery_search_items SET dimension_filter_values = $1::jsonb`, [
+      JSON.stringify(multiOptions),
+    ]);
+    const condition = { dimensionId: "condition", optionId: "mint" };
+    const good = { dimensionId: "condition", optionId: "good" };
+    const grade = { dimensionId: "grade", optionId: "10" };
+    await variantListing("disjoint-condition", "20", [...foil, condition]);
+    await variantListing("disjoint-grade", "20", [...foil, grade]);
+    const dimensionFilters = [...foil, condition, good, grade];
+    expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true }, "foil", 0)).toBe(0);
+    const selectedZeroResult = await variantSearch({ dimensionFilters, marketActivity: "listings", inStock: true });
+    for (const selection of dimensionFilters) {
+      const group = selectedZeroResult.facets.find((group) => group.id === selection.dimensionId);
+      const fixture = multiOptions.find(
+        (option) => option.dimensionId === selection.dimensionId && option.optionId === selection.optionId,
+      )!;
+      expect(group).toBeDefined();
+      expect(group?.values.find((value) => value.id === selection.optionId)).toEqual({
+        id: selection.optionId,
+        label: fixture.optionLabel,
+        count: 0,
+        selected: true,
+      });
+    }
+    await variantListing("all-groups", "20", [...foil, good, grade]);
+    expect(await count({ dimensionFilters, marketActivity: "listings", inStock: true })).toBe(1);
+    expect(
+      (await variantSearch({ dimensionFilters, marketActivity: "listings", inStock: true })).items.map(
+        (item) => item.catalog_item_id,
+      ),
+    ).toEqual(["variant"]);
+    expect(await count({ dimensionFilters, marketActivity: "offers", inStock: true })).toBe(0);
+    await variantOffer("all-groups-demand", [...foil, good, grade]);
+    expect(await count({ dimensionFilters, marketActivity: "offers", inStock: true })).toBe(1);
+    expect(await count({ dimensionFilters, marketActivity: "any", inStock: true })).toBe(2);
+  });
+
+  it("selected variant retrieval summaries agree across lexical structured semantic rescue and hybrid", async () => {
+    await variantItem();
+    await variantListing("nonfoil", "2", [{ dimensionId: "finish", optionId: "nonfoil" }]);
+    await variantListing("foil", "20");
+    const params = { search: "variant dragon", dimensionFilters: foil };
+    await variantItem("semantic-variant");
+    await pools.discovery.query(`UPDATE discovery_search_items
+      SET title = 'Azure creature', set_code = 'sv05', card_number = '1',
+        search_text = to_tsvector('english', 'azure creature'), search_text_simple = to_tsvector('simple', 'azure creature')
+      WHERE catalog_item_id = 'semantic-variant'`);
+    await variantListing(
+      "semantic-nonfoil",
+      "1",
+      [{ dimensionId: "finish", optionId: "nonfoil" }],
+      "USD",
+      "semantic-variant",
+    );
+    await variantListing("semantic-foil", "30", foil, "USD", "semantic-variant");
+    const lexical = await variantSearch(params);
+    const structured = await searchDiscoveryItemsByNaturalKey(
+      pools.discovery,
+      { setCode: "sv04", cardNumber: "123" },
+      params,
+    );
+    const vector = [1, ...Array<number>(1023).fill(0)];
+    const semantic = await searchDiscoverySemanticItems(pools.discovery, params, vector);
+    expect(structured.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
+    expect(semantic.find(({ item }) => item.catalog_item_id === "variant")?.item.market_summary).toEqual(
+      lexical.items[0]?.market_summary,
+    );
+    expect(
+      semantic.find(({ item }) => item.catalog_item_id === "semantic-variant")?.item.market_summary
+        ?.lowest_price_amount,
+    ).toBe("30");
+    for (const hybridEnabled of [false, true]) {
+      const actual = await retrieveDiscoveryItems(
+        {
+          db: pools.discovery,
+          rescueEnabled: true,
+          hybridEnabled,
+          provider: {
+            model: "synthetic",
+            dimensions: 1024,
+            embed: async () => ({ vectors: [vector], totalTokens: 0 }),
+          },
+          cache: createQueryEmbeddingCache(),
+        },
+        params,
+      );
+      expect(actual.items[0]?.market_summary).toEqual(lexical.items[0]?.market_summary);
+      expect(actual.retrievalMode).toBe(hybridEnabled ? "hybrid" : "rescue");
+      expect(
+        actual.items.find((item) => item.catalog_item_id === "semantic-variant")?.market_summary?.lowest_price_amount,
+      ).toBe("30");
+    }
+    await pools.discovery.query(`DELETE FROM discovery_market_listings WHERE listing_id = 'foil'`);
+    await variantOffer("demand");
+    for (const marketActivity of ["offers", "any"] as const) {
+      const result = await variantSearch({ dimensionFilters: foil, marketActivity });
+      expect(result.total).toBe(1);
+      expect(result.items[0]?.market_summary).toBeNull();
+    }
+  });
+
+  it("withdrawal survives shadow cutover", async () => {
+    await variantItem();
+    await variantListing("foil", "20");
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
+    await pools.discovery.query(
+      `CREATE TABLE discovery_search_items_rebuild (LIKE discovery_search_items INCLUDING ALL)`,
+    );
+    await pools.discovery.query(`INSERT INTO discovery_search_items_rebuild SELECT * FROM discovery_search_items`);
+    await pools.discovery.query(`UPDATE discovery_market_listings SET status = 'withdrawn'`);
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
+    // Bypass mutant: an inner grouped aggregate refresh never visits absent
+    // supply. It demonstrably keeps the shadow's withdrawn price and stock.
+    await pools.discovery.query(`UPDATE discovery_search_items_rebuild AS item
+      SET lowest_price_amount = market.price, visible_quantity = market.quantity
+      FROM (SELECT catalog_catalog_item_id, MIN(price_amount::numeric) AS price, SUM(quantity_cap) AS quantity
+        FROM discovery_market_listings WHERE status = 'active' GROUP BY catalog_catalog_item_id) AS market
+      WHERE item.catalog_item_id = market.catalog_catalog_item_id`);
+    const mutant = await pools.discovery.query(
+      `SELECT lowest_price_amount::text AS price, visible_quantity FROM discovery_search_items_rebuild`,
+    );
+    expect(mutant.rows).toEqual([{ price: "20", visible_quantity: 4 }]);
+    await refreshAllSearchIndexMarketSignals(pools.discovery, "discovery_search_items_rebuild");
+    await pools.discovery.query(`ALTER TABLE discovery_search_items RENAME TO discovery_search_items_previous`);
+    await pools.discovery.query(`ALTER TABLE discovery_search_items_rebuild RENAME TO discovery_search_items`);
+    for (const dimensionFilters of [undefined, foil]) {
+      expect((await variantSearch({ dimensionFilters, inStock: true })).total).toBe(0);
+      expect((await variantSearch({ dimensionFilters })).items[0]?.market_summary).toBeNull();
+    }
+    const signals = await pools.discovery.query(
+      `SELECT lowest_price_amount, visible_quantity FROM discovery_search_items`,
+    );
+    expect(signals.rows).toEqual([{ lowest_price_amount: null, visible_quantity: null }]);
+  });
+
+  it("selected variant enlarged-cardinality query plans and cold/warm measurements", async () => {
+    await pools.discovery.query(`INSERT INTO discovery_market_accounts (account_id) VALUES ('variant-seller')`);
+    await pools.discovery.query(
+      `INSERT INTO discovery_search_items (catalog_item_id, slug, title, status, dimension_filter_values, search_text, search_text_simple)
+       SELECT 'perf-' || n, 'perf-' || n, 'Variant dragon', 'active', $1::jsonb,
+         to_tsvector('english', 'variant dragon'), to_tsvector('simple', 'variant dragon')
+       FROM generate_series(1, 1200) AS n`,
+      [
+        JSON.stringify(
+          Array.from({ length: 8 }, (_, n) => ({
+            dimensionId: "finish",
+            label: "Finish",
+            optionId: `option-${n}`,
+            optionLabel: `Option ${n}`,
+          })),
+        ),
+      ],
+    );
+    await pools.discovery.query(
+      `INSERT INTO discovery_market_listings
+       (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code,
+        listing_stream_version, quantity_cap, status, product_measure_snapshot, selected_options)
+       SELECT 'listing-' || n || '-' || option, 'variant-seller', 'inventory-' || n, 'perf-' || n, 'product-' || n || '-' || option,
+         (10 + option)::text, 'USD', 1, 3, 'active', '{}',
+         jsonb_build_array(jsonb_build_object('dimensionId', 'finish', 'optionId', 'option-' || option))
+       FROM generate_series(1, 1200) AS n CROSS JOIN generate_series(0, 7) AS option`,
+    );
+    await pools.discovery.query(`ANALYZE discovery_search_items`);
+    await pools.discovery.query(`ANALYZE discovery_market_listings`);
+    const statements: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const capturing: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        statements.push({ sql, values });
+        return pools.discovery.query<Row>(sql, values);
+      },
+    };
+    const params: DiscoverySearchParams = {
+      search: "variant",
+      dimensionFilters: [{ dimensionId: "finish", optionId: "option-1" }],
+      priceMin: "10",
+      priceMax: "20",
+      inStock: true,
+      marketActivity: "any",
+      sort: "price_asc",
+      limit: 200,
+      includeTotal: true,
+    };
+    const coldStart = performance.now();
+    const cold = await searchDiscoveryItems(capturing, params);
+    const coldMs = performance.now() - coldStart;
+    const warmStart = performance.now();
+    const warm = await searchDiscoveryItems(pools.discovery, params);
+    const warmMs = performance.now() - warmStart;
+    expect(cold.total).toBe(1200);
+    expect(warm.items).toEqual(cold.items);
+    expect(cold.facets.find((facet) => facet.id === "finish")?.values).toHaveLength(8);
+    const plans = [];
+    for (const statement of statements.filter(
+      ({ sql }) => sql.startsWith("SELECT catalog_item_id") || sql.includes("option_market AS"),
+    )) {
+      const result = await pools.discovery.query<{ "QUERY PLAN": unknown }>(
+        `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statement.sql}`,
+        statement.values,
+      );
+      plans.push({
+        surface: statement.sql.includes("option_market AS") ? "prospective-facets" : "selected-price-page",
+        plan: result.rows[0]?.["QUERY PLAN"],
+      });
+      // An eligible-listing aggregate is set-based, never a SubPlan evaluated for
+      // each item/option. Catalog JSON applicability probes are separate.
+      const inspect = (node: Record<string, unknown>, correlated = false): void => {
+        const subplan = correlated || node["Parent Relationship"] === "SubPlan";
+        if (node["Relation Name"] === "discovery_market_listings") expect(subplan).toBe(false);
+        for (const child of (node.Plans ?? []) as Record<string, unknown>[]) inspect(child, subplan);
+      };
+      const roots = result.rows[0]?.["QUERY PLAN"] as Array<{ Plan: Record<string, unknown> }>;
+      roots.forEach(({ Plan }) => inspect(Plan));
+    }
+    expect(plans).toHaveLength(2);
+    console.info(
+      "variant-query-plan",
+      JSON.stringify({
+        items: 1200,
+        listings: 9600,
+        options: 8,
+        coldMs,
+        warmMs,
+        cachePolicy: "first query on newly inserted fixture, then unchanged warm query; no shared-cache eviction",
+        plans,
+      }),
+    );
+  });
+
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(
       requireDatabaseBaseUrl(),
@@ -123,7 +619,9 @@ describe("marketplace search", () => {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
     });
     const collectionsServices = collectionsModule.createServices(pools.collections, {});
-    const identityServices = identityModule.createServices(pools.identity, {});
+    const identityServices = identityModule.createServices(pools.identity, {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+    });
     const inventoryServices = inventoryModule.createServices(pools.inventory, {});
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
@@ -1799,6 +2297,124 @@ describe("marketplace search", () => {
     });
   });
 
+  it.each(["english", "simple"] as const)(
+    "query vocabulary recovers every printing and retains literal negatives with the %s vector",
+    async (config) => {
+      const fixtures = [
+        ["syn_print_a", "Charizard", "Base Set 4/102 foil"],
+        ["syn_print_b", "Charizard", "Base Set 4/102 nonfoil"],
+        ["syn_reverse", "Charizard", "Base Set 102/4"],
+        ["syn_tsp", "TSP", "136a"],
+        ["syn_tsp_number", "TSP", "136"],
+        ["syn_etb", "Pokemon Elite Trainer Box", null],
+        ["syn_incomplete", "Elite Trainer", null],
+        ["syn_wrong_phrase", "Elite Box Trainer", null],
+        ["syn_bb", "Pokemon Booster Box", null],
+        ["syn_ygo", "Yu-Gi-Oh Booster Box", null],
+        ["syn_exact", "zard", null],
+      ] as const;
+      for (const [id, title, subtitle] of fixtures) {
+        await pools.discovery.query(
+          `INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, subtitle, status)
+         VALUES ($1, $1, $2, $3, 'active')`,
+          [id, title, subtitle],
+        );
+      }
+      await rebuildSearchIndex();
+      await pools.discovery.query(
+        "UPDATE discovery_search_items SET set_code = 'tsp' WHERE catalog_item_id IN ('syn_tsp', 'syn_tsp_number')",
+      );
+      await pools.discovery.query(
+        config === "english"
+          ? "UPDATE discovery_search_items SET search_text_simple = ''::tsvector"
+          : "UPDATE discovery_search_items SET search_text = ''::tsvector",
+      );
+      await variantListing("syn_listing", "10.00", [], "USD", "syn_print_a");
+      const search = (query: string) =>
+        searchDiscoveryItems(pools.discovery, { search: query, includeTotal: true }, { loadFacets: false });
+      const ids = async (query: string) => (await search(query)).items.map((item) => item.catalog_item_id).sort();
+      expect(await ids("zard 4/102")).toEqual(["syn_print_a", "syn_print_b"]);
+      expect(await ids("zard 102/4")).toEqual(["syn_reverse"]);
+      expect(await ids("zard 4/999")).toEqual([]);
+      expect(await ids("zard 004/102")).toEqual([]);
+      expect(await ids("zard 4/102 absent")).toEqual([]);
+      expect(await ids("zard!4/102")).toEqual([]);
+      expect(await ids("TSP 136a")).toEqual(["syn_tsp"]);
+      expect(await ids("TSP 136")).toEqual(["syn_tsp_number"]);
+      expect(await ids("TSP 999")).toEqual([]);
+      expect(await ids("ETB")).toEqual(["syn_etb"]);
+      expect(await ids("pkmn ETB")).toEqual(["syn_etb"]);
+      expect(await ids("pkmn pkmn ETB")).toEqual(["syn_etb"]);
+      expect(await ids("elite trainer box")).toEqual(["syn_etb", "syn_wrong_phrase"]);
+      expect(await ids("pkmn BB")).toEqual(["syn_bb"]);
+      expect(await ids("pkmn/BB")).toEqual(["syn_bb"]);
+      expect(await ids("ygo BB")).toEqual(["syn_ygo"]);
+      expect((await search("zard")).items[0]?.catalog_item_id).toBe("syn_exact");
+      const expanded = await search("zard 4/102");
+      const original = await search("charizard 4/102");
+      expect(
+        expanded.items.map((item) => [item.catalog_item_id, item.title, item.subtitle, item.market_summary]),
+      ).toEqual(original.items.map((item) => [item.catalog_item_id, item.title, item.subtitle, item.market_summary]));
+      expect(expanded.items.find((item) => item.catalog_item_id === "syn_print_a")?.market_summary).toMatchObject({
+        lowest_price_amount: "10.00",
+      });
+      const classified = await classifyProtectedSearchTokens("TSP 136a charzard 4/102 jungel 60 zard 4/102", (codes) =>
+        lookupServedSearchSetCodes(pools.discovery, codes),
+      );
+      expect(classified.filter((token) => token.protected).map((token) => token.raw)).toEqual([
+        "TSP",
+        "136a",
+        "4/102",
+        "60",
+        "4/102",
+      ]);
+    },
+  );
+
+  it("suggestion vocabulary uses whole phrases, every final prefix alternative, diacritics and CJK", async () => {
+    for (const [id, title] of [
+      ["suggest_etb", "Pokémon Elite Trainer Box リザードン"],
+      ["suggest_bb", "Pokemon Booster Boxes"],
+      ["suggest_zard", "Charizard"],
+      ["suggest_literal", "zardex"],
+      ["suggest_wrong", "Pokemon Elite Box Trainer"],
+    ]) {
+      await pools.discovery.query(
+        `INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, status) VALUES ($1, $1, $2, 'active')`,
+        [id, title],
+      );
+    }
+    await rebuildSearchIndex();
+    const ids = async (query: string) =>
+      (await suggestDiscoveryItems(pools.discovery, query)).map((item) => item.catalogItemId).sort();
+    expect(await ids("pkmn ETB")).toEqual(["suggest_etb"]);
+    expect(await ids("ETB リザード")).toEqual(["suggest_etb"]);
+    expect(await ids("Pokémon ETB")).toEqual(["suggest_etb"]);
+    expect(await ids("Pokémon ETB リザード".normalize("NFD"))).toEqual(["suggest_etb"]);
+    expect(await ids("pkmn BB")).toEqual(["suggest_bb"]);
+    expect(await ids("zard")).toEqual(["suggest_literal", "suggest_zard"]);
+    expect(await ids("pkmn ETB missing")).toEqual([]);
+    expect(
+      (await searchDiscoveryItems(pools.discovery, { search: "pkmn ETB リザード" }, { loadFacets: false })).items.map(
+        (item) => item.catalog_item_id,
+      ),
+    ).toEqual(["suggest_etb"]);
+    // Isolate each config so one successful OR branch cannot mask a broken other branch.
+    const snapshot = await pools.discovery.query<{
+      catalog_item_id: string;
+      search_text: string;
+      search_text_simple: string;
+    }>("SELECT catalog_item_id, search_text::text, search_text_simple::text FROM discovery_search_items");
+    await pools.discovery.query("UPDATE discovery_search_items SET search_text_simple = ''::tsvector");
+    expect(await ids("pkmn BB")).toEqual(["suggest_bb"]);
+    for (const row of snapshot.rows)
+      await pools.discovery.query(
+        "UPDATE discovery_search_items SET search_text = ''::tsvector, search_text_simple = $2::tsvector WHERE catalog_item_id = $1",
+        [row.catalog_item_id, row.search_text_simple],
+      );
+    expect(await ids("pkmn BB")).toEqual(["suggest_bb"]);
+  });
+
   it("matches Latin diacritics symmetrically for titles and aliases", async () => {
     await pools.discovery.query(
       `INSERT INTO discovery_search_catalog_items (
@@ -1827,6 +2443,114 @@ describe("marketplace search", () => {
     expect(await searchItemIds("Pokemon Celebration")).toContain("cat_accented_pokemon");
     expect(await searchItemIds("Pokemon Legacy")).toContain("cat_alias_pokemon");
   });
+
+  it.each(["legacy", "modern", "operator"])(
+    "operator removal matches automatic visibility / legacy-modern parity: %s",
+    async (shape) => {
+      const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);
+      const at = "2026-07-23T03:00:10.000Z";
+      const project = async (type: string, data: Record<string, unknown>, streamId: string, position: number) => {
+        expect(handlers[type]).toBeTypeOf("function");
+        await handlers[type]!(projectionEvent(type, data, streamId, position));
+      };
+      await pools.discovery.query(
+        `INSERT INTO discovery_search_catalog_items (catalog_item_id, title, status) VALUES ('cat_removal', 'Removal Item', 'active')`,
+      );
+      await rebuildSearchIndex();
+      const owner = "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      for (const [listingId, accountId, price, position] of [
+        ["lst_1", owner, "10.00", 1],
+        ["lst_2", "acc_2", "20.00", 4],
+      ] as const) {
+        await project(
+          "identity.account.created",
+          { accountId, displayName: accountId },
+          `identity.account-${accountId}`,
+          position,
+        );
+        await project(
+          "marketplace.listing.created",
+          {
+            listingId,
+            accountId,
+            inventoryItemId: `inv_${listingId}`,
+            catalogItemId: "cat_removal",
+            productId: "prd_removal",
+            itemTitle: "Removal Item",
+            selectedOptions: [],
+            productMeasureSnapshot: { quantity: 1, unit: "item" },
+            priceAmount: price,
+            priceCurrencyCode: "USD",
+            quantityCap: 1,
+          },
+          `marketplace.listing-${listingId}`,
+          position + 1,
+        );
+        await project("marketplace.listing.published", {}, `marketplace.listing-${listingId}`, position + 2);
+      }
+      const listings = async () =>
+        (
+          await pools.discovery.query(
+            `SELECT listing_id, account_id, status, price_amount::text FROM discovery_market_listings ORDER BY listing_id`,
+          )
+        ).rows;
+      const signals = async () =>
+        (
+          await pools.discovery.query(
+            `SELECT lowest_price_amount::text, visible_quantity FROM discovery_search_items WHERE catalog_item_id = 'cat_removal'`,
+          )
+        ).rows;
+      expect(await signals()).toEqual([{ lowest_price_amount: "10.00", visible_quantity: 2 }]);
+      const reportId = "rpt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      const listingEnforcement = {
+        version: 1,
+        listingEnforcementActionId: "lea_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        accountId: "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        source: shape === "operator" ? "operator-unlist" : "automatic-report-threshold",
+        sourceActionId: shape === "operator" ? "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV" : reportId,
+        occurredAt: at,
+      };
+      const type = `marketplace.listing.${shape === "operator" ? "operator" : "auto"}-unlisted`;
+      await project(
+        type,
+        shape === "operator"
+          ? { listingEnforcement }
+          : {
+              reportId,
+              reportCount: 3,
+              threshold: 3,
+              autoUnlistedAt: at,
+              ...(shape === "modern" ? { listingEnforcement } : {}),
+            },
+        "marketplace.listing-lst_1",
+        10,
+      );
+      // Independent public-output contract from immutable base 43d1c261; the second owner remains visible.
+      expect(await listings()).toEqual([
+        { listing_id: "lst_1", account_id: owner, status: "paused", price_amount: "10.00" },
+        { listing_id: "lst_2", account_id: "acc_2", status: "active", price_amount: "20.00" },
+      ]);
+      expect(await signals()).toEqual([{ lowest_price_amount: "20.00", visible_quantity: 1 }]);
+      const feed = (
+        await pools.discovery.query(
+          "SELECT eligibility_status, exclusion_reasons FROM discovery_google_shopping_feed_rows WHERE listing_id = 'lst_1'",
+        )
+      ).rows[0]!;
+      expect(feed.eligibility_status).toBe("excluded");
+      expect(feed.exclusion_reasons).toContain("listing-not-active");
+      await project(
+        type,
+        shape === "operator" ? { listingEnforcement } : { reportId, reportCount: 3, threshold: 3, autoUnlistedAt: at },
+        "marketplace.listing-lst_1",
+        9,
+      );
+      expect(await signals()).toEqual([{ lowest_price_amount: "20.00", visible_quantity: 1 }]);
+      const columns = (
+        await pools.discovery.query(`SELECT * FROM discovery_market_listings WHERE listing_id = 'lst_1'`)
+      ).rows[0]!;
+      expect(Object.keys(columns).some((key) => key.includes("enforcement"))).toBe(false);
+    },
+  );
 
   it("keeps market signals current through listing lifecycle and an absent-aggregate shadow cutover", async () => {
     const handlers = buildDiscoveryMarketProjectionHandlers(pools.discovery);

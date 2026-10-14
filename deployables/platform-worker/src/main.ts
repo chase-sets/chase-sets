@@ -307,12 +307,16 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
+const identityHostPorts = {
+  capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+} satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
 const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
   createWorkerHost(workerContextRegistry, "platform-worker", {
     pools,
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      ...identityHostPorts,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,

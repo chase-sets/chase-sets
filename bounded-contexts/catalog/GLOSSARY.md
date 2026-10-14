@@ -97,6 +97,9 @@ The current implementation also uses four supporting authoring concepts:
 - `Scope Coverage` — the read model answer showing which provider units can cover a Catalog Scope Record and which mappings or provider capabilities are missing
 - `Scope Sync` — the workflow that starts from a Catalog Scope Record, applies approved Provider Scope Mappings, and then plans provider pulls
 - `Scope Sync Batch` — a durable, bounded Catalog workflow that previews and executes Scope Sync across explicit or server-resolved matching Catalog Scope Records while preserving per-scope planning, provider budgets, stale-evidence checks, and settled work
+- `Count quote` — an expiring, fingerprinted display of selected sets, missing Scrydex card/sealed counts, per-kind credits, reuse and a server-bounded cap. Approval authorizes counts, not a Scope Sync Batch.
+- `Count spend` — append-only credits debited before a possible count request, with its retained result or uncertainty. Separate from account usage and batch reservations; uncertainty never refunds or re-arms a query.
+- `page-1-count` — validated total, observed page size and page-1 length retained on count spend without option items or any claim of all-page completion.
 - `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
@@ -416,6 +419,17 @@ Catalog sync decision vocabulary:
 - `split` means one provider-sourced candidate should become more than one Catalog candidate.
 - `update` means an approved candidate refreshes existing Catalog Item/Product facts through Catalog commands.
 - `delete` means a candidate is rejected, ignored, or withdrawn from the merged candidate set. It is not canonical Catalog Item/Product removal.
+
+Catalog Merge Candidate approval is not application:
+
+- `promoted` (candidate status and the `catalog.merge-candidate.promoted` event) means the candidate was approved for Catalog promotion. It never claims a Catalog Item was written.
+- `promotion-planned` (`catalog.merge-candidate.promotion-planned`) is the candidate-owned, immutable application plan bound to one approval before any Catalog Item command: initiating job and work unit, target Catalog Item, actual mode, target baseline, resolved profile versions, mapping, reference and asset inputs, exact ordered commands and the validated plan fingerprint. A resumed application replays it; it is never regenerated or retargeted.
+- `promotion-applied` (`catalog.merge-candidate.promotion-applied`) records that the bound plan's commands are proven complete on the target stream. It is appended once per approval.
+- `appliedMode` is the action a completed application actually took: `create`, `refresh` (including a create intent redirected to a retained Catalog Item) or `link-existing`. It is not the reviewed `promotionIntent`.
+- `appliedCatalogItemId` is the Catalog Item a completed application wrote. A scope job result's `catalogItemId` stays the historical matched target, never application evidence.
+- `promotionApplicationVersion` is the persisted scope promotion job discriminator: `1` for jobs whose `promoted` outcomes are completed applications; absent for retained jobs whose `promoted` outcomes recorded approval only.
+
+Owning contracts: `bounded-contexts/catalog/features/source-observations/domain/catalog-merge-candidate.ts` and `bounded-contexts/catalog/features/source-observations/api/source-observation-runtime-contracts.ts`; lifecycle, rollout and rollback in `bounded-contexts/catalog/docs/catalog-scope-sync-merge-candidate-handoff.md`.
 
 ## One-Line Summary
 

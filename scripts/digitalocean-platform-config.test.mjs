@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -464,6 +464,213 @@ it("maps the optional wallet funding smoke and fail-closed production runtime ga
     expect(deployProduction).toContain(`vars.${name}`);
     expect(deployProduction).toContain(`add_optional_runtime_env "${name}"`);
   }
+});
+
+describe("production Catalog integration deploy preflight (#8072)", () => {
+  const productionWorkflow = parse(readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8"));
+  const deployProduction = productionWorkflow.jobs["deploy-production"];
+  const jobStep = (name) => {
+    const step = deployProduction.steps.find((candidate) => candidate.name === name);
+    if (!step?.run) throw new Error(`Missing deploy-production step: ${name}`);
+    return step;
+  };
+  const shippedRuntimeValues = readFileSync(resolve("infrastructure/helm/platform/runtime-values.json"), "utf8");
+  const providerCredentials = [
+    ["SCRYDEX_API_KEY", "TF_VAR_scrydex_api_key"],
+    ["SCRYDEX_TEAM_ID", "TF_VAR_scrydex_team_id"],
+    ["TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", "TF_VAR_tcgplayer_automation_tcg_auth_cookie"],
+  ];
+  const enforcedSignoffReferences = [
+    "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+  ];
+  const optionalSignoffReferences = [
+    "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+  ];
+  const recordedSignoffReferences = [...enforcedSignoffReferences, ...optionalSignoffReferences];
+  // [GitHub secret or variable name the message names, deploy-production env name the step reads]
+  const catalogInputs = [...providerCredentials, ...enforcedSignoffReferences.map((name) => [name, name])];
+  const syntheticValue = (name) => `SYNTHETIC-${name}-VALUE`;
+
+  // Executes the real step body in a scratch root holding a copy of the shipped runtime values,
+  // with every other production requirement satisfied by synthetic values.
+  function runCatalogPreflight(overrides = {}, controlPlaneMode, optionalVariables = {}) {
+    const root = mkdtempSync(join(tmpdir(), "catalog-integration-preflight-"));
+    try {
+      const runtimeValues = JSON.parse(shippedRuntimeValues);
+      if (controlPlaneMode === null) delete runtimeValues.productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE;
+      else if (controlPlaneMode !== undefined)
+        runtimeValues.productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE = controlPlaneMode;
+      mkdirSync(join(root, "infrastructure/helm/platform"), { recursive: true });
+      writeFileSync(join(root, "infrastructure/helm/platform/runtime-values.json"), JSON.stringify(runtimeValues));
+      const env = {
+        ...process.env,
+        ...Object.fromEntries(
+          [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DIGITALOCEAN_ACCESS_TOKEN",
+            "TF_VAR_platform_internal_auth_secret",
+            "TF_VAR_platform_admin_email",
+            "TF_VAR_platform_admin_password",
+            "TF_VAR_discord_invite_url",
+          ].map((name) => [name, syntheticValue(name)]),
+        ),
+        TF_VAR_observability_enabled: "false",
+        TF_VAR_admin_google_workspace_hosted_domains: "",
+        TF_VAR_production_runtime_profile: "landing",
+        TF_VAR_production_marketplace_public_enabled: "false",
+        TF_VAR_notification_email_provider: "noop",
+        ...Object.fromEntries(catalogInputs.map(([name, envName]) => [envName, syntheticValue(name)])),
+        ...Object.fromEntries(
+          optionalSignoffReferences.map((name) => [`${name}_PRESENT`, String(Object.hasOwn(optionalVariables, name))]),
+        ),
+        ...Object.fromEntries(optionalSignoffReferences.map((name) => [name, optionalVariables[name] ?? ""])),
+        ...overrides,
+      };
+      const result = spawnSync(operatorBash, ["-s"], {
+        input: jobStep("Validate production configuration").run,
+        cwd: root,
+        env,
+        encoding: "utf8",
+      });
+      if (result.error) throw result.error;
+      return { status: result.status, output: `${result.stdout}${result.stderr}` };
+    } finally {
+      if (!root.startsWith(join(tmpdir(), "catalog-integration-preflight-"))) {
+        throw new Error("Unexpected preflight cleanup root");
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  function expectNoInputValue(output) {
+    for (const [name] of catalogInputs) expect(output).not.toContain(syntheticValue(name));
+  }
+
+  it("admits the shipped open control plane when every credential and enforced signoff reference is present", () => {
+    expect(JSON.parse(shippedRuntimeValues).productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE).toBe("open");
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expectNoInputValue(result.output);
+  });
+
+  it("admits absent optional game signoffs without activating those games", () => {
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).toBe("");
+  });
+
+  it.each(optionalSignoffReferences)("rejects a present-but-blank %s by name without exposing values", (name) => {
+    for (const mode of [undefined, "dry-run-only", "read-only", null]) {
+      for (const value of ["", "   ", "false", " None ", "OPEN"]) {
+        const result = runCatalogPreflight({}, mode, { [name]: value });
+        expect(result.status).toBe(1);
+        expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+        expectNoInputValue(result.output);
+      }
+      const result = runCatalogPreflight({}, mode, { [name]: syntheticValue(name) });
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).not.toContain(syntheticValue(name));
+    }
+  });
+
+  it("passes only targeted presence booleans, never the aggregate variable map", () => {
+    const step = jobStep("Validate production configuration");
+    expect(step.env).not.toHaveProperty("CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES");
+    for (const name of optionalSignoffReferences) {
+      expect(step.env[`${name}_PRESENT`]).toBe(`\${{ contains(toJSON(vars), '"${name}":') }}`);
+    }
+    expect(Object.values(step.env)).not.toContain("${{ toJSON(vars) }}");
+  });
+
+  it("uses presence booleans rather than fallback values to distinguish absent references", () => {
+    for (const name of optionalSignoffReferences) {
+      expect(runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "false" }).status).toBe(0);
+      const result = runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "true" });
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+    }
+  });
+
+  it("rejects configured blank optional references even when the control plane is closed", () => {
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(
+        {},
+        mode,
+        Object.fromEntries(optionalSignoffReferences.map((name) => [name, ""])),
+      );
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(
+        `Invalid production Catalog integration signoff reference: ${optionalSignoffReferences.join(" ")}\n`,
+      );
+    }
+  });
+
+  it.each(catalogInputs)("fails the open-plane preflight by name when %s is withheld", (name, envName) => {
+    const result = runCatalogPreflight({ [envName]: "" });
+    expect(result.status).toBe(1);
+    expect(result.output).toBe(`Missing required production Catalog integration configuration: ${name}\n`);
+    expectNoInputValue(result.output);
+  });
+
+  it("treats blank credentials and open-alias signoff references as withheld, the way the runtime does", () => {
+    for (const [overrides, name] of [
+      [{ TF_VAR_scrydex_team_id: "   " }, "SCRYDEX_TEAM_ID"],
+      [{ CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: " None " }, enforcedSignoffReferences[0]],
+      [{ CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "false" }, enforcedSignoffReferences[1]],
+    ]) {
+      const result = runCatalogPreflight(overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Missing required production Catalog integration configuration: ${name}\n`);
+    }
+    const allWithheld = runCatalogPreflight(Object.fromEntries(catalogInputs.map(([, envName]) => [envName, ""])));
+    expect(allWithheld.status).toBe(1);
+    expect(allWithheld.output).toBe(
+      `Missing required production Catalog integration configuration: ${catalogInputs.map(([name]) => name).join(" ")}\n`,
+    );
+  });
+
+  it("applies whenever the shipped plane admits writes and never to a closed plane", () => {
+    const withheld = Object.fromEntries(catalogInputs.map(([, envName]) => [envName, ""]));
+    for (const mode of ["rollback-ready", "OPEN", "none"]) {
+      expect(runCatalogPreflight(withheld, mode).status, mode).toBe(1);
+    }
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(withheld, mode);
+      expect(result.status, `${mode}: ${result.output}`).toBe(0);
+      expect(result.output).toBe("");
+    }
+  });
+
+  it("threads the signoff references from production variables beside the preserved provider secret path", () => {
+    for (const name of recordedSignoffReferences) {
+      expect(deployProduction.env[name]).toBe(`\${{ vars.${name} || '' }}`);
+      expect(jobStep("Deploy production Kubernetes release").run).toContain(
+        `add_optional_runtime_env "${name}" "\${${name}:-}"`,
+      );
+    }
+    // Preserved, not rebuilt: the production environment's provider secrets reach the API and worker
+    // runtime Secret through the same step as Stripe and EasyPost.
+    const secretStep = jobStep("Apply production Kubernetes runtime secrets").run;
+    for (const [name, envName] of [
+      ...providerCredentials,
+      ["STRIPE_SECRET_KEY", "TF_VAR_stripe_secret_key"],
+      ["EASYPOST_API_KEY", "TF_VAR_easypost_api_key"],
+    ]) {
+      expect(secretStep).toContain(`export ${name}="\${${envName}:-}"`);
+    }
+    expect(secretStep).toContain("--deployment-environment production");
+    const runtimeComponents = JSON.parse(shippedRuntimeValues).components;
+    for (const [name, envName] of providerCredentials) {
+      expect(deployProduction.env[envName]).toBe(`\${{ secrets.${name} || '' }}`);
+      for (const consumer of ["platform-api", "platform-worker"]) {
+        expect(runtimeComponents[consumer].env).toContainEqual({ name, secret: true, secretKey: name });
+      }
+    }
+  });
 });
 const platformVersions = readFileSync(resolve("infrastructure/digitalocean/platform/versions.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");

@@ -40,6 +40,21 @@ export type ResolvedActor = Readonly<{
    * this is missing rather than treat an unknown moment as recent.
    */
   authenticatedAt?: string | null;
+  /**
+   * Current Capability Grants Identity holds for this actor's Account, as
+   * projected by Auth when it resolved this Session-backed actor. Auth reads
+   * them per request, so a grant or revoke applies on the next resolution
+   * after projection commit; an already-resolved snapshot keeps its value.
+   * Absent when the Account holds no grant and for actor kinds that never
+   * carry grants (guest checkout, UCP/agent bearer tokens).
+   */
+  capabilityAssignments?: readonly ResolvedActorCapabilityAssignment[];
+}>;
+
+export type ResolvedActorCapabilityAssignment = Readonly<{
+  key: string;
+  assignmentId: string;
+  version: number;
 }>;
 
 /**
@@ -112,6 +127,7 @@ export type AgentOAuthScopeDefinition = Readonly<{
 
 export type AgentOAuthGrantContext = Readonly<{
   grantId: string;
+  platformProfileUrl: string;
   scopes: readonly AgentOAuthScope[];
   rolePermissions: readonly string[];
 }>;

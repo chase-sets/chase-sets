@@ -4,12 +4,6 @@ import {
   evolveMarketplaceOfferSellerControl,
   initialMarketplaceOfferSellerControlState,
 } from "./offer-seller-controls";
-import { DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY } from "./offer-abuse-policy";
-
-const policy = {
-  ...DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
-  lowballCooldownWindowMs: 60_000,
-};
 
 const baseDecline = {
   type: "DeclineOfferMatch" as const,
@@ -22,11 +16,10 @@ const baseDecline = {
   listingPriceAmount: "100.00",
   listingPriceCurrencyCode: "USD",
   declinedAt: "2026-07-05T12:00:00.000Z",
-  policy,
 };
 
 describe("marketplace offer seller controls", () => {
-  it("starts a lowball cooldown after the second below-ask decline", () => {
+  it("does not start a cooldown after two below-ask declines", () => {
     const firstEvents = decideMarketplaceOfferSellerControl(initialMarketplaceOfferSellerControlState, {
       ...baseDecline,
       offerId: "off_1" as never,
@@ -44,30 +37,60 @@ describe("marketplace offer seller controls", () => {
     const secondState = secondEvents.reduce(evolveMarketplaceOfferSellerControl, firstState);
 
     expect(secondState.lowballDeclineCount).toBe(2);
-    expect(secondState.lastLowballDeclinedAmount).toBe("40.00");
-    expect(secondState.lowballCooldownUntil).toBe("2026-07-05T12:01:00.000Z");
+    expect(secondEvents[0]?.data).toMatchObject({ lowballCooldownUntil: null });
+    expect(secondState.lowballCooldownUntil).toBeNull();
   });
 
-  it("records and removes buyer offer mutes", () => {
-    const mutedState = decideMarketplaceOfferSellerControl(initialMarketplaceOfferSellerControlState, {
-      type: "MuteBuyerOffers",
-      sellerAccountId: "acc_seller" as never,
-      buyerAccountId: "acc_buyer" as never,
-      listingId: "lst_1",
-      productId: "cat_1::",
-      offerId: "off_1" as never,
-      mutedAt: "2026-07-05T12:00:00.000Z",
-    }).reduce(evolveMarketplaceOfferSellerControl, initialMarketplaceOfferSellerControlState);
+  it("replays historical buyer mutes, unmute and cooldown-bearing Decline events", () => {
+    const identity = {
+      sellerAccountId: baseDecline.sellerAccountId,
+      buyerAccountId: baseDecline.buyerAccountId,
+      listingId: baseDecline.listingId,
+      productId: baseDecline.productId,
+    };
+    const mutedState = evolveMarketplaceOfferSellerControl(initialMarketplaceOfferSellerControlState, {
+      type: "marketplace.offer.buyer-muted",
+      data: { ...identity, offerId: "off_1" as never, mutedAt: "2026-07-05T12:00:00.000Z" },
+    });
     expect(mutedState.mutedAt).toBe("2026-07-05T12:00:00.000Z");
 
-    const unmutedState = decideMarketplaceOfferSellerControl(mutedState, {
-      type: "UnmuteBuyerOffers",
-      sellerAccountId: "acc_seller" as never,
-      buyerAccountId: "acc_buyer" as never,
-      listingId: "lst_1",
-      productId: "cat_1::",
-      unmutedAt: "2026-07-05T12:02:00.000Z",
-    }).reduce(evolveMarketplaceOfferSellerControl, mutedState);
+    const unmutedState = evolveMarketplaceOfferSellerControl(mutedState, {
+      type: "marketplace.offer.buyer-unmuted",
+      data: { ...identity, unmutedAt: "2026-07-05T12:02:00.000Z" },
+    });
     expect(unmutedState.mutedAt).toBeNull();
+    const historicalState = evolveMarketplaceOfferSellerControl(unmutedState, {
+      type: "marketplace.offer.match-declined",
+      data: {
+        ...identity,
+        offerId: "off_historical" as never,
+        offerPriceAmount: "40.00",
+        offerPriceCurrencyCode: "USD",
+        listingPriceAmount: "100.00",
+        listingPriceCurrencyCode: "USD",
+        declinedAt: baseDecline.declinedAt,
+        lowballDeclineCount: 2,
+        lowballCooldownUntil: "2026-07-12T12:00:00.000Z",
+      },
+    });
+    expect(historicalState).toMatchObject({
+      ...identity,
+      declinedOfferIds: ["off_historical"],
+      declinedOfferCount: 1,
+      lowballDeclineCount: 2,
+      lastLowballDeclinedAmount: "40.00",
+      lastLowballDeclinedCurrencyCode: "USD",
+      lowballCooldownUntil: "2026-07-12T12:00:00.000Z",
+      mutedAt: null,
+    });
+    const newEvents = decideMarketplaceOfferSellerControl(historicalState, {
+      ...baseDecline,
+      offerId: "off_new" as never,
+    });
+    expect(newEvents[0]?.data).toMatchObject({ lowballCooldownUntil: null });
+    expect(newEvents.reduce(evolveMarketplaceOfferSellerControl, historicalState).declinedOfferIds).toEqual([
+      "off_historical",
+      "off_new",
+    ]);
   });
 });

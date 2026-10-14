@@ -1,8 +1,10 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { SupportRequestId } from "@chase-sets/primitives/typed-ids";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { useMemo, useState } from "react";
-import { RouterForm } from "@chase-sets/design-system/react-router";
+import { ParticipantForm as RouterForm } from "./participant-form";
+import { useNavigation } from "react-router";
 import {
   Badge,
   Banner,
@@ -41,6 +43,8 @@ type SupportRequestListPageProps = Readonly<{
   initialFlowType?: string | null;
   recoverySupportRequestId?: string | null;
   uploadedAttachmentReferences?: readonly string[];
+  attachmentOperationId?: string;
+  uploadUncertain?: boolean;
 }>;
 
 function statusTone(status: string) {
@@ -216,13 +220,24 @@ function SupportRequestOpenPanel({
   initialFlowType,
   recoverySupportRequestId,
   uploadedAttachmentReferences = [],
+  attachmentOperationId,
+  uploadUncertain = false,
 }: Readonly<{
   flows: readonly SupportFlowSummary[];
   supportOrder: SupportOrderLookup;
   initialFlowType?: string | null;
   recoverySupportRequestId?: string | null;
   uploadedAttachmentReferences?: readonly string[];
+  attachmentOperationId?: string;
+  uploadUncertain?: boolean;
 }>) {
+  const navigation = useNavigation();
+  const [newBatchId, setNewBatchId] = useState(() => createId("sao"));
+  const [abandonedOperationId, setAbandonedOperationId] = useState<string | null>(null);
+  const recoveredBatch = attachmentOperationId && attachmentOperationId !== abandonedOperationId;
+  const operationId = recoveredBatch ? attachmentOperationId : newBatchId;
+  const references = recoveredBatch ? uploadedAttachmentReferences : [];
+  const uncertain = Boolean(recoveredBatch && uploadUncertain);
   const visibleFlows = useMemo(
     () => flows.filter((flow) => flow.openedBy.includes(supportOrder.openedByRole)),
     [flows, supportOrder.openedByRole],
@@ -290,14 +305,16 @@ function SupportRequestOpenPanel({
 
   return (
     <Surface elevation="tinted" data-elevation-role="furniture">
-      <RouterForm method="post" encType="multipart/form-data" spacing="md">
+      <RouterForm method="post" encType="multipart/form-data" spacing="md" submitting={navigation.state !== "idle"}>
+        <HiddenInput name="attachmentOperationId" value={operationId} readOnly />
+        <HiddenInput name="uploadUncertain" value={String(uncertain)} readOnly />
         <HiddenInput type="hidden" name="orderId" value={supportOrder.orderId} readOnly />
         <HiddenInput type="hidden" name="flowType" value={selectedFlowType} readOnly />
         <HiddenInput type="hidden" name="photoRequired" value={String(photoRequired)} readOnly />
         {recoverySupportRequestId ? (
           <HiddenInput type="hidden" name="supportRequestId" value={recoverySupportRequestId} readOnly />
         ) : null}
-        {uploadedAttachmentReferences.map((reference) => (
+        {references.map((reference) => (
           <HiddenInput key={reference} type="hidden" name="uploadedAttachmentReferences" value={reference} readOnly />
         ))}
         {selectedLineIds.map((lineId) => (
@@ -412,10 +429,25 @@ function SupportRequestOpenPanel({
                 </LinkText>
               </Stack>
             </Inset>
-            {photoRequired ? (
-              <SupportEvidenceAttachmentInput required={uploadedAttachmentReferences.length === 0} />
+            {references.length > 0 ? (
+              <Text>{t("support.features.supportRequests.ui.supportRequestListPage.photos.recovered")}</Text>
+            ) : photoRequired ? (
+              <SupportEvidenceAttachmentInput key={operationId} required={references.length === 0} />
             ) : null}
           </Stack>
+        ) : null}
+
+        {attachmentOperationId ? (
+          <Button
+            type="button"
+            tone="secondary"
+            onClick={() => {
+              setAbandonedOperationId(attachmentOperationId);
+              setNewBatchId(createId("sao"));
+            }}
+          >
+            {t("support.features.supportRequests.ui.supportRequestListPage.photos.newBatch")}
+          </Button>
         ) : null}
 
         <Cluster justify="end">
@@ -454,6 +486,8 @@ export function SupportRequestListPage({
   initialFlowType,
   recoverySupportRequestId,
   uploadedAttachmentReferences,
+  attachmentOperationId,
+  uploadUncertain,
 }: SupportRequestListPageProps) {
   return (
     <Page>
@@ -471,7 +505,13 @@ export function SupportRequestListPage({
         />
       ) : null}
 
-      {actionError ? <Banner tone="danger" title={actionError} /> : null}
+      {actionError ? (
+        <Banner
+          tone="danger"
+          title={actionError}
+          description={t("support.features.supportRequests.ui.supportRequestListPage.photos.retry")}
+        />
+      ) : null}
       {lookupError ? <Banner tone="danger" title={lookupError} /> : null}
 
       <PageSection
@@ -480,11 +520,14 @@ export function SupportRequestListPage({
       >
         {supportOrder ? (
           <SupportRequestOpenPanel
+            key={supportOrder.orderId}
             flows={flows}
             supportOrder={supportOrder}
             initialFlowType={initialFlowType}
             recoverySupportRequestId={recoverySupportRequestId}
             uploadedAttachmentReferences={uploadedAttachmentReferences}
+            attachmentOperationId={attachmentOperationId}
+            uploadUncertain={uploadUncertain}
           />
         ) : (
           <SupportIntakeStart />

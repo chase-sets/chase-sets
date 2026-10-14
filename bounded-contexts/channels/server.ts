@@ -125,6 +125,7 @@ export {
   type ChannelDriftObservationV1,
   type ChannelDriftObservation,
   type ChannelObservedMaterial,
+  type ChannelSourceAuthority,
   type ClaimedChannelStateRead,
   type ChannelHealthObservationV1,
   type ChannelHealthObservationIdentity,

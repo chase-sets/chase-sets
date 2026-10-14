@@ -23,6 +23,31 @@ import {
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
+// #9385 adds deny-all host ports; #9499 removes receipts with the interrupted archive facts.
+// Historical timing captures remain immutable. Current-source pins do not claim new timings.
+const administrationAdaptedSources: Readonly<Record<string, string>> = {
+  "connector-mount-gate-isolation.db.test.ts": "6b6fe6ed4568966bbe926509fd8aa405b84fd293fcf68aafdec29a454a5e87e9",
+  "bootstrap-production-reconciliation.db.test.ts": "69f2cd5e0ac26b20a1f7f17ec58c5a62a1e9384c6606e9c2be7ab8a43b0ccf18",
+  "inventory-seed-resume.db.test.ts": "6bb69e5513e513a2178cfff34143ed0b28f2f5ee37f992984acabcc58f38ab9a",
+  "bootstrap-scenario.db.test.ts": "0458197a2a210abae4cb987ff225d36b0e0ab939db57458a01aec7396d5a3985",
+  "seed-command-full-pools.db.test.ts": "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356",
+  "bootstrap-shared-seed-command.db.test.ts": "7e318b7be666a8a157ef907a12cd820490391aee53c90eb00e2430ad7f85be30",
+};
+const administrationAdaptedIdentities: Readonly<Record<string, string>> = {
+  c809c18f34f0e0c6: "4d891cb822a0a334",
+  ea12b6d3f3a538ba: "d5d72806700dfd1c",
+  fa0e6fbbe051d0fe: "c25834c5b91d4a6f",
+  "638e411899544781": "fcf65b142a0bbe05",
+  b04028e2169c8633: "f749da3c0ba3e000",
+  c9351aa5fd10ecb6: "1e91d11294f92825",
+  "6b7c87db7e1a0d46": "91ce1f9bea42efa9",
+  "170dd2ca3aa2dca2": "5d22ae06208e8106",
+  "18b6a50d157754d5": "f9e31ed90041d384",
+  "68dfd0998ec22c33": "0204be7639f55534",
+};
+const inventoryRecoveryAdaptedIdentities: Readonly<Record<string, string>> = {
+  "8c5dc773de3c8363": "2f1e5800d580e926",
+};
 // Generate fixture code, not an environment read by this non-DB test module.
 const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
 const syntheticDatabaseUrlRead = `process.env.${syntheticDatabaseUrlKey}`;
@@ -787,11 +812,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
     const fileName = "seed-command-full-pools.db.test.ts";
     const source = readFileSync(join(testDirectory, fileName));
-    expect(createHash("sha256").update(source).digest("hex")).toBe(
-      "21112a33cfbe069967b24c03321a5d35842519376128bae813836dbf4bf79bbe",
-    );
+    expect(createHash("sha256").update(source).digest("hex")).toBe(administrationAdaptedSources[fileName]);
     expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
-      "68dfd0998ec22c33",
+      "0204be7639f55534",
       "9e7b99abfd2756ab",
     ]);
   });
@@ -1647,15 +1670,43 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(capture.files.flatMap((file) => file.cases)).toHaveLength(67);
     for (const file of capture.files) {
       const partition = bootstrapDbEnrollmentManifest[file.fileName]!;
+      const currentSource = readFileSync(join(testDirectory, file.fileName), "utf8");
+      const tree = ts.createSourceFile(file.fileName, currentSource, ts.ScriptTarget.Latest, true);
+      const removals: { start: number; end: number }[] = [];
+      function visit(node: ts.Node) {
+        if (ts.isPropertyAssignment(node) && node.name.getText(tree) === "capabilityAdministrationAuthority") {
+          expect(node.initializer.getText(tree)).toMatch(/kind:\s*"deny-all"/);
+          let end = node.end;
+          while (/\s/.test(currentSource[end] ?? "") && end < currentSource.length) end++;
+          if (currentSource[end] === ",") end++;
+          removals.push({ start: node.getStart(tree), end });
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(tree);
+      let historicalShape = currentSource;
+      for (const removal of removals.sort((a, b) => b.start - a.start))
+        historicalShape = historicalShape.slice(0, removal.start) + historicalShape.slice(removal.end);
+      // Apart from the explicitly pinned archive interruption adaptation, removing
+      // deny-all host ports must recover every historical assertion's identity.
+      expect(deriveBootstrapDbCaseIdentities(file.fileName, historicalShape)).toEqual(
+        file.cases.map(({ name, identity }) => ({
+          name,
+          identity: inventoryRecoveryAdaptedIdentities[identity] ?? identity,
+        })),
+      );
       expect(
         createHash("sha256")
           .update(readFileSync(join(testDirectory, file.fileName)))
           .digest("hex"),
-      ).toBe(file.sourceSha256);
+      ).toBe(administrationAdaptedSources[file.fileName] ?? file.sourceSha256);
       expect(partition.cases).toEqual(
         file.cases.map((testCase) => ({
           name: testCase.name,
-          identity: testCase.identity,
+          identity:
+            inventoryRecoveryAdaptedIdentities[testCase.identity] ??
+            administrationAdaptedIdentities[testCase.identity] ??
+            testCase.identity,
           referenceDurationMs: Math.ceil(testCase.durationMs),
         })),
       );
@@ -2709,7 +2760,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(actual).toEqual(expected);
     expect(deriveBootstrapDbCaseIdentities("catalog-before-split.ts", sources.join("\n"))).toEqual(expected);
     const support = readFileSync(join(testDirectory, "catalog-seed-test-support.ts"), "utf8");
-    // AST digests captured from f8b1c5eb3a1efb51703ff9df61c0aa6554cf6ef7, excluding only export plumbing.
+    // Historical AST digests exclude export plumbing; the deny-all host adaptation is pinned and stripped below.
     const expectedHelpers = {
       CatalogServices: "a8e89b7f2c21b03bc9f44258e94d22397bd36823e944e9c8a3a7c8a5743e6872",
       InterruptionSite: "c4dadca6244573816136cb34ca52f186a2b47b8e32dcf3d6302940783a75d4b2",
@@ -2717,7 +2768,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       profileShapes: "3ac53db3762c52cfff690dc427bea3cdaa82f4b585095736995aab43c1ac00f6",
       databaseUrls: "14168e4de456370321f00dbba9697c134df3470f0fa860257723d60bd2282ff1",
       pools: "5260c751c5ee88b848ffa1899726fad225c3283d06d00721d9c04f5cc43de6f9",
-      createCatalogSeedHost: "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+      createCatalogSeedHost: "595a21d28805159ba5dccd4f756f478b16780895bc545bd73adab76cf89fbf70",
       prepareCatalog: "7fb847531b8b855767631e51c953bfdb3c1b1afae463f6d63a0c62b6fe22a140",
       catalogServices: "d46e45a440d6e719db7d53d9a6e9e6368733a6e6472b68f11d185ce25e5a4b1a",
       bootstrapOptions: "d24074c11b027484bafc2bac41825f4c71637fc61fe323b4be46a3115e6a3356",
@@ -2737,6 +2788,27 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     const { assignCatalogSeedState, ...helpers } = catalogDeclarationDigests(support);
     expect(helpers).toEqual(expectedHelpers);
+    const tree = sourceFileOf(support);
+    const removals: { start: number; end: number }[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isPropertyAssignment(node) && node.name.getText(tree) === "capabilityAdministrationAuthority") {
+        expect(node.initializer.getText(tree)).toBe('{ kind: "deny-all", diagnostic: "authority_absent" }');
+        let end = node.end;
+        while (/\s/.test(support[end] ?? "") && end < support.length) end++;
+        if (support[end] === ",") end++;
+        removals.push({ start: node.getStart(tree), end });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    expect(removals).toHaveLength(1);
+    let historicalShape = support;
+    for (const removal of removals.sort((a, b) => b.start - a.start)) {
+      historicalShape = historicalShape.slice(0, removal.start) + historicalShape.slice(removal.end);
+    }
+    expect(catalogDeclarationDigests(historicalShape).createCatalogSeedHost).toBe(
+      "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+    );
     expect(assignCatalogSeedState).toBeTruthy();
     for (const [index, source] of sources.entries()) {
       const suffix = index === 0 ? "aggregate_state" : "interruption_resume";

@@ -260,7 +260,7 @@ const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quot
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:989-1009`,
+    `${listingRuntime}:1006-1026`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -289,7 +289,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1449-1494`,
+    `${listingRuntime}:1466-1511`,
     /const quote = await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\)/,
@@ -340,13 +340,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Beta access starts",
     [
       [
-        "bounded-contexts/identity/api.ts:815-827",
+        "bounded-contexts/identity/api.ts:835-847",
         /if \(params.foundersBetaAccessStartedAt\)/,
         /foundersWindowEndsAt.setUTCDate\(foundersWindowEndsAt.getUTCDate\(\) \+ 60\)/,
         /type: "OpenFoundersWindow"/,
       ],
       [
-        "bounded-contexts/identity/GLOSSARY.md:108-120",
+        "bounded-contexts/identity/GLOSSARY.md:120-132",
         /anchored to beta access, not badge claim/,
         /includes its start and excludes/,
       ],
@@ -380,13 +380,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:1813-1829`,
+        `${listingRuntime}:1830-1846`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:1830-1938`,
+        `${listingRuntime}:1847-1955`,
         /applyBulkListingPriceUpdates: async/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -460,7 +460,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:1941-1953`,
+        `${listingRuntime}:1958-1970`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -618,7 +618,7 @@ describe("founders clause-level source authority", () => {
   it("preserves all three Pricing callers through the shared client and the real bulk route", () => {
     const callers: Citation[] = [
       [
-        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:612-612",
+        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:629-629",
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [
@@ -635,7 +635,7 @@ describe("founders clause-level source authority", () => {
         /applyBulkListingPriceUpdates: \(body, options\) => marketplaceApi.applyBulkListingPriceUpdates\(body, options\)/,
       ],
       [
-        "bounded-contexts/marketplace/client.ts:563-577",
+        "bounded-contexts/marketplace/client.ts:561-575",
         /async applyBulkListingPriceUpdates/,
         /"\/account\/listings\/prices\/bulk"/,
         /method: "POST"/,

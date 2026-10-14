@@ -41,6 +41,7 @@ import {
 } from "./test-support";
 import { withProjectionTransaction } from "./projection-transactions";
 import { createProjectionGroupWorkerRunner } from "../platform-runtime/worker";
+import { createApiHost, seedApiHostIfEmpty, type ApiContextRegistry } from "../platform-runtime/api";
 import {
   createCheckpointKey,
   saveSubscriptionCheckpoint as savePersistedSubscriptionCheckpoint,
@@ -318,6 +319,221 @@ describeDb("projection operations Postgres integration", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("failover recovery resets FK-dependent projection groups before rebuilding their identical rows", async () => {
+    const definitions = [
+      { projectionName: "catalog-scope-registry-projection", tables: ["catalog_scope_records"], order: 1 },
+      {
+        projectionName: "catalog-source-observation-projection",
+        tables: ["catalog_merge_candidates", "catalog_source_observations"],
+        order: 2,
+      },
+      { projectionName: "catalog-observation-detail-projection", tables: ["catalog_observation_details"], order: 3 },
+    ];
+    const module = defineBoundedContextModule<TestServices, PgTransactionalPool, TestPorts>({
+      manifest: {
+        contextName: "target",
+        apiBasePath: "/target",
+        streamPrefix: "target.",
+        eventSubscriptions: definitions.map(({ projectionName }) => ({
+          sourceContextName: "source",
+          projectionName,
+          subscriptionVersion: 1,
+          projectionHandlerSetNames: [projectionName],
+          eventTypes: ["source.scope-recorded"],
+        })),
+        projectionGroups: definitions.map(({ projectionName, tables }) => ({
+          projectionName,
+          sourceContextNames: ["source"],
+          ownedTables: tables,
+          resetStrategy: "truncate-owned-tables",
+        })),
+      },
+      schemaSql: `
+        CREATE UNLOGGED TABLE catalog_scope_records (id text PRIMARY KEY);
+        CREATE UNLOGGED TABLE catalog_merge_candidates (id text PRIMARY KEY REFERENCES catalog_scope_records(id));
+        CREATE UNLOGGED TABLE catalog_source_observations (id text PRIMARY KEY REFERENCES catalog_scope_records(id));
+        CREATE UNLOGGED TABLE catalog_observation_details (id text PRIMARY KEY REFERENCES catalog_source_observations(id));
+      `,
+      createServices: (pool) => ({ pool }),
+      buildApis: () => NO_API_ENTRIES,
+      buildSubscriptions: () =>
+        definitions.map(({ projectionName, tables, order }) => ({
+          subscriptionName: projectionName,
+          sourceContextName: "source",
+          projectionName,
+          subscriptionVersion: 1,
+          eventTypes: ["source.scope-recorded"],
+          order,
+          handlers: {
+            "source.scope-recorded": async (event, context) => {
+              for (const table of tables) {
+                await context!.db!.query(`INSERT INTO ${table} (id) VALUES ($1)`, [event.data.id]);
+              }
+            },
+          },
+        })),
+    });
+    await bootstrapContextDatabase(module, pools.target);
+    const mount = () =>
+      createMountedContextTestRuntime([
+        { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+        { contextName: "target", module, pool: pools.target, ports: {} },
+      ]);
+    await createPostgresEventStore({ pool: pools.source }).appendToStream({
+      streamId: "source.scope-one",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "source.scope-recorded", payload: { id: "scope-one" } }],
+    });
+    await drainContextRuntime(mount());
+    const tables = definitions.flatMap(({ tables }) => tables);
+    const readRows = async () =>
+      Promise.all(tables.map(async (table) => (await pools.target.query(`SELECT id FROM ${table} ORDER BY id`)).rows));
+    const before = await readRows();
+    expect(before).toEqual(tables.map(() => [{ id: "scope-one" }]));
+    const live = mount();
+    const liveRoot = live.projectionGroups.find((group) => group.projectionName === definitions[0].projectionName)!;
+    await expect(resetProjectionGroup({ ...liveRoot, getResetGroups: () => [liveRoot] })).rejects.toThrow(
+      "cannot reset FK-dependent table",
+    );
+    expect(await readRows()).toEqual(before);
+    let leaseLost = false;
+    const rollbackRoot = {
+      ...liveRoot,
+      subscriptionRunners: liveRoot.subscriptionRunners.map((runner) => ({
+        ...runner,
+        reset: async (...args: Parameters<typeof runner.reset>) => {
+          await runner.reset(...args);
+          leaseLost = true;
+        },
+      })),
+    };
+    await expect(
+      resetProjectionGroup(rollbackRoot, {
+        throwIfLeaseLost: () => {
+          if (leaseLost) throw new Error("synthetic initiating lease lost");
+        },
+      }),
+    ).rejects.toThrow("synthetic initiating lease lost");
+    expect(await readRows()).toEqual(before);
+    for (const runner of live.subscriptionRunners) {
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toMatchObject({
+        checkpoint: "1",
+        recoveryMarker: "1",
+      });
+      expect(await countSubscriptionApplicationRows(runner.checkpointKey)).toBe(1);
+    }
+    await pools.target.query(
+      "UPDATE event_subscription_checkpoints SET lease_fencing_token = 99 WHERE projection_name <> $1",
+      [definitions[0].projectionName],
+    );
+    await pools.target.query(`TRUNCATE ${tables.join(", ")}, event_projection_recovery_markers`);
+    const runtime = mount();
+    for (const runner of runtime.subscriptionRunners) {
+      expect((await runner.refreshStatus()).recoveryRequired).toBe(true);
+    }
+    const root = runtime.projectionGroups.find((group) => group.projectionName === definitions[0].projectionName)!;
+    // The production worker must commit every affected checkpoint reset before any replay.
+    await resetProjectionGroup(root, createProjectionRunContext({ fencingToken: "1" }));
+    for (const runner of runtime.subscriptionRunners) {
+      expect((await readCheckpointState(pools.target, runner.checkpointKey)).checkpoint).toBeNull();
+      expect(await countSubscriptionApplicationRows(runner.checkpointKey)).toBe(0);
+    }
+    // Simulate an old dependent pass saving its pre-reset position after commit.
+    // Durable group invalidation must still require a reset, not trust this marker.
+    for (const { projectionName } of definitions.slice(1)) {
+      await savePersistedSubscriptionCheckpoint(
+        pools.target,
+        { projectionName, sourceContextName: "source", subscriptionVersion: 1 },
+        parseGlobalPosition("1"),
+      );
+    }
+    const restarted = mount();
+    for (const group of restarted.projectionGroups) {
+      if (group.projectionName !== root.projectionName) {
+        expect(await group.refreshStatus()).toMatchObject({ recoveryRequired: true, caughtUp: false });
+      }
+      const worker = createProjectionGroupWorkerRunner(group);
+      while ((await worker.runOnce()).processed > 0) {
+        /* drain to revision completion */
+      }
+      await group.refreshStatus();
+      expect(group.getStatus()).toMatchObject({ recoveryRequired: false, caughtUp: true });
+    }
+    expect(await readRows()).toEqual(before);
+  });
+
+  it("failover recovery lets source-only API-host bootstrap rebuild a markerless local projection", async () => {
+    const module: BcApiModule<TestServices, PgTransactionalPool, TestPorts> = {
+      ...createTargetModule(),
+      eventSubscriptions: [],
+      buildSubscriptions: () => [],
+      projectionGroups: [
+        {
+          projectionName: "local-items",
+          sourceContextNames: ["target"],
+          ownedTables: ["projected_items"],
+          resetStrategy: "truncate-owned-tables" as const,
+        },
+      ],
+      projectionHandlerSets: () => [
+        {
+          projectionName: "local-items",
+          handlers: {
+            "target.recorded": async (event, context) => {
+              await context!.db!.query("INSERT INTO projected_items (item_id, seen_count) VALUES ($1, 1)", [
+                event.data.itemId,
+              ]);
+            },
+          },
+        },
+      ],
+      seedProfiles: ["critical-bootstrap" as const],
+      seed: async () => undefined,
+    };
+    const registry: ApiContextRegistry = [
+      {
+        contextName: "target",
+        packageName: "@chase-sets/synthetic-target",
+        manifest: {
+          contextName: "target",
+          sourceRuntimeDeployables: ["platform-api"],
+          sourceRuntimeProfiles: ["proof"],
+        },
+        module,
+      },
+    ];
+    const mount = () => createApiHost(registry, "platform-api", { pools: { target: pools.target } });
+    const options = { enabledDataProfiles: ["critical-bootstrap" as const], environmentName: null };
+    await createPostgresEventStore({ pool: pools.target }).appendToStream({
+      streamId: "target.item-bootstrap",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "target.recorded", payload: { itemId: "bootstrap-item" } }],
+    });
+    await seedApiHostIfEmpty(registry, "platform-api", mount(), options);
+    expect(await readProjectedItems()).toEqual([{ item_id: "bootstrap-item", seen_count: 1 }]);
+    const checkpointKey = "local-items:target:v1";
+    expect((await readCheckpointState(pools.target, checkpointKey)).checkpoint).toBe("1");
+    await pools.target.query("ALTER TABLE projected_items SET UNLOGGED");
+    await pools.target.query("TRUNCATE projected_items, event_projection_recovery_markers");
+    await createPostgresEventStore({ pool: pools.target }).appendToStream({
+      streamId: "target.item-after-failover",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "target.recorded", payload: { itemId: "after-failover" } }],
+    });
+    await seedApiHostIfEmpty(registry, "platform-api", mount(), options);
+    expect(await readProjectedItems()).toEqual([
+      { item_id: "after-failover", seen_count: 1 },
+      { item_id: "bootstrap-item", seen_count: 1 },
+    ]);
+    expect(await readCheckpointState(pools.target, checkpointKey)).toMatchObject({
+      checkpoint: "2",
+      recoveryMarker: "2",
+    });
   });
 
   it.each(["projection", "reaction", "local", "inline"] as const)(

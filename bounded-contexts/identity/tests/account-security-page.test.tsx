@@ -1,4 +1,4 @@
-import { renderToString } from "react-dom/server";
+import { renderAccountManagementPageToString as renderToString } from "../features/account-management/ui/test-support";
 import { describe, expect, it } from "vitest";
 import { SecurityPage } from "../features/api-keys/ui/account-security-page";
 
@@ -29,7 +29,7 @@ const apiKeys = [
 ];
 
 describe("Marketplace account security page", () => {
-  it("reveals a newly created or rotated API key secret exactly from transient action data", () => {
+  it("renders a secret supplied from controller memory", () => {
     const html = renderToString(
       <SecurityPage
         user={user}

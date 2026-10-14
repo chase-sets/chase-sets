@@ -803,6 +803,7 @@ test.describe("marketplace critical flows", () => {
     await waitForPreferences(page, { colorMode: "dark" });
 
     const reducedMotionResponse = await page.request.put("/api/identity/preferences", {
+      headers: { "Idempotency-Key": crypto.randomUUID() },
       data: { reducedMotion: "always" },
     });
     expect(reducedMotionResponse.status()).toBe(200);

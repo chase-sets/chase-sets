@@ -27,6 +27,8 @@ import {
 } from "../routes/marketplace/account-shipping-addresses";
 import { action as accountTeamAction } from "../routes/marketplace/account-team";
 import { IdentityApiError } from "../client";
+import { syntheticMutationResult } from "../features/account-management/api/test-support";
+import type { MutationAction } from "../features/account-management/domain/contract";
 
 const actor = {
   sessionId: "ses_identity",
@@ -80,7 +82,13 @@ function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
 function formRequest(path: string, form: Record<string, string>) {
   return new Request(`https://chasesets.test${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", cookie: "session=identity" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      cookie: "session=identity",
+      ...(path.startsWith("/account")
+        ? { "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749", Accept: "text/x-script" }
+        : {}),
+    },
     body: new URLSearchParams(form).toString(),
   });
 }
@@ -91,8 +99,37 @@ function requestUrl(input: RequestInfo | URL) {
 
 async function captureRedirect(actionCall: Promise<unknown>) {
   const response = (await actionCall) as Response;
+  if (response.status === 200) {
+    expect(response.headers.get("Location")).toBeNull();
+    return (await response.json()).destination as string;
+  }
   expect(response.status).toBe(302);
   return response.headers.get("Location") ?? "";
+}
+
+function participantReply(request: Request, secret?: string) {
+  const parts = new URL(request.url).pathname.split("/");
+  const last = parts.at(-1)!;
+  let action: MutationAction;
+  if (parts.includes("api-keys"))
+    action = last === "api-keys" ? "create-api-key" : last === "rotate" ? "rotate-api-key" : "revoke-api-key";
+  else if (parts.includes("invitations")) action = last === "invitations" ? "create-invitation" : "cancel-invitation";
+  else if (parts.includes("memberships"))
+    action = last === "role" ? "change-role" : last === "reinstate" ? "reinstate" : "revoke";
+  else if (parts.includes("consents")) action = "withdraw";
+  else if (parts.includes("shipping-addresses"))
+    action =
+      last === "shipping-addresses"
+        ? "create"
+        : last === "default"
+          ? "default"
+          : last === "archive"
+            ? "archive"
+            : "update";
+  else action = parts.includes("users") ? "update-user" : "update-profile";
+  return syntheticMutationResult(action, actor, {
+    ...(secret && ["create-api-key", "rotate-api-key"].includes(action) ? { secret } : {}),
+  });
 }
 
 function expectLocationPath(location: string, expectedPath: string | RegExp) {
@@ -165,13 +202,11 @@ describe("Identity mutation consistency route actions", () => {
         return url.includes("/api/auth/session")
           ? jsonResponse({ actor })
           : jsonResponse(
-              {
-                id: "key_written",
-                version: 7,
-                status: "active",
-                keyPrefix: "key_test",
-                secret: "synthetic-secret",
-              },
+              syntheticMutationResult(testCase.form.intent, actor, {
+                ...(["create-api-key", "rotate-api-key"].includes(testCase.form.intent)
+                  ? { secret: "synthetic-secret" }
+                  : {}),
+              }),
               200,
               commitHeaders("79"),
             );
@@ -185,19 +220,14 @@ describe("Identity mutation consistency route actions", () => {
       expect(response).toBeInstanceOf(Response);
       const result = response as Response;
       if (["create-api-key", "rotate-api-key"].includes(testCase.form.intent)) {
-        expect(result.status).toBe(testCase.form.intent === "create-api-key" ? 201 : 200);
+        expect(result.status).toBe(200);
         expect(result.headers.get("Location")).toBeNull();
-        expect(await result.json()).toEqual({
-          oneTimeSecret: {
-            apiKeyId: "key_written",
-            keyPrefix: "key_test",
-            secret: "synthetic-secret",
-            action: testCase.form.intent === "create-api-key" ? "created" : "rotated",
-          },
-        });
+        expect(await result.json()).toMatchObject({ outcome: "committed", secret: "synthetic-secret" });
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
       } else {
-        expect(result.status).toBe(302);
-        const location = result.headers.get("Location")!;
+        expect(result.status).toBe(200);
+        expect(result.headers.get("Location")).toBeNull();
+        const location = (await result.json()).destination;
         expectLocationPath(location, testCase.path);
         expect(readFreshWriteToken(`https://chasesets.test${location}`)?.commitPosition).toBe("79");
       }
@@ -209,7 +239,7 @@ describe("Identity mutation consistency route actions", () => {
     }
   });
 
-  it("throws invitation delivery failures after one committed write even for admitted API lookalikes", async () => {
+  it("reports committed delivery-unknown after one write even for admitted API lookalikes", async () => {
     const failures = [
       ...[400, 422].flatMap((status) =>
         ["validation_failed", "validation_error"].map((code) => new IdentityApiError(status, { error: { code } })),
@@ -230,7 +260,7 @@ describe("Identity mutation consistency route actions", () => {
             if (failure) throw failure;
             return jsonResponse({ error: { code: "conflict" } }, 409);
           }
-          return jsonResponse({ id: "invitation_written", version: 7, status: "pending" }, 201, commitHeaders("80"));
+          return jsonResponse(syntheticMutationResult("create-invitation", actor), 200, commitHeaders("80"));
         }),
       );
       const call = accountTeamAction({
@@ -242,15 +272,15 @@ describe("Identity mutation consistency route actions", () => {
         params: {},
         context: undefined,
       });
-      if (failure) await expect(call).rejects.toBe(failure);
-      else await expect(call).rejects.toThrow("The invitation was saved, but its acceptance email could not be sent.");
+      const response = (await call) as Response;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ outcome: "committed", delivery: "unknown" });
       const writes = requests.filter((request) => request.url.includes("/api/identity/invitations"));
       const deliveries = requests.filter((request) => request.url.includes("/acceptance-link/request"));
       expect(writes).toHaveLength(1);
       expect(deliveries).toHaveLength(1);
       expect(requests).toHaveLength(3);
-      const written = await writes[0].clone().json();
-      expect(await deliveries[0].clone().json()).toMatchObject({ invitationId: written.invitationId });
+      expect(await deliveries[0].clone().json()).toMatchObject({ invitationId: "ivt_synthetic" });
     }
   });
 
@@ -269,7 +299,13 @@ describe("Identity mutation consistency route actions", () => {
           lifecycleBodies.push(await request.clone().json());
         }
 
-        return jsonResponse({ id: "identity_written", version: 7, status: "active" }, 200, commitHeaders("77"));
+        return jsonResponse(
+          request.headers.has("Idempotency-Key")
+            ? participantReply(request)
+            : { id: "identity_written", version: 7, status: "active" },
+          200,
+          commitHeaders("77"),
+        );
       }),
     );
 
@@ -525,7 +561,7 @@ describe("Identity mutation consistency route actions", () => {
   it("returns API-key create and rotate secrets as transient action data without redirecting", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = requestUrl(input);
 
         if (url.includes("/api/auth/session")) {
@@ -533,13 +569,15 @@ describe("Identity mutation consistency route actions", () => {
         }
 
         return jsonResponse(
-          {
-            id: "key_identity_written",
-            version: 7,
-            status: "active",
-            keyPrefix: "key_identity",
-            secret: "key_identity_full_secret_value",
-          },
+          new Request(input, init).headers.has("Idempotency-Key")
+            ? participantReply(new Request(input, init), "key_identity_full_secret_value")
+            : {
+                id: "key_identity_written",
+                version: 7,
+                status: "active",
+                keyPrefix: "key_identity",
+                secret: "key_identity_full_secret_value",
+              },
           200,
           commitHeaders("78"),
         );
@@ -598,14 +636,17 @@ describe("Identity mutation consistency route actions", () => {
         oneTimeSecret?: { apiKeyId?: string; keyPrefix?: string; secret?: string; action?: string };
       };
 
-      expect(response.status).toBe(testCase.status);
+      expect(response.status).toBe(testCase.request.headers.has("Idempotency-Key") ? 200 : testCase.status);
       expect(response.headers.get("Location")).toBeNull();
-      expect(body.oneTimeSecret).toEqual({
-        apiKeyId: "key_identity_written",
-        keyPrefix: "key_identity",
-        secret: "key_identity_full_secret_value",
-        action: testCase.actionName,
-      });
+      if (testCase.request.headers.has("Idempotency-Key"))
+        expect(body).toMatchObject({ outcome: "committed", secret: "key_identity_full_secret_value" });
+      else
+        expect(body.oneTimeSecret).toEqual({
+          apiKeyId: "key_identity_written",
+          keyPrefix: "key_identity",
+          secret: "key_identity_full_secret_value",
+          action: testCase.actionName,
+        });
     }
   });
 
@@ -870,6 +911,7 @@ describe("Identity mutation consistency route actions", () => {
     expect(data).toEqual({
       addresses: [],
       loadError: "Shipping addresses are still updating. Reload this page in a moment.",
+      mutationActor: { tenantId: actor.tenantId, userId: actor.userId, accountId: actor.accountId },
     });
   });
 

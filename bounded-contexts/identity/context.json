@@ -5,11 +5,13 @@
   "ownedNouns": [
     "user",
     "account",
+    "account-capability",
     "membership",
     "invitation",
     "api-key",
     "consent",
     "registration-operation",
+    "account-management-mutation-attempt",
     "founders-cohort",
     "shipping-address",
     "user-preference"
@@ -19,6 +21,8 @@
   "slices": [
     "access-hub",
     "accounts",
+    "account-capabilities",
+    "account-management",
     "users",
     "memberships",
     "invitations",
@@ -147,6 +151,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "capabilityAdministrationAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Admits support.evidence.any-case grant and revoke from a release-scoped deployment allow-list; worker and bootstrap explicitly deny all."
+    },
     {
       "portName": "addressVerificationProvider",
       "providedBy": "platform-api",
@@ -319,6 +328,25 @@
     ]
   },
   "readAfterWriteRouteInventory": [
+    {
+      "id": "identity.account-management-attempt-owner-history",
+      "owner": "identity",
+      "risk": "critical",
+      "source": {
+        "routeIds": ["account", "account-shipping-addresses", "account-consents", "account-security", "account-team"],
+        "actions": ["Confirm interrupted account mutation"],
+        "command": "Read Account Management Mutation Attempt"
+      },
+      "destination": { "routeId": "account" },
+      "exception": {
+        "status": "not-read-model-backed",
+        "owner": "identity",
+        "reviewBy": "2026-10-31",
+        "reason": "GET /account-management/attempts proves the private receipt against complete owner histories and current authorization. The shared runtime derives canonical navigation from validated owner positions for the existing account-route fresh reads. Lookup never derives commitment from projections, writes, retries a command, or recovers plaintext.",
+        "files": ["bounded-contexts/identity/features/account-management/api/runtime.ts"],
+        "helperUses": ["navigateAfterWrite"]
+      }
+    },
     {
       "id": "identity.invitation-email-auth-projection-fresh-read",
       "owner": "identity",
@@ -528,7 +556,7 @@
         "readModelTables": ["identity_users"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account security profile redirects carry the Identity user command receipt so the security loader reads after the user projection catches up."
+          "behavior": "Account security profile responses carry the Identity user command receipt destination for one controller GET after the user projection catches up."
         }
       },
       "proof": {
@@ -762,7 +790,7 @@
         "readModelTables": ["identity_invitations"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team invitation redirects carry the Identity invitation command receipt so the team loader reads after the invitation projection catches up."
+          "behavior": "Account team invitation responses carry the Identity invitation command receipt destination for one controller GET after the invitation projection catches up."
         }
       },
       "proof": {
@@ -820,7 +848,7 @@
         "readModelTables": ["identity_memberships"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team membership redirects carry the Identity membership command receipt so the team loader reads after the membership projection catches up."
+          "behavior": "Account team membership responses carry the Identity membership command receipt destination for one controller GET after the membership projection catches up."
         }
       },
       "proof": {
@@ -855,7 +883,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."
+          "behavior": "Shipping-address responses carry the Identity command receipt destination for one controller GET after the address-book projection catches up."
         }
       },
       "proof": {
@@ -885,7 +913,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Consent-withdrawal redirects carry the Identity command receipt so both the retained consent history and current policy state catch up before the history page reloads."
+          "behavior": "Consent-withdrawal responses carry the Identity command receipt destination for one controller GET after consent history and current policy state catch up."
         }
       },
       "proof": {
@@ -897,6 +925,25 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "identity.invitation-acceptance-authority-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/acceptance-authority"
+      ],
+      "visibleDestination": {
+        "description": "Auth receives the complete bounded Invitation, Account, User and Membership authority snapshot. Receipt replay version-guards all participants atomically; this read grants no Session authority."
+      },
+      "proof": {
+        "authoritativeResponse": "readInvitationAcceptanceAuthority folds the complete histories and returns only exact bound current authority after validating receipt and participant versions.",
+        "tests": [
+          "bounded-contexts/identity/features/invitations/api/acceptance-operation.test.ts",
+          "bounded-contexts/identity/features/invitations/api/acceptance-operation.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "identity.consent-activation-authority-snapshot",
       "owner": "identity",
@@ -1133,14 +1180,16 @@
       ],
       "visibleDestination": {
         "routeId": "account-security",
-        "description": "Marketplace account security create and rotate API-key actions return the plaintext secret as same-page action data exactly once, with API-key id and prefix, instead of redirecting or re-fetching the secret."
+        "description": "Marketplace account security create and rotate return plaintext only in the enhanced first mutation response and controller memory until acknowledgement or unmount, never router action data or lookup."
       },
       "proof": {
-        "authoritativeResponse": "The Identity API-key create and rotate API routes generate the plaintext once, store only the hash, and return the plaintext only in the mutation response; the marketplace account-security route passes that response through as transient action data.",
+        "authoritativeResponse": "The keyed Identity owner atom stores private verifier, business events and receipt together; the existing marketplace .data action transports the first secret to controller memory. Replay and read-only lookup return committed-secret-unrecoverable.",
         "tests": [
           "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
           "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
-          "bounded-contexts/identity/tests/account-security-page.test.tsx"
+          "bounded-contexts/identity/tests/account-security-page.test.tsx",
+          "bounded-contexts/identity/features/account-management/api/account-management.db.test.ts",
+          "deployables/marketplace/e2e/account-management-interruption.spec.ts"
         ]
       }
     },
@@ -1160,7 +1209,7 @@
         "readModelTables": ["identity_api_keys"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account security API-key revoke forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
+          "behavior": "Account security API-key revoke forms return the Identity command receipt destination for one controller GET through the unchanged API-key projection freshness route."
         }
       },
       "proof": {
@@ -1282,7 +1331,7 @@
         "readModelTables": ["identity_memberships"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team membership forms redirect with Identity command receipts and reload team memberships through the membership projection freshness route."
+          "behavior": "Account team membership forms return Identity receipt destinations for one controller GET through the unchanged membership projection freshness route."
         }
       },
       "proof": {
@@ -1380,12 +1429,15 @@
       "strategy": "snapshot-return",
       "surfaces": ["api-route:bounded-contexts/identity/features/preferences/api/route.ts:PUT /"],
       "visibleDestination": {
-        "description": "User Preferences API writes return the authenticated User id, aggregate version, update status, and resolved preferences directly from the command result, so shell callers can render the committed setting without waiting on the preferences projection."
+        "description": "User Preferences writes atomically commit a hashed User-scoped attempt receipt with the preference version guard. The immutable first receipt is returned separately from the current authoritative preferences; replay never re-applies an earlier choice or waits on the projection."
       },
       "proof": {
-        "authoritativeResponse": "userPreferencesRoutes returns services.commandHandler result.version plus userPreferencesFor(actor.userId, result.state) after SetUserPreferences.",
+        "authoritativeResponse": "userPreferencesRoutes calls services.writeUserPreferences with the authenticated User and Idempotency-Key; it returns the validated first receipt, replay flag, current aggregate version and current authoritative preferences. The account menu confirms uncertain delivery with one GET and no automatic PUT.",
         "tests": [
-          "bounded-contexts/identity/features/preferences/api/route.test.ts proves preference updates return committed version/status/preferences and reject invalid or cross-user writes."
+          "bounded-contexts/identity/features/preferences/api/route.test.ts proves closed request validation and authenticated User isolation.",
+          "bounded-contexts/identity/features/preferences/api/runtime.db.test.ts proves atomic receipt/business writes, complete-history replay and bounded concurrency.",
+          "deployables/marketplace/app/routes/layout.test.tsx proves the real preference recovery states; bounded-contexts/identity/support/shell-support/ui/user-preferences-account-menu.test.tsx proves User generation isolation.",
+          "bounded-contexts/identity/support/shell-support/api/client.test.ts proves identity-preference-write-caller-inventory over tracked and unignored production callers, separately from the shipped app.put census."
         ]
       }
     },
@@ -1871,6 +1923,11 @@
     }
   ],
   "directoryIntent": {
+    "account-management": {
+      "classification": "slice",
+      "purpose": "Own private interruption-safe mutation receipts, read-only owner-history lookup, eligibility fences, and the five marketplace form controllers; business facts remain with their existing owners.",
+      "expectedConsumers": ["Identity owner APIs", "Identity marketplace account routes"]
+    },
     "access-hub": {
       "classification": "slice",
       "purpose": "Own the account-centric Access home, account hub read model, route behavior, and UI composition across Identity aggregates.",
@@ -1879,6 +1936,11 @@
     "accounts": {
       "classification": "slice",
       "purpose": "Own accounts feature behavior, read models, and UI contracts for the identity context.",
+      "expectedConsumers": ["Internal identity module composition"]
+    },
+    "account-capabilities": {
+      "classification": "slice",
+      "purpose": "Own the Capability Grant stream: grant and revoke facts for the one assignable Account Capability, with admission supplied by the Capability Administration Authority.",
       "expectedConsumers": ["Internal identity module composition"]
     },
     "users": {
@@ -1924,7 +1986,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["consents", "shipping-addresses"],
+      "expectedConsumers": ["account-management", "consents", "shipping-addresses"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1937,6 +1999,8 @@
       "purpose": "Provide reusable runtime-support assets shared by identity-owned features and composition seams.",
       "expectedConsumers": [
         "access-hub",
+        "account-capabilities",
+        "account-management",
         "accounts",
         "api-keys",
         "consents",

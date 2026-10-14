@@ -1,0 +1,1471 @@
+{
+  "status": "app-recorded-synthetic-not-live",
+  "sourceRepository": "todd-skelton/tcgplayer-automation-app",
+  "sourceCommit": "bdeffa0190be035084abccb464716aaaa2541a59",
+  "sourceBlobs": {
+    "app/features/pricing/domain/pricingPolicy.ts": "36f40f8096ba9657118096b20e705c53fedfb7b8",
+    "app/core/types/pricingPolicy.ts": "aa652940720ea8a923c3e7a9507e44ce0664bc2e",
+    "app/features/pricing/domain/maximize.ts": "3e6b75f9b9a3dc67d135262bf3ae361ef81eaacd",
+    "app/features/pricing/services/pricingService.ts": "72acf472e76c1603dd71b22b627270172e847cab",
+    "app/core/types/pricing.ts": "8d72572cce52b4c504e50785e89750a952b803cd",
+    "app/features/pricing/domain/horizonValueCurve.ts": "1d6ccccfa59b9a53876df4f41722bfe6355f7e87"
+  },
+  "fixture": {
+    "file": "goal-parity-curve.json",
+    "sha256": "c17533e60275d4bacbcd53fb39aa3d346a7f416fdbc0f89a041a16f1bd185739"
+  },
+  "feeTermSets": {
+    "typical": {
+      "platformFeeRelativeBps": 1075,
+      "platformFeeFixedPerUnitAmount": "0.30",
+      "platformFeeCapPerUnitAmount": null,
+      "sellerHandlingRelativeBps": 250,
+      "sellerHandlingFixedPerUnitAmount": "0.20",
+      "sellerHandlingCapPerUnitAmount": null
+    },
+    "loss-at-low-prices": {
+      "platformFeeRelativeBps": 1075,
+      "platformFeeFixedPerUnitAmount": "6.00",
+      "platformFeeCapPerUnitAmount": null,
+      "sellerHandlingRelativeBps": 0,
+      "sellerHandlingFixedPerUnitAmount": "0.50",
+      "sellerHandlingCapPerUnitAmount": null
+    },
+    "loss-at-every-price": {
+      "platformFeeRelativeBps": 1075,
+      "platformFeeFixedPerUnitAmount": "25.00",
+      "platformFeeCapPerUnitAmount": null,
+      "sellerHandlingRelativeBps": 0,
+      "sellerHandlingFixedPerUnitAmount": "0.00",
+      "sellerHandlingCapPerUnitAmount": null
+    }
+  },
+  "cases": [
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 5
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 5
+      },
+      "decision": {
+        "selectedPrice": 3.95,
+        "unconstrainedPrice": 3.95,
+        "equivalentPercentile": 5,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 0.3119162312519754
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 10
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 10
+      },
+      "decision": {
+        "selectedPrice": 4.25,
+        "unconstrainedPrice": 4.25,
+        "equivalentPercentile": 10,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 0.4158883083359672
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 15
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 15
+      },
+      "decision": {
+        "selectedPrice": 4.6,
+        "unconstrainedPrice": 4.6,
+        "equivalentPercentile": 15,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 1.0397207708399179
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 20
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 20
+      },
+      "decision": {
+        "selectedPrice": 4.99,
+        "unconstrainedPrice": 4.99,
+        "equivalentPercentile": 20,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 1.316979643063896
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 25
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 25
+      },
+      "decision": {
+        "selectedPrice": 5.25,
+        "unconstrainedPrice": 5.25,
+        "equivalentPercentile": 25,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 2.4953298500158034
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 30
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 30
+      },
+      "decision": {
+        "selectedPrice": 5.75,
+        "unconstrainedPrice": 5.75,
+        "equivalentPercentile": 30,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 3.015190235435762
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 35
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 35
+      },
+      "decision": {
+        "selectedPrice": 6.1,
+        "unconstrainedPrice": 6.1,
+        "equivalentPercentile": 35,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 4.990659700031606
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 40
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 40
+      },
+      "decision": {
+        "selectedPrice": 6.5,
+        "unconstrainedPrice": 6.5,
+        "equivalentPercentile": 40,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 6.099695188927519
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 45
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 45
+      },
+      "decision": {
+        "selectedPrice": 6.95,
+        "unconstrainedPrice": 6.95,
+        "equivalentPercentile": 45,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 9.357486937559262
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 50
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 50
+      },
+      "decision": {
+        "selectedPrice": 6.95,
+        "unconstrainedPrice": 6.95,
+        "equivalentPercentile": 45,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 9.357486937559262
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 55
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 55
+      },
+      "decision": {
+        "selectedPrice": 7.49,
+        "unconstrainedPrice": 7.49,
+        "equivalentPercentile": 55,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 13.724314175086917
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 60
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 60
+      },
+      "decision": {
+        "selectedPrice": 7.99,
+        "unconstrainedPrice": 7.99,
+        "equivalentPercentile": 60,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 19.408121055678468
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 65
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 65
+      },
+      "decision": {
+        "selectedPrice": 8.75,
+        "unconstrainedPrice": 8.75,
+        "equivalentPercentile": 65,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 27.171369477949856
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 70
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 70
+      },
+      "decision": {
+        "selectedPrice": 9.5,
+        "unconstrainedPrice": 9.5,
+        "equivalentPercentile": 70,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 37.42994775023705
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 75
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 75
+      },
+      "decision": {
+        "selectedPrice": 10.49,
+        "unconstrainedPrice": 10.49,
+        "equivalentPercentile": 75,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 56.42218049757955
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 80
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 80
+      },
+      "decision": {
+        "selectedPrice": 11.99,
+        "unconstrainedPrice": 11.99,
+        "equivalentPercentile": 80,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 82.90040279496944
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 85
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 85
+      },
+      "decision": {
+        "selectedPrice": 13.5,
+        "unconstrainedPrice": 13.5,
+        "equivalentPercentile": 85,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 122.68705095911034
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 90
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 90
+      },
+      "decision": {
+        "selectedPrice": 15.99,
+        "unconstrainedPrice": 15.99,
+        "equivalentPercentile": 90,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 193.38806337622475
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 95
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 95
+      },
+      "decision": {
+        "selectedPrice": 19.95,
+        "unconstrainedPrice": 19.95,
+        "equivalentPercentile": 95,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 396.4801872802887
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 7
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 7
+      },
+      "decision": {
+        "selectedPrice": 6.65,
+        "unconstrainedPrice": 6.65,
+        "equivalentPercentile": 41.66666666666667,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 7.030492831393733
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 14
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 14
+      },
+      "decision": {
+        "selectedPrice": 7.52,
+        "unconstrainedPrice": 7.52,
+        "equivalentPercentile": 55.3,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 14.019151419613271
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 30
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 30
+      },
+      "decision": {
+        "selectedPrice": 8.97,
+        "unconstrainedPrice": 8.97,
+        "equivalentPercentile": 66.46666666666667,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 29.93631553602421
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 60
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 60
+      },
+      "decision": {
+        "selectedPrice": 10.72,
+        "unconstrainedPrice": 10.72,
+        "equivalentPercentile": 75.76666666666667,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 59.940557725121394
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 90
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 90
+      },
+      "decision": {
+        "selectedPrice": 12.29,
+        "unconstrainedPrice": 12.29,
+        "equivalentPercentile": 80.99337748344371,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 89.93749702808276
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 180
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 180
+      },
+      "decision": {
+        "selectedPrice": 15.58,
+        "unconstrainedPrice": 15.58,
+        "equivalentPercentile": 89.17670682730923,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 179.86360843484826
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.001,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.001,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": {
+        "selectedPrice": 18.78,
+        "unconstrainedPrice": 18.78,
+        "equivalentPercentile": 93.52272727272728,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 327.659870412324
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.005,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.005,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": {
+        "selectedPrice": 11.37,
+        "unconstrainedPrice": 11.37,
+        "equivalentPercentile": 77.93333333333334,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 70.87027473877087
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.01,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.01,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": {
+        "selectedPrice": 8.79,
+        "unconstrainedPrice": 8.79,
+        "equivalentPercentile": 65.26666666666667,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 27.660601228640143
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.02,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.02,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": {
+        "selectedPrice": 7.18,
+        "unconstrainedPrice": 7.18,
+        "equivalentPercentile": 52.129629629629626,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 11.02587608146517
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.001,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.001,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": {
+        "selectedPrice": 19.94,
+        "unconstrainedPrice": 19.94,
+        "equivalentPercentile": 94.98737373737374,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 395.85371129516693
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.005,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.005,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": {
+        "selectedPrice": 14.7,
+        "unconstrainedPrice": 14.7,
+        "equivalentPercentile": 87.40963855421687,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 153.56085550806856
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.01,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.01,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": {
+        "selectedPrice": 12,
+        "unconstrainedPrice": 12,
+        "equivalentPercentile": 80.03311258278146,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 83.12896065008823
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.02,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.02,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": {
+        "selectedPrice": 9.92,
+        "unconstrainedPrice": 9.92,
+        "equivalentPercentile": 72.12121212121212,
+        "forecastStatus": "interpolated",
+        "unprofitable": false,
+        "estimatedMedianSellDays": 44.573294992521085
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.001,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.001,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": {
+        "selectedPrice": 19.95,
+        "unconstrainedPrice": 19.95,
+        "equivalentPercentile": 95,
+        "forecastStatus": "interpolated",
+        "unprofitable": true,
+        "estimatedMedianSellDays": 396.4801872802887
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.005,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.005,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": {
+        "selectedPrice": 19.95,
+        "unconstrainedPrice": 19.95,
+        "equivalentPercentile": 95,
+        "forecastStatus": "interpolated",
+        "unprofitable": true,
+        "estimatedMedianSellDays": 396.4801872802887
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.01,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.01,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": {
+        "selectedPrice": 19.95,
+        "unconstrainedPrice": 19.95,
+        "equivalentPercentile": 95,
+        "forecastStatus": "interpolated",
+        "unprofitable": true,
+        "estimatedMedianSellDays": 396.4801872802887
+      }
+    },
+    {
+      "curve": "observed",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.02,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.02,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": {
+        "selectedPrice": 19.95,
+        "unconstrainedPrice": 19.95,
+        "equivalentPercentile": 95,
+        "forecastStatus": "interpolated",
+        "unprofitable": true,
+        "estimatedMedianSellDays": 396.4801872802887
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 5
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 5
+      },
+      "decision": {
+        "selectedPrice": 3.95,
+        "unconstrainedPrice": 3.95,
+        "equivalentPercentile": 5,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 10
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 10
+      },
+      "decision": {
+        "selectedPrice": 4.25,
+        "unconstrainedPrice": 4.25,
+        "equivalentPercentile": 10,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 15
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 15
+      },
+      "decision": {
+        "selectedPrice": 4.6,
+        "unconstrainedPrice": 4.6,
+        "equivalentPercentile": 15,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 20
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 20
+      },
+      "decision": {
+        "selectedPrice": 4.99,
+        "unconstrainedPrice": 4.99,
+        "equivalentPercentile": 20,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 25
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 25
+      },
+      "decision": {
+        "selectedPrice": 5.25,
+        "unconstrainedPrice": 5.25,
+        "equivalentPercentile": 25,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 30
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 30
+      },
+      "decision": {
+        "selectedPrice": 5.75,
+        "unconstrainedPrice": 5.75,
+        "equivalentPercentile": 30,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 35
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 35
+      },
+      "decision": {
+        "selectedPrice": 6.1,
+        "unconstrainedPrice": 6.1,
+        "equivalentPercentile": 35,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 40
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 40
+      },
+      "decision": {
+        "selectedPrice": 6.5,
+        "unconstrainedPrice": 6.5,
+        "equivalentPercentile": 40,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 45
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 45
+      },
+      "decision": {
+        "selectedPrice": 6.95,
+        "unconstrainedPrice": 6.95,
+        "equivalentPercentile": 45,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 50
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 50
+      },
+      "decision": {
+        "selectedPrice": 6.95,
+        "unconstrainedPrice": 6.95,
+        "equivalentPercentile": 45,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 55
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 55
+      },
+      "decision": {
+        "selectedPrice": 7.49,
+        "unconstrainedPrice": 7.49,
+        "equivalentPercentile": 55,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 60
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 60
+      },
+      "decision": {
+        "selectedPrice": 7.99,
+        "unconstrainedPrice": 7.99,
+        "equivalentPercentile": 60,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 65
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 65
+      },
+      "decision": {
+        "selectedPrice": 8.75,
+        "unconstrainedPrice": 8.75,
+        "equivalentPercentile": 65,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 70
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 70
+      },
+      "decision": {
+        "selectedPrice": 9.5,
+        "unconstrainedPrice": 9.5,
+        "equivalentPercentile": 70,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 75
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 75
+      },
+      "decision": {
+        "selectedPrice": 10.49,
+        "unconstrainedPrice": 10.49,
+        "equivalentPercentile": 75,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 80
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 80
+      },
+      "decision": {
+        "selectedPrice": 11.99,
+        "unconstrainedPrice": 11.99,
+        "equivalentPercentile": 80,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 85
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 85
+      },
+      "decision": {
+        "selectedPrice": 13.5,
+        "unconstrainedPrice": 13.5,
+        "equivalentPercentile": 85,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 90
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 90
+      },
+      "decision": {
+        "selectedPrice": 15.99,
+        "unconstrainedPrice": 15.99,
+        "equivalentPercentile": 90,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "fixed-percentile",
+      "parameters": {
+        "percentile": 95
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "percentile",
+        "percentile": 95
+      },
+      "decision": {
+        "selectedPrice": 19.95,
+        "unconstrainedPrice": 19.95,
+        "equivalentPercentile": 95,
+        "forecastStatus": "unavailable",
+        "unprofitable": false,
+        "estimatedMedianSellDays": null
+      }
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 7
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 7
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 14
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 14
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 30
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 30
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 60
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 60
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 90
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 90
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "target-horizon",
+      "parameters": {
+        "horizonDays": 180
+      },
+      "economics": null,
+      "appPolicy": {
+        "method": "target-horizon",
+        "horizonDays": 180
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.001,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.001,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.005,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.005,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.01,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.01,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.02,
+        "feeTerms": "typical"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.02,
+        "relativeOverhead": 0.1325,
+        "staticOverheadPerUnit": 0.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.001,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.001,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.005,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.005,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.01,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.01,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.02,
+        "feeTerms": "loss-at-low-prices"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.02,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 6.5
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.001,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.001,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.005,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.005,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.01,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.01,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": null
+    },
+    {
+      "curve": "truncated-supply",
+      "goalId": "profit-per-day",
+      "parameters": {},
+      "economics": {
+        "dailyReturnHurdle": 0.02,
+        "feeTerms": "loss-at-every-price"
+      },
+      "appPolicy": {
+        "method": "profit-per-day",
+        "dailyReturnHurdle": 0.02,
+        "relativeOverhead": 0.1075,
+        "staticOverheadPerUnit": 25
+      },
+      "decision": null
+    }
+  ]
+}

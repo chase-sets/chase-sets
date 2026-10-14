@@ -61,6 +61,21 @@ describe("search loader cache", () => {
     expect(readCachedSearchLoaderData(window.sessionStorage, key, 2_100)).toEqual({ data: "new", canonicalUrl: "x" });
   });
 
+  it("evicts a URL's previous payload when its replacement is too large to cache", () => {
+    const key = searchLoaderCacheKey("/search?q=charizard");
+    const sibling = searchLoaderCacheKey("/search?q=pikachu");
+    cacheSearchLoaderData(window.sessionStorage, sibling, { data: "sibling", canonicalUrl: "x" }, 1_000);
+    cacheSearchLoaderData(window.sessionStorage, key, { data: "old order", canonicalUrl: "x" }, 1_000);
+
+    cacheSearchLoaderData(window.sessionStorage, key, { data: "x".repeat(1_000_001), canonicalUrl: "x" }, 2_000);
+
+    expect(readCachedSearchLoaderData(window.sessionStorage, key, 2_100)).toBeNull();
+    expect(readCachedSearchLoaderData(window.sessionStorage, sibling, 2_100)).toEqual({
+      data: "sibling",
+      canonicalUrl: "x",
+    });
+  });
+
   it("degrades to a fresh load when session storage is unavailable", () => {
     expect(readCachedSearchLoaderData(null, "/search?q=charizard")).toBeNull();
     expect(() => cacheSearchLoaderData(null, "/search?q=charizard", { data: {} })).not.toThrow();

@@ -34,17 +34,15 @@ const identityRuntime = "bounded-contexts/identity/support/runtime-support";
 const adminQaPath = `${identityRuntime}/admin-qa-actor-fixtures.ts`;
 const seedPath = `${identityRuntime}/seed.ts`;
 const productionBootstrapPath = `${identityRuntime}/production-bootstrap.ts`;
-const termsRoutePath = "bounded-contexts/identity/features/consents/api/terms-route.ts";
 const withdrawRoutePath = "bounded-contexts/identity/features/consents/api/route.ts";
+const consentRuntimePath = "bounded-contexts/identity/features/consents/api/runtime.ts";
 
 const expectedConstructions = [
   "bounded-contexts/identity/api.ts :: planPersonalIdentityRegistration",
-  `${termsRoutePath} :: termsOfServiceConsentRoutes`,
+  `${consentRuntimePath} :: createConsentRuntime > recordTermsConsent`,
 ];
-const expectedHandlerCalls = [
-  `${withdrawRoutePath} :: consentRoutes`,
-  `${termsRoutePath} :: termsOfServiceConsentRoutes`,
-];
+const authorizationOnlyConstructions = [`${consentRuntimePath} :: assertTermsConsentAuthorization`];
+const expectedHandlerCalls = [`${withdrawRoutePath} :: consentRoutes`];
 const removedConstructions = [
   `${adminQaPath} :: provisionAdminQaActorFixture`,
   `${seedPath} :: buildScenarioIdentityReconcilers`,
@@ -471,15 +469,17 @@ const planted = censusConsentRecordingAdmissions(plantedOverlay);
 const inert = censusConsentRecordingAdmissions(inertOverlay);
 
 describe("Consent recording admission census", () => {
-  it("leaves exactly the Terms and registration constructions and the Terms and withdrawal handler calls", () => {
+  it("leaves exactly runtime Terms and registration append constructions, one authorization-only construction, and withdrawal handler calls", () => {
     process.stdout.write(
       `consent-recording-admission-census=${JSON.stringify({
         surface: live.surface,
         constructions: live.constructions,
+        appendProducingConstructions: expectedConstructions,
+        authorizationOnlyConstructions,
         handlerCalls: live.handlerCalls,
       })}\n`,
     );
-    expect(live.constructions).toEqual(expectedConstructions);
+    expect(live.constructions).toEqual([...expectedConstructions, ...authorizationOnlyConstructions].toSorted());
     expect(live.handlerCalls).toEqual(expectedHandlerCalls);
   });
 
@@ -492,8 +492,10 @@ describe("Consent recording admission census", () => {
     expect(live.surface.total).toBe(trackedProductionSources.length);
   });
 
-  it("reproduces the five-construction, five-call baseline when the removed writes are restored", () => {
-    expect(restored.constructions).toEqual([...expectedConstructions, ...removedConstructions].toSorted());
+  it("still detects every removed construction and call when provisioning writes are restored", () => {
+    expect(restored.constructions).toEqual(
+      [...expectedConstructions, ...authorizationOnlyConstructions, ...removedConstructions].toSorted(),
+    );
     expect(restored.handlerCalls).toEqual([...expectedHandlerCalls, ...removedHandlerCalls].toSorted());
     expect(restored.constructions).not.toEqual(live.constructions);
     expect(restored.handlerCalls).not.toEqual(live.handlerCalls);
@@ -501,7 +503,11 @@ describe("Consent recording admission census", () => {
 
   it("counts relocated writes, renamed and destructured locals, and re-exported handlers at their real calls", () => {
     expect(planted.constructions).toEqual(
-      [...expectedConstructions, `${productionBootstrapPath} :: relocatedConsentWrite`].toSorted(),
+      [
+        ...expectedConstructions,
+        ...authorizationOnlyConstructions,
+        `${productionBootstrapPath} :: relocatedConsentWrite`,
+      ].toSorted(),
     );
     expect(planted.handlerCalls).toEqual(
       [
@@ -515,7 +521,7 @@ describe("Consent recording admission census", () => {
   });
 
   it("counts nothing for declarations, imports, comments, strings, comparisons or test-path writes", () => {
-    expect(inert.constructions).toEqual(expectedConstructions);
+    expect(inert.constructions).toEqual([...expectedConstructions, ...authorizationOnlyConstructions].toSorted());
     expect(inert.handlerCalls).toEqual(expectedHandlerCalls);
     expect(inert.surface.total).toBe(live.surface.total + 1);
   });

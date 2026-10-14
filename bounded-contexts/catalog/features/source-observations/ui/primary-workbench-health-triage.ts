@@ -31,6 +31,7 @@ export function healthTriageFor(input: {
       rateLimitStatus: provider.rateLimitStatus.status,
       payloadAcquisition: provider.payloadAcquisition.status,
       usageBudget: provider.usageBudget,
+      countSpend: provider.countSpend,
       diagnosticCodes: [
         ...new Set([
           ...provider.apiReachability.diagnosticCodes,

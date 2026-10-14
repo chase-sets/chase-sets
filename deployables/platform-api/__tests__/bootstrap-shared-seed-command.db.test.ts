@@ -37,6 +37,7 @@ describe("platform api shared seed command bootstrap", () => {
         runtimeProfile: "public",
         pools: seedPools,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           processorGateway: createFakePaymentProcessorGateway(),
           listingPhotoStorage,
         },

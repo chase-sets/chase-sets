@@ -20,6 +20,42 @@ import type {
 const generatedAt = "2026-06-25T12:00:00.000Z";
 
 describe("Catalog integration control-plane overview", () => {
+  it("AC6 projects separate count spend without inventing a balance", () => {
+    const spend = {
+      debitId: "synthetic-debit",
+      quoteId: "synthetic-quote",
+      kind: "cards",
+      credits: 1,
+      outcome: "failed",
+      debitedAt: generatedAt,
+      observedAt: null,
+      expiresAt: null,
+    };
+    const overview = buildCatalogIntegrationControlPlaneOverview({
+      generatedAt,
+      readiness: readinessFixture(),
+      profiles: [],
+      activeJobs: [],
+      countSpend: [spend],
+    });
+    const provider = overview.providerReadiness.providers.find((row) => row.providerKey === "scrydex");
+    expect(provider?.countSpend).toEqual([spend]);
+    for (const patch of [
+      { rawBody: { secret: true } },
+      { debitedAt: "2026-06-25" },
+      { credits: 2 },
+      { observedAt: "2026-06-25T12:01:00Z" },
+    ]) {
+      const invalid = buildCatalogIntegrationControlPlaneOverview({
+        generatedAt,
+        readiness: readinessFixture(),
+        profiles: [],
+        activeJobs: [],
+        countSpend: [{ ...spend, ...patch }],
+      });
+      expect(invalid.providerReadiness.providers.find((row) => row.providerKey === "scrydex")?.countSpend).toEqual([]);
+    }
+  });
   it("lost ledger authority is unavailable, never zero or raw driver detail", async () => {
     const connect = vi.fn(async () => {
       throw new Error("synthetic-private-driver-detail");

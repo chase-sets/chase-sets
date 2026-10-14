@@ -41,6 +41,7 @@ async function bootstrap() {
         pools,
         runtimeProfile: config.runtimeProfile,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           ...createPlatformBootstrapStoragePorts(config),
           processorGateway: paymentProcessorGateway,
           paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),

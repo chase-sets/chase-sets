@@ -1,7 +1,14 @@
 import type { CatalogProviderProfileLifecycle } from "../providers/provider-integration-mapping-contract";
-import { CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV } from "./catalog-integration-data-governance";
 import {
+  CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_ENV,
+  CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV,
+  CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_ENV,
+  CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_ENV,
+} from "./catalog-integration-data-governance";
+import {
+  catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
+  catalogProviderProfileVersionProductDomain,
   listCatalogProviderIntegrationProfiles,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "../provider-integration-profiles";
@@ -19,6 +26,9 @@ export type CatalogIntegrationRolloutControlId =
   | "activation-test-profiles-only"
   | "magic-production-signoff-required"
   | "one-piece-production-signoff-required"
+  | "pokemon-production-signoff-required"
+  | "yugioh-production-signoff-required"
+  | "lorcana-production-signoff-required"
   | "rollback-ready-release-mode"
   | "worker-processing-disabled"
   | "worker-lane-limited"
@@ -91,6 +101,9 @@ export type CatalogIntegrationRolloutControlConfig = Readonly<{
   activationMode?: "open" | "disabled" | "test-profiles-only" | null;
   magicProductionSignoffReference?: string | null;
   onePieceProductionSignoffReference?: string | null;
+  pokemonProductionSignoffReference?: string | null;
+  yugiohProductionSignoffReference?: string | null;
+  lorcanaProductionSignoffReference?: string | null;
   workerMode?: "open" | "disabled" | "lane-limited" | null;
 }>;
 
@@ -125,6 +138,12 @@ const MAGIC_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
   "Magic production sync requires recorded provider-data signoff and interface-only staging UAT evidence.";
 const ONE_PIECE_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
   "One Piece production sync requires recorded provider-data signoff, redacted provider usage evidence, and interface-only staging UAT evidence.";
+const POKEMON_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
+  "Pokemon production sync requires recorded provider-data signoff and staging UAT evidence.";
+const YUGIOH_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
+  "Yu-Gi-Oh! production sync requires recorded provider-data signoff and staging UAT evidence.";
+const LORCANA_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE =
+  "Lorcana production sync requires recorded provider-data signoff, provider-use attestation, and staging UAT evidence.";
 const WORKER_PROCESSING_DISABLED_MESSAGE = "Catalog integration worker job processing is disabled.";
 const WORKER_LANE_LIMITED_MESSAGE = "Catalog integration worker job processing is lane-limited.";
 const WORKER_PROCESSING_OPEN_MESSAGE = "Catalog integration worker job processing is open.";
@@ -136,6 +155,33 @@ const ONE_PIECE_PRODUCTION_UNIT_KEYS = [
   "tcgplayer:one-piece:single-card:source-observation-import",
   "tcgplayer:one-piece:sealed-product:source-observation-import",
 ] as const;
+const POKEMON_PRODUCTION_SCOPE = productionSignoffScope("pokemon");
+const YUGIOH_PRODUCTION_SCOPE = productionSignoffScope("yugioh");
+const LORCANA_PRODUCTION_SCOPE = productionSignoffScope("lorcana");
+
+function productionSignoffScope(game: "pokemon" | "yugioh" | "lorcana") {
+  const unitKeys = [
+    ...new Set(
+      catalogProviderIntegrationProfileVersions
+        .filter((version) => catalogProviderProfileVersionProductDomain(version) === game)
+        .map(catalogProviderProfileVersionIngestionUnitKey),
+    ),
+  ].sort();
+  if (unitKeys.length === 0) {
+    throw new Error(`Catalog production signoff registry has no ingestion units for '${game}'.`);
+  }
+  const providerDomains = new Map<string, Set<string>>();
+  for (const version of catalogProviderIntegrationProfileVersions) {
+    const domains = providerDomains.get(version.providerKey) ?? new Set<string>();
+    domains.add(catalogProviderProfileVersionProductDomain(version));
+    providerDomains.set(version.providerKey, domains);
+  }
+  const providerKeys = [...providerDomains]
+    .filter(([, domains]) => domains.size === 1 && domains.has(game))
+    .map(([providerKey]) => providerKey)
+    .sort();
+  return { unitKeys, providerKeys };
+}
 
 export function createCatalogIntegrationRolloutControlPolicy(
   config: CatalogIntegrationRolloutControlConfig = {},
@@ -262,6 +308,15 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
           onePieceProductionSignoffReference: normalizeProductionSignoffReference(
             env[CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE_ENV],
           ),
+          pokemonProductionSignoffReference: normalizeProductionSignoffReference(
+            env[CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_ENV],
+          ),
+          yugiohProductionSignoffReference: normalizeProductionSignoffReference(
+            env[CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_ENV],
+          ),
+          lorcanaProductionSignoffReference: normalizeProductionSignoffReference(
+            env[CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_ENV],
+          ),
         }
       : {}),
     workerMode: parseWorkerMode("CATALOG_INTEGRATION_WORKER_MODE", env.CATALOG_INTEGRATION_WORKER_MODE),
@@ -383,6 +438,9 @@ function buildCatalogIntegrationRolloutControlSnapshot(
     activationControl(config.activationMode ?? "open"),
     magicProductionSignoffControl(config),
     onePieceProductionSignoffControl(config),
+    ...pokemonProductionSignoffControl(config),
+    ...yugiohProductionSignoffControl(config),
+    ...lorcanaProductionSignoffControl(config),
     workerControl(config.workerMode ?? "open"),
   ].filter((item): item is CatalogIntegrationRolloutControl => Boolean(item));
 
@@ -610,6 +668,76 @@ function onePieceProductionSignoffControl(config: CatalogIntegrationRolloutContr
       ? `One Piece production signoff reference recorded: ${reference}.`
       : ONE_PIECE_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
   });
+}
+
+function pokemonProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
+  if (!Object.prototype.hasOwnProperty.call(config, "pokemonProductionSignoffReference")) {
+    return [];
+  }
+
+  const reference = normalizeProductionSignoffReference(config.pokemonProductionSignoffReference);
+  return productionSignoffControls(
+    control({
+      controlId: "pokemon-production-signoff-required",
+      status: reference ? "open" : "blocked",
+      severity: reference ? "info" : "error",
+      capabilities: ["import", "promotion", "reapply", "activation"],
+      unitKeys: POKEMON_PRODUCTION_SCOPE.unitKeys,
+      message: reference
+        ? `Pokemon production signoff reference recorded: ${reference}.`
+        : POKEMON_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+    }),
+    POKEMON_PRODUCTION_SCOPE.providerKeys,
+  );
+}
+
+function yugiohProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
+  if (!Object.prototype.hasOwnProperty.call(config, "yugiohProductionSignoffReference")) {
+    return [];
+  }
+
+  const reference = normalizeProductionSignoffReference(config.yugiohProductionSignoffReference);
+  return productionSignoffControls(
+    control({
+      controlId: "yugioh-production-signoff-required",
+      status: reference ? "open" : "blocked",
+      severity: reference ? "info" : "error",
+      capabilities: ["import", "promotion", "reapply", "activation"],
+      unitKeys: YUGIOH_PRODUCTION_SCOPE.unitKeys,
+      message: reference
+        ? `Yu-Gi-Oh! production signoff reference recorded: ${reference}.`
+        : YUGIOH_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+    }),
+    YUGIOH_PRODUCTION_SCOPE.providerKeys,
+  );
+}
+
+function lorcanaProductionSignoffControl(config: CatalogIntegrationRolloutControlConfig) {
+  if (!Object.prototype.hasOwnProperty.call(config, "lorcanaProductionSignoffReference")) {
+    return [];
+  }
+
+  const reference = normalizeProductionSignoffReference(config.lorcanaProductionSignoffReference);
+  return productionSignoffControls(
+    control({
+      controlId: "lorcana-production-signoff-required",
+      status: reference ? "open" : "blocked",
+      severity: reference ? "info" : "error",
+      capabilities: ["import", "promotion", "reapply", "activation"],
+      unitKeys: LORCANA_PRODUCTION_SCOPE.unitKeys,
+      message: reference
+        ? `Lorcana production signoff reference recorded: ${reference}.`
+        : LORCANA_PRODUCTION_SIGNOFF_REQUIRED_MESSAGE,
+    }),
+    LORCANA_PRODUCTION_SCOPE.providerKeys,
+  );
+}
+
+function productionSignoffControls(
+  unitControl: CatalogIntegrationRolloutControl,
+  providerKeys: readonly string[],
+): CatalogIntegrationRolloutControl[] {
+  return providerKeys.length === 0 ? [unitControl] : [unitControl, { ...unitControl, providerKeys, unitKeys: [] }];
 }
 
 function workerControl(mode: NonNullable<CatalogIntegrationRolloutControlConfig["workerMode"]>) {

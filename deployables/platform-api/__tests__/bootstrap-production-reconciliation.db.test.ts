@@ -64,6 +64,7 @@ function createIdentitySeedHost(pools: PlatformApiTestPools) {
     runtimeProfile: "public",
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },
@@ -217,6 +218,7 @@ describe("platform api bootstrap production reconciliation", () => {
         runtimeProfile: "landing",
         pools: landingPools,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           processorGateway: createFakePaymentProcessorGateway(),
           listingPhotoStorage,
         },
@@ -405,6 +407,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -413,6 +416,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools: queuedPools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -564,6 +568,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -572,6 +577,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools: secondPools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -619,6 +625,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -761,6 +768,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -1206,6 +1214,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },

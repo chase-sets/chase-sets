@@ -52,6 +52,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       lexicalCount: result.lexicalCount,
       queryHash: result.queryHash,
       resultSetKey: result.resultSetKey,
+      ...(result.cursorState === "restarted" ? { cursorRestarted: true as const } : {}),
     });
   });
 

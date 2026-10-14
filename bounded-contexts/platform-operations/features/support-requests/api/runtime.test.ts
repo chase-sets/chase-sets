@@ -12,6 +12,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSupportRequestRuntime } from "./runtime";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -109,7 +110,7 @@ describe("support request runtime", () => {
     });
   });
 
-  it("limits attachment reads to the buyer, seller, and platform support operator", async () => {
+  it("platform-admin without a grant cannot read another account case even when a read model grants it", async () => {
     const body = new Uint8Array([0xff, 0xd8, 0xff]);
     const sha256 = createHash("sha256").update(body).digest("hex");
     const reference = `support-attachment:v1:sea_photo:${sha256}:jpg`;
@@ -133,10 +134,35 @@ describe("support request runtime", () => {
       }),
     };
     const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "any",
+      context,
+      events: [
+        {
+          eventType: "support.support-request.opened",
+          payload: {
+            supportRequestId: "sup_case",
+            buyerAccountId: "acc_buyer",
+            sellerAccountId: "acc_seller",
+            orderReturnContext: [],
+          },
+        },
+        {
+          eventType: "support.support-request.evidence-submitted",
+          payload: { evidence: { attachments: [reference] } },
+        },
+      ],
+    });
     const storage = {
-      putObject: vi.fn(),
-      getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
-      deleteObjects: vi.fn(),
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(async () => ({
+        status: "found" as const,
+        body,
+        byteSize: body.length,
+        providerContentType: "image/jpeg",
+      })),
+      verifyPrivate: vi.fn(),
     };
     const runtime = createSupportRequestRuntime({
       eventStore,
@@ -149,27 +175,25 @@ describe("support request runtime", () => {
       runtime.getAttachment({
         supportRequestId: "sup_case",
         attachmentId: "sea_photo",
-        accountId: "acc_buyer",
-        roleKey: "owner",
+        actor: evidenceActor("owner", ["support.view"]),
       }),
     ).resolves.toEqual({ body, contentType: "image/jpeg" });
     await expect(
       runtime.getAttachment({
         supportRequestId: "sup_case",
         attachmentId: "sea_photo",
-        accountId: "acc_unrelated",
-        roleKey: "owner",
+        actor: evidenceActor("owner", ["support.view"], false, "acc_unrelated"),
       }),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({ status: 404 });
     await expect(
       runtime.getAttachment({
         supportRequestId: "sup_case",
         attachmentId: "sea_photo",
-        accountId: "acc_operator",
-        roleKey: "platform-admin",
+        actor: evidenceActor("platform-admin", ["support.view"], false, "acc_operator"),
       }),
-    ).resolves.toEqual({ body, contentType: "image/jpeg" });
-    expect(storage.getObject).toHaveBeenCalledTimes(2);
+    ).rejects.toMatchObject({ status: 404 });
+    expect(storage.readPrivate).toHaveBeenCalledTimes(1);
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it("stamps the shipment projection's delivered-at fact onto the open decision", async () => {
@@ -1329,6 +1353,7 @@ describe("support request runtime", () => {
           submittedByRole: "buyer",
           evidenceType: "photo",
           summary: "As-received front and back photos.",
+          actor: { ...evidenceActor("owner", ["support.manage"], true), tenantId: "tnt_test", userId: "usr_test" },
           attachments: ["att_1"],
           scope: "operations",
         },

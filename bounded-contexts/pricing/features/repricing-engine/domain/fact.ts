@@ -1,5 +1,5 @@
 import type { DomainEvent } from "@chase-sets/event-core";
-import type { RepricingAnchorTrace, RepricingClampTrace } from "./evaluate";
+import type { RepricingAnchorTrace, RepricingClampTrace, RepricingExhaustedAnchor } from "./evaluate";
 
 export const repricingPolicyEvaluatedEventType = "pricing.repricing-policy.evaluated" as const;
 
@@ -19,7 +19,14 @@ export type RepricingEvaluationSkipReason =
   | "spiral-breaker-frozen"
   | "resume-hysteresis"
   | "repause-cooldown"
-  | "command-error";
+  | "command-error"
+  | "hopeless-forecast-hold";
+
+export type RepricingGoalInputs = Readonly<{
+  curveVersion: number | null;
+  economicsResolved: number;
+  economicsUnavailable: number;
+}>;
 
 export type RepricingPolicyListingTrace = Readonly<{
   listingId: string;
@@ -27,10 +34,7 @@ export type RepricingPolicyListingTrace = Readonly<{
   targetPriceAmount: string | null;
   ruleIndex: number;
   anchor: RepricingAnchorTrace | null;
-  exhaustedAnchors: readonly Readonly<{
-    source: string;
-    state: "present" | "stale" | "absent" | "currency-incomplete" | "currency-mismatch";
-  }>[];
+  exhaustedAnchors: readonly RepricingExhaustedAnchor[];
   clamps: RepricingClampTrace;
   flags: readonly string[];
   frozenUntil?: string;
@@ -58,6 +62,8 @@ export type RepricingPolicyEvaluatedEvent = DomainEvent<
     listingsChanged: number;
     listingsSkipped: number;
     listings: readonly RepricingPolicyListingTrace[];
+    /** Recorded when the policy reads the Demand Curve: its version, and this policy's Economics resolutions. */
+    goalInputs?: RepricingGoalInputs;
     spiralBreaker?: Readonly<{ tripped: boolean; frozenUntil: string }>;
     signalToEvaluationLatencyMs: number;
     evaluatedAt: string;

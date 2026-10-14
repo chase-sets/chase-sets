@@ -32,6 +32,10 @@ The authenticated execution identity used by hosts and APIs after session resolu
 
 Auth resolves the actor for hosts. Identity remains upstream for the user, account, membership, and permission facts included in that actor.
 
+## Projected Capability Grants
+
+Auth's per-request copy of Identity's current Capability Grants, carried on a Session-backed actor as `capabilityAssignments` (key, assignment id, assignment version). Auth projects `identity.account-capability.granted` and `.revoked` into `auth_identity_account_capabilities`, keeping the newest assignment version per tenant, Account and key, and reads the selected Account's grants on every actor resolution. A grant or revoke therefore applies on the next request after projection commit, an already-resolved actor keeps its snapshot, and switching Accounts never carries another Account's grant. Actors without an active Membership resolve to no actor, an actor whose email is unverified for commerce carries no grant, and guest checkout and UCP/agent actors never carry one. Only `support.evidence.any-case` can be granted today.
+
 ## Guest Contact
 
 The normalized email address and trimmed display name bound once to a guest checkout Account before an email-dependent claim journey can begin.
@@ -57,6 +61,10 @@ The safe in-app path that Auth sends the user back to after sign-in, registratio
 The Auth-owned recipient journey that inspects an Identity-owned Invitation, proves control of its emailed acceptance token, creates a password or passkey when needed, and starts a session in the invited account with the invited role.
 
 Identity remains the source of truth for Invitation status, expiry, token consumption, and the resulting Membership. Auth owns the tokenized email intent, recipient page, credential ceremony, and authenticated landing.
+
+## Invitation Acceptance Attempt
+
+One nonsecret, actor- and Invitation-bound Auth journey. Its UUID, versioned binding and bounded checkpoints correlate owner reads and reserved identities, not permission to replay a credential, Session Token or cookie. Complete Identity history proves acceptance; status lookup never issues Session authority. Recorded attempts remain readable after deactivation. Terminal retention removes only lookup markers after 30 days, not authoritative event history or nonterminal recovery state.
 
 ## Sign-In Identifier
 
@@ -126,6 +134,10 @@ Notes:
 
 - Auth owns authorization, account selection, token-facing actor resolution, and safe return paths.
 - Identity owns the durable Linked Platform Authorization consent and revocation facts.
+
+## OAuth Consent
+
+**OAuth Consent** is the interactive approve or deny step of an OAuth Authorization. Every request requires a decision from the bound browser session for its active account and exact requested scopes. Auth stores only the hash of a ten-minute, single-use consent token. Approve issues the authorization code; deny consumes the request without issuing one. Agent-bearer and guest-checkout actors cannot give OAuth Consent.
 
 ## Dynamic Client Registration
 

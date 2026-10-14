@@ -30,9 +30,16 @@ claim, or an ongoing-monitoring result. Each Probe acceptance criterion names
 its exact authority, captured artifact, lifecycle moment, and bounded
 unknown/failure behavior; post-landing evidence is not collected before the
 landed/deployed state it observes exists. A marked evidence comment plus
-independent operator acceptance may close a Probe without a pull request only
-after that Probe's own acceptance criteria are met; operator acceptance is a
-closure control, not evidence authority.
+independent acceptance by the authorized host/reviewer may close a Probe without
+a pull request only after that Probe's own acceptance criteria are met;
+acceptance is a closure control, not evidence authority. It does not require
+Todd to perform or accept an agent-owned Probe. Agents own preparation,
+execution, monitoring, evidence, cleanup, and reporting under the
+[delivery operator boundary](../../.agents/skills/delivery/SKILL.md#operator-boundary).
+Preserve external approvals at their ruled lifecycle and unrelated reserved
+authority. Explicit performer-specific acceptance needs prospective repair and
+independent validation before agent execution; never relabel agent evidence as
+human evidence. This grants no provider or production authorization.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
 `kind:epic` label is kept only as a fallback for tooling that predates types;
@@ -258,8 +265,11 @@ native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only
 projects to `Tracking`.
 
 The derivation is total — every issue on the board resolves to exactly one
-status. The sync is scheduled hourly every day, including nights and weekends,
-but GitHub may delay scheduled runs by hours. Newly added board items receive
+status. Closing or reopening an issue triggers the sync. An hourly schedule runs
+every day, including nights and weekends, as a fallback for other board changes,
+but GitHub may delay scheduled runs by hours. The workflow can also be dispatched
+manually. All triggers share one concurrency group with cancellation disabled:
+at most one run is running and one is pending. Newly added board items receive
 their status on the next successful run. The orchestrator's `board-reconcile.ps1`
 also dispatches the workflow after clearing lane-owned statuses or finding blank
 ones.

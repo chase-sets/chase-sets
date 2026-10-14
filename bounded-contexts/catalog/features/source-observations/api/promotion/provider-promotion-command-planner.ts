@@ -30,6 +30,7 @@ import {
   validatePromotionDisplayIdentity,
   type CatalogPromotionDisplayIdentityEvidence,
   type CatalogPromotionDisplayIdentityOutcome,
+  type CatalogPromotionCurrentItem,
 } from "./promotion-display-identity";
 
 export type CatalogProviderPromotionMode = "create" | "refresh";
@@ -154,7 +155,8 @@ export type CatalogProviderPromotionPlanInput = Readonly<{
  * draft-only (never a published item). Omitting the choice fails closed.
  */
 export async function planCatalogProviderPromotionCommands(
-  input: CatalogProviderPromotionPlanInput & Readonly<{ db: PgQueryable; promoteAsDraft?: boolean }>,
+  input: CatalogProviderPromotionPlanInput &
+    Readonly<{ db: PgQueryable; promoteAsDraft?: boolean; currentItem?: CatalogPromotionCurrentItem | null }>,
 ): Promise<CatalogProviderPromotionCommandPlanResult> {
   const constructed = constructCatalogProviderPromotionCommands(input);
   if (constructed.status === "blocked") {
@@ -166,6 +168,7 @@ export async function planCatalogProviderPromotionCommands(
     mode: input.mode,
     catalogItemId: input.catalogItemId,
     commands: constructed.commands,
+    currentItem: input.currentItem,
   });
   if (validation.status === "missing-current-item") {
     return {

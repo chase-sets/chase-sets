@@ -99,6 +99,7 @@ function services(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryIte
         nextCursor: null,
         retrievalMode: "lexical" as const,
         lexicalCount: 0,
+        cursorState: "fresh" as const,
         queryHash: "",
         resultSetKey: "",
       })),
@@ -146,6 +147,35 @@ describe("Discovery item MCP handlers", () => {
         includeTotal: true,
       }),
     );
+  });
+
+  it("forwards an opaque cursor and returns a restarted fresh page in the unchanged search envelope", async () => {
+    const fakeServices = services();
+    const fresh = await createDiscoveryItemMcpHandlers(fakeServices).toolHandlers["discovery.search-market"]?.(
+      toolInput({ query: "charizard" }),
+    );
+    vi.mocked(fakeServices.search.searchItems).mockResolvedValueOnce({
+      items: [searchRow()],
+      facets: [],
+      category_counts: [],
+      total: 1,
+      nextCursor: "cursor_v2",
+      retrievalMode: "lexical",
+      lexicalCount: 1,
+      cursorState: "restarted",
+      queryHash: "",
+      resultSetKey: "",
+    });
+
+    const restarted = await createDiscoveryItemMcpHandlers(fakeServices).toolHandlers["discovery.search-market"]?.(
+      toolInput({ query: "charizard", cursor: "legacy-cursor" }),
+    );
+
+    expect(fakeServices.search.searchItems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: "charizard", cursor: "legacy-cursor", includeTotal: true }),
+    );
+    expect(Object.keys(restarted as object).sort()).toEqual(Object.keys(fresh as object).sort());
+    expect(restarted).toMatchObject({ total: 1, count: 1, nextCursor: "cursor_v2" });
   });
 
   it("reads active item detail and resource payloads without an actor", async () => {
@@ -204,6 +234,7 @@ describe("Discovery item MCP handlers", () => {
           nextCursor: "cursor_1",
           retrievalMode: "lexical" as const,
           lexicalCount: 1,
+          cursorState: "fresh" as const,
           queryHash: "",
           resultSetKey: "",
         })),

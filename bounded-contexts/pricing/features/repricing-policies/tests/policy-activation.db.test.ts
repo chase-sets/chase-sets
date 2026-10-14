@@ -24,6 +24,7 @@ import { createRepricingEngineRuntime } from "../../repricing-engine/api/runtime
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
+import { economicsNeverResolved } from "../../repricing-engine/tests/round-capture-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -51,6 +52,7 @@ describeDb("policy first activation", () => {
   }
   async function completedRun() {
     const engine = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
       eventStore: createPostgresEventStore({ pool: pools.pricing }),
       db: pools.pricing,
     });
@@ -259,6 +261,7 @@ describeDb("policy first activation", () => {
 
   it("rejects a genuinely cancelled dry-run worker without consuming its request", async () => {
     const engine = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
       eventStore: createPostgresEventStore({ pool: pools.pricing }),
       db: pools.pricing,
     });

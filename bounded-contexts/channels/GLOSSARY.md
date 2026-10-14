@@ -304,6 +304,11 @@ A **Channel Inventory Snapshot** is channel-reported quantity state captured for
 
 ## Snapshot Staleness
 
+Claimed TCGplayer reconciliation reads persisted Live snapshots and authoritative applied batch membership.
+It compares present listings and warns about stale captures and quantity drops not explained by recorded original sale facts.
+Recent sales coverage remains unverified: a listing-settled run can close drift attention and recover drift health,
+but never records a clean run, last-clean time, or a connection-level In sync result. Ready to Ship intake is unchanged.
+
 **Snapshot Staleness** is the age of an attributed (operator-declared or connector-captured) Live capture relative to
 the reconciliation run clock. Age strictly beyond the configured window is stale;
 missing, unattributed, invalid, future, or non-increasing capture evidence is unknown.
@@ -316,6 +321,16 @@ A **Channel Outbound Operation** is one durable instruction Channels issues agai
 ## Connection-Subject Channel Outbound Operation
 
 A **connection-subject Channel Outbound Operation** is a Channel Outbound Operation whose subject is the Channel Connection itself, not a Channel Listing Link. It carries no listing identity, revision or desired-state sequence, never enters an Outbound Operation Lane, listing supersession or Link writer, and shares the claimed reservation, lease, attempt, generation and settlement receipt fences. Contract: `features/outbound-sync/domain/contracts.ts`.
+
+## Channel Live Export
+
+A **Channel Live Export** (`tcgplayer-live-export`) is one connection-subject
+Channel Outbound Operation requesting one Export From Live capture and its derived
+Channel Inventory Snapshot. Channels schedules at most one unsettled export per
+paired connection on a boundary-anchored cadence. A capable connector reserves it
+alone. Complete, unknown and abandoned reports are terminal; the next due boundary
+has a new export identity. An expired unreported attempt retains its identity under
+a new claim fence. HTTP 202 proves admission only, not consumer acceptance.
 
 ## Channel Order Pull
 
@@ -389,7 +404,7 @@ The **Manual Sync Panel** is the authorized Channel Connection surface for compo
 A **Channel Inbound Clamp** is the Marketplace-owned, revision-fenced pause of every active account Listing represented by a genuine Channel Sync Run while Channel Inbound Coverage is dark.
 ## Channel Drift
 
-**Channel Drift** is a divergence between a Channel Listing Link's expected material state and complete channel-reported state.
+**Channel Drift** is a divergence between a Channel Listing Link's expected material state and qualified channel-reported state. Inline comparison uses complete channel-state authority. Claimed Live comparison uses present-row source authority: a current, uniquely identified USD row from one bound snapshot, fully read within local bounds, with authoritative applied membership. Provider census remains unverified; local row counts, quantity sums and all-applied presence never establish it. An absent applied claimed row is `source-unavailable`, even at expected zero, not structural or inferred zero. Present unlinked rows retain structural attention. Revisionless rows never authorize automatic repair. Exact accepted observed/full-expected pairs can remain in-sync, but clean still requires the full expected set applied, present and in-sync, current capture, independently complete sales authority and no unresolved findings.
 
 ## Channel Drift Decision
 

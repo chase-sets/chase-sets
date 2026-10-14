@@ -125,6 +125,7 @@ type ListingFactRow = Readonly<{
   selected_options: unknown;
   selected_option_key: string;
   listing_status: "draft" | "active" | "paused" | "withdrawn" | "auto-unlisted";
+  pause_reason: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   product_summary: string | null;
@@ -260,6 +261,7 @@ export async function readChannelListingCompositionFacts(
           listingId: listing.listing_id,
           listingRevision: Number(listing.listing_stream_version),
           listingStatus: listing.listing_status,
+          pauseReason: listing.pause_reason,
           sellerAvailabilityStatus: listing.seller_availability_status,
           identity: {
             catalogItemId: listing.catalog_item_id,

@@ -207,6 +207,36 @@ describe("Discovery search runtime telemetry", () => {
       expect(services.searchEmbeddings).toBeDefined();
     },
   );
+  it.each([
+    ["fresh", undefined, "fresh"],
+    [
+      "v2 relevance continuation",
+      encodeCursorJson({ v: 2, id: "a", title: "A", rank: 0.5, baseMatch: true, tier: 1 }),
+      "cursor",
+    ],
+    ["unversioned legacy cursor", encodeCursorJson({ id: "a", title: "A", rank: 0.5, baseMatch: true }), "restarted"],
+    ["malformed cursor", "not-a-cursor", "restarted"],
+  ] as const)("reports the effective %s cursor state, not raw cursor presence", async (_label, cursor, expected) => {
+    const recordSearchQuery = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
+
+    const result = await runtime.searchItems({ search: "pikachu", cursor });
+
+    expect(result.cursorState).toBe(expected);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cursorState: expected }));
+  });
+
+  it("reports the classified cursor state when retrieval fails", async () => {
+    const recordSearchQuery = vi.fn();
+    const failingDeps = { ...deps(), db: { query: vi.fn().mockRejectedValue(new Error("SQL failed")) } };
+    const runtime = createDiscoveryItemSearchRuntime(failingDeps, { recordSearchQuery });
+
+    await expect(runtime.searchItems({ search: "pikachu", cursor: "not-a-cursor" })).rejects.toThrow("SQL failed");
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ outcome: "failure", cursorState: "restarted" }),
+    );
+  });
+
   it("emits one privacy-safe signal for each search invocation without making telemetry a dependency", async () => {
     const recordSearchQuery = vi.fn();
     const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
@@ -246,4 +276,8 @@ function deps() {
     query: async <Row>() => ({ rows: [] as Row[], rowCount: 0 }),
   };
   return { db, eventStore: {} as never, checkpointStore: {} as never };
+}
+
+function encodeCursorJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }

@@ -97,8 +97,14 @@ export async function validatePromotionDisplayIdentity(input: {
   mode: CatalogPromotionDisplayIdentityMode;
   catalogItemId: string;
   commands: readonly CatalogItemCommand[];
+  currentItem?: CatalogPromotionCurrentItem | null;
 }): Promise<CatalogPromotionDisplayIdentityValidation> {
-  const currentItem = input.mode === "create" ? null : await loadCurrentCatalogItem(input.db, input.catalogItemId);
+  const currentItem =
+    input.mode === "create"
+      ? null
+      : input.currentItem === undefined
+        ? await loadCurrentCatalogItem(input.db, input.catalogItemId)
+        : input.currentItem;
   if (input.mode !== "create" && !currentItem) {
     return { status: "missing-current-item" };
   }

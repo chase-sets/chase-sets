@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { parse as parseYaml } from "yaml";
+import { readFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { YAMLParseError, parse as parseYaml, parseDocument } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 import {
   PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
@@ -84,6 +87,113 @@ const productionIndex = {
     },
   ],
 };
+
+describe("release-tuple support deployment instance", () => {
+  const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
+  function render(release, namespace, extra = [], chart = "infrastructure/helm/platform") {
+    const env = ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].map((name) => ({
+      name,
+      secret: true,
+      value: "PLANTED_OVERRIDE",
+    }));
+    const args = [
+      "template",
+      release,
+      chart,
+      "--namespace",
+      namespace,
+      "--show-only",
+      "templates/deployment.yaml",
+      "--set-string",
+      "global.fullnameOverride=shared",
+      "--set-string",
+      `global.image.tag=${"a".repeat(40)}`,
+      "--set-json",
+      `components.platform-api.env=${JSON.stringify(env)}`,
+      "--set-json",
+      'global.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      "--set-json",
+      'components.platform-api.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      ...extra,
+    ];
+    // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
+    const output = execFileSync(
+      nativeHelm ? "helm" : "docker",
+      nativeHelm
+        ? args
+        : [
+            "run",
+            "--rm",
+            "-v",
+            `${process.cwd()}:/repo`,
+            "-v",
+            `${tmpdir()}:${tmpdir()}`,
+            "-w",
+            "/repo",
+            "alpine/helm:3.15.4",
+            ...args,
+          ],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    const deployments = output
+      .split(/^---\s*$/m)
+      .map((part) => parseYaml(part))
+      .filter(Boolean);
+    const api = deployments.find((item) => item.metadata.labels["app.kubernetes.io/component"] === "platform-api");
+    return api.spec.template.spec.containers[0].env;
+  }
+  it("kills the fullname-derived and override/secret bypass mutants through actual Helm rendering", () => {
+    const a = render("release-a", "preview-a");
+    const instance = (env) => env.find((item) => item.name === "CHASE_SETS_DEPLOYMENT_INSTANCE");
+    expect(instance(a)).toEqual({
+      name: "CHASE_SETS_DEPLOYMENT_INSTANCE",
+      value: '["support-deployment-instance/v1","preview-a","release-a"]',
+    });
+    expect(instance(render("release-b", "preview-a"))).not.toEqual(instance(a));
+    expect(instance(render("release-a", "preview-b"))).not.toEqual(instance(a));
+    expect(instance(render("release-a", "preview-a", ["--set-string", "global.nameOverride=another"]))).toEqual(
+      instance(a),
+    );
+    const longRelease = `release-${"a".repeat(45)}`;
+    expect(instance(render(longRelease, "preview-a")).value).toBe(
+      JSON.stringify(["support-deployment-instance/v1", "preview-a", longRelease]),
+    );
+    expect(a.find((item) => item.name === "CHASE_SETS_IMPLEMENTATION_SHA")).toEqual({
+      name: "CHASE_SETS_IMPLEMENTATION_SHA",
+      value: "a".repeat(40),
+    });
+    const helper = readFileSync("infrastructure/helm/platform/templates/_helpers.tpl", "utf8");
+    expect(helper).toContain(
+      'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
+    );
+  });
+  it("executes a fullname-derived mutant and observes the release-isolation assertion fail", () => {
+    const temp = mkdtempSync(join(tmpdir(), "support-instance-mutant-"));
+    try {
+      const chart = join(temp, "chart");
+      cpSync("infrastructure/helm/platform", chart, { recursive: true });
+      const helper = join(chart, "templates", "_helpers.tpl");
+      const original = readFileSync(helper, "utf8");
+      const canonical = 'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson';
+      expect(original).toContain(canonical);
+      writeFileSync(
+        helper,
+        original.replace(
+          canonical,
+          'list "support-deployment-instance/v1" $root.Release.Namespace (include "chase-sets-platform.fullname" $root) | toJson',
+        ),
+      );
+      const instance = (release) =>
+        render(release, "preview-a", [], chart).find((item) => item.name === "CHASE_SETS_DEPLOYMENT_INSTANCE").value;
+      const a = instance("release-a");
+      const b = instance("release-b");
+      expect(() => expect(a).not.toEqual(b)).toThrow();
+      expect(a).toEqual(b);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+});
 
 function withManagedPostgresCa(options) {
   return {
@@ -1983,6 +2093,305 @@ describe("platform Kubernetes deployment", () => {
       ["duplicate run identity", { successor: { id: 91001 } }, /duplicate or moving run/],
     ])("fails closed for %s", async (_label, overrides, error) => {
       await expect(collect(overrides)).rejects.toThrow(error);
+    });
+
+    describe("successor serialization projection", () => {
+      // Fixtures revise the real checked-in definitions. Each refusal adds one change to the
+      // admitted drift control, so that change alone decides the result.
+      const deploySource = workflowSource(deployPath);
+      const recoverySource = workflowSource(recoveryPath);
+      const deployDocument = parseDocument(deploySource);
+      const recoveryDocument = parseDocument(recoverySource);
+      const deployJobIds = Object.keys(parseYaml(deploySource).jobs);
+      const recoveryJobIds = Object.keys(parseYaml(recoverySource).jobs);
+      const recovery = { name: "Platform Production Stale Helm Recovery", path: recoveryPath };
+      const decommissionInput = ["on", "workflow_dispatch", "inputs", "decommission_plan_only"];
+      const permutedKeyOrderPaths = [
+        ["concurrency"],
+        decommissionInput,
+        ["jobs", "decommission-live-plan", "steps", 2],
+      ];
+      const revise = (document, ...changes) => {
+        const revised = document.clone();
+        for (const change of changes) change(revised);
+        return String(revised);
+      };
+      // The #9367 shape: #9357 added job env and a step to Deploy Production.
+      const driftDeployProduction = (document) => {
+        document.setIn(
+          ["jobs", "deploy-production", "env", "SYNTHETIC_SUCCESSOR_REFERENCE"],
+          "${{ vars.SYNTHETIC_SUCCESSOR_REFERENCE || '' }}",
+        );
+        document.addIn(
+          ["jobs", "deploy-production", "steps"],
+          document.createNode({ name: "Synthetic successor step", run: "echo synthetic" }),
+        );
+      };
+      const driftRecovery = (document) =>
+        document.addIn(
+          ["jobs", "recover-production-stale-helm-upgrade", "steps"],
+          document.createNode({ name: "Synthetic successor step", run: "echo synthetic" }),
+        );
+      const addNonGroupInput = (document) =>
+        document.setIn(
+          ["on", "workflow_dispatch", "inputs", "synthetic_note"],
+          document.createNode({
+            description: "Synthetic non-group input.",
+            required: false,
+            default: "",
+            type: "string",
+          }),
+        );
+      const permuteProjectedKeyOrder = (document) => {
+        for (const path of permutedKeyOrderPaths) document.getIn(path).items.reverse();
+      };
+      const addWorkflowBashEnv = (document) =>
+        document.set("env", document.createNode({ BASH_ENV: "./synthetic-production-writer.sh" }));
+      const driftedDeploySource = revise(deployDocument, driftDeployProduction);
+      const queuedIds = ({ census }) => census.concurrencyQueuedRuns.map(({ id }) => id);
+      const writerIds = ({ census }) => census.writerRuns.map(({ id }) => id);
+      const preProductionJobs = {
+        total_count: 2,
+        jobs: [
+          { name: "Resolve Release", status: "completed", conclusion: "success", started_at: "2026-10-06T18:00:00Z" },
+          {
+            name: "Build Release Image",
+            status: "completed",
+            conclusion: "success",
+            started_at: "2026-10-06T18:01:00Z",
+          },
+        ],
+      };
+
+      // Frozen control shared by the refusals: drifted definition, pending, attempt 1, zero jobs.
+      let deployControl;
+      async function expectDriftControlAdmitted() {
+        deployControl ??= collect({ source: driftedDeploySource });
+        expect(queuedIds(await deployControl)).toEqual([91002]);
+      }
+
+      async function expectRetained(overrides) {
+        const result = await collect(overrides);
+        expect(queuedIds(result)).toEqual([]);
+        expect(writerIds(result)).toEqual([91001, 91002]);
+        return result.census;
+      }
+
+      const expectMarkerRefused = (census) =>
+        expect(() => assertExclusiveMarkerWriter(census, "91001")).toThrow("active or conflicting production writer");
+
+      it("permutes only nested mapping key order in the real projected members", () => {
+        const real = parseYaml(deploySource);
+        const permuted = parseYaml(revise(deployDocument, permuteProjectedKeyOrder));
+        expect(permuted).toEqual(real);
+        for (const path of permutedKeyOrderPaths) {
+          const keys = (workflow) => Object.keys(path.reduce((member, key) => member[key], workflow));
+          expect(keys(permuted)).toEqual(keys(real).reverse());
+        }
+      });
+
+      it.each([
+        ["(i) the #9367 job env and step drift", driftDeployProduction],
+        ["(ii) an added non-group input", addNonGroupInput],
+        ["(iii) only nested mapping key order permuted", permuteProjectedKeyOrder],
+      ])("admits a pending or queued successor whose whole file differs by %s", async (_label, change) => {
+        const source = revise(deployDocument, change);
+        expect(source).not.toBe(deploySource);
+        for (const status of ["pending", "queued"]) {
+          const result = await collect({ source, successor: { status } });
+          expect(queuedIds(result)).toEqual([91002]);
+          expect(writerIds(result)).toEqual([91001]);
+          expect(() => assertExclusiveMarkerWriter(result.census, "91001")).not.toThrow();
+        }
+      });
+
+      it("admits drifted successors although real jobs legitimately lack needs", async () => {
+        const withoutNeeds = (source) =>
+          Object.entries(parseYaml(source).jobs)
+            .filter(([, job]) => !Object.hasOwn(job, "needs"))
+            .map(([id]) => id);
+        expect(withoutNeeds(deploySource)).toEqual(["decommission-live-plan", "resolve-release"]);
+        expect(withoutNeeds(recoverySource)).toEqual(["refuse-unconfirmed"]);
+        await expectDriftControlAdmitted();
+        const result = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });
+        expect(queuedIds(result)).toEqual([91002]);
+        expect(assertExclusiveProductionHelmWriter(result.census, { currentRunId: "91001" }).id).toBe(91001);
+      });
+
+      it.each([
+        [
+          "the top-level group",
+          (document) => document.setIn(["concurrency", "group"], "platform-registry-mutation-v2"),
+        ],
+        ["cancel-in-progress", (document) => document.setIn(["concurrency", "cancel-in-progress"], true)],
+        ["the name", (document) => document.set("name", "Platform Deploy Synthetic")],
+        ["the decommission input declaration", (document) => document.setIn([...decommissionInput, "type"], "string")],
+        [
+          "a job if",
+          (document) => document.setIn(["jobs", "resolve-release", "if"], "github.event_name == 'workflow_dispatch'"),
+        ],
+        [
+          "a job needs",
+          (document) =>
+            document.setIn(["jobs", "deploy-production", "needs"], document.createNode(["resolve-release"])),
+        ],
+        [
+          "an added job",
+          (document) =>
+            document.setIn(
+              ["jobs", "synthetic-writer"],
+              document.createNode({ "runs-on": "ubuntu-latest", steps: [{ run: "echo synthetic" }] }),
+            ),
+        ],
+        ["a removed job", (document) => document.deleteIn(["jobs", "notify-production-rollback-incident"])],
+        [
+          "the decommission-live-plan body",
+          (document) =>
+            document.addIn(
+              ["jobs", "decommission-live-plan", "steps"],
+              document.createNode({ name: "Synthetic writer", run: "terraform apply -auto-approve" }),
+            ),
+        ],
+        [
+          "an added workflow-level defaults.run.shell",
+          (document) =>
+            document.set(
+              "defaults",
+              document.createNode({ run: { shell: 'bash -c "echo SYNTHETIC_UNSERIALIZED_WRITER; bash {0}"' } }),
+            ),
+        ],
+        [
+          "an added workflow-level defaults.run.working-directory",
+          (document) => document.set("defaults", document.createNode({ run: { "working-directory": "synthetic" } })),
+        ],
+        ["an added workflow-level env.BASH_ENV", addWorkflowBashEnv],
+      ])("retains a successor whose projection differs only in %s", async (_label, change) => {
+        await expectDriftControlAdmitted();
+        expectMarkerRefused(await expectRetained({ source: revise(deployDocument, driftDeployProduction, change) }));
+      });
+
+      it.each([
+        ["lacks concurrency", (document) => document.delete("concurrency")],
+        ["lacks jobs", (document) => document.delete("jobs")],
+        ["lacks the referenced input", (document) => document.deleteIn(decommissionInput)],
+        ["lacks the isolated job", (document) => document.deleteIn(["jobs", "decommission-live-plan"])],
+        ["has a non-mapping concurrency", (document) => document.set("concurrency", "platform-registry-mutation")],
+        [
+          "has a non-mapping inputs container",
+          (document) => document.setIn(["on", "workflow_dispatch", "inputs"], "decommission_plan_only"),
+        ],
+        ["has an empty jobs mapping", (document) => document.set("jobs", document.createNode({}))],
+        [
+          "has a non-mapping job",
+          (document) => document.setIn(["jobs", "close-resolved-deploy-incidents"], "ubuntu-latest"),
+        ],
+        ["has an empty referenced input", (document) => document.setIn(decommissionInput, document.createNode({}))],
+        [
+          "has an empty isolated job",
+          (document) => document.setIn(["jobs", "decommission-live-plan"], document.createNode({})),
+        ],
+        ["removes a present needs", (document) => document.deleteIn(["jobs", "deploy-production", "needs"])],
+        ["removes a present if", (document) => document.deleteIn(["jobs", "resolve-release", "if"])],
+        [
+          "adds needs where the contract has none",
+          (document) => document.setIn(["jobs", "resolve-release", "needs"], "decommission-live-plan"),
+        ],
+        [
+          "adds null needs where the contract has none",
+          (document) => document.setIn(["jobs", "resolve-release", "needs"], null),
+        ],
+      ])("retains a successor whose definition %s", async (_label, change) => {
+        await expectDriftControlAdmitted();
+        expectMarkerRefused(await expectRetained({ source: revise(deployDocument, driftDeployProduction, change) }));
+      });
+
+      it.each([
+        ["a scalar", "Platform Deploy\n"],
+        ["a sequence", "- name: Platform Deploy\n"],
+        ["null", "null\n"],
+        ["nothing", ""],
+      ])("retains a successor whose definition parses to %s", async (_label, source) => {
+        await expectDriftControlAdmitted();
+        expectMarkerRefused(await expectRetained({ source }));
+      });
+
+      it("retains the successor when the current definition lacks required structure", async () => {
+        await expectDriftControlAdmitted();
+        const currentSource = revise(deployDocument, (document) => document.delete("concurrency"));
+        expectMarkerRefused(await expectRetained({ currentSource }));
+      });
+
+      it("fails closed for an unparseable successor definition", async () => {
+        await expect(collect({ source: "name: [Platform Deploy\n" })).rejects.toThrow(YAMLParseError);
+      });
+
+      it.each([
+        ["an identical", deploySource],
+        ["a drifted", driftedDeploySource],
+      ])("retains an in_progress successor with %s definition and zero jobs", async (_label, source) => {
+        expect(queuedIds(await collect({ source }))).toEqual([91002]);
+        expectMarkerRefused(await expectRetained({ source, successor: { status: "in_progress" } }));
+      });
+
+      it.each([
+        ["an identical", deploySource],
+        ["a drifted", driftedDeploySource],
+      ])("retains an in_progress successor with %s definition and only pre-production jobs", async (_label, source) => {
+        expectMarkerRefused(
+          await expectRetained({ source, jobs: preProductionJobs, successor: { status: "in_progress" } }),
+        );
+      });
+
+      it("retains a current run whose valid workflow bytes drift outside the projection", async () => {
+        for (const currentSource of [
+          `# Synthetic comment outside the projection.\n${deploySource}`,
+          revise(deployDocument, (document) =>
+            document.setIn(
+              ["on", "workflow_dispatch", "inputs", "release_ref", "description"],
+              "Synthetic non-group input description.",
+            ),
+          ),
+          driftedDeploySource,
+        ]) {
+          expect(currentSource).not.toBe(deploySource);
+          // The same bytes as the successor's definition prove an equal, valid projection.
+          expect(queuedIds(await collect({ source: currentSource }))).toEqual([91002]);
+          expectMarkerRefused(await expectRetained({ currentSource }));
+        }
+      });
+
+      it("finds the real members the projections must contain", () => {
+        const decommissionDeclaration = decommissionInput.reduce((member, key) => member[key], parseYaml(deploySource));
+        expect(Object.keys(decommissionDeclaration)).not.toHaveLength(0);
+        expect(deployJobIds).toContain("decommission-live-plan");
+        expect(deployJobIds.length).toBeGreaterThanOrEqual(14);
+        expect(recoveryJobIds).toEqual(["refuse-unconfirmed", "recover-production-stale-helm-upgrade"]);
+      });
+
+      it.each(deployJobIds)("projects real Platform Deploy job %s", async (id) => {
+        await expectDriftControlAdmitted();
+        const source = revise(deployDocument, driftDeployProduction, (document) => document.deleteIn(["jobs", id]));
+        expectMarkerRefused(await expectRetained({ source }));
+      });
+
+      it.each([
+        ["its group", (document) => document.setIn(["concurrency", "group"], "platform-registry-mutation-v2")],
+        ...recoveryJobIds.map((id) => [`job ${id}`, (document) => document.deleteIn(["jobs", id])]),
+        ["an added workflow-level env.BASH_ENV", addWorkflowBashEnv],
+      ])(
+        "projects the real stale Helm recovery contract, retaining a successor changing %s",
+        async (_label, change) => {
+          const control = await collect({ current: recovery, source: revise(recoveryDocument, driftRecovery) });
+          expect(queuedIds(control)).toEqual([91002]);
+          const census = await expectRetained({
+            current: recovery,
+            source: revise(recoveryDocument, driftRecovery, change),
+          });
+          expect(() => assertExclusiveProductionHelmWriter(census, { currentRunId: "91001" })).toThrow(
+            /only active writer; observed 2/,
+          );
+        },
+      );
     });
   });
 

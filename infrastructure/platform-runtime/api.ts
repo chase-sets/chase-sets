@@ -3,7 +3,7 @@ import {
   countEventsWithPrefix,
   createProjectionAwarePool,
   drainContextRuntime,
-  drainLocalProjectionHandlerSets,
+  syncLocalProjectionGroups,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -124,7 +124,11 @@ export function getApiHostContextNames<TRegistry extends ApiContextRegistry>(
   );
 }
 
-function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonly<Record<string, unknown>>) {
+function getHostPortsForContext(
+  manifest: ApiContextManifest,
+  hostPorts: Readonly<Record<string, unknown>>,
+  accountCapabilityRegistry: AccountCapabilityRegistry,
+) {
   const entries = manifest.hostPorts ?? [];
   if (entries.length === 0) {
     return undefined;
@@ -134,6 +138,8 @@ function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonl
   for (const hostPort of entries) {
     resolvedPorts[hostPort.portName] = hostPorts[hostPort.portName];
   }
+  if (entries.some((port) => port.portName === "capabilityAdministrationAuthority"))
+    resolvedPorts.accountCapabilityRegistry = accountCapabilityRegistry;
 
   return resolvedPorts;
 }
@@ -190,7 +196,11 @@ export function createApiHost(
         entry.contextName,
         entry.module.createServices(
           servicePool,
-          getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
+          getHostPortsForContext(
+            entry.manifest as ApiContextManifest,
+            options.hostPorts ?? {},
+            accountCapabilityRegistry,
+          ) as never,
           { notificationWaiterPool: serviceNotificationWaiterPool },
         ),
       ];
@@ -468,9 +478,9 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         seedApiModuleForHostBootstrap(context, options, lockAcquisition),
       );
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
-        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await syncLocalProjectionGroups(context);
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
-        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await syncLocalProjectionGroups(context);
       });
       continue;
     }
@@ -553,7 +563,7 @@ async function seedApiModuleForHostBootstrap(
     console.log(
       `${context.contextName} events already exist after queued bootstrap. Draining existing events without general seed re-entry.`,
     );
-    await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+    await syncLocalProjectionGroups(context);
     return;
   }
 
@@ -575,7 +585,7 @@ async function reconcileRequiredBootstrapState(context: MountedContextRuntimeEnt
     return;
   }
 
-  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await syncLocalProjectionGroups(context);
   await reconcile(context.pool, context.services, options);
-  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await syncLocalProjectionGroups(context);
 }

@@ -1,10 +1,17 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { submitAccountManagement } from "../../account-management/api/route-support";
+import type { AccountManagementServices } from "../../account-management/api/runtime";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityApiEnv } from "../../../api";
 import { hasPermission } from "../../../support/request-support/permissions";
-import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import { IdentityDomainError, PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common";
+import {
+  SHIPPING_ADDRESS_REQUIRED_MESSAGES,
+  ShippingAddressFieldError,
+  ShippingAddressUndeliverableError,
+} from "../domain/errors";
 import type { ShippingAddressServices } from "./runtime";
 import type { ShippingAddressSnapshot } from "../domain/domain";
 
@@ -76,9 +83,26 @@ function addressVerificationChoiceResponse(
 }
 
 function shippingAddressError(error: unknown) {
-  const message = error instanceof Error ? error.message : "Request failed.";
-  const code = message.includes("deliverable address") ? "shipping_address_undeliverable" : "validation_failed";
-  return { error: { code, message } };
+  if (error instanceof ShippingAddressFieldError) {
+    const message = t(SHIPPING_ADDRESS_REQUIRED_MESSAGES[error.field]);
+    return {
+      error: { code: "validation_failed", message, details: [{ field: error.field, code: error.code, message }] },
+    };
+  }
+  if (error instanceof ShippingAddressUndeliverableError) {
+    return {
+      error: {
+        code: "shipping_address_undeliverable",
+        message: t("identity.features.shippingAddresses.errors.undeliverable"),
+      },
+    };
+  }
+  if (error instanceof IdentityDomainError) {
+    return {
+      error: { code: "validation_failed", message: t("identity.support.routeSupport.accountActionErrors.validation") },
+    };
+  }
+  throw error;
 }
 
 function canAccessAccount(actor: IdentityApiEnv["Variables"]["actor"], accountId: string, write: boolean) {
@@ -109,7 +133,10 @@ function accountIdParam(c: { req: { param(name: string): string | undefined } })
   return parseTypedIdBoundary(c.req.param("accountId"), "acc", "accountId");
 }
 
-export function shippingAddressRoutes(services: ShippingAddressServices) {
+export function shippingAddressRoutes(
+  services: ShippingAddressServices,
+  accountManagement?: AccountManagementServices,
+) {
   const app = new Hono<IdentityApiEnv>();
 
   app.get("/", async (c) => {
@@ -124,6 +151,11 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.post("/", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(c, accountManagement, "create", null, await c.req.json());
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }
@@ -178,6 +210,17 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.put("/:shippingAddressId", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(
+        c,
+        accountManagement,
+        "update",
+        c.req.param("shippingAddressId"),
+        await c.req.json(),
+      );
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }
@@ -228,6 +271,17 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.post("/:shippingAddressId/default", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(
+        c,
+        accountManagement,
+        "default",
+        c.req.param("shippingAddressId"),
+        {},
+      );
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }
@@ -262,6 +316,17 @@ export function shippingAddressRoutes(services: ShippingAddressServices) {
 
   app.post("/:shippingAddressId/archive", async (c) => {
     const accountId = accountIdParam(c);
+    if (c.req.header("Idempotency-Key") !== undefined) {
+      if (c.var.actor?.accountId !== accountId) return c.json(forbidden(), 403);
+      const attempted = await submitAccountManagement(
+        c,
+        accountManagement,
+        "archive",
+        c.req.param("shippingAddressId"),
+        {},
+      );
+      if (attempted) return attempted;
+    }
     if (!canAccessAccount(c.var.actor, accountId, true)) {
       return c.json(forbidden(), 403);
     }

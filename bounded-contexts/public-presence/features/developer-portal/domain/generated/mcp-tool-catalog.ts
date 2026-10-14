@@ -2395,7 +2395,16 @@ export const mcpToolCatalog = [
         idempotencyKey: {
           type: "string",
           description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+            "Caller-created Inventory mutation attempt UUIDv4. Reuse only for the same normalized intent; after response loss read the original result.",
+        },
+        collisionMode: {
+          type: "string",
+          description: "Stock reduction collision policy.",
+          enum: ["protect-orders", "honor-offline"],
+        },
+        confirmSellerCannotFulfill: {
+          type: "boolean",
+          description: "Explicit Honor Offline confirmation.",
         },
         confirmationText: {
           type: "string",
@@ -2421,8 +2430,8 @@ export const mcpToolCatalog = [
         matchInputField: "confirmationText",
       },
       idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
+      idempotencyAuthority: "owner",
+      dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use for explicit stock corrections after checking active holds and ledger history."],
@@ -3020,6 +3029,46 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
+  },
+  {
+    name: "inventory.get-mutation-attempt",
+    title: "Get Inventory Mutation Result",
+    description: "Read the exact original Inventory result without resubmitting a change.",
+    availability: "available",
+    serviceId: "inventory",
+    risk: "read",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "attemptId"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        attemptId: {
+          type: "string",
+          description: "Original caller-created attempt UUIDv4.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["inventory.view"],
+      requiredScopes: ["inventory:read"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: false,
+      },
+      idempotencyKey: "not-applicable",
+      idempotencyAuthority: "platform",
+      dryRunSupported: false,
+      notes: ["Return only account-scoped data that the actor can already view."],
+    },
+    expectedUsage: ["Use after an uncertain response; an unavailable result does not authorize a second write."],
   },
   {
     name: "inventory.list-import-sources",

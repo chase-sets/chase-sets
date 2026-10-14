@@ -20,5 +20,8 @@ export function createIdentityRequestApiClient(request: Request) {
   return createIdentityApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "identity" }),
+    ...(request.headers.has("Idempotency-Key")
+      ? { headers: { "Idempotency-Key": request.headers.get("Idempotency-Key")! } }
+      : {}),
   });
 }

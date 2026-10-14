@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import {
   assert,
   assertNever,
@@ -388,9 +389,10 @@ function normalizeOptionalPriceAmount(value?: string | null) {
   }
 
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Selected listing price must be a valid amount.");
-  const amount = Number.parseFloat(normalized);
-  assert(Number.isFinite(amount) && amount > 0, "Selected listing price must be a positive amount.");
-  return amount.toFixed(2);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Selected listing price must be a valid amount.");
+  assert(cents > 0n, "Selected listing price must be a positive amount.");
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeSelectedListingSnapshot(

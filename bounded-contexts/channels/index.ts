@@ -149,6 +149,7 @@ import {
 } from "./features/connections/read-model/schema";
 import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
 import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
+import { readPersistedClaimedState } from "./features/reconciliation/read-model/claimed";
 import { readReconciliationConnection } from "./features/reconciliation/read-model/source";
 import type { ChannelsServices } from "./support/runtime-support/services";
 import {
@@ -340,6 +341,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
           resolveConnectorPolicy: async () =>
             decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
         },
+        liveExport: {
+          resolveConnectorPolicy: async () =>
+            decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+        },
         readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
           let killSwitch = null;
           try {
@@ -368,6 +373,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       eventStore,
       outboundSync,
       channelSaleRecorder: ports.channelSaleRecorder,
+      readClaimedChannelState: (input) => readPersistedClaimedState(pool, input),
       resolvePolicy: async () => {
         const resolved = await policies.resolvePolicy(channelReconciliationPolicy);
         const document = resolved.documentId === null ? null : await policies.getPolicyDocument(resolved.documentId);

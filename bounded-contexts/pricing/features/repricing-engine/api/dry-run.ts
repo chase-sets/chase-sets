@@ -4,6 +4,7 @@ import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-c
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { moneyToCents } from "@chase-sets/primitives/money";
+import type { EconomicsServices } from "../../economics/api/services";
 import { decideRepricingPolicy, initialRepricingPolicyState } from "../../repricing-policies/domain/domain";
 import { planRepricingRound, traceFromEvaluation } from "../domain/round";
 import type { RepricingEnginePolicyValue } from "../domain/policy";
@@ -96,6 +97,7 @@ export function validateRepricingDryRunBody(body: RepricingDryRunBody, accountId
 export function createRepricingDryRunServices(
   db: PgTransactionalPool,
   resolvePolicy: () => Promise<RepricingEnginePolicyValue>,
+  economics: Pick<EconomicsServices, "resolve">,
 ) {
   const store = createPostgresDurableJobStore<Payload, Progress, RepricingDryRunSummary>(db, tables);
   const getDryRun = async (sellerAccountId: string, dryRunId: string): Promise<RepricingDryRun | null> => {
@@ -234,14 +236,16 @@ export function createRepricingDryRunServices(
           body: run.body,
           ...(run.replacingPolicyId ? { replacingPolicyId: run.replacingPolicyId } : {}),
         };
+        // Every page captures at the request instant, in the RFC 3339 form Economics requires.
+        const capturedAt = new Date(run.requestedAt).toISOString();
         while (true) {
           checkLease();
           const products = await listCandidateRepricingProducts(db, candidate, run.cursor);
           if (!products.length) break;
-          const rounds = await loadRepricingRoundInputsPage(db, { products, candidate });
+          const rounds = await loadRepricingRoundInputsPage(db, { products, candidate, capturedAt, policy, economics });
           const traces: RepricingPolicyListingTrace[] = [];
           for (const round of rounds.values()) {
-            for (const evaluation of planRepricingRound(round, run.requestedAt, policy)) {
+            for (const evaluation of planRepricingRound(round, capturedAt, policy)) {
               const outcome =
                 evaluation.action === "update-price"
                   ? "changed"

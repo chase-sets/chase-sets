@@ -978,9 +978,10 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
       `caller inventory: discovered ${discovered.length} entry points; ${persistentCount} persistent_required, ${ruledCount} covered by reviewed rulings`,
     );
     expect(misses).toEqual([]);
+    expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 158,
-      persistentCount: 153,
+      discovered: 164,
+      persistentCount: 159,
       ruledCount: 5,
     });
   });

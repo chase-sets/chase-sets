@@ -44,6 +44,7 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
         nextCursor: null,
         retrievalMode: "lexical" as const,
         lexicalCount: 0,
+        cursorState: "fresh" as const,
         queryHash: "",
         resultSetKey: "",
       })),
@@ -135,6 +136,36 @@ describe("Discovery UCP catalog handlers", () => {
         component: "marketplace-results",
       },
     });
+  });
+
+  it("forwards opaque cursors and keeps the search envelope unchanged when a cursor restarts", async () => {
+    const items = buildItems();
+    const handlers = createDiscoveryUcpHandlers(items);
+    const search = (body: Record<string, unknown>) =>
+      handlers.restHandlers.search_catalog({
+        request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+        params: {},
+      } as never);
+    const fresh = await search({ query: "charizard" });
+    const restartedPage = await vi.mocked(items.search.searchItems).getMockImplementation()?.();
+    if (!restartedPage) throw new Error("Expected the default search fixture.");
+    vi.mocked(items.search.searchItems).mockResolvedValueOnce({
+      ...restartedPage,
+      nextCursor: "cursor_v2",
+      cursorState: "restarted",
+    });
+
+    const restarted = await search({ query: "charizard", cursor: "legacy-cursor" });
+
+    expect(items.search.searchItems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: "charizard", cursor: "legacy-cursor", includeTotal: true }),
+    );
+    expect(Object.keys(restarted).sort()).toEqual(Object.keys(fresh).sort());
+    expect(restarted).toMatchObject({ ucp: { status: "ok" }, count: 1, total: 1, next_cursor: "cursor_v2" });
+    expect(JSON.stringify(restarted)).not.toContain("restart");
   });
 
   it("returns a UCP not-found message when get_product cannot resolve an item", async () => {

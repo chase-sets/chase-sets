@@ -305,6 +305,19 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["chase-sets:review-draft:"] }],
   },
   {
+    factId: "web-storage-inventory-recovery",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "inventory-mutation/v1:*",
+    evidenceRefs: [
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:79",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:88",
+    ],
+    factualSummary:
+      "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["inventory-mutation/v1:"] }],
+  },
+  {
     factId: "web-storage-search-restoration",
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.restoration.v2",
@@ -398,7 +411,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:63-68",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/package.json:47",
+      "bounded-contexts/settlement/package.json:48",
     ],
     factualSummary:
       "The payout setup page calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -413,7 +426,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:90-102",
-      "bounded-contexts/settlement/package.json:47",
+      "bounded-contexts/settlement/package.json:48",
     ],
     factualSummary:
       "The Stripe Connect notification banner calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -457,7 +470,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:210-213",
+      "deployables/platform-api/src/main.ts:217-220",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -472,7 +485,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:218-221",
+      "deployables/platform-api/src/main.ts:225-228",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

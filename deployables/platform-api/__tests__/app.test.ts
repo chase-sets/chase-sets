@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
@@ -27,11 +28,13 @@ import {
   EVIDENCE_WINDOW_ADMISSION_HEADER,
   type EvidenceWindowRegistration,
 } from "@chase-sets/platform-runtime/control-plane";
+import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
 import {
   createUcpEnvelope,
   UCP_MCP_CART_REVIEW_RESOURCE_URI,
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
+  UCP_VERSION,
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -135,7 +138,13 @@ async function withUninstrumentedPlatformApiRuntime(
     port: 6182,
   });
   try {
-    await action(createPlatformApiHost({ runtimeProfile: "public", pools, hostPorts: {} }));
+    await action(
+      createPlatformApiHost({
+        runtimeProfile: "public",
+        pools,
+        hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+      }),
+    );
   } finally {
     await closePlatformApiPools(pools);
   }
@@ -490,11 +499,16 @@ describe("platform api app wiring", () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
     const response = await app.request("https://marketplace.chasesets.test/.well-known/oauth-protected-resource");
+    const authorizationServer = await app.request(
+      "https://marketplace.chasesets.test/.well-known/oauth-authorization-server",
+    );
+    const { issuer } = (await authorizationServer.json()) as { issuer: string };
 
     expect(response.status).toBe(200);
+    expect(issuer).toBe("https://marketplace.chasesets.test");
     await expect(response.json()).resolves.toEqual({
       resource: "https://marketplace.chasesets.test/mcp",
-      authorization_servers: ["https://marketplace.chasesets.test/.well-known/oauth-authorization-server"],
+      authorization_servers: [issuer],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
         "checkout:read",
@@ -521,6 +535,157 @@ describe("platform api app wiring", () => {
       registration_endpoint: "https://marketplace.chasesets.test/ucp/oauth/register",
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
+    });
+  });
+
+  it("names the same authorization-server issuer through the trusted public-origin resolver", async () => {
+    const app = buildPlatformApiApp(createEmptyRuntime());
+    const forwarded = {
+      headers: { "x-forwarded-host": "marketplace.chasesets.test", "x-forwarded-proto": "https" },
+    };
+
+    try {
+      vi.stubEnv(CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV, "true");
+      const resourceMetadata = await app.request(
+        "http://platform-api.internal:8080/.well-known/oauth-protected-resource",
+        forwarded,
+      );
+      const authorizationServer = await app.request(
+        "http://platform-api.internal:8080/.well-known/oauth-authorization-server",
+        forwarded,
+      );
+      const { issuer } = (await authorizationServer.json()) as { issuer: string };
+
+      expect(issuer).toBe("https://marketplace.chasesets.test");
+      await expect(resourceMetadata.json()).resolves.toMatchObject({
+        resource: "https://marketplace.chasesets.test/mcp",
+        authorization_servers: [issuer],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("OAuth authorize requires interactive consent on the mounted platform API", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => ({
+        rows: sql.includes("FROM identity_ucp_oauth_clients")
+          ? [
+              {
+                client_id: "synthetic-client",
+                client_name: "Synthetic Agent",
+                platform_profile_url: "https://agent.example",
+                redirect_uris: ["https://agent.example/callback"],
+                scopes: ["payouts:request"],
+                grant_types: ["authorization_code"],
+                response_types: ["code"],
+                token_endpoint_auth_method: "none",
+              },
+            ]
+          : [],
+        rowCount: 1,
+      })),
+    };
+    const resolveActor = vi.fn(async () => ({ ...platformActor([]), sessionId: "synthetic-session" }));
+    const app = buildPlatformApiApp(
+      createEmptyRuntime({
+        auth: {
+          db,
+          auth: {
+            issueOpaqueToken: () => "ucp_consent_synthetic",
+            hashSecret: () => "synthetic-hash",
+          },
+        },
+        identity: { linkedPlatformAuthorizations: {} },
+      }),
+      { resolveActor },
+    );
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: "synthetic-client",
+      redirect_uri: "https://agent.example/callback",
+      scope: "payouts:request",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+    });
+    const response = await app.request(`https://marketplace.chasesets.test/ucp/oauth/authorize?${query}`, {
+      headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" },
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/account/agents/consent?consent_token=ucp_consent_synthetic");
+    expect(db.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO identity_ucp_oauth_consent_requests"))).toBe(
+      true,
+    );
+    expect(
+      db.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO identity_ucp_oauth_authorization_codes")),
+    ).toBe(false);
+  });
+
+  it("stock-client discovery chain registers", async () => {
+    const authDb = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+    const app = buildPlatformApiApp(createEmptyRuntime({ auth: { db: authDb } }));
+    // The configured MCP server URL is the only input; every later URL comes from a discovery document.
+    const mcpServerUrl = "https://marketplace.chasesets.test/mcp";
+
+    const challenge = await app.request(mcpServerUrl, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "call_1",
+        method: "tools/call",
+        params: { name: "inventory.list-import-sources", arguments: { accountId: "acc_1" } },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(challenge.status).toBe(401);
+    const resourceMetadataUrl =
+      /resource_metadata="([^"]+)"/.exec(challenge.headers.get("WWW-Authenticate") ?? "")?.[1] ?? "";
+
+    const resourceMetadataResponse = await app.request(resourceMetadataUrl);
+    expect(resourceMetadataResponse.status).toBe(200);
+    const resourceMetadata = (await resourceMetadataResponse.json()) as {
+      resource: string;
+      authorization_servers: readonly string[];
+      scopes_supported: readonly string[];
+    };
+    expect(resourceMetadata.resource).toBe(mcpServerUrl);
+    expect(resourceMetadata.scopes_supported).toHaveLength(18);
+    const [authorizationServerIssuer = ""] = resourceMetadata.authorization_servers;
+
+    const authorizationServerResponse = await app.request(
+      `${authorizationServerIssuer}/.well-known/oauth-authorization-server`,
+    );
+    expect(authorizationServerResponse.status).toBe(200);
+    const authorizationServer = (await authorizationServerResponse.json()) as {
+      issuer: string;
+      registration_endpoint: string;
+    };
+    expect(authorizationServer.issuer).toBe(authorizationServerIssuer);
+
+    // Synthetic replay of the Claude Code 2.1.296 registration body shape captured by #9232: every advertised
+    // scope (18 at capture), a client_name, a loopback redirect, and neither client_uri nor platform_profile_url.
+    // The port and server label are synthetic.
+    const registration = await app.request(authorizationServer.registration_endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        client_name: "Claude Code (synthetic-server)",
+        redirect_uris: ["http://localhost:49160/callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+        application_type: "native",
+        scope: resourceMetadata.scopes_supported.join(" "),
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(registration.status).toBe(201);
+    await expect(registration.json()).resolves.toMatchObject({
+      client_name: "Claude Code (synthetic-server)",
+      platform_profile_url: "http://localhost:49160",
+      redirect_uris: ["http://localhost:49160/callback"],
+      scope: [...resourceMetadata.scopes_supported].sort().join(" "),
+      token_endpoint_auth_method: "none",
     });
   });
 
@@ -1561,6 +1726,19 @@ describe("platform api app wiring", () => {
           accountId: "acc_buyer",
           roleKey: "buyer",
         })),
+        ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
+        },
       },
     );
     const body = JSON.stringify({
@@ -1667,6 +1845,17 @@ describe("platform api app wiring", () => {
       }),
       {
         ucp: {
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
+            },
+          }),
           mcpToolHandlers: {
             complete_checkout: completeCheckout,
           },
@@ -2182,6 +2371,48 @@ const PRODUCTION_HOST_FILES = [
   "deployables/platform-api/src/representative-commerce-state.ts",
   "scripts/replay-projection.ts",
 ];
+
+it("supplies capability administration authority in every production platform API host", () => {
+  const root = repositoryRootFromTests();
+  for (const file of PRODUCTION_HOST_FILES) {
+    const source = readFileSync(join(root, file), "utf8");
+    const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    const hostPorts: ts.ObjectLiteralExpression[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isCallExpression(node) && node.expression.getText(tree) === "createPlatformApiHost") {
+        const options = node.arguments[0];
+        expect(options && ts.isObjectLiteralExpression(options), file).toBe(true);
+        if (options && ts.isObjectLiteralExpression(options)) {
+          const ports = options.properties.find(
+            (property) => ts.isPropertyAssignment(property) && property.name.getText(tree) === "hostPorts",
+          );
+          expect(ports && ts.isPropertyAssignment(ports) && ts.isObjectLiteralExpression(ports.initializer), file).toBe(
+            true,
+          );
+          if (ports && ts.isPropertyAssignment(ports) && ts.isObjectLiteralExpression(ports.initializer)) {
+            hostPorts.push(ports.initializer);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    expect(hostPorts, file).toHaveLength(1);
+    for (const ports of hostPorts) {
+      expect(
+        ports.properties.some(
+          (property) =>
+            (ts.isPropertyAssignment(property) &&
+              property.name.getText(tree) === "capabilityAdministrationAuthority") ||
+            (file.endsWith("/main.ts") &&
+              ts.isSpreadAssignment(property) &&
+              property.expression.getText(tree) === "capabilityAdministrationPorts"),
+        ),
+        `${file} must supply capabilityAdministrationAuthority`,
+      ).toBe(true);
+    }
+  }
+});
 
 function verifyHostConstructionCensus(root: string, files = collectRepositorySourceFiles(root)) {
   const callSites = countConstructionCallSites(

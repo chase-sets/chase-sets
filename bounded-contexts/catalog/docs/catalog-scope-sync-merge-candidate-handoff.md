@@ -92,9 +92,8 @@ When a field rule matches more than one Catalog Item, the profile's `ambiguousCa
 
 Schema installed by the ledgered migration
 `20261010_catalog_promotion_reference_access_paths_v1` (composed through
-`catalogAuthoringSchemaMigrations`). It is dormant: no reader or writer uses it
-until the core target-exclusion slice wires discovery, and ordinary boot applies
-it with no operator action.
+`catalogAuthoringSchemaMigrations`). Source Observation target exclusion consumes
+these paths; ordinary boot installs them before promotion writers activate.
 
 - Functions `catalog_promotion_reference_text_v1(text)` and
   `catalog_promotion_reference_pairs_v1(jsonb)` are immutable, strict and
@@ -127,6 +126,140 @@ it with no operator action.
   versionless `"C"` collation, and runtime Unicode parity. Drift is reported as
   not-ready; the function never throws.
 - Shared `event_store_events` indexes in `event-store-indexes.ts` are unchanged.
+
+## Promotion Target Exclusion Port
+
+Catalog's `createPostgresPromotionTargetExclusion` composes the shared port for
+Source Observation promote/reapply and scope candidate application. Callers
+supply explicit member/reference keys, candidate target ids, target selection,
+and their policy-appropriate canonical profile validation. Candidate application
+still owns its eligibility, degraded-display and authority preflight; acquiring
+a binding never certifies application completion.
+
+Discovery follows complete retained source and item histories to a fixed point,
+using canonical level/provider/key pairs and keyset pages of at most 500. It
+includes historical revisions, deterministic member targets, markers, bindings,
+and link/unlink evidence. It does not derive member ids from reference text.
+Unknown histories, exceeded budgets and ambiguous owners visibly refuse rather
+than authoring another item. Reachable old-format bindings are retained and
+guarded, not rewritten; there is no global historical-binding scan.
+
+Each binding or item-command append owns one READ COMMITTED transaction. It
+takes the canonical profile relation's SHARE lock, validates profile identity,
+selection and retained inputs on that same client, and calls
+`appendToStreamsInTransaction` with sorted expected-version guards. Errors roll
+back the entire append, including notifications. Disjoint promotions may hold
+SHARE concurrently. Acquisition retries version conflicts at most twice, then
+returns `promotion-target-rediscovery-exhausted`; stale session writes refuse.
+
+The material authority set is closed:
+
+1. Every discovered Source Observation stream.
+2. Every candidate/target Catalog Item stream, including empty deterministic targets.
+3. Binding streams for the complete key closure.
+4. Reference-authority streams read by reference hierarchy resolution for the plan.
+5. Negative unlink/inactive evidence, retained in the guarded item histories.
+6. Canonical SQL profile authority under the SHARE lock, not an invented event stream.
+
+No display-template, alias or owner selection-generation stream belongs to this
+set. Existing pre-append display validation remains a content gate. Optional
+blueprint/category/field guards are not used. Resume must prove a same-target
+exact command prefix and current authority; keys bound elsewhere refuse without
+retargeting. A complete compatible draft or active target can be reused while
+projections lag, without reauthoring its existing prefix.
+
+### Writer Cutover And Rollback
+
+The host disables promotion and drains **all** old promotion and candidate
+workers before deploying/enabling the guarded writers. This is an operator
+cutover, not a distributed worker census implemented by the port. Do not run
+mixed guarded and unguarded writers. Explicit incompatible protocol requests
+return `promotion-target-writer-protocol-incompatible`; a store without C's
+method returns `promotion-target-transaction-append-unavailable`.
+
+Every acquisition checks B's full access-path readiness; absent, invalid or
+drifted infrastructure returns `promotion-target-access-paths-unavailable` with
+the failed checks. It never falls back to projected absence or a global scan.
+If cutover fails, leave promotion disabled. Rollback stops writers first and
+retains the additive schema, bindings and readers, or rolls forward. Restoring
+the unguarded allocator against retained guarded writes is not a safe rollback.
+
+## Candidate Application Checkpoints
+
+Single-candidate promote stays approval-only. Scope promotion jobs
+(`merge-candidate-promote`, `promotionApplicationVersion: 1`) apply approved
+candidates through two candidate-owned checkpoints around the existing candidate
+planner and the shared executor:
+
+1. Preflight from the approved snapshot, never the latest observations: fold
+   each member's Source Observation stream and use the exact reviewed revision;
+   resolve each promotable member's active promotion profile, enforce the
+   global/provider/unit promotion rollout controls, require every member to agree
+   on blueprint, category, fields and hierarchy Reference Record, and nominate
+   reuse targets from the duplicate resolver. Reference provisioning and image
+   storage are idempotent preparation and may precede a block; a block appends no
+   approval and writes no Catalog Item (`promotion-plan-blocked:<code>`). A ready
+   candidate stays ready; an approved one stays approved-but-unapplied and the
+   unit fails.
+2. Acquire the target through the exclusion port. A retained member target counts
+   only with its member's recorded completion, a reference owner or bound target
+   is reused (a create intent becomes `refresh`), and a partial, ambiguous or
+   unknown target refuses rather than counting as no match. Only when no owner
+   exists is `cat_candidate_<sha256(candidateId)>` allocated.
+3. Approve at the checked version (ready candidates), then append
+   `catalog.merge-candidate.promotion-planned` at the checked version before any
+   item command. It binds the approval version, initiating job/unit, target,
+   actual mode, target baseline version/state, pinned profile versions, mapping,
+   Reference Record and asset inputs, exact commands and fingerprint. One plan
+   binds per approval.
+4. Execute through the session, which folds the complete target stream and runs
+   only the commands its exact suffix has not committed, in every mode. Draft
+   targets count as existing; read models never authorize replay writes.
+5. Prove the complete event sequence from the target stream, then append
+   `catalog.merge-candidate.promotion-applied` once, attributed to the plan's
+   initiator.
+
+Recovery: a unit that finds its own application returns the same promoted
+result without writes; any later job skips applied candidates (0 promoted, 0
+created). A retained plan resumes exactly: the pinned profile stays eligible when
+a newer version was merely activated, but revocation, missing reference evidence,
+a changed baseline or unrelated target history refuses
+(`promotion-application-*`) and keeps the checkpoint for explicit recovery. A
+later job may finish another unit's unfinished plan under the same fences.
+Retained checkpoints count only as the candidate decider admits them, re-decided
+at their stream position before any recovery: one well-formed plan for this
+candidate after its one approval, at most one matching completion, and nothing
+else after the plan. Duplicate, reordered, wrong-candidate or malformed
+checkpoints refuse (`promotion-application-conflicting-history`) without writes.
+
+Results: version-1 unit results are `promoted`, `failed` or
+`skipped-not-eligible`; any other or missing status fails closed. They carry
+`appliedCatalogItemId`, `appliedMode`, `approvalVersion` and `planFingerprint`,
+non-null exactly when `promoted`.
+`catalogItemId` stays the historical match. An inner image-preparation failure
+records `diagnosticCode: "asset-processing-failed"`; other failures carry none
+and stay unclassified. Readers reconcile the complete completed-job history by
+candidate (`reconcileCatalogMergeCandidateApplications`): repeated reports count
+once, conflicting applications and malformed version-1 results fail closed, and
+a legacy approval-only outcome never supplies an id or a count.
+
+### Application Rollout And Rollback
+
+1. Disable promotion (`CATALOG_INTEGRATION_PROMOTION_DISABLED` or the unit-scoped
+   control) and drain every scope promotion worker.
+2. Deploy readers, projectors and workers that fold the two new candidate events
+   before any version-1 job runs. Version-1 jobs persist under the stored kind
+   `merge-candidate-promote-application-v1`, which a pre-application worker never
+   claims.
+3. Re-enable promotion. Retained unversioned jobs stay readable history; catch-up
+   of approved-but-unapplied candidates runs only as an explicit new scope
+   promotion job. A legacy promotion job still queued at cutover fails its units
+   with `promotion-application-legacy-job` instead of reporting approval.
+
+Rollback after any `promotion-planned` or `promotion-applied` event exists: stop
+promotion and roll forward or keep a compatible reader. A reader that cannot
+fold the new events is unsafe; do not retry with old readers or treat their
+failures, skipped units or reruns as compatibility evidence.
 
 ## Evidence Packet
 

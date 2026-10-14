@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
 import { loadRepricingRoundInputs, loadRepricingRoundInputsPage, repricingProductKey } from "./queries";
+import { roundCapture } from "../tests/round-capture-fixture";
 
 const product = { catalogItemId: "cat_1", productId: "prd_1" };
-const emptyRound = { listings: [], competingAsks: [], marketEstimate: null, lastSold: null };
+const emptyRound = { listings: [], competingAsks: [], marketEstimate: null, lastSold: null, demandCurve: null };
 
 function controlledReads(synchronousFailure?: number, error?: unknown) {
   const reads = Array.from({ length: 4 }, () => {
@@ -44,8 +45,11 @@ function observe<T>(work: Promise<T>) {
 
 const checkpoint = () => new Promise<void>((resolve) => setImmediate(resolve));
 const loaders = [
-  { name: "page", load: (db: PgQueryable) => loadRepricingRoundInputsPage(db, { products: [product] }) },
-  { name: "single product", load: (db: PgQueryable) => loadRepricingRoundInputs(db, product) },
+  {
+    name: "page",
+    load: (db: PgQueryable) => loadRepricingRoundInputsPage(db, { products: [product], ...roundCapture() }),
+  },
+  { name: "single product", load: (db: PgQueryable) => loadRepricingRoundInputs(db, { product, ...roundCapture() }) },
 ] as const;
 
 describe.each(loaders)("repricing input $name loader settlement", ({ name, load }) => {
@@ -83,6 +87,7 @@ describe.each(loaders)("repricing input $name loader settlement", ({ name, load 
         ],
         marketEstimate: { amount: "11.00", currencyCode: "USD", freshUntil: "2026-10-05" },
         lastSold: { amount: "10.00", currencyCode: null, soldAt: "2026-10-04" },
+        demandCurve: null,
       };
       expect(await work.outcome).toEqual({
         value: name === "page" ? new Map([[repricingProductKey(product), round]]) : round,
@@ -162,16 +167,16 @@ describe("repricing input page boundaries", () => {
       catalogItemId: `cat_${index}`,
       productId: `prd_${index}`,
     }));
-    const work = loadRepricingRoundInputsPage(db, { products });
+    const work = loadRepricingRoundInputsPage(db, { products, ...roundCapture() });
     reads.forEach((read) => read.resolve({ rows: [] }));
     expect(await work).toEqual(new Map(products.map((key) => [repricingProductKey(key), emptyRound])));
     expect(started).toHaveBeenCalledTimes(4);
   });
   it("does not query for an empty page or an oversized page", async () => {
     const { db, started } = controlledReads();
-    expect(await loadRepricingRoundInputsPage(db, { products: [] })).toEqual(new Map());
+    expect(await loadRepricingRoundInputsPage(db, { products: [], ...roundCapture() })).toEqual(new Map());
     await expect(
-      loadRepricingRoundInputsPage(db, { products: Array.from({ length: 501 }, () => product) }),
+      loadRepricingRoundInputsPage(db, { products: Array.from({ length: 501 }, () => product), ...roundCapture() }),
     ).rejects.toThrow("Repricing pages cannot exceed 500 products.");
     expect(started).not.toHaveBeenCalled();
   });
@@ -182,7 +187,11 @@ describe("repricing input page boundaries", () => {
       sellerAccountId: "acc_1",
       body: { scope: { kind: "all-listings" as const }, excludedListingIds: [], rules: [], maxChangesPerDay: 3 },
     };
-    const work = loadRepricingRoundInputsPage(db, { products: Array.from({ length: 500 }, () => product), candidate });
+    const work = loadRepricingRoundInputsPage(db, {
+      products: Array.from({ length: 500 }, () => product),
+      candidate,
+      ...roundCapture(),
+    });
     reads.forEach((read) => read.resolve({ rows: [] }));
     expect(await work).toEqual(new Map([[repricingProductKey(product), emptyRound]]));
     expect(started).toHaveBeenCalledTimes(4);

@@ -150,6 +150,10 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+    devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
 
   bounded-contexts/authenticity:
     dependencies:
@@ -724,6 +728,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
@@ -879,6 +886,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -888,24 +898,45 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../fulfillment
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/inventory':
+        specifier: workspace:*
+        version: link:../inventory
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/marketplace':
+        specifier: workspace:*
+        version: link:../marketplace
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
+      '@chase-sets/ordering':
+        specifier: workspace:*
+        version: link:../ordering
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
+      '@chase-sets/platform-operations':
+        specifier: workspace:*
+        version: link:../platform-operations
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/pricing':
+        specifier: workspace:*
+        version: link:../pricing
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       '@chase-sets/web-notifications':
         specifier: workspace:*
         version: link:../../infrastructure/web-notifications
@@ -1158,7 +1189,13 @@ importers:
       react-router:
         specifier: ^7.14.0
         version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
     devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1510,6 +1547,9 @@ importers:
 
   contracts/outbound-messaging:
     dependencies:
+      '@chase-sets/bounded-context-module':
+        specifier: workspace:*
+        version: link:../bounded-context-module
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../event-core
@@ -1871,6 +1911,9 @@ importers:
 
   deployables/platform-api:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1045.0
+        version: 3.1047.0
       '@chase-sets/auth':
         specifier: workspace:*
         version: link:../../bounded-contexts/auth
@@ -2442,10 +2485,16 @@ importers:
       react:
         specifier: ^19.2.5
         version: 19.2.6
+      react-router:
+        specifier: ^7.14.0
+        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
     devDependencies:
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -2520,6 +2569,9 @@ importers:
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../stripe-config

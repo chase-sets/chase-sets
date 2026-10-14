@@ -6,6 +6,8 @@ import type {
   ProjectorHandlerContext,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
+import type { LinkParameterSchema } from "./link-intents";
+export type * from "./link-intents";
 import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 
 /**
@@ -58,6 +60,7 @@ export type BcRouteModule = Readonly<{
   readonly fileExport: string;
   readonly routeType: BcRouteType;
   readonly sourceContext: string;
+  readonly linkParameters?: LinkParameterSchema;
   readonly placement?: BcRoutePlacement;
   readonly section?: string;
 }>;
