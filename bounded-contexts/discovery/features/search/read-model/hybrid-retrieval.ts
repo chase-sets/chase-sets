@@ -149,23 +149,23 @@ async function retrieveDiscoveryPage(
   const hybridCursor = decodeHybridCursor(params.cursor);
 
   if (semanticEligible && dependencies.hybridEnabled && (params.cursor === undefined || hybridCursor !== null)) {
+    const initial =
+      correctionEligible && !hybridCursor
+        ? await searchLexical(
+            dependencies.db,
+            {
+              ...params,
+              cursor: undefined,
+              offset: undefined,
+              limit: DISCOVERY_HYBRID_CANDIDATE_WINDOW,
+              includeTotal: true,
+            },
+            { loadMarketSummaries: false },
+          )
+        : undefined;
+    const corrected = initial ? await correct(initial) : null;
+    if (corrected) return corrected;
     try {
-      const initial =
-        correctionEligible && !hybridCursor
-          ? await searchLexical(
-              dependencies.db,
-              {
-                ...params,
-                cursor: undefined,
-                offset: undefined,
-                limit: DISCOVERY_HYBRID_CANDIDATE_WINDOW,
-                includeTotal: true,
-              },
-              { loadMarketSummaries: false },
-            )
-          : undefined;
-      const corrected = initial ? await correct(initial) : null;
-      if (corrected) return corrected;
       return await retrieveHybridPage(
         dependencies,
         params,
