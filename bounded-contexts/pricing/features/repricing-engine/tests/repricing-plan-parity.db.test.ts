@@ -15,6 +15,7 @@ import * as roundPlanner from "../domain/round";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "./dry-run-fixture";
 import { economicsNeverResolved } from "./round-capture-fixture";
+import { registerShadowGoals, shadowGoal } from "./shadow-goal-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -300,6 +301,9 @@ describeDb("independent repricing plan parity through preview/live/dry-run", () 
     const preview = (await services.previewProductRound(product)).find(
       (item) => item.listingId === "lst_7910_00000001",
     )!;
+    const shadowSolve = vi.fn(shadowGoal().solve);
+    registerShadowGoals([shadowGoal("fixed-percentile", { solve: shadowSolve })]);
+    const shadowPlan = vi.spyOn(roundPlanner, "planRepricingShadows");
     const run = await services.enqueueDryRun(
       {
         sellerAccountId: "acc_7910",
@@ -334,6 +338,9 @@ describeDb("independent repricing plan parity through preview/live/dry-run", () 
     expect(gateway.pauseListing).not.toHaveBeenCalled();
     expect(gateway.publishListing).not.toHaveBeenCalled();
     const dry = (await services.listDryRunTraces("acc_7910", run!.dryRunId))[0]!;
+    expect(dry).not.toHaveProperty("shadow");
+    expect(shadowSolve).not.toHaveBeenCalled();
+    expect(shadowPlan).not.toHaveBeenCalled();
     await services.enqueueMarketPriceSignal({
       ...product,
       amount: "25.00",

@@ -1,7 +1,11 @@
 import { IDBDatabase, IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
-import { createOperationJournal, openConnectorDatabase } from "../integrations/connector-indexeddb";
+import {
+  connectorDatabaseVersion,
+  createOperationJournal,
+  openConnectorDatabase,
+} from "../integrations/connector-indexeddb";
 import { coordinatorFixture } from "./coordinator-test-support";
 import { backgroundFixture } from "./connector-background-test-support";
 
@@ -20,7 +24,7 @@ describe("connector-coordinator-migration-and-day-after", () => {
     old.close();
     for (let boot = 0; boot < 2; boot++) {
       const db = await openConnectorDatabase(indexedDB);
-      expect(db.version).toBe(3);
+      expect(db.version).toBe(connectorDatabaseVersion);
       expect([...db.objectStoreNames]).toEqual(["operation-attempts", "raw-exports", "reservations"]);
       db.close();
       expect(await createOperationJournal(indexedDB, IDBKeyRange).read("connection-1")).toEqual({

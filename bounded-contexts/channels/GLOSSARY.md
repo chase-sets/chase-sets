@@ -325,6 +325,16 @@ alone. Complete, unknown and abandoned reports are terminal; the next due bounda
 has a new export identity. An expired unreported attempt retains its identity under
 a new claim fence. HTTP 202 proves admission only, not consumer acceptance.
 
+A **Live Export Handoff** is the connector journal's durable record of one claimed
+export's sealed raw file: its raw export identity, file digest, download instant,
+byte length and single derived post (`tcgx.v1:` reference; planned, dispatched,
+captured202; the parsed row count from dispatch onward). It is journaled before
+parse, so recovery resumes or reports unknown and never refetches; a same-operation
+re-claim carries it unchanged. The worker GET is bound by the closed
+`TcgplayerLiveExportAuthority/v1` constant. Owners:
+`features/connector-client/domain/tcgplayer-live-export-executor.ts` and
+`features/connector-client/domain/live-export-authority.ts`.
+
 ## Channel Order Pull
 
 An **Order Pull Handoff** is the connector journal's durable allocation and
