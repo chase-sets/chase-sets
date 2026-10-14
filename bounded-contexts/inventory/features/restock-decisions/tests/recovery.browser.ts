@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { closeMultiContextTestPools } from "@chase-sets/bounded-context-runtime/test-support";
@@ -161,7 +162,31 @@ export function registerRestockRecoveryBrowserTests(signIn: SignIn) {
               const result = await route.fetch({ maxRedirects: 0 });
               expect(result.status()).toBe(202);
               const redirect = await UNSAFE_decodeViaTurboStream(new Response(await result.text()).body!, globalThis);
-              expect(redirect.value).toMatchObject({ status: 302, redirect: path });
+              expect(redirect.value).toMatchObject({ status: 302 });
+              const value = redirect.value;
+              if (
+                typeof value !== "object" ||
+                value === null ||
+                !("redirect" in value) ||
+                typeof value.redirect !== "string"
+              )
+                throw new Error("Expected the real action redirect");
+              const destination = new URL(value.redirect, String(info.project.use.baseURL));
+              expect(destination.origin).toBe(new URL(String(info.project.use.baseURL)).origin);
+              expect(destination.pathname).toBe(path);
+              expect([...destination.searchParams.keys()]).toEqual(["afterWrite"]);
+              expect(destination.hash).toBe("");
+              const hint = readFreshWriteToken(destination);
+              expect(hint).not.toBeNull();
+              expect(hint!.sources).toHaveLength(1);
+              expect(hint!.sources[0].sourceContextName).toBe("inventory");
+              const committedItem = await owned.events.readStream({ streamId: `inventory.item-${owned.itemId}` });
+              const committedDecision = await owned.events.readStream({
+                streamId: `inventory.restock-decision-${owned.decisionId}`,
+              });
+              expect([...hint!.sources[0].eventIds].sort()).toEqual(
+                [...committedItem.slice(1), ...committedDecision.slice(1)].map((event) => event.eventId).sort(),
+              );
               await route.abort("failed");
               accepted();
             },
