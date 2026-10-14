@@ -346,12 +346,6 @@ export function decideAttachmentOperation(
     if (command.data.evidenceId !== state.referenceClaim?.evidenceId) invalid();
     return [];
   }
-  if (
-    (state.status === "reference-claimed" || state.status === "referenced") &&
-    command.type !== "ReleaseSupportAttachmentReferenceClaim" &&
-    command.type !== "ConfirmSupportAttachmentReferenced"
-  )
-    throw new AttachmentOperationError("operation-terminal");
   if (command.type === "StageSupportAttachmentOperation") {
     const manifest = validateManifest(command.data);
     if (state.manifest) {
@@ -375,6 +369,12 @@ export function decideAttachmentOperation(
     object(command.data, ["index"]);
     return [];
   }
+  if (
+    (state.status === "reference-claimed" || state.status === "referenced") &&
+    command.type !== "ReleaseSupportAttachmentReferenceClaim" &&
+    command.type !== "ConfirmSupportAttachmentReferenced"
+  )
+    throw new AttachmentOperationError("operation-terminal");
   if (command.type === "SettleSupportAttachmentPut") {
     object(command.data, ["index", "attempt", "outcome"]);
     const attempt = state.attempts[command.data.index]?.find((a) => a.attempt === command.data.attempt);

@@ -50,6 +50,63 @@ const cleanup: AttachmentOperationEvent = {
 };
 
 describe("Support Attachment Operation", () => {
+  it.each(["reference-claimed", "referenced"] as const)(
+    "%s permits only exact staging and already-stored index no-ops, not upload or cleanup mutations",
+    (status) => {
+      const events: AttachmentOperationEvent[] = [
+        stage(),
+        stored(0),
+        stored(1),
+        {
+          type: "support.attachment-operation.reference-claimed",
+          data: {
+            evidenceId: "sev_case",
+            attachments: attachmentManifestReferences(manifest()),
+            submittedAt: "2026-10-14T00:00:00.000Z",
+          },
+        },
+      ];
+      if (status === "referenced")
+        events.push({ type: "support.attachment-operation.referenced", data: { evidenceId: "sev_case" } });
+      const state = replayAttachmentOperation(events);
+      expect(decideAttachmentOperation(state, { type: "StageSupportAttachmentOperation", data: manifest() })).toEqual(
+        [],
+      );
+      for (const index of [0, 1])
+        expect(decideAttachmentOperation(state, { type: "RecordSupportAttachmentStored", data: { index } })).toEqual(
+          [],
+        );
+      expect(() =>
+        decideAttachmentOperation(state, {
+          type: "StageSupportAttachmentOperation",
+          data: createAttachmentManifest({
+            owner: { ...owner, accountId: "acc_other" },
+            profile: fingerprint.profile,
+            encoderFingerprint: fingerprint,
+            images,
+          }),
+        }),
+      ).toThrow("operation-conflict");
+      expect(() =>
+        decideAttachmentOperation(state, { type: "RecordSupportAttachmentStored", data: { index: 2 } }),
+      ).toThrow("operation-terminal");
+      expect(() =>
+        decideAttachmentOperation(state, { type: "AdmitSupportAttachmentPut", data: { index: 0, attempt: 1 } }),
+      ).toThrow("operation-terminal");
+      expect(() =>
+        decideAttachmentOperation(state, {
+          type: "SettleSupportAttachmentPut",
+          data: { index: 0, attempt: 1, outcome: "completed" },
+        }),
+      ).toThrow("operation-terminal");
+      expect(() =>
+        decideAttachmentOperation(state, {
+          type: "RequireSupportAttachmentCleanup",
+          data: { reason: "verification-absent" },
+        }),
+      ).toThrow("operation-terminal");
+    },
+  );
   it("claims the complete settled batch, rejects later puts and replays confirmation (mutant: partial-batch or put-after-claim bypass)", () => {
     const ready = replayAttachmentOperation([stage(), stored(0), stored(1)]);
     const data = {

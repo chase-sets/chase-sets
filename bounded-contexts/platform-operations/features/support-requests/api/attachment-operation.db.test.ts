@@ -7,6 +7,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createFilesystemPrivateObjectStore, type PrivateObjectStore } from "@chase-sets/object-storage";
 import {
   closeMultiContextTestPools,
@@ -20,6 +21,7 @@ import { module as platformOperationsModule } from "../../../index";
 import {
   attachmentOperationStreamId,
   createAttachmentManifest,
+  decideAttachmentOperation,
   replayAttachmentOperation,
   type AttachmentOperationEvent,
 } from "../domain/attachment-operation";
@@ -143,6 +145,39 @@ describeDb("durable canonical Support Attachment Operation on PostgreSQL and fil
     expect(f.storage.putPrivate).toHaveBeenCalledTimes(2);
     expect(f.storage.verifyPrivate).toHaveBeenCalledTimes(6);
     expect(await history()).toHaveLength(7);
+  });
+
+  it("replays the original complete upload read-only after claim and confirmation on PostgreSQL", async () => {
+    const f = fixture();
+    const references = await storeSupportEvidenceAttachments(f.input);
+    const codec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
+    const commands = [
+      {
+        type: "ClaimSupportAttachmentReference",
+        data: {
+          evidenceId: "sev_synthetic_replay",
+          attachments: references.map((item) => item.reference),
+          submittedAt: "2026-10-14T00:00:00.000Z",
+        },
+      },
+      { type: "ConfirmSupportAttachmentReferenced", data: { evidenceId: "sev_synthetic_replay" } },
+    ] as const;
+    for (const command of commands) {
+      const beforeTransition = await history();
+      const events = decideAttachmentOperation(replayAttachmentOperation(beforeTransition.map(codec.decode)), command);
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: beforeTransition.at(-1)!.streamVersion,
+        context,
+        events: events.map(codec.encode),
+      });
+      const beforeReplay = await history();
+      f.storage.verifyPrivate.mockClear();
+      expect(await storeSupportEvidenceAttachments(f.input)).toEqual(references);
+      expect(await history()).toEqual(beforeReplay);
+      expect(f.storage.putPrivate).toHaveBeenCalledTimes(2);
+      expect(f.storage.verifyPrivate).toHaveBeenCalledTimes(2);
+    }
   });
 
   it.each(["byte-size", "sha256", "oversize"])(
