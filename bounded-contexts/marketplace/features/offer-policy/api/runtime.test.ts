@@ -15,15 +15,9 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     const { runtime, store } = await fixture();
     await seedOffer(store, "off_two");
     const append = vi.spyOn(store, "appendToStreams");
-    const p = await runWithEventCommitMetadata(async () => {
-      const result = await preview(runtime, {
-        ...terms,
-        offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }],
-      });
-      const returned = (await append.mock.results.at(-1)!.value)!.flatMap((batch) => batch.storedEvents);
-      expect(returned.map((event) => event.streamId)).toEqual(["marketplace.offer-policy-bop_one"]);
-      expect(getEventCommitMetadata().committedEvents).toEqual(returned);
-      return result;
+    const p = await preview(runtime, {
+      ...terms,
+      offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }],
     });
     const command = {
       type: "AuthorizeBuyerOfferPolicy",
@@ -72,6 +66,17 @@ describe("Buyer Offer Policy authoritative runtime", () => {
       });
     });
     expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it("records only returned policy events when Preview has empty Offer guards", async () => {
+    const { runtime, store } = await fixture();
+    const append = vi.spyOn(store, "appendToStreams");
+    await runWithEventCommitMetadata(async () => {
+      await preview(runtime);
+      const returned = (await append.mock.results.at(-1)!.value)!.flatMap((batch) => batch.storedEvents);
+      expect(returned.map((event) => event.streamId)).toEqual(["marketplace.offer-policy-bop_one"]);
+      expect(getEventCommitMetadata().committedEvents).toEqual(returned);
+    });
   });
 
   it.each(["failure", "conflict-recovery"] as const)("records no policy receipt on %s", async (outcome) => {
