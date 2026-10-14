@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPostgresAgentWebhookOutbox } from "./agent-webhook-outbox";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
+const allowedFence: AgentGrantRevocations["withActiveGrants"] = async (_account, _client, ids, work) =>
+  ids.length ? work(ids) : null;
 
 function fakeDb(rows: readonly unknown[] = []) {
   const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
@@ -17,9 +20,10 @@ const now = () => new Date("2026-07-08T00:00:00.000Z");
 describe("agent webhook outbox", () => {
   it("enqueues idempotently on the idempotency key", async () => {
     const { db, calls } = fakeDb();
-    const outbox = createPostgresAgentWebhookOutbox({ db, now });
+    const outbox = createPostgresAgentWebhookOutbox({ db, now, withActiveGrants: allowedFence });
     await outbox.enqueueDelivery({
       clientId: "ocl_1",
+      grantIds: ["grant_active"],
       accountId: "acc_buyer",
       callbackUrl: "https://agent.example/hooks",
       sourceEventId: "evt_1",

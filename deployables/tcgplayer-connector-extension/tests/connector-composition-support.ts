@@ -5,18 +5,55 @@ import { chromeFixture } from "./chrome-test-support";
 import { connectorHostRegistry, platformOrigin } from "../__tests__/harness/origins";
 import { createSyntheticPairingCode, synthetic } from "../e2e/loopback-platform";
 
-type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type Registration = Parameters<typeof composeConnectorBackground>[0]["executors"];
+type ConnectorExecutor = ReturnType<Registration>[number];
 type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
 
 const network = globalThis.fetch;
 export async function compose(
-  executors: readonly ConnectorExecutor[],
+  executors: readonly ConnectorExecutor[] | Registration,
   indexedDB = new IDBFactory(),
   initial: Record<string, unknown> = {},
+  session: Record<string, unknown> = {},
+) {
+  return composeWith(
+    async () => (typeof executors === "function" ? executors : () => executors),
+    indexedDB,
+    initial,
+    session,
+  );
+}
+
+/**
+ * The product registration against a labelled synthetic provider origin. It is loaded after the module reset,
+ * so the executor shares the composition's module graph (and its error classes) exactly as one bundle does.
+ */
+export function composeProduct(
+  providerOrigin: string,
+  indexedDB = new IDBFactory(),
+  initial: Record<string, unknown> = {},
+  session: Record<string, unknown> = {},
+) {
+  return composeWith(
+    async () => {
+      const { connectorExecutors } = await import("../src/executors");
+      return (ports) => connectorExecutors({ ...ports, providerOrigin });
+    },
+    indexedDB,
+    initial,
+    session,
+  );
+}
+
+async function composeWith(
+  registration: () => Promise<Registration>,
+  indexedDB: IDBFactory,
+  initial: Record<string, unknown>,
+  session: Record<string, unknown>,
 ) {
   vi.resetModules();
   vi.doMock("../src/host-registry", () => ({ connectorHostRegistry }));
-  const fixture = chromeFixture(initial);
+  const fixture = chromeFixture(initial, session);
   vi.stubGlobal("indexedDB", indexedDB);
   vi.stubGlobal("IDBKeyRange", IDBKeyRange);
   vi.stubGlobal("chrome", fixture.chrome);
@@ -32,7 +69,7 @@ export async function compose(
     return reply.headers.get("location")!;
   });
   const { composeConnectorBackground } = await import("../src/compose");
-  const product = composeConnectorBackground({ executors });
+  const product = composeConnectorBackground({ executors: await registration() });
   await product.background.boot();
   if (Object.keys(initial).length === 0) await createSyntheticPairingCode(platformOrigin);
   return { fixture, indexedDB, product };

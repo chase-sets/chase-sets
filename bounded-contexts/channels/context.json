@@ -2,6 +2,7 @@
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
   "ownedNouns": [
+    "eBay-account-deletion-receipt",
     "channel-connection",
     "channel-health",
     "channel-publication-facts",
@@ -435,6 +436,9 @@
     }
   ],
   "workerRuntimeProfiles": ["proof", "public"],
+  "agentCoverage": {
+    "ebay-account-deletion-lookup": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -531,6 +535,19 @@
           }
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ebay-account-deletion-lookup",
+          "routePath": "ebay-account-deletion",
+          "fileExport": "./routes/admin/ebay-account-deletion",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "section": "support"
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -545,6 +562,18 @@
       "order": 150,
       "visibility": "signed-in",
       "requiredPermissions": ["channels.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "ebay-account-deletion-lookup",
+      "label": "eBay Deletion Lookup",
+      "icon": "search",
+      "href": "/ebay-account-deletion",
+      "section": "support",
+      "order": 7,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
     }
   ],
   "readAfterWriteRouteInventory": [
@@ -621,6 +650,29 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "channels.ebay-account-deletion-lookup-snapshot",
+      "owner": "channels",
+      "risk": "internal",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/staff-route.ts:POST /staff/ebay-account-deletion/lookup",
+        "route-action:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-route-adapter.tsx",
+        "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "routeId": "ebay-account-deletion-lookup",
+        "description": "Staff receives the current exact-match receipt metadata directly; POST keeps the sensitive user ID out of URLs and performs no mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "The Channels store selects unexpired matching metadata without projections, subject echo or decryption; the admin action validates that closed response and returns it directly.",
+        "tests": [
+          "deployables/platform-api/__tests__/ebay-account-deletion-staff-composition.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-receipt-lookup.db.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-lookup-page.test.tsx"
+        ]
+      }
+    },
     {
       "id": "channels.connect-to-detail",
       "owner": "channels",
@@ -825,8 +877,15 @@
   "directoryIntent": {
     "ebay-account-deletion": {
       "classification": "slice",
-      "purpose": "Own the Channels ebay-account-deletion challenge GET, deployment configuration, and protocol tests.",
-      "expectedConsumers": ["Channels public webhook mount", "platform-api configuration loader"]
+      "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",
+      "expectedConsumers": [
+        "Channels public webhook mount",
+        "platform-api configuration loader",
+        "Channels webhook receipt caller",
+        "Channels subject binding and deletion consumers",
+        "Scheduled worker",
+        "Staff admin lookup"
+      ]
     },
     "order-fulfillment-observations": {
       "classification": "slice",

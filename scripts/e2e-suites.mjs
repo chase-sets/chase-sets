@@ -205,6 +205,7 @@ const marketplaceContextRouteSuiteOwnership = new Map([
 const adminContextRouteSuiteOwnership = new Map([
   ["auth", ["admin_auth", "admin_access"]],
   ["catalog", ["catalog_admin_modeling"]],
+  ["channels", ["admin_support"]],
   ["commercial-terms", ["admin_commerce"]],
   ["discovery", ["admin_growth"]],
   ["identity", ["admin_access"]],

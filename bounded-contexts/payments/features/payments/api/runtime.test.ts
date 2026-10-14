@@ -373,15 +373,25 @@ function createOrderInputDb(
       }
 
       if (sql.includes("UPDATE payments_saved_checkout_instruments") && sql.includes("readiness = 'removed'")) {
+        const removed = [];
         for (const row of savedCheckoutInstrumentRows) {
           if (row.account_id === params?.[0] && row.instrument_id === params?.[1]) {
+            if (
+              sql.includes("WITH removed AS") &&
+              (row.agent_grant_id !== params?.[3] ||
+                (row.readiness === "removed" &&
+                  row.removed_at !== params?.[2] &&
+                  !(row.removed_at === null && row.is_default)))
+            )
+              continue;
             row.readiness = "removed";
             row.is_default = false;
-            row.removed_at = params?.[2];
+            row.removed_at = sql.includes("COALESCE(removed_at") ? (row.removed_at ?? params?.[2]) : params?.[2];
             row.updated_at = params?.[2];
+            removed.push({ instrument_id: row.instrument_id });
           }
         }
-        return { rows: [] };
+        return { rows: sql.includes("WITH removed AS") ? removed : [] };
       }
 
       if (sql.includes("INSERT INTO payments_saved_checkout_instrument_audit")) {
@@ -398,6 +408,20 @@ function createOrderInputDb(
         }
         const accountRows = savedCheckoutInstrumentRows.filter((row) => row.account_id === params?.[0]);
         if (sql.includes("agent_grant_id = $2")) {
+          if (sql.includes("LIMIT 500"))
+            return {
+              rows: accountRows
+                .filter(
+                  (row) =>
+                    row.agent_grant_id === params?.[1] &&
+                    (row.readiness !== "removed" ||
+                      row.removed_at === params?.[2] ||
+                      (row.removed_at === null && row.is_default)) &&
+                    String(row.instrument_id) > String(params?.[3]),
+                )
+                .sort((a, b) => String(a.instrument_id).localeCompare(String(b.instrument_id)))
+                .slice(0, 500),
+            };
           return {
             rows: accountRows.filter((row) => row.agent_grant_id === params?.[1] && row.readiness !== "removed"),
           };
@@ -2346,106 +2370,200 @@ describe("payment runtime", () => {
     ]);
   });
 
-  it("detaches active saved checkout instruments owned by a revoked agent grant idempotently", async () => {
-    const { eventStore, readAllEvents } = createInMemoryEventStore();
-    const processorGateway = createProcessorGateway();
-    const db = createOrderInputDb({
-      savedCheckoutInstrumentRows: [
+  it.each([false, true])(
+    "payments-cleanup preserves dormant detach and makes owner cleanup local (owner=%s)",
+    async (owner) => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const db = createOrderInputDb({
+        savedCheckoutInstrumentRows: [
+          {
+            instrument_id: "sci_agent_card",
+            account_id: "acc_buyer",
+            agent_grant_id: "lpa_1",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_agent_card",
+            provider_fingerprint: "fp_agent",
+            display_label: "Visa ending in 4242",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_1",
+            consent_text: "Save this payment method",
+            is_default: true,
+            removed_at: null,
+            created_at: "2026-07-09T00:00:00.000Z",
+            updated_at: "2026-07-09T00:00:00.000Z",
+          },
+          {
+            instrument_id: "sci_other_card",
+            account_id: "acc_buyer",
+            agent_grant_id: "lpa_2",
+            payment_method_category: "card",
+            provider: "stripe",
+            provider_customer_reference: "cus_buyer",
+            provider_reference: "pm_other_card",
+            provider_fingerprint: "fp_other",
+            display_label: "Visa ending in 1881",
+            confirmation_experience: "off-session-token",
+            readiness: "ready",
+            allow_redisplay: "always",
+            consent_id: "consent_2",
+            consent_text: "Save this payment method",
+            is_default: false,
+            removed_at: null,
+            created_at: "2026-07-09T00:00:00.000Z",
+            updated_at: "2026-07-09T00:00:00.000Z",
+          },
+        ],
+      });
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
+
+      const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
         {
-          instrument_id: "sci_agent_card",
-          account_id: "acc_buyer",
-          agent_grant_id: "lpa_1",
-          payment_method_category: "card",
-          provider: "stripe",
-          provider_customer_reference: "cus_buyer",
-          provider_reference: "pm_agent_card",
-          provider_fingerprint: "fp_agent",
-          display_label: "Visa ending in 4242",
-          confirmation_experience: "off-session-token",
-          readiness: "ready",
-          allow_redisplay: "always",
-          consent_id: "consent_1",
-          consent_text: "Save this payment method",
-          is_default: true,
-          removed_at: null,
-          created_at: "2026-07-09T00:00:00.000Z",
-          updated_at: "2026-07-09T00:00:00.000Z",
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+          ...(owner ? { operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32" } : {}),
         },
+        context,
+      );
+      const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
         {
-          instrument_id: "sci_other_card",
-          account_id: "acc_buyer",
-          agent_grant_id: "lpa_2",
-          payment_method_category: "card",
-          provider: "stripe",
-          provider_customer_reference: "cus_buyer",
-          provider_reference: "pm_other_card",
-          provider_fingerprint: "fp_other",
-          display_label: "Visa ending in 1881",
-          confirmation_experience: "off-session-token",
-          readiness: "ready",
-          allow_redisplay: "always",
-          consent_id: "consent_2",
-          consent_text: "Save this payment method",
-          is_default: false,
-          removed_at: null,
-          created_at: "2026-07-09T00:00:00.000Z",
-          updated_at: "2026-07-09T00:00:00.000Z",
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+          ...(owner ? { operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32" } : {}),
         },
-      ],
-    });
+        context,
+      );
+
+      expect(result).toEqual({ detached: owner ? 0 : 1, alreadyRemoved: 0, instrumentIds: ["sci_agent_card"] });
+      expect(replay).toEqual({ detached: 0, alreadyRemoved: 0, instrumentIds: [] });
+      expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledTimes(owner ? 0 : 1);
+      if (!owner) expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_agent_card");
+      expect(readAllEvents().filter((event) => event.eventType !== "payments.agent-grant-cleanup.completed")).toEqual([
+        expect.objectContaining({
+          eventType: "payments.checkout-affordances-published",
+          payload: expect.objectContaining({
+            accountId: "acc_buyer",
+            savedCheckoutInstruments: expect.arrayContaining([
+              expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
+            ]),
+          }),
+        }),
+      ]);
+      expect(db.readSavedCheckoutInstruments()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            instrument_id: "sci_agent_card",
+            readiness: "removed",
+            is_default: false,
+            removed_at: "2026-07-09T01:00:00.000Z",
+          }),
+          expect.objectContaining({
+            instrument_id: "sci_other_card",
+            readiness: "ready",
+          }),
+        ]),
+      );
+    },
+  );
+
+  it.each(["foreign", "partial", "default", "501"])(
+    "payments-cleanup preserves foreign T1 and repairs complete eligible pages: %s",
+    async (scenario) => {
+      const revokedAt = "2026-07-09T01:00:00.000Z";
+      const prior = "2026-07-01T00:00:00.000Z";
+      const rows = Array.from({ length: scenario === "501" ? 501 : 1 }, (_, index) => ({
+        instrument_id: `sci_${String(index).padStart(4, "0")}`,
+        account_id: "acc_buyer",
+        agent_grant_id: "lpa_1",
+        payment_method_category: "card",
+        provider: "stripe",
+        provider_customer_reference: "synthetic-customer",
+        provider_reference: `synthetic-method-${index}`,
+        provider_fingerprint: null,
+        display_label: "Synthetic card",
+        confirmation_experience: "off-session-token",
+        readiness: scenario === "501" ? "ready" : "removed",
+        allow_redisplay: "always",
+        consent_id: "synthetic-consent",
+        consent_text: "Synthetic consent",
+        is_default: scenario === "default",
+        removed_at: scenario === "foreign" ? prior : scenario === "501" ? null : revokedAt,
+        created_at: prior,
+        updated_at: prior,
+      }));
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const processorGateway = createProcessorGateway();
+      const db = createOrderInputDb({ savedCheckoutInstrumentRows: rows });
+      const services = createPaymentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        processorGateway,
+      });
+      const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        {
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt,
+          operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32",
+        },
+        context,
+      );
+      expect(result.instrumentIds).toHaveLength(scenario === "foreign" ? 0 : rows.length);
+      expect(result.alreadyRemoved).toBe(["partial", "default"].includes(scenario) ? 1 : 0);
+      expect(processorGateway.detachSavedPaymentMethod).not.toHaveBeenCalled();
+      expect(db.readSavedCheckoutInstruments()).toEqual(
+        rows.map((row) =>
+          expect.objectContaining({
+            instrument_id: row.instrument_id,
+            readiness: "removed",
+            is_default: false,
+            removed_at: scenario === "foreign" ? prior : revokedAt,
+          }),
+        ),
+      );
+      const removals = db.query.mock.calls.filter(([sql]) => sql.includes("WITH removed AS"));
+      expect(removals).toHaveLength(scenario === "foreign" ? 0 : rows.length);
+      expect(readAllEvents().map((event) => event.eventType)).toEqual([
+        "payments.checkout-affordances-published",
+        "payments.agent-grant-cleanup.completed",
+      ]);
+      if (scenario === "501") expect(db.query.mock.calls.filter(([sql]) => sql.includes("LIMIT 500"))).toHaveLength(2);
+    },
+  );
+
+  it("payments-cleanup refuses absent atomic publication wiring before local effects", async () => {
+    const memory = createInMemoryEventStore();
+    const db = createOrderInputDb();
     const services = createPaymentRuntime({
-      eventStore,
+      eventStore: { ...memory.eventStore, appendToStreams: undefined },
       checkpointStore: createCheckpointStore(),
       db: db as never,
-      processorGateway,
+      processorGateway: createProcessorGateway(),
     });
-
-    const result = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
-      {
-        accountId: "acc_buyer" as never,
-        agentGrantId: "lpa_1",
-        revokedAt: "2026-07-09T01:00:00.000Z",
-      },
-      context,
-    );
-    const replay = await services.revokeSavedCheckoutInstrumentsForAgentGrant(
-      {
-        accountId: "acc_buyer" as never,
-        agentGrantId: "lpa_1",
-        revokedAt: "2026-07-09T01:00:00.000Z",
-      },
-      context,
-    );
-
-    expect(result).toEqual({ detached: 1, alreadyRemoved: 0, instrumentIds: ["sci_agent_card"] });
-    expect(replay).toEqual({ detached: 0, alreadyRemoved: 0, instrumentIds: [] });
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledTimes(1);
-    expect(processorGateway.detachSavedPaymentMethod).toHaveBeenCalledWith("pm_agent_card");
-    expect(readAllEvents()).toEqual([
-      expect.objectContaining({
-        eventType: "payments.checkout-affordances-published",
-        payload: expect.objectContaining({
-          accountId: "acc_buyer",
-          savedCheckoutInstruments: expect.arrayContaining([
-            expect.objectContaining({ instrumentId: "sci_agent_card", readiness: "removed" }),
-          ]),
-        }),
-      }),
-    ]);
-    expect(db.readSavedCheckoutInstruments()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          instrument_id: "sci_agent_card",
-          readiness: "removed",
-          is_default: false,
-          removed_at: "2026-07-09T01:00:00.000Z",
-        }),
-        expect.objectContaining({
-          instrument_id: "sci_other_card",
-          readiness: "ready",
-        }),
-      ]),
-    );
+    await expect(
+      services.revokeSavedCheckoutInstrumentsForAgentGrant(
+        {
+          accountId: "acc_buyer" as never,
+          agentGrantId: "lpa_1",
+          revokedAt: "2026-07-09T01:00:00.000Z",
+          operationId: "9dd29df4-7442-4f0b-9270-d3b1fd66ce32",
+        },
+        context,
+      ),
+    ).rejects.toThrow("agent_grant_cleanup_wiring_missing");
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it("detaches a late setup result instead of saving it when the agent grant was already revoked", async () => {

@@ -362,6 +362,72 @@ it("observer status 1, native status 78, signal, and contaminated output remain 
 const rootRefusal =
   "provider-boundary-observer-refused:root\nprovider-boundary-observer-root:20:1:100:1:2:chrome:host-helper:EACCES:same:proc-fdinfo:directory:none\n";
 
+const observerErrnos = ["none", "EACCES", "EPERM", "ENOENT", "ESRCH", "ENOTDIR", "ELOOP", "EIO", "other"];
+const observerIdentities = ["same", "changed", "zombie", "gone", "unknown"];
+const observerDetail = "provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:EACCES:same\n";
+
+it.each(observerErrnos.flatMap((errno) => observerIdentities.map((identity) => ({ errno, identity }))))(
+  "observer detail retains closed errno $errno and identity $identity",
+  ({ errno, identity }) => {
+    const stderr = `provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:${errno}:${identity}\n`;
+    expect(observerDiagnostic({ code: 1, stdout: "", stderr })).toMatchObject({
+      stage: "namespaces",
+      errno,
+      identity,
+      root: null,
+      redacted: true,
+    });
+  },
+);
+
+it.each([
+  "arguments",
+  "census",
+  "descendants",
+  "status",
+  "status-field",
+  "label",
+  "namespaces",
+  "user-namespace",
+  "identity-recheck",
+])("observer preserves stage-only and detailed refusals at %s", (stage) => {
+  const stderr = `provider-boundary-observer-refused:${stage}\n`;
+  expect(observerDiagnostic({ code: 1, stdout: "", stderr })).toMatchObject({
+    stage,
+    errno: "unknown",
+    identity: "unknown",
+  });
+  expect(
+    observerDiagnostic({ code: 1, stdout: "", stderr: stderr + "provider-boundary-observer-detail:none:unknown\n" }),
+  ).toMatchObject({ stage, errno: "none", identity: "unknown" });
+});
+
+it.each([
+  { code: 78, stdout: "", stderr: observerDetail },
+  { code: 1, signal: "SIGTERM", stdout: "", stderr: observerDetail },
+  { code: 1, stdout: "PRIVATE", stderr: observerDetail },
+  ...[
+    observerDetail + "PRIVATE",
+    observerDetail + "\n",
+    observerDetail + observerDetail,
+    observerDetail.slice(0, -1),
+    observerDetail.replaceAll("\n", "\r\n"),
+    observerDetail.replace("namespaces", "PRIVATE"),
+    observerDetail.replace("EACCES", "PRIVATE"),
+    observerDetail.replace("same", "PRIVATE"),
+    observerDetail.replace("namespaces", "root"),
+    "x".repeat(513),
+    Buffer.concat([Buffer.from(observerDetail), Buffer.from([0xff])]),
+    Buffer.from(observerDetail).map((byte) => byte | 0x80),
+    Buffer.from(observerDetail.replace("same", "s\u00e1me")),
+  ].map((stderr) => ({ code: 1, stdout: "", stderr })),
+  { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", stdout: "", stderr: observerDetail },
+])("observer detail rejects contaminated, oversized or untrusted capture %#", (error) => {
+  const result = observerDiagnostic(error);
+  expect(result).toMatchObject({ stage: "unknown", errno: "unknown", identity: "unknown", root: null });
+  expect(JSON.stringify(result)).not.toContain("PRIVATE");
+});
+
 it("observer root diagnostics retain only emitter-owned closed process/image, path kind and errno", () => {
   expect(observerDiagnostic({ code: 1, stdout: "", stderr: rootRefusal })).toMatchObject({
     stage: "root",

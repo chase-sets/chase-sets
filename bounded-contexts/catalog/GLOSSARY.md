@@ -99,7 +99,10 @@ The current implementation also uses four supporting authoring concepts:
 - `Scope Sync Batch` — a durable, bounded Catalog workflow that previews and executes Scope Sync across explicit or server-resolved matching Catalog Scope Records while preserving per-scope planning, provider budgets, stale-evidence checks, and settled work
 - `Count quote` — an expiring, fingerprinted display of selected sets, missing Scrydex card/sealed counts, per-kind credits, reuse and a server-bounded cap. Approval authorizes counts, not a Scope Sync Batch.
 - `Count spend` — append-only credits debited before a possible count request, with its retained result or uncertainty. Separate from account usage and batch reservations; uncertainty never refunds or re-arms a query.
+- `Whole-quote admission` — the opt-in, staging-only acquisition of a Count quote that buys all of its approved credits or none: under the account headroom lock, current net headroom must cover the whole quote before any debit or send, and each quote admits one execution.
+- `Quote allocation` — the capacity a whole-quote admission holds for its quote. It is not Count spend or a batch reservation: each claim converts one credit of it into a debit, ordinary claims and new batch reservations cannot take it, and terminal end or quote expiry releases only credits never converted.
 - `page-1-count` — validated total, observed page size and page-1 length retained on count spend without option items or any claim of all-page completion.
+- `Possible-send debit` — a staging count-capture slot durably committed under one lock before a bound Scrydex transport call, within fixed per-phase caps. A failed, redirected or uncertain send keeps its debit and stops the run. Capture-only: it is neither count spend nor a send-window debit.
 - `Provider Participation Preview` — a unit-aware pre-sync answer showing which provider units can participate in a Catalog Sync Scope, which are required or optional, why they are eligible or blocked, and which child Source Observation execution scope each selected unit would use
 - `Product Asset Set` — the Catalog-owned normalized set of WebP image variants derived from one source image for a Catalog Item or Source Observation
 - `Asset Variant` — one generated WebP file in a Product Asset Set, identified by role, pixel dimensions, device-pixel-ratio target, storage key, byte size, and public URL
@@ -161,6 +164,10 @@ A `Provider Scope Mapping` is a reviewed, Catalog-owned mapping from provider vo
 A `Scope Sync Batch` is Catalog-owned orchestration over existing Scope Sync Runs. Its preview resolves active Catalog Scope Records, accepted or auto-accepted Provider Scope Mappings, active production-capable Provider Integration Profile units, rollout and credential readiness, provider transport authority, and request or credit evidence. Confirmation re-resolves that evidence and fails closed when its plan fingerprint changes.
 
 The batch advances a bounded number of scope units per leased worker turn. It never fans out the complete catalog in one request and never creates a provider-specific execution shortcut. Completed units remain completed through cancel, resume, and failed-unit retry; an unchanged settled fingerprint is a fast no-op.
+
+## Scope Sync Count Lifecycle Receipt
+
+A `scope-sync-count-lifecycle` receipt is the closed, support-safe staging artifact of one combined count-lifecycle capture for #9424 AC5 and #9431 AC7: the host authority envelope it ran under, the approved page-1 count acquisitions, the card and sealed count sources each preview and pre-confirm planner read consumed, every possible provider send, and the zero-effects comparison. It classifies itself `CONFORMING` only when every claim holds, otherwise `INCOMPLETE` for missing evidence or `FAILED` for contradicted evidence, separately per acceptance criterion; a complete-cache source never satisfies a page-1 claim. Validating it proves shape and causal consistency only; the live deployment, pods, review and spend authority are bound by the host verifier. Contract: `features/scope-sync-batches/domain/count-lifecycle-receipt.ts`.
 
 ## Held-Set Export
 

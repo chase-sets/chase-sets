@@ -266,6 +266,35 @@
     { "routePath": "/api/auth/account-selection/complete", "methods": ["POST"] },
     { "routePath": "/api/auth/social/", "methods": ["GET", "HEAD"], "match": "prefix" }
   ],
+  "agentCoverage": {
+    "account-select": {
+      "exempt": "sign-in-flow",
+      "note": "Chooses the browser session's active account; MCP tool calls carry their account scope in each call.",
+      "tools": []
+    },
+    "sign-in": {
+      "exempt": "sign-in-flow",
+      "note": "Browser sign-in form; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "sign-in-magic": {
+      "exempt": "sign-in-flow",
+      "note": "Browser magic-link landing; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "catalog-sign-in": {
+      "exempt": "sign-in-flow",
+      "note": "Catalog entry to the shared browser sign-in form; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "sign-out": {
+      "exempt": "sign-in-flow",
+      "note": "Ends the browser session; MCP clients hold no admin browser session.",
+      "tools": []
+    },
+    "sessions": { "pending": "#9238" },
+    "sessions-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -759,12 +788,12 @@
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Deployable composition for auth", "sessions"]
+      "expectedConsumers": ["invitation-acceptance"]
     },
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Multiple auth slices"]
+      "expectedConsumers": ["invitation-acceptance"]
     },
     "request-support": {
       "classification": "support",
@@ -780,7 +809,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["sessions"]
+      "expectedConsumers": ["invitation-acceptance", "sessions"]
     },
     "seed-support": {
       "classification": "support",
@@ -795,8 +824,8 @@
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Auth-owned UCP OAuth authorization, token, and revocation routes while Identity owns durable linked platform authorization facts.",
-      "expectedConsumers": ["Deployable composition for UCP identity linking"]
+      "purpose": "Provide Auth-owned UCP OAuth authorization, token, and revocation routes for deployable UCP identity-linking composition and the agent-grants slice. Identity owns durable linked platform authorization facts.",
+      "expectedConsumers": ["agent-grants"]
     },
     "ui-support": {
       "classification": "support",
@@ -899,6 +928,26 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "auth.invitation-acceptance-status-snapshot",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
+        "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/acceptance-status"
+      ],
+      "visibleDestination": {
+        "description": "Invitation status recovery returns only the nonsecret status derived from complete Auth attempt and Identity owner histories. It never repeats acceptance, issues a Session or token, or sets a cookie."
+      },
+      "proof": {
+        "authoritativeResponse": "lookupInvitationAttempt revalidates current owner and credential authority, then returns only confirming, ambiguous or accepted-reauth-required.",
+        "tests": [
+          "bounded-contexts/auth/features/invitation-acceptance/api/journey.test.ts",
+          "bounded-contexts/auth/routes/marketplace/invite-router.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "auth.deployable-shell-sign-out-forms",
       "owner": "auth",
       "risk": "important",
@@ -967,7 +1016,7 @@
       "surfaces": [
         "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
         "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:H5c166225bc84#1",
-        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#2",
         "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H40557e616e62#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#1",

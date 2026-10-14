@@ -690,6 +690,12 @@
             },
             {
               "readModelTable": "marketplace_offer_seller_declines"
+            },
+            {
+              "readModelTable": "marketplace_buyer_offer_policy_pages"
+            },
+            {
+              "readModelTable": "marketplace_managed_offer_audit"
             }
           ]
         },
@@ -705,6 +711,12 @@
             },
             {
               "readModelTable": "marketplace_offer_seller_declines"
+            },
+            {
+              "readModelTable": "marketplace_buyer_offer_policy_pages"
+            },
+            {
+              "readModelTable": "marketplace_managed_offer_audit"
             }
           ]
         },
@@ -1699,6 +1711,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "listing-evidence-policy": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

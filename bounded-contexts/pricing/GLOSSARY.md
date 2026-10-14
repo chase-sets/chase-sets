@@ -30,6 +30,14 @@ The **Condition Ladder** is a card-wide monotone condition-value scale. It selec
 
 A **Pricing Goal** is a versioned registry entry that solves one seller objective on a Demand Curve; `fixed-percentile`, `target-horizon`, and `profit-per-day` register first. It declares named numeric parameters with defaults and inclusive bounds, the curve features it requires, and whether it requires Economics. It reads Economics as facts and never derives a fee or hurdle; its explanation carries values, never copy.
 
+## Goal Lifecycle
+
+**Goal Lifecycle** is the reviewed registration state of a Pricing Goal version: `selectable` can be authored and prices listings; `shadow` is compared only in live rounds and never emits commands; `retired` cannot be authored and exhausts a recorded anchor as `absent`, with reason `goal-retired`. Version 1 starts selectable; later versions start shadow. At most one version per goal id is shadow. Promotion or retirement is a reviewed registration change, not an automatic transition; promotion above version 1 cites the adoption evidence owned by #7708. After promotion, the selected version runs as incumbent and, without a new shadow registration, no comparisons run.
+
+## Shadow Evaluation
+
+A **Shadow Evaluation** compares the whole matched directive on the incumbent round's captured inputs, independently replacing one goal anchor's version per occurrence. The optional v1 listing trace entries are ordered by zero-based `anchorIndex` and identified by `(evaluationId, listingId, anchorIndex)`. The outer goal names the substitution, while the result's anchor may name a fallback goal. Only incompatible parameters skip evaluation; unreached-anchor parity and missing-Economics fallback or terminal outcomes are evaluated results. There are at most five extra pure evaluations per listing, no new reads, and no comparisons in preview or dry runs. Only the incumbent drives commands, budgets, listing counts and Spiral Breaker direction.
+
 ## Goal Decision
 
 A **Goal Decision** is a Pricing Goal's answer on one curve: selected and unconstrained amounts in the curve currency, the equivalent percentile and sell-time forecast read at the selected price, whether Net Proceeds there clear overhead, and the echoed parameters. A goal that cannot solve returns a typed unavailable reason and no price.

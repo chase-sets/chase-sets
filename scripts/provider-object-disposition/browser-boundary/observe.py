@@ -13,6 +13,7 @@ sys.dont_write_bytecode = True
 from ownership import CensusError, bounded_read, parse_stat, snapshot
 
 stage = 'arguments'
+refusal_identity = 'unknown'
 LAUNCHER = Path('/usr/local/lib/chase-sets-provider-window/launcher')
 FDINFO_ROOT = r'/proc/[0-9]+(?:/task/[0-9]+)?/fdinfo'
 
@@ -74,6 +75,27 @@ def same_identity(record):
     image = (path / 'exe').stat()
     return (current['start'] == record['start'] and current['parent'] == record['parent'] and
             current['state'] != 'Z' and (image.st_dev, image.st_ino) == record['image'])
+
+
+def record_recheck(record):
+    path = Path('/proc') / str(record['pid'])
+    try:
+        text = bounded_read(path / 'stat')
+    except OSError as error:
+        return ('gone', True) if error.errno in (errno.ENOENT, errno.ESRCH) else ('unknown', False)
+    except (CensusError, ValueError, KeyError):
+        return 'unknown', False
+    try:
+        current = parse_stat(text, record['pid'])
+        if current['start'] != record['start']:
+            return 'changed', True
+        if current['state'] == 'Z':
+            return 'zombie', True
+        image = (path / 'exe').stat()
+        same = current['parent'] == record['parent'] and (image.st_dev, image.st_ino) == record['image']
+        return ('same' if same else 'changed'), False
+    except (CensusError, OSError, ValueError, KeyError):
+        return 'unknown', False
 
 
 def launch_owner(record, records):
@@ -189,7 +211,8 @@ def inspect_root(record, records):
 
 
 def observe(parent):
-    global stage
+    global stage, refusal_identity
+    refusal_identity = 'unknown'
     stage = 'census'
     records = snapshot()
     stage = 'descendants'
@@ -208,35 +231,43 @@ def observe(parent):
         if name not in ('launcher', 'chrome', 'chrome_crashpad_handler'):
             continue
         path = Path('/proc') / str(pid)
-        stage = 'status'
-        status = (path / 'status').read_text()
-        fields = {}
-        for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'):
-            stage = 'status-field'
-            values = re.findall(r'^' + key + r':\s+([0-9a-f]+)$', status, re.MULTILINE)
-            if len(values) != 1:
+        try:
+            stage = 'status'
+            status = (path / 'status').read_text()
+            fields = {}
+            for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'):
+                stage = 'status-field'
+                values = re.findall(r'^' + key + r':\s+([0-9a-f]+)$', status, re.MULTILINE)
+                if len(values) != 1:
+                    raise ValueError()
+                fields[key] = values[0]
+            stage = 'label'
+            label = (path / 'attr/current').read_text().strip()
+            fields['label'] = 'expected' if label == 'chase-sets-provider-window (unconfined)' else 'unexpected'
+            stage = 'namespaces'
+            fields['network'] = 'host' if os.readlink(path / 'ns/net') == os.readlink('/proc/self/ns/net') else 'isolated'
+            fields['pidNamespace'] = 'host' if os.readlink(path / 'ns/pid') == os.readlink('/proc/self/ns/pid') else 'isolated'
+            stage = 'user-namespace'
+            fields['userNamespace'] = user_namespace_scope(r, launch_owner(r, records))
+            stage = 'root'
+            fields.update(inspect_root(r, records))
+            stage = 'identity-recheck'
+            if not same_identity(r):
                 raise ValueError()
-            fields[key] = values[0]
-        stage = 'label'
-        label = (path / 'attr/current').read_text().strip()
-        fields['label'] = 'expected' if label == 'chase-sets-provider-window (unconfined)' else 'unexpected'
-        stage = 'namespaces'
-        fields['network'] = 'host' if os.readlink(path / 'ns/net') == os.readlink('/proc/self/ns/net') else 'isolated'
-        fields['pidNamespace'] = 'host' if os.readlink(path / 'ns/pid') == os.readlink('/proc/self/ns/pid') else 'isolated'
-        stage = 'user-namespace'
-        fields['userNamespace'] = user_namespace_scope(r, launch_owner(r, records))
-        stage = 'root'
-        fields.update(inspect_root(r, records))
-        stage = 'identity-recheck'
-        if not same_identity(r):
-            raise ValueError()
+        except (CensusError, OSError, ValueError, KeyError):
+            if stage != 'root':
+                refusal_identity, vanished = record_recheck(r)
+                if vanished and stage in ('status', 'label', 'namespaces', 'user-namespace', 'identity-recheck'):
+                    continue
+            raise
         result.append(dict(pid=pid, parent=r['parent'], start=r['start'], image=name, **fields))
     return result
 
 
 def main():
-    global stage
+    global stage, refusal_identity
     stage = 'arguments'
+    refusal_identity = 'unknown'
     try:
         if len(sys.argv) != 2 or not sys.argv[1].isdecimal() or os.getuid() != 0:
             raise ValueError()
@@ -246,8 +277,11 @@ def main():
         print('provider-boundary-observer-refused:root', file=sys.stderr)
         print('provider-boundary-observer-root:' + error.diagnostic, file=sys.stderr)
         return 1
-    except (CensusError, OSError, ValueError, KeyError):
+    except (CensusError, OSError, ValueError, KeyError) as error:
         print('provider-boundary-observer-refused:' + stage, file=sys.stderr)
+        if stage != 'root':
+            code = closed_errno(error) if isinstance(error, OSError) else 'none'
+            print('provider-boundary-observer-detail:' + code + ':' + refusal_identity, file=sys.stderr)
         return 1
 
 

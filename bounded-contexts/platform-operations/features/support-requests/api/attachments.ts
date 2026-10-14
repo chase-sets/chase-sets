@@ -243,7 +243,10 @@ export async function storeSupportEvidenceAttachments(
     await append({ type: "RecordSupportAttachmentStored", data: { index: item.index } });
   }
   operation = await load();
-  if (operation.state.status !== "stored" || canonicalJson(operation.state.manifest) !== canonicalJson(manifest))
+  if (
+    !["stored", "reference-claimed", "referenced"].includes(operation.state.status) ||
+    canonicalJson(operation.state.manifest) !== canonicalJson(manifest)
+  )
     unavailable();
   return manifest.items.map((item) => ({
     attachmentId: item.attachmentId,

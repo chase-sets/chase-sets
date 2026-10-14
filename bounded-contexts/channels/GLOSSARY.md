@@ -170,6 +170,13 @@ only with token material; envelope revision changes on every actual rewrite.
 `ChannelOAuthTokenSet/v1` is the closed canonical plaintext format. Readability does
 not establish provider-valid authority.
 
+## eBay Account-Deletion Receipt
+
+An **eBay Account-Deletion Receipt** is a 30-day, encrypted record of one admitted
+eBay account-deletion notification. Its root-qualified subject fingerprint is
+stable across seal-key rotation. A duplicate never extends expiry or rewrites
+the envelope. A receipt is not evidence that operator-held data was erased.
+
 ## Channel Webhook
 
 A **Channel Webhook** is the inbound event subscription configured for a Sales Channel.
@@ -324,6 +331,16 @@ paired connection on a boundary-anchored cadence. A capable connector reserves i
 alone. Complete, unknown and abandoned reports are terminal; the next due boundary
 has a new export identity. An expired unreported attempt retains its identity under
 a new claim fence. HTTP 202 proves admission only, not consumer acceptance.
+
+A **Live Export Handoff** is the connector journal's durable record of one claimed
+export's sealed raw file: its raw export identity, file digest, download instant,
+byte length and single derived post (`tcgx.v1:` reference; planned, dispatched,
+captured202; the parsed row count from dispatch onward). It is journaled before
+parse, so recovery resumes or reports unknown and never refetches; a same-operation
+re-claim carries it unchanged. The worker GET is bound by the closed
+`TcgplayerLiveExportAuthority/v1` constant. Owners:
+`features/connector-client/domain/tcgplayer-live-export-executor.ts` and
+`features/connector-client/domain/live-export-authority.ts`.
 
 ## Channel Order Pull
 

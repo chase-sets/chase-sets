@@ -77,6 +77,34 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
 }
 
 describe("Discovery UCP catalog handlers", () => {
+  it("keeps corrected rows mode-free in REST and MCP search_catalog", async () => {
+    const items = buildItems();
+    const original = await items.search.searchItems();
+    vi.mocked(items.search.searchItems).mockResolvedValue({
+      ...original,
+      retrievalMode: "corrected",
+      lexicalCount: 0,
+      nextCursor: null,
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const result = await handlers.restHandlers.search_catalog({
+      request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+        method: "POST",
+        body: JSON.stringify({ query: "chraizard" }),
+      }),
+      params: {},
+    } as never);
+    expect(result).toMatchObject({ products: [{ id: "cat_1" }], count: 1, total: 1, next_cursor: null });
+    expect(JSON.stringify(result)).not.toMatch(/retrievalMode|lexicalCount|corrected/);
+    const mcp = await handlers.mcpToolHandlers.search_catalog({
+      request: new Request("https://marketplace.example/mcp", {
+        method: "POST",
+        body: JSON.stringify({ query: "chraizard" }),
+      }),
+      params: {},
+    } as never);
+    expect(mcp).toEqual(result);
+  });
   it("maps discovery search rows to UCP product envelopes", async () => {
     const items = buildItems();
     const handlers = createDiscoveryUcpHandlers(items);

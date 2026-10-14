@@ -11,11 +11,15 @@ import {
   type AgentWebhookSendRequest,
 } from "./agent-webhook-dispatcher";
 import { AGENT_WEBHOOK_SIGNATURE_HEADER, verifyAgentWebhookSignature } from "./webhook-signing";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
+const allowedFence: AgentGrantRevocations["withActiveGrants"] = async (_account, _client, ids, work) =>
+  ids.length ? work(ids) : null;
 
 const now = () => new Date("2026-07-09T00:00:00.000Z");
 
 function claimed(overrides: Partial<ClaimedAgentWebhookDelivery> = {}): ClaimedAgentWebhookDelivery {
   return {
+    grantIds: ["grant_active"],
     outboxId: "1",
     deliveryId: "ocl_1:evt_1:ord_1",
     clientId: "ocl_1",
@@ -52,11 +56,147 @@ function fakeOutbox(deliveries: readonly ClaimedAgentWebhookDelivery[], renew = 
 }
 
 describe("agent webhook dispatcher", () => {
+  it("reports safe persistence failure only after processing later claimed deliveries", async () => {
+    const { outbox, sent } = fakeOutbox([claimed(), claimed({ deliveryId: "delivery_2" })]);
+    vi.mocked(outbox.markFailed).mockRejectedValueOnce(new Error("synthetic-private-storage-error"));
+    let calls = 0;
+    const dispatcher = createAgentWebhookDispatcher({
+      outbox,
+      now,
+      claimOwnerId: "worker_1",
+      withActiveGrants: allowedFence,
+      resolveSigningSecret: async () => {
+        if (++calls === 1) throw new Error("synthetic-private-secret-error");
+        return "synthetic-secret";
+      },
+      send: async () => ({ status: 200 }),
+    });
+    await expect(dispatcher.runOnce()).rejects.toThrow("agent_webhook_delivery_recovery_pending");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].deliveryId).toBe("delivery_2");
+  });
+  it.each(["fence", "secret"])(
+    "active-stranded-recovery isolates a pre-POST %s error and processes later deliveries",
+    async (boundary) => {
+      const { outbox, failed, sent } = fakeOutbox([claimed(), claimed({ deliveryId: "delivery_2" })]);
+      let calls = 0;
+      const failOnce = () => {
+        if (++calls === 1) throw new Error("synthetic-private-error");
+      };
+      const send = vi.fn(async () => ({ status: 200 }));
+      const dispatcher = createAgentWebhookDispatcher({
+        outbox,
+        send,
+        now,
+        claimOwnerId: "worker_1",
+        resolveSigningSecret: async () => {
+          if (boundary === "secret") failOnce();
+          return "synthetic-secret";
+        },
+        withActiveGrants: async (_account, _client, ids, work) => {
+          if (boundary === "fence") failOnce();
+          return work(ids);
+        },
+      });
+      await expect(dispatcher.runOnce()).resolves.toMatchObject({ processed: 2 });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(sent).toHaveLength(1);
+      expect(failed).toEqual([
+        expect.objectContaining({
+          deliveryId: "ocl_1:evt_1:ord_1",
+          retryAt: "2026-07-09T00:00:30.000Z",
+          error: "delivery_admission_unavailable",
+        }),
+      ]);
+      expect(JSON.stringify(failed)).not.toContain("synthetic-private-error");
+    },
+  );
+
+  it("active-stranded-recovery retries a thrown sender error without changing the frozen delivery", async () => {
+    const delivery = claimed();
+    const { outbox, failed } = fakeOutbox([delivery]);
+    await createAgentWebhookDispatcher({
+      outbox,
+      now,
+      claimOwnerId: "worker_1",
+      withActiveGrants: allowedFence,
+      resolveSigningSecret: async () => "synthetic-secret",
+      send: async () => {
+        throw new Error("synthetic-network-error");
+      },
+    }).runOnce();
+    expect(failed).toEqual([
+      expect.objectContaining({ retryAt: "2026-07-09T00:00:30.000Z", error: "delivery_transport_unavailable" }),
+    ]);
+    expect(delivery).toEqual(claimed());
+  });
+  it("agent-grant-revocation-downstream-fence awaits the original send even when releasing authority fails", async () => {
+    const { outbox, sent } = fakeOutbox([claimed()]);
+    let release!: () => void;
+    const response = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const send = vi.fn(async () => {
+      entered();
+      await response;
+      return { status: 200 };
+    });
+    let settled = false;
+    const run = createAgentWebhookDispatcher({
+      outbox,
+      send,
+      resolveSigningSecret: async () => "synthetic-secret",
+      claimOwnerId: "worker_1",
+      now,
+      withActiveGrants: async (_account, _client, ids, work) => {
+        await work(ids);
+        throw new Error("synthetic-fence-release-failure");
+      },
+    })
+      .runOnce()
+      .then(
+        () => {
+          settled = true;
+        },
+        (error: unknown) => {
+          settled = true;
+          return error;
+        },
+      );
+    await started;
+    // Drain the already-ready authority failure, not a wall-clock delay.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const prematurelySettled = settled;
+    release();
+    await run;
+    expect(prematurelySettled).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(1);
+  });
+  it("agent-grant-revocation-downstream-fence refuses a stale claimed row before send", async () => {
+    const { outbox, failed } = fakeOutbox([claimed({ grantIds: ["grant_revoked"] })]);
+    const send = vi.fn(async () => ({ status: 200 }));
+    await createAgentWebhookDispatcher({
+      outbox,
+      send,
+      resolveSigningSecret: async () => "synthetic-secret",
+      withActiveGrants: async () => null,
+      claimOwnerId: "worker_1",
+      now,
+    }).runOnce();
+    expect(send).not.toHaveBeenCalled();
+    expect(failed[0]).toMatchObject({ retryAt: null, error: "agent_grant_revoked" });
+  });
   it("signs and delivers, marking a 2xx response sent", async () => {
     const { outbox, sent } = fakeOutbox([claimed()]);
     let seen: AgentWebhookSendRequest | null = null;
     const dispatcher = createAgentWebhookDispatcher({
       outbox,
+      withActiveGrants: allowedFence,
       resolveSigningSecret: async () => "whsec_secret",
       send: async (request) => {
         seen = request;
@@ -87,6 +227,7 @@ describe("agent webhook dispatcher", () => {
     const { outbox, failed } = fakeOutbox([claimed({ attemptCount: 2 })]);
     const dispatcher = createAgentWebhookDispatcher({
       outbox,
+      withActiveGrants: allowedFence,
       resolveSigningSecret: async () => "whsec_secret",
       send: async () => ({ status: 503 }),
       claimOwnerId: "worker-1",
@@ -103,6 +244,7 @@ describe("agent webhook dispatcher", () => {
     const { outbox, failed } = fakeOutbox([claimed({ attemptCount: 8, maxAttempts: 8 })]);
     const dispatcher = createAgentWebhookDispatcher({
       outbox,
+      withActiveGrants: allowedFence,
       resolveSigningSecret: async () => "whsec_secret",
       send: async () => {
         throw new Error("connection reset");
@@ -114,7 +256,7 @@ describe("agent webhook dispatcher", () => {
     await dispatcher.runOnce();
 
     expect(failed[0].retryAt).toBeNull();
-    expect(failed[0].error).toContain("connection reset");
+    expect(failed[0].error).toBe("delivery_outcome_unknown");
   });
 
   it("dead-letters immediately when the signing secret is gone", async () => {
@@ -122,6 +264,7 @@ describe("agent webhook dispatcher", () => {
     const send = vi.fn(async () => ({ status: 200 }));
     const dispatcher = createAgentWebhookDispatcher({
       outbox,
+      withActiveGrants: allowedFence,
       resolveSigningSecret: async () => null,
       send,
       claimOwnerId: "worker-1",
@@ -140,6 +283,7 @@ describe("agent webhook dispatcher", () => {
     const send = vi.fn(async () => ({ status: 200 }));
     const dispatcher = createAgentWebhookDispatcher({
       outbox,
+      withActiveGrants: allowedFence,
       resolveSigningSecret: async () => "whsec_secret",
       send,
       claimOwnerId: "worker-1",

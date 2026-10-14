@@ -148,7 +148,7 @@ test("extension-deterministic-build-and-thin-root", () => {
     key: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
     background: { service_worker: "background.js", type: "module" },
     permissions: ["identity", "storage", "alarms"],
-    host_permissions: [`${platform.origin}/*`],
+    host_permissions: [`${platform.origin}/*`, "https://store.tcgplayer.com/*"],
     action: { default_title: "unpaired" },
     content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'" },
   });

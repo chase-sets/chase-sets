@@ -1,6 +1,8 @@
 {
   "sqlExecuting": [
     "bounded-contexts/auth/features/account-selection/read-model/queries.ts",
+    "bounded-contexts/auth/features/invitation-acceptance/api/attempt-store.ts",
+    "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts",
     "bounded-contexts/auth/features/sessions/read-model/queries.ts",
     "bounded-contexts/auth/support/auth-support/identity-projection.ts",
     "bounded-contexts/auth/support/auth-support/store.ts",
@@ -61,6 +63,7 @@
     "bounded-contexts/catalog/features/scope-registry/read-model/queries.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/planner.ts",
+    "bounded-contexts/catalog/features/scope-sync-batches/read-model/count-capture-store.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/count-store.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/store.ts",
     "bounded-contexts/catalog/features/scope-sync-state/read-model/queries.ts",
@@ -108,6 +111,7 @@
     "bounded-contexts/channels/features/connector-feed/read-model/inbound.ts",
     "bounded-contexts/channels/features/connector-feed/read-model/liveness.ts",
     "bounded-contexts/channels/features/credentials/api/runtime.ts",
+    "bounded-contexts/channels/features/ebay-account-deletion/api/runtime.ts",
     "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts",
     "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
     "bounded-contexts/channels/features/listing-composition/integrations/reactions.ts",
@@ -232,6 +236,8 @@
     "bounded-contexts/identity/features/account-management/api/fences.ts",
     "bounded-contexts/identity/features/accounts/read-model/projection.ts",
     "bounded-contexts/identity/features/accounts/read-model/queries.ts",
+    "bounded-contexts/identity/features/agent-grants/api/revocation-release.ts",
+    "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
     "bounded-contexts/identity/features/api-keys/api/secret-store.ts",
     "bounded-contexts/identity/features/api-keys/read-model/projection.ts",
     "bounded-contexts/identity/features/api-keys/read-model/queries.ts",
@@ -504,7 +510,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 297,
+    "count": 298,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -521,7 +527,7 @@
       "bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts": 7,
       "bounded-contexts/catalog/features/provider-scope-mapping/api/route.ts": 2,
       "bounded-contexts/catalog/features/reference-data/api/route.ts": 2,
-      "bounded-contexts/catalog/features/scope-sync-batches/api/route.ts": 1,
+      "bounded-contexts/catalog/features/scope-sync-batches/api/route.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts": 14,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 17,

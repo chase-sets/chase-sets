@@ -1,5 +1,7 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
+import { t } from "@chase-sets/localization";
+import { SupportDomainError } from "../../features/support-requests/domain/common";
 import {
   hashParticipantRequest,
   parseParticipantAttempt,
@@ -14,9 +16,13 @@ export class SupportParticipantSendError extends Error {
   constructor(
     public readonly phase: "failed-safe" | "ambiguous",
     public readonly descriptor: SupportParticipantDescriptor | null,
+    message?: string,
   ) {
     super(
-      phase === "ambiguous" ? "Check status before retrying this support action." : "This support action was not sent.",
+      message ??
+        (phase === "ambiguous"
+          ? "Check status before retrying this support action."
+          : "This support action was not sent."),
     );
   }
 }
@@ -114,7 +120,13 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
       if (actionKind === "accept-offer" || actionKind === "decline-offer") hashBody = { ...(body as object), offerId };
       descriptor = { actionKind, targetId, attemptId, requestHash: await hashParticipantRequest(actionKind, hashBody) };
       parseParticipantAttempt({ attemptId, requestHash: descriptor.requestHash });
-    } catch {
+    } catch (error) {
+      if (error instanceof SupportDomainError && error.message === "attachment_reference_unknown")
+        throw new SupportParticipantSendError(
+          "failed-safe",
+          null,
+          t("support.features.support_requests.api.route.attachment.reference.unknown"),
+        );
       throw new SupportParticipantSendError("failed-safe", null);
     }
     const path = participantActions[actionKind].path
@@ -130,7 +142,16 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         headers,
         body: JSON.stringify(body),
       });
-      if ([400, 401, 403].includes(response.status)) throw new SupportParticipantSendError("failed-safe", null);
+      if ([400, 401, 403].includes(response.status)) {
+        const rejection = await response.json().catch(() => null);
+        throw new SupportParticipantSendError(
+          "failed-safe",
+          null,
+          rejection?.error?.code === "attachment_reference_unknown"
+            ? t("support.features.support_requests.api.route.attachment.reference.unknown")
+            : undefined,
+        );
+      }
       return await parseJsonResponse<SupportRequestCommandSnapshot>(response);
     } catch (error) {
       if (error instanceof SupportParticipantSendError && error.phase === "failed-safe") throw error;
@@ -229,6 +250,7 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
         summary: string;
         occurredAt?: string | null;
         attachments?: readonly string[];
+        attachmentOperationId?: string;
       }>,
     ) =>
       participantCommand(

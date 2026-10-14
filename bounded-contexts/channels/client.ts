@@ -32,9 +32,16 @@ export type { StagedImportCapturePlan } from "./features/connector-client/domain
 export type { CoordinatorInput, CoordinatorResult } from "./features/connector-client/domain/operation-coordinator";
 export type {
   ConnectorExecutor,
+  ConnectorExecutorPorts,
   ExecutorResult,
   OperationUnit,
 } from "./features/connector-client/domain/operation-protocol";
+export { createTcgplayerLiveExportExecutor } from "./features/connector-client/domain/tcgplayer-live-export-executor";
+export {
+  isLiveExportAuthorityRequest,
+  tcgplayerLiveExportAuthority,
+  type TcgplayerLiveExportAuthority,
+} from "./features/connector-client/domain/live-export-authority";
 export { createConnectorRetentionStore } from "./features/connector-client/domain/connector-retention-store";
 export type {
   ConnectorStatus,

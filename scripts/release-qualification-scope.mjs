@@ -243,6 +243,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
+    "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
     "ci-image-mirrors.yml": "release",

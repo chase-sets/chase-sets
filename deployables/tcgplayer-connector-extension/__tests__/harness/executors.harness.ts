@@ -1,8 +1,9 @@
 import type { composeConnectorBackground } from "../../src/compose";
+import { connectorExecutors as productExecutors } from "../../src/executors";
 import { connectorTransport } from "../../src/adapters/connector-transport";
 import { connectorHostRegistry, platformOrigin, portalOrigin, sentinel } from "./origins";
 
-type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type ConnectorExecutor = ReturnType<Parameters<typeof composeConnectorBackground>[0]["executors"]>[number];
 type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
 type ExecutorResult = Awaited<ReturnType<ConnectorExecutor["dispatchOnce"]>>;
 type OperationAttempt = OperationUnit["members"][number];
@@ -94,6 +95,10 @@ export function syntheticExecutor(unit: ConnectorExecutor["unit"]): ConnectorExe
   };
 }
 
-export const connectorExecutors: readonly ConnectorExecutor[] = [
-  syntheticExecutor(import.meta.env.VITE_HARNESS_EXECUTOR_UNIT === "reservation" ? "reservation" : "operation"),
-];
+type Registration = Parameters<typeof composeConnectorBackground>[0]["executors"];
+
+/** The live-export unit registers the product executor against the labelled synthetic loopback portal. */
+export const connectorExecutors: Registration = (ports) =>
+  import.meta.env.VITE_HARNESS_EXECUTOR_UNIT === "live-export"
+    ? productExecutors({ ...ports, providerOrigin: portalOrigin })
+    : [syntheticExecutor(import.meta.env.VITE_HARNESS_EXECUTOR_UNIT === "reservation" ? "reservation" : "operation")];

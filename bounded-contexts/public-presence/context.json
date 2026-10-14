@@ -310,6 +310,11 @@
       }
     }
   ],
+  "agentCoverage": {
+    "waitlist": { "pending": "#9238" },
+    "promo-bar": { "pending": "#9238" },
+    "campaign-analytics": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "public-web",
