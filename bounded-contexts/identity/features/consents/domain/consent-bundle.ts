@@ -222,7 +222,7 @@ const issuedRegistrationDeclarations = new WeakSet<object>();
 const issuedBoundRegistrationDeclarations = new WeakSet<object>();
 
 export function assertRegistrationConsentDeclaration(value: unknown): asserts value is RegistrationConsentDeclaration {
-if (typeof value !== "object" || value === null || !issuedRegistrationDeclarations.has(value)) {
+  if (typeof value !== "object" || value === null || !issuedRegistrationDeclarations.has(value)) {
     throw new RegistrationConsentBundleUnresolvedError();
   }
 }
@@ -466,7 +466,7 @@ export async function resolveConsentBundleAgainstCorpus(
     guards: Object.freeze(guards),
     outcomes: Object.freeze(outcomes),
   });
-if (bundleKey === "registration") issuedRegistrationDeclarations.add(resolution);
+  if (bundleKey === "registration") issuedRegistrationDeclarations.add(resolution);
   return resolution;
 }
 
