@@ -511,9 +511,8 @@ describe("platform api app wiring", () => {
       authorization_servers: [issuer],
       scopes_supported: expect.arrayContaining([
         "catalog:read",
-        "checkout:read",
-        "checkout:write",
-        "order:read",
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read",
         "listings:write",
         "payouts:request",
         "account:read",
@@ -649,7 +648,7 @@ describe("platform api app wiring", () => {
       scopes_supported: readonly string[];
     };
     expect(resourceMetadata.resource).toBe(mcpServerUrl);
-    expect(resourceMetadata.scopes_supported).toHaveLength(18);
+    expect(resourceMetadata.scopes_supported).toHaveLength(17);
     const [authorizationServerIssuer = ""] = resourceMetadata.authorization_servers;
 
     const authorizationServerResponse = await app.request(
@@ -1996,7 +1995,7 @@ describe("platform api app wiring", () => {
           messages: [{ code: "authentication_required" }],
         },
         _meta: {
-          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
+          "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="dev.ucp.shopping.checkout:manage"',
         },
       },
     });

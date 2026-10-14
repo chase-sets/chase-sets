@@ -128,9 +128,8 @@ const UCP_ENVELOPE_OUTPUT_SCHEMA = {
 } as const;
 
 const CATALOG_READ_SECURITY = [{ type: "noauth" }] as const;
-const CHECKOUT_READ_SECURITY = [{ type: "oauth2", scopes: ["checkout:read"] }] as const;
-const CHECKOUT_WRITE_SECURITY = [{ type: "oauth2", scopes: ["checkout:write"] }] as const;
-const ORDER_READ_SECURITY = [{ type: "oauth2", scopes: ["order:read"] }] as const;
+const CHECKOUT_MANAGE_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }] as const;
+const ORDER_READ_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.order:read"] }] as const;
 
 function readAnnotations() {
   return {
@@ -291,7 +290,7 @@ export const UCP_MCP_TOOLS = [
       },
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Creating checkout session",
     invoked: "Checkout session created",
@@ -313,7 +312,7 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_READ_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading checkout session",
     invoked: "Checkout session loaded",
@@ -338,7 +337,7 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Updating checkout session",
     invoked: "Checkout session updated",
@@ -363,7 +362,7 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, openWorld: true }),
     invoking: "Preparing trusted checkout handoff",
     invoked: "Checkout handoff ready",
@@ -386,7 +385,7 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, idempotent: true }),
     invoking: "Cancelling checkout session",
     invoked: "Checkout session cancelled",

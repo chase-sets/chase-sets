@@ -93,12 +93,12 @@ describe("UCP MCP tools", () => {
       annotations: { readOnlyHint: true },
     });
     expect(createCheckout).toMatchObject({
-      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { readOnlyHint: false, destructiveHint: false },
     });
     expect(completeCheckout).toMatchObject({
       trustedHandoffOnUnsignedMcp: true,
-      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { destructiveHint: true, openWorldHint: true },
     });
   });

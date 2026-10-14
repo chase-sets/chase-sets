@@ -63,8 +63,8 @@ Scopes are grouped into families, and each account-scoped tool declares the scop
 - `inventory:read`, `inventory:write` — read inventory and hold-derived availability; create import batches and adjust stock.
 - `listings:read`, `listings:write` — read listings and seller insights; create, price, publish, and unpublish listings.
 - `offers:read`, `offers:write` — read offers and matches; submit and counter offers.
-- `checkout:read`, `checkout:write` — read the cart; add, update, and remove cart lines and manage the checkout session.
-- `order:read` — read orders on either side of a sale.
+- `dev.ucp.shopping.checkout:manage` — read the cart; add, update, and remove cart lines and manage the checkout session.
+- `dev.ucp.shopping.order:read` — read orders on either side of a sale.
 - `fulfillment:read`, `fulfillment:write` — read shipments and tracking; purchase and void labels.
 - `payouts:read`, `payouts:request` — read the wallet, ledger, and payouts; request a payout.
 - `account:read`, `account:manage` — read account profile and reputation; manage memberships and account settings.
