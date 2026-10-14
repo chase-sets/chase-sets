@@ -20,6 +20,8 @@ The native `/mcp` bridge is an authenticated internal surface. It uses Chase Set
 
 The native bridge is not a third-party commerce profile. External agent commerce should use `/.well-known/ucp` and `/ucp/mcp`; native `/mcp` exists for first-party automation where Chase Sets controls the agent host and can bind the request to a platform session or operator principal.
 
+Every admin route ships with **Agent Coverage**: its source context's `agentCoverage` manifest key, keyed by the route's `routeId`, declares the available native MCP tools that cover the route, an exemption (`sign-in-flow`, `navigation-only`, `human-presence-required` or `file-upload`, with a note), or the pending issue that owns the gap. `deployables/admin-web/app/admin-agent-coverage.test.ts` fails a route without a valid declaration, an entry for a route its context does not contribute, and a named tool that is missing from the catalog or not yet available. A new exemption code needs a recorded decision.
+
 ## ChatGPT Apps Compatibility
 
 ChatGPT Apps are remote MCP clients. Chase Sets exposes the existing UCP MCP tool names directly to ChatGPT instead of adding a ChatGPT-specific commerce contract. Tool descriptors include JSON schemas, output schemas, OAuth/no-auth security schemes, read/write annotations, and invocation labels so ChatGPT can select the right marketplace operation while the underlying handler remains owned by Discovery, Checkout, Ordering, Payments, Auth, or Identity.
