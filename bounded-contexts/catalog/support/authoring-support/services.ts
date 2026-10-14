@@ -26,6 +26,10 @@ import { createSourceObservationRuntime } from "../../features/source-observatio
 import { createScopeSyncBatchRuntime } from "../../features/scope-sync-batches/api/runtime";
 import { createScopeSyncCountRuntime } from "../../features/scope-sync-batches/api/count-runtime";
 import { createCountStore, countAccountSlot } from "../../features/scope-sync-batches/read-model/count-store";
+import {
+  createCountCaptureStore,
+  type CountCaptureStore,
+} from "../../features/scope-sync-batches/read-model/count-capture-store";
 import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/source-observations/api/providers/provider-option-query-cache";
 import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observations/api/providers/provider-option-queries";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
@@ -62,6 +66,8 @@ export type CatalogServices = Readonly<{
   providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   scopeSyncBatches: ReturnType<typeof createScopeSyncBatchRuntime>;
+  // Dormant staging count capture; no other environment composes a capture store.
+  countCapture: CountCaptureStore | null;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
   attentionQueue: ReturnType<typeof createCatalogAttentionQueueRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
@@ -184,6 +190,7 @@ export function createCatalogServices(
     providerIntegrationProfiles,
     sourceObservations,
     scopeSyncBatches,
+    countCapture: countEnvironment === "staging" ? createCountCaptureStore(pool) : null,
     catalogAliases,
     attentionQueue,
     authoringBulkJobs,
