@@ -19,10 +19,13 @@ import {
   listForecastLedgerScopeEntries,
   loadRealizedOutcomes,
   replaceForecastGrades,
+  touchForecastGradingInput,
   type StoredForecastGrade,
 } from "../read-model/queries";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Like the app, a scope's inputs are rechecked at most hourly, though the closer runs every few minutes. */
+const RECHECK_MS = 60 * 60 * 1000;
 const systemContext: EventStoreContext = {
   tenantId: "tnt_identity" as never,
   audit: { performedByUserId: "usr_pricing_system" as never, forAccountId: "acc_pricing_system" as never },
@@ -43,14 +46,16 @@ export function createForecastLedgerRuntime(
 
   /**
    * Grades every goal version and role over the cohorts that closed at the
-   * start of today's UTC day. A scope whose ledger entries, realized sales,
-   * and stock are unchanged since its last grade for the day keeps that grade;
-   * otherwise each Forecast Grade is recorded as a ForecastGraded fact before
-   * the cache moves, so a crash between the two re-emits nothing new.
+   * start of today's UTC day. A scope checked within the hour, or whose ledger
+   * entries, realized sales, and stock are unchanged since its last grade for
+   * the day, keeps that grade; otherwise each Forecast Grade is recorded as a
+   * ForecastGraded fact before the cache moves, so a crash between the two
+   * re-emits nothing new.
    */
   const runForecastGrading = async (input: Readonly<{ now?: string }> = {}): Promise<ForecastGradingResult> => {
     const now = Date.parse(input.now ?? new Date().toISOString());
-    const policy = await resolvePolicy(new Date(now).toISOString());
+    const nowIso = new Date(now).toISOString();
+    const policy = await resolvePolicy(nowIso);
     const closedAtMs = Math.floor(now / DAY_MS) * DAY_MS;
     const closedAt = new Date(closedAtMs).toISOString();
     const closedOn = closedAt.slice(0, 10);
@@ -59,8 +64,14 @@ export function createForecastLedgerRuntime(
     let scopesUnchanged = 0;
     for (const scope of await listForecastGradeScopes(deps.pool, { since, closedAt })) {
       const window = { ...scope, since, closedAt };
+      const cached = await getForecastGradingInput(deps.pool, { ...scope, closedOn });
+      if (cached && now - Date.parse(cached.checkedAt) < RECHECK_MS) {
+        scopesUnchanged += 1;
+        continue;
+      }
       const inputVersion = await getForecastGradingInputVersion(deps.pool, window);
-      if ((await getForecastGradingInput(deps.pool, { ...scope, closedOn })) === inputVersion) {
+      if (cached?.inputVersion === inputVersion) {
+        await touchForecastGradingInput(deps.pool, { ...scope, closedOn, checkedAt: nowIso });
         scopesUnchanged += 1;
         continue;
       }
@@ -73,7 +84,7 @@ export function createForecastLedgerRuntime(
         graceDays: policy.graceDays,
         closedAt: closedAtMs,
       });
-      const gradedAt = new Date().toISOString();
+      const gradedAt = nowIso;
       for (const graded of grades) {
         await appendForecastGraded(deps.eventStore, {
           schemaVersion: 1,
@@ -88,7 +99,7 @@ export function createForecastLedgerRuntime(
         await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
           JSON.stringify(["pricing:forecast-grading", scope.goalId, scope.goalVersion, scope.role, closedOn]),
         ]);
-        if ((await getForecastGradingInput(tx, { ...scope, closedOn })) === inputVersion) return;
+        if ((await getForecastGradingInput(tx, { ...scope, closedOn }))?.inputVersion === inputVersion) return;
         await replaceForecastGrades(tx, { ...scope, closedOn, inputVersion, gradedAt }, grades);
       });
       scopesGraded += 1;

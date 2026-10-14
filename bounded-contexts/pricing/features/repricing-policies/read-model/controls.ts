@@ -9,9 +9,13 @@ export type RepricingAuthoringFacts = Readonly<{
   hasCostBasis: boolean;
 }>;
 
-/** The account's authoring facts, and which registered goal versions the Adoption Gate lets a seller select. */
+/**
+ * The account's authoring facts, and which registered goal versions the
+ * Adoption Gate lets a seller select and why; the platform-wide grades it
+ * compared stay out of a seller's response.
+ */
 export type RepricingAuthoringPrerequisites = RepricingAuthoringFacts &
-  Readonly<{ goalAdoption: readonly GoalAdoption[] }>;
+  Readonly<{ goalAdoption: readonly Omit<GoalAdoption, "grades">[] }>;
 
 export async function getRepricingAuthoringFacts(db: PgQueryable, accountId: string): Promise<RepricingAuthoringFacts> {
   const result = await db.query<RepricingAuthoringFacts>(

@@ -28,6 +28,9 @@ CREATE INDEX IF NOT EXISTS pricing_forecast_ledger_entries_listing_idx
 CREATE INDEX IF NOT EXISTS pricing_forecast_ledger_entries_scope_idx
   ON pricing_forecast_ledger_entries (goal_id, goal_version, role, priced_at);
 
+CREATE INDEX IF NOT EXISTS pricing_forecast_ledger_entries_priced_idx
+  ON pricing_forecast_ledger_entries (priced_at);
+
 CREATE TABLE IF NOT EXISTS pricing_forecast_grading_inputs (
   goal_id text NOT NULL,
   goal_version integer NOT NULL,
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS pricing_forecast_grading_inputs (
   closed_on date NOT NULL,
   input_version text NOT NULL,
   graded_at timestamptz NOT NULL,
+  checked_at timestamptz NOT NULL,
   PRIMARY KEY (goal_id, goal_version, role, closed_on)
 );
 

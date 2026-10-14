@@ -22,6 +22,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const dayZero = Date.parse("2026-08-01T00:00:00.000Z");
 const at = (day: number) => new Date(dayZero + day * DAY_MS).toISOString();
 const now = new Date(dayZero + 60 * DAY_MS + 3_600_000).toISOString();
+const hoursLater = (hours: number) => new Date(dayZero + 60 * DAY_MS + (1 + hours) * 3_600_000).toISOString();
 
 describeDb("Forecast grading job (#7708)", () => {
   let pools: Readonly<Record<"pricing", PgTransactionalPool>>;
@@ -130,7 +131,7 @@ describeDb("Forecast grading job (#7708)", () => {
       .filter((event) => event.eventType === forecastGradedEventType)
       .map((event) => event.payload as ForecastGradedEvent["data"]);
 
-  it("grades closed cohorts from realized tape and own-sale facts, records ForecastGraded facts, and reuses an unchanged grade", async () => {
+  it("grades closed cohorts from realized tape and own-sale facts, records ForecastGraded facts, and rechecks an unchanged grade at most hourly", async () => {
     const { eventStore, forecastLedger } = runtime();
     expect(await forecastLedger.runForecastGrading({ now })).toEqual({
       closedOn: "2026-09-30",
@@ -154,7 +155,12 @@ describeDb("Forecast grading job (#7708)", () => {
     ]);
     expect(published[1]!.grade).toEqual(day21.grade);
 
+    // Within the hour the scope is not rechecked; an hour later its unchanged inputs keep the grade.
     expect(await forecastLedger.runForecastGrading({ now })).toMatchObject({ scopesGraded: 0, scopesUnchanged: 1 });
+    expect(await forecastLedger.runForecastGrading({ now: hoursLater(1) })).toMatchObject({
+      scopesGraded: 0,
+      scopesUnchanged: 1,
+    });
     expect(await facts(eventStore)).toHaveLength(3);
     expect(await grades()).toEqual(first);
 
@@ -165,7 +171,13 @@ describeDb("Forecast grading job (#7708)", () => {
        VALUES ('sale_b', 'acc_seller', 'inv_b', 'cat_grading', 'prod_grading', 'offline', 'in-store', 1, $1, $1)`,
       [at(31)],
     );
-    expect(await forecastLedger.runForecastGrading({ now })).toMatchObject({ scopesGraded: 1, scopesUnchanged: 0 });
+    // Checked within the hour: the new sale waits for the next hourly recheck.
+    expect(await forecastLedger.runForecastGrading({ now: hoursLater(1) })).toMatchObject({ scopesUnchanged: 1 });
+    expect(await forecastLedger.runForecastGrading({ now: hoursLater(2) })).toMatchObject({
+      closedOn: "2026-09-30",
+      scopesGraded: 1,
+      scopesUnchanged: 0,
+    });
     const regraded = await grades();
     expect(regraded.find((row) => row.horizon_days === 21)!.grade).toMatchObject({ count: 4, soldShare: 1 });
     expect(await facts(eventStore)).toHaveLength(6);

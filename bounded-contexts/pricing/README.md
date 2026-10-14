@@ -192,7 +192,8 @@ Intentional domain assertion messages reach the editor through `validation_faile
 before translating domain rejection copy. Untagged exceptions and malformed input remain sanitized;
 older code-only responses render generic localized failure copy. The browser does not run a validator.
 The same response's `goalAdoption` lists each registered goal version that is not retired with its
-Adoption Gate result: `selectable`, `promotable`, and a refusal `reason` with the grades it compared.
+Adoption Gate result: `selectable`, `promotable`, and a refusal `reason`; the platform-wide grades it
+compared are not returned to a seller.
 
 ### Forecast Ledger and Forecast Grades
 

@@ -156,19 +156,27 @@ describe("Adoption Gate", () => {
 
     const prerequisites = await repricingPolicies.getAuthoringPrerequisites("acc_seller");
 
-    expect(prerequisites).toMatchObject({
+    expect(prerequisites).toEqual({
       listingCurrencyCodes: ["USD"],
       hasCostBasis: true,
       goalAdoption: [
-        { goalId: "fixed-percentile", goalVersion: 1, selectable: true, reason: null },
+        {
+          goalId: "fixed-percentile",
+          goalVersion: 1,
+          lifecycle: "selectable",
+          incumbentVersion: null,
+          selectable: true,
+          promotable: true,
+          reason: null,
+        },
         {
           goalId: "fixed-percentile",
           goalVersion: 2,
           lifecycle: "selectable",
           incumbentVersion: 1,
           selectable: false,
+          promotable: false,
           reason: "shadow-grade-worse-than-incumbent",
-          grades: { closedOn: "2026-09-02", shadow: { brier: 0.24 }, incumbent: { brier: 0.2 } },
         },
       ],
     });
@@ -178,5 +186,11 @@ describe("Adoption Gate", () => {
       ["fixed-percentile", 2, "shadow", adoptedForecastKind, adoptionHorizonDays],
       ["fixed-percentile", 1, "incumbent", adoptedForecastKind, adoptionHorizonDays],
     ]);
+    // The gate compared the newest closed day's grades, which stay out of the seller's response.
+    expect((await forecastLedger.listGoalAdoptions())[1]!.grades).toMatchObject({
+      closedOn: "2026-09-02",
+      shadow: { brier: 0.24 },
+      incumbent: { brier: 0.2 },
+    });
   });
 });

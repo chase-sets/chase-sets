@@ -141,11 +141,11 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
     getBudget: (accountId, day) => getRepricingBudget(deps.db, accountId, day),
     listCategories: (accountId) => listRepricingCategories(deps.db, accountId),
     getAuthoringPrerequisites: async (accountId) => {
-      const [facts, goalAdoption] = await Promise.all([
+      const [facts, adoptions] = await Promise.all([
         getRepricingAuthoringFacts(deps.db, accountId),
         deps.goalAdoptions(),
       ]);
-      return { ...facts, goalAdoption };
+      return { ...facts, goalAdoption: adoptions.map(({ grades: _grades, ...adoption }) => adoption) };
     },
     previewScope: (input) => previewRepricingScope(deps.db, input),
     listAccountRepricingPolicies: (params) => listAccountRepricingPolicies(deps.db, params),

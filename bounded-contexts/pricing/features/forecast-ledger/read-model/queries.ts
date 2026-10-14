@@ -213,16 +213,31 @@ export async function loadRealizedOutcomes(db: PgQueryable, scope: ScopeWindow):
   return { saleTimesByListing, inStockListingIds: new Set(stock.rows.map((row) => row.listing_id)) };
 }
 
+export type ForecastGradingInput = Readonly<{ inputVersion: string; checkedAt: string }>;
+
 export async function getForecastGradingInput(
   db: PgQueryable,
   scope: ForecastGradeScope & Readonly<{ closedOn: string }>,
-): Promise<string | null> {
-  const result = await db.query<{ input_version: string }>(
-    `SELECT input_version FROM pricing_forecast_grading_inputs
+): Promise<ForecastGradingInput | null> {
+  const result = await db.query<{ input_version: string; checked_at: Date }>(
+    `SELECT input_version, checked_at FROM pricing_forecast_grading_inputs
      WHERE goal_id = $1 AND goal_version = $2 AND role = $3 AND closed_on = $4::date`,
     [scope.goalId, scope.goalVersion, scope.role, scope.closedOn],
   );
-  return result.rows[0]?.input_version ?? null;
+  const row = result.rows[0];
+  return row ? { inputVersion: row.input_version, checkedAt: new Date(row.checked_at).toISOString() } : null;
+}
+
+/** Records that the scope's inputs were found unchanged. */
+export async function touchForecastGradingInput(
+  db: PgQueryable,
+  scope: ForecastGradeScope & Readonly<{ closedOn: string; checkedAt: string }>,
+): Promise<void> {
+  await db.query(
+    `UPDATE pricing_forecast_grading_inputs SET checked_at = $5
+     WHERE goal_id = $1 AND goal_version = $2 AND role = $3 AND closed_on = $4::date`,
+    [scope.goalId, scope.goalVersion, scope.role, scope.closedOn, scope.checkedAt],
+  );
 }
 
 /** Replaces one scope's grades for the closed day, and records the inputs they read. */
@@ -254,10 +269,12 @@ export async function replaceForecastGrades(
     );
   }
   await db.query(
-    `INSERT INTO pricing_forecast_grading_inputs (goal_id, goal_version, role, closed_on, input_version, graded_at)
-     VALUES ($1, $2, $3, $4::date, $5, $6)
+    `INSERT INTO pricing_forecast_grading_inputs
+       (goal_id, goal_version, role, closed_on, input_version, graded_at, checked_at)
+     VALUES ($1, $2, $3, $4::date, $5, $6, $6)
      ON CONFLICT (goal_id, goal_version, role, closed_on)
-     DO UPDATE SET input_version = EXCLUDED.input_version, graded_at = EXCLUDED.graded_at`,
+     DO UPDATE SET input_version = EXCLUDED.input_version, graded_at = EXCLUDED.graded_at,
+       checked_at = EXCLUDED.checked_at`,
     [...key, scope.inputVersion, scope.gradedAt],
   );
 }
