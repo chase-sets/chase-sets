@@ -14,7 +14,7 @@ import {
   reserveProductRoundCooldown,
 } from "../read-model/product-round-state";
 import type { RepricingListingEvaluation } from "../domain/evaluate";
-import { planRepricingRound, readsDemandCurve, traceFromEvaluation } from "../domain/round";
+import { planRepricingRound, planRepricingShadows, readsDemandCurve, traceFromEvaluation } from "../domain/round";
 import { createRepricingDryRunServices } from "./dry-run";
 import {
   repricingPolicyEvaluatedEventType,
@@ -473,6 +473,7 @@ async function executeAdmittedProductRound(
     economics: deps.economics,
   });
   const evaluations = planRepricingRound(round, nowIso, policy);
+  const shadows = planRepricingShadows(round, nowIso, policy);
   await input.afterRoundPlanned?.();
   const byPolicy = new Map<string, Array<{ listing: RepricingRoundListing; evaluation: RepricingListingEvaluation }>>();
   round.listings.forEach((listing, index) => {
@@ -728,7 +729,10 @@ async function executeAdmittedProductRound(
         listingsEvaluated: traces.length,
         listingsChanged: traces.filter((trace) => trace.outcome === "changed").length,
         listingsSkipped: traces.filter((trace) => trace.outcome !== "changed").length,
-        listings: traces,
+        listings: traces.map((trace) => {
+          const shadow = shadows.get(trace.listingId);
+          return shadow ? { ...trace, shadow } : trace;
+        }),
         ...goalInputsFor(plan.entries, round),
         ...(frozenUntil ? { spiralBreaker: { tripped: false, frozenUntil } } : {}),
         signalToEvaluationLatencyMs: Math.min(

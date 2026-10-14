@@ -78,7 +78,7 @@ export type GoalExplanation = Readonly<{
 export type PricingGoalDefinition = Readonly<{
   id: string;
   version: number;
-  lifecycle: "selectable";
+  lifecycle: "shadow" | "selectable" | "retired";
   parameterSchema: GoalParameterSchema;
   requiredCurveFeatures: readonly GoalCurveFeature[];
   requiresEconomics: boolean;
@@ -111,6 +111,8 @@ type GoalEconomics<RequiresEconomics extends boolean> = RequiresEconomics extend
 type PricingGoalSpecification<Parameter extends string, RequiresEconomics extends boolean> = Readonly<{
   id: string;
   version: number;
+  /** Reviewed registration change; selecting a later version cites #7708 adoption evidence. */
+  lifecycle?: PricingGoalDefinition["lifecycle"];
   parameterSchema: Readonly<Record<Parameter, GoalParameterBounds>>;
   requiredCurveFeatures: readonly GoalCurveFeature[];
   requiresEconomics: RequiresEconomics;
@@ -143,7 +145,7 @@ export function definePricingGoal<const Parameter extends string, const Requires
   return {
     id,
     version,
-    lifecycle: "selectable",
+    lifecycle: specification.lifecycle ?? (version === 1 ? "selectable" : "shadow"),
     parameterSchema,
     requiredCurveFeatures,
     requiresEconomics,
@@ -228,6 +230,11 @@ export function createPricingGoalRegistry(initial: readonly PricingGoalDefinitio
     }
     const key = `${goal.id}@${goal.version}`;
     if (goals.has(key)) throw new Error(`Pricing Goal ${key} is already registered.`);
+    if (
+      goal.lifecycle === "shadow" &&
+      [...goals.values()].some((entry) => entry.id === goal.id && entry.lifecycle === "shadow")
+    )
+      throw new Error(`Pricing Goal ${goal.id} already has a shadow version.`);
     goals.set(key, goal);
   };
   initial.forEach(registerPricingGoal);

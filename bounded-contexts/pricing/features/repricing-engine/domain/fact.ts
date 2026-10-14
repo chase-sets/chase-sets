@@ -1,5 +1,10 @@
 import type { DomainEvent } from "@chase-sets/event-core";
-import type { RepricingAnchorTrace, RepricingClampTrace, RepricingExhaustedAnchor } from "./evaluate";
+import type {
+  RepricingAnchorTrace,
+  RepricingClampTrace,
+  RepricingExhaustedAnchor,
+  RepricingListingEvaluation,
+} from "./evaluate";
 
 export const repricingPolicyEvaluatedEventType = "pricing.repricing-policy.evaluated" as const;
 
@@ -28,6 +33,33 @@ export type RepricingGoalInputs = Readonly<{
   economicsUnavailable: number;
 }>;
 
+/** The outer goal identifies the substitution; the resolved anchor may belong to a fallback goal. */
+export type ShadowGoalTrace = Readonly<{
+  goalId: string;
+  goalVersion: number;
+  anchorIndex: number;
+}> &
+  (
+    | Readonly<{
+        curveVersion: number | null;
+        targetPriceAmount: string | null;
+        action: RepricingListingEvaluation["action"];
+        skipReason: RepricingListingEvaluation["skipReason"];
+        anchor: RepricingAnchorTrace | null;
+        flags: RepricingListingEvaluation["flags"];
+        skipped: null;
+      }>
+    | Readonly<{
+        curveVersion: null;
+        targetPriceAmount: null;
+        action: null;
+        skipReason: null;
+        anchor: null;
+        flags: readonly [];
+        skipped: "parameters-incompatible";
+      }>
+  );
+
 export type RepricingPolicyListingTrace = Readonly<{
   listingId: string;
   currentPriceAmount: string;
@@ -38,6 +70,7 @@ export type RepricingPolicyListingTrace = Readonly<{
   clamps: RepricingClampTrace;
   flags: readonly string[];
   frozenUntil?: string;
+  shadow?: readonly ShadowGoalTrace[];
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";
   skipReason: RepricingEvaluationSkipReason | null;
 }>;
