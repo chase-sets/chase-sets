@@ -128,18 +128,23 @@ describe("bounded capture GitHub transport", () => {
     vi.useFakeTimers();
     try {
       const limits = { ...countCaptureGitHubLimits, deadlineMs: 150 };
-      const endless = () =>
-        new Response(
+      const endless = () => {
+        let cancelled = false;
+        return new Response(
           new ReadableStream({
             pull: (controller) =>
               new Promise((resolve) =>
                 setTimeout(() => {
-                  controller.enqueue(new TextEncoder().encode(" "));
+                  if (!cancelled) controller.enqueue(new TextEncoder().encode(" "));
                   resolve();
                 }, 20),
               ),
+            cancel: () => {
+              cancelled = true;
+            },
           }),
         );
+      };
       const slow = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(endless()), 100)));
       const hung = vi.fn(() => new Promise(() => {}));
       const settled = (promise) =>
