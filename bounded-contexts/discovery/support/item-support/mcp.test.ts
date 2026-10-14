@@ -129,6 +129,25 @@ function toolInput(args: Record<string, unknown>) {
 }
 
 describe("Discovery item MCP handlers", () => {
+  it("returns corrected rows through search-market and feed without retrieval metadata", async () => {
+    const fakeServices = services();
+    const original = await fakeServices.search.searchItems();
+    vi.mocked(fakeServices.search.searchItems).mockResolvedValue({
+      ...original,
+      retrievalMode: "corrected",
+      lexicalCount: 0,
+      nextCursor: null,
+    });
+    const handlers = createDiscoveryItemMcpHandlers(fakeServices);
+    const result = await handlers.toolHandlers["discovery.search-market"]?.(toolInput({ query: "chraizard" }));
+    expect(result).toMatchObject({ items: [{ catalog_item_id: "cat_1" }], count: 1, nextCursor: null });
+    expect(result).not.toHaveProperty("retrievalMode");
+    expect(result).not.toHaveProperty("lexicalCount");
+    const feed = await handlers.toolHandlers["discovery.get-chatgpt-product-feed"]?.(toolInput({ query: "chraizard" }));
+    expect(feed).toMatchObject({ products: [{ id: "cat_1" }], count: 1, nextCursor: null });
+    expect(feed).not.toHaveProperty("retrievalMode");
+    expect(feed).not.toHaveProperty("lexicalCount");
+  });
   it("searches only active public discovery rows for anonymous callers", async () => {
     const fakeServices = services();
     const handlers = createDiscoveryItemMcpHandlers(fakeServices);

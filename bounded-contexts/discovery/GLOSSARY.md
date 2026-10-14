@@ -47,6 +47,12 @@ Notes:
 
 A **Result Set** is the paginated collection of Search Results returned for a Discovery Query, including total-match metadata.
 
+### Corrected Result Set
+
+A **Corrected Result Set** recovers close spellings only after a fresh relevance query has no lexical matches.
+Every query term remains required, protected collector numbers and served set codes stay literal, and the result is
+one bounded page with no cursor. It is distinct from semantic Rescue and is labelled "Showing close spellings."
+
 ### Facet
 
 A **Facet** is a discovery-oriented dimension of navigation used to summarize or refine a Result Set.

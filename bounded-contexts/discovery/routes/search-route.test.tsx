@@ -810,6 +810,33 @@ describe("marketplace search route", () => {
 });
 
 describe("marketplace search back-navigation restoration", () => {
+  it("restores corrected first-page metadata and notice through the actual client loader", async () => {
+    const path = "/search?q=pikachu";
+    const cached = {
+      ...searchDataWithResults("pikachu"),
+      data: {
+        ...searchDataWithResults("pikachu").data,
+        retrievalMode: "corrected" as const,
+        lexicalCount: 0,
+        nextCursor: null,
+      },
+    };
+    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey(path), cached);
+    const serverLoader = vi.fn();
+    const restored = await clientLoader({
+      request: new Request(`http://localhost${path}`),
+      serverLoader,
+    } as unknown as Parameters<typeof clientLoader>[0]);
+    mockUseLoaderData.mockReturnValue(restored);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+    render(<SearchRoute />);
+    expect(screen.getByText("No exact matches for pikachu. Showing close spellings.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
+    expect(serverLoader).not.toHaveBeenCalled();
+    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey(path))).toEqual(cached);
+  });
   beforeEach(() => {
     mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=pikachu", hash: "", state: null, key: "test" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
