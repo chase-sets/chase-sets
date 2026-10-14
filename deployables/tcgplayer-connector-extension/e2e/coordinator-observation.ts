@@ -34,7 +34,12 @@ export const authority = {
   binding: "https://github.com/chase-sets/chase-sets/issues/7940#issuecomment-6087950378",
 };
 
-export async function buildHarness(unit: "operation" | "reservation", replayMutant = false, suppressTransform = false) {
+export async function buildHarness(
+  unit: "operation" | "reservation" | "live-export",
+  replayMutant = false,
+  suppressTransform = false,
+  variant?: Readonly<{ label: string; plugins: readonly Plugin[] }>,
+) {
   let transformVisits = 0;
   process.env.VITE_PLATFORM_API_URL = platformOrigin;
   process.env.VITE_CONNECTOR_CLIENT_ID = synthetic.clientId;
@@ -49,8 +54,13 @@ export async function buildHarness(unit: "operation" | "reservation", replayMuta
     logLevel: "warn",
     plugins: [
       executionIdentityPlugin(
-        replayMutant ? (suppressTransform ? "replay-transform-suppressed" : "replay-guard-removed") : `normal-${unit}`,
+        replayMutant
+          ? suppressTransform
+            ? "replay-transform-suppressed"
+            : "replay-guard-removed"
+          : (variant?.label ?? `normal-${unit}`),
       ),
+      ...(variant?.plugins ?? []),
       ...(replayMutant
         ? [
             {
@@ -84,7 +94,7 @@ export async function buildHarness(unit: "operation" | "reservation", replayMuta
   expect(transformVisits).toBe(replayMutant ? 1 : 0);
   const destination = resolve(
     proofRoot,
-    `dist-harness-${unit}${replayMutant ? "-replay-mutant" : ""}${suppressTransform ? "-suppressed" : ""}`,
+    `dist-harness-${unit}${replayMutant ? "-replay-mutant" : ""}${suppressTransform ? "-suppressed" : ""}${variant ? `-${variant.label}` : ""}`,
   );
   retain("harness-staging", stageExtension(resolve(packageRoot, "dist-harness"), destination));
   const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8"));

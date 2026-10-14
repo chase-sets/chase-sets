@@ -7,6 +7,8 @@ import * as journal from "../integrations/connector-indexeddb";
 import * as retention from "../domain/raw-export-record";
 import * as handoff from "../domain/order-pull-handoff";
 import * as execution from "../domain/order-pull-execution";
+import * as liveExportExecution from "../domain/live-export-execution";
+import * as liveExportHandoff from "../domain/live-export-handoff";
 import * as stagedImport from "../domain/staged-import-dispatch";
 import * as stagedImportPolicy from "../../connector-feed/domain/staged-import-dispatch-policy";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
@@ -99,6 +101,7 @@ export function mutatedCoordinator(
       "../domain/raw-export-record": retention,
       "../domain/operation-protocol": protocol,
       "../domain/order-pull-handoff": handoff,
+      "../domain/live-export-handoff": liveExportHandoff,
       "../domain/staged-import-dispatch": stagedImport,
     });
   }
@@ -107,6 +110,7 @@ export function mutatedCoordinator(
     "./raw-export-record": retention,
     "./order-pull-handoff": handoff,
     "./order-pull-execution": execution,
+    "./live-export-execution": liveExportExecution,
     "./staged-import-dispatch": stagedImport,
     "../../connector-feed/domain/staged-import-dispatch-policy": stagedImportPolicy,
     "../../outbound-sync/domain/order-pull-codec": pullCodec,

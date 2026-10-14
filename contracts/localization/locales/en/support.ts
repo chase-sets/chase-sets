@@ -5,6 +5,8 @@ export const supportEnglishTranslations = {
   "support.features.support_requests.api.route.support_request.not.found": "Support request not found.",
   "support.features.support_requests.api.route.attachment.not.found": "Attachment not found.",
   "support.features.support_requests.api.route.evidence.unavailable": "Support evidence is unavailable.",
+  "support.features.support_requests.api.route.attachment.reference.unknown":
+    "These photos cannot be submitted. Start a new photo batch and re-upload them.",
   "support.features.support_requests.api.route.authentication.context.missing": "Support request context is missing.",
   "support.features.support_requests.api.route.authentication.context.missing.2":
     "Support evidence context is missing.",

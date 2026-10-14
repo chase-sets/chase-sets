@@ -476,7 +476,8 @@ export function createInventoryItemRuntime(
       let adjustedQuantityBy = 0;
       let totalQuantity = existingItem?.total_quantity ?? 0;
       let availableQuantity = existingItem?.available_quantity ?? 0;
-      if (existingItem) {
+      const aggregate = existingItem ? await repository.load(`inventory.item-${existingItem.item_id}`) : null;
+      if (existingItem && aggregate) {
         const stock = await loadAuthoritativeInventoryStockSnapshot({
           db: deps.db,
           eventStore: deps.eventStore,
@@ -484,6 +485,7 @@ export function createInventoryItemRuntime(
           itemId: existingItem.item_id,
           accountId: params.accountId,
           context,
+          itemAggregate: aggregate,
         });
         totalQuantity = stock.totalQuantity;
         availableQuantity = stock.availableQuantity;
@@ -544,7 +546,7 @@ export function createInventoryItemRuntime(
         createdInventoryItem = true;
         totalQuantity = params.quantity;
         availableQuantity = params.quantity;
-      } else if (availableQuantity < params.quantity) {
+      } else if (aggregate && availableQuantity < params.quantity) {
         const adjustedItemId = inventoryItemId;
         adjustedQuantityBy = params.quantity - availableQuantity;
         await child(
@@ -563,6 +565,7 @@ export function createInventoryItemRuntime(
           async (childContext) => {
             const result = await commandHandler({
               streamId: `inventory.item-${inventoryItemId}`,
+              expectedVersion: aggregate.version,
               command: {
                 type: "AdjustInventoryItemQuantity",
                 csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({

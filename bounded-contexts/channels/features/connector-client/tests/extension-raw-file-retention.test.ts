@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createConnectorRetentionStore } from "../domain/connector-retention-store";
 import { parseRawExport, rawExportLifetime } from "../domain/raw-export-record";
 import { createRawExportDatabase } from "../integrations/raw-export-indexeddb";
-import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
+import { newerDatabaseVersion, openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -29,7 +29,7 @@ describe("extension-raw-file-retention", () => {
           closedOnChange ||= changed;
           close();
         });
-        upgraded = openDatabase(f.indexedDB, 4, (newer) => {
+        upgraded = openDatabase(f.indexedDB, newerDatabaseVersion, (newer) => {
           newer.createObjectStore("pending-operations").add("SYNTHETIC_VERSIONCHANGE_WITNESS", "pending");
         }).then((newer) => {
           newer.close();
@@ -42,7 +42,7 @@ describe("extension-raw-file-retention", () => {
     expect(changed).toBe(true);
     expect(closedOnChange).toBe(true);
     expect(await f.store.inspect()).toBe("upgrade-required");
-    expect(await retainedRows(f.indexedDB, 4)).toEqual(before);
+    expect(await retainedRows(f.indexedDB, newerDatabaseVersion)).toEqual(before);
     expect(f.rows).toEqual(keys);
   });
 
@@ -66,18 +66,18 @@ describe("extension-raw-file-retention", () => {
     expect(await f.store.inspect()).toBe("cleanup-failed");
     deliver();
     expect(closed).toHaveBeenCalled();
-    const newer = await openDatabase(f.indexedDB, 4);
+    const newer = await openDatabase(f.indexedDB, newerDatabaseVersion);
     newer.close();
   });
 
-  it("bounds a v3 open queued behind a synthetic blocked v4 owner without mutating custody", async () => {
+  it("bounds a current open queued behind a synthetic blocked newer owner without mutating custody", async () => {
     const f = retentionFixture();
     await f.store.write(f.input());
     const before = await retainedRows(f.indexedDB);
     const keys = structuredClone(f.rows);
     const holder = await openDatabase(f.indexedDB);
     holder.onversionchange = () => {};
-    const upgrade = f.indexedDB.open("connector-raw-exports", 4);
+    const upgrade = f.indexedDB.open("connector-raw-exports", newerDatabaseVersion);
     const upgraded = new Promise<void>((resolve, reject) => {
       upgrade.onsuccess = () => {
         upgrade.result.close();
@@ -101,7 +101,7 @@ describe("extension-raw-file-retention", () => {
       await upgraded;
     }
     expect(await f.store.run({ reason: "retention", deleteAll: false })).toMatchObject({ error: "upgrade-required" });
-    expect(await retainedRows(f.indexedDB, 4)).toEqual(before);
+    expect(await retainedRows(f.indexedDB, newerDatabaseVersion)).toEqual(before);
     expect(f.rows).toEqual(keys);
   });
 
@@ -293,7 +293,7 @@ describe("extension-raw-file-retention", () => {
 
   it("preserves a database whose owned raw store is missing", async () => {
     const f = retentionFixture();
-    const blocker = await openDatabase(f.indexedDB, 3);
+    const blocker = await openDatabase(f.indexedDB);
     // A missing store is unknown ownership, not permission to rebuild it.
     expect(await f.store.inspect()).toBe("upgrade-required");
     blocker.close();

@@ -36,7 +36,7 @@ export function retained(state: string, revision = 7) {
   };
 }
 
-export function chromeFixture(initial: Record<string, unknown> = {}) {
+export function chromeFixture(initial: Record<string, unknown> = {}, initialSession: Record<string, unknown> = {}) {
   const calls: string[] = [];
   function area(name: string, initialRows: Record<string, unknown>) {
     let trusted = false;
@@ -75,7 +75,7 @@ export function chromeFixture(initial: Record<string, unknown> = {}) {
     };
   }
   const local = area("local", initial);
-  const session = area("session", {});
+  const session = area("session", initialSession);
   const alarmRows = new Map<string, unknown>();
   const chrome = {
     storage: { local, session },

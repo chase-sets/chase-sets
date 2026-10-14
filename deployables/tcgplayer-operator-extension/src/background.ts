@@ -36,6 +36,22 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
     .then(respond);
   return true;
 });
+chrome.runtime.onMessageExternal.addListener((message: unknown, sender, respond) => {
+  void background
+    .receiveHandoff(
+      message,
+      {
+        id: sender.id,
+        url: sender.url,
+        origin: sender.origin,
+        frameId: sender.frameId,
+        hasTab: sender.tab !== undefined,
+      },
+      chrome.runtime.id,
+    )
+    .then(respond);
+  return true;
+});
 chrome.cookies.onChanged.addListener((change) => {
   void background.cookieChanged(change);
 });

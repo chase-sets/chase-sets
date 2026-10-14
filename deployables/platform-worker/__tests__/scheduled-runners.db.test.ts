@@ -44,8 +44,8 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-// 33 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
-const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
+// 34 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 35;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
@@ -194,7 +194,54 @@ describeDatabase("registered platform-worker scheduled runners", () => {
 
     expect(registeredRunners.length).toBe(EXPECTED_REGISTERED_RUNNER_COUNT);
     expect(names.filter((name) => name === "channels.connector-liveness-sweep")).toHaveLength(1);
+    expect(names.filter((name) => name === "channels.ebay-account-deletion-receipt-expiry")).toHaveLength(1);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("drains 1001 expired eBay receipts through the actual registered runner; omission leaves all expired rows", async () => {
+    await pools.channels.query(`INSERT INTO channels_ebay_account_deletion_receipts
+      (notification_id,topic,event_date,publish_date,publish_attempt_count,subject_key_id,subject_fingerprint,
+       subject_iv,subject_ciphertext,subject_tag,received_at,expires_at)
+      SELECT 'synthetic-expiry-' || n, 'MARKETPLACE_ACCOUNT_DELETION',statement_timestamp(),statement_timestamp(),1,
+        'synthetic-seal','v1:ebay-subject-root-v1:' || repeat('a',64),decode(repeat('00',12),'hex'),
+        decode('00','hex'),decode(repeat('00',16),'hex'),statement_timestamp()-interval '31 days',
+        CASE WHEN n=1002 THEN statement_timestamp()+interval '1 day' ELSE statement_timestamp()-interval '1 day' END
+      FROM generate_series(1,1002) n`);
+    const selected = registeredRunners.filter(
+      (runner) => runner.name === "channels.ebay-account-deletion-receipt-expiry",
+    );
+    const expiredCount = async () =>
+      (
+        await pools.channels.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM channels_ebay_account_deletion_receipts WHERE expires_at <= statement_timestamp()",
+        )
+      ).rows[0]!.count;
+    await runRegisteredRunnerSetOnce(selected.filter(() => false));
+    expect(await expiredCount()).toBe(1001);
+    expect(selected).toHaveLength(1);
+    const started = performance.now();
+    let processed = 0;
+    let result;
+    do {
+      result = await selected[0]!.runOnce();
+      processed += result.processed;
+    } while (selected[0]!.rescheduleOnCompletion?.(result));
+    const elapsedMs = performance.now() - started;
+    expect(processed).toBe(1001);
+    console.info(
+      JSON.stringify({
+        type: "synthetic-ebay-expiry-operating-envelope",
+        rows: 1001,
+        elapsedMs,
+        budgetMs: 1800000,
+        maxRowsPerDelete: 500,
+      }),
+    );
+    expect(await expiredCount()).toBe(0);
+    expect(
+      (await pools.channels.query("SELECT notification_id FROM channels_ebay_account_deletion_receipts")).rows,
+    ).toEqual([{ notification_id: "synthetic-expiry-1002" }]);
+    expect(externalFetch).not.toHaveBeenCalled();
   });
 
   it("executes the exact Channels outbound runner set with real composed services", async () => {

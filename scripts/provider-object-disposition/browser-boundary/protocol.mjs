@@ -294,6 +294,17 @@ export function observerDiagnostic(error) {
         "unknown")
       : "unknown";
   let root = null;
+  let errno = "unknown";
+  let identity = "unknown";
+  if (error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr && stderr.length <= 512) {
+    const match =
+      /^provider-boundary-observer-refused:(arguments|census|descendants|status|status-field|label|namespaces|user-namespace|identity-recheck)\nprovider-boundary-observer-detail:(none|EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other):(same|changed|zombie|gone|unknown)\n$/.exec(
+        stderr.toString("ascii"),
+      );
+    if (match && stderr.equals(Buffer.from(match[0]))) {
+      [stage, errno, identity] = match.slice(1);
+    }
+  }
   if (error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr && stderr.length <= 512) {
     const match =
       /^provider-boundary-observer-refused:root\nprovider-boundary-observer-root:(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(launcher|chrome|chrome_crashpad_handler):(host-helper|old-root):(EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other):(same|changed|zombie|unknown):(proc-fdinfo|other|unreadable):(directory|other|unreadable):(none|EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other)\n$/.exec(
@@ -324,6 +335,8 @@ export function observerDiagnostic(error) {
   return {
     stage,
     root,
+    errno,
+    identity,
     status: Number.isInteger(error?.code) && error.code >= 0 && error.code <= 255 ? error.code : null,
     signal: ["SIGTERM", "SIGKILL"].includes(error?.signal) ? error.signal : null,
     capturedBytes: stderr?.length ?? null,

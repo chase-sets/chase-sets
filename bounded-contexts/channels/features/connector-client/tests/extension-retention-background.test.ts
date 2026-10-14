@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createConnectorRetentionStore } from "../domain/connector-retention-store";
 import { rawExportLifetime } from "../domain/raw-export-record";
 import { backgroundFixture } from "./connector-background-test-support";
-import { openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
+import { newerDatabaseVersion, openDatabase, retainedRows, retentionFixture } from "./raw-retention-test-support";
 import { mutatedBackground } from "./connector-background-mutants";
 
 function fixture(factory?: Parameters<typeof backgroundFixture>[2]) {
@@ -27,7 +27,7 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
       const sessionBefore = f.session.rows();
       const holder = await openDatabase(f.raw.indexedDB);
       holder.onversionchange = () => {};
-      const upgrade = f.raw.indexedDB.open("connector-raw-exports", 4);
+      const upgrade = f.raw.indexedDB.open("connector-raw-exports", newerDatabaseVersion);
       const upgraded = new Promise<void>((resolve) => {
         upgrade.onsuccess = () => {
           upgrade.result.close();
@@ -76,11 +76,11 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
   it("newer database fences boot/update/work/unpair/deadline before any state writes or effects", async () => {
     const f = fixture();
     await f.store.write(f.input);
-    const db = await openDatabase(f.raw.indexedDB, 4, (db) =>
+    const db = await openDatabase(f.raw.indexedDB, newerDatabaseVersion, (db) =>
       db.createObjectStore("pending-operations").add("SYNTHETIC_FIXED_EXTERNAL_EFFECT", "pending"),
     );
     db.close();
-    const before = await retainedRows(f.raw.indexedDB, 4);
+    const before = await retainedRows(f.raw.indexedDB, newerDatabaseVersion);
     const write = vi.spyOn(f.ports.storage, "set");
     const remove = vi.spyOn(f.ports.session, "remove");
     for (const entry of [
@@ -93,7 +93,7 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
     ]) {
       await entry();
       expect((await f.background.status()).state).toBe("upgrade-required");
-      expect(await retainedRows(f.raw.indexedDB, 4)).toEqual(before);
+      expect(await retainedRows(f.raw.indexedDB, newerDatabaseVersion)).toEqual(before);
     }
     expect(write).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
@@ -133,6 +133,20 @@ describe("extension-production-bootstrap-day-after real retention sweep", () => 
     await f.alarm("connector-retention-deadline");
     expect((await f.background.status()).state).toBe("paired-idle");
     expect(await retainedRows(f.raw.indexedDB)).toEqual([]);
+  });
+
+  it("a coordinator cleanup failure pauses before the next wake and arms only a bounded retention retry", async () => {
+    const f = fixture();
+    await f.background.boot();
+    expect(f.alarms.has("connector-work")).toBe(true);
+    vi.mocked(f.ports.transport.coordinate!).mockResolvedValueOnce({ outcome: "cleanup-failed" });
+    await f.alarm("connector-work");
+    expect(await f.background.status()).toMatchObject({ state: "paused", pauseReason: "cleanup-failed" });
+    expect(f.alarms.has("connector-work")).toBe(false);
+    expect(f.alarms.get("connector-retention-deadline")).toEqual({ when: f.ports.clock.now() + 30_000 });
+    await f.alarm("connector-retention-deadline");
+    expect(await f.background.status()).toMatchObject({ state: "paired-idle", pauseReason: null });
+    expect(f.alarms.has("connector-work")).toBe(true);
   });
 
   it("unpair cleans raw bytes before even an unavailable revocation transport", async () => {
