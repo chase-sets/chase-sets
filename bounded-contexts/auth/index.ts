@@ -9,6 +9,7 @@ import {
   authRetentionSweeps,
 } from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
+import { invitationAttemptSchemaMigrations } from "./features/invitation-acceptance/read-model/schema";
 import {
   buildAuthIdentityAccountCapabilityProjectionHandlers,
   buildAuthIdentityAccountProjectionHandlers,
@@ -35,6 +36,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
   retentionSweeps: authRetentionSweeps,
   retentionExemptions: authRetentionExemptions,
   schemaMigrations: [
+    ...invitationAttemptSchemaMigrations,
     ...authUnloggedProjectionSchemaMigrations,
     ...authRetentionSchemaMigrations,
     ...connectorOAuthSchemaMigrations,
