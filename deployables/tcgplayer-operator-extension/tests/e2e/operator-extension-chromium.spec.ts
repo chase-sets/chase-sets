@@ -43,11 +43,22 @@ test("operator-extension-deterministic-build @tcgplayer-operator-extension", asy
 
 test("operator-extension-chromium: opaque UI, exact-host cookies and retained reload @tcgplayer-operator-extension", async () => {
   const stages: string[] = [];
+  type HandoffSender = {
+    case: string;
+    delivered: boolean;
+    origin: string | null;
+    url: string | null;
+    frameId: number | null;
+    tabPresent: boolean | null;
+    id: string | null;
+    outcome: "paired" | "refused" | "undelivered";
+  };
+  const handoffSenders: HandoffSender[] = [];
   function stage(name: string) {
     console.log(`Operator Chromium stage: ${name}`);
     stages.push(name);
     mkdirSync(evidence, { recursive: true });
-    writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify({ identity, stages }));
+    writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify({ identity, stages, handoffSenders }));
   }
   stage("launch");
   const profile = mkdtempSync(join(tmpdir(), "synthetic-operator-extension-"));
@@ -62,7 +73,25 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       "--host-resolver-rules=MAP * ~NOTFOUND",
     ],
   });
-  await context.route(/^https?:\/\//, (route) => route.abort("blockedbyclient"));
+  const stagingOrigin = "https://admin.staging.chasesets.com";
+  const productionOrigin = "https://admin.chasesets.com";
+  const pairPath = "/catalog/providers/tcgplayer";
+  const documents = new Set([
+    stagingOrigin + pairPath,
+    productionOrigin + pairPath,
+    stagingOrigin + "/catalog/providers/other",
+    "http://admin.staging.chasesets.com" + pairPath,
+    "https://example.test" + pairPath,
+  ]);
+  await context.route(/^https?:\/\//, (route) =>
+    route.request().resourceType() === "document" && documents.has(route.request().url())
+      ? route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>Synthetic Admin</title><body></body>",
+        })
+      : route.abort("blockedbyclient"),
+  );
   stage("launched");
   try {
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
@@ -152,8 +181,127 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     expect(
       await popup.evaluate("(() => { try { void parent.document; return false; } catch { return true; } })()"),
     ).toBe(true);
+    await popup.evaluate(
+      "Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Unpair').click()",
+    );
+    await expect
+      .poll(() => popup.evaluate('document.querySelector("[role=status]")?.textContent'))
+      .toContain("Not paired");
     await popup.close();
     stage("isolated");
+    const senderTarget = await syntheticTarget(port, worker.url());
+    try {
+      // Observe Chrome attribution without exposing messages or adding a product hook.
+      await senderTarget.evaluate(`(() => {
+        globalThis.operatorHandoffSenders = [];
+        chrome.runtime.onMessageExternal.addListener((_message, sender) => {
+          globalThis.operatorHandoffSenders.push({
+            origin: sender.origin ?? null, url: sender.url ?? null,
+            frameId: sender.frameId ?? null, tabPresent: sender.tab !== undefined,
+            id: sender.id ?? null
+          });
+        });
+      })()`);
+      async function captureHandoff(name: string, url: string, kind: "top" | "child" | "blank" | "opaque" = "top") {
+        const page = await context.newPage();
+        try {
+          await page.goto(url);
+          let frame = page.mainFrame();
+          if (kind !== "top") {
+            await page.evaluate(
+              ({ src, opaque }) => {
+                const child = document.createElement("iframe");
+                child.id = "handoff-frame";
+                if (opaque) child.setAttribute("sandbox", "allow-scripts");
+                child.src = src;
+                document.body.appendChild(child);
+              },
+              { src: kind === "blank" ? "about:blank" : stagingOrigin + pairPath, opaque: kind === "opaque" },
+            );
+            const element = await page.locator("#handoff-frame").elementHandle();
+            const child = await element?.contentFrame();
+            if (!child) throw new Error("Synthetic handoff frame missing");
+            frame = child;
+            await frame.waitForURL(kind === "blank" ? "about:blank" : stagingOrigin + pairPath);
+            await frame.waitForLoadState("load");
+          }
+          await senderTarget.evaluate("globalThis.operatorHandoffSenders = []");
+          const outcome = await frame.evaluate(async (id) => {
+            if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function")
+              return "undelivered";
+            try {
+              const reply: unknown = await chrome.runtime.sendMessage(id, {
+                action: "pair-handoff",
+                grant: "A".repeat(43),
+              });
+              if (
+                typeof reply !== "object" ||
+                reply === null ||
+                Object.keys(reply).length !== 1 ||
+                !("outcome" in reply)
+              )
+                throw new Error("Synthetic handoff reply malformed");
+              if (reply.outcome !== "paired" && reply.outcome !== "refused")
+                throw new Error("Synthetic handoff outcome malformed");
+              return reply.outcome;
+            } catch {
+              return "undelivered";
+            }
+          }, operatorExtensionId);
+          const delivered: Omit<HandoffSender, "case" | "delivered" | "outcome">[] = JSON.parse(
+            String(await senderTarget.evaluate("JSON.stringify(globalThis.operatorHandoffSenders)")),
+          );
+          expect(delivered.length).toBeLessThanOrEqual(1);
+          const row: HandoffSender = {
+            case: name,
+            delivered: delivered.length === 1,
+            ...(delivered[0] ?? { origin: null, url: null, frameId: null, tabPresent: null, id: null }),
+            outcome,
+          };
+          const paired = name === "staging-top-frame" || name === "production-top-frame";
+          const received = paired || kind === "child" || kind === "opaque" || name === "staging-other-path";
+          expect(row.delivered).toBe(received);
+          expect(row.outcome).toBe(paired ? "paired" : received ? "refused" : "undelivered");
+          if (received) {
+            expect(row.origin).toBe(
+              kind === "opaque" ? "null" : name === "production-top-frame" ? productionOrigin : stagingOrigin,
+            );
+            expect(row.url).toBe(kind === "top" ? url : stagingOrigin + pairPath);
+            expect(row.tabPresent).toBe(true);
+            expect(row.id === null || row.id === operatorExtensionId).toBe(true);
+            expect(kind === "top" ? row.frameId === 0 : Number.isSafeInteger(row.frameId) && row.frameId! > 0).toBe(
+              true,
+            );
+          }
+          handoffSenders.push(row);
+          writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify({ identity, stages, handoffSenders }));
+        } finally {
+          await page.close();
+        }
+      }
+      const revision = async (environment: string) =>
+        senderTarget.evaluate(`(async () => {
+        const key = ${JSON.stringify("catalog.operator-session.")} + ${JSON.stringify(environment)};
+        return (await chrome.storage.local.get(key))[key]?.profileRevision ?? 0;
+      })()`);
+      const stagingBefore = await revision("staging");
+      const productionBefore = await revision("production");
+      await captureHandoff("staging-top-frame", stagingOrigin + pairPath);
+      expect(await revision("production")).toBe(productionBefore);
+      await captureHandoff("production-top-frame", productionOrigin + pairPath);
+      expect(await revision("staging")).toBe(Number(stagingBefore) + 1);
+      expect(await revision("production")).toBe(Number(productionBefore) + 1);
+      await captureHandoff("staging-other-path", stagingOrigin + "/catalog/providers/other");
+      await captureHandoff("staging-same-origin-subframe", stagingOrigin + pairPath, "child");
+      await captureHandoff("staging-about-blank-child", stagingOrigin + pairPath, "blank");
+      await captureHandoff("staging-sandboxed-opaque-frame", stagingOrigin + pairPath, "opaque");
+      await captureHandoff("http-staging-top-frame", "http://admin.staging.chasesets.com" + pairPath);
+      await captureHandoff("disallowed-origin-top-frame", "https://example.test" + pairPath);
+      expect(await revision("staging")).toBe(Number(stagingBefore) + 1);
+      expect(await revision("production")).toBe(Number(productionBefore) + 1);
+    } finally {
+      senderTarget.close();
+    }
     const compatibleWorker = context.waitForEvent("serviceworker");
     await worker.evaluate(() => {
       setTimeout(() => chrome.runtime.reload(), 0);
