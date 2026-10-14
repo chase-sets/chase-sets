@@ -79,9 +79,8 @@ export function classifyCountCaptureSend(
   input: Parameters<typeof fetch>[0],
   init?: RequestInit,
 ): Omit<CountCaptureSend, "usage"> {
-  const request = input instanceof Request ? input : null;
-  const url = new URL(request ? request.url : input instanceof URL ? input.href : input);
-  const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+  const url = new URL(input instanceof Request ? input.url : input);
+  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   if (
     provider !== "scrydex" ||
     url.origin !== "https://api.scrydex.com" ||
