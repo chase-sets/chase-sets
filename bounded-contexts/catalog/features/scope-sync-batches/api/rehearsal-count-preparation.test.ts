@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
@@ -9,6 +9,7 @@ import type { ScopeSyncBatchServices } from "./runtime";
 import { scrydexCountQuery } from "../../source-observations/api/providers/scrydex/adapter";
 import {
   CountAcquisitionRefused,
+  countFingerprint,
   countQueryKey,
   countTimeIsCurrent,
   type CountQuote,
@@ -81,15 +82,28 @@ function jsonbOrdered(value: unknown): unknown {
   );
 }
 
-type Fault = "none" | "fail-second-send" | "uncertain-first-send";
+type Fault = "none" | "fail-second-send" | "uncertain-first-send" | "lose-first-result";
+type Debit = {
+  id: string;
+  quoteId: string;
+  scopeRecordId: string;
+  kind: "cards" | "sealed";
+  queryKey: string;
+  debitedAt: string;
+  outcome: "complete" | "failed" | "uncertain" | null;
+  source: ScrydexCountSource | null;
+};
 
-// Real routes and the real count engine; the provider send and every batch,
-// preview, confirm, usage-history and held-set service is a counting trap.
+// Real routes, the real count engine and an in-memory ledger that models the
+// store's whole-quote allocation; the provider send and every batch, preview,
+// confirm, usage-history and held-set service is a counting trap.
 function harness(options: { remaining?: number; reused?: readonly string[]; blocked?: readonly string[] } = {}) {
   let clock = start;
   let membership = "1".repeat(64);
   let authorityFingerprint = "2".repeat(64);
   let fault: Fault = "none";
+  let external = 0;
+  let projection: ((view: Record<string, unknown>) => Record<string, unknown>) | null = null;
   const remaining = options.remaining ?? 40;
   const definitions = ["OP01", "OP02"].flatMap((set) =>
     (["cards", "sealed"] as const).map((kind) => ({
@@ -100,7 +114,8 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
   );
   const quotes = new Map<string, CountQuote>();
   const approved = new Set<string>();
-  const debits: { id: string; quoteId: string; key: string; outcome: string | null }[] = [];
+  const allocations = new Map<string, { executionId: string; planned: number; at: string; endedAt: string | null }>();
+  const debits: Debit[] = [];
   const evidence = new Map<string, ScrydexCountSource>();
   for (const key of options.reused ?? []) {
     const query = definitions.find((definition) => definition.key === key)!.query;
@@ -118,6 +133,13 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     const source = evidence.get(countQueryKey(query));
     return source && countTimeIsCurrent(source, clock) ? source : null;
   };
+  const outstanding = () =>
+    [...allocations.entries()].reduce((sum, [quoteId, allocation]) => {
+      const quote = quotes.get(quoteId)!;
+      if (allocation.endedAt || Date.parse(quote.expiresAt) < Date.parse(clock)) return sum;
+      return sum + Math.max(0, allocation.planned - debits.filter((debit) => debit.quoteId === quoteId).length);
+    }, 0);
+  const net = () => remaining - external - debits.length - outstanding();
   let readbackOverride: ((targets: CountQuote["targets"]) => CountQuote["targets"]) | null = null;
   const send = vi.fn(async () => {
     const calls = send.mock.calls.length;
@@ -126,11 +148,7 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     return { totalCount: 121, pageSize: 100, returnedPage: 1 as const, returnedItemCount: 100, observedAt: clock };
   });
   const ledger: CountAcquisitionLedger = {
-    authority: async () => ({
-      fingerprint: authorityFingerprint,
-      headroom: remaining - debits.length,
-      allowed: true,
-    }),
+    authority: async () => ({ fingerprint: authorityFingerprint, headroom: Math.max(0, net()), allowed: true }),
     saveQuote: async (quote) => {
       quotes.set(quote.quoteId, quote);
     },
@@ -139,6 +157,20 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
       if (!quote) throw new CountAcquisitionRefused();
       return quote;
     },
+    admit: async (quote, _owner, authority) => {
+      if (
+        allocations.has(quote.quoteId) ||
+        approved.has(quote.quoteId) ||
+        debits.some((debit) => debit.quoteId === quote.quoteId) ||
+        authority.fingerprint !== authorityFingerprint ||
+        Date.parse(quote.expiresAt) < Date.parse(clock) ||
+        net() < quote.plannedCredits
+      )
+        throw new CountAcquisitionRefused();
+      const executionId = randomUUID();
+      allocations.set(quote.quoteId, { executionId, planned: quote.plannedCredits, at: clock, endedAt: null });
+      return executionId;
+    },
     approve: async (quoteId, fingerprint) => {
       const quote = quotes.get(quoteId);
       if (!quote || quote.fingerprint !== fingerprint || Date.parse(quote.expiresAt) < Date.parse(clock))
@@ -146,19 +178,42 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
       approved.add(quoteId);
       return quote;
     },
-    claim: async (quote, target) => {
+    claim: async (quote, target, _owner, _authority, executionId) => {
+      const allocation = allocations.get(quote.quoteId);
+      if (executionId ? allocation?.executionId !== executionId || allocation.endedAt : allocation)
+        throw new CountAcquisitionRefused();
       if (current(target.query)) return null;
-      const key = `${target.query.parentValue}:${target.query.kind}`;
       const own = debits.filter((debit) => debit.quoteId === quote.quoteId);
-      if (own.some((debit) => debit.key === key) || own.length >= quote.cap || debits.length >= remaining)
+      if (
+        own.some((debit) => debit.queryKey === countQueryKey(target.query)) ||
+        own.length >= quote.cap ||
+        (executionId ? net() < 0 : net() < 1)
+      )
         throw new CountAcquisitionRefused();
       const id = randomUUID();
-      debits.push({ id, quoteId: quote.quoteId, key, outcome: null });
+      debits.push({
+        id,
+        quoteId: quote.quoteId,
+        scopeRecordId: target.scopeRecordId,
+        kind: target.query.kind,
+        queryKey: countQueryKey(target.query),
+        debitedAt: clock,
+        outcome: null,
+        source: null,
+      });
       return id;
     },
     result: async (debitId, _quoteId, query, outcome, source) => {
-      debits.find((debit) => debit.id === debitId)!.outcome = outcome;
+      if (fault === "lose-first-result" && !debits.some((debit) => debit.outcome))
+        throw new Error("synthetic result write failure");
+      const debit = debits.find((entry) => entry.id === debitId)!;
+      debit.outcome = outcome;
+      debit.source = source;
       if (outcome === "complete" && source) evidence.set(countQueryKey(query), source);
+    },
+    end: async (quoteId, executionId) => {
+      const allocation = allocations.get(quoteId);
+      if (allocation?.executionId === executionId) allocation.endedAt ??= clock;
     },
   };
   const engine = createCountAcquisition({
@@ -176,6 +231,63 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     allowed: () => true,
     now: () => clock,
   });
+  const retained = (quote: CountQuote) => {
+    const overlaid = quote.targets.map((target) => ({ ...target, source: current(target.query) ?? target.source }));
+    const targets = readbackOverride ? readbackOverride(overlaid) : overlaid;
+    const own = debits.filter((debit) => debit.quoteId === quote.quoteId);
+    const state: CountQuote["state"] = own.some((debit) => !debit.outcome || debit.outcome === "uncertain")
+      ? "uncertain"
+      : own.some((debit) => debit.outcome === "failed")
+        ? "failed"
+        : targets.every((target) => target.source) && (approved.has(quote.quoteId) || quote.plannedCredits === 0)
+          ? "complete"
+          : approved.has(quote.quoteId)
+            ? "failed"
+            : "quoted";
+    return { ...quote, targets, state };
+  };
+  const preparationView = (quote: CountQuote) => {
+    const allocation = allocations.get(quote.quoteId);
+    const rows = debits
+      .filter((debit) => debit.quoteId === quote.quoteId)
+      .map((debit) => ({
+        quoteId: debit.quoteId,
+        scopeRecordId: debit.scopeRecordId,
+        kind: debit.kind,
+        queryFingerprint: debit.queryKey,
+        debitId: debit.id,
+        credits: 1,
+        debitedAt: debit.debitedAt,
+        outcome: debit.outcome ?? "acquiring",
+        observedAt: debit.outcome === "complete" ? debit.source!.observedAt : null,
+        expiresAt: debit.outcome === "complete" ? debit.source!.expiresAt : null,
+      }));
+    const view = {
+      schemaVersion: "catalog-count-quote-preparation-view/v1",
+      quote: retained(quote),
+      currentAuthority: {
+        readAt: clock,
+        usageFingerprint: authorityFingerprint,
+        usageObservedAt: start,
+        state: "allowed",
+        headroom: Math.max(0, net()),
+      },
+      admission: {
+        state: !allocation
+          ? "none"
+          : allocation.endedAt
+            ? "ended"
+            : Date.parse(quote.expiresAt) < Date.parse(clock)
+              ? "expired"
+              : "active",
+        plannedCredits: allocation?.planned ?? null,
+        admittedAt: allocation?.at ?? null,
+        endedAt: allocation?.endedAt ?? null,
+      },
+      debits: { status: "complete", reason: null, readAt: clock, fingerprint: countFingerprint(rows), rows },
+    };
+    return projection ? projection(view) : view;
+  };
   const traps = {
     preview: vi.fn(),
     confirm: vi.fn(),
@@ -189,23 +301,12 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
   const services = {
     ...traps,
     quoteCounts: (input: { selection: unknown; cap?: number }) => engine.quote({ ...input, owner: "owner" }),
-    acquireCounts: (input: { quoteId: string; fingerprint: string }) => engine.acquire({ ...input, owner: "owner" }),
-    getCountQuote: async (input: { quoteId: string }) => {
+    acquireCounts: (input: { quoteId: string; fingerprint: string; admission?: "whole-quote" }) =>
+      engine.acquire({ ...input, owner: "owner" }),
+    getCountQuote: async (input: { quoteId: string; view?: "preparation" }) => {
       const quote = quotes.get(input.quoteId);
       if (!quote) throw new CountAcquisitionRefused();
-      const overlaid = quote.targets.map((target) => ({ ...target, source: current(target.query) ?? target.source }));
-      const targets = readbackOverride ? readbackOverride(overlaid) : overlaid;
-      const own = debits.filter((debit) => debit.quoteId === quote.quoteId);
-      const state: CountQuote["state"] = own.some((debit) => !debit.outcome || debit.outcome === "uncertain")
-        ? "uncertain"
-        : own.some((debit) => debit.outcome === "failed")
-          ? "failed"
-          : targets.every((target) => target.source) && (approved.has(quote.quoteId) || quote.plannedCredits === 0)
-            ? "complete"
-            : approved.has(quote.quoteId)
-              ? "failed"
-              : "quoted";
-      return jsonbOrdered({ ...quote, targets, state });
+      return jsonbOrdered(input.view === "preparation" ? preparationView(quote) : retained(quote));
     },
   } as unknown as ScopeSyncBatchServices;
   const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();
@@ -215,13 +316,19 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     await next();
   });
   root.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(services));
-  const requests: { method: string; path: string }[] = [];
+  const requests: { method: string; path: string; body: unknown }[] = [];
   let transportFault: ((path: string, method: string, index: number) => "lose-response" | "throw" | null) | null = null;
+  let beforeAcquire: (() => void) | null = null;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
     if (url.origin !== origin) throw new Error("loopback isolation: unexpected origin");
     const method = init?.method ?? "GET";
-    requests.push({ method, path: url.pathname });
+    requests.push({
+      method,
+      path: `${url.pathname}${url.search}`,
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+    });
+    if (url.pathname.endsWith("/acquire")) beforeAcquire?.();
     const action = transportFault?.(url.pathname, method, requests.length);
     if (action === "throw") throw new TypeError("synthetic transport failure");
     const response = await root.request(url.toString(), init);
@@ -236,6 +343,7 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     traps,
     requests,
     debits,
+    allocations,
     now: () => clock,
     advance: (ms: number) => {
       clock = later(ms, clock);
@@ -252,11 +360,21 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
     setFault: (value: Fault) => {
       fault = value;
     },
+    // An unrelated debit or reservation on the same account slot, with the usage snapshot unchanged.
+    spendElsewhere: (credits: number) => {
+      external += credits;
+    },
     setTransportFault: (value: typeof transportFault) => {
       transportFault = value;
     },
+    setBeforeAcquire: (value: typeof beforeAcquire) => {
+      beforeAcquire = value;
+    },
     overrideReadback: (value: typeof readbackOverride) => {
       readbackOverride = value;
+    },
+    overrideProjection: (value: typeof projection) => {
+      projection = value;
     },
     acquirePosts: () => requests.filter((request) => request.path === `${countsPath}/acquire`).length,
   };
@@ -316,6 +434,8 @@ function refusalCode(action: () => unknown): string | null {
   }
 }
 
+const preparationRead = expect.stringMatching(/\/counts\/quote\/[0-9a-f-]{36}\?view=preparation$/);
+
 describe("rehearsal count preparation (AC1)", () => {
   it("quote does not spend or start a batch", async () => {
     const h = harness({ reused: ["OP02:sealed"] });
@@ -325,12 +445,16 @@ describe("rehearsal count preparation (AC1)", () => {
       outcome: "quoted",
       refusal: null,
       approval: null,
+      authority: null,
       acquisition: null,
+      accounting: null,
       quote: { plannedCredits: 3, cap: 3, perKindCost: { cards: 2, sealed: 1 }, scopeCount: 2, targetCount: 4 },
     });
     expect(receipt.roster.map((entry) => entry.state)).toEqual(["missing", "missing", "missing", "reused"]);
     expect(receipt.sources).toHaveLength(1);
-    expect(h.requests).toEqual([{ method: "POST", path: `${countsPath}/quote` }]);
+    expect(h.requests.map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: "POST", path: `${countsPath}/quote` },
+    ]);
     expect(h.send).not.toHaveBeenCalled();
     expectNoBatchWork(h);
   });
@@ -401,43 +525,127 @@ describe("rehearsal count preparation (AC1)", () => {
     for (const value of altered)
       expect(await acquire(h, value)).toMatchObject({ outcome: "refused", refusal: "quote-binding-mismatch" });
     const missing = approval({ quote: { ...JSON.parse(approval()).quote, quoteId: randomUUID() } });
-    expect(await acquire(h, missing)).toMatchObject({ outcome: "refused", refusal: "quote-readback-failed" });
+    expect(await acquire(h, missing)).toMatchObject({
+      outcome: "refused",
+      refusal: "quote-readback-failed",
+      accounting: { status: "unknown", debits: [] },
+    });
     expect(h.acquirePosts()).toBe(0);
     expect(h.send).not.toHaveBeenCalled();
     expectNoBatchWork(h);
   });
 
-  it("acquires once through the existing action and reads retained results only", async () => {
+  it("acquires once through whole-quote admission and reads retained quote debits only", async () => {
     const h = harness({ reused: ["OP02:sealed"] });
     const receipt = await acquire(h, approvalFor(await quoted(h), h.now()));
     expect(receipt).toMatchObject({
       outcome: "complete",
-      acquisition: { response: { status: 200, state: "complete" }, readback: { status: "read", state: "complete" } },
+      authority: { state: "allowed", headroom: 40, usageFingerprint: "2".repeat(64) },
+      acquisition: {
+        admission: "whole-quote",
+        response: { status: 200, state: "complete" },
+        readback: { status: "read", state: "complete", admission: "ended" },
+      },
+      accounting: { status: "complete", reason: null },
     });
     expect(receipt.sources).toHaveLength(4);
-    expect(receipt.debits).toHaveLength(3);
-    expect(h.requests).toEqual([
+    expect(receipt.accounting!.debits.map((debit) => [debit.debitId, debit.outcome])).toEqual(
+      h.debits.map((debit) => [debit.id, "complete"]),
+    );
+    expect(h.requests.map(({ method, path }) => ({ method, path }))).toEqual([
       { method: "POST", path: `${countsPath}/quote` },
-      { method: "GET", path: expect.stringMatching(/\/counts\/quote\/[0-9a-f-]{36}$/) },
+      { method: "GET", path: preparationRead },
       { method: "POST", path: `${countsPath}/acquire` },
-      { method: "GET", path: expect.stringMatching(/\/counts\/quote\/[0-9a-f-]{36}$/) },
+      { method: "GET", path: preparationRead },
     ]);
+    expect(h.requests[2]!.body).toEqual({
+      quoteId: receipt.quote!.quoteId,
+      fingerprint: receipt.quote!.fingerprint,
+      admission: "whole-quote",
+    });
     expect(h.send).toHaveBeenCalledTimes(3);
     expect(h.fetch.mock.calls.every(([, init]) => init?.redirect === "manual")).toBe(true);
     expectNoBatchWork(h);
   });
 });
 
+describe("rehearsal count preparation current authority (AC2 Probe A)", () => {
+  it("headroom drop after quote refuses before acquire with zero sends", async () => {
+    // P=2 and headroom 2 at quote time; an unrelated debit then leaves 1 under the same usage fingerprint.
+    const h = harness({ remaining: 2, reused: ["OP01:sealed", "OP02:sealed"] });
+    const quote = await quoted(h);
+    expect(quote).toMatchObject({ outcome: "quoted", quote: { plannedCredits: 2, authority: { headroom: 2 } } });
+    const approval = approvalFor(quote, h.now());
+    h.spendElsewhere(1);
+    const receipt = await acquire(h, approval);
+    expect(receipt).toMatchObject({
+      outcome: "refused",
+      refusal: "headroom-below-planned",
+      acquisition: null,
+      authority: { state: "allowed", headroom: 1, usageFingerprint: quote.quote!.authority.fingerprint },
+      accounting: { status: "complete", debits: [] },
+    });
+    expect(h.acquirePosts()).toBe(0);
+    expect(h.send).not.toHaveBeenCalled();
+    expect(h.debits).toEqual([]);
+    expect(h.allocations.size).toBe(0);
+    expectNoBatchWork(h);
+  });
+
+  it("a race after the pre-read is refused by locked admission: one recorded submission, zero debits/sends", async () => {
+    const h = harness({ remaining: 2, reused: ["OP01:sealed", "OP02:sealed"] });
+    const approval = approvalFor(await quoted(h), h.now());
+    h.setBeforeAcquire(() => h.spendElsewhere(1));
+    const receipt = await acquire(h, approval);
+    expect(receipt).toMatchObject({
+      outcome: "admission-refused",
+      acquisition: { response: { status: 409, state: null }, readback: { status: "read", admission: "none" } },
+      accounting: { status: "complete", debits: [] },
+    });
+    expect(h.acquirePosts()).toBe(1);
+    expect(h.send).not.toHaveBeenCalled();
+    expect(h.allocations.size).toBe(0);
+  });
+
+  it("changed or unknown current authority refuses before submission", async () => {
+    const changed = harness();
+    const approval = approvalFor(await quoted(changed), changed.now());
+    changed.setAuthority("9".repeat(64));
+    expect(await acquire(changed, approval)).toMatchObject({ outcome: "refused", refusal: "authority-changed" });
+    const unknown = harness();
+    const second = approvalFor(await quoted(unknown), unknown.now());
+    unknown.overrideProjection((view) => ({
+      ...view,
+      currentAuthority: { ...(view.currentAuthority as object), state: "unknown", headroom: null },
+    }));
+    expect(await acquire(unknown, second)).toMatchObject({ outcome: "refused", refusal: "authority-unavailable" });
+    const unaccounted = harness();
+    const third = approvalFor(await quoted(unaccounted), unaccounted.now());
+    unaccounted.overrideProjection((view) => ({
+      ...view,
+      debits: { ...(view.debits as object), status: "unknown", reason: "invalid-row" },
+    }));
+    expect(await acquire(unaccounted, third)).toMatchObject({ outcome: "refused", refusal: "accounting-unavailable" });
+    for (const h of [changed, unknown, unaccounted]) {
+      expect(h.acquirePosts()).toBe(0);
+      expect(h.send).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe("rehearsal count preparation stops (AC3)", () => {
-  it("refuses drift: membership/profile, exact-query and authority drift stop without sends", async () => {
-    for (const drift of ["membership", "query", "authority"] as const) {
+  it("refuses drift: membership/profile and exact-query drift are refused by admission without sends", async () => {
+    for (const drift of ["membership", "query"] as const) {
       const h = harness();
       const approval = approvalFor(await quoted(h), h.now());
       if (drift === "membership") h.setMembership("9".repeat(64));
-      else if (drift === "query") h.driftQuery();
-      else h.setAuthority("9".repeat(64));
+      else h.driftQuery();
       const receipt = await acquire(h, approval);
-      expect(receipt).toMatchObject({ outcome: "failed", acquisition: { response: { status: 409, state: null } } });
+      expect(receipt).toMatchObject({
+        outcome: "admission-refused",
+        acquisition: { response: { status: 409, state: null } },
+        accounting: { status: "complete", debits: [] },
+      });
       expect(h.send).not.toHaveBeenCalled();
       expect(h.acquirePosts()).toBe(1);
       expectNoBatchWork(h);
@@ -452,29 +660,38 @@ describe("rehearsal count preparation stops (AC3)", () => {
     expect(expiring.acquirePosts()).toBe(0);
   });
 
-  it("partial failure and uncertainty stop with retained debits and no reacquire", async () => {
-    for (const [fault, outcome, sends] of [
-      ["fail-second-send", "failed", 2],
-      ["uncertain-first-send", "uncertain", 1],
+  it("partial failure and uncertainty stop with every retained debit identity and no reacquire", async () => {
+    for (const [fault, outcome, rows] of [
+      ["fail-second-send", "failed", ["complete", "failed"]],
+      ["uncertain-first-send", "uncertain", ["uncertain"]],
+      ["lose-first-result", "uncertain", ["acquiring"]],
     ] as const) {
       const h = harness();
       const approval = approvalFor(await quoted(h), h.now());
       h.setFault(fault);
       const receipt = await acquire(h, approval);
-      expect(receipt.outcome).toBe(outcome);
-      expect(receipt.acquisition?.readback.state).toBe(outcome);
-      expect(h.send).toHaveBeenCalledTimes(sends);
-      expect(h.debits).toHaveLength(sends);
-      expect(receipt.debits).toHaveLength(outcome === "failed" ? 1 : 0);
+      expect(receipt.outcome, fault).toBe(outcome);
+      expect(h.send).toHaveBeenCalledTimes(rows.length);
+      expect(receipt.accounting).toMatchObject({ status: "complete", reason: null });
+      expect(receipt.accounting!.debits.map((debit) => [debit.debitId, debit.outcome])).toEqual(
+        h.debits.map((debit, index) => [debit.id, rows[index]]),
+      );
+      expect(receipt.accounting!.debits.filter((debit) => debit.outcome !== "complete")).toEqual(
+        receipt
+          .accounting!.debits.filter((debit) => debit.outcome !== "complete")
+          .map((debit) => ({ ...debit, observedAt: null, expiresAt: null })),
+      );
+      expect(receipt.acquisition?.readback.admission).toBe("ended");
       const replay = await acquire(h, approval);
       expect(replay).toMatchObject({ outcome: "refused", refusal: "quote-not-pending" });
+      expect(replay.accounting!.debits).toHaveLength(rows.length);
       expect(h.acquirePosts()).toBe(1);
-      expect(h.send).toHaveBeenCalledTimes(sends);
+      expect(h.send).toHaveBeenCalledTimes(rows.length);
       expectNoBatchWork(h);
     }
   });
 
-  it("interrupted acquisition and readback failure stop even when the server completed", async () => {
+  it("interrupted acquisition and unavailable readback stop; unknown accounting is never zero spend", async () => {
     const lost = harness();
     const approval = approvalFor(await quoted(lost), lost.now());
     lost.setTransportFault((path) => (path.endsWith("/acquire") ? "lose-response" : null));
@@ -482,17 +699,33 @@ describe("rehearsal count preparation stops (AC3)", () => {
     expect(interrupted).toMatchObject({
       outcome: "uncertain",
       acquisition: { response: { status: null, state: null }, readback: { status: "read", state: "complete" } },
+      accounting: { status: "complete" },
     });
+    expect(interrupted.accounting!.debits).toHaveLength(4);
     expect(lost.send).toHaveBeenCalledTimes(4);
 
     const unread = harness();
     const second = approvalFor(await quoted(unread), unread.now());
     unread.setTransportFault((path, method, index) => (method === "GET" && index > 3 ? "throw" : null));
-    expect(await acquire(unread, second)).toMatchObject({
+    const unreadable = await acquire(unread, second);
+    expect(unreadable).toMatchObject({
       outcome: "readback-failed",
-      acquisition: { readback: { status: "failed", state: null } },
+      acquisition: { readback: { status: "failed", state: null, admission: null } },
+      accounting: { status: "unknown", reason: "readback-failed", debits: [] },
     });
-    for (const h of [lost, unread]) {
+    expect(unread.debits).toHaveLength(4);
+
+    const truncated = harness();
+    const third = approvalFor(await quoted(truncated), truncated.now());
+    let reads = 0;
+    truncated.overrideProjection((view) =>
+      ++reads === 1 ? view : { ...view, debits: { ...(view.debits as object), status: "unknown", reason: "overflow" } },
+    );
+    expect(await acquire(truncated, third)).toMatchObject({
+      outcome: "partial",
+      accounting: { status: "unknown", reason: "overflow" },
+    });
+    for (const h of [lost, unread, truncated]) {
       expect(h.acquirePosts()).toBe(1);
       expectNoBatchWork(h);
     }
@@ -515,22 +748,84 @@ describe("rehearsal count preparation stops (AC3)", () => {
       const receipt = await acquire(h, approval);
       expect(receipt.outcome).toBe("partial");
       expect(receipt.sources).toHaveLength(3);
+      expect(receipt.accounting!.debits).toHaveLength(4);
       expect(h.acquirePosts()).toBe(1);
       expectNoBatchWork(h);
     }
   });
 
-  it("guard-disabled replay and partial-success negatives fail", async () => {
+  it("stripping the admission mode cannot reuse or bypass an admitted quote", async () => {
+    const h = harness();
+    const quote = await quoted(h);
+    h.setFault("fail-second-send");
+    await acquire(h, approvalFor(quote, h.now()));
+    const sends = h.send.mock.calls.length;
+    const second = await h.admin.acquire({ quoteId: quote.quote!.quoteId, fingerprint: quote.quote!.fingerprint });
+    expect(second.status).toBe(409);
+    expect(h.requests.at(-1)!.body).toEqual({
+      quoteId: quote.quote!.quoteId,
+      fingerprint: quote.quote!.fingerprint,
+      admission: "whole-quote",
+    });
+    const raw = await h.fetch(`${origin}${countsPath}/acquire`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin, "sec-fetch-site": "same-origin" },
+      body: JSON.stringify({ quoteId: quote.quote!.quoteId, fingerprint: quote.quote!.fingerprint }),
+    });
+    expect(((await raw.json()) as { state?: string }).state).toBe("failed");
+    expect(h.send).toHaveBeenCalledTimes(sends);
+  });
+});
+
+// N2: each control removes one changed guard from the executed preparation
+// module and proves the same scenario's oracle then observes the defect.
+describe("rehearsal count preparation guard-removal controls (N2)", () => {
+  afterEach(() => {
+    vi.doUnmock("../domain/rehearsal-count-preparation-receipt");
+    vi.resetModules();
+  });
+  async function mutant(patch: Record<string, unknown>) {
+    vi.resetModules();
+    vi.doMock("../domain/rehearsal-count-preparation-receipt", async (importOriginal) => ({
+      ...(await importOriginal<object>()),
+      ...patch,
+    }));
+    return import("./rehearsal-count-preparation");
+  }
+
+  it("without the current-headroom admission guard, Probe A submits the underfunded quote", async () => {
+    const guarded = harness({ remaining: 2, reused: ["OP01:sealed", "OP02:sealed"] });
+    const approval = approvalFor(await quoted(guarded), guarded.now());
+    guarded.spendElsewhere(1);
+    expect((await acquire(guarded, approval)).refusal).toBe("headroom-below-planned");
+    expect(guarded.acquirePosts()).toBe(0);
+
+    const removed = await mutant({ rehearsalCountAdmissionRefusal: () => null });
+    const h = harness({ remaining: 2, reused: ["OP01:sealed", "OP02:sealed"] });
+    const second = approvalFor(await quoted(h), h.now());
+    h.spendElsewhere(1);
+    const admitted = admitRehearsalCountAcquisition({ approval: second, pass, dispatchId, now: h.now() });
+    const receipt = await removed.acquireRehearsalCounts({ admin: h.admin, run, approval: admitted, now: h.now });
+    expect(h.acquirePosts()).toBe(1);
+    expect(receipt.outcome).toBe("admission-refused");
+    expect(validateRehearsalCountPreparationReceipt(receipt, { ...run, forbiddenValues: [] }).errors).toContain(
+      "submission-requires-current-authority",
+    );
+  });
+
+  it("without the complete/partial classifier, a failed acquisition is refused by the receipt gate", async () => {
+    const removed = await mutant({ rehearsalCountAcquisitionOutcome: () => "complete" });
     const h = harness();
     const approval = approvalFor(await quoted(h), h.now());
     h.setFault("fail-second-send");
-    const partial = await acquire(h, approval);
-    // Disabled completion guard: the same evidence relabelled complete is refused by the receipt gate.
-    const relabelled = { ...partial, outcome: "complete" as const };
-    expect(validateRehearsalCountPreparationReceipt(relabelled, { ...run, forbiddenValues: [] }).ok).toBe(false);
-    // Disabled replay guard: a second direct submission is visible to the single-submission oracle.
-    await h.admin.acquire({ quoteId: partial.quote!.quoteId, fingerprint: partial.quote!.fingerprint });
-    expect(() => expect(h.acquirePosts()).toBe(1)).toThrow();
+    const admitted = admitRehearsalCountAcquisition({ approval, pass, dispatchId, now: h.now() });
+    const receipt = await removed.acquireRehearsalCounts({ admin: h.admin, run, approval: admitted, now: h.now });
+    expect(receipt.outcome).toBe("complete");
+    const verdict = validateRehearsalCountPreparationReceipt(receipt, { ...run, forbiddenValues: [] });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.errors).toEqual(
+      expect.arrayContaining(["complete-requires-complete-acquisition", "complete-requires-complete-debits"]),
+    );
   });
 });
 
@@ -543,14 +838,29 @@ describe("rehearsal count Admin client bounds", () => {
       blocked: false,
     };
     target.query.profileKey = "p".repeat(96);
-    const body = JSON.stringify({ quoteId: randomUUID(), targets: Array.from({ length: 10_000 }, () => target) });
+    const debit = {
+      quoteId: randomUUID(),
+      scopeRecordId: target.scopeRecordId,
+      kind: "cards",
+      queryFingerprint: "f".repeat(64),
+      debitId: randomUUID(),
+      credits: 1,
+      debitedAt: start,
+      outcome: "complete",
+      observedAt: start,
+      expiresAt: start,
+    };
+    const body = JSON.stringify({
+      quote: { quoteId: randomUUID(), targets: Array.from({ length: 10_000 }, () => target) },
+      debits: { rows: Array.from({ length: 10_000 }, () => debit) },
+    });
     expect(Buffer.byteLength(body)).toBeLessThan(rehearsalCountAdminMaxResponseBytes / 2);
     const fits = createRehearsalCountAdminClient({
       origin,
       cookie: "chase_sets_session=synthetic",
       fetch: async () => new Response(body, { status: 200 }),
     });
-    expect((await fits.readQuote(randomUUID())).status).toBe(200);
+    expect((await fits.readPreparation(randomUUID())).status).toBe(200);
 
     const overflow = createRehearsalCountAdminClient({
       origin,

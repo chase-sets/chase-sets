@@ -1,12 +1,21 @@
 import type { z } from "zod";
-import { countFingerprint, countQueryKey, countQuoteSchema, countTimeIsCurrent } from "../domain/count-acquisition";
+import {
+  countFingerprint,
+  countPreparationViewSchema,
+  countQueryKey,
+  countQuoteSchema,
+  countTimeIsCurrent,
+} from "../domain/count-acquisition";
 import {
   parseRehearsalCountPreparationApproval,
+  rehearsalCountAcquisitionOutcome,
+  rehearsalCountAdmissionRefusal,
   rehearsalCountPreparationMaxScopes,
   rehearsalCountPreparationMaxTargets,
   rehearsalCountPreparationReceiptSchemaVersion,
   rehearsalCountPreparationSelection,
   RehearsalCountPreparationRefusal,
+  type RehearsalCountPreparationAccounting,
   type RehearsalCountPreparationApproval,
   type RehearsalCountPreparationOutcome,
   type RehearsalCountPreparationPass,
@@ -15,14 +24,15 @@ import {
 } from "../domain/rehearsal-count-preparation-receipt";
 
 // Staging-only preparation of governed Scrydex counts before a whole-game
-// rehearsal pass reserves and starts its batch. It drives only the shipped count
-// routes: one quote, or one host-approved acquisition plus single retained
-// reads. It never previews, confirms, enqueues, refreshes usage, discovers,
-// retries, follows redirects or reads a second page, and it never holds
-// provider credentials; the shipped claims own every send and debit.
+// rehearsal pass reserves and starts its batch. It drives only the existing
+// count routes: one quote, or one host-approved whole-quote acquisition between
+// two preparation reads of current authority and quote debits. It never
+// previews, confirms, enqueues, refreshes usage, discovers, retries, follows
+// redirects or reads a second page, and it never holds provider credentials;
+// the server's locked admission and claims own every debit and send.
 
-// A maximum 10000-target quote with long but valid query fields serializes to
-// roughly 10 MiB; anything larger is refused rather than truncated.
+// A maximum 10000-target quote with 10000 debits and long but valid query fields
+// serializes to roughly 15 MiB; anything larger is refused rather than truncated.
 export const rehearsalCountAdminMaxResponseBytes = 32 * 1024 * 1024;
 const readTimeoutMs = 120_000;
 // The acquisition sends serially server-side, so its single submission waits longer
@@ -33,7 +43,7 @@ const ageLimitMs = 15 * 60 * 1000;
 export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unknown }>;
 export type RehearsalCountAdmin = Readonly<{
   quote(input: { selection: unknown; cap?: number }): Promise<RehearsalCountAdminResponse>;
-  readQuote(quoteId: string): Promise<RehearsalCountAdminResponse>;
+  readPreparation(quoteId: string): Promise<RehearsalCountAdminResponse>;
   acquire(input: { quoteId: string; fingerprint: string }): Promise<RehearsalCountAdminResponse>;
 }>;
 export type RehearsalCountRunIdentity = Readonly<{ sha: string; runId: string; runAttempt: string }>;
@@ -63,7 +73,7 @@ async function readBounded(response: Response, maxBytes: number): Promise<string
   return Buffer.concat(chunks).toString("utf8");
 }
 
-/** Same-origin Admin client for the shipped count routes; redirects are returned, never followed. */
+/** Same-origin Admin client for the existing count routes; redirects are returned, never followed. */
 export function createRehearsalCountAdminClient(deps: {
   origin: string;
   cookie: string;
@@ -97,12 +107,19 @@ export function createRehearsalCountAdminClient(deps: {
   }
   return {
     quote: (input) => call("/quote", input.cap === undefined ? { selection: input.selection } : input),
-    readQuote: (quoteId) => call(`/quote/${encodeURIComponent(quoteId)}`),
-    acquire: (input) => call("/acquire", input, acquireTimeoutMs),
+    readPreparation: (quoteId) => call(`/quote/${encodeURIComponent(quoteId)}?view=preparation`),
+    // Preparation only ever submits whole-quote admission; stripping it is the server's to refuse.
+    acquire: (input) =>
+      call(
+        "/acquire",
+        { quoteId: input.quoteId, fingerprint: input.fingerprint, admission: "whole-quote" },
+        acquireTimeoutMs,
+      ),
   };
 }
 
 type ParsedQuote = z.infer<typeof countQuoteSchema>;
+type ParsedView = z.infer<typeof countPreparationViewSchema>;
 type ParsedTarget = ParsedQuote["targets"][number];
 type ReceiptSource = RehearsalCountPreparationReceipt["sources"][number];
 type Inspection = Readonly<{
@@ -130,6 +147,7 @@ function receiptSource(target: ParsedTarget, at: string): ReceiptSource | null {
   return {
     scopeRecordId: target.scopeRecordId,
     kind: target.query.kind,
+    queryFingerprint: countQueryKey(target.query),
     sourceId: source.sourceId,
     validationKind: source.validationKind,
     totalCount: source.totalCount,
@@ -172,6 +190,7 @@ function inspect(quote: ParsedQuote, pass: RehearsalCountPreparationPass, at: st
       scopeRecordId: target.scopeRecordId,
       kind: target.query.kind,
       parentValue: target.query.parentValue,
+      queryFingerprint: countQueryKey(target.query),
       state: source ? "reused" : target.blocked ? "blocked" : "missing",
     });
   }
@@ -191,6 +210,12 @@ function authorityRefusal(quote: ParsedQuote, at: string): RehearsalCountPrepara
 function parseQuote(response: RehearsalCountAdminResponse): ParsedQuote | null {
   if (response.status !== 200) return null;
   const parsed = countQuoteSchema.safeParse(response.body);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseView(response: RehearsalCountAdminResponse): ParsedView | null {
+  if (response.status !== 200) return null;
+  const parsed = countPreparationViewSchema.safeParse(response.body);
   return parsed.success ? parsed.data : null;
 }
 
@@ -228,10 +253,11 @@ function receipt(
     selection: rehearsalCountPreparationSelection(base.pass),
     approval: base.approval,
     quote: null,
+    authority: null,
     roster: [],
     acquisition: null,
     sources: [],
-    debits: [],
+    accounting: null,
     refusal: null,
     completedAt,
     ...fields,
@@ -367,12 +393,12 @@ function boundRefusal(
 }
 
 /** The retained read counts only when it is the same quote with the same exact-query roster. */
-function unchangedReadback(pending: ParsedQuote, retained: ParsedQuote | null): ParsedQuote | null {
+function unchangedReadback(pending: ParsedQuote, retained: ParsedView | null): ParsedView | null {
   return retained &&
-    retained.quoteId === pending.quoteId &&
-    retained.fingerprint === pending.fingerprint &&
-    retained.targets.length === pending.targets.length &&
-    retained.targets.every(
+    retained.quote.quoteId === pending.quoteId &&
+    retained.quote.fingerprint === pending.fingerprint &&
+    retained.quote.targets.length === pending.targets.length &&
+    retained.quote.targets.every(
       (target, index) =>
         target.scopeRecordId === pending.targets[index]!.scopeRecordId &&
         countQueryKey(target.query) === countQueryKey(pending.targets[index]!.query),
@@ -381,12 +407,48 @@ function unchangedReadback(pending: ParsedQuote, retained: ParsedQuote | null): 
     : null;
 }
 
-type AcquisitionResponse = NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["response"];
+/**
+ * The quote's debits exactly as the server projected them. A row must answer one
+ * of this quote's exact queries, and an entry it already reuses only through
+ * that debit's own result; any other row makes the accounting unknown rather
+ * than being carried into the receipt.
+ */
+function accountingOf(view: ParsedView, inspection: Inspection): RehearsalCountPreparationAccounting {
+  const roster = new Map(inspection.roster.map((entry) => [entryKey(entry), entry]));
+  const sources = new Map(inspection.sources.map((source) => [entryKey(source), source]));
+  const debits = view.debits.rows.filter((row) => {
+    const entry = roster.get(entryKey(row));
+    return (
+      row.quoteId === view.quote.quoteId &&
+      entry?.queryFingerprint === row.queryFingerprint &&
+      (entry.state !== "reused" || sources.get(entryKey(row))?.sourceId === row.debitId)
+    );
+  });
+  const complete =
+    view.debits.status === "complete" &&
+    debits.length === view.debits.rows.length &&
+    view.debits.fingerprint === countFingerprint(view.debits.rows);
+  return complete
+    ? { status: "complete", reason: null, readAt: view.debits.readAt, fingerprint: view.debits.fingerprint, debits }
+    : {
+        status: "unknown",
+        reason: view.debits.status === "unknown" ? (view.debits.reason ?? "invalid-row") : "invalid-row",
+        readAt: view.debits.readAt,
+        fingerprint: null,
+        debits,
+      };
+}
+
+const unknownAccounting = (
+  readAt: string,
+  reason: "pre-read-failed" | "quote-withheld" | "readback-failed",
+): RehearsalCountPreparationAccounting => ({ status: "unknown", reason, readAt, fingerprint: null, debits: [] });
 
 /**
- * Acquire mode: reread the approved quote, submit the existing acquisition once,
- * then read the retained quote once. Anything short of a complete response and
- * a complete, current, exact-query readback stops with its debits retained.
+ * Acquire mode: read current authority and quote debits, submit whole-quote
+ * admission once, then read them once more. Anything short of a complete
+ * response, accounting and current exact-source readback stops with every
+ * possible-send debit retained server-side and listed in the receipt.
  */
 export async function acquireRehearsalCounts(input: {
   admin: RehearsalCountAdmin;
@@ -407,83 +469,85 @@ export async function acquireRehearsalCounts(input: {
       authorityFingerprint: approval.authority.fingerprint,
     },
   };
-  let pending: ParsedQuote | null;
+  let pending: ParsedView | null;
   try {
-    pending = parseQuote(await input.admin.readQuote(approval.quote.quoteId));
+    pending = parseView(await input.admin.readPreparation(approval.quote.quoteId));
   } catch {
     pending = null;
   }
-  if (!pending) return receipt(input.run, base, input.now(), { outcome: "refused", refusal: "quote-readback-failed" });
+  if (!pending) {
+    const at = input.now();
+    return receipt(input.run, base, at, {
+      outcome: "refused",
+      refusal: "quote-readback-failed",
+      accounting: unknownAccounting(at, "pre-read-failed"),
+    });
+  }
   const before = input.now();
-  const inspection = inspect(pending, approval.pass, before);
-  const refusal = boundRefusal(pending, approval, inspection, before);
-  if (refusal && quoteWithheld.has(refusal)) return receipt(input.run, base, before, { outcome: "refused", refusal });
+  const inspection = inspect(pending.quote, approval.pass, before);
+  const refusal =
+    boundRefusal(pending.quote, approval, inspection, before) ?? rehearsalCountAdmissionRefusal(pending, approval);
+  if (refusal && quoteWithheld.has(refusal))
+    return receipt(input.run, base, before, {
+      outcome: "refused",
+      refusal,
+      accounting: unknownAccounting(before, "quote-withheld"),
+    });
   // The displayed per-kind cost is the approved one; the quote's P and cap equal the approval's here.
-  const quote = quoteSummary(pending, inspection, approval.perKindCost);
+  const quote = quoteSummary(pending.quote, inspection, approval.perKindCost);
+  const authority = pending.currentAuthority;
   if (refusal)
     return receipt(input.run, base, before, {
       quote,
+      authority,
       roster: inspection.roster,
       sources: [...inspection.sources],
+      accounting: accountingOf(pending, inspection),
       outcome: "refused",
       refusal,
     });
 
   const submittedAt = input.now();
-  let response: AcquisitionResponse = { status: null, state: null };
+  let response: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["response"] = {
+    status: null,
+    state: null,
+  };
   try {
-    const result = await input.admin.acquire({ quoteId: pending.quoteId, fingerprint: pending.fingerprint });
+    const result = await input.admin.acquire({
+      quoteId: pending.quote.quoteId,
+      fingerprint: pending.quote.fingerprint,
+    });
     response = { status: result.status, state: parseQuote(result)?.state ?? null };
   } catch {
     // An interrupted or overflowing submission may have sent; it stays uncertain.
   }
-  let retained: ParsedQuote | null;
+  let retained: ParsedView | null;
   try {
-    retained = unchangedReadback(pending, parseQuote(await input.admin.readQuote(pending.quoteId)));
+    retained = unchangedReadback(pending.quote, parseView(await input.admin.readPreparation(pending.quote.quoteId)));
   } catch {
     retained = null;
   }
   const readAt = input.now();
-  const sources = (retained?.targets ?? []).flatMap((target) => {
+  const sources = (retained?.quote.targets ?? []).flatMap((target) => {
     const source = receiptSource(target, readAt);
     return source ? [source] : [];
   });
-  const missing = new Set(inspection.roster.filter((entry) => entry.state === "missing").map(entryKey));
-  // Count-store page-1 evidence carries its debit id as source id.
-  const debits = sources
-    .filter((source) => source.validationKind === "page-1-count" && missing.has(entryKey(source)))
-    .map((source) => ({
-      scopeRecordId: source.scopeRecordId,
-      kind: source.kind,
-      debitId: source.sourceId,
-      outcome: "complete" as const,
-    }));
-  const ambiguous =
-    response.status === null ||
-    response.status >= 500 ||
-    response.state === "uncertain" ||
-    (response.status === 200 && response.state === null);
-  const outcome: RehearsalCountPreparationOutcome = ambiguous
-    ? "uncertain"
-    : response.status !== 200 || response.state !== "complete"
-      ? "failed"
-      : !retained
-        ? "readback-failed"
-        : retained.state !== "complete" || sources.length !== inspection.roster.length
-          ? "partial"
-          : "complete";
+  const accounting = retained ? accountingOf(retained, inspection) : unknownAccounting(readAt, "readback-failed");
+  const readback = retained
+    ? { readAt, status: "read" as const, state: retained.quote.state, admission: retained.admission.state }
+    : { readAt, status: "failed" as const, state: null, admission: null };
   return receipt(input.run, base, readAt, {
     quote,
+    authority,
     roster: inspection.roster,
-    acquisition: {
-      submittedAt,
-      response,
-      readback: retained
-        ? { readAt, status: "read", state: retained.state }
-        : { readAt, status: "failed", state: null },
-    },
+    acquisition: { admission: "whole-quote", submittedAt, response, readback },
     sources,
-    debits,
-    outcome,
+    accounting,
+    outcome: rehearsalCountAcquisitionOutcome({
+      response,
+      readback,
+      accounting,
+      sourced: sources.length === inspection.roster.length,
+    }),
   });
 }

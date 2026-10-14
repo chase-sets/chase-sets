@@ -1,15 +1,17 @@
 import { z } from "zod";
-import { countFingerprint, countTimeIsCurrent } from "./count-acquisition";
+import { countFingerprint, countTimeIsCurrent, type CountPreparationView } from "./count-acquisition";
 
 // Governed Scrydex count preparation for a whole-game rehearsal pass. The
 // receipt is the only artifact the staging workflow may upload: a closed,
-// count-only record of the quote, the host approval it was bound to, the single
-// acquisition and its retained readback. It never carries URLs, payloads,
-// account identifiers, cookies or credentials, and it never grants batch,
-// preview, confirm or reservation authority.
+// count-only record of the quote, the host approval it was bound to, the
+// current authority it was admitted against, the single whole-quote acquisition
+// and the exhaustive accounting of every debit the quote owns. It never carries
+// URLs, payloads, account identifiers, cookies or credentials, and it never
+// grants batch, preview, confirm or reservation authority.
 
 export const rehearsalCountPreparationReceiptPath = "artifacts/catalog-count-preparation/receipt.json";
-export const rehearsalCountPreparationReceiptSchemaVersion = "catalog-rehearsal-count-preparation-receipt/v1";
+// v1 receipts derived debits from successful sources and are historical evidence only.
+export const rehearsalCountPreparationReceiptSchemaVersion = "catalog-rehearsal-count-preparation-receipt/v2";
 export const rehearsalCountPreparationApprovalSchemaVersion = "catalog-rehearsal-count-preparation-approval/v1";
 export const rehearsalCountPreparationStagingOrigin = "https://admin.staging.chasesets.com";
 export const rehearsalCountPreparationCredentialNames = [
@@ -48,6 +50,8 @@ export const rehearsalCountPreparationRefusalCodes = [
   "reused-source-expired",
   "blocked-targets",
   "authority-unavailable",
+  "authority-changed",
+  "accounting-unavailable",
   "headroom-below-planned",
   "cap-below-planned",
 ] as const;
@@ -69,6 +73,7 @@ const hex64 = z.string().regex(/^[a-f0-9]{64}$/);
 const token = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
 const kind = z.enum(["cards", "sealed"]);
 const quoteState = z.enum(["quoted", "approved", "acquiring", "complete", "failed", "uncertain"]);
+const admissionState = z.enum(["none", "active", "ended", "expired"]);
 const languageCode = z
   .string()
   .regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/)
@@ -165,6 +170,7 @@ const rosterEntrySchema = z
     scopeRecordId: token,
     kind,
     parentValue: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+    queryFingerprint: hex64,
     state: z.enum(["reused", "missing", "blocked"]),
   })
   .strict();
@@ -172,6 +178,7 @@ const sourceSchema = z
   .object({
     scopeRecordId: token,
     kind,
+    queryFingerprint: hex64,
     sourceId,
     validationKind: z.enum(["page-1-count", "complete-cache"]),
     totalCount: integer,
@@ -181,6 +188,31 @@ const sourceSchema = z
     expiresAt: instant,
   })
   .strict();
+const debitSchema = z
+  .object({
+    quoteId: z.uuid(),
+    scopeRecordId: token,
+    kind,
+    queryFingerprint: hex64,
+    debitId: z.uuid(),
+    credits: z.literal(1),
+    debitedAt: instant,
+    outcome: z.enum(["acquiring", "complete", "failed", "uncertain"]),
+    observedAt: instant.nullable(),
+    expiresAt: instant.nullable(),
+  })
+  .strict();
+export const rehearsalCountPreparationOutcomes = [
+  "quoted",
+  "not-required",
+  "refused",
+  "admission-refused",
+  "complete",
+  "partial",
+  "failed",
+  "uncertain",
+  "readback-failed",
+] as const;
 const receiptSchema = z
   .object({
     schemaVersion: z.literal(rehearsalCountPreparationReceiptSchemaVersion),
@@ -227,39 +259,57 @@ const receiptSchema = z
       })
       .strict()
       .nullable(),
+    // Current net authority from the pre-acquire read, never the quote's stored authority.
+    authority: z
+      .object({
+        readAt: instant,
+        usageFingerprint: hex64,
+        usageObservedAt: instant.nullable(),
+        state: z.enum(["allowed", "unknown"]),
+        headroom: integer.nullable(),
+      })
+      .strict()
+      .nullable(),
     roster: z.array(rosterEntrySchema).max(rehearsalCountPreparationMaxTargets),
     acquisition: z
       .object({
+        admission: z.literal("whole-quote"),
         submittedAt: instant,
         response: z
           .object({ status: z.number().int().min(100).max(599).nullable(), state: quoteState.nullable() })
           .strict(),
         readback: z
-          .object({ readAt: instant, status: z.enum(["read", "failed"]), state: quoteState.nullable() })
+          .object({
+            readAt: instant,
+            status: z.enum(["read", "failed"]),
+            state: quoteState.nullable(),
+            admission: admissionState.nullable(),
+          })
           .strict(),
       })
       .strict()
       .nullable(),
     sources: z.array(sourceSchema).max(rehearsalCountPreparationMaxTargets),
-    debits: z
-      .array(z.object({ scopeRecordId: token, kind, debitId: sourceId, outcome: z.literal("complete") }).strict())
-      .max(rehearsalCountPreparationMaxTargets),
-    outcome: z.enum([
-      "quoted",
-      "not-required",
-      "refused",
-      "complete",
-      "partial",
-      "failed",
-      "uncertain",
-      "readback-failed",
-    ]),
+    // Every debit the quote owns, independent of sources: complete is an exhaustive
+    // ledger snapshot at readAt, unknown keeps only the rows that could be read.
+    accounting: z
+      .object({
+        status: z.enum(["complete", "unknown"]),
+        reason: z.enum(["pre-read-failed", "quote-withheld", "readback-failed", "overflow", "invalid-row"]).nullable(),
+        readAt: instant,
+        fingerprint: hex64.nullable(),
+        debits: z.array(debitSchema).max(rehearsalCountPreparationMaxTargets),
+      })
+      .strict()
+      .nullable(),
+    outcome: z.enum(rehearsalCountPreparationOutcomes),
     refusal: z.enum(rehearsalCountPreparationRefusalCodes).nullable(),
     completedAt: instant,
   })
   .strict();
 export type RehearsalCountPreparationReceipt = z.infer<typeof receiptSchema>;
 export type RehearsalCountPreparationOutcome = RehearsalCountPreparationReceipt["outcome"];
+export type RehearsalCountPreparationAccounting = NonNullable<RehearsalCountPreparationReceipt["accounting"]>;
 
 export type RehearsalCountPreparationExpectation = Readonly<{
   sha?: string;
@@ -268,8 +318,69 @@ export type RehearsalCountPreparationExpectation = Readonly<{
   forbiddenValues: readonly string[];
 }>;
 
-const quoteOutcomes = new Set(["quoted", "not-required", "refused"]);
-const acquireOutcomes = new Set(["refused", "complete", "partial", "failed", "uncertain", "readback-failed"]);
+/**
+ * The pre-acquire admission check over the immediate preparation read: the quote
+ * is untouched, its debits are fully accounted, and current net authority under
+ * the approved usage fingerprint still covers the whole approved P.
+ */
+export function rehearsalCountAdmissionRefusal(
+  view: CountPreparationView,
+  approval: Pick<RehearsalCountPreparationApproval, "plannedCredits" | "authority">,
+): RehearsalCountPreparationRefusalCode | null {
+  if (view.admission.state !== "none" || view.quote.state !== "quoted" || view.debits.rows.length > 0)
+    return "quote-not-pending";
+  if (view.debits.status !== "complete") return "accounting-unavailable";
+  const current = view.currentAuthority;
+  if (current.state !== "allowed" || current.headroom === null) return "authority-unavailable";
+  if (current.usageFingerprint !== approval.authority.fingerprint) return "authority-changed";
+  if (current.headroom < approval.plannedCredits) return "headroom-below-planned";
+  return null;
+}
+
+/**
+ * Classifies one submitted acquisition. Any possible send left uncertain or
+ * acquiring is uncertain; only a complete response, readback, accounting and
+ * every roster source is complete.
+ */
+export function rehearsalCountAcquisitionOutcome(input: {
+  response: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["response"];
+  readback: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["readback"];
+  accounting: RehearsalCountPreparationAccounting;
+  sourced: boolean;
+}): RehearsalCountPreparationOutcome {
+  const { response, readback, accounting } = input;
+  if (
+    response.status === null ||
+    response.status >= 500 ||
+    response.state === "uncertain" ||
+    (response.status === 200 && response.state === null) ||
+    accounting.debits.some((debit) => debit.outcome === "uncertain" || debit.outcome === "acquiring")
+  )
+    return "uncertain";
+  if (response.status === 409) return "admission-refused";
+  if (response.status !== 200 || response.state !== "complete") return "failed";
+  if (readback.status !== "read") return "readback-failed";
+  if (
+    accounting.status !== "complete" ||
+    readback.state !== "complete" ||
+    readback.admission !== "ended" ||
+    accounting.debits.some((debit) => debit.outcome !== "complete") ||
+    !input.sourced
+  )
+    return "partial";
+  return "complete";
+}
+
+const quoteOutcomes = new Set<RehearsalCountPreparationOutcome>(["quoted", "not-required", "refused"]);
+const acquireOutcomes = new Set<RehearsalCountPreparationOutcome>([
+  "refused",
+  "admission-refused",
+  "complete",
+  "partial",
+  "failed",
+  "uncertain",
+  "readback-failed",
+]);
 const entryKey = (entry: { scopeRecordId: string; kind: string }) => `${entry.scopeRecordId}\u0000${entry.kind}`;
 
 /** Cross-field rules a closed shape cannot express; returns stable error codes, never values. */
@@ -279,8 +390,13 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
   if (countFingerprint(receipt.selection) !== countFingerprint(expectedSelection)) errors.push("selection-not-pass");
   if ((receipt.outcome === "refused") !== (receipt.refusal !== null)) errors.push("refusal-code-mismatch");
   if (
-    (receipt.mode === "quote" && (receipt.approval !== null || !quoteOutcomes.has(receipt.outcome))) ||
-    (receipt.mode === "acquire" && (receipt.approval === null || !acquireOutcomes.has(receipt.outcome)))
+    (receipt.mode === "quote" &&
+      (receipt.approval !== null ||
+        receipt.authority !== null ||
+        receipt.accounting !== null ||
+        !quoteOutcomes.has(receipt.outcome))) ||
+    (receipt.mode === "acquire" &&
+      (receipt.approval === null || receipt.accounting === null || !acquireOutcomes.has(receipt.outcome)))
   )
     errors.push("mode-shape-mismatch");
   if (
@@ -331,11 +447,25 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
     )
       errors.push("approval-does-not-cover-planned");
   }
+  // Submitting is admitted only against current authority that covers the whole P.
+  const current = receipt.authority;
+  if (
+    receipt.acquisition &&
+    (!current ||
+      !quote ||
+      current.state !== "allowed" ||
+      current.headroom === null ||
+      current.headroom < quote.plannedCredits ||
+      current.usageFingerprint !== quote.authority.fingerprint ||
+      current.usageFingerprint !== receipt.approval?.authorityFingerprint)
+  )
+    errors.push("submission-requires-current-authority");
 
   const sources = new Map<string, (typeof receipt.sources)[number]>();
   for (const source of receipt.sources) {
     const key = entryKey(source);
-    if (!roster.has(key) || sources.has(key)) errors.push("source-not-in-roster");
+    if (!roster.has(key) || sources.has(key) || roster.get(key)!.queryFingerprint !== source.queryFingerprint)
+      errors.push("source-not-in-roster");
     sources.set(key, source);
     if (Date.parse(source.observedAt) > Date.parse(source.expiresAt)) errors.push("source-time-invalid");
     if ((source.validationKind === "page-1-count") !== (source.returnedItemCount !== null))
@@ -347,23 +477,50 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
     const reused = receipt.roster.filter((entry) => entry.state === "reused");
     if (reused.length !== receipt.sources.length || reused.some((entry) => !sources.has(entryKey(entry))))
       errors.push("quote-sources-mismatch");
-    if (receipt.debits.length > 0) errors.push("debit-not-acquired-source");
   }
 
-  const debitKeys = new Set<string>();
-  for (const debit of receipt.debits) {
-    const source = sources.get(entryKey(debit));
+  const accounting = receipt.accounting;
+  const debits = new Map<string, RehearsalCountPreparationAccounting["debits"][number]>();
+  if (accounting) {
     if (
-      !source ||
-      debitKeys.has(entryKey(debit)) ||
-      source.validationKind !== "page-1-count" ||
-      source.sourceId !== debit.debitId ||
-      roster.get(entryKey(debit))?.state !== "missing"
+      (accounting.status === "complete") !== (accounting.reason === null) ||
+      (accounting.status === "complete") !== (accounting.fingerprint !== null)
     )
-      errors.push("debit-not-acquired-source");
-    debitKeys.add(entryKey(debit));
+      errors.push("accounting-shape-mismatch");
+    if (accounting.fingerprint !== null && accounting.fingerprint !== countFingerprint(accounting.debits))
+      errors.push("accounting-fingerprint-mismatch");
+    const ids = new Set<string>();
+    for (const debit of accounting.debits) {
+      const entry = roster.get(entryKey(debit));
+      if (ids.has(debit.debitId) || debits.has(entryKey(debit))) errors.push("debit-duplicate");
+      ids.add(debit.debitId);
+      debits.set(entryKey(debit), debit);
+      // A quote's debits are only ever for its own exact queries. An entry that is
+      // reused can carry one only through that debit's own result: reuse from any
+      // other source is never this quote's new debit.
+      if (
+        !quote ||
+        debit.quoteId !== quote.quoteId ||
+        !entry ||
+        entry.queryFingerprint !== debit.queryFingerprint ||
+        (entry.state === "reused" && sources.get(entryKey(debit))?.sourceId !== debit.debitId)
+      )
+        errors.push("debit-outside-roster");
+      if (
+        (debit.outcome === "complete") !== (debit.observedAt !== null) ||
+        (debit.observedAt === null) !== (debit.expiresAt === null) ||
+        (debit.observedAt !== null && Date.parse(debit.observedAt) > Date.parse(debit.expiresAt!))
+      )
+        errors.push("debit-shape-mismatch");
+    }
+    if (quote && accounting.debits.length > quote.plannedCredits) errors.push("debits-exceed-planned");
+    // A page-1 source carrying one of this quote's debit ids must be that debit's completed result.
+    for (const source of receipt.sources) {
+      const owner = accounting.debits.find((debit) => debit.debitId === source.sourceId);
+      if (owner && (entryKey(owner) !== entryKey(source) || owner.outcome !== "complete"))
+        errors.push("source-debit-mismatch");
+    }
   }
-  if (quote && receipt.debits.length > quote.plannedCredits) errors.push("debits-exceed-planned");
 
   if (receipt.outcome === "complete") {
     const acquisition = receipt.acquisition;
@@ -372,9 +529,21 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
       acquisition.response.status !== 200 ||
       acquisition.response.state !== "complete" ||
       acquisition.readback.status !== "read" ||
-      acquisition.readback.state !== "complete"
+      acquisition.readback.state !== "complete" ||
+      acquisition.readback.admission !== "ended"
     )
       errors.push("complete-requires-complete-acquisition");
+    if (!accounting || accounting.status !== "complete") errors.push("complete-requires-complete-accounting");
+    if (accounting?.debits.some((debit) => debit.outcome !== "complete"))
+      errors.push("complete-requires-complete-debits");
+    // Every debit of a complete acquisition is backed by its own page-1 result as the entry's source.
+    if (
+      accounting?.debits.some((debit) => {
+        const source = sources.get(entryKey(debit));
+        return !source || source.validationKind !== "page-1-count" || source.sourceId !== debit.debitId;
+      })
+    )
+      errors.push("complete-requires-debit-sources");
     if (receipt.roster.some((entry) => !sources.has(entryKey(entry))))
       errors.push("complete-requires-every-roster-source");
     if (acquisition && receipt.sources.some((source) => !countTimeIsCurrent(source, acquisition.readback.readAt)))
@@ -468,7 +637,15 @@ export function validateRehearsalCountPreparationReceiptText(
   };
 }
 
-/** Quoted, not-required and complete are the only outcomes that end a run successfully. */
-export function rehearsalCountPreparationSucceeded(receipt: RehearsalCountPreparationReceipt): boolean {
-  return receipt.outcome === "quoted" || receipt.outcome === "not-required" || receipt.outcome === "complete";
+/**
+ * The runbook handoff of a validated receipt. A no-spend quote or a complete
+ * acquisition may continue only to the rehearsal's own independent reservation,
+ * preview and confirm checks, never as batch-ready authority; a quote with misses waits
+ * for the host's approval; every other outcome stops.
+ */
+export function rehearsalCountPreparationContinuation(
+  receipt: Pick<RehearsalCountPreparationReceipt, "outcome">,
+): "reservation" | "approval" | "stop" {
+  if (receipt.outcome === "not-required" || receipt.outcome === "complete") return "reservation";
+  return receipt.outcome === "quoted" ? "approval" : "stop";
 }

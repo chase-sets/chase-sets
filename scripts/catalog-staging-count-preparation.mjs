@@ -13,8 +13,8 @@ import {
   parseRehearsalCountPreparationPass,
   rehearsalCountPreparationCredentialNames,
   rehearsalCountPreparationReceiptPath,
+  rehearsalCountPreparationContinuation,
   rehearsalCountPreparationStagingOrigin,
-  rehearsalCountPreparationSucceeded,
   validateRehearsalCountPreparationReceiptText,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/rehearsal-count-preparation-receipt.ts";
 
@@ -111,16 +111,29 @@ export async function signInStagingAdmin({ email, password, fetch }) {
 }
 
 export function summarizeCountPreparation(receipt) {
+  const debits = receipt.accounting?.debits ?? [];
   return {
     mode: receipt.mode,
     outcome: receipt.outcome,
     refusal: receipt.refusal,
+    continuation: rehearsalCountPreparationContinuation(receipt),
     pass: receipt.pass,
     quote: receipt.quote,
+    authority: receipt.authority,
     reused: receipt.roster.filter((entry) => entry.state === "reused").length,
     blocked: receipt.roster.filter((entry) => entry.state === "blocked").length,
     sources: receipt.sources.length,
-    debits: receipt.debits.length,
+    // Unknown accounting is reported as unknown, never as zero spend.
+    accounting: receipt.accounting && {
+      status: receipt.accounting.status,
+      reason: receipt.accounting.reason,
+      debits: debits.length,
+      outcomes: Object.fromEntries(
+        ["complete", "failed", "uncertain", "acquiring"]
+          .map((outcome) => [outcome, debits.filter((debit) => debit.outcome === outcome).length])
+          .filter(([, count]) => count > 0),
+      ),
+    },
     readback: receipt.acquisition?.readback ?? null,
   };
 }
@@ -149,7 +162,8 @@ export async function runCountPreparation({
   if (!verdict.ok) throw refuse(`receipt-invalid:${verdict.errors.slice(0, 5).join("|")}`);
   mkdirSync(dirname(receiptPath), { recursive: true });
   writeFileSync(receiptPath, text);
-  return { ok: rehearsalCountPreparationSucceeded(receipt), summary: summarizeCountPreparation(receipt) };
+  // A quote awaiting approval or a validated handoff ends successfully; every stop fails the run.
+  return { ok: rehearsalCountPreparationContinuation(receipt) !== "stop", summary: summarizeCountPreparation(receipt) };
 }
 
 /** Pre-upload gate: the exact regular receipt file, bound to this run, free of admitted credential values. */
