@@ -54,7 +54,7 @@ describe("restock decision runtime", () => {
         streamId: `inventory.item-${itemId}`,
         expectedVersion: "no_stream",
         context,
-        events: [{ eventType: "inventory.item.created", payload: { itemId, accountId: "acc_seller" } }],
+        events: [{ eventType: "inventory.item.created", payload: { itemId, accountId: "acc_seller", totalQuantity: 1 } }],
       });
     }
     const restocked = await services.markPending(

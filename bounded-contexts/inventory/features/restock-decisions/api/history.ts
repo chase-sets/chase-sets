@@ -3,6 +3,8 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
+import { validateInventoryItemStockHistory } from "../../../support/runtime-support/stock-history";
+import { evolveInventoryItem, initialInventoryItemState, type InventoryItemEvent } from "../../inventory-items/domain/domain";
 import { evolveRestockDecision, initialRestockDecisionState, type RestockDecisionState } from "../domain/domain";
 
 function requireHistory(condition: unknown): asserts condition {
@@ -25,12 +27,20 @@ function optionalText(value: unknown): string | null {
 }
 function instant(value: unknown): string {
   const result = text(value);
-  requireHistory(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(result));
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(result);
+  requireHistory(parts);
+  const [year, month, day, hour, minute, second] = parts.slice(1, 7).map(Number);
+  const offsetHour = Number(parts[7] ?? "0");
+  const offsetMinute = Number(parts[8] ?? "0");
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  requireHistory(month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1] &&
+    hour <= 23 && minute <= 59 && second <= 59 && offsetHour <= 23 && offsetMinute <= 59);
   requireHistory(Number.isFinite(Date.parse(result)));
   return result;
 }
 
-async function readOwnerHistory(deps: InventoryRuntimeDeps, streamId: string, context: EventStoreContext) {
+async function readOwnerHistory(deps: InventoryRuntimeDeps, streamId: string, context: EventStoreContext, role: "item" | "decision") {
   try {
     const events = await readCompleteStream(deps.eventStore, { streamId });
     const ledger = await deps.db.query<{ current_version: string; total: string }>(
@@ -49,7 +59,8 @@ async function readOwnerHistory(deps: InventoryRuntimeDeps, streamId: string, co
       requireHistory(
         event.streamId === streamId &&
           event.tenantId === context.tenantId &&
-          event.forAccountId === context.audit.forAccountId &&
+          ((role === "decision" && index === 0 && event.eventType === "inventory.restock-decision.pending") ||
+            event.forAccountId === context.audit.forAccountId) &&
           event.streamVersion === index + 1 &&
           !ids.has(event.eventId),
       );
@@ -67,7 +78,11 @@ export async function assertNoRetainedRestockStock(
   context: EventStoreContext,
 ) {
   try {
-    const events = await readOwnerHistory(deps, `inventory.item-${state.itemId}`, context);
+    const events = await readOwnerHistory(deps, `inventory.item-${state.itemId}`, context, "item");
+    const codecEvents = events.map((event) => ({ type: event.eventType, data: event.payload }) as InventoryItemEvent);
+    const item = codecEvents.reduce(evolveInventoryItem, initialInventoryItemState);
+    validateInventoryItemStockHistory({ events, itemId: state.itemId!, accountId: state.accountId!,
+      tenantId: context.tenantId, version: events.length, totalQuantity: item.totalQuantity });
     requireHistory(
       events.length > 0 &&
         events[0].eventType === "inventory.item.created" &&
@@ -103,7 +118,7 @@ export async function loadRestockDecisionHistory(
       [`inventory.restock-decision-${decisionId}`, context.tenantId, context.audit.forAccountId],
     );
     if (owner.rows.length === 0) return { state: initialRestockDecisionState, version: 0 };
-    const events = await readOwnerHistory(deps, `inventory.restock-decision-${decisionId}`, context);
+    const events = await readOwnerHistory(deps, `inventory.restock-decision-${decisionId}`, context, "decision");
     let state = initialRestockDecisionState;
     for (const [index, event] of events.entries()) {
       if (index === 0) {
@@ -122,6 +137,7 @@ export async function loadRestockDecisionHistory(
         ]);
         requireHistory(
           data.decisionId === decisionId &&
+            data.accountId === context.audit.forAccountId &&
             Number.isSafeInteger(data.quantity) &&
             typeof data.quantity === "number" &&
             data.quantity > 0,

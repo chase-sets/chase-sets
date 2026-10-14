@@ -157,7 +157,7 @@ export function discoverInventoryCallers(sources) {
       if (
         ts.isElementAccessExpression(node) &&
         !ts.isStringLiteralLike(node.argumentExpression) &&
-        /\binventory\b|\.holds\b|\.storageLocations\b/.test(node.expression.getText(source))
+        /\binventory\b|\.holds\b|\.storageLocations\b|\.restockDecisions\b/.test(node.expression.getText(source))
       ) {
         throw new Error(
           `Unresolved Inventory call: ${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`,
@@ -175,7 +175,7 @@ export function discoverInventoryCallers(sources) {
         if (
           ts.isElementAccessExpression(node.expression) &&
           !ts.isStringLiteralLike(node.expression.argumentExpression) &&
-          /\binventory\b|\.holds\b|\.storageLocations\b/.test(node.expression.expression.getText(source))
+          /\binventory\b|\.holds\b|\.storageLocations\b|\.restockDecisions\b/.test(node.expression.expression.getText(source))
         ) {
           throw new Error(
             `Unresolved Inventory call: ${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`,
