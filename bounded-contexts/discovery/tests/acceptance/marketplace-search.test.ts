@@ -2466,7 +2466,7 @@ describe("marketplace search", () => {
     await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, status)
       SELECT 'corr_popular_' || n, 'corr-popular-' || n,
         CASE WHEN n <= 24 THEN 'Charizard' ELSE translate(md5(n::text), '0123456789', 'ghijklmnop') END,
-        'active' FROM generate_series(1, 2400) AS n`);
+        'active' FROM generate_series(1, 6000) AS n`);
     await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, status)
       VALUES ('corr_other_spelling', 'corr-other-spelling', 'Charizord', 'active')`);
     await pools.discovery.query(`INSERT INTO discovery_search_catalog_fields (field_id, key, name, searchable)
@@ -2522,7 +2522,7 @@ describe("marketplace search", () => {
     console.info(
       "correction-query-plan",
       JSON.stringify({
-        items: 2402,
+        items: 6002,
         candidates: cold.candidates.length,
         coldMs,
         warmMs,
