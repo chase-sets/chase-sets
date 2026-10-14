@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "positions": [
     {
+      "path": "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-permanent",
+      "reason": "Atomic Invitation acceptance grants an existing User membership in an existing Account; any new personal identity was created through the Consent-bound registration owner.",
+      "composition": "invitation-acceptance"
+    },
+    {
       "path": "bounded-contexts/identity/api.ts",
       "command": "CreateAccount",
       "occurrences": 1,
