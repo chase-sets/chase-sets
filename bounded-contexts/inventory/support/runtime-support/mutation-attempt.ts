@@ -165,8 +165,12 @@ export function createInventoryMutationRuntime(pool: PgTransactionalPool, postgr
       await client.query(`RELEASE SAVEPOINT ${savepoint}`);
       return result;
     } catch (error) {
-      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-      await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+      try {
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+      } catch {
+        // Cleanup must not replace the primary write error.
+      }
       throw error;
     }
   }

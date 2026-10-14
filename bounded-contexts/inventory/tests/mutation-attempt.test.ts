@@ -96,12 +96,154 @@ function harness() {
     sql: string,
     values?: readonly unknown[],
   ): Promise<PgQueryResult<Row>> => (await query(sql, values)) as PgQueryResult<Row>;
-  const pool: PgTransactionalPool = { query: invoke, connect: async () => ({ query: invoke, release: vi.fn() }) };
-  const runtime = createInventoryMutationRuntime(pool, createPostgresEventStore({ pool }));
-  return { runtime, rows, committedFacts, query };
+  const release = vi.fn();
+  const pool: PgTransactionalPool = { query: invoke, connect: async () => ({ query: invoke, release }) };
+  const postgresEventStore = createPostgresEventStore({ pool });
+  const runtime = createInventoryMutationRuntime(pool, postgresEventStore);
+  return { runtime, rows, committedFacts, query, postgresEventStore, release };
 }
 
 describe("issue-7169-ac2-single-target-replay: owner transaction", () => {
+  it.each(
+    (["appendToStream", "appendToStreams", "execute"] as const).flatMap((entry) =>
+      (["ROLLBACK TO SAVEPOINT", "RELEASE SAVEPOINT", null] as const).map((cleanup) => ({ entry, cleanup })),
+    ),
+  )("preserves the primary error through $entry when cleanup is $cleanup", async ({ entry, cleanup }) => {
+    const { runtime, query, postgresEventStore, rows, committedFacts } = harness();
+    const injected = new Error("Synthetic write interruption");
+    const cleanupError = new Error(`Synthetic ${cleanup} failure`);
+    let primary: unknown = injected;
+    const original = query.getMockImplementation()!;
+    query.mockImplementation(async (sql, values) => {
+      if (cleanup && sql.startsWith(`${cleanup} inventory_write_`)) throw cleanupError;
+      if (sql.includes("INSERT INTO event_store_streams")) throw injected;
+      return original(sql, values);
+    });
+    const append = {
+      streamId: "inventory.synthetic",
+      expectedVersion: "no_stream" as const,
+      context,
+      events: [{ eventType: "inventory.synthetic", payload: {} }],
+    };
+    const attempted = withInventoryMutationAttempt(context, randomUUID());
+    const capturePrimary = async <T>(work: () => Promise<T>): Promise<T> => {
+      try {
+        return await work();
+      } catch (error) {
+        primary = error;
+        throw error;
+      }
+    };
+    const appendToStream = postgresEventStore.appendToStreamInTransaction;
+    const appendToStreams = postgresEventStore.appendToStreamsInTransaction;
+    vi.spyOn(postgresEventStore, "appendToStreamInTransaction").mockImplementation((...args) =>
+      capturePrimary(() => appendToStream(...args)),
+    );
+    vi.spyOn(postgresEventStore, "appendToStreamsInTransaction").mockImplementation((...args) =>
+      capturePrimary(() => appendToStreams(...args)),
+    );
+    const error = await runtime
+      .execute("location-create", "draft", "acc_synthetic", location, attempted, async () => {
+        await runtime.db.query("SYNTHETIC FACT", ["outer"]);
+        if (entry === "execute") {
+          return runtime.execute(
+            "location-create",
+            "child",
+            "acc_synthetic",
+            location,
+            withInventoryMutationChildAttempt(attempted, "location"),
+            async () => {
+              throw injected;
+            },
+          );
+        }
+        return entry === "appendToStream"
+          ? runtime.eventStore.appendToStream(append)
+          : runtime.eventStore.appendToStreams!([append]);
+      })
+      .catch((error: unknown) => error);
+    expect(error).toBe(primary);
+    if (entry !== "execute") {
+      expect(error).toMatchObject({ code: "infrastructure_failure", details: { cause: injected.message } });
+    }
+    expect(rows.size).toBe(0);
+    expect(committedFacts).toEqual([]);
+  });
+
+  it.each(["appendToStream", "appendToStreams", "execute"] as const)(
+    "propagates a success-path RELEASE SAVEPOINT failure through %s",
+    async (entry) => {
+      const { runtime, query, rows } = harness();
+      const releaseError = new Error("Synthetic success release failure");
+      const original = query.getMockImplementation()!;
+      query.mockImplementation(async (sql, values) => {
+        if (sql.startsWith("RELEASE SAVEPOINT inventory_write_")) throw releaseError;
+        return original(sql, values);
+      });
+      const attempted = withInventoryMutationAttempt(context, randomUUID());
+      await expect(
+        runtime.execute("location-create", "draft", "acc_synthetic", location, attempted, async () => {
+          if (entry === "execute") {
+            return runtime.execute(
+              "location-create",
+              "child",
+              "acc_synthetic",
+              location,
+              withInventoryMutationChildAttempt(attempted, "location"),
+              async () => ({ version: 1 }),
+            );
+          }
+          const append = {
+            streamId: "inventory.synthetic",
+            expectedVersion: "no_stream" as const,
+            context,
+            events: [],
+          };
+          return entry === "appendToStream"
+            ? runtime.eventStore.appendToStream(append)
+            : runtime.eventStore.appendToStreams!([]);
+        }),
+      ).rejects.toBe(releaseError);
+      expect(rows.size).toBe(0);
+    },
+  );
+
+  it("cannot commit an aborted transaction after a caller catches the preserved child error", async () => {
+    const { runtime, query, rows, committedFacts, release } = harness();
+    const primary = new Error("Synthetic child interruption");
+    const connectionError = new Error("Client has encountered a connection error and is not queryable");
+    const original = query.getMockImplementation()!;
+    let dead = false;
+    query.mockImplementation(async (sql, values) => {
+      if (sql.startsWith("ROLLBACK TO SAVEPOINT inventory_write_")) dead = true;
+      if (dead) throw connectionError;
+      return original(sql, values);
+    });
+    const attempted = withInventoryMutationAttempt(context, randomUUID());
+    await expect(
+      runtime.execute("location-create", "draft", "acc_synthetic", location, attempted, async () => {
+        await runtime.db.query("SYNTHETIC FACT", ["outer"]);
+        await expect(
+          runtime.execute(
+            "location-create",
+            "child",
+            "acc_synthetic",
+            location,
+            withInventoryMutationChildAttempt(attempted, "location"),
+            async () => {
+              throw primary;
+            },
+          ),
+        ).rejects.toBe(primary);
+        await runtime.db.query("SYNTHETIC FACT", ["after interruption"]);
+        return { version: 1 };
+      }),
+    ).rejects.toBe(connectionError);
+    expect(rows.size).toBe(0);
+    expect(committedFacts).toEqual([]);
+    expect(release).toHaveBeenCalledWith(connectionError);
+  });
+
   it("retains the exact JSON result when a trusted PostgreSQL reader supplies a Date", async () => {
     const { runtime } = harness();
     const id = randomUUID();
