@@ -151,6 +151,9 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     debit: (binding, send) =>
       mutate(binding.runId, (run) => {
         bound(run, binding);
+        // A send without a recorded result may have reached the provider, so sends
+        // resolve one at a time and nothing is debited after an unresolved one.
+        if (run.sends.some((entry) => entry.status === null)) throw new CountCaptureStopped();
         const phase = binding.phase;
         const inPhase = run.sends.filter((entry) => entry.phase === phase);
         if (run.sends.length >= countCaptureSendCap || inPhase.length >= countCapturePhaseCaps[phase])

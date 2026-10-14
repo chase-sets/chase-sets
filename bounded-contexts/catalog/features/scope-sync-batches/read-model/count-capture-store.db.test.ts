@@ -9,10 +9,12 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../../../index";
-import type {
-  CountCaptureBinding,
-  CountCapturePhase,
-  CountCaptureSend,
+import {
+  countCaptureTransport,
+  runCountCaptureRequest,
+  type CountCaptureBinding,
+  type CountCapturePhase,
+  type CountCaptureSend,
 } from "../../source-observations/api/providers/count-capture-transport";
 import {
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as sealedUnit,
@@ -76,6 +78,28 @@ function lockStrippedPools(pools: readonly PgTransactionalPool[]): PgTransaction
     },
   }));
 }
+
+// A history write outage injected from outside the store and the transaction helper:
+// while `outage()` holds, this pool's clients reject every append before it reaches PostgreSQL.
+function appendOutagePool(pool: PgTransactionalPool, outage: () => boolean): PgTransactionalPool {
+  return {
+    query: (text: string, values?: readonly unknown[]) => pool.query(text, values),
+    connect: async (): Promise<PgPoolClient> => {
+      const client = await pool.connect();
+      const query = (async (text: string, values?: readonly unknown[]) => {
+        if (outage() && text.startsWith("INSERT INTO catalog_scope_sync_count_capture_history"))
+          throw new Error("synthetic history write outage");
+        return client.query(text, values);
+      }) as PgPoolClient["query"];
+      return { query, release: (error?: unknown) => client.release(error) };
+    },
+  };
+}
+
+const countUrls = {
+  cards: "https://api.scrydex.com/onepiece/v1/cards?page=1&page_size=250&q=printings:OP01&select=id",
+  sealed: "https://api.scrydex.com/onepiece/v1/expansions/OP01/sealed?page=1&page_size=250&select=id",
+} as const;
 
 describeDb("count-capture possible-send ledger", () => {
   let primary: Readonly<Record<"catalog", PgTransactionalPool>>;
@@ -215,6 +239,53 @@ describeDb("count-capture possible-send ledger", () => {
       expect((await store.read(run.runId)).sends).toEqual([
         expect.objectContaining({ sequence: 1, category: "sealed", status: null, respondedAt: null }),
       ]);
+    });
+
+    it("refuses the next slot from any replica after a send whose result and stop commits both failed", async () => {
+      let outage = false;
+      const first = createCountCaptureStore(
+        appendOutagePool(primary.catalog, () => outage),
+        clock,
+      );
+      const second = createCountCaptureStore(replica.catalog, clock);
+      const { run, binding } = await openPhase(first, "acquisition");
+      const sent: string[] = [];
+      const capture = (store: CountCaptureStore, kind: "cards" | "sealed") =>
+        runCountCaptureRequest({ binding, ledger: store.ledger }, () =>
+          countCaptureTransport("scrydex", "card-force", async () => {
+            sent.push(kind);
+            outage = true;
+            return new Response("{}");
+          })!(countUrls[kind]),
+        );
+      await expect(capture(first, "cards")).rejects.toThrow("capture-stopped");
+      outage = false;
+      // Only the request-local stop survived the outage; the retained run is still open.
+      expect(await second.read(run.runId)).toMatchObject({
+        status: "open",
+        sends: [expect.objectContaining({ category: "cards", status: null })],
+      });
+      // A fresh capture context on another replica starts unstopped, so the store alone refuses.
+      await expect(capture(second, "sealed")).rejects.toThrow("capture-stopped");
+      expect(sent).toEqual(["cards"]);
+      expect(await second.read(run.runId)).toMatchObject({
+        status: "stopped",
+        sends: [expect.objectContaining({ sequence: 1, category: "cards", status: null, respondedAt: null })],
+      });
+    });
+
+    it.each([
+      ["acquisition", count("cards")],
+      ["preview", usage("planImport", setUnit)],
+    ] as const)("the %s phase refuses a resolved slot a second time", async (phase, send) => {
+      const store = createCountCaptureStore(primary.catalog, clock);
+      const { run, binding } = await openPhase(store, phase);
+      await store.ledger.result(binding, await store.ledger.debit(binding, send), 200);
+      await expect(store.ledger.debit(binding, send)).rejects.toThrow("capture-stopped");
+      expect(await store.read(run.runId)).toMatchObject({
+        status: "stopped",
+        sends: [expect.objectContaining({ sequence: 1, status: 200 })],
+      });
     });
 
     it("binds sends to the one open request of an open, unexpired run", async () => {
