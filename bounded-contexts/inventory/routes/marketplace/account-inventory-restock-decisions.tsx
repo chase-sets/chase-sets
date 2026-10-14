@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import contextManifest from "../../context.json";
@@ -68,13 +68,16 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceInventoryRestockDecisionsRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
 
   return (
     <InventoryMutationProvider
       authority={data.recoveryAuthority}
+      navigationPending={navigation.state !== "idle"}
       key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
     >
       <RestockDecisionQueuePage
+        navigation="router"
         decisions={(data.decisions.items ?? []) as InventoryRestockDecision[]}
         errorMessage={actionData?.error ?? data.loadError ?? null}
       />

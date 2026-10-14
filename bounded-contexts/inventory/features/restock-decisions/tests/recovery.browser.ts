@@ -2,6 +2,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
+import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { closeMultiContextTestPools } from "@chase-sets/bounded-context-runtime/test-support";
@@ -12,6 +13,8 @@ import { buildInventoryItemProjectionHandlers } from "../../inventory-items/read
 import { buildInventoryRestockDecisionProjectionHandlers } from "../read-model/projection";
 
 const path = "/account/inventory/restock-decisions";
+const mutationRequest = (request: { url(): string; method(): string }) =>
+  request.method() === "POST" && new URL(request.url()).pathname === `${path}.data`;
 
 type SignIn = (page: Page, baseUrl: string) => Promise<unknown>;
 
@@ -144,21 +147,26 @@ export function registerRestockRecoveryBrowserTests(signIn: SignIn) {
           const committed = new Promise<void>((resolve) => {
             accepted = resolve;
           });
-          await page.route(`**${path}`, async (route) => {
-            if (route.request().method() !== "POST") return route.continue();
-            posts++;
-            const fields = new URLSearchParams(route.request().postData() ?? "");
-            attemptId = fields.get("inventoryMutationAttemptId") ?? "";
-            expect(attemptId).toMatch(/^[a-f0-9-]{36}$/);
-            expect(fields.get("expectedVersion")).toBe("1");
-            expect(fields.get("decisionId")).toBe(owned.decisionId);
-            await gate;
-            const result = await route.fetch({ maxRedirects: 0 });
-            expect(result.status()).toBe(302);
-            await route.abort("failed");
-            accepted();
-          });
-          const navigation = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame() });
+          await page.route(
+            (url) => url.pathname === `${path}.data`,
+            async (route) => {
+              if (!mutationRequest(route.request())) return route.continue();
+              posts++;
+              const fields = new URLSearchParams(route.request().postData() ?? "");
+              attemptId = fields.get("inventoryMutationAttemptId") ?? "";
+              expect(attemptId).toMatch(/^[a-f0-9-]{36}$/);
+              expect(fields.get("expectedVersion")).toBe("1");
+              expect(fields.get("decisionId")).toBe(owned.decisionId);
+              await gate;
+              const result = await route.fetch({ maxRedirects: 0 });
+              expect(result.status()).toBe(202);
+              const redirect = await UNSAFE_decodeViaTurboStream(new Response(await result.text()).body!, globalThis);
+              expect(redirect.value).toMatchObject({ status: 302, redirect: path });
+              await route.abort("failed");
+              accepted();
+            },
+          );
+          const responseLoss = page.waitForEvent("requestfailed", { predicate: mutationRequest });
           await button.click({ noWaitAfter: true });
           try {
             await expect(page.getByRole("status").filter({ hasText: "Submitting" })).toBeVisible();
@@ -168,7 +176,7 @@ export function registerRestockRecoveryBrowserTests(signIn: SignIn) {
             release();
           }
           await committed;
-          await navigation;
+          await responseLoss;
           await page.goto(path);
           const status = page.getByRole("status").filter({ hasText: "original Inventory change is confirmed" });
           await expect(status).toBeVisible();
@@ -217,17 +225,20 @@ export function registerRestockRecoveryBrowserTests(signIn: SignIn) {
       try {
         await page.goto(path);
         let posts = 0;
-        await page.route(`**${path}`, async (route) => {
-          if (route.request().method() !== "POST") return route.continue();
-          posts++;
-          return route.abort("failed");
-        });
+        await page.route(
+          (url) => url.pathname === `${path}.data`,
+          async (route) => {
+            if (!mutationRequest(route.request())) return route.continue();
+            posts++;
+            return route.abort("failed");
+          },
+        );
         const forms = page
           .locator("form")
           .filter({ has: page.locator(`input[name="decisionId"][value="${owned.decisionId}"]`) });
-        const navigation = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame() });
+        const responseLoss = page.waitForEvent("requestfailed", { predicate: mutationRequest });
         await forms.getByRole("button", { name: "Restock", exact: true }).click();
-        await navigation;
+        await responseLoss;
         await page.goto(path);
         for (const width of [390, 1280]) {
           await page.setViewportSize({ width, height: 850 });

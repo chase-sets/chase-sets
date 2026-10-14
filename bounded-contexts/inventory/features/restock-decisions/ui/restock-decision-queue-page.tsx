@@ -14,7 +14,7 @@ import {
   Textarea,
 } from "@chase-sets/design-system";
 import type { InventoryRestockDecision } from "../api/contracts";
-import { InventoryMutationForm as Form } from "../../../support/request-support/mutation-form";
+import { InventoryMutationForm, InventoryMutationRouterForm } from "../../../support/request-support/mutation-form";
 
 function itemLabel(decision: InventoryRestockDecision) {
   return decision.item_title ?? decision.item_id;
@@ -34,10 +34,13 @@ function sourceLabel(source: InventoryRestockDecision["source"]) {
 export function RestockDecisionQueuePage({
   decisions,
   errorMessage,
+  navigation = "document",
 }: {
   decisions: readonly InventoryRestockDecision[];
   errorMessage?: string | null;
+  navigation?: "document" | "router";
 }) {
+  const Form = navigation === "router" ? InventoryMutationRouterForm : InventoryMutationForm;
   return (
     <Page>
       <PageHeader

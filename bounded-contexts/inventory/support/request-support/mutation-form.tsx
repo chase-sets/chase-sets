@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Button, Form, HiddenInput, Stack, Text } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import { inventoryApi } from "../../client";
 import { createInventoryMutationRecovery, type InventoryRecoveryAuthority } from "./mutation-recovery";
@@ -27,13 +28,16 @@ const RecoveryContext = createContext<Readonly<{
 export function InventoryMutationProvider({
   authority,
   children,
+  navigationPending = false,
 }: {
   authority: InventoryRecoveryAuthority;
   children: ReactNode;
+  navigationPending?: boolean;
 }) {
   const [controllers, setControllers] = useState<ReadonlyMap<InventoryMutationFamily, Controller>>(new Map());
   const [, render] = useState(0);
   const status = useRef<HTMLParagraphElement>(null);
+  const wasNavigating = useRef(false);
   const changed = () => render((value) => value + 1);
   useEffect(() => {
     let current = true;
@@ -78,6 +82,25 @@ export function InventoryMutationProvider({
       window.removeEventListener("pageshow", onPageShow);
     };
   }, [controllers]);
+  useEffect(() => {
+    const completed = wasNavigating.current && !navigationPending;
+    wasNavigating.current = navigationPending;
+    if (!completed) return;
+    let current = true;
+    for (const controller of controllers.values()) {
+      if (controller.snapshot().state !== "submitting") continue;
+      controller.possibleSendLoss();
+      changed();
+      void controller
+        .confirm((id) => inventoryApi.getMutationAttempt(id))
+        .then(() => {
+          if (current) changed();
+        });
+    }
+    return () => {
+      current = false;
+    };
+  }, [navigationPending, controllers]);
   const pending = [...controllers.values()].filter((controller) => controller.snapshot().state !== "editing");
   const unavailable = controllers.size !== families.length;
   const state = unavailable
@@ -140,55 +163,83 @@ export function InventoryMutationProvider({
   );
 }
 
-export function InventoryMutationForm({
-  family,
-  targetId,
-  enabled = true,
-  mutationIntents,
-  children,
-  onSubmit,
-  ...props
-}: ComponentProps<typeof Form> & {
+type MutationRecoveryProps = {
   family: InventoryMutationFamily;
   targetId: string;
   enabled?: boolean;
   mutationIntents?: readonly string[];
-}) {
+};
+
+function useMutationForm({
+  family,
+  targetId,
+  enabled = true,
+  mutationIntents,
+  onSubmit,
+}: MutationRecoveryProps & Pick<ComponentProps<typeof Form>, "onSubmit">) {
   const recovery = useContext(RecoveryContext);
   const hidden = useRef<HTMLInputElement>(null);
   const controller = recovery?.controllers.get(family);
   const disabled = enabled && (!recovery?.ready || !controller || controller.snapshot().writesDisabled);
+  const submit: NonNullable<ComponentProps<typeof Form>["onSubmit"]> = (event) => {
+    if (!enabled) {
+      onSubmit?.(event);
+      return;
+    }
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    if (mutationIntents && submitter instanceof HTMLButtonElement && !mutationIntents.includes(submitter.value)) {
+      onSubmit?.(event);
+      return;
+    }
+    if (disabled || !controller || !hidden.current || !recovery) {
+      event.preventDefault();
+      return;
+    }
+    try {
+      hidden.current.value = controller.begin(targetId);
+      onSubmit?.(event);
+      if (event.defaultPrevented) controller.refusedBeforeAcceptance();
+      else setTimeout(() => recovery.changed(), 0);
+    } catch {
+      event.preventDefault();
+      recovery?.changed();
+    }
+  };
+  return { hidden, disabled, submit };
+}
+
+export function InventoryMutationForm({
+  family,
+  targetId,
+  enabled,
+  mutationIntents,
+  children,
+  onSubmit,
+  ...props
+}: ComponentProps<typeof Form> & MutationRecoveryProps) {
+  const { hidden, disabled, submit } = useMutationForm({ family, targetId, enabled, mutationIntents, onSubmit });
   return (
-    <Form
-      {...props}
-      disabled={props.disabled || disabled}
-      onSubmit={(event) => {
-        if (!enabled) {
-          onSubmit?.(event);
-          return;
-        }
-        const submitter = (event.nativeEvent as SubmitEvent).submitter;
-        if (mutationIntents && submitter instanceof HTMLButtonElement && !mutationIntents.includes(submitter.value)) {
-          onSubmit?.(event);
-          return;
-        }
-        if (disabled || !controller || !hidden.current || !recovery) {
-          event.preventDefault();
-          return;
-        }
-        try {
-          hidden.current.value = controller.begin(targetId);
-          onSubmit?.(event);
-          if (event.defaultPrevented) controller.refusedBeforeAcceptance();
-          else setTimeout(() => recovery.changed(), 0);
-        } catch {
-          event.preventDefault();
-          recovery?.changed();
-        }
-      }}
-    >
+    <Form {...props} disabled={props.disabled || disabled} onSubmit={submit}>
       <HiddenInput ref={hidden} name="inventoryMutationAttemptId" defaultValue="" />
       {children}
     </Form>
+  );
+}
+
+export function InventoryMutationRouterForm({
+  family,
+  targetId,
+  enabled,
+  mutationIntents,
+  children,
+  onSubmit,
+  ...props
+}: ComponentProps<typeof RouterForm> & MutationRecoveryProps) {
+  const { hidden, disabled, submit } = useMutationForm({ family, targetId, enabled, mutationIntents, onSubmit });
+  return (
+    <RouterForm {...props} disabled={props.disabled || disabled} onSubmit={submit}>
+      <HiddenInput ref={hidden} name="inventoryMutationAttemptId" defaultValue="" />
+      {children}
+    </RouterForm>
   );
 }
