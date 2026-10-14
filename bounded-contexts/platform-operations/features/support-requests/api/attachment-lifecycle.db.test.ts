@@ -22,6 +22,8 @@ import {
 import { createSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
 import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
 import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
+import { hashParticipantRequest } from "../domain/participant-attempt";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -90,7 +92,18 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
       streamId: caseStream,
       expectedVersion: "no_stream",
       context,
-      events: decideSupportRequest(initialSupportRequestState, { type: "OpenSupportRequest", supportRequestId: owner.supportRequestId as never, orderId: "ord_case" as never, buyerAccountId: owner.accountId, sellerAccountId: "acc_seller" as never, openedByAccountId: owner.accountId, openedByRole: "buyer", flowType: "product-damaged", orderTotalAmount: "10.00", openedAt: claim.submittedAt }).map((event) => ({ eventType: event.type, payload: event.data })),
+      events: decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: owner.supportRequestId as never,
+        orderId: "ord_case" as never,
+        buyerAccountId: owner.accountId,
+        sellerAccountId: "acc_seller" as never,
+        openedByAccountId: owner.accountId,
+        openedByRole: "buyer",
+        flowType: "product-damaged",
+        orderTotalAmount: "10.00",
+        openedAt: claim.submittedAt,
+      }).map((event) => ({ eventType: event.type, payload: event.data })),
     });
     await store.appendToStream({
       streamId: operationStream,
@@ -107,8 +120,55 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
   });
   afterAll(async () => closeMultiContextTestPools(pools));
   const lifecycle = () => createSupportAttachmentReferenceLifecycle(store);
-  const runtime = (eventStore: EventStore) => createSupportRequestRuntime({ eventStore, db: pool, checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} } });
-  const commandInput = { streamId: caseStream, context, command: { type: "SubmitSupportEvidence", evidenceId: claim.evidenceId, submittedByAccountId: owner.accountId, submittedByRole: "buyer", evidenceType: "photo", summary: "Evidence", submittedAt: claim.submittedAt, attachments, attachmentOperationId: owner.operationId } } as const;
+  const runtime = (eventStore: EventStore) =>
+    createSupportRequestRuntime({
+      eventStore,
+      db: pool,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+    });
+  const commandInput = {
+    streamId: caseStream,
+    context,
+    command: {
+      type: "SubmitSupportEvidence",
+      evidenceId: claim.evidenceId,
+      submittedByAccountId: owner.accountId,
+      submittedByRole: "buyer",
+      evidenceType: "photo",
+      summary: "Evidence",
+      submittedAt: claim.submittedAt,
+      attachments,
+      attachmentOperationId: owner.operationId,
+    },
+  } as const;
+  const execute = async (eventStore: EventStore, path: "command" | "participant") => {
+    const services = runtime(eventStore);
+    if (path === "command") return services.commandHandler(commandInput);
+    const body = {
+      submittedByRole: "buyer",
+      evidenceType: "photo",
+      summary: "Evidence",
+      attachments,
+      attachmentOperationId: owner.operationId,
+    };
+    return services.executeParticipantAttempt(
+      {
+        actionKind: "submit-evidence",
+        attempt: {
+          attemptId: "9391_lifecycle_attempt_0123456789",
+          requestHash: await hashParticipantRequest("submit-evidence", body),
+        },
+        targetId: owner.supportRequestId,
+        accountId: owner.accountId,
+        actor: {
+          ...evidenceActor("owner", ["support.manage"], false, owner.accountId),
+          userId: context.audit.performedByUserId,
+        },
+        body,
+      },
+      context,
+    );
+  };
   const caseAppend = (events: number) =>
     store.appendToStream({
       streamId: caseStream,
@@ -138,27 +198,52 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
       { streamId: operationStream, expectedVersion: version, context, events: [] },
     ]);
 
-  it("a concurrent case append conflicts with the claim (mutant: omit case guard)", async () => {
-    await caseAppend(1);
-    await expect(lifecycle().claim(claim, context)).rejects.toMatchObject({ code: "concurrency_conflict" });
-    expect(await readCompleteStream(store, { streamId: operationStream })).toHaveLength(3);
-  });
-  it("a delayed submission after release fails atomically (mutant: omit empty operation guard or serial fallback)", async () => {
-    const wrapped: EventStore = { ...store,
-      appendToStreams: async (inputs) => {
-        if (inputs.some((input) => input.events.some((event) => event.eventType === "support.support-request.evidence-submitted")))
-          await lifecycle().release({ owner, expectedVersion: 4 }, context);
-        return store.appendToStreams!(inputs);
-      },
-      appendToStream: async (input) => {
-        if (input.events.some((event) => event.eventType === "support.support-request.evidence-submitted"))
-          await lifecycle().release({ owner, expectedVersion: 4 }, context);
-        return store.appendToStream(input);
-      },
-    };
-    await expect(runtime(wrapped).commandHandler(commandInput)).rejects.toMatchObject({ code: "concurrency_conflict" });
-    expect(await readCompleteStream(store, { streamId: caseStream })).toHaveLength(1);
-  });
+  it.each(["command", "participant"] as const)(
+    "%s: a concurrent case append conflicts with the claim (mutant: omit case guard)",
+    async (path) => {
+      const wrapped: EventStore = {
+        ...store,
+        appendToStreams: async (inputs) => {
+          if (
+            inputs.some((input) =>
+              input.events.some((event) => event.eventType === "support.attachment-operation.reference-claimed"),
+            )
+          )
+            await caseAppend(1);
+          return store.appendToStreams!(inputs);
+        },
+      };
+      await expect(execute(wrapped, path)).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect(await readCompleteStream(store, { streamId: operationStream })).toHaveLength(3);
+      expect(await readCompleteStream(store, { streamId: caseStream })).toHaveLength(2);
+    },
+  );
+  it.each(["command", "participant"] as const)(
+    "%s: a delayed submission after release fails atomically (mutant: omit empty operation guard or serial fallback)",
+    async (path) => {
+      const wrapped: EventStore = {
+        ...store,
+        appendToStreams: async (inputs) => {
+          if (
+            inputs.some((input) =>
+              input.events.some((event) => event.eventType === "support.support-request.evidence-submitted"),
+            )
+          )
+            await lifecycle().release({ owner, expectedVersion: 4 }, context);
+          return store.appendToStreams!(inputs);
+        },
+        appendToStream: async (input) => {
+          if (input.events.some((event) => event.eventType === "support.support-request.evidence-submitted"))
+            await lifecycle().release({ owner, expectedVersion: 4 }, context);
+          return store.appendToStream(input);
+        },
+      };
+      await expect(execute(wrapped, path)).rejects.toMatchObject({
+        code: path === "participant" ? "participant-concurrency-unknown" : "concurrency_conflict",
+      });
+      expect(await readCompleteStream(store, { streamId: caseStream })).toHaveLength(1);
+    },
+  );
   it.each([500, 501])(
     "release sees committed evidence at case event %i (mutant: first-page-only release)",
     async (length) => {
@@ -197,22 +282,41 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
       decideAttachmentOperation(state, { type: "AdmitSupportAttachmentPut", data: { index: 0, attempt: 1 } }),
     ).toThrow("operation-terminal");
   });
-  it("confirmation recovers across restart and replay (mutant: confirmation only in upload process memory)", async () => {
-    const interrupted: EventStore = { ...store, appendToStreams: async (inputs) => {
-      if (inputs.some((input) => input.events.some((event) => event.eventType === "support.attachment-operation.referenced")))
-        throw new Error("confirmation interrupted after evidence commit");
-      return store.appendToStreams!(inputs);
-    } };
-    await expect(runtime(interrupted).commandHandler(commandInput)).rejects.toThrow("confirmation interrupted");
-    const restarted = runtime(createPostgresEventStore({ pool }));
-    await restarted.commandHandler(commandInput);
-    await restarted.commandHandler(commandInput);
-    const history = await readCompleteStream(store, { streamId: operationStream });
-    expect(history.map((event) => event.eventType).slice(-2)).toEqual([
-      "support.attachment-operation.reference-claimed",
-      "support.attachment-operation.referenced",
-    ]);
-    expect(replayAttachmentOperation(history.map((event) => ({ type: event.eventType, data: event.payload })) as Parameters<typeof replayAttachmentOperation>[0]).status).toBe("referenced");
-    expect((await readCompleteStream(store, { streamId: caseStream })).filter((event) => event.eventType === "support.support-request.evidence-submitted")).toHaveLength(1);
-  });
+  it.each(["command", "participant"] as const)(
+    "%s: confirmation recovers across restart and replay (mutant: confirmation only in upload process memory)",
+    async (path) => {
+      const interrupted: EventStore = {
+        ...store,
+        appendToStreams: async (inputs) => {
+          if (
+            inputs.some((input) =>
+              input.events.some((event) => event.eventType === "support.attachment-operation.referenced"),
+            )
+          )
+            throw new Error("confirmation interrupted after evidence commit");
+          return store.appendToStreams!(inputs);
+        },
+      };
+      await expect(execute(interrupted, path)).rejects.toThrow("confirmation interrupted");
+      await execute(createPostgresEventStore({ pool }), path);
+      await execute(createPostgresEventStore({ pool }), path);
+      const history = await readCompleteStream(store, { streamId: operationStream });
+      expect(history.map((event) => event.eventType).slice(-2)).toEqual([
+        "support.attachment-operation.reference-claimed",
+        "support.attachment-operation.referenced",
+      ]);
+      expect(
+        replayAttachmentOperation(
+          history.map((event) => ({ type: event.eventType, data: event.payload })) as Parameters<
+            typeof replayAttachmentOperation
+          >[0],
+        ).status,
+      ).toBe("referenced");
+      expect(
+        (await readCompleteStream(store, { streamId: caseStream })).filter(
+          (event) => event.eventType === "support.support-request.evidence-submitted",
+        ),
+      ).toHaveLength(1);
+    },
+  );
 });

@@ -3,6 +3,7 @@ import {
   createParticipantRuntime,
   type ParticipantCommandInput,
   type ParticipantLookupInput,
+  type PrepareSupportEvidence,
 } from "./participant-runtime";
 import type { ParticipantLookup, ParticipantResult } from "../domain/participant-attempt";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -643,15 +644,23 @@ export function createSupportAttachmentReferenceLifecycle(eventStore: EventStore
     const history = await readCompleteStream(eventStore, { streamId: caseStream(owner) });
     if (history.some((event) => event.tenantId !== owner.tenantId))
       throw new SupportDomainError("attachment_reference_history_unavailable");
-    const evidence = history.filter((event) => event.eventType === "support.support-request.evidence-submitted").map((event) => {
-      const value = event.payload.evidence;
-      if (!value || typeof value !== "object" || Array.isArray(value))
-        throw new SupportDomainError("attachment_reference_history_unavailable");
-      const evidence = value as Record<string, unknown>;
-      if (!Array.isArray(evidence.attachments) || evidence.attachments.some((reference) => typeof reference !== "string"))
-        throw new SupportDomainError("attachment_reference_history_unavailable");
-      return { evidenceId: typeof evidence.evidenceId === "string" ? evidence.evidenceId : undefined, attachments: evidence.attachments as string[] };
-    });
+    const evidence = history
+      .filter((event) => event.eventType === "support.support-request.evidence-submitted")
+      .map((event) => {
+        const value = event.payload.evidence;
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new SupportDomainError("attachment_reference_history_unavailable");
+        const evidence = value as Record<string, unknown>;
+        if (
+          !Array.isArray(evidence.attachments) ||
+          evidence.attachments.some((reference) => typeof reference !== "string")
+        )
+          throw new SupportDomainError("attachment_reference_history_unavailable");
+        return {
+          evidenceId: typeof evidence.evidenceId === "string" ? evidence.evidenceId : undefined,
+          attachments: evidence.attachments as string[],
+        };
+      });
     return { evidence, version: history.at(-1)?.streamVersion ?? 0 };
   }
   async function load(owner: AttachmentOperationOwner, context: EventStoreContext) {
@@ -741,7 +750,11 @@ export function createSupportAttachmentReferenceLifecycle(eventStore: EventStore
       if (!claim) throw new SupportDomainError("attachment_reference_unknown");
       const history = await caseHistory(input.owner);
       if (
-        !history.evidence.some((evidence) => evidence.evidenceId === claim.evidenceId && canonicalJson(evidence.attachments) === canonicalJson(claim.attachments))
+        !history.evidence.some(
+          (evidence) =>
+            evidence.evidenceId === claim.evidenceId &&
+            canonicalJson(evidence.attachments) === canonicalJson(claim.attachments),
+        )
       )
         throw new SupportDomainError("attachment_reference_not_committed");
       const events = decideAttachmentOperation(loaded.state, {
@@ -780,37 +793,32 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
   });
   const references = createSupportAttachmentReferenceLifecycle(deps.eventStore);
   const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
-  const commandHandler: SupportRequestServices["commandHandler"] = async (input) => {
-    if (input.command.type !== "SubmitSupportEvidence") return aggregateCommandHandler(input);
-    const history = await readCompleteStream(deps.eventStore, { streamId: input.streamId });
-    if (history.some((event) => event.tenantId !== input.context.tenantId))
-      throw new SupportDomainError("attachment_reference_unknown");
-    const state = history.reduce(
-      (current, event) => evolveSupportRequest(current, codec.decode(event)),
-      initialSupportRequestState,
-    );
-    const version = history.at(-1)?.streamVersion ?? 0;
-    const attachments = input.command.attachments ?? [];
-    const seedContext = isSupportEvidenceSeedContext(input.context);
+  const prepareEvidence: PrepareSupportEvidence = async (originalCommand, state, version, context) => {
+    const attachments = originalCommand.attachments ?? [];
+    const seedContext = isSupportEvidenceSeedContext(context);
     const priorReferences = state.evidence.flatMap((evidence) => evidence.attachments);
-    let command = input.command;
+    let command = originalCommand;
     let claimVersion: number | undefined;
     let owner: AttachmentOperationOwner | undefined;
     if (attachments.length && command.attachmentOperationId) {
       owner = {
-        tenantId: input.context.tenantId,
-        accountId: input.context.audit.forAccountId,
+        tenantId: context.tenantId,
+        accountId: context.audit.forAccountId,
         supportRequestId: state.supportRequestId!,
         operationId: command.attachmentOperationId,
       };
-      const loaded = await references.load(owner, input.context);
+      const loaded = await references.load(owner, context);
       if (
         command.submittedByAccountId !== owner.accountId ||
         !loaded.state.manifest ||
         canonicalJson(attachments) !== canonicalJson(attachmentManifestReferences(loaded.state.manifest))
       )
         throw new SupportDomainError("attachment_reference_unknown");
-      if (loaded.state.referenceClaim) command = { ...command, submittedAt: loaded.state.referenceClaim.submittedAt };
+      command = {
+        ...command,
+        evidenceId: deterministicSupportId("sev", command.attachmentOperationId!),
+        submittedAt: loaded.state.referenceClaim?.submittedAt ?? command.submittedAt,
+      };
       assertSupportEvidenceReferences(attachments, priorReferences, { claimedAttachments: attachments });
       // Decide before claiming: invalid evidence must leave both product streams untouched.
       decideSupportRequest(state, command, { claimedAttachments: attachments });
@@ -823,19 +831,49 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           expectedVersion: loaded.version,
           caseVersion: version,
         },
-        input.context,
+        context,
       );
     }
-    const newEvents = decideSupportRequest(state, command, {
+    const authority = {
       seedContext,
       ...(claimVersion === undefined ? {} : { claimedAttachments: attachments }),
-    });
+    };
+    assertSupportEvidenceReferences(attachments, priorReferences, authority);
+    return {
+      command,
+      authority,
+      append: async (append) => {
+        if (!owner || claimVersion === undefined) return deps.eventStore.appendToStream(append);
+        if (!deps.eventStore.appendToStreams)
+          throw new SupportDomainError("attachment_reference_atomic_append_unavailable");
+        const results = await deps.eventStore.appendToStreams([
+          append,
+          { streamId: attachmentOperationStreamId(owner), expectedVersion: claimVersion, context, events: [] },
+        ]);
+        return results[0].storedEvents;
+      },
+      confirm: async () => {
+        if (owner && claimVersion !== undefined)
+          await references.confirm({ owner, expectedVersion: claimVersion }, context);
+      },
+    };
+  };
+  const commandHandler: SupportRequestServices["commandHandler"] = async (input) => {
+    if (input.command.type !== "SubmitSupportEvidence") return aggregateCommandHandler(input);
+    const history = await readCompleteStream(deps.eventStore, { streamId: input.streamId });
+    if (history.some((event) => event.tenantId !== input.context.tenantId))
+      throw new SupportDomainError("attachment_reference_unknown");
+    const state = history.reduce(
+      (current, event) => evolveSupportRequest(current, codec.decode(event)),
+      initialSupportRequestState,
+    );
+    const version = history.at(-1)?.streamVersion ?? 0;
+    const fence = await prepareEvidence(input.command, state, version, input.context);
+    const newEvents = decideSupportRequest(state, fence.command, fence.authority);
     if (!newEvents.length) {
-      if (owner && claimVersion !== undefined)
-        await references.confirm({ owner, expectedVersion: claimVersion }, input.context);
+      await fence.confirm();
       return { state, version, newEvents, storedEvents: [] };
     }
-    let storedEvents;
     const append = {
       streamId: input.streamId,
       wakeSourceContextName: "platform-operations",
@@ -843,24 +881,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       context: input.context,
       events: newEvents.map(codec.encode),
     };
-    if (owner && claimVersion !== undefined) {
-      if (!deps.eventStore.appendToStreams)
-        throw new SupportDomainError("attachment_reference_atomic_append_unavailable");
-      const results = await deps.eventStore.appendToStreams([
-        append,
-        {
-          streamId: attachmentOperationStreamId(owner),
-          expectedVersion: claimVersion,
-          context: input.context,
-          events: [],
-        },
-      ]);
-      storedEvents = results[0].storedEvents;
-    } else storedEvents = await deps.eventStore.appendToStream(append);
+    const storedEvents = await fence.append(append);
     recordCommittedEvents(storedEvents, "platform-operations");
     // Confirmation is a separate command; a retry recovers it from durable case evidence.
-    if (owner && claimVersion !== undefined)
-      await references.confirm({ owner, expectedVersion: claimVersion }, input.context);
+    await fence.confirm();
     return {
       state: newEvents.reduce(evolveSupportRequest, state),
       version: storedEvents.at(-1)?.streamVersion ?? version,
@@ -1022,6 +1046,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
   }
 
   const participantRuntime = createParticipantRuntime({
+    prepareEvidence,
     eventStore: deps.eventStore,
     now: deps.now,
     authorizeEvidence: (targetId, actor) => authorizeEvidenceAccess(targetId, actor, "submit-participant"),

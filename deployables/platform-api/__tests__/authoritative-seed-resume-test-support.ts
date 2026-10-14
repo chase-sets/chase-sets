@@ -27,6 +27,7 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 // same way this file already inlines `requiredDraftListingId`. Each inlined id
 // is guarded by an assertion that fails loudly if the seed renames it.
 import { identitySeedIds } from "@chase-sets/identity/server";
+import { createSupportEvidenceSeedContext } from "@chase-sets/platform-operations/server";
 import { expect } from "vitest";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
@@ -1663,7 +1664,7 @@ export async function replaceResolvedSeedRequestWithCancelled(
       submittedAt: "2026-03-25T10:04:00.000Z",
       attachments: ["seed://support/damaged-card-corner"],
     },
-    context: seedActorContext,
+    context: createSupportEvidenceSeedContext(seedActorContext),
   });
   await supportRequests.commandHandler({
     streamId,

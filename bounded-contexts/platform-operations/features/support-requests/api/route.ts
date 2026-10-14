@@ -221,7 +221,7 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
           error.status,
         );
       if (error instanceof SupportDomainError || error instanceof SyntaxError)
-        return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+        return c.json({ error: evidenceValidationError(error) }, 400);
       if (
         kind === "submit-evidence" &&
         submittedBody &&

@@ -5,7 +5,7 @@ import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
-import { createSupportRequestRuntime } from "./runtime";
+import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
@@ -114,6 +114,37 @@ describe("Support evidence submissions use one reference boundary", () => {
         );
         expect(response.status, await response.clone().text()).toBe(400);
         expect((await response.json()).error.code).toBe("attachment_reference_unknown");
+        if (!operations) {
+          const body = {
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+            ...(scenario === "bare-reference" || scenario === "arbitrary" || scenario === "non-seed-placeholder"
+              ? {}
+              : { attachmentOperationId: operationId }),
+          };
+          let requestHash = "a".repeat(64);
+          try {
+            requestHash = createHash("sha256")
+              .update(canonicalParticipantRequest("submit-evidence", body))
+              .digest("hex");
+          } catch {
+            /* invalid reference grammar must also reject direct runtime dispatch */
+          }
+          await expect(
+            fixture.runtime.executeParticipantAttempt(
+              {
+                actionKind: "submit-evidence",
+                targetId: "sup_case",
+                accountId: actor.accountId,
+                actor,
+                body,
+                attempt: { attemptId: "9391_direct_boundary_0123456789", requestHash },
+              },
+              { tenantId: actor.tenantId, audit: { performedByUserId: actor.userId, forAccountId: actor.accountId } },
+            ),
+          ).rejects.toThrow("attachment_reference_unknown");
+        }
         expect(
           fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-")),
         ).toHaveLength(before);
@@ -198,10 +229,90 @@ describe("Support evidence submissions use one reference boundary", () => {
     ).toHaveLength(1);
     const response = await app.request("/support-requests/sup_case/evidence", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "9391_history_reference_0123456789" },
       body: JSON.stringify({ ...body, attachmentOperationId: undefined }),
     });
     expect(response.status, await response.clone().text()).toBe(200);
+  });
+  it("participant delayed reference is rejected with no evidence or receipt append (mutant: omit empty operation guard or serial fallback)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const append = fixture.eventStore.appendToStreams!.bind(fixture.eventStore);
+    vi.spyOn(fixture.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "support.support-request.evidence-submitted"),
+        )
+      )
+        await createSupportAttachmentReferenceLifecycle(fixture.eventStore).release(
+          {
+            owner: { tenantId: "tnt_identity", accountId: "acc_buyer", supportRequestId: "sup_case", operationId },
+            expectedVersion: 4,
+          },
+          context,
+        );
+      return append(inputs);
+    });
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      body: JSON.stringify({
+        evidenceType: "photo",
+        summary: "Evidence",
+        attachments,
+        attachmentOperationId: operationId,
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(fixture.allEvents.filter((event) => event.streamId === "support.support-request-sup_case")).toHaveLength(2);
+    expect(
+      fixture.allEvents.some((event) => event.eventType === "support.support-request.participant-attempt-recorded"),
+    ).toBe(false);
+  });
+  it("participant replay after restart confirms the committed batch once (mutant: receipt replay bypasses confirmation)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const body = { evidenceType: "photo", summary: "Evidence", attachments, attachmentOperationId: operationId };
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const append = fixture.eventStore.appendToStreams!.bind(fixture.eventStore);
+    const interruption = vi.spyOn(fixture.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "support.attachment-operation.referenced"),
+        )
+      )
+        throw new Error("confirmation interrupted");
+      return append(inputs);
+    });
+    const first = await attachmentApp(fixture.runtime, actor).request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    expect(first.status).toBe(503);
+    interruption.mockRestore();
+    const restarted = createSupportRequestRuntime({
+      eventStore: fixture.eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+    });
+    for (let retry = 0; retry < 2; retry++) {
+      const response = await attachmentApp(restarted, actor).request("/support-requests/sup_case/evidence", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.support-request.participant-attempt-recorded"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.support-request.evidence-submitted"),
+    ).toHaveLength(2);
   });
 });
 
@@ -551,7 +662,7 @@ describe("support attachment capability x role x participation", () => {
             submittedByRole: "buyer",
             evidenceType: "support-note",
             summary: "",
-            attachments: [participantReference],
+            attachments: [fixture.reference],
           }),
         },
       );
@@ -821,7 +932,7 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
       } as never);
     if (c.req.method === "POST" && /\/support-requests\/[^/]+\/evidence$/.test(new URL(c.req.url).pathname)) {
       const body = await c.req.raw.clone().json();
-      c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
+      if (!c.req.header("Idempotency-Key")) c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
       let hash = "a".repeat(64);
       try {
         hash = createHash("sha256").update(canonicalParticipantRequest("submit-evidence", body)).digest("hex");
