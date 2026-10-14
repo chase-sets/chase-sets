@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { countFingerprint, countTimeIsCurrent } from "./count-acquisition";
 
-// Governed Scrydex count preparation for a #9224 rehearsal pass (#9591). The
+// Governed Scrydex count preparation for a whole-game rehearsal pass. The
 // receipt is the only artifact the staging workflow may upload: a closed,
 // count-only record of the quote, the host approval it was bound to, the single
 // acquisition and its retained readback. It never carries URLs, payloads,
@@ -88,7 +88,7 @@ const passSchema = z
   .refine((pass) => pass.scopeKind === scopeKindFor(pass.productDomain));
 export type RehearsalCountPreparationPass = z.infer<typeof passSchema>;
 
-/** The #9224 start journey selects `set` scopes, and Pokemon `expansion` scopes. */
+/** The whole-game start journey selects `set` scopes, and Pokemon `expansion` scopes. */
 function scopeKindFor(productDomain: string): "set" | "expansion" {
   return productDomain === "pokemon" ? "expansion" : "set";
 }

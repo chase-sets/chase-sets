@@ -14,8 +14,8 @@ import {
   type RehearsalCountPreparationRefusalCode,
 } from "../domain/rehearsal-count-preparation-receipt";
 
-// Staging-only preparation of governed Scrydex counts before a #9224 rehearsal
-// pass reserves and starts its batch (#9591). It drives only the shipped count
+// Staging-only preparation of governed Scrydex counts before a whole-game
+// rehearsal pass reserves and starts its batch. It drives only the shipped count
 // routes: one quote, or one host-approved acquisition plus single retained
 // reads. It never previews, confirms, enqueues, refreshes usage, discovers,
 // retries, follows redirects or reads a second page, and it never holds
@@ -312,7 +312,7 @@ function currentAt(value: string, now: string): boolean {
 
 /**
  * Admits the host approval before any network access: closed shape, bound to
- * this pass and dispatch, fresh approval and #8427 authority, and a cap and
+ * this pass and dispatch, fresh approval and Admin usage authority, and a cap and
  * headroom that cover every planned credit (no intentional partial purchase).
  */
 export function admitRehearsalCountAcquisition(input: {

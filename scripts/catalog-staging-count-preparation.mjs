@@ -18,7 +18,7 @@ import {
   validateRehearsalCountPreparationReceiptText,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/rehearsal-count-preparation-receipt.ts";
 
-// Thin staging runner for governed Scrydex count preparation (#9591). The
+// Thin staging runner for governed Scrydex count preparation. The
 // workflow admits the immutable SHA and exact staging origin before this job
 // receives the Admin credential; this runner signs in over the shipped password
 // route (no browser, so no trace, video, HAR, storage state or screenshot),
