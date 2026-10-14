@@ -58,7 +58,7 @@ one bounded page with no cursor. It is distinct from semantic Rescue and is labe
 A **Search Interpretation** turns Condition, Grading Company, Grade, and language words in a zero-result query into
 Filter State, once, before spelling correction. It keeps explicit filters authoritative and never feeds semantic
 Rescue; the marketplace canonicalizes it to a marked URL. It is Discovery's reading of the words, not Catalog truth.
-See `docs/dynamic-search-filters.md`.
+See `bounded-contexts/discovery/docs/dynamic-search-filters.md`.
 
 ### Facet
 
