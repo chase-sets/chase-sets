@@ -17,7 +17,13 @@ describe("ebay-account-deletion staff host composition", () => {
       port: 6182,
     });
     openedPools.push(pools);
-    const runtime = createPlatformApiHost({ runtimeProfile: "public", pools, hostPorts: {} });
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+      },
+    });
     const channels = runtime.services.channels;
     if (!isChannelsServices(channels)) throw new Error("Channels not mounted in actual API host");
     const lookup = vi
