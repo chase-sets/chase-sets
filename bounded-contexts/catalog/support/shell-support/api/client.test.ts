@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
-import { normalizeScopeSyncBatchBudget } from "../../../features/scope-sync-batches/domain/batch";
 
 describe("count capture planner client", () => {
   it("binds count quote and acquisition on the existing endpoints without changing ordinary calls", async () => {
@@ -12,7 +11,14 @@ describe("count capture planner client", () => {
     });
     const input = {
       selection: { mode: "ids" as const, scopeRecordIds: ["synthetic-scope"] },
-      budget: normalizeScopeSyncBatchBudget(),
+      budget: {
+        maxScopesPerTurn: 1,
+        defaultProviderConcurrency: 1,
+        providerConcurrency: { scrydex: 1 },
+        providerRequestLimits: { scrydex: 2 },
+        creditedProviderRequestLimits: { scrydex: 2 },
+        providerFailureThreshold: 3,
+      },
     };
     const acquisition = { ...input, quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
     await client.captureScopeSyncCountQuote(input);
