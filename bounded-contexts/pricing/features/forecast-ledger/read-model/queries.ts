@@ -21,21 +21,20 @@ export async function loadForecastCurves(
   input: Readonly<{ catalogItemId: string; productId: string; versions: readonly number[]; pricedAt: string }>,
 ): Promise<ReadonlyMap<number, ForecastCurve>> {
   if (input.versions.length === 0) return new Map();
-  const [versions, sales] = await Promise.all([
-    db.query<{ version: string; model_version: string }>(
-      `SELECT version::text, model_version FROM pricing_demand_curve_versions
-       WHERE catalog_item_id = $1 AND product_id = $2 AND version = ANY($3::bigint[])`,
-      [input.catalogItemId, input.productId, [...input.versions]],
-    ),
-    db.query<{ week_start: string; transaction_count: number }>(
-      `SELECT week_start::text, sum(transaction_count)::integer AS transaction_count
-       FROM pricing_external_weekly_sale_buckets
-       WHERE provider_key = $1 AND catalog_item_id = $2 AND catalog_product_key = $3
-         AND week_start > ($4::timestamptz - make_interval(days => $5::integer))::date AND week_start <= $4::timestamptz
-       GROUP BY week_start ORDER BY week_start`,
-      [PROVIDER, input.catalogItemId, input.productId, input.pricedAt, CONDITION_SALES_DAYS],
-    ),
-  ]);
+  // One transaction client: reads run in turn.
+  const versions = await db.query<{ version: string; model_version: string }>(
+    `SELECT version::text, model_version FROM pricing_demand_curve_versions
+     WHERE catalog_item_id = $1 AND product_id = $2 AND version = ANY($3::bigint[])`,
+    [input.catalogItemId, input.productId, [...input.versions]],
+  );
+  const sales = await db.query<{ week_start: string; transaction_count: number }>(
+    `SELECT week_start::text, sum(transaction_count)::integer AS transaction_count
+     FROM pricing_external_weekly_sale_buckets
+     WHERE provider_key = $1 AND catalog_item_id = $2 AND catalog_product_key = $3
+       AND week_start > ($4::timestamptz - make_interval(days => $5::integer))::date AND week_start <= $4::timestamptz
+     GROUP BY week_start ORDER BY week_start`,
+    [PROVIDER, input.catalogItemId, input.productId, input.pricedAt, CONDITION_SALES_DAYS],
+  );
   const conditionSales = sales.rows.map((row) => ({
     weekStart: row.week_start,
     transactionCount: row.transaction_count,
