@@ -11,6 +11,7 @@ import { inventoryApiErrorAdapter } from "../../support/request-support/route-ap
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
 import { createOfflineSaleFormToken, submitOfflineSaleForm } from "../../features/inventory-items/ui/offline-sale-form";
 import type { InventoryOfflineSaleResult } from "../../client";
+import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
 
 type OfflineSaleActionData = Readonly<{
   offlineSale: InventoryOfflineSaleResult;
@@ -58,6 +59,7 @@ export const loader = defineResourceRoute({
   errorAdapter: inventoryApiErrorAdapter,
   load: ({ request, params }) => createInventoryRequestApiClient(request).getItem(params.itemId!),
   map: (item, { actor }) => ({
+    recoveryAuthority: { accountId: actor!.accountId, actorUserId: actor!.userId },
     item,
     canRecordOfflineSale: actor?.permissions.includes("inventory.manage") ?? false,
     canHonorOffline: actor?.roleKey === "owner" || actor?.roleKey === "manager",
@@ -79,7 +81,9 @@ export const action = defineFormAction({
   }),
   intents: {
     "adjust-item": async ({ request, params, formData }) => {
-      const result = await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
+      const result = await createInventoryRequestApiClient(request, {
+        mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+      }).adjustItem(params.itemId!, {
         quantityDelta: Number(formData.get("quantityDelta") ?? 0),
         reason: formData.get("reason"),
         reasonCode: formData.get("reasonCode"),
@@ -101,7 +105,9 @@ export const action = defineFormAction({
     },
     "create-hold": async ({ request, params, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).createHold(params.itemId!, {
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).createHold(params.itemId!, {
           quantity: Number(formData.get("quantity") ?? 0),
           reason: formData.get("reason"),
           notes: String(formData.get("notes") ?? "").trim() || null,
@@ -110,7 +116,9 @@ export const action = defineFormAction({
       ),
     "release-hold": async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).releaseHold(String(formData.get("holdId") ?? "")),
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).releaseHold(String(formData.get("holdId") ?? "")),
         new URL(request.url).pathname,
       ),
   },
@@ -191,16 +199,21 @@ export default function MarketplaceInventoryItemRoute() {
   }, [currentPath, navigate, offlineSaleAction]);
 
   return (
-    <InventoryItemDetailPage
-      item={data.item as InventoryItemDetail}
-      currentPath={currentPath}
-      canRecordOfflineSale={data.canRecordOfflineSale}
-      canHonorOffline={data.canHonorOffline}
-      offlineSaleFormToken={visibleOfflineSaleFormToken}
-      offlineSaleResult={visibleOfflineSaleResult}
-      offlineSaleVerificationState={offlineSaleVerificationState}
-      errorMessage={actionFeedback.pageErrorMessage}
-      offlineSaleErrorMessage={actionFeedback.offlineSaleErrorMessage}
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority}
+      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
+    >
+      <InventoryItemDetailPage
+        item={data.item as InventoryItemDetail}
+        currentPath={currentPath}
+        canRecordOfflineSale={data.canRecordOfflineSale}
+        canHonorOffline={data.canHonorOffline}
+        offlineSaleFormToken={visibleOfflineSaleFormToken}
+        offlineSaleResult={visibleOfflineSaleResult}
+        offlineSaleVerificationState={offlineSaleVerificationState}
+        errorMessage={actionFeedback.pageErrorMessage}
+        offlineSaleErrorMessage={actionFeedback.offlineSaleErrorMessage}
+      />
+    </InventoryMutationProvider>
   );
 }

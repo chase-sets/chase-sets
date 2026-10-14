@@ -357,6 +357,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     return {
       item,
+      recoveryAuthority: actor ? { accountId: actor.accountId, actorUserId: actor.userId } : null,
       similarItems: await similarItemsPromise,
       accountOfferMatches,
       sellerInventoryItems,

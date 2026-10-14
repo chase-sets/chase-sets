@@ -9,7 +9,7 @@ import { admin, adminPath, mounted, push, session, unpair } from "./fixture";
 
 afterEach(() => vi.restoreAllMocks());
 describe("operator-session failures stop before real host sinks", () => {
-  it("grant entry points add no audit, event, span, readiness, receipt, config or snapshot sink", () => {
+  it("grant entry points permit only the bounded query-failure warning, no custody sinks", () => {
     const dependencies = new Set([
       "node:crypto",
       "hono",
@@ -36,9 +36,16 @@ describe("operator-session failures stop before real host sinks", () => {
           expect(dependencies.has(node.moduleSpecifier.text), node.moduleSpecifier.text).toBe(true);
         }
         if (ts.isCallExpression(node)) {
-          expect(node.expression.getText(source)).not.toMatch(
-            /console\.|recordException|(?:audit|telemetry|logger|span)\.|appendEvents|writeFile|fetch\b|import\b/,
-          );
+          if (node.expression.getText(source) === "console.warn") {
+            expect(name).toBe("operation");
+            expect(node.arguments.map((argument) => argument.getText(source))).toEqual([
+              'JSON.stringify({ operation: "operator-session.query", sqlstate })',
+            ]);
+          } else {
+            expect(node.expression.getText(source)).not.toMatch(
+              /console\.|recordException|(?:audit|telemetry|logger|span)\.|appendEvents|writeFile|fetch\b|import\b/,
+            );
+          }
         }
         ts.forEachChild(node, inspect);
       }

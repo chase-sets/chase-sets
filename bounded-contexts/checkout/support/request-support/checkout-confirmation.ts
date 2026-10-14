@@ -1,7 +1,7 @@
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import { createPaymentsRequestApiClient, hasPaymentsFreshReadAfterWriteSource } from "@chase-sets/payments/server";
 import { createMarketplaceRequestApiClient, MarketplaceApiError } from "@chase-sets/marketplace/server";
-import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
+import { createInventoryRequestApiClient, inventoryMutationAttemptFromSource } from "@chase-sets/inventory/server";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -181,6 +181,23 @@ export async function createCheckoutOrdersThroughOrdering(
   };
 }
 
+async function recoverCheckoutInventoryWrite<T>(
+  api: ReturnType<typeof createInventoryRequestApiClient>,
+  attemptId: string,
+  family: "hold-create" | "hold-release",
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : null;
+    if (!(error instanceof TypeError) && status !== 408 && !(status !== null && status >= 500)) throw error;
+    const receipt = await api.getMutationAttempt(attemptId).catch(() => null);
+    if (receipt?.family === family) return receipt.result as T;
+    throw new Error("Inventory reservation result is uncertain; check the original attempt before continuing.");
+  }
+}
+
 export async function createCheckoutInventoryReservations(
   request: Request,
   session: CheckoutSessionRow,
@@ -190,7 +207,6 @@ export async function createCheckoutInventoryReservations(
     return { reservations: [], unavailableLines: [] };
   }
 
-  const inventoryApi = createInventoryRequestApiClient(request);
   const nowMs = Date.now();
   const existingByLine = new Map<string, CheckoutInventoryReservation[]>();
   for (const reservation of session.checkout_reservations) {
@@ -210,14 +226,22 @@ export async function createCheckoutInventoryReservations(
     }
 
     try {
-      const reservation = (await inventoryApi.createCheckoutReservation({
-        checkoutSessionId: session.session_id,
-        lineKey: line.lineKey,
-        sellerAccountId: line.sellerAccountId,
-        inventoryItemId: line.inventoryItemId,
-        quantity: line.quantity,
-        reservationAttempt: existingReservations.length + 1,
-      })) as CheckoutInventoryReservation;
+      const reservationAttempt = existingReservations.length + 1;
+      const mutationAttemptId = inventoryMutationAttemptFromSource(
+        JSON.stringify([session.session_id, line.lineKey, line.inventoryItemId, reservationAttempt]),
+        "checkout-reservation-create",
+      );
+      const inventoryApi = createInventoryRequestApiClient(request, { mutationAttemptId });
+      const reservation = (await recoverCheckoutInventoryWrite(inventoryApi, mutationAttemptId, "hold-create", () =>
+        inventoryApi.createCheckoutReservation({
+          checkoutSessionId: session.session_id,
+          lineKey: line.lineKey,
+          sellerAccountId: line.sellerAccountId,
+          inventoryItemId: line.inventoryItemId,
+          quantity: line.quantity,
+          reservationAttempt,
+        }),
+      )) as CheckoutInventoryReservation;
       reservations.push(reservation);
     } catch (error) {
       if (!checkoutReservationIsUnavailable(error)) {
@@ -245,7 +269,6 @@ export async function releaseCheckoutInventoryReservations(
   request: Request,
   session: CheckoutSessionRow,
 ): Promise<CheckoutInventoryReservation[]> {
-  const inventoryApi = createInventoryRequestApiClient(request);
   const released: CheckoutInventoryReservation[] = [];
 
   for (const reservation of session.checkout_reservations) {
@@ -253,10 +276,17 @@ export async function releaseCheckoutInventoryReservations(
       continue;
     }
 
-    const release = (await inventoryApi.releaseCheckoutReservation(reservation.holdId, {
-      checkoutSessionId: session.session_id,
-      lineKey: reservation.lineKey,
-    })) as Partial<CheckoutInventoryReservation>;
+    const mutationAttemptId = inventoryMutationAttemptFromSource(
+      JSON.stringify([session.session_id, reservation.holdId]),
+      "checkout-reservation-release",
+    );
+    const inventoryApi = createInventoryRequestApiClient(request, { mutationAttemptId });
+    const release = (await recoverCheckoutInventoryWrite(inventoryApi, mutationAttemptId, "hold-release", () =>
+      inventoryApi.releaseCheckoutReservation(reservation.holdId, {
+        checkoutSessionId: session.session_id,
+        lineKey: reservation.lineKey,
+      }),
+    )) as Partial<CheckoutInventoryReservation>;
 
     released.push({
       holdId: String(release.holdId ?? reservation.holdId),

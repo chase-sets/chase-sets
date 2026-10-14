@@ -1,4 +1,8 @@
 export { createInventoryRequestApiClient } from "./support/request-support/api-client";
+export {
+  inventoryMutationAttemptFromSource,
+  withInventoryMutationAttempt,
+} from "./support/runtime-support/mutation-attempt";
 export { createStorageLocationAuthority } from "./features/storage-locations/api/authority";
 export type {
   InventoryAccountSellerSkuItemResolution,
@@ -10,6 +14,7 @@ export type {
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
 export type { InventoryServices } from "./support/runtime-support/services";
+export type { InventoryCheckoutReservationAuthority } from "./features/holds/api/checkout-reservation-authority";
 export type {
   CommittedExternalChannelSale,
   ExternalChannelSaleConflictField,
@@ -70,3 +75,4 @@ export type {
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 export { createImportResolutionAttentionSourceFromReadModel } from "./features/import-batches/read-model/seller-attention-source";
 export { inventorySeedIds } from "./support/seed-support/ids";
+export { createInventoryRepresentativeSeedServices } from "./support/seed-support/representative-services";

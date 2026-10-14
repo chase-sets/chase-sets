@@ -93,3 +93,19 @@ export const inventoryHoldSourceIndexSchemaMigrations: readonly BcSchemaMigratio
     statements: [INVENTORY_HOLD_SOURCE_ORDER_INDEX_STATEMENT],
   },
 ];
+
+export const inventoryHoldStockHistorySchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261013_inventory_hold_stock_history_indexes",
+    description: "Index complete Inventory stock Hold stream discovery without filtering poisoned facts.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_inventory_hold_item_idx
+       ON event_store_events (tenant_id, ((payload ->> 'itemId')), stream_id)
+       WHERE stream_context_name = 'inventory' AND stream_category = 'inventory.hold';`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS event_store_events_inventory_hold_missing_item_idx
+       ON event_store_events (tenant_id, ((payload ->> 'accountId')), stream_id)
+       WHERE stream_context_name = 'inventory' AND stream_category = 'inventory.hold'
+         AND event_type = 'inventory.hold.placed' AND NOT (payload ? 'itemId');`,
+    ],
+  },
+];
