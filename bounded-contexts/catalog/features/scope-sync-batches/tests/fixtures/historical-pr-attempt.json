@@ -1,0 +1,14 @@
+{
+  "id": 38528671789,
+  "path": ".github/workflows/platform-pr.yml",
+  "event": "pull_request",
+  "run_attempt": 1,
+  "head_sha": "d2a2c4e2c69deed324900c1da32c0bec1b6cc96a",
+  "referenced_workflows": [
+    {
+      "path": "chase-sets/chase-sets/.github/workflows/platform-compose-boot-smoke.yml@c77c02608571d9ce55827bfa877fe68d3d85b1d0",
+      "ref": "refs/pull/9593/merge",
+      "sha": "c77c02608571d9ce55827bfa877fe68d3d85b1d0"
+    }
+  ]
+}
