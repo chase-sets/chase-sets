@@ -1033,6 +1033,8 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
       streams: (await pool.query("SELECT * FROM event_store_streams ORDER BY stream_id")).rows,
       receipts: (await pool.query("SELECT * FROM inventory_mutation_attempts ORDER BY attempt_key")).rows,
       legacy: (await pool.query("SELECT * FROM inventory_item_adjustment_idempotency ORDER BY idempotency_key")).rows,
+      stock: (await pool.query("SELECT * FROM inventory_items ORDER BY item_id")).rows,
+      locations: (await pool.query("SELECT * FROM inventory_storage_locations ORDER BY storage_location_id")).rows,
     };
   }
   async function projectItems() {
