@@ -641,6 +641,29 @@ describe("defineBoundedContextModule", () => {
     expect(normalizedManifest.workerRuntimeProfiles).toEqual(["public"]);
   });
 
+  it("keeps Agent Coverage declarations as declared and preserves their absence", () => {
+    const agentCoverage = {
+      "offer-economics": { tools: ["platform-operations.get-offer-economics-summary"] },
+      "sign-in": { exempt: "sign-in-flow", note: "Interactive sign-in.", tools: [] },
+      "support-requests": { pending: "#9238" },
+    } as const;
+
+    const declared = defineBoundedContextManifest({
+      contextName: "platform-operations",
+      apiBasePath: "/api/platform-operations",
+      streamPrefix: "platform-operations.",
+      agentCoverage,
+    });
+    const absent = normalizeContextManifest({
+      contextName: "platform-operations",
+      apiBasePath: "/api/platform-operations",
+      streamPrefix: "platform-operations.",
+    });
+
+    expect(declared.agentCoverage).toEqual(agentCoverage);
+    expect(absent).not.toHaveProperty("agentCoverage");
+  });
+
   it("derives manifest-owned module fields and keeps supplied wiring", async () => {
     const services = { db: "db" };
     const module = defineBoundedContextModule({

@@ -266,6 +266,35 @@
     { "routePath": "/api/auth/account-selection/complete", "methods": ["POST"] },
     { "routePath": "/api/auth/social/", "methods": ["GET", "HEAD"], "match": "prefix" }
   ],
+  "agentCoverage": {
+    "account-select": {
+      "exempt": "sign-in-flow",
+      "note": "Chooses the browser session's active account; MCP tool calls carry their account scope in each call.",
+      "tools": []
+    },
+    "sign-in": {
+      "exempt": "sign-in-flow",
+      "note": "Browser sign-in form; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "sign-in-magic": {
+      "exempt": "sign-in-flow",
+      "note": "Browser magic-link landing; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "catalog-sign-in": {
+      "exempt": "sign-in-flow",
+      "note": "Catalog entry to the shared browser sign-in form; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "sign-out": {
+      "exempt": "sign-in-flow",
+      "note": "Ends the browser session; MCP clients hold no admin browser session.",
+      "tools": []
+    },
+    "sessions": { "pending": "#9238" },
+    "sessions-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
