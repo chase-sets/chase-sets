@@ -1,10 +1,111 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { managedFixture } from "../tests/managed-fixture";
 import { context, terms } from "../../offer-policy/tests/fixtures";
 
 describe("managed Offer application and commitment", () => {
+  it.each(["acceptance", "price edit"] as const)(
+    "records exactly the returned managed %s events",
+    async (operation) => {
+      const f = await managedFixture(createInMemoryEventStore().eventStore);
+      const append = vi.spyOn(f.store, "appendToStreams");
+      const params = await f.acceptance();
+      await runWithEventCommitMetadata(async () => {
+        if (operation === "acceptance") await f.offers.acceptOffer(params, context);
+        else
+          await f.offers.updateOfferPrice(
+            {
+              offerId: "off_one" as never,
+              buyerAccountId: "acc_buyer" as never,
+              priceAmount: "11.00",
+              priceCurrencyCode: "USD",
+            },
+            context,
+          );
+        const returned = (await append.mock.results.at(-1)!.value)!.flatMap((batch) => batch.storedEvents);
+        expect(returned.map((event) => event.eventType)).toEqual(
+          operation === "acceptance"
+            ? [
+                "marketplace.offer-policy.commitment-consumed",
+                "marketplace.offer.accepted",
+                "marketplace.listing.evidence-requirements-refreshed",
+                "marketplace.listing.offer-commitment-recorded",
+                "marketplace.seller-listing-availability.commitment-checked",
+              ]
+            : ["marketplace.offer.price-updated", "marketplace.offer.managed-evaluated"],
+        );
+        const eventIds = returned.map((event) => String(event.eventId));
+        const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
+        expect(getEventCommitMetadata()).toEqual({
+          committedEvents: returned,
+          eventIds,
+          maxGlobalPosition,
+          sources: [{ sourceContextName: "marketplace", eventIds, maxGlobalPosition }],
+        });
+      });
+      append.mockClear();
+      await runWithEventCommitMetadata(async () => {
+        if (operation === "acceptance") await f.offers.acceptOffer(params, context);
+        else
+          await f.offers.updateOfferPrice(
+            {
+              offerId: "off_one" as never,
+              buyerAccountId: "acc_buyer" as never,
+              priceAmount: "11.00",
+              priceCurrencyCode: "USD",
+            },
+            context,
+          );
+        expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+      expect(append).toHaveBeenCalledTimes(operation === "acceptance" ? 0 : 1);
+    },
+  );
+
+  it.each(["acceptance", "price edit"] as const)(
+    "records no managed %s receipt when append fails",
+    async (operation) => {
+      const f = await managedFixture(createInMemoryEventStore().eventStore);
+      const params = await f.acceptance();
+      vi.spyOn(f.store, "appendToStreams").mockRejectedValueOnce(new Error("injected append failure"));
+      const before = await f.store.readAll();
+      await runWithEventCommitMetadata(async () => {
+        await expect(
+          operation === "acceptance"
+            ? f.offers.acceptOffer(params, context)
+            : f.offers.updateOfferPrice(
+                {
+                  offerId: "off_one" as never,
+                  buyerAccountId: "acc_buyer" as never,
+                  priceAmount: "11.00",
+                  priceCurrencyCode: "USD",
+                },
+                context,
+              ),
+        ).rejects.toThrow("injected append failure");
+        expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+      expect(await f.store.readAll()).toEqual(before);
+    },
+  );
+
+  it("records no managed acceptance receipt on conflict recovery", async () => {
+    const store = createInMemoryEventStore().eventStore;
+    const f = await managedFixture(store);
+    const params = await f.acceptance();
+    const append = store.appendToStreams!;
+    vi.spyOn(store, "appendToStreams").mockImplementationOnce(async (inputs) => {
+      await append(inputs);
+      throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
+    });
+    await runWithEventCommitMetadata(async () => {
+      expect(await f.offers.acceptOffer(params, context)).toMatchObject({ offerId: "off_one", version: 3 });
+      expect(getEventCommitMetadata().eventIds).toEqual([]);
+    });
+  });
+
   it("batches a Product page into one Pricing read and writes no allowance for repricing", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     expect(f.evaluateTargets).toHaveBeenCalledTimes(2);

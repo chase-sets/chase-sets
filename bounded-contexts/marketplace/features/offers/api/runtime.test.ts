@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountSubmittedOfferRoutes } from "./route";
 import { createMarketplaceOfferMcpHandlers } from "./mcp";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 
 const acceptedOfferMatch = {
   offer_id: "off_1",
@@ -113,6 +114,109 @@ async function seedActiveListing(eventStore: EventStore, context: AppendToStream
 }
 
 describe("marketplace offer runtime", () => {
+  it.each(["commit", "failure", "conflict-recovery"] as const)(
+    "records returned unmanaged acceptance events only for a successful %s",
+    async (outcome) => {
+      const memory = createInMemoryEventStore().eventStore;
+      const append = vi.fn(async (inputs: readonly AppendToStreamInput[]) => {
+        if (outcome === "failure") throw new Error("injected append failure");
+        const results = await memory.appendToStreams!(inputs);
+        if (outcome === "conflict-recovery")
+          throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
+        return results;
+      });
+      const services = createMarketplaceOfferRuntime({
+        eventStore: { ...memory, appendToStreams: append },
+        db: { query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })) },
+        checkpointStore: {} as never,
+        commercialTermsResolver: {
+          resolveListingTerms: async ({ amount }: { amount: string }) => ({
+            accountType: "personal",
+            basisAmount: amount,
+            marketplaceSalesFeeUnitAmount: "17.50",
+            sellerNetUnitAmount: "332.50",
+            shippingAllowancePercentageBps: 500,
+            scheduleId: "sch_standard",
+            agreementId: null,
+            resolvedAt: "2026-03-31T00:00:00.000Z",
+          }),
+        } as never,
+        listingEvidencePolicyEvaluator: { evaluate: async () => noEvidenceRequirementsEvaluation },
+      });
+      const context = {
+        tenantId: "tnt_marketplace" as never,
+        audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+      };
+      await seedActiveListing(memory, context);
+      await services.commandHandler({
+        streamId: "marketplace.offer-off_1",
+        command: {
+          type: "SubmitOffer",
+          offerId: "off_1",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+          priceAmount: "350.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+        context,
+      } as never);
+      await runWithEventCommitMetadata(async () => {
+        await services.updateOfferPrice(
+          {
+            offerId: "off_1" as never,
+            buyerAccountId: "acc_buyer" as never,
+            priceAmount: "351.00",
+            priceCurrencyCode: "USD",
+          },
+          context,
+        );
+        expect(getEventCommitMetadata().committedEvents).toEqual(
+          (await memory.readStream({ streamId: "marketplace.offer-off_1" })).slice(-1),
+        );
+      });
+      const params = {
+        offerId: "off_1" as never,
+        sellerAccountId: "acc_seller" as never,
+        listingId: "lst_1",
+        feeQuoteFingerprint: "351.00|17.50|332.50|500|sch_standard|",
+      };
+      await runWithEventCommitMetadata(async () => {
+        const action = services.acceptOffer(params, context);
+        if (outcome === "failure") await expect(action).rejects.toThrow("injected append failure");
+        else expect(await action).toMatchObject({ offerId: "off_1", listingId: "lst_1", version: 3 });
+        if (outcome === "commit") {
+          const returned = (await append.mock.results.at(-1)!.value).flatMap((batch) => batch.storedEvents);
+          expect(returned.map((event) => event.eventType)).toEqual([
+            "marketplace.offer.accepted",
+            "marketplace.listing.evidence-requirements-refreshed",
+            "marketplace.listing.offer-commitment-recorded",
+            "marketplace.seller-listing-availability.commitment-checked",
+          ]);
+          const eventIds = returned.map((event) => String(event.eventId));
+          const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
+          expect(getEventCommitMetadata()).toEqual({
+            committedEvents: returned,
+            eventIds,
+            maxGlobalPosition,
+            sources: [{ sourceContextName: "marketplace", eventIds, maxGlobalPosition }],
+          });
+        } else expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+      if (outcome !== "failure")
+        await runWithEventCommitMetadata(async () => {
+          expect(await services.acceptOffer(params, context)).toMatchObject({ version: 3 });
+          expect(getEventCommitMetadata().eventIds).toEqual([]);
+        });
+    },
+  );
+
   function createSubmitOfferServices(db: { query: ReturnType<typeof vi.fn> }) {
     const { eventStore } = createInMemoryEventStore();
     return createMarketplaceOfferRuntime({
