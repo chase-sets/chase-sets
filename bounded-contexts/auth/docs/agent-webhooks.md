@@ -28,7 +28,7 @@ Compute HMAC-SHA256 over `${timestampSeconds}.${rawBody}` with the registered se
 
 The local in-process lifecycle test covers projection, signing, callback verification, and the full five-state lifecycle; the adjacent dispatcher fixtures cover retry and dead-letter transitions. The literal staging proof requires operator-owned staging credentials and an approved receiver:
 
-1. Register an OAuth client with `order:read` and an HTTPS callback, then link it to a staging account.
+1. Register an OAuth client with `dev.ucp.shopping.order:read` and an HTTPS callback, then link it to a staging account.
 2. Drive one order through created, shipped, delivered, cancelled, and refunded paths using the representative-commerce workflow.
 3. Capture each request body and signature, verify each raw body with `verifyAgentWebhookSignature`, and record the delivery IDs.
 4. Return HTTP 500 from the receiver and confirm exponential `next_attempt_at` values, then confirm a terminal `failed` row after `max_attempts`.

@@ -3565,8 +3565,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "input_schema": {
         "type": "object",
@@ -3657,7 +3657,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -3862,7 +3862,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -4031,7 +4031,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -4135,7 +4135,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -4277,7 +4277,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -4427,8 +4427,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "input_schema": {
         "type": "object",
@@ -4516,8 +4516,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "input_schema": {
         "type": "object",
@@ -4607,7 +4607,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -4698,7 +4698,7 @@
         "orders.manage"
       ],
       "required_scopes": [
-        "checkout:write"
+        "dev.ucp.shopping.checkout:manage"
       ],
       "input_schema": {
         "type": "object",
@@ -4798,8 +4798,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "input_schema": {
         "type": "object",
@@ -4933,8 +4933,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "input_schema": {
         "type": "object",
@@ -7287,8 +7287,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "expected_usage": [
         "Use before checkout mutations."
@@ -7304,8 +7304,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "expected_usage": [
         "Use as the source of truth for purchase and sale workflows."
@@ -7321,8 +7321,8 @@
         "orders.view"
       ],
       "required_scopes": [
-        "checkout:read",
-        "order:read"
+        "dev.ucp.shopping.checkout:manage",
+        "dev.ucp.shopping.order:read"
       ],
       "expected_usage": [
         "Use for payment support and order readiness checks."
