@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyCountLifecycleReceipt,
+  countCaptureCollectionSchema,
+  countCaptureContainsForbidden,
   validateCountCaptureAuthority,
   validateCountLifecycleReceipt,
 } from "./count-lifecycle-receipt";
+import { countCapturePlanSchema, countCapturePlannerReadSchema } from "./count-capture-plan";
 import {
   syntheticCountCaptureAuthority,
+  syntheticCountCapturePlannerRead,
   syntheticCountLifecycleReceipt,
   syntheticCountLifecycleStopReceipt,
 } from "../tests/count-lifecycle-receipt-fixture";
@@ -54,6 +58,20 @@ describe("derives receipt verdicts", () => {
     [
       "size-out-of-range",
       (r) => (r.acquisitions[0]!.evidence.pageSize = 0),
+      "FAILED",
+      "receipt-invalid",
+      "FAILED",
+      "FAILED",
+    ],
+    [
+      // A complete-cache source has no returned-page refine, so only the size bound refuses it.
+      "complete-cache-size-out-of-range",
+      (r) => {
+        const source = row(r, "preview", "sealed").source as Record<string, unknown>;
+        Object.assign(source, { validationKind: "complete-cache", sourceId: "synthetic-sealed-cache", pageSize: 0 });
+        Reflect.deleteProperty(source, "returnedPage");
+        Reflect.deleteProperty(source, "returnedItemCount");
+      },
       "FAILED",
       "receipt-invalid",
       "FAILED",
@@ -275,6 +293,47 @@ describe("derives receipt verdicts", () => {
       "FAILED",
     ],
     ["usage-headroom", (r) => (r.usage.reservedCredits = 89), "FAILED", "usage-headroom", "FAILED", "FAILED"],
+    ["unknown-credit", (r) => (r.usage.creditState = "unknown"), "FAILED", "usage-authority", "FAILED", "FAILED"],
+    ["exhausted-credit", (r) => (r.usage.creditState = "exhausted"), "FAILED", "usage-authority", "FAILED", "FAILED"],
+    ["missing-total", (r) => (r.usage.totalCredits = null), "FAILED", "usage-balance", "FAILED", "FAILED"],
+    ["impossible-balance", (r) => (r.usage.totalCredits = 1), "FAILED", "usage-balance", "FAILED", "FAILED"],
+    [
+      "expired-debit",
+      (r) => (r.quote.expiresAt = "2026-10-13T08:03:00.100Z"),
+      "FAILED",
+      "cards-debit-after-expiry",
+      "FAILED",
+      "FAILED",
+    ],
+    [
+      "contradictory-pre-confirm-refusal",
+      (r) => (r.preConfirm.refusal = "synthetic-refused"),
+      "FAILED",
+      "pre-confirm-eligibility",
+      "FAILED",
+      "FAILED",
+    ],
+    [
+      "contradictory-pre-confirm-eligibility",
+      (r) => (r.preConfirm.eligible = false),
+      "FAILED",
+      "pre-confirm-eligibility",
+      "FAILED",
+      "FAILED",
+    ],
+    [
+      "empty-future-collection",
+      (r) => {
+        for (const key of ["runCount", "attemptCount", "jobCount", "pageCount", "definitionCount"] as const)
+          r.authority.collection[key] = 0;
+        r.authority.collection.nonMutatingJobCount = 0;
+        r.authority.collection.createdFrom = "2099-01-01T00:00:00Z";
+      },
+      "FAILED",
+      "receipt-invalid",
+      "FAILED",
+      "FAILED",
+    ],
     ["quote-cap", (r) => (r.quote.cap = 1), "FAILED", "membership-or-cap", "FAILED", "FAILED"],
     [
       "authority-unbound",
@@ -296,6 +355,25 @@ describe("derives receipt verdicts", () => {
     });
     expect(classified.reasons).toContain(reason);
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(false);
+  });
+
+  // Coherent evidence that is not a contradiction stays CONFORMING: a low but
+  // sufficient balance, a debit at the quote's last valid instant, and a pre-confirm
+  // read that honestly reports a blocked plan.
+  it.each<[string, (receipt: Receipt) => void]>([
+    ["low-but-sufficient credit", (r) => (r.usage.creditState = "low")],
+    ["debit at quote expiry", (r) => (r.quote.expiresAt = r.acquisitions[0]!.debitedAt)],
+    [
+      "blocked pre-confirm",
+      (r) => Object.assign(r.preConfirm, { eligible: false, refusal: "synthetic-blocked", blockers: ["synthetic"] }),
+    ],
+  ])("keeps a %s CONFORMING", (_case, mutate) => {
+    const receipt = syntheticCountLifecycleReceipt();
+    mutate(receipt);
+    expect(validateCountLifecycleReceipt(receipt)).toMatchObject({
+      valid: true,
+      classification: { verdict: "CONFORMING" },
+    });
   });
 
   it.each(Object.keys(syntheticCountLifecycleReceipt()))("refuses a receipt that drops required field %s", (key) => {
@@ -359,6 +437,17 @@ describe("derives receipt verdicts", () => {
     expect(result).toMatchObject({ valid: false, errors: ["receipt-leak"] });
     expect(JSON.stringify(result)).not.toContain("secret");
   });
+
+  // The scanner also guards projections the closed schemas never see, so a
+  // credential-shaped key leaks even when its value and every other text is innocuous.
+  it.each(["sessionCookie", "x_password", "rawPayload", "\\u0074oken"])(
+    "flags a credential-shaped key %j even with an innocuous value",
+    (key) => {
+      const serialized = `{"synthetic":{"${key}":"synthetic-value"}}`;
+      expect(countCaptureContainsForbidden(serialized, [])).toBe(true);
+      expect(countCaptureContainsForbidden('{"synthetic":{"label":"synthetic-value"}}', [])).toBe(false);
+    },
+  );
 });
 
 describe("rejects unbound deployment", () => {
@@ -396,6 +485,24 @@ describe("rejects unbound deployment", () => {
     ["nested-unknown", (a) => Reflect.set(a.deployment, "unchecked", true), "authority-invalid"],
     ["date-only", (a) => (a.pods.observedAt = "2026-10-13"), "authority-invalid"],
     ["unsafe-number", (a) => (a.budget.remainingCredits = Number.MAX_SAFE_INTEGER), "authority-invalid"],
+    [
+      "empty-bound-inventory",
+      (a) => {
+        for (const key of ["runCount", "attemptCount", "jobCount", "pageCount", "definitionCount"] as const)
+          a.collection[key] = 0;
+        a.collection.nonMutatingJobCount = 0;
+      },
+      "authority-invalid",
+    ],
+    ["bound-without-runs", (a) => (a.collection.runCount = 0), "authority-invalid"],
+    ["bound-without-attempts", (a) => (a.collection.attemptCount = 0), "authority-invalid"],
+    ["bound-without-jobs", (a) => (a.collection.jobCount = 0), "authority-invalid"],
+    ["bound-without-enough-reads", (a) => (a.collection.pageCount = 12), "authority-invalid"],
+    ["every-job-non-mutating", (a) => (a.collection.nonMutatingJobCount = a.collection.jobCount), "authority-invalid"],
+    ["classified-without-definitions", (a) => (a.collection.definitionCount = 0), "authority-invalid"],
+    ["definitions-without-classified-jobs", (a) => (a.collection.nonMutatingJobCount = 1), "authority-invalid"],
+    ["future-search-window", (a) => (a.collection.createdFrom = "2099-01-01T00:00:00Z"), "authority-invalid"],
+    ["truncated-search-window", (a) => (a.collection.createdFrom = "2026-09-09T07:40:00Z"), "collection-unbound"],
   ])("refuses %s authority input before any spend", (_mutant, mutate, reason) => {
     const authority = syntheticCountCaptureAuthority();
     mutate(authority);
@@ -404,10 +511,91 @@ describe("rejects unbound deployment", () => {
     expect(result.reasons).toContain(reason);
   });
 
+  it("keeps an honest zero-inventory unknown collection structurally valid without promoting it", () => {
+    const authority = syntheticCountCaptureAuthority();
+    const collection = {
+      ...authority.collection,
+      outcome: "unknown",
+      reason: "http-failure",
+      binding: null,
+      createdFrom: authority.collection.collectedAt,
+      runCount: 0,
+      attemptCount: 0,
+      jobCount: 0,
+      pageCount: 1,
+      definitionCount: 0,
+      nonMutatingJobCount: 0,
+    };
+    expect(countCaptureCollectionSchema.safeParse(collection).success).toBe(true);
+    expect(validateCountCaptureAuthority({ ...authority, collection }, now)).toEqual({
+      ok: false,
+      reasons: ["collection-unbound"],
+    });
+  });
+
   it("refuses an unparseable validation instant", () => {
     expect(validateCountCaptureAuthority(syntheticCountCaptureAuthority(), "2026-10-13")).toEqual({
       ok: false,
       reasons: ["authority-invalid"],
     });
+  });
+});
+
+describe("validates planner-read projections", () => {
+  type PlannerRead = ReturnType<typeof syntheticCountCapturePlannerRead>;
+  const units = (read: PlannerRead) => read.plan.scopes[0]!.units;
+  const parses = (read: unknown) => countCapturePlannerReadSchema.safeParse(read).success;
+
+  it.each(["preview", "pre-confirm"] as const)("accepts the %s read of both sourced kinds", (phase) => {
+    const read = syntheticCountCapturePlannerRead(phase);
+    expect(countCapturePlanSchema.safeParse(read.plan).success).toBe(true);
+    expect(parses(read)).toBe(true);
+  });
+
+  it("accepts an unsourced estimate whose winner read no source", () => {
+    const read = syntheticCountCapturePlannerRead();
+    units(read)[2]!.estimate.countSourceId = null;
+    read.winners[1]!.source = null;
+    expect(parses(read)).toBe(true);
+  });
+
+  it.each<[string, (read: PlannerRead) => void]>([
+    ["missing cards winner", (r) => r.winners.shift()],
+    ["missing sealed winner", (r) => r.winners.pop()],
+    [
+      "cards source ID substituted for the missing sealed winner",
+      (r) => {
+        r.winners.pop();
+        units(r)[2]!.estimate.countSourceId = r.winners[0]!.source!.sourceId as string;
+      },
+    ],
+    [
+      "sealed source ID substituted for the missing cards winner",
+      (r) => {
+        r.winners.shift();
+        units(r)[1]!.estimate.countSourceId = r.winners[0]!.source!.sourceId as string;
+      },
+    ],
+    ["sourced unit whose winner read no source", (r) => (r.winners[1]!.source = null)],
+    ["winner source the unit does not name", (r) => (units(r)[1]!.estimate.countSourceId = "synthetic-other-source")],
+    [
+      "profile version drift",
+      (r) => {
+        units(r)[2]!.profileVersion = "synthetic-2";
+        r.plan.scopes[0]!.profileVersions[2]!.profileVersion = "synthetic-2";
+      },
+    ],
+    ["profile key drift", (r) => (r.winners[0]!.query.profileKey = "synthetic-other")],
+    ["query differs from its source", (r) => (r.winners[0]!.query.accountRevision = "synthetic-other-revision")],
+    ["winner kind differs from its query", (r) => (r.winners[0]!.kind = "sealed")],
+    ["nested unknown estimate key", (r) => Reflect.set(units(r)[1]!.estimate, "unchecked", true)],
+    ["nested unknown source key", (r) => Reflect.set(r.winners[0]!.source!, "unchecked", true)],
+    ["preview carrying a compared fingerprint", (r) => (r.comparedFingerprint = r.planFingerprint)],
+    ["eligible read carrying a refusal", (r) => (r.refusal = "synthetic-refused")],
+    ["provider unit count drift", (r) => (r.plan.scopes[0]!.providerUnitCount = 2)],
+  ])("rejects a %s", (_case, mutate) => {
+    const read = syntheticCountCapturePlannerRead();
+    mutate(read);
+    expect(parses(read)).toBe(false);
   });
 });

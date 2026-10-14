@@ -52,8 +52,37 @@ export const countCaptureCollectionReasons = [
   "authority-invalid",
 ] as const;
 
+// GitHub cancels a workflow run 35 days after creation, so any run executing after
+// the selected step was created at most this long before it. The collector searches
+// from this instant and a bound collection must have covered it.
+const runLifetimeMs = 35 * 24 * 60 * 60 * 1000;
+export const countCaptureSearchFrom = (startedAt: string) =>
+  new Date(Math.floor((Date.parse(startedAt) - runLifetimeMs) / 1000) * 1000).toISOString().replace(".000Z", "Z");
+
+// A bound collection read at least one run page, the attempt object and a jobs page
+// of every attempt it inventoried, the selected job's log and each definition it
+// classified with. Every classified job read at most a caller and a callee
+// definition, and the selected job is never one of them.
+const boundInventoryIsCoherent = (collection: {
+  runCount: number;
+  attemptCount: number;
+  jobCount: number;
+  pageCount: number;
+  definitionCount: number;
+  nonMutatingJobCount: number;
+}) =>
+  collection.runCount >= 1 &&
+  collection.attemptCount >= 1 &&
+  collection.jobCount >= 1 &&
+  collection.nonMutatingJobCount < collection.jobCount &&
+  collection.definitionCount <= 2 * collection.nonMutatingJobCount &&
+  (collection.nonMutatingJobCount === 0 || collection.definitionCount >= 1) &&
+  collection.pageCount >=
+    Math.ceil(collection.runCount / 100) + 2 * collection.attemptCount + 1 + collection.definitionCount;
+
 // Produced by the deployment collector. Unknown is never upgraded: only a bound
-// outcome names the executed deploy step it bound.
+// outcome names the executed deploy step it bound, and only a coherent inventory
+// over an ordered search interval can be bound. Unknown partial counts stay legal.
 export const countCaptureCollectionSchema = z
   .object({
     collectedAt: instant,
@@ -72,7 +101,9 @@ export const countCaptureCollectionSchema = z
   .refine(
     (collection) =>
       (collection.outcome === "bound") === (collection.reason === null) &&
-      (collection.outcome === "bound") === (collection.binding !== null),
+      (collection.outcome === "bound") === (collection.binding !== null) &&
+      Date.parse(collection.createdFrom) <= Date.parse(collection.collectedAt) &&
+      (collection.outcome !== "bound" || boundInventoryIsCoherent(collection)),
   );
 export type CountCaptureCollection = z.infer<typeof countCaptureCollectionSchema>;
 
@@ -136,7 +167,8 @@ const observationIsFresh = (observedAt: string, now: string) =>
 // A consistent envelope only: runner = review head = deployed SHA, the executed
 // step's log binds that SHA@digest, the deploy finished before dispatch, every
 // listed ready pod runs that digest, net budget covers the whole run, the
-// collector bound the same step, and every observation is at most 900 s old.
+// collector bound the same step after searching the whole run lifetime before it,
+// and every observation is at most 900 s old.
 export function validateCountCaptureAuthority(
   value: unknown,
   now: string,
@@ -177,6 +209,7 @@ function collectionBindsDeployment(
   return (
     collection.outcome === "bound" &&
     binding !== null &&
+    at(collection.createdFrom) <= at(countCaptureSearchFrom(deployment.startedAt)) &&
     binding.runId === deployment.runId &&
     binding.attempt === deployment.attempt &&
     binding.jobId === deployment.jobId &&
@@ -595,6 +628,13 @@ function receiptFindings(receipt: CountLifecycleReceipt): Finding[] {
     usage.ageMs !== at(notices.approvalAt) - at(usage.observedAt)
   )
     fail("usage-headroom");
+  // Spend needs a known, unexhausted credit state and the producer's own balance
+  // invariant: a total and a remaining balance, the remainder never above the total.
+  if (usage.creditState === "unknown" || usage.creditState === "exhausted") fail("usage-authority");
+  if (usage.totalCredits === null || usage.remainingCredits === null || usage.remainingCredits > usage.totalCredits)
+    fail("usage-balance");
+  // The planner read's own invariant: a read is eligible exactly when it carries no refusal.
+  if (preConfirm.eligible !== (preConfirm.refusal === null)) fail("pre-confirm-eligibility");
 
   const sendsIn = (name: z.infer<typeof sendPhase>) => sends.filter((send) => send.phase === name);
   const usageSends = (scope: readonly Send[]) => scope.filter((send) => send.category === "usage");
@@ -694,6 +734,10 @@ function receiptFindings(receipt: CountLifecycleReceipt): Finding[] {
           acquisition.outcome !== "complete"))
     )
       fail(`${kind}-acquisition-mismatch`, acquiredBy(kind));
+    // The count store refuses a claim once the quote expired, so a durable debit
+    // after expiry contradicts the approval it claims.
+    if (acquisition && !acquisition.reused && at(acquisition.debitedAt) > at(quote.expiresAt))
+      fail(`${kind}-debit-after-expiry`, acquiredBy(kind));
     if (quote.missingKinds.includes(kind)) {
       const sent = acquisitionSends.filter((send) => send.category === kind);
       if (!acquisition || acquisition.reused || sent.length !== 1)

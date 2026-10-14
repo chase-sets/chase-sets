@@ -66,7 +66,8 @@ export function syntheticCountCaptureCollection(collectedAt: string) {
     runCount: 4,
     attemptCount: 4,
     jobCount: 9,
-    pageCount: 12,
+    // One run page, an attempt read and a jobs page per attempt, the log and each definition.
+    pageCount: 13,
     definitionCount: 3,
     nonMutatingJobCount: 5,
   };
@@ -310,5 +311,87 @@ export function syntheticCountLifecycleStopReceipt() {
     reason: "authority-unbound",
     evidence: {},
     classification: { ...incomplete, acceptance: { "9431-ac7": incomplete, "9424-ac5": incomplete } },
+  };
+}
+
+// The ordinary preview or pre-confirm planner read of the CONFORMING control: the
+// capture scope's three units, each count unit naming the source its winner read.
+export function syntheticCountCapturePlannerRead(phase: "preview" | "pre-confirm" = "preview") {
+  const receipt = syntheticCountLifecycleReceipt();
+  const units = receipt.units.map((unit, index) => {
+    const acquired = receipt.acquisitions[index - 1];
+    return {
+      providerKey: "scrydex",
+      unitKey: unit.unitKey,
+      profileKey: unit.profileKey,
+      profileVersion: unit.profileVersion,
+      selected: true,
+      defaultSelected: true,
+      eligibility: "eligible",
+      requirement: "required",
+      role: acquired ? "primary-source-observation" : "reference-data",
+      estimate: {
+        countSourceId: acquired?.evidence.sourceId ?? null,
+        targetCount: acquired?.evidence.totalCount ?? null,
+        estimatedRequestCount: unit.estimate,
+        requestStrategy: "bulk-first",
+        estimateState: "estimated",
+        usageCheckState: "checked",
+      },
+      blockers: [] as string[],
+    };
+  });
+  return {
+    phase,
+    requestId: `synthetic-${phase}-request`,
+    planFingerprint: receipt.preConfirm.currentFingerprint,
+    comparedFingerprint: phase === "preview" ? null : receipt.preConfirm.comparedFingerprint,
+    eligible: true,
+    refusal: null as string | null,
+    effectsCapability: false,
+    plan: {
+      selection: { mode: "ids", scopeRecordIds: [receipt.selection.scopeRecordId] },
+      budget: {
+        maxScopesPerTurn: 1,
+        defaultProviderConcurrency: 1,
+        providerConcurrency: {},
+        providerRequestLimits: {},
+        creditedProviderRequestLimits: {},
+        providerFailureThreshold: 1,
+      },
+      resolvedAt: receipt.startedAt,
+      status: "ready",
+      blockers: [],
+      scopes: [
+        {
+          scopeRecordId: receipt.selection.scopeRecordId,
+          scopeRecordVersion: receipt.startedAt,
+          mappingVersions: [],
+          profileVersions: units.map(({ providerKey, unitKey, profileKey, profileVersion }) => ({
+            providerKey,
+            unitKey,
+            profileKey,
+            profileVersion,
+          })),
+          scope: {
+            scopeVersion: "catalog-sync-scope-v2",
+            productDomain: "one-piece",
+            reference: { kind: "set", scopeRecordId: receipt.selection.scopeRecordId },
+          },
+          providerUnitCount: units.length,
+          status: "ready",
+          startAllowed: true,
+          blockers: [],
+          participationBlockers: [],
+          units,
+        },
+      ],
+    },
+    winners: receipt.acquisitions.map((acquired) => ({
+      kind: acquired.kind,
+      query: structuredClone(acquired.evidence.query),
+      source: structuredClone(acquired.evidence) as Record<string, unknown> | null,
+      readAt: phase === "preview" ? "2026-10-13T08:04:10.000Z" : "2026-10-13T08:05:10.000Z",
+    })),
   };
 }

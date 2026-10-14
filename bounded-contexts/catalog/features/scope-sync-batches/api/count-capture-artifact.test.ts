@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   syntheticCountLifecycleReceipt,
   syntheticCountLifecycleStopReceipt,
 } from "../tests/count-lifecycle-receipt-fixture";
-import { countLifecycleArtifactPath } from "../domain/count-lifecycle-receipt";
+import {
+  countLifecycleArtifactPath,
+  countLifecycleReceiptMaxBytes,
+  validateCountLifecycleReceipt,
+} from "../domain/count-lifecycle-receipt";
 import { validateCountCaptureArtifacts, writeCountCaptureArtifact } from "./count-capture-artifact";
 
 const roots: string[] = [];
@@ -25,6 +29,27 @@ afterEach(async () => {
 const refusal = /^count-capture-artifact-refused$/;
 const marker = 'synthetic-session-"-marker';
 
+// The CONFORMING control grown to an exact serialized size by listing the maximum
+// ready replicas and padding their (still on-digest) synthetic image references.
+function receiptOfBytes(size: number) {
+  const receipt = syntheticCountLifecycleReceipt();
+  const pods = receipt.authority.pods;
+  const pod = pods.ready[0]!;
+  pods.adminReplicas = 100;
+  pods.apiReplicas = 100;
+  pods.ready = Array.from({ length: 200 }, (_, index) => ({ ...pod, component: index < 100 ? "admin" : "api" }));
+  let remaining = size - Buffer.byteLength(JSON.stringify(receipt));
+  for (const ready of pods.ready)
+    for (const key of ["image", "imageId"] as const) {
+      const padding = Math.min(remaining, 512 - ready[key].length);
+      ready[key] = `${"x".repeat(padding)}${ready[key]}`;
+      remaining -= padding;
+    }
+  if (remaining !== 0 || Buffer.byteLength(JSON.stringify(receipt)) !== size)
+    throw new Error("synthetic-size-unreachable");
+  return receipt;
+}
+
 describe("rejects unsafe lifecycle uploads", () => {
   it("writes the sole validated projection create-once and the upload scan reads back every field", async () => {
     const root = await workspace();
@@ -37,6 +62,25 @@ describe("rejects unsafe lifecycle uploads", () => {
     expect(JSON.parse(await readFile(join(root, countLifecycleArtifactPath), "utf8"))).toEqual(receipt);
     expect(await validateCountCaptureArtifacts([marker], root)).toMatchObject({ valid: true });
     await expect(writeCountCaptureArtifact(receipt, [], root)).rejects.toThrow(refusal);
+  });
+
+  it("writes the largest valid receipt as exactly its validated bytes and the upload scan accepts it", async () => {
+    const root = await workspace();
+    const receipt = receiptOfBytes(countLifecycleReceiptMaxBytes);
+    expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
+    expect(await writeCountCaptureArtifact(receipt, [], root)).toMatchObject({ valid: true });
+    const path = join(root, countLifecycleArtifactPath);
+    expect((await lstat(path)).size).toBe(countLifecycleReceiptMaxBytes);
+    expect(await readFile(path, "utf8")).toBe(JSON.stringify(receipt));
+    expect(await validateCountCaptureArtifacts([], root)).toMatchObject({ valid: true });
+  });
+
+  it("refuses a receipt one byte over the bound before creating anything", async () => {
+    const root = await workspace();
+    await expect(
+      writeCountCaptureArtifact(receiptOfBytes(countLifecycleReceiptMaxBytes + 1), [], root),
+    ).rejects.toThrow(refusal);
+    expect(await readdir(root)).toEqual([]);
   });
 
   it("retains a failure receipt and its evidence through the same normalization and upload scan", async () => {

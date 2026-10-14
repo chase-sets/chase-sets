@@ -20,6 +20,10 @@ const historicalRun = JSON.parse(fixture("historical-staging-run.json"));
 const historicalJobs = JSON.parse(fixture("historical-staging-jobs.json")).jobs;
 const historicalLog = fixture("historical-staging-deployment.txt");
 const historicalDefinition = fixture("historical-staging-platform-production.yml.txt");
+// Recorded attempt metadata of Platform PR run 38528671789 (GET .../runs/38528671789/attempts/1):
+// head d2a2c4e2 executed its same-repository callee at the PR merge commit c77c0260.
+const recordedPrAttempt = JSON.parse(fixture("historical-pr-attempt.json"));
+const recordedMergeSha = recordedPrAttempt.referenced_workflows[0].sha;
 const sha = "7d81f3f3309fc2a83ca3a70ee0ed5f51b45e4c0a";
 const digest = "sha256:bde13c7a962cb4d6d0937bc8ac8b669ba9fd2d07a476dfc06cd05b3e602111e2";
 const deployment = {
@@ -85,6 +89,9 @@ jobs:
 const syntheticCiDefinition = `
 name: Synthetic Pull Request CI
 on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
 jobs:
   static:
     name: Static checks
@@ -98,10 +105,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: "true"
+  compose-smoke:
+    name: Compose Boot Smoke
+    uses: ./.github/workflows/platform-compose-boot-smoke.yml
+`;
+const syntheticSafeCallee = `
+name: Synthetic Callee
+on: workflow_call
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+`;
+const syntheticUnsafeCallee = `
+name: Synthetic Callee
+on: workflow_call
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - env:
+          TOKEN: \${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: "true"
 `;
 const syntheticStagingDefinition = `
 name: Synthetic Staging Operations
 on: workflow_dispatch
+permissions:
+  contents: read
 jobs:
   recover-runtime:
     name: Recover runtime
@@ -140,7 +179,9 @@ function syntheticRun(id, path, headSha, overrides = {}) {
     ...overrides,
   };
 }
+// A synthetic job whose one step ran for the job's whole (overridable) interval.
 function syntheticJob(run, id, name, overrides = {}) {
+  const { started_at = "2026-10-13T05:00:10Z", completed_at = "2026-10-13T07:05:00Z" } = overrides;
   return {
     id,
     run_id: run.id,
@@ -149,16 +190,16 @@ function syntheticJob(run, id, name, overrides = {}) {
     name,
     status: "completed",
     conclusion: "success",
-    started_at: "2026-10-13T07:00:10Z",
-    completed_at: "2026-10-13T07:05:00Z",
+    started_at,
+    completed_at,
     steps: [
       {
         name: "Run",
         number: 1,
-        status: "completed",
-        conclusion: "success",
-        started_at: "2026-10-13T07:00:10Z",
-        completed_at: "2026-10-13T07:05:00Z",
+        status: completed_at ? "completed" : "in_progress",
+        conclusion: completed_at ? "success" : null,
+        started_at,
+        completed_at,
       },
     ],
     ...overrides,
@@ -166,7 +207,9 @@ function syntheticJob(run, id, name, overrides = {}) {
 }
 
 // The positive recorded fixture: the historical deploy run, the still-running
-// synthetic #9587-shaped capture job and ordinary proven non-mutating CI jobs.
+// synthetic #9587-shaped capture job and ordinary proven non-mutating CI jobs. The
+// CI run carries the recorded pull_request attempt binding; its timing, jobs and
+// definitions (served only at the recorded merge commit) are synthetic.
 function positiveFixture() {
   const captureRun = syntheticRun(900001, ".github/workflows/catalog-staging-provider-uat.yml", syntheticRunnerSha, {
     status: "in_progress",
@@ -174,8 +217,8 @@ function positiveFixture() {
     created_at: "2026-10-13T08:00:05Z",
     updated_at: "2026-10-13T08:01:00Z",
   });
-  const ciRun = syntheticRun(900002, ".github/workflows/synthetic-ci.yml", "e".repeat(40), {
-    event: "pull_request",
+  const ciRun = syntheticRun(recordedPrAttempt.id, recordedPrAttempt.path, recordedPrAttempt.head_sha, {
+    event: recordedPrAttempt.event,
     created_at: "2026-10-13T07:55:00Z",
     updated_at: "2026-10-13T08:01:30Z",
     status: "in_progress",
@@ -215,25 +258,36 @@ function positiveFixture() {
       [
         syntheticJob(ciRun, 920001, "Static checks", { status: "in_progress", conclusion: null, completed_at: null }),
         syntheticJob(ciRun, 920002, "Deploy staging smoke", { completed_at: "2026-10-13T08:00:00Z" }),
+        syntheticJob(ciRun, 920003, "Compose Boot Smoke / Verify", { completed_at: "2026-10-13T08:00:00Z" }),
       ],
     ],
   ]);
+  const attempts = new Map([[`${ciRun.id}/1`, recordedPrAttempt]]);
   const definitions = new Map([
     [`${historicalRun.path}@${sha}`, historicalDefinition],
     [`${captureRun.path}@${syntheticRunnerSha}`, syntheticCaptureDefinition],
-    [`${ciRun.path}@${ciRun.head_sha}`, syntheticCiDefinition],
+    [`${ciRun.path}@${recordedMergeSha}`, syntheticCiDefinition],
+    [`.github/workflows/platform-compose-boot-smoke.yml@${recordedMergeSha}`, syntheticSafeCallee],
     [`.github/workflows/synthetic-staging.yml@${"9".repeat(40)}`, syntheticStagingDefinition],
   ]);
   const logs = new Map([[deployment.jobId, historicalLog]]);
-  return { runs, jobs, definitions, logs, captureRun, ciRun };
+  return { runs, jobs, attempts, definitions, logs, captureRun, ciRun };
 }
 
-function fakeReader({ runs, jobs, definitions, logs }) {
+// Unless a case records an attempt's own object, an attempt repeats its listed run.
+function fakeReader({ runs, jobs, attempts = new Map(), definitions, logs }) {
   const runPage = /^\/actions\/runs\?per_page=100&page=(\d+)&created=(\S+)\.\.(\S+)$/;
   const jobPage = /^\/actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs\?per_page=100&page=(\d+)$/;
+  const attemptRead = /^\/actions\/runs\/(\d+)\/attempts\/(\d+)$/;
   return {
     json: vi.fn(async (path) => {
-      let match = runPage.exec(path);
+      let match = attemptRead.exec(path);
+      if (match) {
+        const run = runs.find((candidate) => String(candidate.id) === match[1]);
+        if (!run) throw new Error("synthetic-unexpected-attempt-read");
+        return attempts.get(`${match[1]}/${match[2]}`) ?? { ...run, run_attempt: Number(match[2]) };
+      }
+      match = runPage.exec(path);
       if (match) {
         const [, page, from, to] = match;
         const inRange = runs.filter(
@@ -265,6 +319,92 @@ function fakeReader({ runs, jobs, definitions, logs }) {
 const collect = (fixtureValue, input = deployment) =>
   collectCountCaptureDeployment(fakeReader(fixtureValue), input, now);
 
+// A synthetic job that can dispatch any workflow with the run's own token.
+const dispatcherDefinition = (workflowPermissions, jobPermissions) => `
+name: Synthetic Dispatcher
+on: workflow_dispatch
+${workflowPermissions}jobs:
+  dispatch:
+    name: Synthetic Dispatch
+    runs-on: ubuntu-latest
+${jobPermissions}    steps:
+      - env:
+          GH_TOKEN: \${{ github.token }}
+        run: gh workflow run synthetic-deploy.yml
+`;
+function addDispatcher(value, workflowPermissions, jobPermissions) {
+  const run = syntheticRun(950001, ".github/workflows/synthetic-dispatcher.yml", "8".repeat(40), {
+    created_at: "2026-10-13T07:50:00Z",
+    updated_at: "2026-10-13T07:55:00Z",
+  });
+  value.runs.push(run);
+  value.jobs.set(`${run.id}/1`, [
+    syntheticJob(run, 951001, "Synthetic Dispatch", { completed_at: "2026-10-13T07:55:00Z" }),
+  ]);
+  value.definitions.set(`${run.path}@${run.head_sha}`, dispatcherDefinition(workflowPermissions, jobPermissions));
+}
+
+// A synthetic pull_request run whose head and merge commits are distinct; each
+// attempt's object records the callee GitHub executed and at which revision.
+const syntheticPrHead = "d".repeat(40);
+const syntheticMerge = "b".repeat(40);
+const syntheticCaller = `
+name: Synthetic Pull Request Caller
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  smoke:
+    name: Smoke
+    uses: ./.github/workflows/synthetic-callee.yml
+`;
+const reference = (path, sha, ref = "refs/pull/123/merge") => ({
+  path: `synthetic/repository/${path}@${sha}`,
+  ref,
+  sha,
+});
+function addPullRequestRun(
+  value,
+  {
+    event = "pull_request",
+    references = [reference(".github/workflows/synthetic-callee.yml", syntheticMerge)],
+    laterReferences = references,
+    runAttempt = 1,
+    attemptOverrides = {},
+    headCallee = syntheticSafeCallee,
+    mergeCallee = syntheticSafeCallee,
+  } = {},
+) {
+  const run = syntheticRun(960001, ".github/workflows/synthetic-pr.yml", syntheticPrHead, {
+    event,
+    run_attempt: runAttempt,
+    created_at: "2026-10-13T07:50:00Z",
+    updated_at: "2026-10-13T07:58:00Z",
+  });
+  value.runs.push(run);
+  for (let attempt = 1; attempt <= runAttempt; attempt++) {
+    value.jobs.set(`${run.id}/${attempt}`, [
+      {
+        ...syntheticJob(run, 961000 + attempt, "Smoke / Verify", { completed_at: "2026-10-13T07:58:00Z" }),
+        run_attempt: attempt,
+      },
+    ]);
+    value.attempts.set(`${run.id}/${attempt}`, {
+      ...run,
+      run_attempt: attempt,
+      referenced_workflows: attempt === runAttempt ? laterReferences : references,
+      ...attemptOverrides,
+    });
+  }
+  for (const [sha, callee] of [
+    [syntheticPrHead, headCallee],
+    [syntheticMerge, mergeCallee],
+  ]) {
+    value.definitions.set(`${run.path}@${sha}`, syntheticCaller);
+    value.definitions.set(`.github/workflows/synthetic-callee.yml@${sha}`, callee);
+  }
+}
+
 describe("rejects unbound deployment collector", () => {
   it("binds the historical executed job's own step log, not a workflow conclusion", () => {
     const job = historicalJobs.find((candidate) => String(candidate.id) === deployment.jobId);
@@ -282,13 +422,49 @@ describe("rejects unbound deployment collector", () => {
       createdFrom: "2026-09-08T05:11:30Z",
       runCount: 4,
       attemptCount: 3,
-      jobCount: 20,
-      pageCount: 8,
-      definitionCount: 3,
-      nonMutatingJobCount: 6,
+      jobCount: 21,
+      pageCount: 12,
+      definitionCount: 4,
+      nonMutatingJobCount: 7,
     });
     expect(reader.jobLog).toHaveBeenCalledExactlyOnceWith(deployment.jobId);
     expect(reader.json).not.toHaveBeenCalledWith(expect.stringContaining("/actions/runs/900003/"));
+    // The pull_request caller and its callee are read at the attempt's merge commit, never its head.
+    expect(reader.workflow).toHaveBeenCalledWith(value.ciRun.path, recordedMergeSha);
+    expect(reader.workflow).toHaveBeenCalledWith(".github/workflows/platform-compose-boot-smoke.yml", recordedMergeSha);
+    expect(reader.workflow).not.toHaveBeenCalledWith(expect.anything(), value.ciRun.head_sha);
+  });
+
+  it("keeps a genuinely completed earlier mutator outside the window", async () => {
+    const value = positiveFixture();
+    const run = syntheticRun(930001, ".github/workflows/synthetic-staging.yml", "9".repeat(40), {
+      created_at: "2026-10-13T05:00:00Z",
+      updated_at: "2026-10-13T05:12:00Z",
+    });
+    value.runs.push(run);
+    value.jobs.set(`${run.id}/1`, [
+      syntheticJob(run, 931001, "Recover runtime", {
+        started_at: "2026-10-13T05:01:00Z",
+        completed_at: "2026-10-13T05:05:00Z",
+        steps: [
+          {
+            name: "Run",
+            number: 1,
+            status: "completed",
+            conclusion: "success",
+            started_at: "2026-10-13T05:01:00Z",
+            completed_at: "2026-10-13T05:05:00Z",
+          },
+        ],
+      }),
+    ]);
+    expect(await collect(value)).toMatchObject({ outcome: "bound", binding: bound });
+  });
+
+  it("binds when a later job's equivalent token is read-only", async () => {
+    const value = positiveFixture();
+    addDispatcher(value, "permissions:\n  actions: read\n  contents: read\n", "");
+    expect(await collect(value)).toMatchObject({ outcome: "bound", binding: bound });
   });
 
   it("splits a filtered range above GitHub's 1,000-result cap and still pages it completely", async () => {
@@ -314,10 +490,50 @@ describe("rejects unbound deployment collector", () => {
     ).toBe("staging-mutator");
   });
 
+  it.each([
+    ["workflow-level Actions write", "staging-mutator", "permissions:\n  actions: write\n", ""],
+    [
+      "job-level Actions write",
+      "staging-mutator",
+      "permissions:\n  contents: read\n",
+      "    permissions:\n      actions: write\n",
+    ],
+    ["workflow write-all", "staging-mutator", "permissions: write-all\n", ""],
+    ["job write-all", "staging-mutator", "permissions: {}\n", "    permissions: write-all\n"],
+    ["an undeclared repository default", "staging-mutator", "", ""],
+    ["read-all", "non-mutating", "permissions: read-all\n", ""],
+    ["explicit Actions read", "non-mutating", "permissions:\n  actions: read\n  contents: read\n", ""],
+    ["no permissions", "non-mutating", "permissions: {}\n", ""],
+  ])("classifies a job dispatching with %s as %s", async (_case, expected, workflowPermissions, jobPermissions) => {
+    expect(
+      await classifyCountCaptureJob(
+        readCountCaptureWorkflowCapabilities(dispatcherDefinition(workflowPermissions, jobPermissions)),
+        "Synthetic Dispatch",
+      ),
+    ).toBe(expected);
+  });
+
+  it("does not let a reusable caller with Actions write delegate its capability", async () => {
+    const caller = readCountCaptureWorkflowCapabilities(`
+name: Synthetic Caller
+on: workflow_dispatch
+permissions:
+  actions: write
+jobs:
+  smoke:
+    name: Smoke
+    uses: ./.github/workflows/synthetic-callee.yml
+`);
+    const readCallee = vi.fn(async () => readCountCaptureWorkflowCapabilities(syntheticSafeCallee));
+    expect(await classifyCountCaptureJob(caller, "Smoke / Verify", readCallee)).toBe("staging-mutator");
+  });
+
   it("classifies a same-repository reusable workflow by its callee at the same head", async () => {
     const caller = readCountCaptureWorkflowCapabilities(`
 name: Synthetic Caller
 on: pull_request
+permissions:
+  contents: read
 jobs:
   smoke:
     name: Compose Boot Smoke
@@ -330,6 +546,8 @@ jobs:
       readCountCaptureWorkflowCapabilities(`
 name: Synthetic Callee
 on: workflow_call
+permissions:
+  contents: read
 jobs:
   verify:
     name: Compose Boot Smoke | target=\${{ inputs.target_sha }}
@@ -363,7 +581,143 @@ ${nested ? "  again:\n    uses: ./.github/workflows/synthetic-callee.yml" : ""}
       updated_at: "2026-10-13T06:00:00Z",
       ...overrides,
     });
+  // A staging mutator listed with the given timing; the run's update postdates the window.
+  const stagingMutator = (value, job) => {
+    const run = stagingRun();
+    value.runs.push(run);
+    value.jobs.set(`${run.id}/1`, [syntheticJob(run, 931001, "Recover runtime", job)]);
+  };
+  const executedStep = (started_at, completed_at) => ({
+    name: "Run",
+    number: 1,
+    status: "completed",
+    conclusion: "success",
+    started_at,
+    completed_at,
+  });
   it.each([
+    [
+      "a selected job without executed times",
+      (value) =>
+        value.jobs.set(
+          `${historicalRun.id}/1`,
+          historicalJobs.map((job) =>
+            String(job.id) === deployment.jobId ? { ...job, started_at: null, completed_at: null } : job,
+          ),
+        ),
+      "selected-job-unexecuted",
+    ],
+    [
+      "a mutator claiming completion before it started",
+      (value) =>
+        stagingMutator(value, {
+          started_at: "2026-10-13T05:20:00Z",
+          completed_at: "2026-10-13T05:05:00Z",
+          steps: [executedStep("2026-10-13T05:20:00Z", "2026-10-13T05:25:00Z")],
+        }),
+      "malformed-response",
+    ],
+    [
+      "a step-free mutator claiming completion before it started",
+      (value) =>
+        stagingMutator(value, { started_at: "2026-10-13T05:20:00Z", completed_at: "2026-10-13T05:05:00Z", steps: [] }),
+      "staging-mutation-overlap",
+    ],
+    [
+      "a mutator whose executed step falls outside its claimed interval",
+      (value) =>
+        stagingMutator(value, {
+          started_at: "2026-10-13T05:00:00Z",
+          completed_at: "2026-10-13T05:10:00Z",
+          steps: [executedStep("2026-10-13T05:00:00Z", "2026-10-13T05:20:00Z")],
+        }),
+      "malformed-response",
+    ],
+    [
+      "a mutator whose executed step has no times",
+      (value) =>
+        stagingMutator(value, {
+          started_at: "2026-10-13T05:00:00Z",
+          completed_at: "2026-10-13T05:10:00Z",
+          steps: [executedStep(null, null)],
+        }),
+      "malformed-response",
+    ],
+    [
+      "a completed mutator without executed times",
+      (value) =>
+        stagingMutator(value, {
+          started_at: null,
+          completed_at: null,
+          steps: [executedStep("2026-10-13T05:00:00Z", "2026-10-13T05:05:00Z")],
+        }),
+      "malformed-response",
+    ],
+    [
+      "a later job dispatching with explicit job-level Actions write",
+      (value) => addDispatcher(value, "permissions:\n  contents: read\n", "    permissions:\n      actions: write\n"),
+      "staging-mutation-overlap",
+    ],
+    [
+      "a later job dispatching with inherited Actions write",
+      (value) => addDispatcher(value, "permissions:\n  actions: write\n  contents: read\n", ""),
+      "staging-mutation-overlap",
+    ],
+    [
+      "a later job dispatching with job-level write-all",
+      (value) => addDispatcher(value, "permissions: {}\n", "    permissions: write-all\n"),
+      "staging-mutation-overlap",
+    ],
+    [
+      "a pull_request caller whose callee changed capability at its merge commit",
+      (value) => addPullRequestRun(value, { headCallee: syntheticSafeCallee, mergeCallee: syntheticUnsafeCallee }),
+      "staging-mutation-overlap",
+    ],
+    [
+      "a pull_request attempt without a merge-bound reference",
+      (value) => addPullRequestRun(value, { references: [] }),
+      "deployment-capability-unknown",
+    ],
+    [
+      "a pull_request attempt with ambiguous merge revisions",
+      (value) =>
+        addPullRequestRun(value, {
+          references: [
+            reference(".github/workflows/synthetic-callee.yml", syntheticMerge),
+            reference(".github/workflows/synthetic-other.yml", "e".repeat(40)),
+          ],
+        }),
+      "deployment-capability-unknown",
+    ],
+    [
+      "a pull_request re-run attempt that lost its merge-bound reference",
+      (value) => addPullRequestRun(value, { runAttempt: 2, laterReferences: [] }),
+      "deployment-capability-unknown",
+    ],
+    [
+      "an attempt object that disagrees with its listed run",
+      (value) => addPullRequestRun(value, { attemptOverrides: { head_sha: "e".repeat(40) } }),
+      "malformed-response",
+    ],
+    [
+      "a pull_request_target run whose executed revision is not recorded",
+      (value) => addPullRequestRun(value, { event: "pull_request_target" }),
+      "deployment-capability-unknown",
+    ],
+    [
+      "a head-bound caller whose callee reference names another revision",
+      (value) =>
+        addPullRequestRun(value, {
+          event: "workflow_dispatch",
+          references: [reference(".github/workflows/synthetic-callee.yml", syntheticMerge, "refs/heads/main")],
+        }),
+      "deployment-capability-unknown",
+    ],
+    [
+      "a head-bound caller whose callee is not referenced",
+      (value) => addPullRequestRun(value, { event: "workflow_dispatch", references: [] }),
+      "deployment-capability-unknown",
+    ],
     [
       "an unclassified job",
       (value) => {
@@ -623,7 +977,11 @@ describe("classifies the current head-bound workflow definitions", () => {
     expect(capabilities("platform-production.yml")).toMatchObject({
       "deploy-staging": "staging-mutator",
       "reconcile-managed-postgres-ca-staging": "staging-mutator",
+      "dispatch-ephemeral-verification": "staging-mutator",
       "deploy-production": "non-mutating",
+    });
+    expect(capabilities("platform-release-candidate.yml")).toMatchObject({
+      "dispatch-release-candidate": "staging-mutator",
     });
     expect(capabilities("platform-staging-advisory-evidence.yml")).toMatchObject({
       "staging-advisory-evidence": "staging-mutator",

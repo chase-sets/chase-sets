@@ -52,17 +52,23 @@ export async function validateCountCaptureArtifacts(
 }
 
 // Writes the one validated projection, create-once, then re-reads it through the
-// same final scan. Raw responses, traces and session state never enter it.
+// same final scan. Raw responses, traces and session state never enter it. The
+// file holds exactly the serialized bytes the validator bounded, nothing appended.
 export async function writeCountCaptureArtifact(
   receipt: unknown,
   forbiddenValues: readonly string[],
   workspace = process.cwd(),
 ): Promise<CountLifecycleValidation> {
   try {
-    if (!validateCountLifecycleReceipt(receipt, forbiddenValues).valid) throw refused();
+    const serialized = JSON.stringify(receipt);
+    if (
+      Buffer.byteLength(serialized) > countLifecycleReceiptMaxBytes ||
+      !validateCountLifecycleReceipt(JSON.parse(serialized), forbiddenValues).valid
+    )
+      throw refused();
     const directory = await artifactDirectory(workspace, true);
     if ((await readdir(directory)).length !== 0) throw refused();
-    await writeFile(join(directory, fileName), `${JSON.stringify(receipt)}\n`, { flag: "wx", mode: 0o600 });
+    await writeFile(join(directory, fileName), serialized, { flag: "wx", mode: 0o600 });
     return await validateCountCaptureArtifacts(forbiddenValues, workspace);
   } catch {
     throw refused();

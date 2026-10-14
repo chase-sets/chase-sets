@@ -2,18 +2,17 @@ import { parse } from "yaml";
 import {
   countCaptureAuthoritySchema,
   countCaptureCollectionSchema,
+  countCaptureSearchFrom,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/count-lifecycle-receipt.ts";
 
 // Deployment collector for the count-lifecycle capture. It pages every workflow
 // run that could have executed after the selected staging deploy step, every
 // attempt and every job, binds the executed step's own log block to SHA@digest,
-// and classifies every other job that executed in that window by its head-bound
-// definition: the run's workflow file at the run's head SHA. Anything it cannot
-// prove returns a bound-free "unknown"; nothing here is live deployment authority.
+// and classifies every other job that executed in that window by the definition
+// GitHub executed: the run's workflow file at the attempt's executed revision.
+// Anything it cannot prove returns a bound-free "unknown"; nothing here is live
+// deployment authority.
 
-// GitHub cancels a workflow run 35 days after creation, so any run executing
-// after the selected step was created at most this long before it.
-const runLifetimeMs = 35 * 24 * 60 * 60 * 1000;
 // Filtered run listings return at most 1,000 results; larger ranges are split.
 const filteredResultCap = 1000;
 const pageBound = 10_000;
@@ -33,8 +32,16 @@ const stagingSignInSecrets = new Set([
 ]);
 const hostedRunner = /^(ubuntu|windows|macos)-[a-z0-9.-]+$/;
 const workflowPath = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml$/;
-// A same-repository reusable workflow is read at the caller run's head SHA.
+// A same-repository reusable workflow runs from the caller's own commit; the
+// attempt's referenced workflows record which one.
 const localReusable = /^\.\/(\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml)$/;
+const referencedWorkflow =
+  /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/(\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml)@[\x21-\x7e]{1,256}$/;
+// Events whose run head SHA is the commit GitHub read the workflow from. A
+// pull_request run executes the PR merge commit instead, which only its attempt's
+// merge-ref referenced workflows record; any other event's revision is unproven.
+const headSourcedEvents = new Set(["push", "workflow_dispatch", "schedule", "merge_group"]);
+const mergeRef = /^refs\/pull\/[1-9]\d{0,9}\/merge$/;
 
 class CollectionUnknown extends Error {
   constructor(reason) {
@@ -63,6 +70,7 @@ function readRun(value) {
     value.run_attempt > 1000 ||
     !/^[a-f0-9]{40}$/.test(value.head_sha ?? "") ||
     !isText(value.path, 512) ||
+    !isText(value.event, 64) ||
     !isText(value.status, 64) ||
     !isInstant(value.created_at) ||
     !isInstant(value.updated_at) ||
@@ -99,6 +107,77 @@ function readJob(value, run, attempt) {
   if (value.run_id !== run.id || value.run_attempt !== attempt || value.head_sha !== run.head_sha)
     throw unknown("malformed-response");
   return value;
+}
+
+const skippedStep = (step) => step.status === "completed" && step.conclusion === "skipped";
+const ordered = (from, to) => from !== null && to !== null && Date.parse(from) <= Date.parse(to);
+
+// The interval a completed job provably executed in, or null when its times cannot
+// establish one (never started, or skipped with placeholder times). A job that ran
+// steps must report an ordered interval enclosing every executed step's own
+// ordered interval; contradictory executed times are refused, never trusted.
+function executedInterval(job) {
+  if (job.status !== "completed" || job.conclusion === "skipped") return null;
+  const executed = job.steps.filter((step) => !skippedStep(step));
+  if (executed.length === 0) return ordered(job.started_at, job.completed_at) ? job : null;
+  if (
+    !ordered(job.started_at, job.completed_at) ||
+    !executed.every(
+      (step) =>
+        step.status === "completed" &&
+        ordered(step.started_at, step.completed_at) &&
+        ordered(job.started_at, step.started_at) &&
+        ordered(step.completed_at, job.completed_at),
+    )
+  )
+    throw unknown("malformed-response");
+  return job;
+}
+
+// The attempt's own run object: same run, attempt, head, workflow and event as the
+// listing, and the referenced workflows GitHub resolved for that attempt.
+function readAttemptReferences(value, run, attempt) {
+  if (
+    !isRecord(value) ||
+    value.id !== run.id ||
+    value.run_attempt !== attempt ||
+    value.head_sha !== run.head_sha ||
+    value.path !== run.path ||
+    value.event !== run.event
+  )
+    throw unknown("malformed-response");
+  const references = value.referenced_workflows ?? [];
+  if (!Array.isArray(references) || references.length > 100) throw unknown("malformed-response");
+  return references.map((reference) => {
+    const match = isRecord(reference) ? referencedWorkflow.exec(reference.path ?? "") : null;
+    if (
+      !match ||
+      !/^[a-f0-9]{40}$/.test(reference.sha ?? "") ||
+      !(reference.ref === undefined || reference.ref === null || isText(reference.ref, 256))
+    )
+      throw unknown("malformed-response");
+    return { path: match[1], sha: reference.sha, ref: reference.ref ?? null };
+  });
+}
+
+// The commit whose workflow files this attempt executed. Never the PR head for a
+// pull_request run, and never a branch tip or current ref as a fallback.
+function executedRevision(run, references) {
+  if (headSourcedEvents.has(run.event)) return run.head_sha;
+  if (run.event !== "pull_request") throw unknown("deployment-capability-unknown");
+  const merged = new Set(
+    references.filter((reference) => reference.ref !== null && mergeRef.test(reference.ref)).map(({ sha }) => sha),
+  );
+  if (merged.size !== 1) throw unknown("deployment-capability-unknown");
+  return [...merged][0];
+}
+
+// A same-repository callee runs from the caller's revision, and the attempt must
+// record exactly that one reference to it.
+function calleeRevision(references, callee, revision) {
+  const matches = references.filter((reference) => reference.path === callee);
+  if (matches.length !== 1 || matches[0].sha !== revision) throw unknown("deployment-capability-unknown");
+  return revision;
 }
 
 // --- Executed deploy step and its log ---------------------------------------
@@ -168,8 +247,9 @@ export function readCountCaptureExecutedDeployment(job, log, deployment) {
     Date.parse(step.started_at) !== Date.parse(deployment.startedAt) ||
     Date.parse(step.completed_at) !== Date.parse(deployment.completedAt) ||
     Date.parse(step.started_at) >= Date.parse(step.completed_at) ||
-    Date.parse(job.started_at ?? "") > Date.parse(step.started_at) ||
-    Date.parse(job.completed_at ?? "") < Date.parse(step.completed_at)
+    // The executed job's own finite interval must enclose the selected step.
+    !ordered(job.started_at, step.started_at) ||
+    !ordered(step.completed_at, job.completed_at)
   )
     throw unknown("selected-job-unexecuted");
   const bound = readCountCaptureDeploymentLog(log, step);
@@ -211,21 +291,32 @@ function writesIdToken(permissions) {
   return permissions === "write-all" || (isRecord(permissions) && permissions["id-token"] === "write");
 }
 
+// A token with Actions write can dispatch any workflow, a staging deployer
+// included, without holding a staging secret itself. A job declaring no
+// permissions at job or workflow level receives the repository default, which
+// the definition cannot prove read-only.
+function mayDispatch(permissions) {
+  if (permissions === "read-all") return false;
+  if (isRecord(permissions)) return permissions.actions === "write";
+  return true;
+}
+
 function runnerLabels(runsOn) {
   if (typeof runsOn === "string") return [runsOn];
   if (Array.isArray(runsOn)) return runsOn;
   return [null];
 }
 
-// "staging-mutator" when the head-bound definition can hold credentials able to
-// change the staging deployment, "non-mutating" only when it provably cannot, and
-// "reusable" when a same-repository callee at the same head decides it.
+// "staging-mutator" when the executed definition can hold credentials able to
+// change the staging deployment or dispatch a workflow that can, "non-mutating"
+// only when it provably cannot, and "reusable" when a same-repository callee at
+// the same revision decides it.
 function jobCapability(job, workflow) {
   if (!isRecord(job)) return "staging-mutator";
+  const permissions = job.permissions ?? workflow.permissions;
+  if (mayDispatch(permissions)) return "staging-mutator";
   if (job.uses !== undefined)
-    return typeof job.uses === "string" &&
-      localReusable.test(job.uses) &&
-      !writesIdToken(job.permissions ?? workflow.permissions)
+    return typeof job.uses === "string" && localReusable.test(job.uses) && !writesIdToken(permissions)
       ? "reusable"
       : "staging-mutator";
   const environment = isRecord(job.environment) ? job.environment.name : job.environment;
@@ -234,7 +325,7 @@ function jobCapability(job, workflow) {
     typeof environment === "string" && (environment.toLowerCase() === "staging" || environment.includes("${{"));
   const references = secretReferences({ job, env: workflow.env });
   const hosted = runnerLabels(job["runs-on"]).every((label) => typeof label === "string" && hostedRunner.test(label));
-  const idToken = writesIdToken(job.permissions ?? workflow.permissions);
+  const idToken = writesIdToken(permissions);
   if (!hosted || idToken || references.dynamic) return "staging-mutator";
   if (!stagingBound) return "non-mutating";
   return [...references.names].every((name) => stagingSignInSecrets.has(name)) ? "non-mutating" : "staging-mutator";
@@ -326,9 +417,9 @@ export async function collectCountCaptureDeployment(reader, deploymentInput, now
     const windowStart = Date.parse(deployment.startedAt);
     const collectedAt = Date.parse(now);
     if (windowStart > collectedAt) throw unknown("selected-job-unexecuted");
-    const from = Math.floor((windowStart - runLifetimeMs) / 1000);
+    createdFrom = countCaptureSearchFrom(deployment.startedAt);
+    const from = Date.parse(createdFrom) / 1000;
     const to = Math.floor(collectedAt / 1000);
-    createdFrom = toSecond(from * 1000);
 
     // Complete, total-closed paging: totals stay stable, ids never repeat and
     // short pages before the total is reached are truncation, not completeness.
@@ -379,11 +470,11 @@ export async function collectCountCaptureDeployment(reader, deploymentInput, now
     if (new Set(runs.map((run) => run.id)).size !== runs.length) throw unknown("inventory-duplicate");
     counts.runCount = runs.length;
     const definitions = new Map();
-    async function definitionAt(path, headSha) {
-      const key = `${path}@${headSha}`;
+    async function definitionAt(path, revision) {
+      const key = `${path}@${revision}`;
       if (!definitions.has(key)) {
         if (!workflowPath.test(path)) throw unknown("deployment-capability-unknown");
-        const text = await call(() => reader.workflow(path, headSha));
+        const text = await call(() => reader.workflow(path, revision));
         definitions.set(key, readCountCaptureWorkflowCapabilities(text));
         counts.definitionCount = definitions.size;
       }
@@ -399,6 +490,11 @@ export async function collectCountCaptureDeployment(reader, deploymentInput, now
         continue;
       for (let attempt = 1; attempt <= run.run_attempt; attempt++) {
         counts.attemptCount++;
+        const references = readAttemptReferences(
+          await call(() => reader.json(`/actions/runs/${run.id}/attempts/${attempt}`)),
+          run,
+          attempt,
+        );
         const jobsPage = (page) =>
           call(() => reader.json(`/actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=${perPage}&page=${page}`));
         const first = await jobsPage(1);
@@ -412,19 +508,19 @@ export async function collectCountCaptureDeployment(reader, deploymentInput, now
             binding = readCountCaptureExecutedDeployment(job, log, deployment);
             continue;
           }
-          const unexecuted =
-            job.status === "completed" &&
-            job.conclusion === "skipped" &&
-            job.steps.every((step) => step.status === "completed" && step.conclusion === "skipped");
-          const before =
-            job.status === "completed" && job.completed_at !== null && Date.parse(job.completed_at) < windowStart;
-          if (unexecuted || before) continue;
+          const unexecuted = job.status === "completed" && job.conclusion === "skipped" && job.steps.every(skippedStep);
+          if (unexecuted) continue;
+          // Only a validated executed interval can place a job wholly before the step.
+          const interval = executedInterval(job);
+          if (interval && Date.parse(interval.completed_at) < windowStart) continue;
           // Executed, running, queued or waiting at/after the selected step: only a
-          // head-bound proof of no staging-deployment capability lets it pass.
+          // proof from the executed definition that it has no staging-deployment
+          // capability lets it pass.
+          const revision = executedRevision(run, references);
           const capability = await classifyCountCaptureJob(
-            await definitionAt(run.path, run.head_sha),
+            await definitionAt(run.path, revision),
             job.name,
-            (callee) => definitionAt(callee, run.head_sha),
+            async (callee) => definitionAt(callee, calleeRevision(references, callee, revision)),
           );
           if (capability === "unclassified") throw unknown("deployment-capability-unknown");
           if (capability !== "non-mutating") throw unknown("staging-mutation-overlap");

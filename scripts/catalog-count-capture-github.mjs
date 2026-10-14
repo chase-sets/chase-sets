@@ -5,7 +5,7 @@
 // Failures are value-free: callers learn only that the read was refused.
 
 // Caps derive from the retained production-shaped evidence of Platform Deploy run
-// 38349636491 (../.orchestrator/logs/9424-ac5-packet-r1): a run object is 13,235
+// 38349636491 (../.orchestrator/logs/9424-ac5-packet-r1): a run (or attempt) object is 13,235
 // bytes and the largest job 12,866 bytes, so a 100-item page is about 1.3 MB; the
 // executed Deploy Staging log is 728,996 bytes; the largest workflow definition,
 // platform-production.yml, is 282,215 bytes. Each cap keeps at least 3x headroom.
@@ -21,6 +21,7 @@ const instantSecond = String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`;
 const jsonPaths = [
   new RegExp(String.raw`^/actions/runs\?per_page=100&page=[1-9]\d{0,3}&created=${instantSecond}\.\.${instantSecond}$`),
   /^\/actions\/runs\/[1-9]\d{0,19}\/attempts\/[1-9]\d{0,3}\/jobs\?per_page=100&page=[1-9]\d{0,3}$/,
+  /^\/actions\/runs\/[1-9]\d{0,19}\/attempts\/[1-9]\d{0,3}$/,
 ];
 const workflowPath = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml$/;
 const signedLogHost = (hostname) =>

@@ -205,9 +205,21 @@ export const countCapturePlanSchema = z
   );
 export type CountCapturePlan = z.infer<typeof countCapturePlanSchema>;
 
+type PlannedUnit = CountCapturePlan["scopes"][number]["units"][number];
+type PlannerWinner = Readonly<{ kind: CountCaptureKind; query: CountCaptureQuery; source: CountCaptureSource | null }>;
+// A winner is a unit's own source only for that unit's kind, unit, profile and
+// exact source; a matching source ID read for another kind is not its winner.
+const winnerSources = (winner: PlannerWinner, unit: PlannedUnit) =>
+  winner.source !== null &&
+  countCaptureKindUnitKeys[winner.kind] === unit.unitKey &&
+  winner.query.unitKey === unit.unitKey &&
+  winner.query.profileKey === unit.profileKey &&
+  winner.query.profileVersion === unit.profileVersion &&
+  winner.source.sourceId === unit.estimate.countSourceId;
+
 // One planner read (an ordinary preview or the pre-confirm planner read) and the
 // count-source winners THAT request consumed. Every winner must be the source the
-// plan's unit estimate names, and every unit estimate naming a source needs its winner.
+// plan's unit estimate names, and every unit estimate naming a source needs its own winner.
 export const countCapturePlannerReadSchema = z
   .object({
     phase: z.enum(["preview", "pre-confirm"]),
@@ -244,15 +256,12 @@ export const countCapturePlannerReadSchema = z
       read.winners.every((winner) => {
         if (winner.query.kind !== winner.kind) return false;
         if (!winner.source) return true;
-        const unit = units.find((candidate) => candidate.unitKey === winner.query.unitKey);
         return (
           countQueryKey(winner.source.query) === countQueryKey(winner.query) &&
-          unit?.profileKey === winner.query.profileKey &&
-          unit.profileVersion === winner.query.profileVersion &&
-          unit.estimate.countSourceId === winner.source.sourceId
+          units.some((unit) => winnerSources(winner, unit))
         );
       }) &&
-      sourced.every((unit) => read.winners.some((winner) => winner.source?.sourceId === unit.estimate.countSourceId))
+      sourced.every((unit) => read.winners.filter((winner) => winnerSources(winner, unit)).length === 1)
     );
   });
 export type CountCapturePlannerRead = z.infer<typeof countCapturePlannerReadSchema>;

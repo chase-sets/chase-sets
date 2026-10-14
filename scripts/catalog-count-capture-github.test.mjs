@@ -4,6 +4,7 @@ import { countCaptureGitHubLimits, createCountCaptureGitHubReader } from "./cata
 const refusal = "count-capture-deployment-unknown";
 const runsPath = "/actions/runs?per_page=100&page=1&created=2026-09-08T05:11:30Z..2026-10-13T08:02:00Z";
 const jobsPath = "/actions/runs/38349636491/attempts/1/jobs?per_page=100&page=1";
+const attemptPath = "/actions/runs/38349636491/attempts/1";
 function reader(transport, limits) {
   return createCountCaptureGitHubReader({
     repository: "synthetic/repository",
@@ -24,6 +25,7 @@ describe("bounded capture GitHub transport", () => {
     const client = reader(transport);
     expect(await client.json(runsPath)).toEqual({ total_count: 0, workflow_runs: [] });
     expect(await client.json(jobsPath)).toEqual({ total_count: 0, workflow_runs: [] });
+    expect(await client.json(attemptPath)).toEqual({ total_count: 0, workflow_runs: [] });
     expect(transport).toHaveBeenCalledWith(
       `https://api.github.com/repos/synthetic/repository${runsPath}`,
       expect.objectContaining({
@@ -38,10 +40,13 @@ describe("bounded capture GitHub transport", () => {
       "/actions/runs?head_sha=abc",
       "/actions/runs/../secrets",
       "/actions/runs/1/attempts/1/jobs?per_page=100&page=0",
+      "/actions/runs/1/attempts/0",
+      "/actions/runs/1/attempts/1?exclude_pull_requests=true",
+      "/actions/runs/1/attempts/1/logs",
       "/actions/workflows?per_page=100&page=1",
     ])
       await expect(client.json(path)).rejects.toThrow(refusal);
-    expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport).toHaveBeenCalledTimes(3);
   });
 
   it("reads a head-bound workflow definition raw at an exact commit only", async () => {
