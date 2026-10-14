@@ -34,12 +34,13 @@ describe("ebay-account-deletion-receipt-expiry", () => {
     const stopped = createEbayReceiptExpiryRunner(expiry, logger);
     await expect(stopped.runOnce({ signal: AbortSignal.abort() })).rejects.toThrow("incomplete:interrupted");
     const restarted = createEbayReceiptExpiryRunner(expiry, logger);
-    const measuredStart = performance.now();
+    let processed = 0;
     let result;
     do {
       result = await restarted.runOnce();
+      processed += result.processed;
     } while (restarted.rescheduleOnCompletion?.(result));
-    expect(performance.now() - measuredStart).toBeLessThan(1800000);
+    expect(processed).toBe(501);
     expect((await db().query("SELECT notification_id FROM channels_ebay_account_deletion_receipts")).rows).toEqual([
       { notification_id: notice.notificationId },
     ]);

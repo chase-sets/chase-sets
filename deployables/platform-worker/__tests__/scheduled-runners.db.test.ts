@@ -220,12 +220,14 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     expect(await expiredCount()).toBe(1001);
     expect(selected).toHaveLength(1);
     const started = performance.now();
+    let processed = 0;
     let result;
     do {
       result = await selected[0]!.runOnce();
+      processed += result.processed;
     } while (selected[0]!.rescheduleOnCompletion?.(result));
     const elapsedMs = performance.now() - started;
-    expect(elapsedMs).toBeLessThan(1800000);
+    expect(processed).toBe(1001);
     console.info(
       JSON.stringify({
         type: "synthetic-ebay-expiry-operating-envelope",
