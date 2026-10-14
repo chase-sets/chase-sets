@@ -607,6 +607,37 @@ describe("rehearsal count preparation current authority (AC2 Probe A)", () => {
     expect(h.allocations.size).toBe(0);
   });
 
+  it("a concurrent execution's in-flight debits leave the losing submission a locked refusal", async () => {
+    const h = harness();
+    const quote = await quoted(h);
+    const approval = approvalFor(quote, h.now());
+    const quoteId = quote.quote!.quoteId;
+    const query = countQuery("OP01", "cards");
+    const inFlight = randomUUID();
+    // Another invocation admits this quote after the pre-read and is mid-send when this one reads back.
+    h.setBeforeAcquire(() => {
+      h.allocations.set(quoteId, { executionId: randomUUID(), planned: 4, at: h.now(), endedAt: null });
+      h.debits.push({
+        id: inFlight,
+        quoteId,
+        scopeRecordId: "scope-op01",
+        kind: query.kind,
+        queryKey: countQueryKey(query),
+        debitedAt: h.now(),
+        outcome: null,
+        source: null,
+      });
+    });
+    const receipt = await acquire(h, approval);
+    expect(receipt).toMatchObject({
+      outcome: "admission-refused",
+      acquisition: { response: { status: 409, state: null }, readback: { status: "read", admission: "active" } },
+      accounting: { status: "complete", debits: [{ debitId: inFlight, outcome: "acquiring" }] },
+    });
+    expect(h.acquirePosts()).toBe(1);
+    expect(h.send).not.toHaveBeenCalled();
+  });
+
   it("changed or unknown current authority refuses before submission", async () => {
     const changed = harness();
     const approval = approvalFor(await quoted(changed), changed.now());

@@ -338,9 +338,11 @@ export function rehearsalCountAdmissionRefusal(
 }
 
 /**
- * Classifies one submitted acquisition. Any possible send left uncertain or
- * acquiring is uncertain; only a complete response, readback, accounting and
- * every roster source is complete.
+ * Classifies one submitted acquisition. A 409 is the locked admission refusing
+ * this submission before any allocation, debit or send; debits a concurrent
+ * execution of the same quote still has in flight stay in the accounting.
+ * Otherwise any possible send left uncertain or acquiring is uncertain; only a
+ * complete response, readback, accounting and every roster source is complete.
  */
 export function rehearsalCountAcquisitionOutcome(input: {
   response: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["response"];
@@ -349,6 +351,7 @@ export function rehearsalCountAcquisitionOutcome(input: {
   sourced: boolean;
 }): RehearsalCountPreparationOutcome {
   const { response, readback, accounting } = input;
+  if (response.status === 409) return "admission-refused";
   if (
     response.status === null ||
     response.status >= 500 ||
@@ -357,7 +360,6 @@ export function rehearsalCountAcquisitionOutcome(input: {
     accounting.debits.some((debit) => debit.outcome === "uncertain" || debit.outcome === "acquiring")
   )
     return "uncertain";
-  if (response.status === 409) return "admission-refused";
   if (response.status !== 200 || response.state !== "complete") return "failed";
   if (readback.status !== "read") return "readback-failed";
   if (
