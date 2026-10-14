@@ -384,6 +384,8 @@
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/managed-authority.ts","specifier":"@chase-sets/primitives/json","resolved":"repo:/contracts/primitives/json.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/request-support/customer-feedback-outcome-fact.ts","specifier":"@chase-sets/customer-feedback/server","resolved":"repo:/bounded-contexts/customer-feedback/server.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/route.ts","specifier":"../../../api","resolved":"repo:/bounded-contexts/marketplace/api.ts"}]
+["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/route.ts","specifier":"../domain/domain","resolved":"repo:/bounded-contexts/marketplace/features/offers/domain/domain.ts"}]
+["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/route.ts","specifier":"../read-model/queries","resolved":"repo:/bounded-contexts/marketplace/features/offers/read-model/queries.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/route.ts","specifier":"./managed-authority","resolved":"repo:/bounded-contexts/marketplace/features/offers/api/managed-authority.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/route.ts","specifier":"./response-shape","resolved":"repo:/bounded-contexts/marketplace/features/offers/api/response-shape.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/features/offers/api/route.ts","specifier":"./runtime","resolved":"repo:/bounded-contexts/marketplace/features/offers/api/runtime.ts"}]
