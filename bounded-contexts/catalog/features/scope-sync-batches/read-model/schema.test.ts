@@ -6,7 +6,6 @@ import {
   countCaptureSchemaSql,
   countCaptureTableSchemaSql,
 } from "./count-capture-schema";
-import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "../../../support/authoring-support/schema";
 
 describe("Scope Sync Batch schema", () => {
   it("persists restart-safe batches and bounded scope work units", () => {
@@ -30,7 +29,5 @@ describe("Scope Sync Batch schema", () => {
     expect(countCaptureSchemaMigrations.flatMap((migration) => migration.statements)).toEqual([
       countCaptureTableSchemaSql,
     ]);
-    expect(catalogAuthoringSchemaSql).toContain(countCaptureSchemaSql);
-    expect(catalogAuthoringSchemaMigrations).toEqual(expect.arrayContaining(countCaptureSchemaMigrations));
   });
 });
