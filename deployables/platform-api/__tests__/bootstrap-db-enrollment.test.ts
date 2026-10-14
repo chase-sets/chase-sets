@@ -1815,7 +1815,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(violations).toEqual(
       unitProjections.flatMap((makespan, index) =>
         makespan > capture.model.executionUnitCeilingMs
-          ? [`test:db:${index + 1} has a projected makespan of ${makespan}ms, exceeding the ${capture.model.executionUnitCeilingMs}ms per-unit ceiling`]
+          ? [
+              `test:db:${index + 1} has a projected makespan of ${makespan}ms, exceeding the ${capture.model.executionUnitCeilingMs}ms per-unit ceiling`,
+            ]
           : [],
       ),
     );
