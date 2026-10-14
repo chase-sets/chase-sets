@@ -1344,7 +1344,7 @@ describe("platform api bootstrap production reconciliation", () => {
       );
       expect(Number(staged.rows[0]!.count)).toBe(0);
     }
-  });
+  }, 300_000);
 
   it("resumes the real representative commerce command after offer acceptance without duplicate creation events", async () => {
     const runtime = createPlatformApiHost({

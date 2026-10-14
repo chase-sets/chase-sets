@@ -501,6 +501,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         if (!seedContextDrain) await drainContextRuntime(runtime);
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
       });
     }
   }

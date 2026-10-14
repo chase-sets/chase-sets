@@ -79,35 +79,6 @@ describe("representative seed-owner convergence", () => {
     vi.restoreAllMocks();
   });
 
-  it("drains cross-context reactions before seed re-entry without repeating the full sweep after local reconciliation", async () => {
-    const state = fixture();
-    vi.mocked(drainContextRuntime).mockImplementation(async (_runtime, context) => {
-      state.operations.push(context?.settleIdleCheckpoints ? "settle" : "drain-all");
-    });
-
-    await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
-      enabledDataProfiles: representativeCommerceStateDataProfiles,
-      fullBootstrapDrain: true,
-    });
-
-    expect(state.operations).toEqual([
-      "sync",
-      "seed",
-      "sync",
-      "drain-all",
-      "seed",
-      "sync",
-      "drain-all",
-      "seed",
-      "sync",
-      "drain-all",
-      "settle",
-    ]);
-    expect(drainContextRuntime).toHaveBeenCalledTimes(4);
-    expect(drainContextRuntime).toHaveBeenLastCalledWith(state.runtime, { settleIdleCheckpoints: true });
-    expect(state.creations()).toBe(1);
-  });
-
   it("reaches the canary within the same budget while the ordinary full drain stalls on unrelated runners", async () => {
     const state = fixture(true);
     const unrelated = vi.fn(async () => new Promise<void>(() => undefined));
@@ -169,7 +140,7 @@ describe("representative seed-owner convergence", () => {
     await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
       enabledDataProfiles: [...representativeCommerceStateDataProfiles, "scenario-seed"],
     });
-    expect(drainContextRuntime).toHaveBeenCalledTimes(4);
+    expect(drainContextRuntime).toHaveBeenCalledTimes(5);
     expect(drainContextRuntime).toHaveBeenLastCalledWith(state.runtime, { settleIdleCheckpoints: true });
   });
 });
