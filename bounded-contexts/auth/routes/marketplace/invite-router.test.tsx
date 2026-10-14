@@ -14,9 +14,6 @@ vi.mock("../../support/request-support/api-client", () => ({ createAuthRequestAp
 vi.mock("../../support/route-support/auth-host.server", () => ({
   marketplaceAuthHost: { completeAuthentication: complete },
 }));
-vi.mock("../../features/invitation-acceptance/api/rollout", () => ({
-  invitationAttemptRollout: { active: true, requireAttempt: true },
-}));
 const pending = {
   status: "pending",
   invitationId: "ivt_invited",
@@ -33,6 +30,16 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 describe("invitation-acceptance-real-route", () => {
+  it("invitation-acceptance-compatibility-floor activates the real route from the shared rollout", async () => {
+    api.inspectInvitation.mockResolvedValue(pending);
+    expect(
+      await loader({
+        request: new Request("https://marketplace.test/invite/ivt_invited?token=synthetic-secret"),
+        params: { invitationId: "ivt_invited" },
+        context: {},
+      }),
+    ).toMatchObject({ attemptsActive: true, invitation: pending });
+  });
   it("restores a nonsecret retained attempt after deactivation and only reads status", async () => {
     const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
     window.history.replaceState(
