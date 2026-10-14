@@ -36,6 +36,31 @@ describe("connector-transport-origin-allowlist", () => {
     ).rejects.toThrow("connector-transport-origin-refused");
     expect(network).not.toHaveBeenCalled();
   });
+  it("manual redirect cannot broaden the registered host, URL or method fence; follow stays refused", async () => {
+    const network = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", network);
+    const input = {
+      platformOrigin,
+      hostRegistry: connectorHostRegistry,
+      permissionRegistry: ["identity", "storage", "alarms"],
+    };
+    const request = connectorTransport(input);
+    const exportUrl = `${portalOrigin}/Admin/Pricing/DownloadMyExportCSV?type=Pricing`;
+    await request(new Request(exportUrl, { redirect: "manual", credentials: "include" }));
+    expect(network).toHaveBeenCalledOnce();
+    network.mockClear();
+    for (const [url, init] of [
+      [`${portalOrigin}/Admin/Pricing/DownloadMyExportCSV?type=Staged`, { redirect: "manual" }],
+      [`${portalOrigin}/admin/pricing`, { redirect: "manual" }],
+      [exportUrl, { redirect: "manual", method: "POST", body: "{}" }],
+      [`${platformOrigin}/Admin/Pricing/DownloadMyExportCSV?type=Pricing`, { redirect: "manual" }],
+      ["https://store.tcgplayer.com/Admin/Pricing/DownloadMyExportCSV?type=Pricing", { redirect: "manual" }],
+      [exportUrl, { redirect: "follow" }],
+      [exportUrl, {}],
+    ] as const)
+      await expect(request(new Request(url, init))).rejects.toThrow("connector-transport-origin-refused");
+    expect(network).not.toHaveBeenCalled();
+  });
   it("rejects planted real/non-loopback origins before harness build or network", () => {
     for (const origin of [
       "https://tcgplayer.com",

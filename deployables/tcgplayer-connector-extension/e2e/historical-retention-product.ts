@@ -10,6 +10,9 @@ import { loadConnectorBuildConfig } from "./connector-build-config";
 import { packageRoot, proofRoot, retain } from "./coordinator-observation";
 import { platformOrigin } from "../__tests__/harness/origins";
 import { synthetic } from "./loopback-platform";
+
+/** The product connector database version; a synthetic newer owner is one above it. */
+export const currentSchemaVersion = 4;
 import { parseReplacementRecord } from "../__tests__/support/replacement-record";
 import type { BundleIdentity } from "./extension-installation";
 
@@ -144,7 +147,7 @@ export function assertUpgradeWitness(
   marker: string,
 ) {
   assert.deepEqual(state.identity.bundle, identity, "current executed identity");
-  assert.equal(state.version, 3, "current schema version");
+  assert.equal(state.version, currentSchemaVersion, "current schema version");
   assert.deepEqual(state.stores, currentStores, "complete current schema");
   assert.equal(state.marker, marker, "unchanged profile-continuity marker");
   assert.equal(state.keyPresent, false, "original session key absent after restart");
@@ -152,7 +155,7 @@ export function assertUpgradeWitness(
   assert.equal(state.probe.upgrades.length, 1, "exactly one native upgrade");
   const upgrade = state.probe.upgrades[0]!;
   assert.equal(upgrade.oldVersion, 1, "historical database, not a recreated database");
-  assert.equal(upgrade.newVersion, 3);
+  assert.equal(upgrade.newVersion, currentSchemaVersion);
   assert.equal(upgrade.status, "committed", "native transaction committed");
   assert.deepEqual(upgrade.stores, currentStores);
   assert(Number.isFinite(Date.parse(upgrade.observedAt)));

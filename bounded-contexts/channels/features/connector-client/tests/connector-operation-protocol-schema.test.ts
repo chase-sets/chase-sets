@@ -15,6 +15,8 @@ import * as settlement from "../../connector-feed/domain/run-settlement";
 import * as records from "../domain/extension-records";
 import * as pullCodec from "../../outbound-sync/domain/order-pull-codec";
 import * as handoff from "../domain/order-pull-handoff";
+import * as liveExportHandoff from "../domain/live-export-handoff";
+import * as liveExportCodec from "../../outbound-sync/domain/live-export-codec";
 import * as stagedImport from "../domain/staged-import-dispatch";
 import * as operationCodec from "../domain/operation-codec";
 import {
@@ -54,7 +56,8 @@ describe("connector-operation-protocol-schema", () => {
       const member = state.members[0];
       expect(() => assertTotalResult(member.receipt!, [member])).not.toThrow();
       const result = { outcomes: [substitutedExport(member)] };
-      expect(() => parseExecutorResult(result)).toThrow();
+      // A live-export outcome is valid wire grammar; only the member-bound total result refuses the substitution.
+      expect(() => parseExecutorResult(result)).not.toThrow();
       expect(() => assertTotalResult(result, [member])).toThrow();
       await expect(
         f.journal.change(f.input.connectionId, state, {
@@ -106,6 +109,11 @@ describe("connector-operation-protocol-schema", () => {
         "./extension-records": records,
         "../../outbound-sync/domain/order-pull-codec": { ...pullCodec, assertClaimedOrderPullOutcome: validateOutcome },
         "./order-pull-handoff": { ...handoff, assertHandoffOutcome: validateHandoff },
+        "../../outbound-sync/domain/live-export-codec": {
+          ...liveExportCodec,
+          assertClaimedLiveExportOutcome: validateOutcome,
+        },
+        "./live-export-handoff": liveExportHandoff,
         "./staged-import-dispatch": stagedImport,
         "./operation-codec": operationCodec,
       });

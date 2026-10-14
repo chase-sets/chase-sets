@@ -35,6 +35,17 @@ inheritable or ambient capabilities. Host, unrelated and unreadable namespace
 ancestry refuse. Observer namespace descriptors are used only for inspection and
 closed in the observer; none is transferred to the workload or its launcher.
 
+After the snapshot, a selected record's failed status, label, namespace or final
+identity read is omitted only when a stat recheck proves it gone (ENOENT/ESRCH),
+zombie or replaced by a different start time. Same-live, image/parent drift and
+unknown identities still refuse; malformed status and root failures never omit.
+Other records must complete every inspection. Non-root refusals retain their
+stage line and append `provider-boundary-observer-detail:<errno>:<identity>`.
+Both fields use closed vocabularies; raw exceptions and paths are never emitted.
+The diagnostic parser retains stage-only output with unknown detail and rejects
+extra, malformed or oversized captures. Root refusal bytes and parsing are
+unchanged. Omitting a record neither signals it nor waives required control roots.
+
 SF constrains seed syscalls, not peer-side namespace acquisition. B-H1 remains
 an accepted hosted-administrator residual: reaping a seed does not revoke a
 trusted peer's namespace descriptor or membership. VM disposal is its outer

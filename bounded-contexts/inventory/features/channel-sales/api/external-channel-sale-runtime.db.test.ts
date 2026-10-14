@@ -560,4 +560,58 @@ describeDb("external-channel-sale real event-store authority", () => {
     ).toBe(1);
     expect(await countEvents("inventory.item.adjusted")).toBe(1);
   });
+
+  it("issue-9598 rehydrates the same sale committed between the item load and stock-history read", async () => {
+    let historyReached!: () => void;
+    let resumeHistory!: () => void;
+    const atHistory = new Promise<void>((resolve) => {
+      historyReached = resolve;
+    });
+    const winnerCommitted = new Promise<void>((resolve) => {
+      resumeHistory = resolve;
+    });
+    let itemReads = 0;
+    const interleavedPool: PgTransactionalPool = {
+      connect: () => pool.connect(),
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        if (
+          sql.includes("FROM event_store_events") &&
+          sql.includes("ORDER BY stream_version ASC") &&
+          values?.[0] === "inventory.item-inv_external" &&
+          ++itemReads === 2
+        ) {
+          historyReached();
+          await winnerCommitted;
+        }
+        return pool.query<Row>(sql, values);
+      },
+    };
+    const callA = inventoryModule.createServices(interleavedPool, {});
+    const saleCommand = command("forced-stock-history-race");
+    const left = callA.channelSales.record(saleCommand, context).then(
+      (value) => ({ status: "fulfilled", value }),
+      (reason: unknown) => ({ status: "rejected", reason }),
+    );
+    let right;
+    try {
+      await Promise.race([
+        atHistory,
+        left.then(() => {
+          throw new Error("Call A ended before the stock-history interleaving");
+        }),
+      ]);
+      expect(itemReads).toBe(2);
+      right = await services.channelSales.record(saleCommand, context);
+      expect(right).toMatchObject({ status: "committed" });
+      const itemHistory = await eventStore.readStream({ streamId: "inventory.item-inv_external" });
+      expect(itemHistory.at(-1)?.streamVersion).toBe(2);
+    } finally {
+      resumeHistory();
+    }
+    expect(await left).toEqual({ status: "fulfilled", value: right });
+    expect(
+      await countEvents("inventory.external-channel-sale.recorded", externalChannelSaleStreamId(saleCommand.saleKey)),
+    ).toBe(1);
+    expect(await countEvents("inventory.item.adjusted")).toBe(1);
+  });
 });
