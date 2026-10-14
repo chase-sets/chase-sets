@@ -13,7 +13,7 @@ import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-
 async function fixture() {
   const { eventStore } = createInMemoryEventStore();
   const db: PgQueryable = { query: async () => ({ rows: [] }) };
-  const runtime = createRepricingPolicyRuntime({ eventStore, db });
+  const runtime = createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: async () => [] });
   const created = await runtime.commandHandler({
     streamId: runtime.streamIdForPolicy("rpp_synthetic_7911"),
     context: dryRunContext,
@@ -67,6 +67,7 @@ async function fixture() {
     getAuthoringPrerequisites: vi.fn<RepricingPolicyServices["getAuthoringPrerequisites"]>(async (accountId) => ({
       listingCurrencyCodes: accountId === "acc_7910" ? ["CAD", "USD"] : [],
       hasCostBasis: accountId === "acc_7910",
+      goalAdoption: [],
     })),
     previewScope: vi.fn(async ({ accountId }) => ({
       matching: accountId === "acc_7910" ? 2 : 0,
@@ -125,10 +126,12 @@ describe("account policy controls", () => {
     expect(await (await app().request("/policies/authoring-prerequisites")).json()).toEqual({
       listingCurrencyCodes: ["CAD", "USD"],
       hasCostBasis: true,
+      goalAdoption: [],
     });
     expect(await (await app("acc_b").request("/policies/authoring-prerequisites")).json()).toEqual({
       listingCurrencyCodes: [],
       hasCostBasis: false,
+      goalAdoption: [],
     });
     expect(services.getAuthoringPrerequisites).toHaveBeenNthCalledWith(1, "acc_7910");
     expect(services.getAccountRepricingPolicy).not.toHaveBeenCalled();

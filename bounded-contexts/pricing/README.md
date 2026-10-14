@@ -191,6 +191,21 @@ Intentional domain assertion messages reach the editor through `validation_faile
 `details[].message` is untranslated server text; a future additional locale must account for this
 before translating domain rejection copy. Untagged exceptions and malformed input remain sanitized;
 older code-only responses render generic localized failure copy. The browser does not run a validator.
+The same response's `goalAdoption` lists each registered goal version that is not retired with its
+Adoption Gate result: `selectable`, `promotable`, and a refusal `reason` with the grades it compared.
+
+### Forecast Ledger and Forecast Grades
+
+`pricing-forecast-ledger-projection` writes one Forecast Ledger entry per emitted or within-tolerance
+incumbent price a goal read back and per priced shadow trace of each `pricing.repricing-policy.evaluated`
+fact, with every registered Forecast Kind's forecast; each entry is written once. Evaluations trace the
+listing's `quantity`; older evaluations without it are not graded. The daily closer then grades each goal
+version and role over the cohorts closed at the start of the UTC day, reading realized sales only from the
+trades tape (excluded trades are not sales) and Own-Sale Observations through the listing's inventory item.
+A scope whose inputs are unchanged keeps its cached grade; otherwise each grade is first appended as
+`pricing.forecast.graded` v1 and then cached. The `pricing.forecast-ledger` platform policy sets the
+horizons (14, 21 and 28 days), the two-day grace, and the Adoption Gate's Forecast Kind (`curve`) and
+horizon (21 days). Grading never changes a Goal Lifecycle.
 
 ## Incoming Dependencies
 
@@ -206,6 +221,7 @@ older code-only responses render generic localized failure copy. The browser doe
 - `LiquidityEstimated`
 - `PriceRecommendationPublished`
 - `RepricingPolicyEvaluated`
+- `ForecastGraded`
 
 ## Invariants
 

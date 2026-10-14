@@ -70,6 +70,8 @@ export type RepricingPolicyListingTrace = Readonly<{
   clamps: RepricingClampTrace;
   flags: readonly string[];
   frozenUntil?: string;
+  /** The listing's quantity when it was evaluated; absent from evaluations recorded before it was traced. */
+  quantity?: number;
   shadow?: readonly ShadowGoalTrace[];
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";
   skipReason: RepricingEvaluationSkipReason | null;

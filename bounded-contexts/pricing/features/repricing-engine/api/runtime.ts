@@ -729,9 +729,10 @@ async function executeAdmittedProductRound(
         listingsEvaluated: traces.length,
         listingsChanged: traces.filter((trace) => trace.outcome === "changed").length,
         listingsSkipped: traces.filter((trace) => trace.outcome !== "changed").length,
-        listings: traces.map((trace) => {
+        listings: traces.map((trace, index) => {
           const shadow = shadows.get(trace.listingId);
-          return shadow ? { ...trace, shadow } : trace;
+          const traced = { ...trace, quantity: plan.entries[index]!.listing.quantityCap };
+          return shadow ? { ...traced, shadow } : traced;
         }),
         ...goalInputsFor(plan.entries, round),
         ...(frozenUntil ? { spiralBreaker: { tripped: false, frozenUntil } } : {}),
