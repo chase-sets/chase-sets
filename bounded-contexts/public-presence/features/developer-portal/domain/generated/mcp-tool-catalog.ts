@@ -217,7 +217,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -357,7 +357,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -446,7 +446,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -539,7 +539,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -670,7 +670,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -822,7 +822,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5066,7 +5066,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5148,7 +5148,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5240,7 +5240,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5361,7 +5361,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5464,7 +5464,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5549,7 +5549,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -6937,7 +6937,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -7448,7 +7448,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -7511,7 +7511,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -7741,7 +7741,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "operator",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: false,
       auditPrincipal: "actor",
     },
@@ -7781,7 +7781,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "operator",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: false,
       auditPrincipal: "actor",
     },

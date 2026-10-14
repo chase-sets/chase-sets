@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { AgentOAuthScope } from "@chase-sets/auth-context";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -399,14 +400,15 @@ export function createAgentGrantRevocations(
 }
 
 export function createActiveAgentGrantFence(pool: PgTransactionalPool): AgentGrantRevocations["withActiveGrants"] {
+  const orderReadScope: AgentOAuthScope = "dev.ucp.shopping.order:read";
   return (accountId, clientId, grantIds, work) =>
     withPgTransaction(pool, async (db) => {
       if (grantIds.length === 0 || grantIds.length > 500 || new Set(grantIds).size !== grantIds.length) return null;
       const result = await db.query<{ authorization_id: string }>(
         `SELECT authorization_id FROM identity_linked_platform_authorizations
         WHERE account_id = $1 AND client_id = $2 AND authorization_id = ANY($3::text[])
-          AND status = 'active' AND scopes ? 'order:read' ORDER BY authorization_id FOR SHARE`,
-        [accountId, clientId, grantIds],
+          AND status = 'active' AND scopes ? $4 ORDER BY authorization_id FOR SHARE`,
+        [accountId, clientId, grantIds, orderReadScope],
       );
       return result.rows.length ? work(result.rows.map((row) => row.authorization_id)) : null;
     });

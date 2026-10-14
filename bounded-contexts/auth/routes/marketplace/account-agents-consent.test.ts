@@ -15,7 +15,7 @@ const consent = {
   sessionId: "synthetic-session",
   accountId: "account-one",
   accountName: "Account One",
-  scopes: ["order:read"],
+  scopes: ["dev.ucp.shopping.order:read"],
   memberships: [
     { accountId: "account-one", accountName: "Account One" },
     { accountId: "account-two", accountName: "Account Two" },

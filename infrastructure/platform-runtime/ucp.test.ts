@@ -20,6 +20,7 @@ import {
 } from "./mcp-protocol";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "./auth";
+import { resolveAgentOAuthScopedPermissions, agentOAuthScopesForPermissions } from "@chase-sets/auth-context";
 import {
   createPostgresUcpIdempotencyStore,
   addUcpAp2MerchantAuthorization,
@@ -131,6 +132,27 @@ function createDeferred<T = void>() {
 }
 
 describe("UCP profile routes", () => {
+  it("buyer scopes use UCP capability tokens", () => {
+    for (const tool of UCP_MCP_TOOLS.filter((tool) => tool.capability === "dev.ucp.shopping.checkout")) {
+      expect(tool.securitySchemes, tool.name).toEqual([
+        { type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] },
+      ]);
+    }
+    expect(UCP_MCP_TOOLS.find((tool) => tool.name === "get_order")?.securitySchemes).toEqual([
+      { type: "oauth2", scopes: ["dev.ucp.shopping.order:read"] },
+    ]);
+    expect(
+      resolveAgentOAuthScopedPermissions(["dev.ucp.shopping.checkout:manage"], ["orders.view", "orders.manage"]),
+    ).toEqual(["orders.view", "orders.manage"]);
+    expect(
+      resolveAgentOAuthScopedPermissions(["dev.ucp.shopping.order:read"], ["orders.view", "orders.manage"]),
+    ).toEqual(["orders.view"]);
+    expect(agentOAuthScopesForPermissions(["orders.view"])).toEqual([
+      "dev.ucp.shopping.checkout:manage",
+      "dev.ucp.shopping.order:read",
+    ]);
+  });
+
   it("serves the business profile from the request origin", async () => {
     const app = new Hono().route("/.well-known", createUcpProfileRoutes());
 
@@ -846,7 +868,7 @@ describe("ucp negotiates platform profiles before effects", () => {
                 platformProfileUrl: ownProfile
                   ? "https://agent.example/.well-known/ucp"
                   : "https://other.example/profile",
-                scopes: ["checkout:write"],
+                scopes: ["dev.ucp.shopping.checkout:manage"],
                 rolePermissions: [],
               },
             });
@@ -2076,7 +2098,7 @@ describe("UCP MCP routes", () => {
             messages: [{ code: "authentication_required" }],
           },
           _meta: {
-            "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="checkout:read"',
+            "mcp/www_authenticate": 'Bearer realm="Chase Sets", scope="dev.ucp.shopping.checkout:manage"',
           },
         },
       });

@@ -35,7 +35,7 @@ const buyer: ResolvedActor = {
   agentGrant: {
     grantId: "grant_1",
     platformProfileUrl: profileUrl,
-    scopes: ["checkout:write"],
+    scopes: ["dev.ucp.shopping.checkout:manage"],
     rolePermissions: ["orders.manage"],
   },
 };

@@ -16,7 +16,7 @@ describe("agent-grant-revocation-authority private token owner lookup", () => {
                 user_id: "usr_a",
                 client_id: "client_a",
                 platform_profile_url: "https://synthetic.example/profile",
-                scopes: ["order:read"],
+                scopes: ["dev.ucp.shopping.order:read"],
                 status: "revoked",
                 access_token_hash: "synthetic-access-hash",
                 refresh_token_hash: "synthetic-refresh-hash",

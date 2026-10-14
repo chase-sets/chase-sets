@@ -17,7 +17,7 @@ export type PaymentMcpHandlers = Readonly<{
 
 /**
  * Permission that gates the stored-payment-method rail. Card setup exists only to make
- * in-chat checkout completion possible, so it shares the `checkout:write` scope's permission
+ * in-chat checkout completion possible, so it shares the `dev.ucp.shopping.checkout:manage` scope's permission
  * rather than introducing a parallel one.
  */
 const PAYMENT_METHOD_SETUP_PERMISSION = "orders.manage";
