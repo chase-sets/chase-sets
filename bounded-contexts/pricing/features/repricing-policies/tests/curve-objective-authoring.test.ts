@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { fixedPercentileGoal } from "../domain/goals/fixed-percentile";
 import {
   decideRepricingPolicy,
   evolveRepricingPolicy,
@@ -27,6 +28,17 @@ const command = (value: RepricingRuleDirective) => ({
 });
 
 describe("curve-objective authoring", () => {
+  afterEach(() => Object.defineProperty(fixedPercentileGoal, "lifecycle", { value: "selectable" }));
+
+  it.each(["shadow", "retired"] as const)("rejects a registered %s version in authoring and dry runs", (lifecycle) => {
+    Object.defineProperty(fixedPercentileGoal, "lifecycle", { value: lifecycle });
+    expect(() => decideRepricingPolicy(initialRepricingPolicyState, command(directive()))).toThrow(
+      "goal-not-selectable",
+    );
+    expect(() =>
+      validateRepricingDryRunBody({ ...dryRunBody, rules: command(directive()).rules }, "acc_synthetic"),
+    ).toThrow("goal-not-selectable");
+  });
   it("fills defaults into both created and revised recorded bodies, and dry-run candidates", () => {
     const created = decideRepricingPolicy(initialRepricingPolicyState, command(directive()));
     const state = created.reduce(evolveRepricingPolicy, initialRepricingPolicyState);
