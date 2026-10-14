@@ -163,7 +163,9 @@ function New-SelectorSandboxDefinition($Configuration, [string]$Destination) {
     '" -or (Get-FileHash C:\SelectorStaging\environment.json).Hash.ToLowerInvariant() -cne "' + $configurationHash +
     '" -or (Get-FileHash C:\SelectorStaging\PowerShell\pwsh.exe).Hash.ToLowerInvariant() -cne "' + $pwshHash + '") { exit 1 }; ' +
     '& C:\SelectorStaging\PowerShell\pwsh.exe -NoProfile -NonInteractive -File C:\SelectorStaging\selector-isolated-environment.ps1 -Action guest -ConfigurationPath C:\SelectorStaging\environment.json'
-  $builder = [Text.StringBuilder]::new(); $writer = [Xml.XmlWriter]::Create($builder)
+  $builder = [Text.StringBuilder]::new()
+  $settings = [Xml.XmlWriterSettings]::new(); $settings.OmitXmlDeclaration = $true
+  $writer = [Xml.XmlWriter]::Create($builder, $settings)
   try {
     $writer.WriteStartElement('Configuration')
     foreach ($key in @('ClipboardRedirection', 'PrinterRedirection', 'AudioInput', 'VideoInput', 'vGPU')) { $writer.WriteElementString($key, 'Disable') }

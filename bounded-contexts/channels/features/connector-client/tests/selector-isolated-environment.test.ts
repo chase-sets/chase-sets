@@ -210,6 +210,7 @@ describe("selector-isolated-environment-definition", () => {
   it("hash-binds code/mode separately and generates two mappings with fixed boot", () => {
     expect(results["valid-definition"]).toBe("ACCEPTED");
     expect(results.define).toBe("ACCEPTED");
+    expect(sandbox).not.toContain('encoding="utf-16"');
     expect((sandbox.match(/<MappedFolder>/g) ?? []).length).toBe(2);
     expect(sandbox).toContain("<ReadOnly>true</ReadOnly>");
     expect(sandbox).toContain("<SandboxFolder>C:\\SelectorExport</SandboxFolder>");
