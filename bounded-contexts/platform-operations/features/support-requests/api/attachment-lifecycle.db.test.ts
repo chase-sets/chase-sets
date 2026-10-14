@@ -73,7 +73,7 @@ const claim = {
   caseVersion: 1,
 };
 
-describeDb("Support attachment reference fences on real PostgreSQL", () => {
+describeDb("Support attachment reference fences on real PostgreSQL with legacy case audit tenants", () => {
   let pools: Readonly<Record<"platform-operations", PgTransactionalPool>>;
   let pool: PgTransactionalPool;
   let store: EventStore;
@@ -94,7 +94,7 @@ describeDb("Support attachment reference fences on real PostgreSQL", () => {
     await store.appendToStream({
       streamId: caseStream,
       expectedVersion: "no_stream",
-      context,
+      context: { ...context, tenantId: "tnt_seed_development" },
       events: decideSupportRequest(initialSupportRequestState, {
         type: "OpenSupportRequest",
         supportRequestId: owner.supportRequestId as never,

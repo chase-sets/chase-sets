@@ -240,6 +240,32 @@ describe("Support evidence submissions use one reference boundary", () => {
     });
     expect(response.status, await response.clone().text()).toBe(200);
   });
+  it.each([false, true])(
+    "preserves authorized %s operations evidence on a case with legacy seed audit tenants (mutant: treat case audit tenant as access authority)",
+    async (operations) => {
+      for (const freshBatch of [false, true]) {
+        const fixture = await attachmentRouteFixture(true, "acc_buyer", "tnt_seed_development");
+        const attachments = freshBatch ? await batch(fixture) : [fixture.reference];
+        const response = await attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], operations, "acc_buyer"),
+        ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+          method: "POST",
+          body: JSON.stringify({
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+            ...(freshBatch ? { attachmentOperationId: operationId } : {}),
+          }),
+        });
+        expect(response.status, await response.clone().text()).toBe(200);
+        if (freshBatch)
+          expect(
+            fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+          ).toHaveLength(1);
+      }
+    },
+  );
   it("participant delayed reference is rejected with no evidence or receipt append (mutant: omit empty operation guard or serial fallback)", async () => {
     const fixture = await attachmentRouteFixture();
     const attachments = await batch(fixture);
@@ -953,7 +979,7 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
   return app;
 }
 
-async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer") {
+async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer", caseAuditTenant = "tnt_identity") {
   const { eventStore, allEvents } = createInMemoryEventStore();
   const body = new Uint8Array([0xff, 0xd8, 0xff]);
   const reference = `support-attachment:v1:sea_photo:${createHash("sha256").update(body).digest("hex")}:jpg`;
@@ -962,7 +988,7 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
       streamId: "support.support-request-sup_case",
       expectedVersion: "any",
       context: {
-        tenantId: "tnt_identity",
+        tenantId: caseAuditTenant,
         audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
       } as never,
       events: [

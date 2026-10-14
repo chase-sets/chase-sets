@@ -642,8 +642,6 @@ export function createSupportAttachmentReferenceLifecycle(eventStore: EventStore
   const caseStream = (owner: AttachmentOperationOwner) => `support.support-request-${owner.supportRequestId}`;
   async function caseHistory(owner: AttachmentOperationOwner) {
     const history = await readCompleteStream(eventStore, { streamId: caseStream(owner) });
-    if (history.some((event) => event.tenantId !== owner.tenantId))
-      throw new SupportDomainError("attachment_reference_history_unavailable");
     const evidence = history
       .filter((event) => event.eventType === "support.support-request.evidence-submitted")
       .map((event) => {
@@ -861,8 +859,6 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
   const commandHandler: SupportRequestServices["commandHandler"] = async (input) => {
     if (input.command.type !== "SubmitSupportEvidence") return aggregateCommandHandler(input);
     const history = await readCompleteStream(deps.eventStore, { streamId: input.streamId });
-    if (history.some((event) => event.tenantId !== input.context.tenantId))
-      throw new SupportDomainError("attachment_reference_unknown");
     const state = history.reduce(
       (current, event) => evolveSupportRequest(current, codec.decode(event)),
       initialSupportRequestState,
