@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { catalogScopeSyncBatchSchemaSql } from "./schema";
 import { catalogCountHistorySchemaSql, catalogCountHistorySchemaMigrations } from "./count-schema";
+import {
+  countCaptureSchemaMigrations,
+  countCaptureSchemaSql,
+  countCaptureTableSchemaSql,
+} from "./count-capture-schema";
 
 describe("Scope Sync Batch schema", () => {
   it("persists restart-safe batches and bounded scope work units", () => {
@@ -37,6 +42,13 @@ describe("Scope Sync Batch schema", () => {
       "ALTER TABLE catalog_scope_sync_count_history DROP CONSTRAINT IF EXISTS catalog_scope_sync_count_history_event_kind_check",
       `ALTER TABLE catalog_scope_sync_count_history ADD ${check} NOT VALID`,
       "ALTER TABLE catalog_scope_sync_count_history VALIDATE CONSTRAINT catalog_scope_sync_count_history_event_kind_check",
+    ]);
+  });
+  it("ledgers the capture table and keeps its indexes in new-table boot", () => {
+    expect(countCaptureSchemaSql.startsWith(countCaptureTableSchemaSql)).toBe(true);
+    expect(countCaptureSchemaSql).toContain("catalog_count_capture_run_idx");
+    expect(countCaptureSchemaMigrations.flatMap((migration) => migration.statements)).toEqual([
+      countCaptureTableSchemaSql,
     ]);
   });
 });
