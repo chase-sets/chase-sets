@@ -130,11 +130,11 @@ export function requiresGoalEconomics(
 }
 
 function holdsEconomicsGoal(rule: RepricingRule): boolean {
-  return rule.directive.anchorChain.some(
-    (anchor) =>
-      anchor.source === "curve-objective" &&
-      resolvePricingGoal(anchor.goalId, anchor.goalVersion)?.requiresEconomics === true,
-  );
+  return rule.directive.anchorChain.some((anchor) => {
+    if (anchor.source !== "curve-objective") return false;
+    const goal = resolvePricingGoal(anchor.goalId, anchor.goalVersion);
+    return goal?.lifecycle === "selectable" && goal.requiresEconomics;
+  });
 }
 
 function listingSnapshot(

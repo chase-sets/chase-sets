@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
 import { fixedPercentileGoal } from "../../repricing-policies/domain/goals/fixed-percentile";
+import { profitPerDayGoal } from "../../repricing-policies/domain/goals/profit-per-day";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { hopelessForecastHold } from "../../repricing-policies/domain/guardrails/hopeless-forecast-hold";
 import { marketEvidenceFloor } from "../../repricing-policies/domain/guardrails/market-evidence-floor";
@@ -9,7 +10,9 @@ import {
   unavailableGoalEconomics,
 } from "../../repricing-policies/tests/fixtures/goal-economics";
 import { evaluateRepricingListing, type RepricingListingEconomics } from "../domain/evaluate";
-import { evaluateShadowGoals } from "../domain/round";
+import { REPRICING_ENGINE_LAUNCH_POLICY_VALUE } from "../domain/policy";
+import { evaluateShadowGoals, requiresGoalEconomics } from "../domain/round";
+import type { RepricingRoundInputs, RepricingRoundListing } from "../read-model/queries";
 import { registerShadowGoals, shadowGoal } from "./shadow-goal-fixture";
 import {
   freshUntil,
@@ -354,6 +357,42 @@ describe("curve-objective anchor states", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     Object.defineProperty(fixedPercentileGoal, "lifecycle", { value: "selectable" });
+    Object.defineProperty(profitPerDayGoal, "lifecycle", { value: "selectable" });
+  });
+
+  it("reads Economics for a selectable goal but not its registered retired version", () => {
+    const input = goalListing(
+      goalDirective({ anchorChain: [goalAnchor("profit-per-day", {}), { source: "market-estimate" }] }),
+    );
+    const snapshot = goalSnapshot();
+    const listing: RepricingRoundListing = {
+      ...input,
+      inventoryItemId: null,
+      catalogItemId: snapshot.catalogItemId,
+      productId: snapshot.productId,
+      priceAmount: input.currentPriceAmount,
+      priceCurrencyCode: "USD",
+      listingVersion: 1,
+      listingStatus: "active",
+      pauseReason: null,
+      policyId: "policy_goal",
+      policyRevision: "1",
+      maxChangesPerDay: 10,
+      costBasisCurrencyCode: null,
+      economics: null,
+    };
+    const round: RepricingRoundInputs = {
+      listings: [listing],
+      competingAsks: [],
+      marketEstimate: { amount: "10.00", currencyCode: "USD", freshUntil },
+      lastSold: null,
+      demandCurve: null,
+    };
+    const requiresEconomics = () =>
+      requiresGoalEconomics(round, listing, snapshot.capturedAt, REPRICING_ENGINE_LAUNCH_POLICY_VALUE);
+    expect(requiresEconomics()).toBe(true);
+    Object.defineProperty(profitPerDayGoal, "lifecycle", { value: "retired" });
+    expect(requiresEconomics()).toBe(false);
   });
 
   it("exhausts a recorded retired version as goal-retired and continues the chain", () => {
