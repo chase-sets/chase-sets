@@ -1,6 +1,10 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { vi } from "vitest";
 import { createConnectorRetentionStore } from "../domain/connector-retention-store";
+import { connectorDatabaseVersion } from "../integrations/connector-indexeddb";
+
+/** A synthetic owner one version ahead of the product schema. */
+export const newerDatabaseVersion = connectorDatabaseVersion + 1;
 
 export function retentionFixture() {
   const indexedDB = new IDBFactory();
@@ -49,7 +53,7 @@ export function retentionFixture() {
 
 export function openDatabase(
   indexedDB: IDBFactory,
-  version = 3,
+  version = connectorDatabaseVersion,
   upgrade?: (db: IDBDatabase, tx: IDBTransaction) => void,
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -60,7 +64,7 @@ export function openDatabase(
   });
 }
 
-export async function retainedRows(indexedDB: IDBFactory, version = 3) {
+export async function retainedRows(indexedDB: IDBFactory, version = connectorDatabaseVersion) {
   const db = await openDatabase(indexedDB, version);
   try {
     return await new Promise<unknown[]>((resolve, reject) => {

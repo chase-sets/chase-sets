@@ -8,7 +8,7 @@ import { syntheticExecutor } from "../__tests__/harness/executors.harness";
 import { connectorHostRegistry, platformOrigin } from "../__tests__/harness/origins";
 import { createSyntheticPairingCode, synthetic } from "../e2e/loopback-platform";
 
-type ConnectorExecutor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type ConnectorExecutor = ReturnType<Parameters<typeof composeConnectorBackground>[0]["executors"]>[number];
 type OperationUnit = Parameters<ConnectorExecutor["dispatchOnce"]>[0];
 const composeWithoutCoordinatorPort = "../src/compose?coordinator-port-removed";
 
@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 async function compose(
-  executors: readonly ConnectorExecutor[],
+  executors: readonly ConnectorExecutor[] | Parameters<typeof composeConnectorBackground>[0]["executors"],
   load: () => Promise<typeof import("../src/compose")> = () => import("../src/compose"),
 ) {
   vi.resetModules();
@@ -46,7 +46,9 @@ async function compose(
     return reply.headers.get("location")!;
   });
   const { composeConnectorBackground } = await load();
-  const product = composeConnectorBackground({ executors });
+  const product = composeConnectorBackground({
+    executors: typeof executors === "function" ? executors : () => executors,
+  });
   await product.background.boot();
   await createSyntheticPairingCode(platformOrigin);
   await fixture.click();
@@ -92,7 +94,7 @@ describe("connector-coordinator-loopback-production-path", () => {
       });
     },
   );
-  it("empty product executor registry abandons and pauses unsupported work", async () => {
+  it("product executor registry abandons and pauses unsupported listing work", async () => {
     server = await startLoopback();
     const { connectorExecutors } = await import("../src/executors");
     const f = await compose(connectorExecutors);

@@ -1,10 +1,14 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { describe, expect, it, vi } from "vitest";
-import { createOperationJournal, openConnectorDatabase } from "../integrations/connector-indexeddb";
+import {
+  connectorDatabaseVersion,
+  createOperationJournal,
+  openConnectorDatabase,
+} from "../integrations/connector-indexeddb";
 import { parseOperationAttempt } from "../domain/operation-protocol";
 import { coordinatorFixture } from "./coordinator-test-support";
 import { pullFixture } from "./connector-order-pull-test-support";
-import { openDatabase } from "./raw-retention-test-support";
+import { newerDatabaseVersion, openDatabase } from "./raw-retention-test-support";
 import { parseOrderPullHandoff } from "../domain/order-pull-handoff";
 import { resolveOrderPullBudget } from "../../outbound-sync/domain/order-pull-codec";
 
@@ -63,12 +67,12 @@ describe("connector-order-pull-journal-upgrade", () => {
     for (let boot = 0; boot < 2; boot++) {
       expect(await journal.read(f.connectionId)).toEqual(f.snapshot);
       const db = await openConnectorDatabase(f.indexedDB);
-      expect(db.version).toBe(3);
+      expect(db.version).toBe(connectorDatabaseVersion);
       expect([...db.objectStoreNames]).toEqual(["operation-attempts", "raw-exports", "reservations"]);
       db.close();
     }
   });
-  it("aborting the v3 upgrade leaves v2 and every retained row byte-identical", async () => {
+  it("aborting the current upgrade leaves v2 and every retained row byte-identical", async () => {
     const f = await seedV2();
     const open = f.indexedDB.open.bind(f.indexedDB);
     const spy = vi.spyOn(f.indexedDB, "open").mockImplementationOnce((...args) => {
@@ -85,12 +89,12 @@ describe("connector-order-pull-journal-upgrade", () => {
   });
   it("refuses newer ownership without changing either store", async () => {
     const f = await seedV2();
-    const db = await openDatabase(f.indexedDB, 4);
+    const db = await openDatabase(f.indexedDB, newerDatabaseVersion);
     db.close();
     await expect(createOperationJournal(f.indexedDB, IDBKeyRange).read(f.connectionId)).rejects.toThrow(
       "upgrade-required",
     );
-    const owner = await openDatabase(f.indexedDB, 4);
+    const owner = await openDatabase(f.indexedDB, newerDatabaseVersion);
     for (const [store, rows] of [
       ["operation-attempts", f.snapshot.members],
       ["reservations", f.snapshot.reservations],
