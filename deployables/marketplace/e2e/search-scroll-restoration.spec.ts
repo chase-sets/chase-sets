@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const searchRestorationStorageKey = "discovery.search.restoration.v2";
@@ -27,43 +28,25 @@ test.describe("marketplace search scroll restoration", () => {
   test("restores a corrected notice and terminal page after detail roundtrips @marketplace-browse", async ({
     page,
   }) => {
-    const searchPath = `/search?q=${encodeURIComponent(searchQuery)}`;
+    const correctedQuery = "charzard 4/102";
+    const searchPath = `/search?q=${encodeURIComponent(correctedQuery)}`;
+    const notice = `No exact matches for ${correctedQuery}. Showing close spellings.`;
     await page.goto(searchPath, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(notice, { exact: true })).toBeVisible();
     const detail = page.getByRole("link", { name: /^View details for / }).first();
     await expect(detail).toBeVisible();
+    await expect(detail).toHaveAttribute("href", marketplaceBrowserE2eSeedContract.itemDetail.routePath);
     await detail.focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/items\//);
-    // Synthetic corrected response: this proves the real client-loader/cache/UI
-    // roundtrip, while projected correction and printing safety belong to DB tests.
-    await page.evaluate(
-      ({ path, key }) => {
-        const cache = JSON.parse(window.sessionStorage.getItem(key) ?? "null");
-        const entry = cache?.entries.find((candidate: { key: string }) => candidate.key === path);
-        if (!entry?.data?.data?.items?.length) throw new Error("The outgoing search loader must be cached.");
-        entry.data.data = {
-          ...entry.data.data,
-          items: [entry.data.data.items[0]],
-          retrievalMode: "corrected",
-          lexicalCount: 0,
-          count: 1,
-          total: 1,
-          facets: [],
-          category_counts: [],
-          nextCursor: null,
-        };
-        window.sessionStorage.setItem(key, JSON.stringify(cache));
-        window.sessionStorage.removeItem("discovery.search.restoration.v2");
-      },
-      { path: searchPath, key: "discovery.search.loader-cache.v1" },
-    );
-    const notice = `No exact matches for ${searchQuery}. Showing close spellings.`;
     for (let roundtrip = 0; roundtrip < 2; roundtrip++) {
       await page.goBack({ waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(new URL(searchPath, page.url()).href);
       await expect(page.getByText(notice, { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Closest matches" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Load more results" })).toHaveCount(0);
       await expect(page.getByRole("link", { name: /^View details for / })).toHaveCount(1);
+      await expect(detail).toHaveAttribute("href", marketplaceBrowserE2eSeedContract.itemDetail.routePath);
       if (roundtrip === 0) {
         await page.getByRole("link", { name: /^View details for / }).focus();
         await page.keyboard.press("Enter");
