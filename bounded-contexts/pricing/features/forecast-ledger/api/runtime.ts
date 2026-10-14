@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { goalAdoptions, type AdoptionGradePair, type GoalAdoption } from "../domain/adoption-gate";
@@ -95,7 +95,7 @@ export function createForecastLedgerRuntime(
           gradedAt,
         });
       }
-      await withPgTransaction(deps.pool, async (tx) => {
+      await withPgTransaction(deps.pool, async (tx: PgQueryable) => {
         await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
           JSON.stringify(["pricing:forecast-grading", scope.goalId, scope.goalVersion, scope.role, closedOn]),
         ]);
