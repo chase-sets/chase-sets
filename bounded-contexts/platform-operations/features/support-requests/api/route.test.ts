@@ -5,10 +5,12 @@ import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
 import type { SupportRequestServices } from "./runtime";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
-import { createSupportRequestRuntime } from "./runtime";
+import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { File as NodeFile } from "node:buffer";
@@ -26,6 +28,325 @@ import {
   canonicalizeSupportEvidenceImage,
   createSupportEvidenceCanonicalizationQueue,
 } from "./evidence-canonicalization";
+import {
+  attachmentManifestReferences,
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+} from "../domain/attachment-operation";
+import { createSupportEvidenceSeedContext } from "../domain/common";
+
+function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
+  return {
+    tenantId: parseTypedId(actor.tenantId, "tnt"),
+    audit: { performedByUserId: parseTypedId(actor.userId, "usr"), forAccountId: parseTypedId(actor.accountId, "acc") },
+  };
+}
+
+describe("Support evidence submissions use one reference boundary", () => {
+  const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const context = {
+    tenantId: "tnt_identity",
+    audit: { performedByUserId: "usr_buyer", forAccountId: "acc_buyer" },
+  } as never;
+  async function batch(fixture: Awaited<ReturnType<typeof attachmentRouteFixture>>, scenario = "complete") {
+    const owner = {
+      tenantId: "tnt_identity",
+      accountId: scenario === "foreign" ? "acc_other" : "acc_buyer",
+      supportRequestId: scenario === "other-case" ? "sup_other" : "sup_case",
+      operationId,
+    };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: "support-evidence-raster/v1",
+      encoderFingerprint: {
+        profile: "support-evidence-raster/v1",
+        sharp: "test",
+        libvips: "test",
+        platform: "test",
+        arch: "test",
+        libc: "test",
+      },
+      images: ["a", "b"].map((hash) => ({ canonicalSha256: hash.repeat(64), contentType: "image/jpeg", byteSize: 10 })),
+    });
+    await fixture.eventStore.appendToStream({
+      streamId: attachmentOperationStreamId(owner),
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        ...(scenario === "unstored"
+          ? []
+          : manifest.items.map((item) => ({
+              eventType: "support.attachment-operation.stored",
+              payload: { index: item.index },
+            }))),
+      ],
+    });
+    return attachmentManifestReferences(manifest).slice(0, scenario === "partial-batch" ? 1 : 2);
+  }
+  for (const operations of [false, true]) {
+    for (const scenario of [
+      "foreign",
+      "other-case",
+      "partial-batch",
+      "unstored",
+      "arbitrary",
+      "non-seed-placeholder",
+      "bare-reference",
+    ] as const) {
+      it(`rejects ${scenario} on ${operations ? "operations" : "participant"} route with zero product appends (mutant: skip claimed complete batch grammar)`, async () => {
+        const fixture = await attachmentRouteFixture();
+        const attachments =
+          scenario === "arbitrary"
+            ? ["https://example.test/photo"]
+            : scenario === "non-seed-placeholder"
+              ? ["seed://support/photo"]
+              : await batch(fixture, scenario);
+        const before = fixture.allEvents.filter(
+          (event) => !event.streamId.startsWith("support.evidence-access-"),
+        ).length;
+        const actor = evidenceActor("owner", ["support.manage"], operations, "acc_buyer");
+        const response = await attachmentApp(fixture.runtime, actor).request(
+          `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              evidenceType: "photo",
+              summary: "Evidence",
+              attachments,
+              ...(scenario === "bare-reference" || scenario === "arbitrary" || scenario === "non-seed-placeholder"
+                ? {}
+                : { attachmentOperationId: operationId }),
+            }),
+          },
+        );
+        expect(response.status, await response.clone().text()).toBe(400);
+        expect((await response.json()).error.code).toBe("attachment_reference_unknown");
+        if (!operations) {
+          const body = {
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+            ...(scenario === "bare-reference" || scenario === "arbitrary" || scenario === "non-seed-placeholder"
+              ? {}
+              : { attachmentOperationId: operationId }),
+          };
+          let requestHash = "a".repeat(64);
+          try {
+            requestHash = createHash("sha256")
+              .update(canonicalParticipantRequest("submit-evidence", body))
+              .digest("hex");
+          } catch {
+            /* invalid reference grammar must also reject direct runtime dispatch */
+          }
+          await expect(
+            fixture.runtime.executeParticipantAttempt(
+              {
+                actionKind: "submit-evidence",
+                targetId: "sup_case",
+                accountId: actor.accountId,
+                actor,
+                body,
+                attempt: { attemptId: "9391_direct_boundary_0123456789", requestHash },
+              },
+              evidenceActorContext(actor),
+            ),
+          ).rejects.toThrow("attachment_reference_unknown");
+        }
+        expect(
+          fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-")),
+        ).toHaveLength(before);
+      });
+    }
+  }
+  it("runtime and direct command reject bare or forged references; seed placeholders require actual seed context (mutant: sibling runtime or seed bypass)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const actorContext = evidenceActorContext(actor);
+    for (const attachments of [["arbitrary"], ["seed://support/photo"], await batch(fixture)]) {
+      const before = fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-")).length;
+      await expect(
+        fixture.runtime.submitEvidence(
+          {
+            supportRequestId: "sup_case",
+            accountId: "acc_buyer",
+            submittedByRole: "buyer",
+            actor,
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+          },
+          actorContext,
+        ),
+      ).rejects.toThrow("attachment_reference_unknown");
+      await expect(
+        fixture.runtime.commandHandler({
+          streamId: "support.support-request-sup_case",
+          context: actorContext,
+          command: {
+            type: "SubmitSupportEvidence",
+            evidenceId: "sev_direct",
+            submittedByRole: "buyer",
+            evidenceType: "photo",
+            summary: "Evidence",
+            submittedAt: "2026-10-13T00:00:00.000Z",
+            attachments,
+          },
+        }),
+      ).rejects.toThrow("attachment_reference_unknown");
+      expect(fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-"))).toHaveLength(
+        before,
+      );
+    }
+    await fixture.runtime.commandHandler({
+      streamId: "support.support-request-sup_case",
+      context: createSupportEvidenceSeedContext(actorContext),
+      command: {
+        type: "SubmitSupportEvidence",
+        evidenceId: "sev_seed",
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Seed evidence",
+        submittedAt: "2026-10-13T00:00:00.000Z",
+        attachments: ["seed://support/photo"],
+      },
+    });
+  });
+  it("complete claimed batches pass and retry recovers confirmation without duplicate evidence; history references need no operation", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const app = attachmentApp(fixture.runtime, actor);
+    const body = { evidenceType: "photo", summary: "Evidence", attachments, attachmentOperationId: operationId };
+    for (let retry = 0; retry < 2; retry++) {
+      const response = await app.request("/support-requests/sup_case/evidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.reference-claimed"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+    ).toHaveLength(1);
+    const response = await app.request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "9391_history_reference_0123456789" },
+      body: JSON.stringify({ ...body, attachmentOperationId: undefined }),
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+  });
+  it.each([false, true])(
+    "preserves authorized %s operations evidence on a case with legacy seed audit tenants (mutant: treat case audit tenant as access authority)",
+    async (operations) => {
+      for (const freshBatch of [false, true]) {
+        const fixture = await attachmentRouteFixture(true, "acc_buyer", "tnt_seed_development");
+        const attachments = freshBatch ? await batch(fixture) : [fixture.reference];
+        const response = await attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], operations, "acc_buyer"),
+        ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+          method: "POST",
+          body: JSON.stringify({
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+            ...(freshBatch ? { attachmentOperationId: operationId } : {}),
+          }),
+        });
+        expect(response.status, await response.clone().text()).toBe(200);
+        if (freshBatch)
+          expect(
+            fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+          ).toHaveLength(1);
+      }
+    },
+  );
+  it("participant delayed reference is rejected with no evidence or receipt append (mutant: omit empty operation guard or serial fallback)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const append = fixture.eventStore.appendToStreams!.bind(fixture.eventStore);
+    vi.spyOn(fixture.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "support.support-request.evidence-submitted"),
+        )
+      )
+        await createSupportAttachmentReferenceLifecycle(fixture.eventStore).release(
+          {
+            owner: { tenantId: "tnt_identity", accountId: "acc_buyer", supportRequestId: "sup_case", operationId },
+            expectedVersion: 4,
+          },
+          context,
+        );
+      return append(inputs);
+    });
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      body: JSON.stringify({
+        evidenceType: "photo",
+        summary: "Evidence",
+        attachments,
+        attachmentOperationId: operationId,
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(fixture.allEvents.filter((event) => event.streamId === "support.support-request-sup_case")).toHaveLength(2);
+    expect(
+      fixture.allEvents.some((event) => event.eventType === "support.support-request.participant-attempt-recorded"),
+    ).toBe(false);
+  });
+  it("participant replay after restart confirms the committed batch once (mutant: receipt replay bypasses confirmation)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const body = { evidenceType: "photo", summary: "Evidence", attachments, attachmentOperationId: operationId };
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const append = fixture.eventStore.appendToStreams!.bind(fixture.eventStore);
+    const interruption = vi.spyOn(fixture.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "support.attachment-operation.referenced"),
+        )
+      )
+        throw new Error("confirmation interrupted");
+      return append(inputs);
+    });
+    const first = await attachmentApp(fixture.runtime, actor).request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    expect(first.status).toBe(503);
+    interruption.mockRestore();
+    const restarted = createSupportRequestRuntime({
+      eventStore: fixture.eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+    });
+    for (let retry = 0; retry < 2; retry++) {
+      const response = await attachmentApp(restarted, actor).request("/support-requests/sup_case/evidence", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.support-request.participant-attempt-recorded"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.support-request.evidence-submitted"),
+    ).toHaveLength(2);
+  });
+});
 
 const participantReference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
 
@@ -373,7 +694,7 @@ describe("support attachment capability x role x participation", () => {
             submittedByRole: "buyer",
             evidenceType: "support-note",
             summary: "",
-            attachments: [participantReference],
+            attachments: [fixture.reference],
           }),
         },
       );
@@ -406,7 +727,7 @@ describe("support attachment capability x role x participation", () => {
           submittedByRole: "buyer",
           evidenceType: "support-note",
           summary: "Case evidence",
-          attachments: [participantReference],
+          attachments: [fixture.reference],
         }),
       });
       expect(response.status).toBe(503);
@@ -442,7 +763,7 @@ describe("support attachment capability x role x participation", () => {
                 body: JSON.stringify({
                   evidenceType: "support-note",
                   summary: "Case evidence",
-                  attachments: [participantReference],
+                  attachments: [fixture.reference],
                 }),
               },
             );
@@ -643,7 +964,7 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
       } as never);
     if (c.req.method === "POST" && /\/support-requests\/[^/]+\/evidence$/.test(new URL(c.req.url).pathname)) {
       const body = await c.req.raw.clone().json();
-      c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
+      if (!c.req.header("Idempotency-Key")) c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
       let hash = "a".repeat(64);
       try {
         hash = createHash("sha256").update(canonicalParticipantRequest("submit-evidence", body)).digest("hex");
@@ -658,7 +979,7 @@ export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedAc
   return app;
 }
 
-async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer") {
+async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer", caseAuditTenant = "tnt_identity") {
   const { eventStore, allEvents } = createInMemoryEventStore();
   const body = new Uint8Array([0xff, 0xd8, 0xff]);
   const reference = `support-attachment:v1:sea_photo:${createHash("sha256").update(body).digest("hex")}:jpg`;
@@ -667,7 +988,7 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
       streamId: "support.support-request-sup_case",
       expectedVersion: "any",
       context: {
-        tenantId: "tnt_identity",
+        tenantId: caseAuditTenant,
         audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
       } as never,
       events: [
@@ -679,7 +1000,7 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
           sellerAccountId: "acc_seller",
           openedByAccountId: "acc_buyer",
           openedByRole: "buyer",
-          flowType: "product-not-received",
+          flowType: "product-damaged",
           openedAt: "2026-10-12T00:00:00.000Z",
           orderTotalAmount: "10.00",
           orderReturnContext: [],
@@ -719,7 +1040,7 @@ async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer
       canonicalize: canonicalizeSupportEvidenceImage,
     }),
   });
-  return { runtime, eventStore, allEvents, storage };
+  return { runtime, eventStore, allEvents, storage, reference };
 }
 
 function supportRequestDetail() {

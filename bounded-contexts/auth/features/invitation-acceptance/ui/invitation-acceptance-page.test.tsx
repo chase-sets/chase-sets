@@ -135,6 +135,87 @@ describe("routed invitation errors", () => {
     expect(rendered.requests).not.toHaveBeenCalled();
   });
 
+  it("passkey auto-submit waits for the committed payload", async () => {
+    const originalSetTimeout = window.setTimeout.bind(window);
+    vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay === 0 && typeof handler === "function" && String(handler).includes("requestSubmit")) {
+        queueMicrotask(() => handler(...args));
+        return 0;
+      }
+      return originalSetTimeout(handler, delay, ...args);
+    }) as typeof window.setTimeout);
+    const ceremony = pendingPasskey();
+    vi.mocked(createPasskeyCredential).mockReset().mockReturnValueOnce(ceremony.promise);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.submit(screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!);
+    ceremony.resolve(successfulPasskey);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    expect(createPasskeyCredential).toHaveBeenCalledOnce();
+    expect(rendered.requests).toHaveBeenCalledWith("POST", "/invite/synthetic-invite");
+    expect(rendered.submittedFields).toHaveLength(1);
+    expect(Object.keys(rendered.submittedFields[0]!)).toEqual(
+      expect.arrayContaining([
+        "credentialMethod",
+        "challengeId",
+        "challenge",
+        "externalCredentialId",
+        "label",
+        "webauthnResponse",
+      ]),
+    );
+    expect(rendered.submittedFields[0]).toMatchObject({ credentialMethod: "passkey", ...successfulPasskey });
+  });
+
+  it("passkey lifecycle: a retired ceremony that succeeds never fills or submits the replacement form", async () => {
+    const oldCeremony = pendingPasskey();
+    const newCeremony = pendingPasskey();
+    vi.mocked(createPasskeyCredential)
+      .mockReset()
+      .mockReturnValueOnce(oldCeremony.promise)
+      .mockReturnValueOnce(newCeremony.promise);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    const oldForm = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    fireEvent.submit(oldForm);
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const button = screen.getByRole("button", { name: "Accept with passkey" });
+    const freshForm = button.closest("form")!;
+    expect(freshForm).not.toBe(oldForm);
+    fireEvent.submit(freshForm);
+    await act(async () => {
+      oldCeremony.resolve({ ...successfulPasskey, challengeId: "synthetic-retired-challenge-id" });
+    });
+    expect(new FormData(freshForm).has("challengeId")).toBe(false);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(rendered.requests).not.toHaveBeenCalled();
+    await act(async () => {
+      newCeremony.resolve(successfulPasskey);
+    });
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    expect(createPasskeyCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it("passkey lifecycle: method switching discards a committed credential", async () => {
+    vi.mocked(createPasskeyCredential).mockReset().mockResolvedValue(successfulPasskey);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.submit(screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.submissionCommitted();
+    await rendered.settle(safeFailure("invitation-accept"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("alert")));
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const freshForm = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    expect(new FormData(freshForm).has("challengeId")).toBe(false);
+    expect(rendered.requests).toHaveBeenCalledOnce();
+    fireEvent.submit(freshForm);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(2));
+    expect(createPasskeyCredential).toHaveBeenCalledTimes(2);
+  });
+
   it("safe fields / auth parity: passkey acceptance failures stay form-only and a successful retry navigates", async () => {
     vi.mocked(createPasskeyCredential).mockResolvedValue(successfulPasskey);
     mockNativeRequestSubmit();
@@ -142,10 +223,13 @@ describe("routed invitation errors", () => {
     const form = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
     fireEvent.submit(form);
     await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.submissionCommitted();
     await rendered.settle(safeFailure("invitation-accept"));
     expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("alert")));
     fireEvent.submit(form);
     await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(2));
+    await rendered.submissionCommitted();
     await rendered.settle(redirect("/done"));
     expect(screen.getByText("Authenticated destination")).toBeTruthy();
   });

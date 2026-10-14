@@ -112,6 +112,17 @@ describe("channels-services-guard-negative", () => {
 function validCandidate() {
   return {
     ebayAccountDeletion: { config: null },
+    ebayAccountDeletionReceipts: {
+      recordEbayAccountDeletionReceipt:
+        vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["recordEbayAccountDeletionReceipt"]>(),
+      lookup: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["lookup"]>(),
+      countSubjectData: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["countSubjectData"]>(),
+      assertKeyringContinuity: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["assertKeyringContinuity"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionReceipts"],
+    ebayReceiptExpiry: {
+      cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
+      batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
+    } satisfies ChannelsServices["ebayReceiptExpiry"],
     credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
     storageLocationAuthority: { resolve: async () => null },

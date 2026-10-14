@@ -11,6 +11,96 @@ describe("Discovery search runtime telemetry", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    [false, "candidate-lookup"],
+    [true, "candidate-lookup"],
+    [false, "corrected-row-query"],
+    [true, "corrected-row-query"],
+    [false, "hydration"],
+    [true, "hydration"],
+  ] as const)("reports correction failure before embedding (hybrid=%s, fault=%s)", async (hybridEnabled, fault) => {
+    const failure = new Error(`SYNTHETIC_CORRECTION_${fault}_FAILURE`);
+    const recordSearchQuery = vi.fn();
+    const recordQueryEmbeddingLoad = vi.fn();
+    const embed = vi.fn(async () => ({ vectors: [[1]], totalTokens: 1 }));
+    let faultCalls = 0;
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.startsWith("SELECT EXISTS")) {
+          if (fault === "candidate-lookup") {
+            faultCalls++;
+            throw failure;
+          }
+          return { rows: [{ literal: false, prefix: false, candidates: ["charizard"] }] as Row[], rowCount: 1 };
+        }
+        if (sql.startsWith("SELECT * FROM") && values.includes("(chraizard | charizard)")) {
+          if (fault === "corrected-row-query") {
+            faultCalls++;
+            throw failure;
+          }
+          return { rows: [{ catalog_item_id: "synthetic-corrected-item" }] as Row[], rowCount: 1 };
+        }
+        if (Array.isArray(values[0]) && values[0].includes("synthetic-corrected-item")) {
+          faultCalls++;
+          throw failure;
+        }
+        return { rows: [] as Row[], rowCount: 0 };
+      },
+    };
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db },
+      {
+        provider: { model: "synthetic-correction-fault", dimensions: 1, embed },
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled,
+        recordSearchQuery,
+        recordQueryEmbeddingLoad,
+      },
+    );
+
+    await expect(runtime.searchItems({ search: "chraizard" })).rejects.toBe(failure);
+    expect(faultCalls).toBe(1);
+    expect(embed).not.toHaveBeenCalled();
+    expect(recordQueryEmbeddingLoad).not.toHaveBeenCalled();
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        outcome: "failure",
+        retrievalMode: null,
+        resultCount: null,
+        total: null,
+        zeroResults: null,
+        queryEmbeddingOutcome: "not-attempted",
+        queryEmbeddingWaiterDurationMs: 0,
+      }),
+    );
+    expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
+  });
+
+  it.each([false, true])("retains lexical fail-open for provider failure (hybrid=%s)", async (hybridEnabled) => {
+    const recordSearchQuery = vi.fn();
+    const embed = vi.fn(async () => {
+      throw new Error("SYNTHETIC_PROVIDER_FAILURE");
+    });
+    const runtime = createDiscoveryItemSearchRuntime(deps(), {
+      provider: { model: "synthetic-provider-fault", dimensions: 1, embed },
+      cache: createQueryEmbeddingCache(),
+      rescueEnabled: true,
+      hybridEnabled,
+      recordSearchQuery,
+    });
+
+    await expect(runtime.searchItems({ search: "chraizard" })).resolves.toMatchObject({
+      retrievalMode: "lexical",
+      items: [],
+    });
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ outcome: "success", retrievalMode: "lexical", queryEmbeddingOutcome: "error" }),
+    );
+    expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
+  });
+
   it("outcome/timing matrix separates owner, joined, and warm reuse", async () => {
     vi.useFakeTimers();
     const recordSearchQuery = vi.fn();

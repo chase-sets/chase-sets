@@ -1,4 +1,10 @@
-import { normalizeEvidenceType, normalizeFlowType, normalizeResponseType, normalizeResolutionType } from "./common";
+import {
+  normalizeEvidenceType,
+  normalizeFlowType,
+  normalizeResponseType,
+  normalizeResolutionType,
+  SupportDomainError,
+} from "./common";
 import { parseSupportEvidenceAttachmentReference } from "./attachment-reference";
 import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 
@@ -106,7 +112,9 @@ function ids(value: unknown, attachment = false): readonly string[] | null {
     throw new ParticipantAttemptError(400, "invalid-participant-list");
   return value.map((entry) => {
     const id = text(entry, 256);
-    if (attachment ? !parseSupportEvidenceAttachmentReference(id) : !/^[A-Za-z0-9_-]{1,128}$/.test(id))
+    if (attachment && !parseSupportEvidenceAttachmentReference(id))
+      throw new SupportDomainError("attachment_reference_unknown");
+    if (!attachment && !/^[A-Za-z0-9_-]{1,128}$/.test(id))
       throw new ParticipantAttemptError(400, "invalid-participant-reference");
     return id;
   });
@@ -125,7 +133,14 @@ export function canonicalParticipantRequest(actionKind: ParticipantAction, input
       break;
     }
     case "submit-evidence": {
-      const b = closedObject(input, ["submittedByRole", "evidenceType", "summary", "occurredAt", "attachments"]);
+      const b = closedObject(input, [
+        "submittedByRole",
+        "evidenceType",
+        "summary",
+        "occurredAt",
+        "attachments",
+        "attachmentOperationId",
+      ]);
       const occurredAt = optionalText(b.occurredAt, 30);
       if (occurredAt && (!Number.isFinite(Date.parse(occurredAt)) || new Date(occurredAt).toISOString() !== occurredAt))
         throw new ParticipantAttemptError(400, "invalid-participant-instant");
@@ -135,6 +150,7 @@ export function canonicalParticipantRequest(actionKind: ParticipantAction, input
         summary: text(b.summary),
         occurredAt,
         attachments: ids(b.attachments, true) ?? [],
+        ...(b.attachmentOperationId == null ? {} : { attachmentOperationId: text(b.attachmentOperationId, 80) }),
       };
       break;
     }

@@ -542,6 +542,13 @@
       "family": "welcome",
       "owningContext": "public-presence",
       "purpose": "Welcome surface (public-presence)."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "support",
+      "family": "ebay-account-deletion",
+      "owningContext": "channels",
+      "purpose": "Staff exact-user encrypted eBay deletion receipt lookup and Production subject-data counts, owned by Channels."
     }
   ],
   "infrastructureRoutes": {

@@ -8,6 +8,16 @@ import {
 } from "./search-scroll-restoration";
 
 describe("search scroll restoration", () => {
+  it("retains corrected single-page metadata for the matching Result Set", () => {
+    const corrected = {
+      ...page("corrected", null),
+      retrievalMode: "corrected" as const,
+      lexicalCount: 0,
+      nextCursor: null,
+    };
+    persistSearchRestoration(window.sessionStorage, "charzard", [corrected], 240);
+    expect(restoreSearchRestoration(window.sessionStorage, "charzard")).toEqual({ pages: [corrected], scrollY: 240 });
+  });
   beforeEach(() => window.sessionStorage.clear());
 
   it("restores cursor pages and scroll offset only for the matching Result Set", () => {

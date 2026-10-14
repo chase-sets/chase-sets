@@ -58,8 +58,19 @@ async function mount() {
   const router = createMemoryRouter([{ path: "/account/agents/:id", loader, action, element: createElement(Route) }], {
     initialEntries: ["/account/agents/grant_a"],
   });
+  await act(async () => {
+    if (router.state.initialized && router.state.navigation.state === "idle") return;
+    await new Promise<void>((resolve) => {
+      const unsubscribe = router.subscribe((state) => {
+        if (state.initialized && state.navigation.state === "idle") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  });
   render(createElement(ChaseRoot, { linkComponent: RouterLinkAdapter }, createElement(RouterProvider, { router })));
-  await screen.findByText("You can revoke access or confirm interrupted cleanup.");
+  expect(screen.getByText("You can revoke access or confirm interrupted cleanup.")).toBeTruthy();
   return router;
 }
 async function revoke() {
@@ -69,6 +80,37 @@ async function revoke() {
 }
 
 describe("agent-grant-revocation-real-route", () => {
+  it("mount waits for the held initial Grant load past any async-util budget", async () => {
+    const initialLoad = deferred();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    api.getAgentGrant.mockImplementationOnce(async () => {
+      await initialLoad.promise;
+      return { authorization: grant, revocation_available: true, revocation_active: true };
+    });
+    let state = "pending";
+    const mounting = mount().then(
+      (router) => {
+        state = "resolved";
+        return router;
+      },
+      () => {
+        state = "rejected";
+      },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(state).toBe("pending");
+      initialLoad.resolve();
+      const router = await mounting;
+      expect(state).toBe("resolved");
+      expect(screen.getByText("You can revoke access or confirm interrupted cleanup.")).toBeTruthy();
+      router?.dispose();
+    } finally {
+      initialLoad.resolve();
+      await mounting;
+      vi.useRealTimers();
+    }
+  });
   it("keeps the completed day-after view steady without a Revoke action", async () => {
     const router = await mount();
     api.getAgentGrant.mockResolvedValue({

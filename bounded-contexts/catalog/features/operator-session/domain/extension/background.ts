@@ -1,8 +1,11 @@
 import {
+  closed,
   cookieExpiry,
   isCommand,
+  isGrant,
   isOperatorCookie,
   operatorEnvironments,
+  operatorOrigins,
   type OperatorCommand,
   type OperatorCookie,
   type OperatorEnvironment,
@@ -222,6 +225,22 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     });
     await kick(environment);
   }
+  async function commitPair(current: Slot, grant: string): Promise<boolean> {
+    if (current.blocked) return false;
+    if (current.record.profileRevision === Number.MAX_SAFE_INTEGER) {
+      current.blocked = true;
+      return false;
+    }
+    await write(current, {
+      ...emptyOperatorRecord(current.record.environment),
+      profileRevision: current.record.profileRevision + 1,
+      nextAttemptAt: current.record.nextAttemptAt,
+      grant,
+      state: "idle",
+      dirty: true,
+    });
+    return true;
+  }
   async function command(command: OperatorCommand): Promise<OperatorStatus> {
     const environment = command.environment;
     if (command.action === "status") {
@@ -230,6 +249,13 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     }
     if (command.action === "recover") {
       await trigger(environment, true);
+      return status(environment);
+    }
+    if (command.action === "pair") {
+      await serial(environment, async (current) => {
+        if (await commitPair(current, command.grant)) await badge();
+      });
+      await kick(environment);
       return status(environment);
     }
     const revoke = await serial(environment, async (current) => {
@@ -243,20 +269,57 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         ...emptyOperatorRecord(environment),
         profileRevision: prior.profileRevision + 1,
         nextAttemptAt: prior.nextAttemptAt,
-        grant: command.action === "pair" ? command.grant : null,
-        state: command.action === "pair" ? ("idle" as const) : ("unpaired" as const),
-        dirty: command.action === "pair",
       };
       await write(current, next);
       await badge();
-      return command.action === "unpair" ? prior.grant : null;
+      return prior.grant;
     });
     // The old grant is already removed and fenced. Revoke completion has no writer.
     if (revoke) await transport.revoke(environment, revoke);
-    if (command.action === "pair") await kick(environment);
     return status(environment);
   }
   return {
+    async receiveHandoff(
+      value: unknown,
+      sender: { id?: string; url?: string; origin?: string; frameId?: number; hasTab: boolean },
+      extensionId: string,
+    ): Promise<{ outcome: "paired" | "refused" }> {
+      const refused = { outcome: "refused" } as const;
+      if (
+        !closed(value, ["action", "grant"]) ||
+        value.action !== "pair-handoff" ||
+        !isGrant(value.grant) ||
+        (sender.id !== undefined && sender.id !== extensionId) ||
+        sender.frameId !== 0 ||
+        sender.hasTab !== true
+      )
+        return refused;
+      const environment = operatorEnvironments.find((candidate) => operatorOrigins[candidate] === sender.origin);
+      if (!environment || typeof sender.url !== "string") return refused;
+      try {
+        const url = new URL(sender.url);
+        if (url.origin !== sender.origin || url.pathname !== "/catalog/providers/tcgplayer") return refused;
+      } catch {
+        return refused;
+      }
+      const grant = value.grant;
+      try {
+        const result = await serial(environment, async (current) => {
+          if (current.blocked) return "refused";
+          if (current.record.grant === grant) return "unchanged";
+          return (await commitPair(current, grant)) ? "committed" : "refused";
+        });
+        if (result === "refused") return refused;
+        if (result === "committed") {
+          // The page acknowledgement is local custody only, independent of downstream work.
+          void badge().catch(() => undefined);
+          void kick(environment).catch(() => undefined);
+        }
+        return { outcome: "paired" };
+      } catch {
+        return refused;
+      }
+    },
     async receive(
       value: unknown,
       sender: { id?: string; url?: string; origin?: string; hasTab: boolean },

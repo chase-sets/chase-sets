@@ -7,6 +7,12 @@ import {
   truncateDiscoverySearchQuery,
 } from "../domain/normalization";
 import { buildSearchSynonymQueries, type SearchSynonymQueries } from "../domain/search-synonyms";
+import type { ProtectedSearchToken } from "../domain/protected-search-tokens";
+import {
+  buildSpellingCorrectionQueries,
+  protectedSearchQuery,
+  type SearchCorrectionTerms,
+} from "../domain/spelling-correction";
 import type { ProductSchema } from "../../../support/client-support/contracts";
 import {
   buyerVisibleListingPredicateSql,
@@ -220,6 +226,7 @@ type SearchFilterBuildOptions = Readonly<{
   itemAlias?: string;
   firstParamIndex?: number;
   searchQueries?: SearchSynonymQueries;
+  protectedQuery?: string;
 }>;
 
 type BuiltSearchFilter = Readonly<{
@@ -396,6 +403,11 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex += selectedValues.length;
   }
 
+  if (options.protectedQuery) {
+    conditions.push(`${itemColumn("search_text_simple")} @@ to_tsquery('simple', $${paramIndex})`);
+    values.push(options.protectedQuery);
+    paramIndex++;
+  }
   return {
     from,
     marketAlias,
@@ -598,14 +610,21 @@ function normalizeFilterParamValue(value: string): string {
 export async function searchDiscoveryItems(
   db: PgQueryable,
   params: DiscoverySearchParams = {},
-  options: Readonly<{ loadFacets?: boolean; loadMarketSummaries?: boolean }> = {},
+  options: Readonly<{
+    loadFacets?: boolean;
+    loadMarketSummaries?: boolean;
+    searchQueries?: SearchSynonymQueries;
+    protectedQuery?: string;
+  }> = {},
 ): Promise<ListResult<DiscoverySearchItemRow>> {
-  const searchQueries = params.search
-    ? await buildSearchSynonymQueries(truncateDiscoverySearchQuery(params.search), (codes) =>
-        lookupServedSearchSetCodes(db, codes),
-      )
-    : undefined;
-  const baseFilter = buildSearchFilter(params, { searchQueries });
+  const searchQueries =
+    options.searchQueries ??
+    (params.search
+      ? await buildSearchSynonymQueries(truncateDiscoverySearchQuery(params.search), (codes) =>
+          lookupServedSearchSetCodes(db, codes),
+        )
+      : undefined);
+  const baseFilter = buildSearchFilter(params, { searchQueries, protectedQuery: options.protectedQuery });
   const values = [...baseFilter.values];
   let paramIndex = baseFilter.nextParamIndex;
   const relevance = usesRelevanceOrdering(params);
@@ -794,6 +813,36 @@ export async function searchDiscoveryItems(
     nextCursor:
       hasNextPage && lastRow ? encodeSearchCursor(lastRow, relevance, usesSelectedPriceOrdering(params)) : null,
   };
+}
+
+export async function lookupDiscoveryCorrectionTerms(db: PgQueryable, token: string): Promise<SearchCorrectionTerms> {
+  const result = await db.query<SearchCorrectionTerms>(
+    `SELECT EXISTS (SELECT 1 FROM discovery_search_item_identity_terms WHERE term = $1) AS literal,
+       EXISTS (SELECT 1 FROM discovery_search_item_identity_terms WHERE term LIKE $2) AS prefix,
+       ARRAY(SELECT term FROM (SELECT DISTINCT term FROM discovery_search_item_identity_terms WHERE term % $1) AS distinct_terms
+         ORDER BY similarity(term, $1) DESC, term ASC LIMIT 20) AS candidates`,
+    [token, `${token}%`],
+  );
+  return result.rows[0] ?? { literal: false, prefix: false, candidates: [] };
+}
+
+export async function searchDiscoveryCorrectedItems(
+  db: PgQueryable,
+  params: DiscoverySearchParams,
+  tokens: readonly ProtectedSearchToken[],
+): Promise<ListResult<DiscoverySearchItemRow> | null> {
+  const queries = await buildSpellingCorrectionQueries(tokens, (token) => lookupDiscoveryCorrectionTerms(db, token));
+  if (!queries) return null;
+  const page = await searchDiscoveryItems(
+    db,
+    { ...params, limit: Math.min(50, clampLimit(params.limit)), includeTotal: false },
+    {
+      loadFacets: false,
+      searchQueries: queries,
+      protectedQuery: protectedSearchQuery(tokens),
+    },
+  );
+  return { ...page, nextCursor: null, total: page.items.length, facets: [], category_counts: [] };
 }
 
 /**
