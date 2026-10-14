@@ -32,6 +32,9 @@ const stagingSignInSecrets = new Set([
   "GITHUB_TOKEN",
 ]);
 const hostedRunner = /^(ubuntu|windows|macos)-[a-z0-9.-]+$/;
+const workflowPath = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml$/;
+// A same-repository reusable workflow is read at the caller run's head SHA.
+const localReusable = /^\.\/(\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml)$/;
 
 class CollectionUnknown extends Error {
   constructor(reason) {
@@ -215,9 +218,16 @@ function runnerLabels(runsOn) {
 }
 
 // "staging-mutator" when the head-bound definition can hold credentials able to
-// change the staging deployment, "non-mutating" only when it provably cannot.
+// change the staging deployment, "non-mutating" only when it provably cannot, and
+// "reusable" when a same-repository callee at the same head decides it.
 function jobCapability(job, workflow) {
-  if (!isRecord(job) || job.uses !== undefined) return "staging-mutator";
+  if (!isRecord(job)) return "staging-mutator";
+  if (job.uses !== undefined)
+    return typeof job.uses === "string" &&
+      localReusable.test(job.uses) &&
+      !writesIdToken(job.permissions ?? workflow.permissions)
+      ? "reusable"
+      : "staging-mutator";
   const environment = isRecord(job.environment) ? job.environment.name : job.environment;
   if (environment !== undefined && typeof environment !== "string") return "staging-mutator";
   const stagingBound =
@@ -241,7 +251,7 @@ function displayNameMatcher(key, job) {
   const parts = template.split(/\$\{\{[\s\S]*?\}\}/);
   let pattern = parts.map(escapeRegExp).join(".*");
   if (job?.strategy?.matrix !== undefined && parts.length === 1) pattern += String.raw`(?: \(.*\))?`;
-  if (job?.uses !== undefined) pattern += " / .+";
+  if (job?.uses !== undefined) pattern += "(?: / (.+))?";
   return new RegExp(`^${pattern}$`, "s");
 }
 
@@ -254,17 +264,35 @@ export function readCountCaptureWorkflowCapabilities(text) {
   }
   if (!isRecord(workflow) || !isRecord(workflow.jobs) || !Object.keys(workflow.jobs).length)
     throw unknown("deployment-capability-unknown");
-  return Object.entries(workflow.jobs).map(([key, job]) => ({
-    key,
-    matcher: displayNameMatcher(key, job),
-    capability: jobCapability(job, workflow),
-  }));
+  return Object.entries(workflow.jobs).map(([key, job]) => {
+    const capability = jobCapability(job, workflow);
+    return {
+      key,
+      matcher: displayNameMatcher(key, job),
+      capability,
+      callee: capability === "reusable" ? localReusable.exec(job.uses)[1] : null,
+    };
+  });
 }
 
-export function classifyCountCaptureJob(definitions, jobName) {
+// Resolves a listed job to its candidate definitions. A reusable caller is
+// classified by its callee's jobs (all of them when the listing names none);
+// a callee that itself calls a reusable workflow is not followed.
+export async function classifyCountCaptureJob(definitions, jobName, readCallee, depth = 0) {
   const candidates = definitions.filter((definition) => definition.matcher.test(jobName));
   if (!candidates.length) return "unclassified";
-  return candidates.some((definition) => definition.capability !== "non-mutating") ? "staging-mutator" : "non-mutating";
+  for (const candidate of candidates) {
+    if (candidate.capability === "non-mutating") continue;
+    if (candidate.capability !== "reusable" || depth > 0 || !readCallee) return "staging-mutator";
+    const callee = await readCallee(candidate.callee);
+    const calleeJob = candidate.matcher.exec(jobName)[1];
+    const capabilities = calleeJob
+      ? [await classifyCountCaptureJob(callee, calleeJob, readCallee, depth + 1)]
+      : callee.map((definition) => (definition.capability === "non-mutating" ? "non-mutating" : "staging-mutator"));
+    if (capabilities.includes("unclassified")) return "unclassified";
+    if (capabilities.some((capability) => capability !== "non-mutating")) return "staging-mutator";
+  }
+  return "non-mutating";
 }
 
 // --- Collection --------------------------------------------------------------
@@ -351,12 +379,11 @@ export async function collectCountCaptureDeployment(reader, deploymentInput, now
     if (new Set(runs.map((run) => run.id)).size !== runs.length) throw unknown("inventory-duplicate");
     counts.runCount = runs.length;
     const definitions = new Map();
-    async function definitionFor(run) {
-      const key = `${run.path}@${run.head_sha}`;
+    async function definitionAt(path, headSha) {
+      const key = `${path}@${headSha}`;
       if (!definitions.has(key)) {
-        if (!/^\.github\/workflows\/[A-Za-z0-9_.-]{1,200}\.ya?ml$/.test(run.path))
-          throw unknown("deployment-capability-unknown");
-        const text = await call(() => reader.workflow(run.path, run.head_sha));
+        if (!workflowPath.test(path)) throw unknown("deployment-capability-unknown");
+        const text = await call(() => reader.workflow(path, headSha));
         definitions.set(key, readCountCaptureWorkflowCapabilities(text));
         counts.definitionCount = definitions.size;
       }
@@ -394,7 +421,11 @@ export async function collectCountCaptureDeployment(reader, deploymentInput, now
           if (unexecuted || before) continue;
           // Executed, running, queued or waiting at/after the selected step: only a
           // head-bound proof of no staging-deployment capability lets it pass.
-          const capability = classifyCountCaptureJob(await definitionFor(run), job.name);
+          const capability = await classifyCountCaptureJob(
+            await definitionAt(run.path, run.head_sha),
+            job.name,
+            (callee) => definitionAt(callee, run.head_sha),
+          );
           if (capability === "unclassified") throw unknown("deployment-capability-unknown");
           if (capability !== "non-mutating") throw unknown("staging-mutation-overlap");
           counts.nonMutatingJobCount++;

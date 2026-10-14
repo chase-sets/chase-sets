@@ -121,28 +121,42 @@ describe("bounded capture GitHub transport", () => {
     },
   );
 
+  // Headers arrive at 100 ms and the body then trickles forever. With one 150 ms
+  // deadline the read is already rejected at 160 ms; a fresh body deadline would
+  // still be pending then, as would a transport that never answers.
   it("fails an endless body and hung headers within the same active deadline", async () => {
-    const limits = { ...countCaptureGitHubLimits, deadlineMs: 150 };
-    const endless = () =>
-      new Response(
-        new ReadableStream({
-          pull: (controller) =>
-            new Promise((resolve) =>
-              setTimeout(() => {
-                controller.enqueue(new TextEncoder().encode(" "));
-                resolve();
-              }, 20),
-            ),
-        }),
-      );
-    const started = Date.now();
-    await expect(
-      reader(() => new Promise((resolve) => setTimeout(() => resolve(endless()), 100)), limits).json(runsPath),
-    ).rejects.toThrow(refusal);
-    expect(Date.now() - started).toBeLessThan(1_000);
-    const hung = vi.fn(() => new Promise(() => {}));
-    await expect(reader(hung, limits).jobLog("123")).rejects.toThrow(refusal);
-    expect(hung.mock.calls[0][1].signal.aborted).toBe(true);
+    vi.useFakeTimers();
+    try {
+      const limits = { ...countCaptureGitHubLimits, deadlineMs: 150 };
+      const endless = () =>
+        new Response(
+          new ReadableStream({
+            pull: (controller) =>
+              new Promise((resolve) =>
+                setTimeout(() => {
+                  controller.enqueue(new TextEncoder().encode(" "));
+                  resolve();
+                }, 20),
+              ),
+          }),
+        );
+      const slow = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(endless()), 100)));
+      const hung = vi.fn(() => new Promise(() => {}));
+      const settled = (promise) =>
+        promise.then(
+          () => "resolved",
+          (error) => error.message,
+        );
+      const body = settled(reader(slow, limits).json(runsPath));
+      const headers = settled(reader(hung, limits).jobLog("123"));
+      await vi.advanceTimersByTimeAsync(160);
+      expect(await Promise.race([body, Promise.resolve("pending")])).toBe(refusal);
+      expect(await Promise.race([headers, Promise.resolve("pending")])).toBe(refusal);
+      expect(slow.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(hung.mock.calls[0][1].signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses malformed JSON and invalid UTF-8 value-free", async () => {

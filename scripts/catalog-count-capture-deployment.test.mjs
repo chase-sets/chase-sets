@@ -303,12 +303,58 @@ describe("rejects unbound deployment collector", () => {
     expect(await collect(value)).toMatchObject({ outcome: "bound", runCount: 1504 });
   });
 
-  it("does not let a name decide capability: a deploy-sounding job without staging credentials passes", () => {
+  it("does not let a name decide capability: a deploy-sounding job without staging credentials passes", async () => {
     const definitions = readCountCaptureWorkflowCapabilities(syntheticCiDefinition);
-    expect(classifyCountCaptureJob(definitions, "Deploy staging smoke")).toBe("non-mutating");
+    expect(await classifyCountCaptureJob(definitions, "Deploy staging smoke")).toBe("non-mutating");
     expect(
-      classifyCountCaptureJob(readCountCaptureWorkflowCapabilities(syntheticStagingDefinition), "Recover runtime"),
+      await classifyCountCaptureJob(
+        readCountCaptureWorkflowCapabilities(syntheticStagingDefinition),
+        "Recover runtime",
+      ),
     ).toBe("staging-mutator");
+  });
+
+  it("classifies a same-repository reusable workflow by its callee at the same head", async () => {
+    const caller = readCountCaptureWorkflowCapabilities(`
+name: Synthetic Caller
+on: pull_request
+jobs:
+  smoke:
+    name: Compose Boot Smoke
+    uses: ./.github/workflows/synthetic-callee.yml
+  remote:
+    name: Remote Call
+    uses: synthetic/elsewhere/.github/workflows/x.yml@main
+`);
+    const callee = (environment, nested = false) =>
+      readCountCaptureWorkflowCapabilities(`
+name: Synthetic Callee
+on: workflow_call
+jobs:
+  verify:
+    name: Compose Boot Smoke | target=\${{ inputs.target_sha }}
+    runs-on: ubuntu-latest
+    ${environment ? `environment: ${environment}` : ""}
+    steps:
+      - env:
+          TOKEN: \${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: "true"
+${nested ? "  again:\n    uses: ./.github/workflows/synthetic-callee.yml" : ""}
+`);
+    const readCallee = (definitions) =>
+      vi.fn(async (path) => (path === ".github/workflows/synthetic-callee.yml" ? definitions : []));
+    const name = "Compose Boot Smoke / Compose Boot Smoke | target=abc";
+    expect(await classifyCountCaptureJob(caller, name, readCallee(callee(null)))).toBe("non-mutating");
+    expect(await classifyCountCaptureJob(caller, name, readCallee(callee("staging")))).toBe("staging-mutator");
+    expect(await classifyCountCaptureJob(caller, "Compose Boot Smoke", readCallee(callee(null, true)))).toBe(
+      "staging-mutator",
+    );
+    expect(await classifyCountCaptureJob(caller, "Compose Boot Smoke / Unlisted", readCallee(callee(null)))).toBe(
+      "unclassified",
+    );
+    expect(await classifyCountCaptureJob(caller, "Remote Call / verify", readCallee(callee(null)))).toBe(
+      "staging-mutator",
+    );
   });
 
   const stagingRun = (overrides) =>
@@ -583,5 +629,7 @@ describe("classifies the current head-bound workflow definitions", () => {
       "staging-advisory-evidence": "staging-mutator",
     });
     expect(capabilities("catalog-staging-provider-uat.yml")).toMatchObject({ "staging-provider-uat": "non-mutating" });
+    expect(capabilities("platform-pr.yml")).toMatchObject({ "compose-preview-smoke": "reusable" });
+    expect(capabilities("platform-compose-boot-smoke.yml")).toMatchObject({ verify: "non-mutating" });
   });
 });
