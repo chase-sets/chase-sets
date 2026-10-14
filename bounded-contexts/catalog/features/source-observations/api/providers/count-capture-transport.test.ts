@@ -250,10 +250,16 @@ describe("refuses unsafe sends", () => {
     expect(f.order.filter((step) => step === "debit")).toHaveLength(1);
   });
 
-  it("refuses a nested capture request", async () => {
+  it("refuses a nested capture request and stops the outer one even when the refusal is swallowed", async () => {
     const f = fixture();
-    await expect(f.run(() => f.run(() => f.send()))).rejects.toBeInstanceOf(CountCaptureStopped);
+    const outer = f.run(async () => {
+      await f.run(() => f.send()).catch(() => undefined);
+      return f.send();
+    });
+    await expect(outer).rejects.toBeInstanceOf(CountCaptureStopped);
     expect(f.transport).not.toHaveBeenCalled();
+    expect(f.ledger.debit).not.toHaveBeenCalled();
+    expect(f.ledger.stop).toHaveBeenCalledTimes(1);
   });
 
   it("guards sends inside an unrelated provider-send context", async () => {

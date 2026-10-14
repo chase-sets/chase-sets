@@ -140,6 +140,19 @@ describeDb("count-capture possible-send ledger", () => {
       expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(2);
     });
 
+    it("two cold replicas admitting concurrently open exactly one run", async () => {
+      const first = createCountCaptureStore(primary.catalog, clock);
+      const second = createCountCaptureStore(replica.catalog, clock);
+      const outcomes = await Promise.allSettled(
+        ["a", "b", "c", "e"].map((seed, index) => (index % 2 ? second : first).admit({ ownerHash: owner(seed) })),
+      );
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      const rows = await primary.catalog.query<{ runs: string }>(
+        "SELECT count(DISTINCT run_id)::text AS runs FROM catalog_scope_sync_count_capture_history",
+      );
+      expect(rows.rows[0]?.runs).toBe("1");
+    });
+
     it("concurrent preview sends across replicas never exceed the phase cap or reuse a slot", async () => {
       const first = createCountCaptureStore(primary.catalog, clock);
       const second = createCountCaptureStore(replica.catalog, clock);

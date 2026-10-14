@@ -44,7 +44,11 @@ export async function runCountCaptureRequest<T>(
   input: Readonly<{ binding: CountCaptureBinding; ledger: CountCaptureLedger }>,
   work: () => Promise<T>,
 ): Promise<T> {
-  if (requests.getStore()) throw new CountCaptureStopped();
+  const outer = requests.getStore();
+  if (outer) {
+    outer.stopped = true;
+    throw new CountCaptureStopped();
+  }
   const request: CountCaptureRequest = { ...input, stopped: false, durablyStopped: false };
   return requests.run(request, async () => {
     try {
