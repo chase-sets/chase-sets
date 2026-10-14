@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -12,6 +13,8 @@ const packagePath =
   "bounded-contexts/channels/features/connector-client/integrations/order-authority-probe/package.mjs";
 let results: Record<string, string>;
 let sandbox: string;
+let fixture: string;
+let configurationPath: string;
 let handoff: {
   definitionHash: string;
   relayHash: string;
@@ -30,7 +33,7 @@ let handoff: {
 beforeAll(() => {
   const scratch = path.join(repo, "artifacts", "9558", "tests");
   mkdirSync(scratch, { recursive: true });
-  const fixture = mkdtempSync(path.join(scratch, "synthetic-"));
+  fixture = mkdtempSync(path.join(scratch, "synthetic-"));
   const stage = path.join(fixture, "staging");
   const exported = path.join(fixture, "export");
   const journal = path.join(fixture, "host-journal");
@@ -92,7 +95,7 @@ beforeAll(() => {
     journal,
     assets,
   };
-  const configurationPath = path.join(fixture, "input.json");
+  configurationPath = path.join(fixture, "input.json");
   writeFileSync(configurationPath, JSON.stringify(configuration));
   const harness = path.join(fixture, "focused.ps1");
   const resultsPath = path.join(fixture, "results.json");
@@ -148,7 +151,45 @@ Case 'rebaselined-repo' {
   [IO.File]::WriteAllText($file, 'synthetic rebaselined repo'); $asset.sha256 = (Get-FileHash $file).Hash.ToLowerInvariant()
   try { New-SelectorSandboxDefinition $m $WsbFile | Out-Null } finally { [IO.File]::WriteAllBytes($file, $bytes) }
 }
+& {
+  $alias = Clone; $alias.export = $alias.journal.ToUpperInvariant()
+  # Unix CI creates both spellings; the mapping boundary still enforces Windows identities.
+  if (-not $IsWindows) { [void][IO.Directory]::CreateDirectory($alias.export) }
+  $writes = [Collections.Generic.Dictionary[string,byte[]]]::new([StringComparer]::OrdinalIgnoreCase)
+  function Write-SelectorNewFile([string]$File, [byte[]]$Bytes) { $writes.Add($File, $Bytes) }
+  function Get-FileHash {
+    param([string]$LiteralPath, [string]$Algorithm='SHA256')
+    if ($writes.ContainsKey($LiteralPath)) { [pscustomobject]@{Hash=(Get-SelectorDigest $writes[$LiteralPath])} }
+    else { Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $LiteralPath -Algorithm $Algorithm }
+  }
+  try {
+    New-SelectorSandboxDefinition $alias 'SYNTHETIC-MEMORY-ONLY.wsb' | Out-Null
+    $r['case-alias'] = 'ACCEPTED'
+  } catch { $r['case-alias'] = $_.Exception.Message }
+  $r['case-alias-writes'] = [string]$writes.Count
+}
 Case 'define' { New-SelectorSandboxDefinition $c $WsbFile | Out-Null }
+$xml = [xml][IO.File]::ReadAllText($WsbFile)
+$encoded = $xml.Configuration.LogonCommand.Command.Split(' ')[-1]
+$boot = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+$ast = [Management.Automation.Language.Parser]::ParseInput($boot, [ref]$null, [ref]$null)
+$commands = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] }, $true))
+$launch = @($commands | Where-Object { $_.GetCommandName() -ceq 'C:\SelectorStaging\PowerShell\pwsh.exe' })
+$r['bootstrap-launch-count'] = [string]$launch.Count
+$r['bootstrap-launch-arguments'] = @($launch[0].CommandElements | Select-Object -Skip 1 | ForEach-Object {
+  if ($_ -is [Management.Automation.Language.CommandParameterAst]) { '-' + $_.ParameterName } else { $_.Value }
+}) | ConvertTo-Json -Compress
+$assetLoops = @($ast.FindAll({ param($n)
+  $n -is [Management.Automation.Language.ForEachStatementAst] -and
+  $null -ne $n.Body.Find({ param($child)
+    $child -is [Management.Automation.Language.CommandAst] -and $child.GetCommandName() -ceq 'Get-FileHash'
+  }, $true)
+}, $true))
+$r['bootstrap-asset-loops'] = [string]$assetLoops.Count
+$start = [DateTime]::UtcNow
+$operationDeadline = Get-SelectorOperationDeadline $start
+$r['operation-budget-ms'] = [string]($operationDeadline - $start).TotalMilliseconds
+$r['reply-publication-budget-ms'] = [string]((Get-SelectorReplyDeadline $operationDeadline) - $operationDeadline).TotalMilliseconds
 $message = '{"runId":"' + $c.runId + '","policyHash":"' + $script:SelectorEndpointPolicyHash + '","operation":"attach"}'
 Case 'message' { Assert-SelectorMessage $message $c | Out-Null }
 Case 'oversize' { Assert-SelectorMessage ($message + (' ' * 513)) $c | Out-Null }
@@ -214,6 +255,11 @@ Get-SelectorEnvironmentHandoff | ConvertTo-Json -Depth 5 | Set-Content -LiteralP
 });
 
 describe("selector-isolated-environment-definition", () => {
+  it("refuses the Appendix A export/journal case alias before any captured write", () => {
+    expect(results["case-alias"]).toBe("E_MAPPING_REFUSED");
+    expect(results["case-alias-writes"]).toBe("0");
+    expect(results.define).toBe("ACCEPTED");
+  });
   it("hash-binds code/mode separately and generates two mappings with fixed boot", () => {
     expect(results["valid-definition"]).toBe("ACCEPTED");
     expect(results.define).toBe("ACCEPTED");
@@ -227,10 +273,18 @@ describe("selector-isolated-environment-definition", () => {
     const encoded = sandbox.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)?.[1];
     const boot = Buffer.from(encoded ?? "", "base64").toString("utf16le");
     expect(boot).toContain(handoff.definitionHash);
-    expect(boot).toContain("-Action guest");
-    expect(boot).toContain("Get-FileHash C:\\SelectorStaging\\PowerShell\\pwsh.exe");
-    expect(boot).toContain("foreach ($a in $c.assets)");
-    expect(boot).toContain("Get-FileHash -LiteralPath (Join-Path C:\\SelectorStaging $a.path)");
+    expect(results["bootstrap-launch-count"]).toBe("1");
+    expect(JSON.parse(results["bootstrap-launch-arguments"])).toEqual([
+      "-NoProfile",
+      "-NonInteractive",
+      "-File",
+      "C:\\SelectorStaging\\selector-isolated-environment.ps1",
+      "-Action",
+      "guest",
+      "-ConfigurationPath",
+      "C:\\SelectorStaging\\environment.json",
+    ]);
+    expect(results["bootstrap-asset-loops"]).toBe("1");
   });
   for (const name of [
     "tampered-definitionHash",
@@ -272,6 +326,224 @@ describe("selector-isolated-environment-definition", () => {
     expect(results["S-provider-definition"]).toBe("ACCEPTED");
     expect(results["C-provider-definition"]).toBe("ACCEPTED");
   });
+});
+
+const psLiteral = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+async function runPowerShell(command: string, onOutput?: (text: string) => void) {
+  const child = spawn(
+    "pwsh",
+    ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")],
+    { cwd: fixture, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+    onOutput?.(stdout);
+  });
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  return { code, stdout: stdout.replaceAll("\r\n", "\n").trim(), stderr: stderr.trim() };
+}
+
+async function loopbackProbe({
+  delay = 0,
+  status = 200,
+  body = '{"ok":true}',
+  deadlineMs,
+  bodyOnly = false,
+  headerOverflow = false,
+}: {
+  delay?: number;
+  status?: number;
+  body?: string;
+  deadlineMs?: number;
+  bodyOnly?: boolean;
+  headerOverflow?: boolean;
+}) {
+  let requests = 0;
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      requests++;
+      const headers = {
+        "Content-Type": "application/json",
+        Location: "/other",
+        ...(headerOverflow ? { "X-Synthetic-Padding": "x".repeat(2048) } : {}),
+      };
+      if (bodyOnly) {
+        response.writeHead(status, headers);
+        response.flushHeaders();
+      }
+      timers.push(
+        setTimeout(() => {
+          if (!bodyOnly) response.writeHead(status, headers);
+          response.end(body);
+        }, delay),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("synthetic_listener_missing");
+    const result = await runPowerShell(`
+. ${psLiteral(source)}
+$c = @{runId='selector-capability-synthetic-delay';endpointMode='C'}
+${deadlineMs === undefined ? "" : `function Get-SelectorOperationDeadline([DateTime]$StartedAt) { [DateTime]::UtcNow.AddMilliseconds(${deadlineMs}) }`}
+$e = @{tool='channels-selector-run-endpoint/v1';runId=$c.runId;policyIdentity='selector-agent-operation-capability-policy/v1';policyHash='${handoff.policyHash}';url='http://127.0.0.1:${address.port}/operation';token=('a'*64)}
+$m = '{"runId":"selector-capability-synthetic-delay","policyHash":"${handoff.policyHash}","operation":"capture"}'
+try { $reply=Invoke-SelectorLoopback $e $m $c; 'ACCEPTED '+$reply.status } catch { 'REFUSED' }
+`);
+    return { ...result, requests };
+  } finally {
+    timers.forEach(clearTimeout);
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+}
+
+describe("selector-isolated-environment-real-boundaries", () => {
+  it("uses the frozen session ceiling and bounds the body/publication allowance separately", () => {
+    expect(results["operation-budget-ms"]).toBe("900000");
+    expect(results["reply-publication-budget-ms"]).toBe("10000");
+  });
+  for (const expired of [false, true]) {
+    it(
+      expired
+        ? "retains mapped ownership and one-shot intent after the reply deadline"
+        : "waits for a delayed mapped closed response instead of truncating the guest operation",
+      async () => {
+        const mapped = mkdtempSync(path.join(fixture, "mapped-"));
+        const config = JSON.parse(readFileSync(configurationPath, "utf8"));
+        config.export = path.join(mapped, "export");
+        config.journal = path.join(mapped, "journal");
+        mkdirSync(config.export);
+        mkdirSync(config.journal);
+        writeFileSync(
+          path.join(config.journal, "ownership.json"),
+          JSON.stringify({
+            runId: config.runId,
+            state: "PENDING",
+            definitionHash: config.definitionHash,
+            relayHash: config.relayHash,
+            modeHash: config.modeHash,
+          }),
+        );
+        const configFile = path.join(mapped, "input.json");
+        writeFileSync(configFile, JSON.stringify(config));
+        const message = JSON.stringify({ runId: config.runId, policyHash: handoff.policyHash, operation: "capture" });
+        let publications = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const command = `
+. ${psLiteral(source)}
+${expired ? "function Get-SelectorReplyDeadline([DateTime]$OperationDeadline) { [DateTime]::UtcNow.AddMilliseconds(500) }" : ""}
+$writer = ${"$"}{function:Write-SelectorNewFile}
+function Write-SelectorNewFile([string]$File, [byte[]]$Bytes) {
+  & $writer $File $Bytes
+  if ($File.EndsWith('.request')) { [Console]::WriteLine('SYNTHETIC_REQUEST_READY') }
+}
+try { $r=Invoke-SelectorRelay (Read-SelectorJson ${psLiteral(configFile)}) ${psLiteral(message)}; 'ACCEPTED '+$r.status } catch { 'REFUSED' }
+`;
+        try {
+          const result = await runPowerShell(command, (output) => {
+            if (timer || !output.includes("SYNTHETIC_REQUEST_READY")) return;
+            timer = setTimeout(
+              () => {
+                publications++;
+                const body = '{"ok":true}';
+                writeFileSync(
+                  path.join(config.export, "capture.response"),
+                  JSON.stringify({
+                    status: 200,
+                    body,
+                    requestHash: digest(message),
+                    exportHash: digest(body),
+                  }),
+                );
+              },
+              expired ? 1500 : 5250,
+            );
+          });
+          expect(result).toMatchObject({
+            code: 0,
+            stderr: "",
+            stdout: "SYNTHETIC_REQUEST_READY\n" + (expired ? "REFUSED" : "ACCEPTED 200"),
+          });
+          expect(publications).toBe(expired ? 0 : 1);
+          expect(JSON.parse(readFileSync(path.join(config.journal, "ownership.json"), "utf8")).state).toBe("PENDING");
+          expect(existsSync(path.join(config.journal, "capture.intent"))).toBe(true);
+          const replay = await runPowerShell(command);
+          expect(replay.stdout).toBe("REFUSED");
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      },
+    );
+  }
+  it("accepts Appendix B's closed response after 5.25 seconds within the frozen session budget", async () => {
+    expect(await loopbackProbe({ delay: 5250 })).toMatchObject({
+      code: 0,
+      stdout: "ACCEPTED 200",
+      stderr: "",
+      requests: 1,
+    });
+  });
+  it("refuses a response after the admitted operation deadline without retry", async () => {
+    expect(await loopbackProbe({ delay: 1500, deadlineMs: 500 })).toMatchObject({
+      code: 0,
+      stdout: "REFUSED",
+      stderr: "",
+      requests: 1,
+    });
+  });
+  for (const control of [
+    { name: "immediate 200", status: 200, body: '{"ok":true}', expected: "ACCEPTED 200" },
+    { name: "paused 204", status: 204, body: "", expected: "ACCEPTED 204" },
+    { name: "overflow", status: 200, body: "x".repeat(513), expected: "REFUSED" },
+    { name: "redirect", status: 302, body: "", expected: "REFUSED" },
+    { name: "secret", status: 200, body: '{"ok":true,"token":"' + "a".repeat(64) + '"}', expected: "REFUSED" },
+    { name: "header overflow", headerOverflow: true, expected: "REFUSED" },
+    { name: "body deadline", bodyOnly: true, delay: 5250, expected: "REFUSED" },
+    {
+      name: "closed payload",
+      body: '{"rangeSemanticsValid":true,"selectedRangeValid":false,"quickFilterRelationshipValid":true,"currentEpochComplete":false,"oldCompletionInvalidated":true,"rangeControlMatches":1,"quickFilterLabelMatches":"many","adjacentCountMatches":0,"completionSignalMatches":1}',
+      expected: "ACCEPTED 200",
+    },
+  ])
+    it("real HTTP " + control.name, async () => {
+      expect(await loopbackProbe(control)).toMatchObject({
+        code: 0,
+        stdout: control.expected,
+        stderr: "",
+        requests: 1,
+      });
+    });
+  for (const action of ["SYNTHETIC_PRIVATE_ACTION_9563", "invalid", ""]) {
+    it("keeps invalid CLI action inside the closed-error boundary: " + (action || "empty"), () => {
+      const result = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-File", source, "-Action", action], {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout.trim()).toBe("");
+      expect(result.stderr.trim()).toBe("E_REFUSED");
+    });
+  }
+  for (const action of ["handoff", "HANDOFF"])
+    it("preserves the real handoff CLI readback: " + action, () => {
+      const result = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-File", source, "-Action", action], {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual(handoff);
+    });
 });
 
 describe("selector-isolated-environment-transport", () => {
@@ -322,9 +594,6 @@ describe("selector-isolated-environment-handoff", () => {
     expect(handoff.policyHash).toBe("582200a0897dd14df915d17c12cb5965ff17524dc057320a9f5693c5442bc58d");
     expect(handoff.maxMessageBytes).toBe(512);
     expect(handoff.guestRunRoot).toBe("C:\\SelectorRepo\\artifacts\\9115\\<runId>");
-    expect(readFileSync(path.join(repo, packagePath), "utf8")).toContain(
-      'const parent = path.join(repo, "artifacts", "9115")',
-    );
     expect(handoff.operations.S).toEqual([
       "attach",
       "pause",
@@ -348,5 +617,21 @@ describe("selector-isolated-environment-handoff", () => {
     ]);
     expect(handoff.actualEnvironment).toBe("PENDING_OPERATOR_ACTION");
     expect(handoff.acceptance).toBe("PENDING_HOST_REVIEW");
+  });
+  it("matches the actual package.prepare profile path without precreating its owned run root", async () => {
+    const packaging = await import(new URL("../integrations/order-authority-probe/package.mjs", import.meta.url).href);
+    const parent = path.join(repo, "artifacts", "9115");
+    mkdirSync(parent, { recursive: true });
+    const out = path.join(mkdtempSync(path.join(parent, "synthetic-environment-")), "run");
+    expect(existsSync(out)).toBe(false);
+    const preparation = packaging.prepare({
+      out,
+      cadenceMs: 30000,
+      cadenceSource: packaging.AUTHORITY,
+      t0: "2030-01-01T00:00:00.000Z",
+      synthetic: true,
+    });
+    expect(preparation.profileDirectory).toBe(path.join(out, "profile"));
+    expect(path.win32.relative("C:\\SelectorRepo", handoff.guestRunRoot)).toBe("artifacts\\9115\\<runId>");
   });
 });

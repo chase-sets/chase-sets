@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet('define', 'relay', 'guest', 'handoff')][string]$Action,
+  [string]$Action,
   [string]$ConfigurationPath,
   [string]$MessagePath,
   [string]$OutputPath
@@ -132,13 +132,16 @@ function New-SelectorSandboxDefinition($Configuration, [string]$Destination) {
   Assert-SelectorDirectory $Configuration.export
   Assert-SelectorDirectory $Configuration.journal
   $directories = @($Configuration.staging, $Configuration.export, $Configuration.journal)
-  foreach ($left in $directories) {
-    foreach ($right in $directories) {
-      if ($left -ne $right -and $left.StartsWith($right + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'E_MAPPING_REFUSED' }
+  for ($i = 0; $i -lt $directories.Count; $i++) {
+    for ($j = $i + 1; $j -lt $directories.Count; $j++) {
+      $left = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($directories[$i]))
+      $right = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($directories[$j]))
+      if ([StringComparer]::OrdinalIgnoreCase.Equals($left, $right) -or
+          $left.StartsWith($right.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+          $right.StartsWith($left.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'E_MAPPING_REFUSED' }
     }
   }
-  if (@($directories | Select-Object -Unique).Count -ne 3 -or
-      @(Get-ChildItem -LiteralPath $Configuration.export -Force).Count -or
+  if (@(Get-ChildItem -LiteralPath $Configuration.export -Force).Count -or
       @(Get-ChildItem -LiteralPath $Configuration.journal -Force).Count) { throw 'E_MAPPING_REFUSED' }
   Assert-SelectorStaging $Configuration $Configuration.staging
   # Repo pins are independently read from the landed commit, not rebaselined from staging.
@@ -235,12 +238,27 @@ function Assert-SelectorEndpoint($Endpoint, $Configuration) {
       [int]$Matches[1] -gt 65535 -or $Endpoint.token -cnotmatch '^[a-f0-9]{64}$') { throw 'E_ENDPOINT_REFUSED' }
 }
 
-function Invoke-SelectorLoopback($Endpoint, [string]$Text, $Configuration) {
+function Get-SelectorOperationDeadline([DateTime]$StartedAt) {
+  # The frozen endpoint's entire session is bounded by startedAt + 900000 ms.
+  # A request cannot need more than that ceiling; A retains its earlier session/native limits.
+  return $StartedAt.AddMilliseconds(900000)
+}
+
+function Get-SelectorReplyDeadline([DateTime]$OperationDeadline) {
+  # Cover the guest's bounded body read (5s) and closed-response publication (5s).
+  return $OperationDeadline.AddSeconds(10)
+}
+
+function Invoke-SelectorLoopback($Endpoint, [string]$Text, $Configuration, [DateTime]$OperationDeadline = (Get-SelectorOperationDeadline ([DateTime]::UtcNow))) {
   Assert-SelectorEndpoint $Endpoint $Configuration
   [void](Assert-SelectorMessage $Text $Configuration)
-  $handler = [Net.Http.HttpClientHandler]::new(); $handler.AllowAutoRedirect = $false; $handler.UseProxy = $false
-  $client = [Net.Http.HttpClient]::new($handler); $client.Timeout = [TimeSpan]::FromSeconds(5)
-  $cancel = [Threading.CancellationTokenSource]::new(); $cancel.CancelAfter(5000)
+  $remaining = $OperationDeadline - [DateTime]::UtcNow
+  if ($remaining.TotalMilliseconds -le 0 -or $remaining.TotalMilliseconds -gt 900000) { throw 'E_RELAY_PENDING' }
+  $handler = [Net.Http.SocketsHttpHandler]::new(); $handler.AllowAutoRedirect = $false; $handler.UseProxy = $false
+  $handler.ConnectTimeout = [TimeSpan]::FromSeconds(5); $handler.MaxResponseHeadersLength = 1
+  $client = [Net.Http.HttpClient]::new($handler); $client.Timeout = [Threading.Timeout]::InfiniteTimeSpan
+  $cancel = [Threading.CancellationTokenSource]::new(); $cancel.CancelAfter($remaining)
+  $bodyCancel = [Threading.CancellationTokenSource]::new()
   try {
     $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, $Endpoint.url)
     $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $Endpoint.token)
@@ -248,9 +266,11 @@ function Invoke-SelectorLoopback($Endpoint, [string]$Text, $Configuration) {
     try {
       $response = $client.Send($request, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $cancel.Token)
       try {
+        if ([DateTime]::UtcNow -ge $OperationDeadline) { throw 'E_RELAY_PENDING' }
+        $bodyCancel.CancelAfter(5000)
         $stream = $response.Content.ReadAsStream(); $buffer = [byte[]]::new(513); $length = 0
         while ($length -lt 513) {
-          $n = $stream.ReadAsync($buffer, $length, 513 - $length, $cancel.Token).GetAwaiter().GetResult()
+          $n = $stream.ReadAsync($buffer, $length, 513 - $length, $bodyCancel.Token).GetAwaiter().GetResult()
           if (-not $n) { break }; $length += $n
         }
         if ($length -gt 512) { throw 'E_RESPONSE_REFUSED' }
@@ -260,7 +280,7 @@ function Invoke-SelectorLoopback($Endpoint, [string]$Text, $Configuration) {
         return [ordered]@{ status = [int]$response.StatusCode; body = $body }
       } finally { $response.Dispose() }
     } finally { $request.Dispose() }
-  } finally { $cancel.Dispose(); $client.Dispose(); $handler.Dispose() }
+  } finally { $bodyCancel.Dispose(); $cancel.Dispose(); $client.Dispose(); $handler.Dispose() }
 }
 
 function Invoke-SelectorRelay($Configuration, [string]$Text) {
@@ -277,10 +297,12 @@ function Invoke-SelectorRelay($Configuration, [string]$Text) {
   if (Test-Path -LiteralPath ($stem + '.response')) { throw 'E_UNSOLICITED_REPLY_REFUSED' }
   Write-SelectorNewFile (Join-Path $Configuration.journal ($message.operation + '.intent')) ([Text.Encoding]::UTF8.GetBytes('PENDING'))
   Write-SelectorNewFile ($stem + '.request') ([Text.Encoding]::UTF8.GetBytes($Text))
-  $deadline = [DateTime]::UtcNow.AddSeconds(5)
+  $operationDeadline = Get-SelectorOperationDeadline (Get-Item -LiteralPath ($stem + '.request')).CreationTimeUtc
+  $deadline = Get-SelectorReplyDeadline $operationDeadline
   while (-not (Test-Path -LiteralPath ($stem + '.response'))) {
     if ([DateTime]::UtcNow -ge $deadline) { throw 'E_RELAY_PENDING' }; Start-Sleep -Milliseconds 50
   }
+  if ([DateTime]::UtcNow -ge $deadline) { throw 'E_RELAY_PENDING' }
   $reply = Read-SelectorJson ($stem + '.response') 2048
   Assert-SelectorClosed $reply @('status', 'body', 'requestHash', 'exportHash')
   if ($reply.requestHash -cne (Get-SelectorDigest ([Text.Encoding]::UTF8.GetBytes($Text))) -or
@@ -326,9 +348,11 @@ function Invoke-SelectorGuest($Configuration) {
       $text = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($requestFile.FullName))
       $message = Assert-SelectorMessage $text $Configuration
       if ($message.operation -cne $operation) { throw 'E_OPERATION_REFUSED' }
-      $reply = Invoke-SelectorLoopback $endpoint $text $Configuration
+      $operationDeadline = Get-SelectorOperationDeadline $requestFile.CreationTimeUtc
+      $reply = Invoke-SelectorLoopback $endpoint $text $Configuration $operationDeadline
       $reply.requestHash = Get-SelectorDigest ([Text.Encoding]::UTF8.GetBytes($text))
       $reply.exportHash = Get-SelectorDigest ([Text.Encoding]::UTF8.GetBytes($reply.body))
+      if ([DateTime]::UtcNow -ge (Get-SelectorReplyDeadline $operationDeadline)) { throw 'E_RELAY_PENDING' }
       Write-SelectorNewFile ($stem + '.response') ([Text.Encoding]::UTF8.GetBytes(($reply | ConvertTo-Json -Compress)))
       if ($operation -ceq 'close') { return }
     }
@@ -352,6 +376,7 @@ function Get-SelectorEnvironmentHandoff {
 
 if ($MyInvocation.InvocationName -ne '.') {
   try {
+    if ($Action -notin @('define', 'relay', 'guest', 'handoff')) { throw 'E_ACTION_REFUSED' }
     switch ($Action) {
       'define' { New-SelectorSandboxDefinition (Read-SelectorJson $ConfigurationPath) $OutputPath | ConvertTo-Json -Compress }
       'relay' {
