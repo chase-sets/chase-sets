@@ -281,48 +281,52 @@ describe("provider webhook ingestion observability", () => {
 });
 
 describe("Discovery search observability", () => {
-  it("exports bounded dimensions and phase timings without query or Result Set identifiers", () => {
-    const counterAdds: unknown[] = [];
-    const histogramRecords: unknown[] = [];
-    const createCounter = vi.fn((name: string) => ({
-      add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
-    }));
-    const createHistogram = vi.fn((name: string) => ({
-      record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
-    }));
-    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
-      createCounter,
-      createHistogram,
-      createUpDownCounter: vi.fn(),
-    } as never);
+  it.each(["lexical", "corrected"] as const)(
+    "exports %s dimensions and phase timings without query or Result Set identifiers",
+    (retrievalMode) => {
+      const counterAdds: unknown[] = [];
+      const histogramRecords: unknown[] = [];
+      const createCounter = vi.fn((name: string) => ({
+        add: (value: number, attributes?: unknown) => counterAdds.push({ name, value, attributes }),
+      }));
+      const createHistogram = vi.fn((name: string) => ({
+        record: (value: number, attributes?: unknown) => histogramRecords.push({ name, value, attributes }),
+      }));
+      const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+        createCounter,
+        createHistogram,
+        createUpDownCounter: vi.fn(),
+      } as never);
 
-    try {
-      recordDiscoverySearchQuerySignal({
-        queryHash: "a".repeat(64),
-        resultSetKey: "b".repeat(64),
-        filterState: "category,field",
-        sortOrder: "relevance",
-        cursorState: "fresh",
-        resultCount: 0,
-        total: 0,
-        zeroResults: true,
-        retrievalMode: "lexical",
-        outcome: "success",
-        normalizationDurationMs: 1,
-        retrievalDurationMs: 2,
-        totalDurationMs: 3,
-        queryEmbeddingOutcome: "not-attempted",
-        queryEmbeddingWaiterDurationMs: 0,
-      });
-    } finally {
-      getMeter.mockRestore();
-    }
+      try {
+        recordDiscoverySearchQuerySignal({
+          queryHash: "a".repeat(64),
+          resultSetKey: "b".repeat(64),
+          filterState: "category,field",
+          sortOrder: "relevance",
+          cursorState: "fresh",
+          resultCount: 0,
+          total: 0,
+          zeroResults: true,
+          retrievalMode,
+          outcome: "success",
+          normalizationDurationMs: 1,
+          retrievalDurationMs: 2,
+          totalDurationMs: 3,
+          queryEmbeddingOutcome: "not-attempted",
+          queryEmbeddingWaiterDurationMs: 0,
+        });
+      } finally {
+        getMeter.mockRestore();
+      }
 
-    expect(counterAdds).toHaveLength(1);
-    expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("a".repeat(64));
-    expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("b".repeat(64));
-    expect(histogramRecords).toHaveLength(3);
-  });
+      expect(counterAdds).toHaveLength(1);
+      expect(JSON.stringify(counterAdds)).toContain(`"retrieval_mode":"${retrievalMode}"`);
+      expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("a".repeat(64));
+      expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("b".repeat(64));
+      expect(histogramRecords).toHaveLength(3);
+    },
+  );
 
   it("exports the effective fresh, cursor, and restarted cursor state as one bounded label", () => {
     const records: Array<{ name: string; attributes: unknown }> = [];

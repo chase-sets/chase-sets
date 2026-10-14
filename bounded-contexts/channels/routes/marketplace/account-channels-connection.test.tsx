@@ -80,7 +80,11 @@ describe("Channels account connection route contribution", () => {
 
   it("declares the canonical authenticated account contribution and separate download resource", () => {
     const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
-    expect(manifest.deployableContributions).toEqual([
+    expect(
+      manifest.deployableContributions.filter(
+        (contribution: { deployable: string }) => contribution.deployable === "marketplace-web",
+      ),
+    ).toEqual([
       expect.objectContaining({
         deployable: "marketplace-web",
         routes: expect.arrayContaining([
@@ -99,6 +103,29 @@ describe("Channels account connection route contribution", () => {
           }),
         ]),
       }),
+    ]);
+  });
+
+  it("declares the separate admin support lookup contribution", () => {
+    const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../context.json"), "utf8"));
+    expect(
+      manifest.deployableContributions.filter(
+        (contribution: { deployable: string }) => contribution.deployable === "admin-web",
+      ),
+    ).toEqual([
+      {
+        deployable: "admin-web",
+        routes: [
+          {
+            routeId: "ebay-account-deletion-lookup",
+            routePath: "ebay-account-deletion",
+            fileExport: "./routes/admin/ebay-account-deletion",
+            routeType: "route",
+            sourceContext: "channels",
+            section: "support",
+          },
+        ],
+      },
     ]);
   });
 

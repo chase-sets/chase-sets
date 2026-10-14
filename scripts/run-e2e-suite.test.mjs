@@ -526,6 +526,9 @@ describe("run e2e suite", () => {
   });
 
   it("channels-e2e-suite-ownership", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx")).toEqual([
+      "admin_support",
+    ]);
     // Both Channels ownership keys must independently resolve to marketplace_account,
     // so deleting either one fails here with an unexpected empty array instead of
     // silently letting `e2eSuiteIdsForChangedFile` fall through to `?? []`.

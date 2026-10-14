@@ -1656,6 +1656,9 @@ importers:
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../../bounded-contexts/catalog
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms
@@ -1720,9 +1723,6 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/channels':
-        specifier: workspace:*
-        version: link:../../bounded-contexts/channels
       '@chase-sets/playwright-evidence':
         specifier: workspace:*
         version: link:../../infrastructure/playwright-evidence

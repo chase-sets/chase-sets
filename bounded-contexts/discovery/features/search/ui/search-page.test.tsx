@@ -1204,6 +1204,36 @@ describe("SearchPage", () => {
     expect(screen.queryByText("No items found")).toBeNull();
   });
 
+  it.each(["success", "loading", "empty", "error"] as const)(
+    "corrected notice executes the %s state without load more",
+    (state) => {
+      const query = '<img src=x onerror="alert(1)">';
+      const corrected: DiscoverySearchResponse = {
+        ...searchResponse,
+        retrievalMode: "corrected",
+        lexicalCount: 0,
+        nextCursor: null,
+      };
+      renderSearchPage({
+        search: query,
+        committedSearch: query,
+        data:
+          state === "empty" ? { ...corrected, items: [], count: 0, total: 0 } : state === "error" ? null : corrected,
+        loading: state === "loading",
+        error: state === "error" ? "Search failed." : null,
+      });
+      if (state === "success" || state === "loading") {
+        expect(screen.getByText(`No exact matches for ${query}. Showing close spellings.`)).toBeTruthy();
+        expect(screen.queryByRole("heading", { name: "Closest matches" })).toBeNull();
+        expect(document.querySelector("img[src=x]")).toBeNull();
+      } else {
+        expect(screen.queryByText(/Showing close spellings/)).toBeNull();
+        expect(screen.getByText(state === "empty" ? "No items found" : "Search failed.")).toBeTruthy();
+      }
+      expect(screen.queryByRole("button", { name: /Load more results/ })).toBeNull();
+    },
+  );
+
   it("renders variant badges that distinguish same-title search results", () => {
     renderSearchPage({
       committedSearch: "abra",

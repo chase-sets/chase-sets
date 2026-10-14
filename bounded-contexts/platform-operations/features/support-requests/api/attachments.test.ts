@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PrivateObjectStore } from "@chase-sets/object-storage";
 import {
@@ -11,6 +12,13 @@ import {
 } from "./evidence-canonicalization";
 import { readSupportEvidenceAttachment, storeSupportEvidenceAttachments } from "./attachments";
 import { SUPPORT_EVIDENCE_ATTACHMENT_MAX_BYTES } from "../domain/attachment-policy";
+import {
+  attachmentOperationStreamId,
+  decideAttachmentOperation,
+  replayAttachmentOperation,
+  type AttachmentOperationCommand,
+  type AttachmentOperationEvent,
+} from "../domain/attachment-operation";
 
 const context: EventStoreContext = {
   tenantId: "tnt_identity" as never,
@@ -57,7 +65,100 @@ function fixture() {
   };
 }
 
+const operationCodec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
+async function transition(f: ReturnType<typeof fixture>, command: AttachmentOperationCommand) {
+  const streamId = attachmentOperationStreamId({
+    supportRequestId: f.input.supportRequestId,
+    operationId: f.input.operationId,
+  });
+  const history = await f.input.eventStore.readStream({ streamId });
+  const events = decideAttachmentOperation(replayAttachmentOperation(history.map(operationCodec.decode)), command);
+  await f.input.eventStore.appendToStream({
+    streamId,
+    expectedVersion: history.length,
+    context: f.input.context,
+    events: events.map(operationCodec.encode),
+  });
+}
+
+const claim = (references: readonly string[]): AttachmentOperationCommand => ({
+  type: "ClaimSupportAttachmentReference",
+  data: { evidenceId: "sev_synthetic_replay", attachments: references, submittedAt: "2026-10-14T00:00:00.000Z" },
+});
+
 describe("canonical Support evidence attachments", () => {
+  it.each(["stored", "reference-claimed", "referenced"] as const)(
+    "exact complete upload replay in %s verifies bytes without appends or puts",
+    async (status) => {
+      const f = fixture();
+      f.input.uploads.push({ ...f.input.uploads[0] });
+      f.storage.verifyPrivate.mockResolvedValue({ status: "match" });
+      const first = await storeSupportEvidenceAttachments(f.input);
+      if (status !== "stored") await transition(f, claim(first.map((item) => item.reference)));
+      if (status === "referenced")
+        await transition(f, {
+          type: "ConfirmSupportAttachmentReferenced",
+          data: { evidenceId: "sev_synthetic_replay" },
+        });
+      const before = [...f.allEvents];
+      f.storage.verifyPrivate.mockClear();
+      expect(await storeSupportEvidenceAttachments(f.input)).toEqual(first);
+      expect(f.allEvents).toEqual(before);
+      expect(f.storage.putPrivate).not.toHaveBeenCalled();
+      expect(f.storage.verifyPrivate).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("exact upload replay remains read-only when a claim wins during verification before final reload", async () => {
+    const f = fixture();
+    f.storage.verifyPrivate.mockResolvedValue({ status: "match" });
+    const first = await storeSupportEvidenceAttachments(f.input);
+    f.storage.verifyPrivate.mockImplementationOnce(async () => {
+      await transition(f, claim(first.map((item) => item.reference)));
+      return { status: "match" };
+    });
+    const before = f.allEvents.length;
+    expect(await storeSupportEvidenceAttachments(f.input)).toEqual(first);
+    expect(f.allEvents.slice(before).map((event) => event.eventType)).toEqual([
+      "support.attachment-operation.reference-claimed",
+    ]);
+    expect(f.storage.putPrivate).not.toHaveBeenCalled();
+  });
+
+  it.each(["reference-claimed", "referenced"] as const)(
+    "%s upload replay rejects changed manifests, owners and failed byte verification without writes",
+    async (status) => {
+      const f = fixture();
+      f.storage.verifyPrivate.mockResolvedValue({ status: "match" });
+      const first = await storeSupportEvidenceAttachments(f.input);
+      await transition(f, claim(first.map((item) => item.reference)));
+      if (status === "referenced")
+        await transition(f, {
+          type: "ConfirmSupportAttachmentReferenced",
+          data: { evidenceId: "sev_synthetic_replay" },
+        });
+      const before = [...f.allEvents];
+      await expect(
+        storeSupportEvidenceAttachments({ ...f.input, uploads: [...f.input.uploads, ...f.input.uploads] }),
+      ).rejects.toMatchObject({ code: "operation-conflict" });
+      await expect(
+        storeSupportEvidenceAttachments({
+          ...f.input,
+          context: { ...context, audit: { ...context.audit, forAccountId: "acc_other" as never } },
+        }),
+      ).rejects.toMatchObject({ code: "operation-conflict" });
+      for (const verification of [
+        { status: "absent" },
+        { status: "conflict", difference: "sha256" },
+        { status: "unavailable", code: "transport-failed" },
+      ] as const) {
+        f.storage.verifyPrivate.mockResolvedValue(verification);
+        await expect(storeSupportEvidenceAttachments(f.input)).rejects.toBeDefined();
+      }
+      expect(f.allEvents).toEqual(before);
+      expect(f.storage.putPrivate).not.toHaveBeenCalled();
+    },
+  );
   it.each([SUPPORT_EVIDENCE_ATTACHMENT_MAX_BYTES, SUPPORT_EVIDENCE_ATTACHMENT_MAX_BYTES + 1])(
     "independently enforces canonical output cap %i before staging",
     async (byteSize) => {

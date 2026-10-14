@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
@@ -45,6 +45,7 @@ import {
   searchDiscoveryItems,
   searchDiscoveryItemsByNaturalKey,
   searchDiscoverySemanticItems,
+  lookupDiscoveryCorrectionTerms,
   type DiscoverySearchParams,
 } from "../../features/search/read-model/queries";
 import { retrieveDiscoveryItems } from "../../features/search/read-model/hybrid-retrieval";
@@ -2297,6 +2298,239 @@ describe("marketplace search", () => {
     });
   });
 
+  it("required-group correction protects every production-projected printing in every provider mode", async () => {
+    const fixtures = [
+      ["corr_char_a", "Charizard", "Base Set 4/102 foil"],
+      ["corr_char_b", "Charizard", "Base Set 4/102 nonfoil"],
+      ["corr_char_wrong", "Charizard", "Base Set 6/102"],
+      ["corr_pik_a", "Pikachu", "Jungle 60 foil"],
+      ["corr_pik_b", "Pikachu", "Jungle 60 nonfoil"],
+      ["corr_pik_wrong", "Pikachu", "Jungle 62"],
+      ["corr_tsp", "TSP", "136a"],
+      ["corr_luffy", "Luffy", "OP01-001"],
+      ["corr_tg", "Eevee", "TG05"],
+      ["corr_blastoise", "Blastoise", "Base Set"],
+      ["corr_box", "Pokemon Booster Box", null],
+      ["corr_native", "リザードン", null],
+      ["corr_tie_a", "abcdf", null],
+      ["corr_tie_b", "abcdg", null],
+      ["corr_tie_c", "abcdh", null],
+      ["corr_tie_d", "abcdi", null],
+    ] as const;
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_reference_records
+      (reference_record_id, type_key, key, name, attributes) VALUES ('corr_set_tsp', 'set', 'tsp', 'TSP', '{"code":"TSP"}')`);
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_fields (field_id, key, name, filterable)
+      VALUES ('corr_number', 'card-number', 'Card number', true), ('corr_set', 'set', 'Set', true)`);
+    for (const [id, title, subtitle] of fixtures) {
+      const fields =
+        id === "corr_tsp"
+          ? [
+              { fieldId: "corr_set", value: { referenceId: "corr_set_tsp" } },
+              { fieldId: "corr_number", value: "136a" },
+            ]
+          : [];
+      await pools.discovery.query(
+        `INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, subtitle, status, field_values)
+        VALUES ($1, $1, $2, $3, 'active', $4::jsonb)`,
+        [id, title, subtitle, JSON.stringify(fields)],
+      );
+    }
+    await rebuildSearchIndex();
+    expect(await lookupServedSearchSetCodes(pools.discovery, ["tsp", "charzard", "jungel", "zard"])).toEqual(
+      new Set(["tsp"]),
+    );
+    const vector = Array.from({ length: 1024 }, (_, index) => Number(index === 0));
+    await pools.discovery.query(`UPDATE discovery_search_items SET search_embedding = $1::halfvec(1024)`, [
+      `[${vector.join(",")}]`,
+    ]);
+    const positives = [
+      ["charzard 4/102", ["corr_char_a", "corr_char_b"]],
+      ["charzard 004/102", ["corr_char_a", "corr_char_b"]],
+      ["pikachu jungel 60", ["corr_pik_a", "corr_pik_b"]],
+      ["zard 4/102", ["corr_char_a", "corr_char_b"]],
+      ["chraizard 4/102", ["corr_char_a", "corr_char_b"]],
+      ["TSP 136a", ["corr_tsp"]],
+      ["OP01-001", ["corr_luffy"]],
+      ["TG05", ["corr_tg"]],
+    ] as const;
+    const negatives = [
+      "charzard 5/102",
+      "charzard 102/4",
+      "charzard 4/102 absent",
+      "TSP 136",
+      "TSP 999",
+      "luffy op01 002",
+      "TG06",
+      "999",
+    ];
+    for (const enabled of [false, true]) {
+      const embed = vi.fn(async () => ({ vectors: [vector], totalTokens: 1 }));
+      const searchSemantic = vi.fn(searchDiscoverySemanticItems);
+      const dependencies = {
+        db: pools.discovery,
+        rescueEnabled: true,
+        hybridEnabled: true,
+        provider: enabled ? { model: "synthetic-wrong-printing", dimensions: 1024, embed } : undefined,
+        cache: createQueryEmbeddingCache(),
+        searchSemantic,
+      };
+      for (const [search, expected] of positives) {
+        const page = await retrieveDiscoveryItems(dependencies, { search });
+        expect(page.items.map((item) => item.catalog_item_id).sort(), search).toEqual([...expected]);
+        expect(new Set(page.items.map((item) => item.catalog_item_id)).size).toBe(page.items.length);
+        expect(page.nextCursor).toBeNull();
+        if (/charzard|chraizard|jungel/.test(search))
+          expect(page).toMatchObject({
+            retrievalMode: "corrected",
+            total: expected.length,
+            lexicalCount: 0,
+            facets: [],
+            category_counts: [],
+          });
+      }
+      for (const search of negatives)
+        expect((await retrieveDiscoveryItems(dependencies, { search })).items, search).toEqual([]);
+      expect(embed).not.toHaveBeenCalled();
+      expect(searchSemantic).not.toHaveBeenCalled();
+    }
+    for (const search of ["blastois agumon", "chraizard digimon", "charzard unrelatedword"]) {
+      const page = await retrieveDiscoveryItems(
+        { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
+        { search },
+      );
+      expect(page.items, search).toEqual([]);
+      expect(page.retrievalMode).toBe("lexical");
+    }
+    const lexicalOnly = { db: pools.discovery, rescueEnabled: false, hybridEnabled: false };
+    const synonymTypo = await retrieveDiscoveryItems(lexicalOnly, { search: "pkmn boostre box" });
+    expect(synonymTypo.items.map((item) => item.catalog_item_id)).toEqual(["corr_box"]);
+    expect(synonymTypo.retrievalMode).toBe("corrected");
+    for (const search of ["abcde", "chra 4/102", "リザドン"]) {
+      expect((await retrieveDiscoveryItems(lexicalOnly, { search })).items, search).toEqual([]);
+    }
+    expect((await lookupDiscoveryCorrectionTerms(pools.discovery, "abcde")).candidates).toEqual([
+      "abcdf",
+      "abcdg",
+      "abcdh",
+      "abcdi",
+    ]);
+    for (const search of ["charizard", "pkmn bb", "リザード"]) {
+      expect((await retrieveDiscoveryItems(lexicalOnly, { search })).retrievalMode).toBe("lexical");
+    }
+    expect(
+      (
+        await retrieveDiscoveryItems(
+          { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
+          { search: "char" },
+        )
+      ).items.length,
+    ).toBeGreaterThan(0);
+    expect(
+      (
+        await retrieveDiscoveryItems(
+          { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
+          { search: "chra 4/102" },
+        )
+      ).items,
+    ).toEqual([]);
+    await variantListing("corr_listing", "10.00", [], "USD", "corr_char_a");
+    await refreshAllSearchIndexMarketSignals(pools.discovery);
+    const filtered = await retrieveDiscoveryItems(
+      { db: pools.discovery, rescueEnabled: false, hybridEnabled: false },
+      {
+        search: "charzard 4/102",
+        priceMin: "5",
+        priceMax: "15",
+        inStock: true,
+        marketActivity: "listings",
+        limit: 1,
+      },
+    );
+    expect(filtered.items.map((item) => item.catalog_item_id)).toEqual(["corr_char_a"]);
+    expect(filtered.items[0].market_summary).toMatchObject({
+      lowest_price_amount: "10.00",
+      active_listing_count: 1,
+      total_visible_quantity: 4,
+    });
+    const http = await app.request("/api/marketplace/items?search=charzard%204%2F102&limit=1");
+    expect(await http.json()).toMatchObject({
+      retrievalMode: "corrected",
+      count: 1,
+      total: 1,
+      lexicalCount: 0,
+      nextCursor: null,
+    });
+  });
+
+  it("distinct indexed correction candidates resist repeated popular terms without changing session threshold", async () => {
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, status)
+      SELECT 'corr_popular_' || n, 'corr-popular-' || n,
+        CASE WHEN n <= 24 THEN 'Charizard' ELSE translate(md5(n::text), '0123456789', 'ghijklmnop') END,
+        'active' FROM generate_series(1, 6000) AS n`);
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, status)
+      VALUES ('corr_other_spelling', 'corr-other-spelling', 'Charizord', 'active')`);
+    await pools.discovery.query(`INSERT INTO discovery_search_catalog_fields (field_id, key, name, searchable)
+      VALUES ('corr_field', 'free-text', 'Free text', true)`);
+    await pools.discovery
+      .query(`INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, description, field_values, status)
+      VALUES ('corr_description', 'corr-description', 'Unrelated', 'descriptioncandidate',
+        '[{"fieldId":"corr_field","value":"fieldcandidate"}]', 'active')`);
+    await rebuildSearchIndex();
+    await pools.discovery.query(`VACUUM (ANALYZE) discovery_search_item_identity_terms`);
+    const statements: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        statements.push({ sql, values });
+        return pools.discovery.query<Row>(sql, values);
+      },
+    };
+    const before = await pools.discovery.query<{ similarity_threshold: string }>(
+      `SELECT current_setting('pg_trgm.similarity_threshold') AS similarity_threshold`,
+    );
+    expect(before.rows[0].similarity_threshold).toBe("0.3");
+    const start = performance.now();
+    const cold = await lookupDiscoveryCorrectionTerms(db, "charzard");
+    const coldMs = performance.now() - start;
+    const warmStart = performance.now();
+    expect(await lookupDiscoveryCorrectionTerms(pools.discovery, "charzard")).toEqual(cold);
+    const warmMs = performance.now() - warmStart;
+    expect(cold.candidates).toContain("charizard");
+    expect(cold.candidates).toContain("charizord");
+    expect(new Set(cold.candidates).size).toBe(cold.candidates.length);
+    expect(cold.candidates.length).toBeLessThanOrEqual(20);
+    expect(await lookupDiscoveryCorrectionTerms(pools.discovery, "descriptioncandidat")).toMatchObject({
+      literal: false,
+      prefix: false,
+      candidates: [],
+    });
+    const plans = await pools.discovery.query<{ "QUERY PLAN": unknown }>(
+      `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${statements[0].sql}`,
+      statements[0].values,
+    );
+    expect(await lookupDiscoveryCorrectionTerms(pools.discovery, "fieldcandidat")).toMatchObject({
+      literal: false,
+      prefix: false,
+      candidates: [],
+    });
+    const plan = JSON.stringify(plans.rows[0]["QUERY PLAN"]);
+    expect(plan).toContain("Bitmap Index Scan");
+    expect(plan).toContain("term %");
+    const after = await pools.discovery.query(
+      `SELECT current_setting('pg_trgm.similarity_threshold') AS similarity_threshold`,
+    );
+    expect(after.rows).toEqual(before.rows);
+    console.info(
+      "correction-query-plan",
+      JSON.stringify({
+        items: 6002,
+        candidates: cold.candidates.length,
+        coldMs,
+        warmMs,
+        plan: plans.rows[0]["QUERY PLAN"],
+      }),
+    );
+  });
+
   it.each(["english", "simple"] as const)(
     "query vocabulary recovers every printing and retains literal negatives with the %s vector",
     async (config) => {
@@ -2336,7 +2570,7 @@ describe("marketplace search", () => {
       expect(await ids("zard 4/102")).toEqual(["syn_print_a", "syn_print_b"]);
       expect(await ids("zard 102/4")).toEqual(["syn_reverse"]);
       expect(await ids("zard 4/999")).toEqual([]);
-      expect(await ids("zard 004/102")).toEqual([]);
+      expect(await ids("zard 004/102")).toEqual(["syn_print_a", "syn_print_b"]);
       expect(await ids("zard 4/102 absent")).toEqual([]);
       expect(await ids("zard!4/102")).toEqual([]);
       expect(await ids("TSP 136a")).toEqual(["syn_tsp"]);

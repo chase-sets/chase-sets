@@ -1,4 +1,4 @@
-import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import type { AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { ParticipantReceipt } from "./participant-attempt";
 import type { AccountId, OrderId, RemedyId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import { compareMoneyAmounts, sumMoneyAmounts } from "@chase-sets/primitives/money";
@@ -7,6 +7,8 @@ import {
   assert,
   assertNever,
   normalizeAttachments,
+  assertSupportEvidenceReferences,
+  type SupportEvidenceReferenceAuthority,
   normalizeCurrencyCode,
   normalizeEvidenceType,
   normalizeFlowType,
@@ -221,6 +223,7 @@ export type SubmitSupportEvidenceCommand = Readonly<{
   occurredAt?: string | null;
   submittedAt: string;
   attachments?: readonly string[];
+  attachmentOperationId?: string;
 }>;
 
 export type RecordSupportResponseCommand = Readonly<{
@@ -1017,10 +1020,11 @@ function resolutionsMatch(left: SupportResolution | null, right: SupportResoluti
   );
 }
 
-export const decideSupportRequest: AggregateDecider<SupportRequestState, SupportRequestCommand, SupportRequestEvent> = (
-  state,
-  command,
-) => {
+export const decideSupportRequest = (
+  state: SupportRequestState,
+  command: SupportRequestCommand,
+  referenceAuthority: SupportEvidenceReferenceAuthority = {},
+): readonly SupportRequestEvent[] => {
   switch (command.type) {
     case "OpenSupportRequest": {
       const flowType = normalizeFlowType(command.flowType);
@@ -1113,10 +1117,21 @@ export const decideSupportRequest: AggregateDecider<SupportRequestState, Support
     case "SubmitSupportEvidence": {
       assert(state.supportRequestId !== null, "Support request must be opened first.");
       const evidence = normalizeEvidence(command);
+      assertSupportEvidenceReferences(
+        evidence.attachments,
+        state.evidence.flatMap((entry) => entry.attachments),
+        referenceAuthority,
+      );
       const existingEvidence = state.evidence.find((candidate) => candidate.evidenceId === evidence.evidenceId);
       if (existingEvidence) {
         assert(
-          JSON.stringify(existingEvidence) === JSON.stringify(evidence),
+          (existingEvidence.submittedByAccountId ?? null) === evidence.submittedByAccountId &&
+            existingEvidence.submittedByRole === evidence.submittedByRole &&
+            existingEvidence.evidenceType === evidence.evidenceType &&
+            existingEvidence.summary === evidence.summary &&
+            (existingEvidence.occurredAt ?? null) === evidence.occurredAt &&
+            existingEvidence.submittedAt === evidence.submittedAt &&
+            JSON.stringify(existingEvidence.attachments) === JSON.stringify(evidence.attachments),
           "Support evidence id is already used for different evidence.",
         );
         return [];

@@ -1,5 +1,9 @@
 import { buildSimpleSearchQuery, foldSearchDiacritics, normalizeSimpleSearchText } from "./normalization";
-import { classifyProtectedSearchTokens, type ServedSearchSetCodeLookup } from "./protected-search-tokens";
+import {
+  classifyProtectedSearchTokens,
+  type ProtectedSearchToken,
+  type ServedSearchSetCodeLookup,
+} from "./protected-search-tokens";
 
 // Reviewed buyer vocabulary: sealed-product abbreviations, franchise shorthand,
 // and the Charizard nickname. These are query alternatives, not Catalog aliases.
@@ -21,15 +25,19 @@ export async function buildSearchSynonymQueries(
   value: string,
   lookup: ServedSearchSetCodeLookup,
   prefix = false,
+  classified?: readonly ProtectedSearchToken[],
 ): Promise<SearchSynonymQueries> {
-  const tokens = await classifyProtectedSearchTokens(value, lookup);
+  const tokens = classified ?? (await classifyProtectedSearchTokens(value, lookup));
   const alternatives = tokens.map(({ raw, protected: protectedToken }) => {
     const key = normalizeSimpleSearchText(raw).toLowerCase();
     return !protectedToken && Object.hasOwn(SEARCH_SYNONYMS, key) ? SEARCH_SYNONYMS[key] : null;
   });
   // Keep the existing plain-query path when no alternatives or compound literal
   // numbers are needed, including its English punctuation/stop-word semantics.
-  const expanded = alternatives.some(Boolean) || tokens.some(({ raw }) => /\p{N}/u.test(raw) && /[./-]/.test(raw));
+  const expanded =
+    alternatives.some(Boolean) ||
+    tokens.some(({ raw }) => /\p{N}/u.test(raw) && /[./-]/.test(raw)) ||
+    (!prefix && tokens.some(({ raw }) => /\b0+\d/.test(raw)));
   if (!expanded && !prefix) {
     return { english: foldSearchDiacritics(value), simple: buildSimpleSearchQuery(value), expanded: false };
   }
@@ -49,7 +57,18 @@ export async function buildSearchSynonymQueries(
             ? `${foldSearchDiacritics(raw)}${final ? ":*" : ""}`
             : expression(raw, protectedToken);
         const alternative = alternatives[index];
-        const literal = protectedToken && original.includes(" <-> ") ? `(${original})` : original;
+        const unpadded = raw.replace(/\b0+(?=\d)/g, "");
+        const paddedAlternative =
+          !prefix && protectedToken && unpadded !== raw
+            ? english
+              ? foldSearchDiacritics(unpadded)
+              : expression(unpadded, true)
+            : null;
+        const literal = paddedAlternative
+          ? `(${original} | (${paddedAlternative}))`
+          : protectedToken && original.includes(" <-> ")
+            ? `(${original})`
+            : original;
         return alternative ? `(${literal} | (${expression(alternative, true)}))` : literal;
       })
       .join(" & ");

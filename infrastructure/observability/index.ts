@@ -265,7 +265,7 @@ export type DiscoverySearchQuerySignal = Readonly<{
   resultCount: number | null;
   total: number | null;
   zeroResults: boolean | null;
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | null;
+  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected" | null;
   outcome: "success" | "failure";
   normalizationDurationMs: number;
   retrievalDurationMs: number;

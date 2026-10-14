@@ -3,12 +3,15 @@ import {
   createParticipantRuntime,
   type ParticipantCommandInput,
   type ParticipantLookupInput,
+  type PrepareSupportEvidence,
 } from "./participant-runtime";
 import type { ParticipantLookup, ParticipantResult } from "../domain/participant-attempt";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError } from "@chase-sets/event-core/event-store";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { decideEvidenceAccess, type EvidenceAccessAction } from "../domain/evidence-access-policy";
@@ -29,6 +32,8 @@ import {
   normalizeResolutionType,
   normalizeResponseType,
   normalizeRequiredText,
+  assertSupportEvidenceReferences,
+  isSupportEvidenceSeedContext,
   SupportDomainError,
   type SupportEvidenceType,
   type SupportAffectedLineItemAmount,
@@ -85,6 +90,16 @@ import {
 import { validateSupportAttachmentOperationId } from "./attachment-intake";
 import type { SupportEvidenceCanonicalizationQueue } from "./evidence-canonicalization";
 import { parseSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
+import {
+  attachmentManifestReferences,
+  attachmentOperationStreamId,
+  canonicalJson,
+  decideAttachmentOperation,
+  replayAttachmentOperation,
+  type AttachmentOperationOwner,
+  type AttachmentOperationEvent,
+  type AttachmentReferenceClaim,
+} from "../domain/attachment-operation";
 import {
   findOpenSupportRequestForOrder,
   getAccountSupportRequest,
@@ -250,6 +265,7 @@ export type SupportRequestServices = Readonly<{
       summary: string;
       occurredAt?: string | null;
       attachments?: readonly string[];
+      attachmentOperationId?: string;
       scope?: SupportRequestMutationScope;
       actor?: ResolvedActor | null;
     }>,
@@ -621,9 +637,148 @@ function accountRoleForSupportRequest(
   throw new SupportDomainError("Support request is not available for this account.");
 }
 
+export function createSupportAttachmentReferenceLifecycle(eventStore: EventStore) {
+  const codec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
+  const caseStream = (owner: AttachmentOperationOwner) => `support.support-request-${owner.supportRequestId}`;
+  async function caseHistory(owner: AttachmentOperationOwner) {
+    const history = await readCompleteStream(eventStore, { streamId: caseStream(owner) });
+    const evidence = history
+      .filter((event) => event.eventType === "support.support-request.evidence-submitted")
+      .map((event) => {
+        const value = event.payload.evidence;
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new SupportDomainError("attachment_reference_history_unavailable");
+        const evidence = value as Record<string, unknown>;
+        if (
+          !Array.isArray(evidence.attachments) ||
+          evidence.attachments.some((reference) => typeof reference !== "string")
+        )
+          throw new SupportDomainError("attachment_reference_history_unavailable");
+        return {
+          evidenceId: typeof evidence.evidenceId === "string" ? evidence.evidenceId : undefined,
+          attachments: evidence.attachments as string[],
+        };
+      });
+    return { evidence, version: history.at(-1)?.streamVersion ?? 0 };
+  }
+  async function load(owner: AttachmentOperationOwner, context: EventStoreContext) {
+    try {
+      validateSupportAttachmentOperationId(owner.operationId);
+    } catch {
+      throw new SupportDomainError("attachment_reference_unknown");
+    }
+    const history = await readCompleteStream(eventStore, { streamId: attachmentOperationStreamId(owner) });
+    const state = replayAttachmentOperation(history.map(codec.decode));
+    if (
+      !state.manifest ||
+      canonicalJson(state.manifest.owner) !== canonicalJson(owner) ||
+      owner.tenantId !== context.tenantId ||
+      owner.accountId !== context.audit.forAccountId ||
+      history.some((event) => event.tenantId !== owner.tenantId || event.forAccountId !== owner.accountId)
+    )
+      throw new SupportDomainError("attachment_reference_unknown");
+    return { state, version: history.at(-1)?.streamVersion ?? 0 };
+  }
+  async function atomic(inputs: Parameters<NonNullable<EventStore["appendToStreams"]>>[0]) {
+    if (!eventStore.appendToStreams) throw new SupportDomainError("attachment_reference_atomic_append_unavailable");
+    return eventStore.appendToStreams(inputs);
+  }
+  return {
+    load,
+    claim: async (
+      input: AttachmentReferenceClaim &
+        Readonly<{ owner: AttachmentOperationOwner; expectedVersion: number; caseVersion: number }>,
+      context: EventStoreContext,
+    ) => {
+      const loaded = await load(input.owner, context);
+      if (loaded.version !== input.expectedVersion)
+        throw createEventStoreError("concurrency_conflict", "Attachment operation changed.");
+      if (canonicalJson(input.attachments) !== canonicalJson(attachmentManifestReferences(loaded.state.manifest!)))
+        throw new SupportDomainError("attachment_reference_unknown");
+      if (
+        !["stored", "reference-claimed", "referenced"].includes(loaded.state.status) ||
+        Object.values(loaded.state.attempts).some((attempts) =>
+          attempts.some((attempt) => attempt.outcome !== "completed"),
+        )
+      )
+        throw new SupportDomainError("attachment_reference_unknown");
+      const data = { evidenceId: input.evidenceId, attachments: input.attachments, submittedAt: input.submittedAt };
+      const events = decideAttachmentOperation(loaded.state, { type: "ClaimSupportAttachmentReference", data });
+      const results = await atomic([
+        {
+          streamId: attachmentOperationStreamId(input.owner),
+          expectedVersion: input.expectedVersion,
+          context,
+          events: events.map(codec.encode),
+        },
+        { streamId: caseStream(input.owner), expectedVersion: input.caseVersion, context, events: [] },
+      ]);
+      return results[0].storedEvents.at(-1)?.streamVersion ?? loaded.version;
+    },
+    release: async (
+      input: Readonly<{ owner: AttachmentOperationOwner; expectedVersion: number }>,
+      context: EventStoreContext,
+    ) => {
+      const loaded = await load(input.owner, context);
+      if (!loaded.state.referenceClaim) throw new SupportDomainError("attachment_reference_unknown");
+      const history = await caseHistory(input.owner);
+      const references = loaded.state.referenceClaim.attachments;
+      if (history.evidence.some((evidence) => evidence.attachments.some((reference) => references.includes(reference))))
+        throw new SupportDomainError("attachment_reference_committed");
+      const events = decideAttachmentOperation(loaded.state, {
+        type: "ReleaseSupportAttachmentReferenceClaim",
+        data: { evidenceId: loaded.state.referenceClaim.evidenceId },
+      });
+      await atomic([
+        {
+          streamId: attachmentOperationStreamId(input.owner),
+          expectedVersion: input.expectedVersion,
+          context,
+          events: events.map(codec.encode),
+        },
+        { streamId: caseStream(input.owner), expectedVersion: history.version, context, events: [] },
+      ]);
+    },
+    confirm: async (
+      input: Readonly<{ owner: AttachmentOperationOwner; expectedVersion: number }>,
+      context: EventStoreContext,
+    ) => {
+      const loaded = await load(input.owner, context);
+      const claim = loaded.state.referenceClaim;
+      if (!claim) throw new SupportDomainError("attachment_reference_unknown");
+      const history = await caseHistory(input.owner);
+      if (
+        !history.evidence.some(
+          (evidence) =>
+            evidence.evidenceId === claim.evidenceId &&
+            canonicalJson(evidence.attachments) === canonicalJson(claim.attachments),
+        )
+      )
+        throw new SupportDomainError("attachment_reference_not_committed");
+      const events = decideAttachmentOperation(loaded.state, {
+        type: "ConfirmSupportAttachmentReferenced",
+        data: { evidenceId: claim.evidenceId },
+      });
+      await atomic([
+        {
+          streamId: attachmentOperationStreamId(input.owner),
+          expectedVersion: input.expectedVersion,
+          context,
+          events: events.map(codec.encode),
+        },
+        { streamId: caseStream(input.owner), expectedVersion: history.version, context, events: [] },
+      ]);
+    },
+  };
+}
+
 export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler: aggregateCommandHandler } = createAggregateCommandHandler<
+    SupportRequestState,
+    SupportRequestCommand,
+    SupportRequestEvent
+  >({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SupportRequestEvent>(),
     initialState: () => initialSupportRequestState,
@@ -634,6 +789,105 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     // Platform Operations.
     commitSourceContextName: "platform-operations",
   });
+  const references = createSupportAttachmentReferenceLifecycle(deps.eventStore);
+  const codec = createPassthroughDomainEventCodec<SupportRequestEvent>();
+  const prepareEvidence: PrepareSupportEvidence = async (originalCommand, state, version, context) => {
+    const attachments = originalCommand.attachments ?? [];
+    const seedContext = isSupportEvidenceSeedContext(context);
+    const priorReferences = state.evidence.flatMap((evidence) => evidence.attachments);
+    let command = originalCommand;
+    let claimVersion: number | undefined;
+    let owner: AttachmentOperationOwner | undefined;
+    if (attachments.length && command.attachmentOperationId) {
+      owner = {
+        tenantId: context.tenantId,
+        accountId: context.audit.forAccountId,
+        supportRequestId: state.supportRequestId!,
+        operationId: command.attachmentOperationId,
+      };
+      const loaded = await references.load(owner, context);
+      if (
+        command.submittedByAccountId !== owner.accountId ||
+        !loaded.state.manifest ||
+        canonicalJson(attachments) !== canonicalJson(attachmentManifestReferences(loaded.state.manifest))
+      )
+        throw new SupportDomainError("attachment_reference_unknown");
+      command = {
+        ...command,
+        evidenceId: deterministicSupportId("sev", command.attachmentOperationId!),
+        submittedAt: loaded.state.referenceClaim?.submittedAt ?? command.submittedAt,
+      };
+      assertSupportEvidenceReferences(attachments, priorReferences, { claimedAttachments: attachments });
+      // Decide before claiming: invalid evidence must leave both product streams untouched.
+      decideSupportRequest(state, command, { claimedAttachments: attachments });
+      claimVersion = await references.claim(
+        {
+          owner,
+          evidenceId: command.evidenceId,
+          attachments,
+          submittedAt: command.submittedAt,
+          expectedVersion: loaded.version,
+          caseVersion: version,
+        },
+        context,
+      );
+    }
+    const authority = {
+      seedContext,
+      ...(claimVersion === undefined ? {} : { claimedAttachments: attachments }),
+    };
+    assertSupportEvidenceReferences(attachments, priorReferences, authority);
+    return {
+      command,
+      authority,
+      append: async (append) => {
+        if (!owner || claimVersion === undefined) return deps.eventStore.appendToStream(append);
+        if (!deps.eventStore.appendToStreams)
+          throw new SupportDomainError("attachment_reference_atomic_append_unavailable");
+        const results = await deps.eventStore.appendToStreams([
+          append,
+          { streamId: attachmentOperationStreamId(owner), expectedVersion: claimVersion, context, events: [] },
+        ]);
+        return results[0].storedEvents;
+      },
+      confirm: async () => {
+        if (owner && claimVersion !== undefined)
+          await references.confirm({ owner, expectedVersion: claimVersion }, context);
+      },
+    };
+  };
+  const commandHandler: SupportRequestServices["commandHandler"] = async (input) => {
+    if (input.command.type !== "SubmitSupportEvidence") return aggregateCommandHandler(input);
+    const history = await readCompleteStream(deps.eventStore, { streamId: input.streamId });
+    const state = history.reduce(
+      (current, event) => evolveSupportRequest(current, codec.decode(event)),
+      initialSupportRequestState,
+    );
+    const version = history.at(-1)?.streamVersion ?? 0;
+    const fence = await prepareEvidence(input.command, state, version, input.context);
+    const newEvents = decideSupportRequest(state, fence.command, fence.authority);
+    if (!newEvents.length) {
+      await fence.confirm();
+      return { state, version, newEvents, storedEvents: [] };
+    }
+    const append = {
+      streamId: input.streamId,
+      wakeSourceContextName: "platform-operations",
+      expectedVersion: input.expectedVersion ?? version,
+      context: input.context,
+      events: newEvents.map(codec.encode),
+    };
+    const storedEvents = await fence.append(append);
+    recordCommittedEvents(storedEvents, "platform-operations");
+    // Confirmation is a separate command; a retry recovers it from durable case evidence.
+    await fence.confirm();
+    return {
+      state: newEvents.reduce(evolveSupportRequest, state),
+      version: storedEvents.at(-1)?.streamVersion ?? version,
+      newEvents,
+      storedEvents,
+    };
+  };
 
   async function resolvePlatformRemedyPolicy(): Promise<{
     value: PlatformRemedyPolicyValue;
@@ -788,6 +1042,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
   }
 
   const participantRuntime = createParticipantRuntime({
+    prepareEvidence,
     eventStore: deps.eventStore,
     now: deps.now,
     authorizeEvidence: (targetId, actor) => authorizeEvidenceAccess(targetId, actor, "submit-participant"),
@@ -1125,7 +1380,9 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         streamId: `support.support-request-${params.supportRequestId}`,
         command: {
           type: "SubmitSupportEvidence",
-          evidenceId: createId("sev"),
+          evidenceId: params.attachmentOperationId
+            ? deterministicSupportId("sev", params.attachmentOperationId)
+            : createId("sev"),
           submittedByAccountId: params.accountId as AccountId,
           submittedByRole,
           evidenceType: normalizeEvidenceType(params.evidenceType),
@@ -1133,6 +1390,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
           occurredAt: params.occurredAt ?? null,
           submittedAt: new Date().toISOString(),
           attachments: params.attachments ?? [],
+          ...(params.attachmentOperationId ? { attachmentOperationId: params.attachmentOperationId } : {}),
         },
         context,
       });

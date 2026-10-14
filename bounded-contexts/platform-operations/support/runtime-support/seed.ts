@@ -26,6 +26,7 @@ import {
   platformRemedyPolicy,
 } from "../../features/support-requests/domain/platform-remedy-policy";
 import { experienceSeedIds, supportSeedIds, supportSeedOrderSourceIds } from "../seed-support/ids";
+import { createSupportEvidenceSeedContext } from "../../features/support-requests/domain/common";
 
 function isoDate(value: string) {
   return new Date(value).toISOString();
@@ -231,13 +232,13 @@ type SupportSeedOrderSource = Readonly<{
 }>;
 
 function createSupportSeedContext(accountId: string, userId: string): EventStoreContext {
-  return {
+  return createSupportEvidenceSeedContext({
     tenantId: "tnt_seed_development" as TenantId,
     audit: {
       performedByUserId: userId as UserId,
       forAccountId: accountId as AccountId,
     },
-  };
+  });
 }
 
 const PLATFORM_OPERATIONS_BOOTSTRAP_LABEL = "Platform Operations seed bootstrap";
