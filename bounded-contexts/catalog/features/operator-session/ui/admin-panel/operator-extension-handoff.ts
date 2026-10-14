@@ -9,10 +9,10 @@ import { closed, operatorExtensionId } from "../../domain/extension/protocol";
 export type OperatorExtensionHandoffResult = "paired" | "not-confirmed";
 export type OperatorExtensionHandoff = (grant: string) => Promise<OperatorExtensionHandoffResult>;
 
-// Decision #9570 condition 4: the grant stays unrendered for at most this long.
+// The grant stays unrendered for at most this long before the paste fallback.
 export const operatorExtensionHandoffTimeoutMs = 15_000;
 
-// The page-side shapes follow the #9572 Chromium capture: without a callback,
+// The page-side shapes follow the captured Chromium behavior: without a callback,
 // sendMessage returns a Promise of the reply; pages outside the extension's
 // externally_connectable matches have no sendMessage; an uninstalled receiver
 // rejects. A callback-only runtime returns nothing to await.
