@@ -352,9 +352,141 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     return { db, reached, release, updates };
   }
 
-  it.each(["catalog", "product"] as const)(
+  function gate() {
+    let reach!: () => void;
+    let open!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      reach = resolve;
+    });
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return {
+      reached,
+      open,
+      pass: async () => {
+        reach();
+        await opened;
+      },
+    };
+  }
+
+  // Readiness is owned by the work: the awaited step happens, the work settles first, or the test aborts.
+  function beforeSettlement<T>(ready: Promise<T>, work: Promise<unknown>, step: string, signal: AbortSignal) {
+    const settledFirst = work.then(
+      (value) => Promise.reject(new Error(`${step}: work settled with ${String(value)} first`)),
+      (error: unknown) => Promise.reject(new Error(`${step}: work failed first: ${String(error)}`)),
+    );
+    const aborted = new Promise<never>((_, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    return Promise.race([ready, settledFirst, aborted]);
+  }
+
+  async function untilBeforeSettlement(
+    check: () => Promise<boolean>,
+    work: Promise<unknown>,
+    step: string,
+    signal: AbortSignal,
+  ) {
+    let settled: string | undefined;
+    void work.then(
+      (value) => (settled = `settled with ${String(value)}`),
+      (error: unknown) => (settled = `failed: ${String(error)}`),
+    );
+    while (!(await check())) {
+      if (settled) throw new Error(`${step}: work ${settled} first`);
+      signal.throwIfAborted();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  // Reads pg_backend_pid on the product-lock client itself before that client queues for the lock.
+  function lockSessionDb(
+    pool: PgTransactionalPool,
+    hooks: Readonly<{
+      query?: PgTransactionalPool["query"];
+      afterClaimCommit?: () => Promise<void>;
+      beforeLockPid?: () => Promise<void>;
+      onAdmitted?: () => void;
+    }> = {},
+  ) {
+    let resolvePid!: (pid: number) => void;
+    const lockPid = new Promise<number>((resolve) => {
+      resolvePid = resolve;
+    });
+    let claimCommitted = false;
+    let progressGated = false;
+    let lockQueries = 0;
+    const db: PgTransactionalPool = {
+      query: hooks.query ?? pool.query.bind(pool),
+      connect: async () => {
+        if (claimCommitted && !progressGated) {
+          progressGated = true;
+          await hooks.afterClaimCommit?.();
+        }
+        const client = await pool.connect();
+        let claimTransaction = false;
+        return {
+          release: client.release.bind(client),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (sql.includes("FOR UPDATE SKIP LOCKED")) claimTransaction = true;
+            if (sql === "COMMIT" && claimTransaction) claimCommitted = true;
+            if (!sql.includes("pg_advisory_lock(")) return client.query<Row>(sql, values);
+            lockQueries += 1;
+            await hooks.beforeLockPid?.();
+            resolvePid((await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid);
+            const result = await client.query<Row>(sql, values);
+            hooks.onAdmitted?.();
+            return result;
+          },
+        };
+      },
+    };
+    return { db, lockPid, lockQueries: () => lockQueries };
+  }
+
+  // Exact scope: this database and user, the product-round advisory key, and optionally one backend.
+  async function productLockSessions(pool: PgTransactionalPool, lockKey: string, pid?: number) {
+    const sessions = await pool.query<{ pid: number; granted: boolean; blockers: number[] }>(
+      `SELECT l.pid, l.granted, pg_blocking_pids(l.pid) AS blockers
+       FROM pg_locks l
+       JOIN pg_stat_activity a ON a.pid = l.pid
+       WHERE l.locktype = 'advisory'
+         AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+         AND l.classid::bigint = (hashtextextended($1, 0) >> 32) & 4294967295
+         AND l.objid::bigint = hashtextextended($1, 0) & 4294967295
+         AND l.objsubid = 1
+         AND a.usename = current_user
+         AND ($2::integer IS NULL OR l.pid = $2)
+       ORDER BY l.pid`,
+      [lockKey, pid ?? null],
+    );
+    return sessions.rows.map((session) => ({ ...session, blockers: [...session.blockers].sort((a, b) => a - b) }));
+  }
+
+  async function waitingOnProductLock(pool: PgTransactionalPool, lockKey: string, pid: number) {
+    return (await productLockSessions(pool, lockKey, pid)).some((session) => !session.granted);
+  }
+
+  async function evaluationJobs(pool: PgTransactionalPool) {
+    return (
+      await pool.query(
+        `SELECT job_id, claim_owner_id, status, attempt_count, claimed_until::text AS claimed_until,
+           claimed_until > clock_timestamp() AS claim_valid, next_eligible_at <= clock_timestamp() AS retry_ready
+         FROM pricing_repricing_evaluation_jobs ORDER BY job_id`,
+      )
+    ).rows;
+  }
+
+  const expireStaleClaim = `UPDATE pricing_repricing_evaluation_jobs
+     SET claimed_until = now() - interval '2 seconds', next_eligible_at = now() - interval '1 second'
+     WHERE job_id = $1 AND claim_owner_id = $2 AND status = 'running' AND attempt_count = 1`;
+
+  it.for(["catalog", "product"] as const)(
     "serializes claimed product rounds through fact append while a different %s runs",
-    async (differentKey) => {
+    async (differentKey, { signal: testSignal }) => {
       const now = new Date().toISOString();
       const pool = pools.pricing;
       const syntheticProduct = { catalogItemId: "cat_synthetic_f1", productId: "prd_synthetic_f1" };
@@ -398,9 +530,10 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       const appendReleased = new Promise<void>((resolve) => {
         releaseAppend = resolve;
       });
+      const winnerSession = lockSessionDb(precondition.db);
       const winner = createRepricingEngineRuntime({
         economics: economicsNeverResolved,
-        db: precondition.db,
+        db: winnerSession.db,
         eventStore: {
           ...store,
           appendToStream: async (request) => {
@@ -411,30 +544,23 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           },
         },
       });
-      let waiterPid: number | undefined;
       let loserInputReads = 0;
+      const loserSession = lockSessionDb(pool, {
+        query: async <Row>(sql: string, values?: readonly unknown[]) => {
+          if (sql.includes("AS policy_revision")) loserInputReads += 1;
+          return pool.query<Row>(sql, values);
+        },
+      });
       const loser = createRepricingEngineRuntime({
         economics: economicsNeverResolved,
         eventStore: store,
-        db: {
-          query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (sql.includes("AS policy_revision")) loserInputReads += 1;
-            return pool.query<Row>(sql, values);
-          },
-          connect: async () => {
-            const client = await pool.connect();
-            return {
-              release: client.release.bind(client),
-              query: async <Row>(sql: string, values?: readonly unknown[]) => {
-                if (sql.includes("pg_advisory_lock(")) {
-                  waiterPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
-                }
-                return client.query<Row>(sql, values);
-              },
-            };
-          },
-        },
+        db: loserSession.db,
       });
+      const lockKey = JSON.stringify([
+        "pricing:product-round",
+        syntheticProduct.catalogItemId,
+        syntheticProduct.productId,
+      ]);
       const other = createRepricingEngineRuntime({ economics: economicsNeverResolved, db: pool, eventStore: store });
       const winnerGateway = gateway(() => "applied");
       const loserGateway = gateway(() => "applied");
@@ -449,17 +575,23 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       const winnerWork = run(winner, "winner", winnerGateway);
       let loserWork: Promise<number> | undefined;
       try {
-        await precondition.reached;
+        await beforeSettlement(precondition.reached, winnerWork, "winner admission", testSignal);
+        const winnerPid = await beforeSettlement(winnerSession.lockPid, winnerWork, "winner lock PID", testSignal);
         await loser.enqueueMarketPriceSignal({ ...signal("evt_synthetic_f1_loser"), ...syntheticProduct });
         loserWork = run(loser, "loser", loserGateway);
-        await vi.waitFor(async () => {
-          expect(waiterPid).toBeDefined();
-          const waiting = await pool.query(
-            "SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted",
-            [waiterPid],
-          );
-          expect(waiting.rows).toHaveLength(1);
-        });
+        const loserPid = await beforeSettlement(loserSession.lockPid, loserWork, "loser lock PID", testSignal);
+        await untilBeforeSettlement(
+          () => waitingOnProductLock(pool, lockKey, loserPid),
+          loserWork,
+          "loser product-lock wait",
+          testSignal,
+        );
+        expect(await productLockSessions(pool, lockKey)).toEqual(
+          [
+            { pid: winnerPid, granted: true, blockers: [] },
+            { pid: loserPid, granted: false, blockers: [winnerPid] },
+          ].sort((a, b) => a.pid - b.pid),
+        );
         const jobs = await pool.query(
           "SELECT claim_owner_id FROM pricing_repricing_evaluation_jobs WHERE status = 'running'",
         );
@@ -470,7 +602,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         expect(otherGateway.calls).toHaveLength(1);
         expect(winnerGateway.calls).toHaveLength(0);
         precondition.release();
-        await factAppended;
+        await beforeSettlement(factAppended, winnerWork, "winner fact append", testSignal);
         const frozen = await readProductRoundState(pool, syntheticProduct);
         expect(Date.parse(frozen!.frozen_until!)).toBeGreaterThan(Date.now());
         expect(
@@ -514,6 +646,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         releaseAppend();
         await Promise.allSettled([winnerWork, ...(loserWork ? [loserWork] : [])]);
       }
+      expect(await productLockSessions(pool, lockKey)).toEqual([]);
     },
   );
 
@@ -614,9 +747,9 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     },
   );
 
-  it.each(["cancelled", "lease-lost", "claim-expired"] as const)(
+  it.for(["cancelled", "lease-lost", "claim-expired", "claim-expired-unreclaimed"] as const)(
     "rejects %s work after product admission before inputs, Marketplace, state or facts",
-    async (failure) => {
+    async (failure, { signal: testSignal }) => {
       const pool = pools.pricing;
       const syntheticProduct = { catalogItemId: "cat_synthetic_claim_fence", productId: "prd_synthetic_claim_fence" };
       const { listingIds } = await seedRound(pool, {
@@ -635,31 +768,23 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       const append = vi.fn(store.appendToStream);
       const afterAdmissionQueries: string[] = [];
       let admitted = false;
-      let waiterPid: number | undefined;
+      const progressGate = gate();
+      const pidGate = gate();
+      const staleSession = lockSessionDb(pool, {
+        query: async <Row>(sql: string, values?: readonly unknown[]) => {
+          if (admitted && !sql.includes("pricing_repricing_evaluation_jobs")) afterAdmissionQueries.push(sql);
+          return pool.query<Row>(sql, values);
+        },
+        afterClaimCommit: progressGate.pass,
+        beforeLockPid: pidGate.pass,
+        onAdmitted: () => {
+          admitted = true;
+        },
+      });
       const runtime = createRepricingEngineRuntime({
         economics: economicsNeverResolved,
         eventStore: { ...store, appendToStream: append },
-        db: {
-          query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (admitted && !sql.includes("pricing_repricing_evaluation_jobs")) afterAdmissionQueries.push(sql);
-            return pool.query<Row>(sql, values);
-          },
-          connect: async () => {
-            const client = await pool.connect();
-            return {
-              release: client.release.bind(client),
-              query: async <Row>(sql: string, values?: readonly unknown[]) => {
-                if (sql.includes("pg_advisory_lock(")) {
-                  waiterPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
-                  const result = await client.query<Row>(sql, values);
-                  admitted = true;
-                  return result;
-                }
-                return client.query<Row>(sql, values);
-              },
-            };
-          },
-        },
+        db: staleSession.db,
       });
       await runtime.enqueueMarketPriceSignal({
         ...signal(`evt_synthetic_claim_fence_${failure}`),
@@ -670,16 +795,19 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         syntheticProduct.catalogItemId,
         syntheticProduct.productId,
       ]);
+      const staleOwner = "worker:synthetic-stale-owner";
+      const recoveryOwner = "worker:synthetic-recovery-owner";
       const lockClient = await pool.connect();
       await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
+      const holderPid = (await lockClient.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
       const controller = new AbortController();
       const leaseError = new Error("Synthetic platform runner lease lost.");
       let leaseLost = false;
       const staleGateway = gateway(() => "applied");
       const recoveryGateway = gateway(() => "applied");
       const work = runtime.processNextEvaluationJob({
-        claimOwnerId: "worker:synthetic-stale-owner",
-        claimTtlMs: failure === "claim-expired" ? 100 : 30_000,
+        claimOwnerId: staleOwner,
+        claimTtlMs: 30_000,
         signal: controller.signal,
         throwIfLeaseLost: () => {
           if (leaseLost) throw leaseError;
@@ -692,41 +820,79 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       );
       let recoveryWork: Promise<number> | undefined;
       try {
-        await vi.waitFor(async () => {
-          expect(waiterPid).toBeDefined();
-          expect(
-            (
-              await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted", [
-                waiterPid,
-              ])
-            ).rows,
-          ).toHaveLength(1);
+        // Held setup: progress acquisition and lock-client PID completion wait on gates, never on a clock.
+        await beforeSettlement(progressGate.reached, work, "stale progress acquisition", testSignal);
+        expect(await evaluationJobs(pool)).toMatchObject([
+          { claim_owner_id: staleOwner, status: "running", attempt_count: 1, claim_valid: true },
+        ]);
+        expect(staleSession.lockQueries()).toBe(0);
+        progressGate.open();
+        await beforeSettlement(pidGate.reached, work, "stale lock-client PID", testSignal);
+        expect(await productLockSessions(pool, lockKey)).toEqual([{ pid: holderPid, granted: true, blockers: [] }]);
+        pidGate.open();
+        const stalePid = await beforeSettlement(staleSession.lockPid, work, "stale lock PID", testSignal);
+        await untilBeforeSettlement(
+          () => waitingOnProductLock(pool, lockKey, stalePid),
+          work,
+          "stale product-lock wait",
+          testSignal,
+        );
+        expect(await productLockSessions(pool, lockKey, stalePid)).toEqual([
+          { pid: stalePid, granted: false, blockers: [holderPid] },
+        ]);
+        const [setup] = await evaluationJobs(pool);
+        expect(setup, "30 000 ms setup claim expired before the deliberate stimulus").toMatchObject({
+          claim_owner_id: staleOwner,
+          status: "running",
+          attempt_count: 1,
+          claim_valid: true,
         });
         if (failure === "cancelled") controller.abort();
         if (failure === "lease-lost") leaseLost = true;
+        if (failure === "claim-expired" || failure === "claim-expired-unreclaimed") {
+          expect((await pool.query(expireStaleClaim, [setup!.job_id, staleOwner])).rowCount).toBe(1);
+          expect(await evaluationJobs(pool)).toMatchObject([
+            { claim_owner_id: staleOwner, status: "running", attempt_count: 1, claim_valid: false, retry_ready: true },
+          ]);
+        }
         if (failure === "claim-expired") {
-          await new Promise((resolve) => setTimeout(resolve, 1_500));
-          expect(
-            (
-              await pool.query(`SELECT claim_owner_id, claimed_until <= clock_timestamp() AS claim_expired,
-                next_eligible_at <= clock_timestamp() AS retry_ready FROM pricing_repricing_evaluation_jobs`)
-            ).rows,
-          ).toEqual([{ claim_owner_id: "worker:synthetic-stale-owner", claim_expired: true, retry_ready: true }]);
+          const recoverySession = lockSessionDb(pool);
           const recovery = createRepricingEngineRuntime({
             economics: economicsNeverResolved,
-            db: pool,
+            db: recoverySession.db,
             eventStore: store,
           });
           recoveryWork = recovery.processNextEvaluationJob({
-            claimOwnerId: "worker:synthetic-recovery-owner",
+            claimOwnerId: recoveryOwner,
             claimTtlMs: 30_000,
             marketplaceGatewayForAccount: () => recoveryGateway,
           });
-          await vi.waitFor(async () => {
-            expect(
-              (await pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")).rows,
-            ).toHaveLength(2);
-          });
+          const recoveryPid = await beforeSettlement(
+            recoverySession.lockPid,
+            recoveryWork,
+            "recovery lock PID",
+            testSignal,
+          );
+          await untilBeforeSettlement(
+            () => waitingOnProductLock(pool, lockKey, recoveryPid),
+            recoveryWork,
+            "recovery product-lock wait",
+            testSignal,
+          );
+          expect(await productLockSessions(pool, lockKey)).toEqual(
+            [
+              { pid: holderPid, granted: true, blockers: [] },
+              { pid: stalePid, granted: false, blockers: [holderPid] },
+              { pid: recoveryPid, granted: false, blockers: [holderPid, stalePid].sort((a, b) => a - b) },
+            ].sort((a, b) => a.pid - b.pid),
+          );
+          const reclaimed = await evaluationJobs(pool);
+          expect(reclaimed).toMatchObject([
+            { claim_owner_id: recoveryOwner, status: "running", attempt_count: 2, claim_valid: true },
+          ]);
+          // A newer owner/generation must reject the stale expiry predicate and keep the row unchanged.
+          expect((await pool.query(expireStaleClaim, [setup!.job_id, staleOwner])).rowCount).toBe(0);
+          expect(await evaluationJobs(pool)).toEqual(reclaimed);
         }
         expect(admitted).toBe(false);
         await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
@@ -749,6 +915,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           expect(await recoveryWork).toBe(1);
           expect(recoveryGateway.calls).toHaveLength(1);
           expect(recoveryGateway.calls[0]!.map(({ listingId }) => listingId)).toEqual(listingIds);
+          const facts = await evaluationFacts(pool);
+          expect(facts).toHaveLength(1);
+          expect((facts[0]!.payload as RepricingPolicyEvaluatedEvent["data"]).trigger.eventId).toBe(
+            "evt_synthetic_claim_fence_claim-expired",
+          );
           expect(
             (
               await pool.query(
@@ -758,22 +929,111 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           ).toEqual([
             expect.objectContaining({
               status: "completed",
-              claim_owner_id: "worker:synthetic-recovery-owner",
+              claim_owner_id: recoveryOwner,
               attempt_count: 2,
               result: expect.objectContaining({ listingsChanged: 1 }),
             }),
           ]);
+          expect(await productLockSessions(pool, lockKey)).toEqual([]);
         } else {
+          if (failure === "claim-expired-unreclaimed")
+            expect(await evaluationJobs(pool)).toMatchObject([
+              { claim_owner_id: staleOwner, status: "running", attempt_count: 1, claim_valid: false },
+            ]);
           expect(await evaluationFacts(pool)).toEqual([]);
           expect(await readProductRoundState(pool, syntheticProduct)).toBeNull();
         }
       } finally {
+        progressGate.open();
+        pidGate.open();
         await lockClient.query("SELECT pg_advisory_unlock_all()");
         lockClient.release();
         await Promise.allSettled([outcome, ...(recoveryWork ? [recoveryWork] : [])]);
       }
+      expect(await productLockSessions(pool, lockKey)).toEqual([]);
     },
   );
+
+  it("rejects a native 100 ms claim that expires before progress acquisition without taking the product lock", async ({
+    signal: testSignal,
+  }) => {
+    const pool = pools.pricing;
+    const syntheticProduct = { catalogItemId: "cat_synthetic_native_expiry", productId: "prd_synthetic_native_expiry" };
+    await seedRound(pool, {
+      product: syntheticProduct,
+      listingPrefix: "lst_synthetic_native_expiry",
+      listingPrices: ["16.00"],
+      rule: {
+        ...defaultRule,
+        directive: { ...defaultRule.directive, anchorChain: [{ source: "market-estimate" }] },
+      },
+    });
+    const store = createPostgresEventStore({ pool });
+    const append = vi.fn(store.appendToStream);
+    const queriesAfterClaim: string[] = [];
+    let claimed = false;
+    const progressGate = gate();
+    const session = lockSessionDb(pool, {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        if (claimed) queriesAfterClaim.push(sql);
+        return pool.query<Row>(sql, values);
+      },
+      afterClaimCommit: async () => {
+        claimed = true;
+        await progressGate.pass();
+      },
+    });
+    const runtime = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      eventStore: { ...store, appendToStream: append },
+      db: session.db,
+    });
+    await runtime.enqueueMarketPriceSignal({ ...signal("evt_synthetic_native_expiry"), ...syntheticProduct });
+    const lockKey = JSON.stringify([
+      "pricing:product-round",
+      syntheticProduct.catalogItemId,
+      syntheticProduct.productId,
+    ]);
+    const nativeGateway = gateway(() => "applied");
+    const work = runtime.processNextEvaluationJob({
+      claimOwnerId: "worker:synthetic-native-owner",
+      claimTtlMs: 100,
+      marketplaceGatewayForAccount: () => nativeGateway,
+    });
+    try {
+      await beforeSettlement(progressGate.reached, work, "native progress acquisition", testSignal);
+      await untilBeforeSettlement(
+        async () => (await evaluationJobs(pool))[0]?.claim_valid === false,
+        work,
+        "native claim expiry",
+        testSignal,
+      );
+      expect(await evaluationJobs(pool)).toMatchObject([
+        { claim_owner_id: "worker:synthetic-native-owner", status: "running", attempt_count: 1, claim_valid: false },
+      ]);
+      progressGate.open();
+      await expect(work).rejects.toMatchObject({ name: "RepricingEvaluationClaimLostError" });
+      // Early rejection is legitimate here, so the settlement race must report it rather than wait for a PID.
+      await expect(beforeSettlement(session.lockPid, work, "native lock PID", testSignal)).rejects.toThrow(
+        "native lock PID: work failed first: RepricingEvaluationClaimLostError",
+      );
+      expect(session.lockQueries()).toBe(0);
+      expect(queriesAfterClaim).toEqual([]);
+      expect(nativeGateway.calls).toEqual([]);
+      expect(nativeGateway.pauseCalls).toEqual([]);
+      expect(nativeGateway.publishCalls).toEqual([]);
+      expect(append).not.toHaveBeenCalled();
+      expect(await evaluationFacts(pool)).toEqual([]);
+      expect(await readProductRoundState(pool, syntheticProduct)).toBeNull();
+      expect(await evaluationJobs(pool)).toMatchObject([
+        { claim_owner_id: "worker:synthetic-native-owner", status: "running", attempt_count: 1, claim_valid: false },
+      ]);
+    } finally {
+      progressGate.open();
+      await Promise.allSettled([work]);
+    }
+    expect(await productLockSessions(pool, lockKey)).toEqual([]);
+  });
 
   it.each(["complete", "fail-claim-lost", "fail-write-error"] as const)(
     "does not report stale terminal success or replace the operation error after %s",
