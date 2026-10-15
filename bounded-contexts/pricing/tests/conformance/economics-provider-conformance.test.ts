@@ -68,7 +68,7 @@ const listingTerms: Pick<CommercialTermsResolver, "resolveListingTerms"> = {
     shippingAllowancePercentageBps: 1_000,
     scheduleId: "schedule_conformance",
     agreementId: "agreement_conformance",
-    resolvedAt: input.effectiveAt,
+    resolvedAt: input.effectiveAt ?? effectiveAt,
   }),
 };
 const termsOutage: Pick<CommercialTermsResolver, "resolveListingTerms"> = {

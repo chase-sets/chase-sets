@@ -32,19 +32,19 @@ vi.mock("../../features/market-estimates/read-model/demand-curve-writes", async 
 }));
 
 const asOf = "2026-10-13T12:00:00.000Z";
-const identity = {
+const identity: Parameters<CurveBuilderDefinition["load"]>[0] = {
   catalogItemId: "cat_conformance",
   productId: "cat_conformance::",
   condition: "Near Mint",
   variant: "Normal",
   language: "English",
-} as const;
-const window = {
+};
+const window: Parameters<CurveBuilderDefinition["load"]>[1] = {
   since: "2026-07-15T12:00:00.000Z",
   asOf,
   freeShippingThreshold: 5,
   salesLimit: 50,
-} as const;
+};
 const evidence = { present: true };
 
 const providerSale = (fingerprint: string, overrides: Record<string, unknown> = {}) => ({
