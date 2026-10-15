@@ -93,7 +93,8 @@ Proof: [Step 5 — Preview prices listings with it](../tests/conformance/fixture
 
 No change. The listing trace the `pricing.repricing-policy.evaluated` event
 carries records the goal id, version and curve version at the final price.
-This is the fact the Forecast Ledger (#7708) projects.
+This is the fact the Forecast Ledger (#7708) will project; see Steps owned by
+#9709.
 
 Proof: [Step 6 — The evaluated listing trace records its Goal Version](../tests/conformance/fixture-goal-end-to-end.test.ts)
 
@@ -115,6 +116,21 @@ version with its own `goal-declarations.ts` entry, and keep the old version's
 entry until the old version is removed.
 
 Proof: [Step 8 — Give a changed decision a new version with its own Golden Decision](../tests/conformance/goal-version-golden.test.ts)
+
+## Steps owned by #9709
+
+Three more steps need surfaces that are not yet on `main`, so they are not
+listed above and no test here proves them. #9709 owns all three. When their
+surfaces land, it links the Pricing Health and Forecast Ledger steps to the
+tests that prove them and defines the Forecast Kind suite:
+
+- Forecast Kind conformance: every kind the Forecast Kind registry (#7708)
+  registers passes the Forecast Kind suite (see Other registries in the kit).
+- Pricing Health: the goal appears in the goal picker and goal comparison of
+  the Pricing Health surface (#7709) with no surface edit.
+- Forecast Ledger: the goal's incumbent and shadow evaluations each write one
+  Forecast Ledger (#7708) row carrying its goal id, Goal Version, curve
+  version and every registered forecast, with no ledger or engine edit.
 
 ## Shadow and adoption
 
@@ -142,7 +158,8 @@ The seller-facing goal label is copy, not engine code. Add it to
 the locale catalogue. `features/repricing-policies/ui/policy-controls.test.ts`
 fails a registered goal whose label is its id. The fixture goal is never shown
 to sellers, so its end-to-end test does not cover this step. The Pricing
-Health surface (#7709) is not yet on `main`, so no step proves a goal there.
+Health surface (#7709) is not yet on `main`, so no step proves a goal there;
+#9709 owns that step.
 
 ## Other registries in the kit
 
@@ -160,7 +177,7 @@ in its `unregisteredKeys`:
 | Guardrail kinds (#9308) | `guardrail-conformance.test.ts` | Parameter validation, pure `apply` over `GuardrailContext`, acts on its hit and is inert otherwise, idempotent, records its hit in the evaluation, never raises a price above the seller's ceiling. Each authorable kind declares its scenario, which the `RepricingGuardrail` union enforces at compile time. |
 | Curve builders | `curve-builder-conformance.test.ts` | Identity, deterministic loads over frozen inputs, sales of the requested variant and language in one sale shape, the window's sales limit, no sales when no evidence is stored. |
 | Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. The native marketplace provider and the unregistered-channel result are its `unregisteredKeys`; an exact or fallback provider registered in production fails the run until it has an entry. |
-| Forecast kinds (#7708) | None yet | The Forecast Kind registry is not yet on `main`. Once it lands in the registry shape below, the structure guard requires a run for it. |
+| Forecast kinds (#7708) | None yet | The Forecast Kind registry is not yet on `main`. Once it lands in the registry shape below, the structure guard requires a run for it. #9709 owns the Forecast Kind suite's contract. |
 
 A registry the factory's own module constructs cannot be recorded: that module
 calls the factory directly, and the mock wraps only its export. Its run passes
