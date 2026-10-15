@@ -458,7 +458,9 @@ function validatePromotionReview(review, audit, checkedAt) {
     validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
   }
   if (review.publicLaunchClaimsEnabled === false && review.uncertifiedClaimsAbsent !== true) {
-    errors.push("UCP agent-commerce launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.");
+    errors.push(
+      "UCP agent-commerce launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.",
+    );
   }
   return errors;
 }

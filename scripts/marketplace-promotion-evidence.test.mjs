@@ -838,9 +838,7 @@ describe("marketplace promotion evidence: audit input authority", () => {
       input({ review: review({ ...certifiedReview, certificationApproved: false }) }),
     );
     expect(unapproved.passesPromotionGate).toBe(false);
-    expect(unapproved.errors).toEqual([
-      "UCP agent-commerce public launch claims require certificationApproved=true.",
-    ]);
+    expect(unapproved.errors).toEqual(["UCP agent-commerce public launch claims require certificationApproved=true."]);
 
     const unreferenced = buildPromotionEvidence(
       input({ review: review({ ...certifiedReview, certificationReference: "" }) }),
