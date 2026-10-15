@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 import type { ProviderAdapter, ProviderImportScope } from "../provider-adapters/provider-adapter";
 import {
@@ -25,6 +25,163 @@ import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-resp
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
 
 describe("Catalog sync scope planner", () => {
+  describe("inactive participation", () => {
+    const inactive = requireProfile("scrydex", "lorcana-sealed-product-source-observation");
+    const active = requireProfile("scrydex", "lorcana-card-print-source-observation");
+    const inactiveUnitKey = unitKeyForCatalogProviderProfileVersion(inactive);
+    const activeUnitKey = unitKeyForCatalogProviderProfileVersion(active);
+    const scope: CatalogSyncScope = {
+      scopeVersion: "catalog-sync-scope-v2",
+      productDomain: "lorcana",
+      languageCode: "en",
+      reference: { kind: "set", scopeRecordId: "scope_lorcana_first_chapter" },
+    };
+    const mappings = catalogProviderIntegrationProfileVersions.map((version) =>
+      acceptedMapping({
+        scopeRecordId: scope.reference.scopeRecordId,
+        providerKey: version.providerKey,
+        unitKey: unitKeyForCatalogProviderProfileVersion(version),
+        productLineId: "71",
+        setId: "1",
+        setName: "The First Chapter",
+      }),
+    );
+    const registry = new ProviderAdapterRegistry(
+      [...new Set(catalogProviderIntegrationProfileVersions.map((version) => version.providerKey))].map((providerKey) =>
+        fakeAdapter(providerKey, fakePlanImport(1)),
+      ),
+    );
+
+    beforeEach(() => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Provider fetch denied in participation tests.")));
+    });
+
+    afterEach(() => {
+      expect(fetch).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it("inactive units are never default-required over the full Lorcana registry", async () => {
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope,
+        acceptedScopeMappings: mappings,
+        providerProfileVersions: catalogProviderIntegrationProfileVersions,
+        providerAdapterRegistry: registry,
+      });
+
+      expect(preview.units.find((unit) => unit.unitKey === inactiveUnitKey)).toMatchObject({
+        role: "primary-source-observation",
+        requirement: "optional",
+        eligibility: "ineligible",
+        defaultSelected: false,
+        selected: false,
+        childExecutionScope: null,
+        blockers: [expect.objectContaining({ code: "inactive-profile-unit", severity: "error" })],
+      });
+      const activePrimaries = preview.units.filter(
+        (unit) => unit.role === "primary-source-observation" && unit.unitKey !== inactiveUnitKey,
+      );
+      expect(activePrimaries.map((unit) => unit.unitKey)).toContain(activeUnitKey);
+      expect(activePrimaries.every((unit) => unit.requirement === "required" && unit.eligibility === "eligible")).toBe(
+        true,
+      );
+      expect(preview.blockers).toEqual([]);
+      expect(preview).toMatchObject({ status: "degraded", startAllowed: true });
+    });
+
+    it.each([
+      { name: "active flag", changes: { active: false } },
+      { name: "version lifecycle", changes: { lifecycle: "test" as const } },
+      { name: "profile status", changes: { profile: { ...active.profile, status: "planned" as const } } },
+    ])("inactive units are never default-required with an inactive $name", async ({ changes }) => {
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope,
+        acceptedScopeMappings: mappings,
+        providerProfileVersions: [{ ...active, ...changes }],
+        providerAdapterRegistry: registry,
+      });
+
+      expect(preview.units[0]).toMatchObject({
+        requirement: "optional",
+        eligibility: "ineligible",
+        selected: false,
+        blockers: [expect.objectContaining({ code: "inactive-profile-unit", severity: "error" })],
+      });
+      expect(preview.blockers).toEqual([]);
+      expect(preview).toMatchObject({ status: "degraded", startAllowed: true });
+    });
+
+    it.each([
+      { name: "required", selection: { requiredUnitKeys: [inactiveUnitKey] } },
+      { name: "selected without explicit required keys", selection: { selectedUnitKeys: [inactiveUnitKey] } },
+    ])("explicit inactive participation still refuses when $name", async ({ selection }) => {
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope: { ...scope, providerParticipation: selection },
+        acceptedScopeMappings: mappings,
+        providerProfileVersions: catalogProviderIntegrationProfileVersions,
+        providerAdapterRegistry: registry,
+      });
+
+      expect(preview.units).toHaveLength(1);
+      expect(preview.units[0]).toMatchObject({
+        requirement: "required",
+        eligibility: "ineligible",
+        selected: true,
+        childExecutionScope: null,
+        blockers: [expect.objectContaining({ code: "inactive-profile-unit", severity: "error" })],
+      });
+      expect(preview.blockers).toEqual([expect.objectContaining({ code: "inactive-profile-unit", severity: "error" })]);
+      expect(preview).toMatchObject({ status: "blocked", startAllowed: false });
+    });
+
+    it("explicit inactive participation still refuses without changing mixed-input optional precedence", async () => {
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope: {
+          ...scope,
+          providerParticipation: { requiredUnitKeys: [activeUnitKey], selectedUnitKeys: [inactiveUnitKey] },
+        },
+        acceptedScopeMappings: mappings,
+        providerProfileVersions: catalogProviderIntegrationProfileVersions,
+        providerAdapterRegistry: registry,
+      });
+
+      expect(preview.units).toHaveLength(2);
+      expect(preview.units.find((unit) => unit.unitKey === activeUnitKey)).toMatchObject({
+        requirement: "required",
+        eligibility: "eligible",
+        selected: true,
+      });
+      expect(preview.units.find((unit) => unit.unitKey === inactiveUnitKey)).toMatchObject({
+        requirement: "optional",
+        eligibility: "ineligible",
+        selected: true,
+        blockers: [expect.objectContaining({ code: "inactive-profile-unit", severity: "error" })],
+      });
+      expect(preview.blockers).toEqual([]);
+      expect(preview).toMatchObject({ status: "degraded", startAllowed: true });
+    });
+
+    it("explicit inactive participation still refuses to bypass an active primary's missing mapping", async () => {
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope,
+        acceptedScopeMappings: mappings.filter((mapping) => mapping.unitKey !== activeUnitKey),
+        providerProfileVersions: catalogProviderIntegrationProfileVersions,
+        providerAdapterRegistry: registry,
+      });
+
+      expect(preview.units.find((unit) => unit.unitKey === activeUnitKey)).toMatchObject({
+        requirement: "required",
+        eligibility: "ineligible",
+        selected: true,
+        blockers: [expect.objectContaining({ code: "provider-scope-mapping-missing", severity: "error" })],
+      });
+      expect(preview.blockers).toContainEqual(
+        expect.objectContaining({ code: "provider-scope-mapping-missing", severity: "error" }),
+      );
+      expect(preview).toMatchObject({ status: "blocked", startAllowed: false });
+    });
+  });
+
   it("defaults every eligible mapped provider role into Pokemon Expansion participation", async () => {
     const tcgdex = requireProfile("tcgdex", "pokemon-tcg");
     const tcgplayer = activeProfile("tcgplayer", "pokemon-single-card-product-sku");
