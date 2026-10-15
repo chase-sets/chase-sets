@@ -644,6 +644,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     inStock: data.inStock,
     sort: data.sort,
     dynamicFilters,
+    // Presence, as the API reads it: an empty marker is still marked.
+    interpreted: data.interpreted != null,
   });
   const resultSetKeyRef = useRef(resultSetKey);
   const pendingScrollRestorationRef = useRef<{

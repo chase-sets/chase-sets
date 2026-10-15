@@ -489,6 +489,7 @@ describe("marketplace search route", () => {
 
     it.each([
       ["a marked page loads more under its marker", `${grade},language`, `${grade},language`],
+      ["an empty marker still loads more under its marker", "", ""],
       ["an unmarked page loads more without a marker", null, null],
     ])("%s", async (_name, marker, expected) => {
       const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
@@ -574,6 +575,144 @@ describe("marketplace search route", () => {
       const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
       expect(next.has("interpreted")).toBe(false);
       expect(next.getAll(grade)).toEqual(["gm10"]);
+    });
+
+    describe("marked and unmarked Result Sets", () => {
+      // The same words and filters under each retrieval policy; only the marker differs.
+      const lexical = ["cat_lexical", "lexical-charizard", "Lexical Charizard"] as const;
+      const lexicalNext = ["cat_lexical_next", "lexical-charizard-2", "Lexical Charizard 2"] as const;
+      const semanticOnly = ["cat_semantic", "semantic-only-charizard", "Semantic-only Charizard"] as const;
+      let routeData: ReturnType<typeof policyData>;
+
+      function policyData(
+        interpreted: string | null,
+        rows: ReadonlyArray<readonly [string, string, string]>,
+        nextCursor: string | null,
+      ) {
+        return {
+          ...searchData("charizard"),
+          dynamicFilters: [{ kind: "dimension" as const, id: "dim_seed_grade", value: "gm10" }],
+          interpreted,
+          interpretedFilters: (interpreted ?? "").split(",").filter(Boolean),
+          data: resultPage(rows, nextCursor),
+        };
+      }
+
+      function show(data: ReturnType<typeof policyData>) {
+        routeData = data;
+        mockUseLoaderData.mockImplementation(() => routeData);
+        mockUseNavigate.mockReturnValue(vi.fn());
+        mockUseNavigation.mockReturnValue({ state: "idle" });
+        mockUseSearchParams.mockReturnValue([new URLSearchParams(`q=charizard&${grade}=gm10`), vi.fn()]);
+        return render(<SearchRoute />);
+      }
+
+      function revisit(
+        view: ReturnType<typeof render>,
+        mode: "mounted" | "remounted",
+        data: ReturnType<typeof policyData>,
+      ) {
+        routeData = data;
+        if (mode === "mounted") {
+          view.rerender(<SearchRoute />);
+        } else {
+          view.unmount();
+          render(<SearchRoute />);
+        }
+      }
+
+      function stubPages(pages: Record<string, DiscoverySearchResponse>) {
+        const requests: URL[] = [];
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: RequestInfo | URL) => {
+            const url = new URL(String(input), "http://localhost");
+            requests.push(url);
+            const page = pages[url.searchParams.get("cursor") ?? ""];
+            if (!page) {
+              throw new Error(`Unexpected search request ${url.search}`);
+            }
+            return jsonResponse(page);
+          }),
+        );
+        return requests;
+      }
+
+      async function loadMore(expected: readonly string[]) {
+        fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+        await waitFor(() => expect(renderedItemSlugs()).toEqual(expected));
+      }
+
+      it.each([
+        ["mounted", "a marked page", grade, [lexical], ["lexical-charizard"]],
+        ["remounted", "a marked page", grade, [lexical], ["lexical-charizard"]],
+        ["mounted", "a final-empty marked page", grade, [], []],
+        ["remounted", "a final-empty marked page", grade, [], []],
+        ["mounted", "an empty-marker page", "", [lexical], ["lexical-charizard"]],
+        ["remounted", "an empty-marker page", "", [lexical], ["lexical-charizard"]],
+      ] as const)(
+        "a %s route shows %s without the unmarked pages it loaded",
+        async (mode, _name, marker, rows, expected) => {
+          const requests = stubPages({ "hybrid-2": resultPage([semanticOnly], null) });
+          const view = show(policyData(null, [lexical], "hybrid-2"));
+          await loadMore(["lexical-charizard", "semantic-only-charizard"]);
+          expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
+
+          revisit(view, mode, policyData(marker, rows, null));
+
+          expect(renderedItemSlugs()).toEqual(expected);
+        },
+      );
+
+      it.each(["mounted", "remounted"] as const)(
+        "a %s route drops the marked pages it loaded when the marker is dropped",
+        async (mode) => {
+          const requests = stubPages({ "lexical-2": resultPage([lexicalNext], null) });
+          const view = show(policyData(grade, [lexical], "lexical-2"));
+          await loadMore(["lexical-charizard", "lexical-charizard-2"]);
+          expect(requests[0]?.searchParams.get("interpreted")).toBe(grade);
+
+          revisit(view, mode, policyData(null, [lexical, semanticOnly], null));
+
+          expect(renderedItemSlugs()).toEqual(["lexical-charizard", "semantic-only-charizard"]);
+        },
+      );
+
+      it("discards an unmarked load-more that answers after a marker-only navigation", async () => {
+        let answer: (page: DiscoverySearchResponse) => void = () => undefined;
+        const fetchMock = vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              answer = (page) => resolve(jsonResponse(page));
+            }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const view = show(policyData(null, [lexical], "hybrid-2"));
+        fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+        revisit(view, "mounted", policyData(grade, [lexical], null));
+        await act(async () => {
+          answer(resultPage([semanticOnly], null));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard"]);
+        revisit(view, "remounted", routeData);
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard"]);
+      });
+
+      it("restores a marked Result Set's own pages under any marker it is listed with", async () => {
+        const requests = stubPages({ "lexical-2": resultPage([lexicalNext], null) });
+        const view = show(policyData(grade, [lexical], "lexical-2"));
+        await loadMore(["lexical-charizard", "lexical-charizard-2"]);
+        expect(requests[0]?.searchParams.get("interpreted")).toBe(grade);
+
+        // The retrieval policy, not the listed keys, identifies the Result Set, as it does for the API.
+        revisit(view, "remounted", policyData("", [lexical], "lexical-2"));
+
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard", "lexical-charizard-2"]);
+      });
     });
   });
 
@@ -1187,6 +1326,7 @@ function resultSetKey(data: {
     inStock: data.inStock,
     sort: data.sort,
     dynamicFilters: [],
+    interpreted: false,
   });
 }
 
