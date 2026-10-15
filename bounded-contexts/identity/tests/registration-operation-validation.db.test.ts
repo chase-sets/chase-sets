@@ -870,6 +870,11 @@ describeDb("registration operation semantic validation", () => {
   ] as const;
 
   it.each(claimlessShapes)("rejects a claim-less partial with a committed %s", async (_label, shape) => {
+    consentFixture = await activeRegistrationConsentFixture(eventStore, pool, {
+      "terms-of-service": "v1",
+      "privacy-policy": "v3",
+    });
+    services = createServices(eventStore);
     const fixture = createFixtureClaim(operationFor());
     await appendEvents(`identity.account-${fixture.accountId}`, [accountCreated(fixture)]);
     if (shape.user) {
