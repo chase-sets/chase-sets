@@ -39,11 +39,34 @@ export type AttachmentManifest = Readonly<{
 type PutAdmission = Readonly<{ index: number; attempt: number }>;
 type PutSettlement = PutAdmission & Readonly<{ outcome: "completed" | "failed" }>;
 type StoredIndex = Readonly<{ index: number }>;
-type CleanupRequirement = Readonly<{ reason: "verification-conflict" | "verification-absent" | "put-failed" }>;
+export type AttachmentCleanupReason =
+  | "verification-conflict"
+  | "verification-absent"
+  | "put-failed"
+  | "human-request"
+  | "abandoned";
+type CleanupRequirement = Readonly<{ reason: AttachmentCleanupReason }>;
 export type AttachmentReferenceClaim = Readonly<{
   evidenceId: string;
   attachments: readonly string[];
   submittedAt: string;
+}>;
+/** One fenced cleanup attempt: it binds the exact manifest and the binding revision whose receipt the claim guarded. */
+export type AttachmentCleanupClaim = Readonly<{
+  attempt: number;
+  manifestFingerprint: string;
+  bindingId: string;
+  bindingRevision: number;
+  claimedAt: string;
+}>;
+type CleanupOutcome = Readonly<{ attempt: number }>;
+type CleanupFailure = CleanupOutcome & Readonly<{ reason: "delete-failed" | "confirm-failed" }>;
+/** What the decider needs to admit a claim; the runtime derives it from the binding and stored event times. */
+export type AttachmentCleanupAuthority = Readonly<{
+  bindingId: string;
+  bindingRevision: number;
+  now: string;
+  lastPutAdmittedAt: string | null;
 }>;
 export type AttachmentOperationEvent =
   | Readonly<{ type: "support.attachment-operation.staged"; data: AttachmentManifest }>
@@ -53,7 +76,10 @@ export type AttachmentOperationEvent =
   | Readonly<{ type: "support.attachment-operation.cleanup-required"; data: CleanupRequirement }>
   | Readonly<{ type: "support.attachment-operation.reference-claimed"; data: AttachmentReferenceClaim }>
   | Readonly<{ type: "support.attachment-operation.reference-claim-released"; data: Readonly<{ evidenceId: string }> }>
-  | Readonly<{ type: "support.attachment-operation.referenced"; data: Readonly<{ evidenceId: string }> }>;
+  | Readonly<{ type: "support.attachment-operation.referenced"; data: Readonly<{ evidenceId: string }> }>
+  | Readonly<{ type: "support.attachment-operation.cleanup-claimed"; data: AttachmentCleanupClaim }>
+  | Readonly<{ type: "support.attachment-operation.deleted-unreferenced"; data: CleanupOutcome }>
+  | Readonly<{ type: "support.attachment-operation.cleanup-failed"; data: CleanupFailure }>;
 export type AttachmentOperationCommand =
   | Readonly<{ type: "StageSupportAttachmentOperation"; data: AttachmentManifest }>
   | Readonly<{ type: "AdmitSupportAttachmentPut"; data: PutAdmission }>
@@ -62,19 +88,60 @@ export type AttachmentOperationCommand =
   | Readonly<{ type: "RequireSupportAttachmentCleanup"; data: CleanupRequirement }>
   | Readonly<{ type: "ClaimSupportAttachmentReference"; data: AttachmentReferenceClaim }>
   | Readonly<{ type: "ReleaseSupportAttachmentReferenceClaim"; data: Readonly<{ evidenceId: string }> }>
-  | Readonly<{ type: "ConfirmSupportAttachmentReferenced"; data: Readonly<{ evidenceId: string }> }>;
+  | Readonly<{ type: "ConfirmSupportAttachmentReferenced"; data: Readonly<{ evidenceId: string }> }>
+  | Readonly<{ type: "ClaimSupportAttachmentCleanup"; data: AttachmentCleanupClaim }>
+  | Readonly<{ type: "ConfirmSupportAttachmentDeleted"; data: CleanupOutcome }>
+  | Readonly<{ type: "RecordSupportAttachmentCleanupFailed"; data: CleanupFailure }>;
 export type AttachmentOperationState = Readonly<{
-  status: "absent" | "staged" | "partially-stored" | "stored" | "cleanup-required" | "reference-claimed" | "referenced";
+  status:
+    | "absent"
+    | "staged"
+    | "partially-stored"
+    | "stored"
+    | "cleanup-required"
+    | "reference-claimed"
+    | "referenced"
+    | "cleanup-claimed"
+    | "deleted-unreferenced";
   referenceClaim: AttachmentReferenceClaim | null;
+  cleanupClaim: AttachmentCleanupClaim | null;
+  cleanupAttempts: number;
   manifest: AttachmentManifest | null;
   stored: readonly number[];
   attempts: Readonly<Record<number, readonly Readonly<{ attempt: number; outcome: "completed" | "failed" | null }>[]>>;
 }>;
 
 export class AttachmentOperationError extends Error {
-  constructor(public readonly code: "operation-conflict" | "invalid-operation-history" | "operation-terminal") {
+  constructor(
+    public readonly code:
+      | "operation-conflict"
+      | "invalid-operation-history"
+      | "operation-terminal"
+      | "cleanup-not-eligible"
+      | "cleanup-unauthorized",
+  ) {
     super(code);
   }
+}
+
+/** A put may hold the key until its 30-second storage deadline; cleanup waits five more minutes beyond it. */
+export const SUPPORT_EVIDENCE_CLEANUP_PUT_GRACE_MS = 30_000 + 5 * 60_000;
+const cleanupReasons: readonly string[] = [
+  "verification-conflict",
+  "verification-absent",
+  "put-failed",
+  "human-request",
+  "abandoned",
+];
+const cleanupPhases: readonly AttachmentOperationState["status"][] = [
+  "cleanup-required",
+  "cleanup-claimed",
+  "deleted-unreferenced",
+];
+const isoInstant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+export function hasUnsettledAttachmentPut(state: AttachmentOperationState): boolean {
+  return Object.values(state.attempts).some((attempts) => attempts.some((attempt) => attempt.outcome === null));
 }
 
 export function canonicalJson(value: unknown): string {
@@ -258,19 +325,67 @@ function evolve(state: AttachmentOperationState, event: AttachmentOperationEvent
       ? { ...state, status: "referenced" }
       : { ...state, status: "stored", referenceClaim: null };
   }
-  if (state.status === "reference-claimed" || state.status === "referenced") invalid();
+  if (state.status === "reference-claimed" || state.status === "referenced" || state.status === "deleted-unreferenced")
+    invalid();
   if (event.type === "support.attachment-operation.cleanup-required") {
     const data = object(event.data, ["reason"]);
     if (
       typeof data.reason !== "string" ||
-      !["verification-conflict", "verification-absent", "put-failed"].includes(data.reason) ||
-      state.status === "cleanup-required"
+      !cleanupReasons.includes(data.reason) ||
+      cleanupPhases.includes(state.status)
     )
       invalid();
     return { ...state, status: "cleanup-required" };
   }
-  if (!state.manifest || state.status === "cleanup-required") invalid();
-  if (Object.values(state.attempts).some((attempts) => attempts.some((attempt) => attempt.outcome === "failed")))
+  if (event.type === "support.attachment-operation.cleanup-claimed") {
+    const data = object(event.data, ["attempt", "manifestFingerprint", "bindingId", "bindingRevision", "claimedAt"]);
+    if (
+      (state.status !== "cleanup-required" && state.status !== "cleanup-claimed") ||
+      !state.manifest ||
+      hasUnsettledAttachmentPut(state) ||
+      data.attempt !== state.cleanupAttempts + 1 ||
+      data.manifestFingerprint !== state.manifest.manifestFingerprint ||
+      typeof data.bindingId !== "string" ||
+      !/^[a-z0-9-]{1,64}$/.test(data.bindingId) ||
+      typeof data.bindingRevision !== "number" ||
+      !Number.isInteger(data.bindingRevision) ||
+      data.bindingRevision < 1 ||
+      data.bindingRevision > 2147483647 ||
+      typeof data.claimedAt !== "string" ||
+      !isoInstant.test(data.claimedAt) ||
+      new Date(data.claimedAt).toISOString() !== data.claimedAt
+    )
+      invalid();
+    return { ...state, status: "cleanup-claimed", cleanupClaim: event.data, cleanupAttempts: event.data.attempt };
+  }
+  if (
+    event.type === "support.attachment-operation.deleted-unreferenced" ||
+    event.type === "support.attachment-operation.cleanup-failed"
+  ) {
+    const data = object(
+      event.data,
+      event.type === "support.attachment-operation.cleanup-failed" ? ["attempt", "reason"] : ["attempt"],
+    );
+    if (
+      state.status !== "cleanup-claimed" ||
+      data.attempt !== state.cleanupClaim?.attempt ||
+      (event.type === "support.attachment-operation.cleanup-failed" &&
+        (typeof data.reason !== "string" || !["delete-failed", "confirm-failed"].includes(data.reason)))
+    )
+      invalid();
+    return event.type === "support.attachment-operation.deleted-unreferenced"
+      ? { ...state, status: "deleted-unreferenced" }
+      : { ...state, status: "cleanup-required", cleanupClaim: null };
+  }
+  if (!state.manifest || state.status === "cleanup-claimed") invalid();
+  // A writer admitted before cleanup was required may still settle; nothing else enters the cleanup phase.
+  const pendingWriterSettles =
+    state.status === "cleanup-required" && event.type === "support.attachment-operation.put-settled";
+  if (state.status === "cleanup-required" && !pendingWriterSettles) invalid();
+  if (
+    !pendingWriterSettles &&
+    Object.values(state.attempts).some((attempts) => attempts.some((attempt) => attempt.outcome === "failed"))
+  )
     invalid();
   const data = object(
     event.data,
@@ -329,13 +444,61 @@ export function replayAttachmentOperation(events: readonly AttachmentOperationEv
     stored: [],
     attempts: {},
     referenceClaim: null,
+    cleanupClaim: null,
+    cleanupAttempts: 0,
   } as AttachmentOperationState);
+}
+
+function admitCleanupClaim(
+  state: AttachmentOperationState,
+  claim: AttachmentCleanupClaim,
+  authority: AttachmentCleanupAuthority | undefined,
+): void {
+  if (
+    !authority ||
+    claim.bindingId !== authority.bindingId ||
+    claim.bindingRevision !== authority.bindingRevision ||
+    claim.claimedAt !== authority.now
+  )
+    throw new AttachmentOperationError("cleanup-unauthorized");
+  // The grace window is eligibility only: an admitted put that never settled blocks the claim forever.
+  if (
+    (state.status !== "cleanup-required" && state.status !== "cleanup-claimed") ||
+    hasUnsettledAttachmentPut(state) ||
+    (authority.lastPutAdmittedAt !== null &&
+      !(Date.parse(authority.now) >= Date.parse(authority.lastPutAdmittedAt) + SUPPORT_EVIDENCE_CLEANUP_PUT_GRACE_MS))
+  )
+    throw new AttachmentOperationError("cleanup-not-eligible");
 }
 
 export function decideAttachmentOperation(
   state: AttachmentOperationState,
   command: AttachmentOperationCommand,
+  cleanupAuthority?: AttachmentCleanupAuthority,
 ): readonly AttachmentOperationEvent[] {
+  if (command.type === "ClaimSupportAttachmentCleanup") {
+    admitCleanupClaim(state, command.data, cleanupAuthority);
+    const event = { type: "support.attachment-operation.cleanup-claimed", data: command.data } as const;
+    evolve(state, event);
+    return [event];
+  }
+  if (command.type === "ConfirmSupportAttachmentDeleted" || command.type === "RecordSupportAttachmentCleanupFailed") {
+    object(command.data, command.type === "ConfirmSupportAttachmentDeleted" ? ["attempt"] : ["attempt", "reason"]);
+    // A retried confirmation of the attempt that already deleted converges; every other unfenced outcome rejects.
+    if (
+      command.type === "ConfirmSupportAttachmentDeleted" &&
+      state.status === "deleted-unreferenced" &&
+      command.data.attempt === state.cleanupClaim?.attempt
+    )
+      return [];
+    const event = (
+      command.type === "ConfirmSupportAttachmentDeleted"
+        ? { type: "support.attachment-operation.deleted-unreferenced", data: command.data }
+        : { type: "support.attachment-operation.cleanup-failed", data: command.data }
+    ) as AttachmentOperationEvent;
+    evolve(state, event);
+    return [event];
+  }
   if (command.type === "ClaimSupportAttachmentReference" && state.referenceClaim) {
     if (canonicalJson(command.data) !== canonicalJson(state.referenceClaim))
       throw new AttachmentOperationError("operation-conflict");
@@ -351,20 +514,24 @@ export function decideAttachmentOperation(
     if (state.manifest) {
       if (canonicalJson(state.manifest) !== canonicalJson(manifest))
         throw new AttachmentOperationError("operation-conflict");
-      if (state.status === "cleanup-required") throw new AttachmentOperationError("operation-terminal");
+      if (cleanupPhases.includes(state.status)) throw new AttachmentOperationError("operation-terminal");
       return [];
     }
   }
   if (command.type === "RequireSupportAttachmentCleanup") {
     const data = object(command.data, ["reason"]);
-    if (
-      typeof data.reason !== "string" ||
-      !["verification-conflict", "verification-absent", "put-failed"].includes(data.reason)
-    )
-      invalid();
-    if (state.status === "cleanup-required") return [];
+    if (typeof data.reason !== "string" || !cleanupReasons.includes(data.reason)) invalid();
+    if (cleanupPhases.includes(state.status)) return [];
   }
-  if (state.status === "cleanup-required") throw new AttachmentOperationError("operation-terminal");
+  if (command.type === "SettleSupportAttachmentPut" && state.status === "cleanup-required") {
+    object(command.data, ["index", "attempt", "outcome"]);
+    const attempt = state.attempts[command.data.index]?.find((a) => a.attempt === command.data.attempt);
+    if (attempt && attempt.outcome !== null && attempt.outcome === command.data.outcome) return [];
+    const event = { type: "support.attachment-operation.put-settled", data: command.data } as const;
+    evolve(state, event);
+    return [event];
+  }
+  if (cleanupPhases.includes(state.status)) throw new AttachmentOperationError("operation-terminal");
   if (command.type === "RecordSupportAttachmentStored" && state.stored.includes(command.data.index)) {
     object(command.data, ["index"]);
     return [];

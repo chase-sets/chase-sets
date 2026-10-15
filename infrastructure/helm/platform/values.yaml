@@ -664,6 +664,12 @@ components:
       instanceCountExpression: "local.worker_instances"
     command: "pnpm --filter @chase-sets/app-platform-worker run start:production"
     env:
+      - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
+        value: ""
+      - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON"
+        value: ""
       - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"

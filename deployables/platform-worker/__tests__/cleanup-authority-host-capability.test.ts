@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { module as orderingModule } from "@chase-sets/ordering";
@@ -8,6 +8,12 @@ import type { IdentityServices } from "@chase-sets/identity/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
+import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
+import { livenessConfig } from "./channels-liveness-config";
+import {
+  parseSupportEvidenceCleanupBinding,
+  type PlatformOperationsServices,
+} from "@chase-sets/platform-operations/server";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -138,5 +144,84 @@ describe("cleanup-authority-inventory-host-capability", () => {
     // executable intentionally constructs no services or runners.
     const source = readWorkerSource("main.ts");
     expect(source).toContain('inventoryCleanupAuthority: { kind: "not-mounted" }');
+  });
+});
+
+describe("support-evidence-cleanup-host-capability (AC-E4)", () => {
+  const instance = '["support-deployment-instance/v1","test","release-a"]';
+  const scope = { environment: "test", deploymentInstance: instance, implementationSha: "a".repeat(40) };
+  const binding = parseSupportEvidenceCleanupBinding(
+    JSON.stringify({
+      version: 1,
+      environment: "test",
+      deploymentInstance: instance,
+      bindingId: "cleanup-test",
+      revision: 1,
+      active: true,
+    }),
+    scope,
+  );
+  const store = {
+    putPrivate: vi.fn(),
+    readPrivate: vi.fn(),
+    verifyPrivate: vi.fn(),
+    listPrivate: vi.fn(),
+    deleteKeys: vi.fn(),
+  };
+  function compose(supportEvidenceCleanupBinding: typeof binding) {
+    const port = createSupportEvidenceCleanupHostPort(
+      {
+        deploymentEnvironment: "test",
+        supportEvidenceCleanupBinding,
+        supportEvidenceStorage: { kind: "filesystem", rootDir: "unused", publicBaseUrl: "http://unused.invalid" },
+      },
+      { info: () => undefined },
+      () => store,
+    );
+    const runtime = createHost(workerHostPorts({ inventoryCleanupAuthority: { kind: "not-mounted" }, ...port }));
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const names = createRegisteredScheduledRunners({
+      services: runtime.services,
+      config: { ...livenessConfig, supportEvidenceCleanupIntervalMs: 1 },
+      controlPlane: {} as never,
+      logger: { info: () => undefined, warn: () => undefined },
+      workSignalCleanup: () => ({ workSignalStore: {} as never, intervalMs: 1 }),
+      retentionSweep: () => ({ targets: [] }),
+    }).map((runner) => runner.name);
+    return { services, names };
+  }
+
+  it("registers the cleanup runner only when the real worker registry composes a valid binding", () => {
+    const mounted = compose(binding);
+    expect(mounted.services.supportRequests.attachmentCleanup.kind).toBe("available");
+    expect(mounted.names.filter((name) => name === "support-evidence-operation-cleanup")).toHaveLength(1);
+    for (const denied of [
+      { kind: "denied", diagnostic: "binding_absent" },
+      { kind: "denied", diagnostic: "binding_inactive" },
+    ] as const) {
+      const unmounted = compose(denied);
+      expect(unmounted.services.supportRequests.attachmentCleanup).toEqual({ kind: "not-mounted" });
+      expect(unmounted.names).not.toContain("support-evidence-operation-cleanup");
+    }
+    // Composition never reaches put, read or listing on the shared private store.
+    for (const method of [store.putPrivate, store.readPrivate, store.listPrivate])
+      expect(method).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed capability rather than degrading to a mounted runner", () => {
+    expect(() =>
+      createHost(
+        workerHostPorts({
+          inventoryCleanupAuthority: { kind: "not-mounted" },
+          supportEvidenceCleanup: { kind: "available", binding, storage: { putPrivate: vi.fn() } },
+        }),
+      ),
+    ).toThrowError(/Support evidence cleanup capability/);
+  });
+
+  it("pins the configured port in the worker runtime composition root", () => {
+    const source = readWorkerSource("main.ts");
+    expect(source).toContain("createSupportEvidenceCleanupHostPort(config, logger)");
+    expect(source).toContain("...supportEvidenceCleanupHostPort");
   });
 });

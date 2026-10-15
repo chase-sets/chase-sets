@@ -90,7 +90,7 @@ const productionIndex = {
 
 describe("release-tuple support deployment instance", () => {
   const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
-  function render(release, namespace, extra = [], chart = "infrastructure/helm/platform") {
+  function render(release, namespace, extra = [], chart = "infrastructure/helm/platform", component = "platform-api") {
     const env = ["CHASE_SETS_DEPLOYMENT_INSTANCE", "CHASE_SETS_IMPLEMENTATION_SHA"].map((name) => ({
       name,
       secret: true,
@@ -114,6 +114,8 @@ describe("release-tuple support deployment instance", () => {
       'global.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
       "--set-json",
       'components.platform-api.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
+      "--set-json",
+      'components.platform-worker.envOverrides={"CHASE_SETS_DEPLOYMENT_INSTANCE":"PLANTED_OVERRIDE"}',
       ...extra,
     ];
     // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
@@ -139,8 +141,8 @@ describe("release-tuple support deployment instance", () => {
       .split(/^---\s*$/m)
       .map((part) => parseYaml(part))
       .filter(Boolean);
-    const api = deployments.find((item) => item.metadata.labels["app.kubernetes.io/component"] === "platform-api");
-    return api.spec.template.spec.containers[0].env;
+    const rendered = deployments.find((item) => item.metadata.labels["app.kubernetes.io/component"] === component);
+    return rendered.spec.template.spec.containers[0].env;
   }
   it("kills the fullname-derived and override/secret bypass mutants through actual Helm rendering", () => {
     const a = render("release-a", "preview-a");
@@ -166,6 +168,24 @@ describe("release-tuple support deployment instance", () => {
     expect(helper).toContain(
       'list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson',
     );
+  });
+  it("scopes the worker's Support evidence cleanup binding by the same release tuple", () => {
+    const pick = (env, name) => env.find((item) => item.name === name);
+    const worker = render("release-a", "preview-a", [], undefined, "platform-worker");
+    expect(pick(worker, "CHASE_SETS_DEPLOYMENT_INSTANCE")).toEqual(
+      pick(render("release-a", "preview-a"), "CHASE_SETS_DEPLOYMENT_INSTANCE"),
+    );
+    expect(pick(worker, "CHASE_SETS_IMPLEMENTATION_SHA")).toEqual({
+      name: "CHASE_SETS_IMPLEMENTATION_SHA",
+      value: "a".repeat(40),
+    });
+    expect(pick(worker, "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON")).toEqual({
+      name: "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON",
+      value: "",
+    });
+    expect(
+      pick(render("release-b", "preview-a", [], undefined, "platform-worker"), "CHASE_SETS_DEPLOYMENT_INSTANCE"),
+    ).not.toEqual(pick(worker, "CHASE_SETS_DEPLOYMENT_INSTANCE"));
   });
   it("executes a fullname-derived mutant and observes the release-isolation assertion fail", () => {
     const temp = mkdtempSync(join(tmpdir(), "support-instance-mutant-"));

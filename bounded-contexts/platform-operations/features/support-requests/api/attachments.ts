@@ -180,19 +180,30 @@ export async function storeSupportEvidenceAttachments(
   };
   let operation = await load();
   const append = async (command: AttachmentOperationCommand) => {
-    const events = decideAttachmentOperation(operation.state, command);
-    if (events.length === 0) return;
-    await input.eventStore.appendToStream({
-      streamId,
-      expectedVersion: operation.version === 0 ? "no_stream" : operation.version,
-      context: input.context,
-      events: events.map((event) => ({ eventType: event.type, payload: event.data })),
-    });
-    operation = {
-      history: [...operation.history, ...events],
-      state: replayAttachmentOperation([...operation.history, ...events]),
-      version: operation.version + events.length,
-    };
+    for (let retry = 0; ; retry++) {
+      const events = decideAttachmentOperation(operation.state, command);
+      if (events.length === 0) return;
+      try {
+        await input.eventStore.appendToStream({
+          streamId,
+          expectedVersion: operation.version === 0 ? "no_stream" : operation.version,
+          context: input.context,
+          events: events.map((event) => ({ eventType: event.type, payload: event.data })),
+        });
+      } catch (error) {
+        // A concurrent CleanupRequired must not strand a settling put: re-decide on the fresh history.
+        if (retry >= 2 || !(error instanceof Error && "code" in error && error.code === "concurrency_conflict"))
+          throw error;
+        operation = await load();
+        continue;
+      }
+      operation = {
+        history: [...operation.history, ...events],
+        state: replayAttachmentOperation([...operation.history, ...events]),
+        version: operation.version + events.length,
+      };
+      return;
+    }
   };
   await append({ type: "StageSupportAttachmentOperation", data: manifest });
   if (

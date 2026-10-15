@@ -29,8 +29,16 @@ import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliatio
 import {
   createInventoryProductResolutionMaintenanceRunners,
   createRegisteredScheduledRunners,
+  createSupportEvidenceCleanupHostPort,
   type RegisteredScheduledRunnerConfig,
 } from "../src/scheduled-runners";
+import {
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+  parseSupportEvidenceCleanupBinding,
+  type PlatformOperationsServices,
+} from "@chase-sets/platform-operations/server";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
 import {
   createFakeMoneyMovementGateway,
@@ -63,6 +71,7 @@ const scheduledRunnerConfig: RegisteredScheduledRunnerConfig = {
   paymentDeadlineSweepIntervalMs: 1,
   channelsConnectorLivenessSweepIntervalMs: 1,
   supportRequestDeadlineSweepIntervalMs: 1,
+  supportEvidenceCleanupIntervalMs: 1,
   customerFeedbackAttentionDigestIntervalMs: 1,
   customerFeedbackAttentionTeamRecipientUserIds: [],
   reviewWindowSweepIntervalMs: 1,
@@ -132,25 +141,10 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     await bootstrapPlatformControlPlane(pools.control);
     controlPlane = createPostgresPlatformControlPlane(pools.control);
 
-    const postageLabelProvider = createSandboxPostageLabelProvider();
     runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
       pools,
       runtimeProfile,
-      hostPorts: {
-        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
-        processorGateway: createFakePaymentProcessorGateway(),
-        moneyMovementGateway: createFakeMoneyMovementGateway(),
-        operationsRecorder: { record: () => undefined },
-        postageLabelProvider,
-        addressVerificationProvider: postageLabelProvider,
-        ...syntheticPricingHostPorts,
-        managedOfferPricing: createBuyerOfferPricing(pools.pricing),
-        // Real-registry composition: the worker states the Ordering
-        // cleanup-authority capability explicitly as not-mounted (#7222).
-        inventoryCleanupAuthority: { kind: "not-mounted" },
-        channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
-        searchEmbeddingConfig: scheduledRunnerConfig.discoverySearchEmbeddings,
-      },
+      hostPorts: workerHostPorts(),
     });
 
     for (const context of runtime.mountedContexts) {
@@ -181,6 +175,36 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       }),
     });
   });
+
+  function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
+    const postageLabelProvider = createSandboxPostageLabelProvider();
+    return {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+      processorGateway: createFakePaymentProcessorGateway(),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: { record: () => undefined },
+      postageLabelProvider,
+      addressVerificationProvider: postageLabelProvider,
+      ...syntheticPricingHostPorts,
+      managedOfferPricing: createBuyerOfferPricing(pools.pricing),
+      // Real-registry composition: the worker states the Ordering
+      // cleanup-authority capability explicitly as not-mounted (#7222).
+      inventoryCleanupAuthority: { kind: "not-mounted" },
+      channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
+      searchEmbeddingConfig: scheduledRunnerConfig.discoverySearchEmbeddings,
+      ...overrides,
+    };
+  }
+  function registeredRunnersOf(host: WorkerHostRuntime) {
+    return createRegisteredScheduledRunners({
+      services: host.services,
+      config: scheduledRunnerConfig,
+      controlPlane,
+      logger: { info: () => undefined, warn: () => undefined },
+      workSignalCleanup: () => ({ workSignalStore: createPostgresWorkSignalStore(pools.control), intervalMs: 1 }),
+      retentionSweep: () => ({ targets: collectRetentionSweepTargets(host, pools.control) }),
+    });
+  }
 
   afterAll(async () => {
     vi.unstubAllGlobals();
@@ -472,6 +496,134 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         { generation: String(initialGeneration + BigInt(generation + 1)), pending_work_ids: [] },
       ]);
     }
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("cleans a Support evidence operation only through the actual worker composition of a valid binding (AC-E2, AC-E4)", async () => {
+    const store = createPostgresEventStore({ pool: pools["platform-operations"] });
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { performedByUserId: "usr_worker_owner" as never, forAccountId: "acc_worker_owner" as never },
+    };
+    const owner = {
+      tenantId: "tnt_identity",
+      accountId: "acc_worker_owner",
+      supportRequestId: "sup_worker_cleanup",
+      operationId: "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    };
+    const fingerprint = {
+      profile: "support-evidence-raster/v1",
+      sharp: "t",
+      libvips: "t",
+      platform: "t",
+      arch: "t",
+      libc: "t",
+    };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: fingerprint.profile,
+      encoderFingerprint: fingerprint,
+      images: [{ canonicalSha256: "d".repeat(64), contentType: "image/png", byteSize: 4 }],
+    });
+    const streamId = attachmentOperationStreamId(owner);
+    await store.appendToStream({
+      streamId: `support.support-request-${owner.supportRequestId}`,
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "support.support-request.test-barrier", payload: {} }],
+    });
+    await store.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        { eventType: "support.attachment-operation.stored", payload: { index: 0 } },
+        { eventType: "support.attachment-operation.cleanup-required", payload: { reason: "put-failed" } },
+      ],
+    });
+    const key = `support-evidence/${owner.supportRequestId}/${manifest.items[0]!.attachmentId}/${"d".repeat(64)}.png`;
+    const objects = new Set([key]);
+    const privateStore = {
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(),
+      listPrivate: vi.fn(),
+      deleteKeys: vi.fn(async (keys: readonly string[]) =>
+        keys.map((k) => ({ key: k, status: objects.delete(k) ? ("deleted" as const) : ("absent" as const) })),
+      ),
+      verifyPrivate: vi.fn(async (k: string) =>
+        objects.has(k) ? { status: "match" as const } : { status: "absent" as const },
+      ),
+    };
+    const instance = JSON.stringify(["support-deployment-instance/v1", "test", "release-a"]);
+    const compose = (revision: number) =>
+      createWorkerHost(workerContextRegistry, "platform-worker", {
+        pools,
+        runtimeProfile,
+        hostPorts: workerHostPorts(
+          createSupportEvidenceCleanupHostPort(
+            {
+              deploymentEnvironment: "test",
+              supportEvidenceCleanupBinding: parseSupportEvidenceCleanupBinding(
+                JSON.stringify({
+                  version: 1,
+                  environment: "test",
+                  deploymentInstance: instance,
+                  bindingId: "cleanup-worker",
+                  revision,
+                  active: true,
+                }),
+                { environment: "test", deploymentInstance: instance, implementationSha: "b".repeat(40) },
+              ),
+              supportEvidenceStorage: {
+                kind: "s3",
+                bucket: "unused",
+                region: "unused",
+                publicBaseUrl: "https://unused.invalid",
+              },
+            },
+            { info: () => undefined },
+            () => privateStore,
+          ),
+        ),
+      });
+    const cleanupOf = (host: WorkerHostRuntime) =>
+      (host.services["platform-operations"] as PlatformOperationsServices).supportRequests.attachmentCleanup;
+    const cleanupRunner = (host: WorkerHostRuntime) => {
+      const runners = registeredRunnersOf(host);
+      expect(runners).toHaveLength(EXPECTED_REGISTERED_RUNNER_COUNT + 1);
+      return runners.find((runner) => runner.name === "support-evidence-operation-cleanup")!;
+    };
+    const host = compose(1);
+    const locator = (host.services["platform-operations"] as PlatformOperationsServices).projectors.find(
+      (set) => set.projectionName === "support-evidence-cleanup-locator-projection",
+    )!;
+    for (const event of await readCompleteStream(store, { streamId }))
+      await locator.handlers[event.eventType]!(toTransportEvent(event));
+
+    expect(await cleanupRunner(host).runOnce()).toMatchObject({ processed: 1 });
+    expect(privateStore.deleteKeys).toHaveBeenCalledTimes(1);
+    expect(privateStore.deleteKeys).toHaveBeenCalledWith([key]);
+    expect(objects.size).toBe(0);
+    const types = (await readCompleteStream(store, { streamId })).map((event) => event.eventType.split(".").at(-1));
+    expect(types).toEqual(["staged", "stored", "cleanup-required", "cleanup-claimed", "deleted-unreferenced"]);
+    const attempts = await readCompleteStream(store, { streamId: `support.evidence-access-${owner.supportRequestId}` });
+    expect(attempts.map((event) => event.payload.serviceBinding)).toEqual([
+      { bindingId: "cleanup-worker", revision: 1 },
+    ]);
+
+    // Restart and the day after: nothing resurrects and no further provider work happens.
+    expect(await cleanupRunner(compose(1)).runOnce()).toMatchObject({ processed: 0 });
+    // A newer binding revision makes the older process stale; it denies before any provider work.
+    const newer = cleanupOf(compose(2));
+    if (newer.kind !== "available") throw new Error("revision 2 must mount cleanup");
+    await newer.initialize();
+    const stale = cleanupOf(host);
+    if (stale.kind !== "available") throw new Error("revision 1 must mount cleanup");
+    expect(await stale.run()).toMatchObject({ denied: "binding_receipt_stale", examined: 0 });
+    expect(privateStore.deleteKeys).toHaveBeenCalledTimes(1);
+    for (const method of [privateStore.putPrivate, privateStore.readPrivate, privateStore.listPrivate])
+      expect(method).not.toHaveBeenCalled();
     expect(externalFetch).not.toHaveBeenCalled();
   });
 

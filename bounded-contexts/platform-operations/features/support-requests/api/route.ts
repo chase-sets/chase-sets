@@ -1027,6 +1027,37 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     }
   });
 
+  // Records CleanupRequired only; the worker's bound runner alone claims, deletes and confirms.
+  app.post("/ops/:id/attachment-operations/:operationId/cleanup", async (c) => {
+    c.header("cache-control", "private, no-store");
+    try {
+      const result = await services.requestAttachmentCleanup({
+        supportRequestId: c.req.param("id"),
+        operationId: c.req.param("operationId"),
+        actor: c.get("actor"),
+      });
+      return c.json(result, 202);
+    } catch (error) {
+      if (error instanceof EvidenceAccessError) return evidenceAccessResponse(error);
+      if (
+        error instanceof SupportAttachmentIntakeError ||
+        (error instanceof SupportDomainError && error.message === "attachment_operation_unknown")
+      )
+        return evidenceAccessResponse(new EvidenceAccessError(404));
+      if (error instanceof SupportDomainError && error.message === "attachment_operation_referenced")
+        return c.json(
+          {
+            error: {
+              code: "attachment_operation_referenced",
+              message: t("support.features.support_requests.api.route.attachment.operation.referenced"),
+            },
+          },
+          409,
+        );
+      return evidenceAccessResponse(new EvidenceAccessError(503));
+    }
+  });
+
   app.get("/ops/:id/attachments/access-audit", async (c) => {
     c.header("cache-control", "private, no-store");
     c.header("x-content-type-options", "nosniff");

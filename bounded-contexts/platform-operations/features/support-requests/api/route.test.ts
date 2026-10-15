@@ -34,6 +34,7 @@ import {
   createAttachmentManifest,
 } from "../domain/attachment-operation";
 import { createSupportEvidenceSeedContext } from "../domain/common";
+import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
 
 function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
   return {
@@ -1626,5 +1627,164 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("human Support evidence cleanup requests (AC-E5)", () => {
+  const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const operationStream = attachmentOperationStreamId({ supportRequestId: "sup_case", operationId });
+  const cleanupPath = `/support-requests/ops/sup_case/attachment-operations/${operationId}/cleanup`;
+  async function cleanupFixture(referenced = false) {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "no_stream",
+      context: evidenceActorContext(evidenceActor("owner", [], false, "acc_buyer")),
+      events: decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_case",
+        orderId: "ord_case",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        openedByAccountId: "acc_buyer",
+        openedByRole: "buyer",
+        flowType: "product-damaged",
+        openedAt: "2026-10-12T00:00:00.000Z",
+        orderTotalAmount: "10.00",
+        orderReturnContext: [],
+      } as never).map((event) => ({ eventType: event.type, payload: event.data })),
+    });
+    const owner = { tenantId: "tnt_identity", accountId: "acc_buyer", supportRequestId: "sup_case", operationId };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: "support-evidence-raster/v1",
+      encoderFingerprint: {
+        profile: "support-evidence-raster/v1",
+        sharp: "t",
+        libvips: "t",
+        platform: "t",
+        arch: "t",
+        libc: "t",
+      },
+      images: [{ canonicalSha256: "c".repeat(64), contentType: "image/jpeg", byteSize: 3 }],
+    });
+    await eventStore.appendToStream({
+      streamId: operationStream,
+      expectedVersion: "no_stream",
+      context: evidenceActorContext(evidenceActor("owner", [], false, "acc_buyer")),
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        { eventType: "support.attachment-operation.stored", payload: { index: 0 } },
+        ...(referenced
+          ? [
+              {
+                eventType: "support.attachment-operation.reference-claimed",
+                payload: {
+                  evidenceId: "sev_case",
+                  attachments: attachmentManifestReferences(manifest),
+                  submittedAt: "2026-10-12T00:00:00.000Z",
+                },
+              },
+              { eventType: "support.attachment-operation.referenced", payload: { evidenceId: "sev_case" } },
+            ]
+          : []),
+      ],
+    });
+    const storage = {
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(),
+      verifyPrivate: vi.fn(),
+      deleteKeys: vi.fn(),
+    };
+    const binding = parseSupportEvidenceCleanupBinding(
+      JSON.stringify({
+        version: 1,
+        environment: "test",
+        deploymentInstance: '["support-deployment-instance/v1","test","release-a"]',
+        bindingId: "cleanup-a",
+        revision: 1,
+        active: true,
+      }),
+      {
+        environment: "test",
+        deploymentInstance: '["support-deployment-instance/v1","test","release-a"]',
+        implementationSha: "a".repeat(40),
+      },
+    );
+    if (binding.kind !== "configured") throw new Error("test binding must be configured");
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      attachmentStorage: storage,
+      // Even with the worker capability mounted in-process, the human route only records a requirement.
+      attachmentCleanup: { kind: "available", binding, storage },
+    });
+    const operationEvents = () => allEvents.filter((event) => event.streamId === operationStream);
+    const auditEvents = () => allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+    return { runtime, storage, operationEvents, auditEvents };
+  }
+  const post = (fixture: Awaited<ReturnType<typeof cleanupFixture>>, actor: ResolvedActor | null, path = cleanupPath) =>
+    attachmentApp(fixture.runtime, actor).request(path, { method: "POST" });
+  const expectNoStorage = (fixture: Awaited<ReturnType<typeof cleanupFixture>>) => {
+    for (const method of Object.values(fixture.storage)) expect(method).not.toHaveBeenCalled();
+  };
+
+  it("any-case with support.manage records CleanupRequired once and never deletes", async () => {
+    const fixture = await cleanupFixture();
+    const operator = evidenceActor("platform-admin", ["support.manage"], true, "acc_operator");
+    const first = await post(fixture, operator);
+    expect(first.status).toBe(202);
+    expect(await first.json()).toEqual({ operationId, status: "cleanup-required" });
+    expect((await post(fixture, operator)).status).toBe(202);
+    const required = fixture.operationEvents().filter((event) => event.eventType.endsWith(".cleanup-required"));
+    expect(required).toHaveLength(1);
+    expect(required[0]).toMatchObject({
+      payload: { reason: "human-request" },
+      performedByUserId: "usr_operator",
+      forAccountId: "acc_buyer",
+    });
+    expect(fixture.operationEvents()).toHaveLength(3);
+    expect(fixture.auditEvents().map((event) => event.payload.action)).toEqual(["cleanup-request", "cleanup-request"]);
+    expectNoStorage(fixture);
+  });
+
+  it.each([
+    ["participant buyer", evidenceActor("owner", ["support.manage"], false, "acc_buyer"), 403],
+    ["participant seller", evidenceActor("owner", ["support.manage"], false, "acc_seller"), 403],
+    ["unrelated", evidenceActor("platform-admin", ["support.manage"], false, "acc_unrelated"), 404],
+    [
+      "revoked",
+      { ...evidenceActor("platform-admin", ["support.manage"], true, "acc_unrelated"), capabilityAssignments: [] },
+      404,
+    ],
+    ["any-case without support.manage", evidenceActor("viewer", ["support.view"], true, "acc_unrelated"), 403],
+    ["anonymous", null, 401],
+  ] as const)("%s denies with zero storage calls and no cleanup fact", async (_label, actor, status) => {
+    const fixture = await cleanupFixture();
+    expect((await post(fixture, actor)).status).toBe(status);
+    expect(fixture.operationEvents()).toHaveLength(2);
+    expect(fixture.auditEvents()).toHaveLength(1);
+    expect(fixture.auditEvents()[0]!.payload).toMatchObject({ action: "cleanup-request", decision: "denied" });
+    expectNoStorage(fixture);
+  });
+
+  it("refuses referenced, unknown and malformed operations without storage calls", async () => {
+    const operator = evidenceActor("platform-admin", ["support.manage"], true, "acc_operator");
+    const referenced = await cleanupFixture(true);
+    const conflict = await post(referenced, operator);
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error.code).toBe("attachment_operation_referenced");
+    expect(referenced.operationEvents()).toHaveLength(4);
+    expectNoStorage(referenced);
+    const fixture = await cleanupFixture();
+    for (const path of [
+      "/support-requests/ops/sup_case/attachment-operations/sao_01ARZ3NDEKTSV4RRFFQ69G5FAW/cleanup",
+      "/support-requests/ops/sup_case/attachment-operations/sao_bad/cleanup",
+      `/support-requests/ops/sup_other/attachment-operations/${operationId}/cleanup`,
+    ])
+      expect((await post(fixture, operator, path)).status).toBe(404);
+    expect(fixture.operationEvents()).toHaveLength(2);
+    expectNoStorage(fixture);
   });
 });

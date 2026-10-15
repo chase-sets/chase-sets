@@ -88,6 +88,15 @@ import {
   type SupportEvidenceAttachmentUpload,
 } from "./attachments";
 import { validateSupportAttachmentOperationId } from "./attachment-intake";
+import {
+  assertSupportEvidenceCleanupCapability,
+  buildSupportEvidenceCleanupLocatorHandlers,
+  createSupportEvidenceCleanupRunner,
+  requestSupportAttachmentCleanup,
+  supportEvidenceCleanupLocatorProjection,
+  type SupportEvidenceCleanupCapability,
+  type SupportEvidenceCleanupRunner,
+} from "./attachment-cleanup";
 import type { SupportEvidenceCanonicalizationQueue } from "./evidence-canonicalization";
 import { parseSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
 import {
@@ -123,6 +132,8 @@ type SupportRequestRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
   attachmentStorage?: SupportEvidenceAttachmentStorage;
   attachmentCanonicalizer?: SupportEvidenceCanonicalizationQueue;
+  /** The worker's binding-scoped cleanup capability; absent means not mounted. */
+  attachmentCleanup?: SupportEvidenceCleanupCapability;
   /**
    * The shared platform-policy runtime, used to resolve the support-deadline
    * policy at open time and to source `listFlowDefinitions`' response-window
@@ -256,6 +267,14 @@ export type SupportRequestServices = Readonly<{
   getEvidenceAccessAudit: (
     params: Readonly<{ supportRequestId: string; actor: ResolvedActor | null; cursor?: string }>,
   ) => Promise<EvidenceAccessAuditPage>;
+  /** Records CleanupRequired for a human request; the worker's bound runner alone claims and deletes. */
+  requestAttachmentCleanup: (
+    params: Readonly<{ supportRequestId: string; operationId: string; actor: ResolvedActor | null }>,
+  ) => ReturnType<typeof requestSupportAttachmentCleanup>;
+  /** Present only when a valid, active cleanup binding mounted the capability. */
+  attachmentCleanup:
+    | Readonly<{ kind: "not-mounted" }>
+    | Readonly<{ kind: "available"; initialize: () => Promise<unknown>; run: SupportEvidenceCleanupRunner }>;
   submitEvidence: (
     params: Readonly<{
       supportRequestId: string;
@@ -901,6 +920,21 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
   }
 
   const evidenceAudit = createEvidenceAccessAudit(deps.eventStore, () => deps.now?.() ?? new Date().toISOString());
+  const cleanupCapability = assertSupportEvidenceCleanupCapability(deps.attachmentCleanup);
+  const attachmentCleanup: SupportRequestServices["attachmentCleanup"] =
+    cleanupCapability.kind === "available"
+      ? {
+          kind: "available",
+          ...createSupportEvidenceCleanupRunner({
+            eventStore: deps.eventStore,
+            db: deps.db,
+            capability: cleanupCapability,
+            audit: evidenceAudit,
+          }),
+        }
+      : { kind: "not-mounted" };
+  // Record the binding receipt at composition; every run re-awaits it before any provider work.
+  if (attachmentCleanup.kind === "available") void attachmentCleanup.initialize().catch(() => undefined);
 
   async function authorizeEvidenceAccess(
     supportRequestId: string,
@@ -1341,6 +1375,15 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         storage: deps.attachmentStorage,
       });
     },
+    requestAttachmentCleanup: async (params) => {
+      await authorizeEvidenceAccess(params.supportRequestId, params.actor, "cleanup-request");
+      return requestSupportAttachmentCleanup(deps.eventStore, {
+        supportRequestId: params.supportRequestId,
+        operationId: params.operationId,
+        performedByUserId: params.actor!.userId,
+      });
+    },
+    attachmentCleanup,
     getEvidenceAccessAudit: async (params) => {
       await authorizeEvidenceAccess(params.supportRequestId, params.actor, "audit-read");
       try {
@@ -2080,6 +2123,10 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
         // Support events keep their durable support. stream prefix, so the
         // platform-operations default (`platform-operations.`) must not apply.
         streamPrefixes: ["support."],
+      }),
+      createProjectionHandlerSet({
+        ...supportEvidenceCleanupLocatorProjection,
+        handlers: buildSupportEvidenceCleanupLocatorHandlers(deps.db, deps.eventStore),
       }),
       createProjectionHandlerSet({
         projectionName: SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,

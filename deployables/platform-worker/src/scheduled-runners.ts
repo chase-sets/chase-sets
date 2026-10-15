@@ -6,6 +6,16 @@ import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import type { PricingServices } from "@chase-sets/pricing/server";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import {
+  SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+  type PlatformOperationsHostPorts,
+  type PlatformOperationsServices,
+} from "@chase-sets/platform-operations/server";
+import {
+  createFilesystemPrivateObjectStore,
+  createS3PrivateObjectStoreFromOptions,
+  type PrivateObjectStore,
+} from "@chase-sets/object-storage";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkSignalCleanupRunner } from "@chase-sets/platform-runtime/projection-wake-scheduler";
 import { createRetentionSweepRunner } from "@chase-sets/platform-runtime/retention-sweep";
@@ -47,6 +57,7 @@ export type RegisteredScheduledRunnerConfig = Pick<
   | "paymentDeadlineSweepIntervalMs"
   | "channelsConnectorLivenessSweepIntervalMs"
   | "supportRequestDeadlineSweepIntervalMs"
+  | "supportEvidenceCleanupIntervalMs"
   | "customerFeedbackAttentionDigestIntervalMs"
   | "customerFeedbackAttentionTeamRecipientUserIds"
   | "reviewWindowSweepIntervalMs"
@@ -360,6 +371,27 @@ export function createRegisteredScheduledRunners({
             result.reviewRemindersEmitted +
             result.returnRefundsReleased
           );
+        },
+      ),
+    );
+  }
+
+  // Mounted only by a valid, active cleanup binding (see createSupportEvidenceCleanupHostPort).
+  const supportEvidenceCleanup = (services["platform-operations"] as PlatformOperationsServices | undefined)
+    ?.supportRequests.attachmentCleanup;
+  if (supportEvidenceCleanup?.kind === "available" && input.supportEvidenceCleanupIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+        input.supportEvidenceCleanupIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await supportEvidenceCleanup.run();
+          (result.denied ? logger.warn : logger.info)("Support evidence operation cleanup completed.", {
+            type: SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+            result,
+          });
+          return result.abandoned + result.deleted + result.failed;
         },
       ),
     );
@@ -1052,6 +1084,50 @@ function createDurableJobRetentionTask(
     return deleted;
   };
 }
+/**
+ * Builds Platform Operations' cleanup host port from worker configuration. Absent, invalid or inactive
+ * bindings, and a filesystem store a deployed worker cannot share with platform-api, stay not-mounted with
+ * one bounded denial. The mounted store exposes only delete and absence verification.
+ */
+export function createSupportEvidenceCleanupHostPort(
+  config: Pick<
+    PlatformWorkerConfig,
+    "deploymentEnvironment" | "supportEvidenceCleanupBinding" | "supportEvidenceStorage"
+  >,
+  logger: Pick<ScheduledRunnerLogger, "info">,
+  createStore: (storage: PlatformWorkerConfig["supportEvidenceStorage"]) => PrivateObjectStore = (storage) =>
+    storage.kind === "s3"
+      ? createS3PrivateObjectStoreFromOptions(storage)
+      : createFilesystemPrivateObjectStore({ rootDir: `${storage.rootDir}-private-support-evidence` }),
+): Required<Pick<PlatformOperationsHostPorts, "supportEvidenceCleanup">> {
+  const binding = config.supportEvidenceCleanupBinding;
+  const denial =
+    binding.kind === "denied"
+      ? binding.diagnostic
+      : config.supportEvidenceStorage.kind === "filesystem" &&
+          !["local", "dev", "test"].includes(config.deploymentEnvironment)
+        ? "binding_storage_unshared"
+        : null;
+  if (denial || binding.kind !== "configured") {
+    logger.info("Support evidence operation cleanup is not mounted.", {
+      type: "platform-operations.support-evidence-cleanup-binding",
+      reason: denial,
+    });
+    return { supportEvidenceCleanup: { kind: "not-mounted" } };
+  }
+  const store = createStore(config.supportEvidenceStorage);
+  return {
+    supportEvidenceCleanup: {
+      kind: "available",
+      binding,
+      storage: {
+        deleteKeys: (keys) => store.deleteKeys(keys),
+        verifyPrivate: (key, expected) => store.verifyPrivate(key, expected),
+      },
+    },
+  };
+}
+
 export function createScheduledJobRunner(
   name: string,
   intervalMs: number,
