@@ -387,10 +387,12 @@ export function createRegisteredScheduledRunners({
         controlPlane,
         async () => {
           const result = await supportEvidenceCleanup.run();
-          (result.denied ? logger.warn : logger.info)("Support evidence operation cleanup completed.", {
-            type: SUPPORT_EVIDENCE_CLEANUP_RUNNER,
-            result,
-          });
+          // Healthy polls and routine retention stay silent; only a refusal or a failure is signalled.
+          if (result.denied || result.failed || result.auditUnavailable || result.invalid)
+            logger.warn("Support evidence operation cleanup was refused or failed.", {
+              type: SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+              result,
+            });
           return result.abandoned + result.deleted + result.failed;
         },
       ),

@@ -153,24 +153,71 @@ export function parseSupportEvidenceCleanupBinding(
   }
 }
 
+const configuredBindingFields = [
+  "kind",
+  "version",
+  "environment",
+  "deploymentInstance",
+  "bindingId",
+  "revision",
+  "active",
+  "configDigest",
+  "implementationSha",
+] as const;
+
+/** A supplied binding is authority only when the parser derives exactly it, digest included, from its own values. */
+function reparseConfiguredBinding(value: unknown): ConfiguredSupportEvidenceCleanupBinding | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const supplied = value as Record<string, unknown>;
+  if (
+    Object.keys(supplied).length !== configuredBindingFields.length ||
+    !configuredBindingFields.every((key) => Object.hasOwn(supplied, key)) ||
+    supplied.kind !== "configured" ||
+    typeof supplied.environment !== "string" ||
+    typeof supplied.deploymentInstance !== "string" ||
+    typeof supplied.implementationSha !== "string"
+  )
+    return null;
+  const scope = {
+    environment: supplied.environment,
+    deploymentInstance: supplied.deploymentInstance,
+    implementationSha: supplied.implementationSha,
+  };
+  const declaration = {
+    version: supplied.version,
+    environment: scope.environment,
+    deploymentInstance: scope.deploymentInstance,
+    bindingId: supplied.bindingId,
+    revision: supplied.revision,
+    active: supplied.active,
+  };
+  const reparsed = parseSupportEvidenceCleanupBinding(JSON.stringify(declaration), scope);
+  return reparsed.kind === "configured" && configuredBindingFields.every((key) => reparsed[key] === supplied[key])
+    ? reparsed
+    : null;
+}
+
 export function assertSupportEvidenceCleanupCapability(value: unknown): SupportEvidenceCleanupCapability {
   if (value === undefined) return { kind: "not-mounted" };
   if (!value || typeof value !== "object") throw new Error("Support evidence cleanup capability is malformed.");
   if ((value as { kind?: unknown }).kind === "not-mounted") return { kind: "not-mounted" };
-  const capability = value as Partial<Extract<SupportEvidenceCleanupCapability, { kind: "available" }>>;
+  const capability = value as Partial<Record<"kind" | "binding", unknown>> & {
+    storage?: Partial<SupportEvidenceCleanupStorage>;
+  };
+  const binding = reparseConfiguredBinding(capability.binding);
   if (
     capability.kind !== "available" ||
-    capability.binding?.kind !== "configured" ||
+    !binding ||
     typeof capability.storage?.deleteKeys !== "function" ||
     typeof capability.storage.verifyPrivate !== "function"
   )
     throw new Error(
-      "Support evidence cleanup capability must be 'available' with a configured binding or 'not-mounted'.",
+      "Support evidence cleanup capability must be 'available' with a complete, active, digest-consistent configured binding or 'not-mounted'.",
     );
-  const storage = capability.storage;
+  const storage = capability.storage as SupportEvidenceCleanupStorage;
   return {
     kind: "available",
-    binding: capability.binding,
+    binding,
     storage: { deleteKeys: (keys) => storage.deleteKeys(keys), verifyPrivate: (k, e) => storage.verifyPrivate(k, e) },
   };
 }
