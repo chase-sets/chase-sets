@@ -18,6 +18,7 @@ import {
   type ProjectionInlineApplyOutcomeSignal,
 } from "./inline-apply";
 import type { ContextProjectionGroup } from "./projection-groups";
+import type { ContextSubscriptionRunner } from "./subscriptions";
 
 export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
   Readonly<{
@@ -72,6 +73,8 @@ type ReadConsistencySubscriptionRunner = Readonly<{
   inlineApply?: boolean;
   errorPolicy?: string;
   areReceiptEventsApplied?: (eventIds: readonly string[]) => Promise<boolean>;
+  readReceiptApplicationOutputs?: ContextSubscriptionRunner["readReceiptApplicationOutputs"];
+  readOutputApplicationStatus?: ContextSubscriptionRunner["readOutputApplicationStatus"];
   refreshStatus: () => Promise<
     Readonly<{
       lastGlobalPosition: string;
@@ -191,7 +194,7 @@ export type ReadConsistencyRouteTuning = Readonly<{
   exactDependencyMode?: ReadConsistencyExactDependencyMode;
 }>;
 
-type ReadConsistencyAuditOutcome = "missing-receipt" | "fresh" | "timeout";
+type ReadConsistencyAuditOutcome = "missing-receipt" | "fresh" | "timeout" | "failed";
 
 export type ReadConsistencyAuditRecord = Readonly<{
   type: "read-after-write.freshness";
@@ -260,6 +263,13 @@ export class ProjectionFreshnessTimeoutError extends Error {
     super("Projection read model did not catch up to the requested write receipt before the freshness timeout.");
     this.name = "ProjectionFreshnessTimeoutError";
     this.details = details;
+  }
+}
+
+class ProjectionFreshnessFailedError extends Error {
+  public constructor(public readonly details: ProjectionFreshnessTimeoutDetails) {
+    super("A required event application failed.");
+    this.name = "ProjectionFreshnessFailedError";
   }
 }
 
@@ -530,35 +540,71 @@ export async function waitForProjectionFreshness(
   const targetContextNames = [...new Set(input.targetContextNames)];
   let wakeRequestCount = 0;
   let workSignalErrorPresent = false;
-  let workSignalsRequested = false;
+  let wakeBatches = 0;
+  let wakeBudgetUsedMs = 0;
+  const wokenCheckpoints = new Set<string>();
+  const reactionOutputs = new Map<ReadConsistencySubscriptionRunner, readonly string[]>();
+  const destinationTargets = new Map<ReadConsistencySubscriptionRunner, string | null>();
 
   while (true) {
-    const pending = await findPendingProjectionFreshness({
+    const { pending, failed } = await findPendingProjectionFreshness({
       projectionGroups: input.projectionGroups,
       targetContextNames,
       receipt: input.receipt,
       dependencies: input.dependencies,
+      reactionOutputs,
+      destinationTargets,
     });
+
+    if (failed.length > 0) {
+      throw new ProjectionFreshnessFailedError({
+        targetContextNames,
+        pending: failed,
+        waitMode: "exact-dependency",
+        dependencies: input.dependencies ?? [],
+        wakeRequestCount,
+        workSignalErrorPresent,
+      });
+    }
 
     if (pending.length === 0) {
       return { wakeRequestCount, workSignalErrorPresent };
     }
 
     // Check, then wake: only durable evidence of lagging checkpoints triggers
-    // a single wake/waiter batch for exactly the pending dependencies. The
+    // one initial wake/waiter batch and one newly pending destination batch. The
     // bounded durable poll below remains the unconditional fallback, so a
     // wake landing between the check and the registration cannot strand the
     // request.
     const requests = collectWakeRequests(pending);
 
-    if (!workSignalsRequested && input.workSignalGateway) {
-      workSignalsRequested = true;
-      if (requests.length > 0) {
+    const newlyPendingRequests = requests
+      .filter((request) => !wokenCheckpoints.has(request.checkpointKey))
+      .slice(0, MAX_WAKE_REQUESTS_PER_WAIT - wokenCheckpoints.size);
+    if (wakeBatches < 2 && input.workSignalGateway && newlyPendingRequests.length > 0) {
+      // The second batch is only for destinations discovered after reaction application.
+      const eligible =
+        wakeBatches === 0
+          ? newlyPendingRequests
+          : newlyPendingRequests.filter((request) =>
+              input.projectionGroups.some(
+                (group) =>
+                  group.handlerKind !== "reaction" &&
+                  group.subscriptionRunners.some(
+                    (runner) => runner.checkpointKey === request.checkpointKey && destinationTargets.has(runner),
+                  ),
+              ),
+            );
+      if (eligible.length > 0) {
+        wakeBatches += 1;
+        for (const request of eligible) wokenCheckpoints.add(request.checkpointKey);
+        const wakeStartedAt = nowMs();
         const gateway = input.workSignalGateway;
         const gatewayWork = (async () => {
-          wakeRequestCount = (await gateway.requestWake?.({ requests, metadata: input.workSignalMetadata })) ?? 0;
+          wakeRequestCount +=
+            (await gateway.requestWake?.({ requests: eligible, metadata: input.workSignalMetadata })) ?? 0;
           await gateway.registerWaiters?.({
-            requests,
+            requests: eligible,
             timeoutMs,
             metadata: input.workSignalMetadata,
           });
@@ -570,7 +616,10 @@ export async function waitForProjectionFreshness(
         // Bound the request-path cost: a slow control database must never
         // hold a freshness wait past its own budget. A batch that loses the
         // race keeps completing in the background.
-        const raceBudgetMs = Math.min(WAKE_REQUEST_RACE_BUDGET_MS, Math.max(0, timeoutMs - (nowMs() - startedAt)));
+        const raceBudgetMs = Math.min(
+          Math.max(0, WAKE_REQUEST_RACE_BUDGET_MS - wakeBudgetUsedMs),
+          Math.max(0, timeoutMs - (nowMs() - startedAt)),
+        );
         const settledInBudget = await Promise.race([
           gatewayWork.then(() => true),
           delay(raceBudgetMs).then(() => false),
@@ -578,6 +627,7 @@ export async function waitForProjectionFreshness(
         if (!settledInBudget) {
           workSignalErrorPresent = true;
         }
+        wakeBudgetUsedMs += Math.max(0, nowMs() - wakeStartedAt);
       }
     }
 
@@ -643,6 +693,8 @@ async function findPendingProjectionFreshness(
     targetContextNames: readonly string[];
     receipt: FreshWriteReceipt;
     dependencies?: readonly ResolvedReadConsistencyDependency[];
+    reactionOutputs: Map<ReadConsistencySubscriptionRunner, readonly string[]>;
+    destinationTargets: Map<ReadConsistencySubscriptionRunner, string | null>;
   }>,
 ) {
   const targetContextNameSet = new Set(input.targetContextNames);
@@ -658,22 +710,63 @@ async function findPendingProjectionFreshness(
     state: string;
     lastError: string | null;
   }[] = [];
+  const failed: typeof pending = [];
+  const selectedGroups = input.projectionGroups.filter(
+    (group) =>
+      targetContextNameSet.has(group.targetContextName) &&
+      (!dependencies ||
+        dependencies.some(
+          (dependency) =>
+            dependency.targetContextName === group.targetContextName &&
+            dependency.projectionName === group.projectionName,
+        )),
+  );
+  const outputPositionsByContext = new Map<string, Set<string>>();
+  let reactionsPending = false;
 
-  for (const group of input.projectionGroups) {
-    if (!targetContextNameSet.has(group.targetContextName)) {
-      continue;
+  if (dependencies) {
+    for (const group of selectedGroups.filter((candidate) => candidate.handlerKind === "reaction")) {
+      for (const runner of group.subscriptionRunners) {
+        const source = input.receipt.sources.find(
+          (candidate) => candidate.sourceContextName === runner.sourceContextName,
+        );
+        if (!source) continue;
+        const status = await runner.refreshStatus();
+        const item = {
+          targetContextName: group.targetContextName,
+          projectionName: group.projectionName,
+          sourceContextName: runner.sourceContextName,
+          checkpointKey: runner.checkpointKey ?? null,
+          requiredGlobalPosition: source.maxGlobalPosition,
+          sourceHeadGlobalPosition: status.sourceHeadGlobalPosition ?? null,
+          lastGlobalPosition: status.lastGlobalPosition,
+          state: status.state,
+          lastError: status.lastError ?? null,
+        };
+        let outputs = input.reactionOutputs.get(runner);
+        const application = await runner.readReceiptApplicationOutputs?.(source.eventIds);
+        if (application?.state === "failed") {
+          failed.push(item);
+          continue;
+        }
+        if (BigInt(status.lastGlobalPosition) < BigInt(source.maxGlobalPosition) || application?.state !== "applied") {
+          pending.push(item);
+          reactionsPending = true;
+          continue;
+        }
+        if (!outputs) {
+          outputs = application.outputPositions;
+          input.reactionOutputs.set(runner, outputs);
+        }
+        const positions = outputPositionsByContext.get(group.targetContextName) ?? new Set<string>();
+        for (const position of outputs) positions.add(position);
+        outputPositionsByContext.set(group.targetContextName, positions);
+      }
     }
+  }
 
-    if (
-      dependencies &&
-      !dependencies.some(
-        (dependency) =>
-          dependency.targetContextName === group.targetContextName &&
-          dependency.projectionName === group.projectionName,
-      )
-    ) {
-      continue;
-    }
+  for (const group of selectedGroups) {
+    if (dependencies && group.handlerKind === "reaction") continue;
 
     for (const source of input.receipt.sources) {
       for (const runner of group.subscriptionRunners.filter(
@@ -718,7 +811,39 @@ async function findPendingProjectionFreshness(
     }
   }
 
-  return pending;
+  if (dependencies && !reactionsPending && failed.length === 0) {
+    for (const group of selectedGroups.filter((candidate) => candidate.handlerKind !== "reaction")) {
+      for (const runner of group.subscriptionRunners) {
+        const positions = [...(outputPositionsByContext.get(runner.sourceContextName) ?? [])];
+        if (positions.length === 0) continue;
+        const application = await runner.readOutputApplicationStatus?.(positions);
+        // A real runner always exposes this port. An unknown adapter cannot establish freshness.
+        const required = input.destinationTargets.has(runner)
+          ? input.destinationTargets.get(runner)!
+          : application?.requiredGlobalPosition;
+        if (required !== undefined) input.destinationTargets.set(runner, required);
+        if (required === null) continue;
+        const status = await runner.refreshStatus();
+        const item = {
+          targetContextName: group.targetContextName,
+          projectionName: group.projectionName,
+          sourceContextName: runner.sourceContextName,
+          checkpointKey: runner.checkpointKey ?? null,
+          requiredGlobalPosition:
+            required ??
+            positions.reduce((highest, position) => (BigInt(position) > BigInt(highest) ? position : highest)),
+          sourceHeadGlobalPosition: status.sourceHeadGlobalPosition ?? null,
+          lastGlobalPosition: status.lastGlobalPosition,
+          state: status.state,
+          lastError: status.lastError ?? null,
+        };
+        if (required === undefined || BigInt(status.lastGlobalPosition) < BigInt(required)) pending.push(item);
+        else if (application?.failed) failed.push(item);
+      }
+    }
+  }
+
+  return { pending, failed };
 }
 
 export function attachReadConsistencyMiddleware(
@@ -849,10 +974,11 @@ export function attachReadConsistencyMiddleware(
           nowMs,
         });
       } catch (error) {
-        if (error instanceof ProjectionFreshnessTimeoutError) {
+        if (error instanceof ProjectionFreshnessTimeoutError || error instanceof ProjectionFreshnessFailedError) {
+          const applicationFailed = error instanceof ProjectionFreshnessFailedError;
           recordReadConsistencyAudit(options.recordReadConsistencyAudit, {
             type: "read-after-write.freshness",
-            outcome: "timeout",
+            outcome: applicationFailed ? "failed" : "timeout",
             method,
             mountPath,
             routePaths: routeFreshness.routePaths,
@@ -880,7 +1006,7 @@ export function attachReadConsistencyMiddleware(
             return json(
               {
                 error: {
-                  code: "projection_freshness_timeout",
+                  code: applicationFailed ? "internal_error" : "projection_freshness_timeout",
                   message: error.message,
                   // Public body: redact raw projection error text and internal
                   // checkpoint topology; the audit record keeps the detail.
@@ -897,7 +1023,7 @@ export function attachReadConsistencyMiddleware(
                   dependencies: error.details.dependencies,
                 },
               },
-              503,
+              applicationFailed ? 500 : 503,
             );
           }
         }

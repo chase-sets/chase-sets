@@ -31,7 +31,12 @@ describe("reaction output freshness", () => {
       destination,
       input: {
         projectionGroups: [
-          { targetContextName: "ordering", projectionName: "reaction", handlerKind: "reaction", subscriptionRunners: [reaction] },
+          {
+            targetContextName: "ordering",
+            projectionName: "reaction",
+            handlerKind: "reaction",
+            subscriptionRunners: [reaction],
+          },
           { targetContextName: "ordering", projectionName: "orders", subscriptionRunners: [destination] },
         ],
         targetContextNames: ["ordering"],
@@ -39,7 +44,10 @@ describe("reaction output freshness", () => {
           { targetContextName: "ordering", projectionName: "reaction" },
           { targetContextName: "ordering", projectionName: "orders" },
         ],
-        receipt: { observedAtMs: 1, sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "1000", eventIds: ["accepted"] }] },
+        receipt: {
+          observedAtMs: 1,
+          sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "1000", eventIds: ["accepted"] }],
+        },
         timeoutMs: 0,
         pollIntervalMs: 1,
       },
@@ -114,15 +122,21 @@ describe("reaction output freshness", () => {
           notification += 1;
           if (notification === 2) {
             reaction.readReceiptApplicationOutputs.mockResolvedValue({ state: "applied", outputPositions: ["99999"] });
-            destination.refreshStatus.mockResolvedValue({ lastGlobalPosition: "20", state: "caught-up", lastError: null });
+            destination.refreshStatus.mockResolvedValue({
+              lastGlobalPosition: "20",
+              state: "caught-up",
+              lastError: null,
+            });
           }
           return "notified";
         },
       },
     });
     expect(requestWake.mock.calls).toHaveLength(2);
-    expect(requestWake.mock.calls[1]).toEqual([expect.objectContaining({ requests: [expect.objectContaining({ requiredPosition: "20" })] })]);
-    expect(reaction.readReceiptApplicationOutputs).toHaveBeenCalledTimes(2);
+    expect(requestWake.mock.calls[1]).toEqual([
+      expect.objectContaining({ requests: [expect.objectContaining({ requiredPosition: "20" })] }),
+    ]);
+    expect(reaction.readReceiptApplicationOutputs).toHaveBeenCalledTimes(3);
     expect(destination.readOutputApplicationStatus).toHaveBeenLastCalledWith(["20"]);
   });
 });
