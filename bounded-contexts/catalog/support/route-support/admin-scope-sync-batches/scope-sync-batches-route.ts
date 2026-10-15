@@ -38,6 +38,7 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
       return { heldSetResolution: await api.resolveHeldSetExport<HeldSetResolution>(file), preview: null, error: null };
     }
     const formData = await request.formData();
+    if (formData.has("countCapture")) return await captureAction(api, formData);
     const intent = stringValue(formData.get("intent"));
     if (intent === "count-quote")
       return {
@@ -90,6 +91,48 @@ export async function action({ request }: ActionFunctionArgs): Promise<ScopeSync
       heldSetResolution: null,
       error: error instanceof Error ? error.message : "Scope Sync Batch command failed.",
     };
+  }
+}
+
+// Staging count-capture steps, engaged only by the explicit marker. The form is
+// closed per step and the API owns validation; every outcome is uncacheable and
+// every failure is one support-safe refusal.
+const captureFields: Readonly<Record<string, readonly string[]>> = {
+  "capture-baseline": ["intent", "countCapture", "scopeRecordId", "authority"],
+  "capture-initial-notice": ["intent", "countCapture"],
+  "capture-usage": ["intent", "countCapture"],
+};
+async function captureAction(api: ReturnType<typeof createCatalogRequestApiClient>, formData: FormData) {
+  const headers = { "Cache-Control": "no-store" };
+  try {
+    const intent = formData.get("intent");
+    const fields = typeof intent === "string" ? captureFields[intent] : undefined;
+    if (
+      formData.get("countCapture") !== "1" ||
+      !fields ||
+      [...formData.keys()].some((key) => !fields.includes(key) || formData.getAll(key).length !== 1) ||
+      fields.some((key) => typeof formData.get(key) !== "string")
+    )
+      throw new Error("capture-stopped");
+    if (intent === "capture-baseline") {
+      const authority = formData.get("authority") as string;
+      if (authority.length > 16_384) throw new Error("capture-stopped");
+      return Response.json(
+        await api.captureScopeSyncCountBaseline({
+          scopeRecordId: formData.get("scopeRecordId") as string,
+          authority: JSON.parse(authority) as unknown,
+        }),
+        { headers },
+      );
+    }
+    if (intent === "capture-initial-notice")
+      return Response.json(await api.captureScopeSyncCountInitialNotice(), { headers });
+    return Response.json(await api.captureScopeSyncCountUsage(), { headers });
+  } catch {
+    return Response.json(
+      { preview: null, heldSetResolution: null, error: "capture-stopped" },
+      { status: 409, headers },
+    );
   }
 }
 
