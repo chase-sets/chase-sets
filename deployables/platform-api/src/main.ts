@@ -92,7 +92,7 @@ import {
   recordUcpSignedWriteRejected,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "@chase-sets/auth/server";
-import { buildPlatformApiApp, createPlatformApiHost } from "./app";
+import { buildPlatformApiApp, createOfferLifecycleAdmission, createPlatformApiHost } from "./app";
 import {
   DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
   type IdentityHostPorts,
@@ -105,7 +105,6 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
-import { createOfferLifecycleAdmission } from "./offer-lifecycle-admission";
 import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {

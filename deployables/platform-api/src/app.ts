@@ -1315,3 +1315,5 @@ function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typ
     (value as { confirmationExperience?: unknown }).confirmationExperience === "processor-managed-form"
   );
 }
+
+export { createOfferLifecycleAdmission } from "./offer-lifecycle-admission";
