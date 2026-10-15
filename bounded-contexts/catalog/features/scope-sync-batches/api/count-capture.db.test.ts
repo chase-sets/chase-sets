@@ -275,8 +275,10 @@ describe("pre-confirm has no effect capability", () => {
       f.runtime.preConfirmPlannerRead({ ...input, planFingerprint }),
     );
     const statements = queries.mock.calls.map(([sql]) => String(sql));
-    // mockRestore clears recorded calls, so the count is taken first.
-    const connections = connect.mock.calls.length;
+    // mockRestore clears recorded calls, so they are read first. Pool.query borrows a
+    // client through connect(callback); a transaction checks one out with a bare connect().
+    const pooledQueries = connect.mock.calls.length;
+    const checkouts = connect.mock.calls.filter((args: readonly unknown[]) => typeof args[0] !== "function").length;
     queries.mockRestore();
     connect.mockRestore();
     expect(observation.value).toEqual({
@@ -299,8 +301,9 @@ describe("pre-confirm has no effect capability", () => {
     expect(observation.winners.every((winner) => winner.readAt === plannedAt)).toBe(true);
     expect(reserve).not.toHaveBeenCalled();
     expect(f.enqueue).not.toHaveBeenCalled();
-    expect(connections).toBe(0);
+    expect(checkouts).toBe(0);
     expect(statements.length).toBeGreaterThan(0);
+    expect(pooledQueries).toBe(statements.length);
     expect(
       statements.filter((sql) => /catalog_scope_sync_batch|\b(INSERT|UPDATE|DELETE)\b|advisory/i.test(sql)),
     ).toEqual([]);
