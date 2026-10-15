@@ -708,6 +708,38 @@ function publicPresenceOccurrences(names) {
   return names.filter((name) => name === publicPresenceWorkspaceName).length;
 }
 
+function withPublicPresenceAffected(names) {
+  const affected = new Set([...names, publicPresenceWorkspaceName]);
+  return listWorkspacePackages({ repoRoot })
+    .map(({ name }) => name)
+    .filter((name) => affected.has(name));
+}
+
+// Applies #9670's only permitted delta to an output map captured before it:
+// Public Presence joins the affected and direct lists once and the unit gate
+// turns on. An empty diff, and an empty list that requires DB tests (the
+// all-DB sweep), keep their captured outputs.
+function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
+  const affected = JSON.parse(baseOutputMap.affected_workspaces_json);
+  if (
+    JSON.parse(baseOutputMap.changed_files_json).length === 0 ||
+    (baseOutputMap.db_tests === "true" && affected.length === 0)
+  ) {
+    return baseOutputMap;
+  }
+  const nextAffected = withPublicPresenceAffected(affected);
+  const direct = JSON.parse(baseOutputMap.directly_affected_workspaces_json);
+  return {
+    ...baseOutputMap,
+    affected_workspaces: nextAffected.join(","),
+    affected_workspaces_json: JSON.stringify(nextAffected),
+    directly_affected_workspaces_json: JSON.stringify(
+      direct.includes(publicPresenceWorkspaceName) ? direct : [...direct, publicPresenceWorkspaceName].sort(),
+    ),
+    unit_tests: "true",
+  };
+}
+
 // The one delta #9670 permits: Public Presence joins the test-only, direct and
 // affected sets exactly once, plus the unit gate a nonempty affected set
 // implies. An empty diff stays unchanged, and so does an empty affected set
@@ -1305,7 +1337,7 @@ describe("change-scope", () => {
   it("includes provider credential vocabulary and its real Catalog dependents", () => {
     const scope = classifyChanges({ changedFiles: ["contracts/provider-credentials/index.ts"] });
 
-    expect(scope.directlyAffectedWorkspaces).toEqual(["@chase-sets/provider-credentials"]);
+    expect(scope.directlyAffectedWorkspaces).toEqual(["@chase-sets/provider-credentials", publicPresenceWorkspaceName]);
     expect(scope.affectedWorkspaces).toEqual(
       expect.arrayContaining([
         "@chase-sets/provider-credentials",
@@ -1701,9 +1733,10 @@ describe("change-scope", () => {
       expect(scope).toMatchObject({
         runtimeAffectedWorkspaces: [],
         devDependencyTestAffectedWorkspaces: [],
-        directlyAffectedWorkspaces: [],
+        // #9670: Public Presence's nonempty-diff enrollment is the only direct member.
+        directlyAffectedWorkspaces: [publicPresenceWorkspaceName],
         directlyRuntimeAffectedWorkspaces: [],
-        directlyTestOnlyAffectedWorkspaces: [],
+        directlyTestOnlyAffectedWorkspaces: [publicPresenceWorkspaceName],
         dbTestsRequired: true,
         e2eSuiteIds: [],
         e2eTestsRequired: false,
@@ -1764,7 +1797,7 @@ describe("change-scope", () => {
       "scripts/db-test-preflight.mjs",
     ]) {
       const scope = classifyChanges({ changedFiles: [nonMember] });
-      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(scope.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
       expect(scope.dbTestsRequired).toBe(false);
     }
   });
@@ -1778,7 +1811,7 @@ describe("change-scope", () => {
       );
     }
     const drift = classifyChanges({ changedFiles: ["scripts/release-health-db-duration-drift.mjs"] });
-    expect(drift.affectedWorkspaces).toEqual([]);
+    expect(drift.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
     expect(drift.dbTestsRequired).toBe(false);
   });
 
@@ -1790,8 +1823,8 @@ describe("change-scope", () => {
 
       expect(scope.dbTestsRequired).toBe(false);
       expect(outputs.db_tests).toBe("false");
-      expect(scope.affectedWorkspaces).toEqual([]);
-      expect(outputs).toEqual(baseCapturedNoWorkspaceOutputMap([lookalikePath]));
+      expect(scope.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
+      expect(outputs).toEqual(withPublicPresenceEnrollmentOutputs(baseCapturedNoWorkspaceOutputMap([lookalikePath])));
     },
   );
 
@@ -1839,18 +1872,20 @@ describe("change-scope", () => {
     (filename) => {
       const scope = classifyChanges({ changedFiles: [filename] });
       expect(scope.dbTestsRequired).toBe(false);
-      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(scope.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
     },
   );
 
-  it("keeps every output except db_tests byte-identical to the base commit for every corpus case", () => {
+  it("keeps every output except db_tests and Public Presence enrollment byte-identical to the base commit for every corpus case", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
       const outputs = toOutputMap(scope);
 
       expect(Object.keys(outputs)).toEqual(baseCapturedOutputMapKeyOrder);
       expect(outputs.db_tests).toBe(testCase.expectedDbTests);
-      expect({ ...outputs, db_tests: testCase.baseDbTests }).toEqual(testCase.baseOutputMap);
+      expect(outputs).toEqual(
+        withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
+      );
       expect(String(scope.dbTestsRequired)).toBe(testCase.expectedDbTests);
     }
   });
@@ -1864,8 +1899,11 @@ describe("change-scope", () => {
     expect(outputs.db_tests).toBe(dependentSliceBaseCapture.expectedDbTests);
     expect(scope.dbTestsRequired).toBe(true);
     expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
-    expect({ ...outputs, db_tests: dependentSliceBaseCapture.baseDbTests }).toEqual(
-      dependentSliceBaseCapture.baseOutputMap,
+    expect(outputs).toEqual(
+      withPublicPresenceEnrollmentOutputs({
+        ...dependentSliceBaseCapture.baseOutputMap,
+        db_tests: dependentSliceBaseCapture.expectedDbTests,
+      }),
     );
   });
 
@@ -2025,17 +2063,19 @@ describe("change-scope", () => {
         // the base-commit capture for that fan-out.
         expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
         expect(scope.affectedWorkspaces).toContain("@chase-sets/app-platform-api");
-        expect(outputs).toEqual({
-          ...baseCapturedSchedulerFanoutOutputMap(scope.changedFiles),
-          db_tests: "true",
-        });
+        expect(outputs).toEqual(
+          withPublicPresenceEnrollmentOutputs({
+            ...baseCapturedSchedulerFanoutOutputMap(scope.changedFiles),
+            db_tests: "true",
+          }),
+        );
 
         // Discriminator: the destination path alone carries none of this, so the
         // frozen source path recovered by `--no-renames` is what selects the job.
         const destinationOnly = classifyChanges({ changedFiles: [destinationPath] });
         expect(destinationOnly.dbTestsRequired).toBe(false);
         expect(toOutputMap(destinationOnly).db_tests).toBe("false");
-        expect(destinationOnly.affectedWorkspaces).toEqual([]);
+        expect(destinationOnly.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
       },
     );
   });
@@ -2096,7 +2136,7 @@ describe("change-scope", () => {
       expect(next.affectedWorkspaces).toEqual(prior.affectedWorkspaces);
       if (testCase.expectedAffectedWorkspaces) {
         expect(next.affectedWorkspaces, `${testCase.name}:${testCase.status} affected_workspaces`).toEqual(
-          testCase.expectedAffectedWorkspaces,
+          withPublicPresenceAffected(testCase.expectedAffectedWorkspaces),
         );
       }
 
@@ -2235,18 +2275,18 @@ describe("change-scope", () => {
     });
   });
 
-  it("keeps unrelated scripts-only changes out of workspace and gate fanout", () => {
+  it("keeps unrelated scripts-only changes to Public Presence test enrollment without other fanout", () => {
     const scope = classifyChanges({ changedFiles: ["scripts/unrelated-maintenance.mjs"] });
 
     expect(scope.localChecksRequired).toBe(true);
-    expect(scope.unitTestsRequired).toBe(false);
-    expect(scope.affectedWorkspaces).toEqual([]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
     expect(scope).toMatchObject({
       runtimeAffectedWorkspaces: [],
       devDependencyTestAffectedWorkspaces: [],
-      directlyAffectedWorkspaces: [],
+      directlyAffectedWorkspaces: [publicPresenceWorkspaceName],
       directlyRuntimeAffectedWorkspaces: [],
-      directlyTestOnlyAffectedWorkspaces: [],
+      directlyTestOnlyAffectedWorkspaces: [publicPresenceWorkspaceName],
       dbTestsRequired: false,
       e2eSuiteIds: [],
       e2eTestsRequired: false,
