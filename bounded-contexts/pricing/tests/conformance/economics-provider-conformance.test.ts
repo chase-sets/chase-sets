@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import type { ChannelProviderIdentity } from "@chase-sets/channels";
 import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -10,6 +10,7 @@ import {
   assertChannelSourceEconomics,
   assertSourceEconomics,
   type ChannelSourceEconomics,
+  type EconomicsProvider,
   type ResolveEconomicsRequest,
   type SourceEconomics,
 } from "../../features/economics/domain/contracts";
@@ -17,6 +18,14 @@ import { ECONOMICS_LAUNCH_POLICY_VALUE, toResolvedEconomicsPolicy } from "../../
 import { createEconomicsProviderRegistry } from "../../features/economics/domain/provider-registry";
 import { createNativeMarketplaceEconomicsProvider } from "../../features/economics/integrations/native-commercial-terms/provider";
 import { deepFreeze, describeConformance, type ConformanceProperty } from "./kit";
+
+vi.mock("../../features/economics/domain/provider-registry", async (importOriginal) => {
+  const { recordRegistrations } = await import("./kit");
+  return recordRegistrations(
+    await importOriginal<typeof import("../../features/economics/domain/provider-registry")>(),
+    "createEconomicsProviderRegistry",
+  );
+});
 
 type EconomicsProviderEntry = Readonly<{
   key: string;
@@ -77,11 +86,14 @@ const termsOutage: Pick<CommercialTermsResolver, "resolveListingTerms"> = {
   },
 };
 
+const channelKey = (identity: ChannelProviderIdentity) => `channel:${identity.providerKey}/${identity.environment}`;
+
 /**
- * The production composition wires the native marketplace provider and an
+ * The production composition wires the native marketplace provider beside an
  * Economics provider registry. No channel provider is registered there today,
- * so the registry answers its channel identity with its unregistered result;
- * a provider registered in `createEconomicsServices` is resolved here instead.
+ * so the registry answers its channel identity with its unregistered result.
+ * Both are declared unregistered below; an exact or fallback provider that
+ * `createEconomicsServices` registers fails the run until it gets an entry here.
  */
 function productionEconomicsProviders(): readonly EconomicsProviderEntry[] {
   const services = createEconomicsServices({
@@ -104,7 +116,7 @@ function productionEconomicsProviders(): readonly EconomicsProviderEntry[] {
       resolveWithoutSource: (request) => native(termsOutage).resolve(request),
     },
     {
-      key: `channel:${channelIdentity.providerKey}/${channelIdentity.environment}`,
+      key: channelKey(channelIdentity),
       request: channelRequest,
       identity: channelIdentity,
       prices: false,
@@ -160,4 +172,6 @@ describeConformance({
   entries: productionEconomicsProviders,
   key: (entry) => entry.key,
   properties: economicsProviderProperties,
+  registrationKey: (provider: EconomicsProvider) => channelKey(provider.identity),
+  unregisteredKeys: ["native-marketplace", channelKey(channelIdentity)],
 });

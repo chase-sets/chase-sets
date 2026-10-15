@@ -7,7 +7,7 @@ import {
 } from "../../features/repricing-policies/domain/goals/registry";
 import { goalDeclarations } from "./goal-declarations";
 import { goalConformanceProperties, goalVersionKey } from "./goal-properties";
-import { runConformance } from "./kit";
+import { recordRegistrations, registrationCoverage, runConformance, type ConformanceSuite } from "./kit";
 
 const incumbent = resolvePricingGoal("fixed-percentile", 1)!;
 const properties = goalConformanceProperties(goalDeclarations);
@@ -108,5 +108,137 @@ describe("Conformance Kit negative controls", () => {
     expect(await failedProperties(undeclared)).toContain(
       "answers a stable unavailable result for each missing input it declares",
     );
+  });
+});
+
+// The reviewer's synthetic registry (9654-review-r1 F2): a production composition
+// registers two entries, and a run exercises them or a hand-written subset.
+type SyntheticStyle = Readonly<{ id: string; conforms: boolean }>;
+function createSyntheticStyles(initial: readonly SyntheticStyle[] = []) {
+  const styles = new Map<string, SyntheticStyle>();
+  const registerSyntheticStyle = (style: SyntheticStyle): void => {
+    styles.set(style.id, style);
+  };
+  initial.forEach(registerSyntheticStyle);
+  return { registerSyntheticStyle, definitions: () => [...styles.values()] };
+}
+const covered = { id: "synthetic-covered", conforms: true };
+const uncovered = { id: "synthetic-uncovered", conforms: true };
+const recordedStyles = () =>
+  recordRegistrations({ createSyntheticStyles }, "createSyntheticStyles").createSyntheticStyles;
+const styleSuite = (
+  registry: typeof createSyntheticStyles,
+  entries: () => readonly SyntheticStyle[],
+  extra: Partial<ConformanceSuite<SyntheticStyle>> = {},
+): ConformanceSuite<SyntheticStyle> => ({
+  registry,
+  entries,
+  key: (style) => style.id,
+  properties: [
+    {
+      name: "synthetic entry contract",
+      check: (style) => {
+        if (!style.conforms) throw new Error("SYNTHETIC registered entry violates its contract");
+      },
+    },
+  ],
+  ...extra,
+});
+const notExercised = (entry: string) => ({
+  entry,
+  property: "production-registrations",
+  message: "Registered in production but not exercised by this run.",
+});
+
+describe("Conformance Kit production-registration binding", () => {
+  it("passes a run that exercises exactly the recorded production registrations", async () => {
+    const registry = recordedStyles();
+    const production = registry([covered, uncovered]);
+
+    expect(registry.name).toBe("createSyntheticStyles");
+    expect(await registrationCoverage(styleSuite(registry, () => production.definitions()))).toEqual([]);
+  });
+
+  it("fails the reviewer's omitted-entry run that exercises a hand-written subset", async () => {
+    const registry = recordedStyles();
+    const production = registry([covered, uncovered]);
+
+    expect(await registrationCoverage(styleSuite(registry, () => [production.definitions()[0]!]))).toEqual([
+      notExercised("synthetic-uncovered"),
+    ]);
+  });
+
+  it("records entries registered later through the registry's register member", async () => {
+    const registry = recordedStyles();
+    const production = registry([covered]);
+    production.registerSyntheticStyle({ id: "synthetic-late", conforms: true });
+
+    expect(await registrationCoverage(styleSuite(registry, () => [covered]))).toEqual([notExercised("synthetic-late")]);
+  });
+
+  it("fails an exercised entry production never registered unless the run declares it unregistered", async () => {
+    const registry = recordedStyles();
+    registry([covered]);
+    const sentinel = { id: "synthetic-sentinel", conforms: true };
+
+    expect(await registrationCoverage(styleSuite(registry, () => [covered, sentinel]))).toEqual([
+      {
+        entry: "synthetic-sentinel",
+        property: "production-registrations",
+        message: "Exercised but neither registered in production nor declared in unregisteredKeys.",
+      },
+    ]);
+    expect(
+      await registrationCoverage(
+        styleSuite(registry, () => [covered, sentinel], { unregisteredKeys: ["synthetic-sentinel"] }),
+      ),
+    ).toEqual([]);
+    expect(
+      await registrationCoverage(
+        styleSuite(registry, () => [covered, sentinel], {
+          unregisteredKeys: ["synthetic-sentinel", "synthetic-covered"],
+        }),
+      ),
+    ).toEqual([
+      {
+        entry: "synthetic-covered",
+        property: "production-registrations",
+        message: "Declared in unregisteredKeys but registered in production.",
+      },
+    ]);
+  });
+
+  it("fails a registry that was not recorded, or that no production composition constructed", async () => {
+    expect(await registrationCoverage(styleSuite(createSyntheticStyles, () => [covered]))).toEqual([
+      {
+        entry: null,
+        property: "production-registrations",
+        message:
+          "createSyntheticStyles is not recorded; vi.mock its module through recordRegistrations so the run reads every production registration.",
+      },
+    ]);
+    expect(await registrationCoverage(styleSuite(recordedStyles(), () => [covered]))).toEqual([
+      {
+        entry: null,
+        property: "production-registrations",
+        message:
+          "No production composition constructed createSyntheticStyles; load the composition that registers its entries.",
+      },
+    ]);
+  });
+
+  it("still fails a registered entry that violates its contract once the run exercises it", async () => {
+    const registry = recordedStyles();
+    const production = registry([covered, { ...uncovered, conforms: false }]);
+    const suite = styleSuite(registry, () => production.definitions());
+
+    expect(await registrationCoverage(suite)).toEqual([]);
+    expect(await runConformance(suite)).toEqual([
+      {
+        entry: "synthetic-uncovered",
+        property: "synthetic entry contract",
+        message: "SYNTHETIC registered entry violates its contract",
+      },
+    ]);
   });
 });

@@ -148,18 +148,26 @@ Health surface (#7709) is not yet on `main`, so no step proves a goal there.
 
 Each Pricing registry runs through the same harness
 (`tests/conformance/kit.ts`). Each run reads entries from the composition that
-registers them:
+registers them. Each run also passes its factory's module to `vi.mock` through
+the kit's `recordRegistrations`, which records every entry production
+registers: the factory's initial entries and every `register<Name>` call,
+including registration ports. The run then fails any recorded registration it
+does not exercise, and any exercised entry that is neither recorded nor listed
+in its `unregisteredKeys`:
 
 | Registry | Run | Contract checked |
 | --- | --- | --- |
 | Guardrail kinds (#9308) | `guardrail-conformance.test.ts` | Parameter validation, pure `apply` over `GuardrailContext`, acts on its hit and is inert otherwise, idempotent, records its hit in the evaluation, never raises a price above the seller's ceiling. Each authorable kind declares its scenario, which the `RepricingGuardrail` union enforces at compile time. |
 | Curve builders | `curve-builder-conformance.test.ts` | Identity, deterministic loads over frozen inputs, sales of the requested variant and language in one sale shape, the window's sales limit, no sales when no evidence is stored. |
-| Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. |
+| Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. The native marketplace provider and the unregistered-channel result are its `unregisteredKeys`; an exact or fallback provider registered in production fails the run until it has an entry. |
 | Forecast kinds (#7708) | None yet | The Forecast Kind registry is not yet on `main`. Once it lands in the registry shape below, the structure guard requires a run for it. |
 
 `scripts/check-structure/pricing-registry-conformance.mjs` finds every
-registry under `bounded-contexts/pricing` by code shape: a function that builds
-a `Map` or `Set` in its own body and returns a `register<Name>` member. It
-fails when a registry has no `describeConformance({ registry })` run. It also
-fails when a production module that constructs a registry is not imported by
-that registry's run.
+registry in Pricing production code by code shape: a function that builds a
+`Map` or `Set` in its own body and returns a `register<Name>` member. It fails
+when a registry has no `describeConformance({ registry })` run, or when that
+`describeConformance` is not the kit's export. It also fails when a run does
+not mock the registry's module for recording. Finally, it fails when a run does
+not execute a production module that constructs the registry. Executing means
+following value imports and re-exports, including `export *`, transitively.
+Type-only imports and imports whose bindings are never used do not count.

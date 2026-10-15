@@ -6,21 +6,17 @@ import {
   createCurveBuilderRegistry,
   type CurveBuilderDefinition,
 } from "../../features/market-estimates/domain/demand-curve/curve-builder-registry";
-import { deepFreeze, describeConformance, type ConformanceProperty } from "./kit";
+import { deepFreeze, describeConformance, recordedRegistrations, type ConformanceProperty } from "./kit";
 
 // The closer composes its built-in builders per pass; recording what reaches
-// the registry factory reads those production registrations without editing them.
-const registered = vi.hoisted(() => ({ definitions: [] as unknown[] }));
+// the registry factory and its registration port reads those production
+// registrations without editing them.
 vi.mock("../../features/market-estimates/domain/demand-curve/curve-builder-registry", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../features/market-estimates/domain/demand-curve/curve-builder-registry")>();
-  return {
-    ...actual,
-    createCurveBuilderRegistry: (initial: Parameters<typeof actual.createCurveBuilderRegistry>[0] = []) => {
-      registered.definitions.push(...initial);
-      return actual.createCurveBuilderRegistry(initial);
-    },
-  };
+  const { recordRegistrations } = await import("./kit");
+  return recordRegistrations(
+    await importOriginal<typeof import("../../features/market-estimates/domain/demand-curve/curve-builder-registry")>(),
+    "createCurveBuilderRegistry",
+  );
 });
 vi.mock("../../features/market-estimates/read-model/demand-curve-candidates", () => ({
   listDemandCurveCandidates: async () => ({ candidates: [], unmapped: 0 }),
@@ -110,7 +106,9 @@ function productionCurveBuilders(): Promise<readonly CurveBuilderDefinition[]> {
   production ??= (async () => {
     const closer = createDemandCurveCloser({ pool, eventStore: {} as PostgresEventStore, policies });
     await closer.runDemandCurveCloser({ now: asOf, limit: 1 });
-    const byId = new Map((registered.definitions as CurveBuilderDefinition[]).map((builder) => [builder.id, builder]));
+    const byId = new Map(
+      recordedRegistrations<CurveBuilderDefinition>(createCurveBuilderRegistry).map((builder) => [builder.id, builder]),
+    );
     return [...byId.values()];
   })();
   return production;

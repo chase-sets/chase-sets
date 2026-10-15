@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { moneyToCents } from "@chase-sets/primitives/money";
 import { evaluateRepricingListing } from "../../features/repricing-engine/domain/evaluate";
 import {
@@ -19,6 +19,14 @@ import {
   type GuardrailDefinition,
 } from "../../features/repricing-policies/domain/guardrails/registry";
 import { deepFreeze, describeConformance, runConformance, type ConformanceProperty } from "./kit";
+
+vi.mock("../../features/repricing-policies/domain/guardrails/registry", async (importOriginal) => {
+  const { recordRegistrations } = await import("./kit");
+  return recordRegistrations(
+    await importOriginal<typeof import("../../features/repricing-policies/domain/guardrails/registry")>(),
+    "createGuardrailRegistry",
+  );
+});
 
 type GuardrailScenario = Readonly<{
   parameters: Readonly<Record<string, number>>;

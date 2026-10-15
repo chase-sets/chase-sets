@@ -4,15 +4,20 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { collectFiles, defaultSkippedDirectories } from "../lib/files.mjs";
 
 // Every Pricing registry has a Conformance Kit run. A registry is found by its
-// code shape, never by its name or path: a function whose own body (not a
-// nested function) constructs a Map or Set and returns an object literal with a
-// `register<Name>` member. A run is a `describeConformance({ registry })` call
-// in a Pricing test file whose `registry` resolves, through imports and
-// re-exports, to the factory. A production module that calls a factory
-// registers entries there, so a run of that registry must import the module:
-// the run then reads those entries instead of a hand-written list.
+// code shape, never by its name or path: a production (non-test) function
+// whose own body (not a nested function) constructs a Map or Set and returns an
+// object literal with a `register<Name>` member. A run is a call in a Pricing
+// test file that resolves, through imports and re-exports, to the kit's
+// `describeConformance`, with a `registry` that resolves to the factory. The
+// run must `vi.mock` the factory's module through the kit's
+// `recordRegistrations`; the kit then fails any entry production registers that
+// the run does not exercise. A production module that calls a factory registers
+// entries there, so a run of that registry must execute the module through
+// value imports or re-exports.
 
 const contextRoot = "bounded-contexts/pricing";
+const kitExport = `${contextRoot}/tests/conformance/kit.ts#describeConformance`;
+const harnessName = "describeConformance";
 const sourceExtensions = new Set([".ts", ".tsx"]);
 const moduleSuffixes = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
 const registerMemberPattern = /^register[A-Z0-9_]/;
@@ -31,26 +36,44 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
     sources.set(file, ts.createSourceFile(file, await readFile(absolute, "utf8"), ts.ScriptTarget.Latest, true, kind));
   }
   const modules = new Map([...sources].map(([file, sourceFile]) => [file, moduleFacts(sourceFile, file, sources)]));
-  const resolveExport = (module, name, depth = 0) => {
+  // A local declaration or named re-export wins; otherwise each `export *` is
+  // searched, and two different origins make the name ambiguous, as in ES modules.
+  const resolveExport = (module, name, seen = new Set()) => {
     const facts = modules.get(module);
-    if (!facts || depth > 8) return null;
+    if (!facts || seen.has(`${module}#${name}`)) return null;
+    seen.add(`${module}#${name}`);
     const localName = facts.exportedNames.get(name);
     if (localName !== undefined) {
       const imported = facts.imports.get(localName);
-      return imported ? resolveExport(imported.module, imported.name, depth + 1) : `${module}#${localName}`;
+      return imported ? resolveExport(imported.module, imported.name, seen) : `${module}#${localName}`;
     }
     const reExport = facts.reExports.get(name);
-    return reExport ? resolveExport(reExport.module, reExport.name, depth + 1) : null;
+    if (reExport) return resolveExport(reExport.module, reExport.name, seen);
+    if (name === "default") return null;
+    const origins = new Set();
+    for (const starModule of facts.starExports) {
+      const origin = resolveExport(starModule, name, seen);
+      if (origin !== null && typeof origin === "object") return origin;
+      if (origin !== null) origins.add(origin);
+    }
+    if (origins.size <= 1) return [...origins][0] ?? null;
+    return { ambiguous: [...origins].sort() };
+  };
+  const reachableFrom = (start) => {
+    const reached = new Set([start]);
+    for (const module of reached) for (const next of modules.get(module).executedModules) reached.add(next);
+    return reached;
   };
 
-  const registries = [...modules].flatMap(([file, facts]) =>
-    facts.registryDeclarations.map(({ name, line, exported }) => ({ id: `${file}#${name}`, line, exported })),
-  );
+  const registries = [...modules]
+    .filter(([file]) => !isTestFile(file))
+    .flatMap(([file, facts]) =>
+      facts.registryDeclarations.map(({ name, line, exported }) => ({ id: `${file}#${name}`, line, exported })),
+    );
   const registryIds = new Set(registries.map(({ id }) => id));
   const runs = [];
   const constructions = [];
   const violations = [];
-  const specImports = new Map();
   for (const [file, facts] of modules) {
     const bindingTarget = (reference) => {
       const [head, member] = reference.split(".");
@@ -59,20 +82,40 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
       return facts.locals.get(head) ?? (imported ? resolveExport(imported.module, imported.name) : null);
     };
     if (isSpecFile(file)) {
-      specImports.set(file, facts.importedModules);
-      for (const call of facts.conformanceCalls) {
-        const target = call.registry === null ? null : bindingTarget(call.registry);
-        if (target !== null && registryIds.has(target)) runs.push({ file, registry: target });
+      for (const call of facts.calls) {
+        const harness = bindingTarget(call.callee);
+        if (harness !== kitExport) {
+          const [head, member] = call.callee.split(".");
+          if (member === harnessName || (member === undefined && facts.harnessAliases.has(head)))
+            violations.push(
+              `${file}:${call.line}: ${harnessName} resolves to '${describeTarget(harness)}', not the Conformance Kit export '${kitExport}', so this call runs nothing.`,
+            );
+          continue;
+        }
+        const reference = registryArgument(call.suite);
+        const target = reference === null ? null : bindingTarget(reference);
+        if (typeof target === "string" && registryIds.has(target)) {
+          runs.push({ file, registry: target });
+          const [factoryFile, name] = target.split("#");
+          if (!facts.mockedModules.has(factoryFile))
+            violations.push(
+              `${file}:${call.line}: conformance run of '${name}' does not record its production registrations; vi.mock("${moduleSpecifier(file, factoryFile)}") through recordRegistrations from the kit so the run fails any registered entry it does not exercise (see ${guide}).`,
+            );
+        } else if (target?.ambiguous)
+          violations.push(
+            `${file}:${call.line}: ${harnessName} registry '${reference}' is ambiguous: export * provides it from ${target.ambiguous.join(", ")}.`,
+          );
         else
           violations.push(
-            `${file}:${call.line}: describeConformance registry '${call.registry ?? "<missing>"}' does not resolve to a discovered Pricing registry.`,
+            `${file}:${call.line}: ${harnessName} registry '${reference ?? "<missing>"}' does not resolve to a discovered Pricing registry.`,
           );
       }
     }
     if (isTestFile(file)) continue;
     for (const call of facts.calls) {
       const target = bindingTarget(call.callee);
-      if (target !== null && registryIds.has(target)) constructions.push({ file, line: call.line, registry: target });
+      if (typeof target === "string" && registryIds.has(target))
+        constructions.push({ file, line: call.line, registry: target });
     }
   }
 
@@ -91,11 +134,13 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
         `${file}:${line}: Pricing registry '${name}' has no Conformance Kit run; call describeConformance({ registry: ${name}, ... }) from a Pricing test (see ${guide}).`,
       );
   }
+  const reachable = new Map();
   for (const construction of constructions) {
     const runFiles = [...new Set(runs.filter((run) => run.registry === construction.registry).map((run) => run.file))];
-    if (runFiles.length === 0 || runFiles.some((file) => specImports.get(file).has(construction.file))) continue;
+    for (const file of runFiles) if (!reachable.has(file)) reachable.set(file, reachableFrom(file));
+    if (runFiles.length === 0 || runFiles.some((file) => reachable.get(file).has(construction.file))) continue;
     violations.push(
-      `${construction.file}:${construction.line}: constructs Pricing registry '${construction.registry.split("#")[1]}' but no conformance run of that registry imports this module, so the entries registered here are never run; import it from the run in ${runFiles.join(", ")}.`,
+      `${construction.file}:${construction.line}: constructs Pricing registry '${construction.registry.split("#")[1]}' but no conformance run of that registry executes this module through value imports or re-exports, so the entries registered here are never run; import it from the run in ${runFiles.join(", ")}.`,
     );
   }
 
@@ -116,6 +161,16 @@ function isTestFile(file) {
   return isSpecFile(file) || file.split("/").includes("tests");
 }
 
+function describeTarget(target) {
+  if (target === null) return "<unresolved>";
+  return typeof target === "string" ? target : `ambiguous ${target.ambiguous.join(", ")}`;
+}
+
+function moduleSpecifier(fromFile, toFile) {
+  const relative = path.posix.relative(path.posix.dirname(fromFile), toFile).replace(/\.tsx?$/, "");
+  return relative.startsWith(".") ? relative : `./${relative}`;
+}
+
 function lineOf(node) {
   const sourceFile = node.getSourceFile();
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
@@ -129,41 +184,48 @@ function resolveModule(fromFile, specifier, sources) {
 
 function moduleFacts(sourceFile, file, sources) {
   const imports = new Map();
-  const importedModules = new Set();
+  const executedModules = new Set();
+  const valueImports = [];
   const reExports = new Map();
+  const starExports = [];
   const exportedNames = new Map();
   const locals = new Map();
+  const mockedModules = new Set();
+  const harnessAliases = new Set([harnessName]);
   const registryDeclarations = [];
   const calls = [];
-  const conformanceCalls = [];
-  const conformanceNames = new Set();
-  const importModule = (specifier) => {
-    const resolved = resolveModule(file, specifier, sources);
-    if (resolved) importedModules.add(resolved);
-    return resolved;
-  };
 
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
-      const module = importModule(statement.moduleSpecifier.text);
-      const bindings = statement.importClause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const element of bindings.elements) {
+      const clause = statement.importClause;
+      if (clause?.isTypeOnly) continue;
+      const module = resolveModule(file, statement.moduleSpecifier.text, sources);
+      // The TypeScript transform drops an import none of whose value bindings is
+      // used, so only a side-effect import or a used binding executes the module.
+      const bindings = [];
+      if (clause?.name) bindings.push(clause.name.text);
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        bindings.push(clause.namedBindings.name.text);
+        if (module) imports.set(clause.namedBindings.name.text, { module, name: "*" });
+      } else if (clause?.namedBindings) {
+        for (const element of clause.namedBindings.elements) {
+          if (element.isTypeOnly) continue;
           const importedName = (element.propertyName ?? element.name).text;
-          if (importedName === "describeConformance") conformanceNames.add(element.name.text);
+          if (importedName === harnessName) harnessAliases.add(element.name.text);
+          bindings.push(element.name.text);
           if (module) imports.set(element.name.text, { module, name: importedName });
         }
-      } else if (bindings && ts.isNamespaceImport(bindings) && module) {
-        imports.set(bindings.name.text, { module, name: "*" });
       }
-    } else if (
-      ts.isExportDeclaration(statement) &&
-      statement.exportClause &&
-      ts.isNamedExports(statement.exportClause)
-    ) {
+      if (module) valueImports.push({ module, bindings, sideEffect: clause === undefined });
+    } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       const specifier = statement.moduleSpecifier;
-      const module = specifier && ts.isStringLiteral(specifier) ? importModule(specifier.text) : null;
-      for (const element of statement.exportClause.elements) {
+      const module = specifier && ts.isStringLiteral(specifier) ? resolveModule(file, specifier.text, sources) : null;
+      const clause = statement.exportClause;
+      const elements =
+        clause && ts.isNamedExports(clause) ? clause.elements.filter((element) => !element.isTypeOnly) : [];
+      if (module && (!clause || !ts.isNamedExports(clause) || elements.length > 0)) executedModules.add(module);
+      if (!clause && module) starExports.push(module);
+      for (const element of elements) {
         const sourceName = (element.propertyName ?? element.name).text;
         if (module) reExports.set(element.name.text, { module, name: sourceName });
         else if (!specifier) exportedNames.set(element.name.text, sourceName);
@@ -197,20 +259,69 @@ function moduleFacts(sourceFile, file, sources) {
       const callee = unwrap(node.expression);
       const [firstArgument] = node.arguments;
       if (callee.kind === ts.SyntaxKind.ImportKeyword) {
-        if (firstArgument && ts.isStringLiteralLike(firstArgument)) importModule(firstArgument.text);
-      } else if (ts.isIdentifier(callee) && conformanceNames.has(callee.text)) {
-        conformanceCalls.push({ line: lineOf(node), registry: registryArgument(firstArgument) });
+        const module =
+          firstArgument && ts.isStringLiteralLike(firstArgument)
+            ? resolveModule(file, firstArgument.text, sources)
+            : null;
+        if (module) executedModules.add(module);
       } else if (ts.isIdentifier(callee)) {
-        calls.push({ callee: callee.text, line: lineOf(node) });
+        calls.push({ callee: callee.text, line: lineOf(node), suite: firstArgument });
       } else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
-        calls.push({ callee: `${callee.expression.text}.${callee.name.text}`, line: lineOf(node) });
+        const reference = `${callee.expression.text}.${callee.name.text}`;
+        if (reference === "vi.mock" && firstArgument && ts.isStringLiteralLike(firstArgument)) {
+          const module = resolveModule(file, firstArgument.text, sources);
+          if (module) mockedModules.add(module);
+        } else calls.push({ callee: reference, line: lineOf(node), suite: firstArgument });
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
 
-  return { imports, importedModules, reExports, exportedNames, locals, registryDeclarations, calls, conformanceCalls };
+  const usedValues = valueIdentifiers(sourceFile);
+  for (const { module, bindings, sideEffect } of valueImports)
+    if (sideEffect || bindings.some((binding) => usedValues.has(binding))) executedModules.add(module);
+
+  return {
+    imports,
+    executedModules,
+    reExports,
+    starExports,
+    exportedNames,
+    locals,
+    mockedModules,
+    harnessAliases,
+    registryDeclarations,
+    calls,
+  };
+}
+
+/** Identifiers read as values: type positions, imports and member or property names are skipped. */
+function valueIdentifiers(sourceFile) {
+  const names = new Set();
+  const visit = (node) => {
+    if (
+      ts.isImportDeclaration(node) ||
+      (ts.isExportDeclaration(node) && node.moduleSpecifier) ||
+      ts.isInterfaceDeclaration(node) ||
+      ts.isTypeAliasDeclaration(node) ||
+      (ts.isHeritageClause(node) && node.token === ts.SyntaxKind.ImplementsKeyword)
+    )
+      return;
+    if (ts.isExpressionWithTypeArguments(node)) return visit(node.expression);
+    if (ts.isTypeNode(node)) return;
+    if (ts.isIdentifier(node)) return void names.add(node.text);
+    const memberName =
+      ts.isPropertyAccessExpression(node) ||
+      ts.isPropertyAssignment(node) ||
+      ts.isMethodDeclaration(node) ||
+      ts.isPropertyDeclaration(node)
+        ? node.name
+        : null;
+    ts.forEachChild(node, (child) => (child === memberName ? undefined : visit(child)));
+  };
+  visit(sourceFile);
+  return names;
 }
 
 function registryArgument(suite) {
