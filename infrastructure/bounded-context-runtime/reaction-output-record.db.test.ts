@@ -34,6 +34,48 @@ describeDb("reaction application output record", () => {
     await closeMultiContextTestPools(pools);
   });
 
+  it("refuses a real deferred receipt event whose stream is blocked by an earlier application", async () => {
+    const events = await createPostgresEventStore({ pool: pools.marketplace }).appendToStream({
+      streamId: "marketplace.offer-deferred",
+      expectedVersion: "no_stream",
+      context: createAccountUserTestRequestContext().context!,
+      events: [1, 2].map((version) => ({ eventType: "marketplace.offer.accepted", payload: { version } })),
+    });
+    const runner = createSubscriptionRunner("ordering", pools.ordering, pools.marketplace, {
+      subscriptionName: "ordering.deferred",
+      projectionName: "ordering.deferred",
+      sourceContextName: "marketplace",
+      subscriptionVersion: 1,
+      handlerKind: "reaction",
+      errorPolicy: "strict-per-stream",
+      eventTypes: ["marketplace.offer.accepted"],
+      handlers: {
+        "marketplace.offer.accepted": async () => {
+          throw new Error("first application blocks its stream");
+        },
+      },
+    });
+    await runner.runOnce();
+    const rows = await pools.ordering.query<{ event_id: string; status: string }>(
+      "SELECT event_id, status FROM event_subscription_applications WHERE projection_key = $1",
+      [runner.checkpointKey],
+    );
+    expect(rows.rows).toEqual([{ event_id: String(events[0]!.eventId), status: "poison" }]);
+    expect(await runner.refreshStatus()).toMatchObject({
+      lastGlobalPosition: events[1]!.globalPosition,
+      blockedStreamCount: 1,
+      poisonEventCount: 1,
+    });
+    expect(await runner.readReceiptApplicationOutputs!([String(events[1]!.eventId)])).toEqual({
+      state: "failed",
+      outputPositions: [],
+    });
+    expect(await runner.readOutputApplicationStatus!([events[1]!.globalPosition])).toEqual({
+      failed: true,
+      requiredGlobalPosition: events[1]!.globalPosition,
+    });
+  });
+
   it.each(["one Order", "none", "throw after append", "projection"])("atomically records %s", async (control) => {
     const source = createPostgresEventStore({ pool: pools.marketplace });
     const target = createPostgresEventStore({ pool: createProjectionAwarePool(pools.ordering) });
