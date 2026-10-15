@@ -2865,6 +2865,44 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointWriteCountStore(targetPool).get("discovery-search-item-projection:catalog:v5")).toBe(2);
   });
 
+  it("records outputs through individual completion for a single pending reaction event", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const targetQuery = vi.spyOn(targetPool, "query");
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-cat_1"),
+    ]);
+    const handler = vi.fn(async () => undefined);
+
+    const runner = createSubscriptionRunner("ordering", targetPool as never, sourcePool as never, {
+      subscriptionName: "ordering.catalog-command-reaction",
+      handlerKind: "reaction",
+      sourceContextName: "catalog",
+      projectionName: "ordering-catalog-command-reaction",
+      reactionName: "ordering-catalog-command-reaction",
+      subscriptionVersion: 1,
+      handlers: { "catalog.catalog-item.published": handler },
+      eventTypes: ["catalog.catalog-item.published"],
+      streamPrefixes: ["catalog.item-"],
+      batchSize: 100,
+      checkpointBatchSize: 100,
+    });
+
+    await runner.runOnce();
+
+    const completionSql = targetQuery.mock.calls
+      .filter(
+        ([sql, params]) =>
+          String(sql).includes("UPDATE event_subscription_applications") &&
+          (String(sql).includes("SET status = 'applied'") || params?.[2] === "applied"),
+      )
+      .map(([sql]) => String(sql));
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(completionSql).toHaveLength(1);
+    expect(completionSql[0]).toContain("output_global_positions");
+    expect(completionSql[0]).not.toContain("event_id = ANY($2::text[])");
+  });
+
   it("applies reaction handlers one event per transaction even when configured for larger checkpoints", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
