@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { classifyChanges, listChangedFiles, toGithubOutputMap, toOutputMap } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
@@ -657,6 +658,121 @@ function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
   };
 }
 
+// The classifier before #9670 enrolled Public Presence for every nonempty
+// diff, imported verbatim from git so each old-versus-new delta is measured
+// against the real base rather than a hand-written oracle.
+const PUBLIC_PRESENCE_ENROLLMENT_BASE_SHA = "a4105366989c3e1afa4a46f5f64d4ddb1e300a93";
+const baseChangeScope = await (async () => {
+  let source = execFileSync("git", ["show", `${PUBLIC_PRESENCE_ENROLLMENT_BASE_SHA}:scripts/change-scope.mjs`], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  for (const specifier of ["./e2e-suites.mjs", "./lib/repo.mjs", "./lib/risk-policy-v1.mjs"]) {
+    const quoted = JSON.stringify(specifier);
+    if (!source.includes(quoted)) throw new Error(`Base classifier no longer imports ${specifier}`);
+    source = source.replace(quoted, JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts", specifier)).href));
+  }
+  const directory = mkdtempSync(path.join(tmpdir(), "change-scope-base-"));
+  try {
+    const file = path.join(directory, "change-scope.mjs");
+    writeFileSync(file, source);
+    return await import(pathToFileURL(file).href);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+})();
+
+const publicPresenceWorkspaceName = "@chase-sets/public-presence";
+
+// AC1's historical, cited and unrelated real paths: each omitted Public
+// Presence at the base commit while its own owners required Unit Tests.
+const publicPresenceReaderInputs = [
+  "bounded-contexts/identity/api.ts",
+  "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts",
+  "bounded-contexts/identity/GLOSSARY.md",
+  "bounded-contexts/authenticity/README.md",
+  "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+  "scripts/clean-logs.mjs",
+  "README.md",
+  "docs/runbooks/release-process-evolution.md",
+];
+
+const publicPresenceCitationFenceInputs = [
+  "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
+  "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
+  "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.test.ts",
+  "scripts/verify-static-surfaces.mjs",
+];
+
+function publicPresenceOccurrences(names) {
+  return names.filter((name) => name === publicPresenceWorkspaceName).length;
+}
+
+// The one delta #9670 permits: Public Presence joins the test-only, direct and
+// affected sets exactly once, plus the unit gate a nonempty affected set
+// implies. An empty diff stays unchanged, and so does an empty affected set
+// that requires DB tests, because an empty list is how both DB-profile
+// runners sweep every DB workspace.
+function expectedPublicPresenceEnrollment(base, workspaces) {
+  if (base.changedFiles.length === 0 || (base.dbTestsRequired && base.affectedWorkspaces.length === 0)) {
+    return base;
+  }
+  const withPublicPresence = (names) => [...new Set([...names, publicPresenceWorkspaceName])];
+  const affected = new Set(withPublicPresence(base.affectedWorkspaces));
+  return {
+    ...base,
+    affectedWorkspaces: workspaces.map(({ name }) => name).filter((name) => affected.has(name)),
+    directlyAffectedWorkspaces: withPublicPresence(base.directlyAffectedWorkspaces).sort(),
+    directlyTestOnlyAffectedWorkspaces: withPublicPresence(base.directlyTestOnlyAffectedWorkspaces).sort(),
+    unitTestsRequired: true,
+  };
+}
+
+function expectOnlyPublicPresenceEnrollmentDelta(changedFiles) {
+  const workspaces = listWorkspacePackages({ repoRoot });
+  const base = baseChangeScope.classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+  const head = classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+  const expected = expectedPublicPresenceEnrollment(base, workspaces);
+  const label = JSON.stringify(changedFiles);
+  expect(head, label).toEqual(expected);
+  expect(toGithubOutputMap(head), label).toEqual(baseChangeScope.toGithubOutputMap(expected));
+  return { base, head };
+}
+
+const publicPresenceEnrollmentCorpus = [
+  ...dbTestsOldVersusNewCorpus.map(({ name, changedFiles }) => ({ name, changedFiles })),
+  ...hostedDbAdmissionCorpusSeeds
+    .filter(({ eventName }) => eventName === "pull_request")
+    .map(({ name, changedFiles }) => ({ name: `hosted DB admission: ${name}`, changedFiles })),
+  ...lockedIntegrationParityCorpus.map(([status, ...paths]) => ({
+    name: `integration parity ${status} ${paths.join(" -> ")}`,
+    changedFiles: paths,
+  })),
+  ...schedulerVocabularyLookalikePaths.map((file) => ({ name: `scheduler lookalike ${file}`, changedFiles: [file] })),
+  ...publicPresenceReaderInputs.map((file) => ({ name: `reader input ${file}`, changedFiles: [file] })),
+  ...publicPresenceCitationFenceInputs.map((file) => ({ name: `citation fence ${file}`, changedFiles: [file] })),
+  { name: "real Stripe payments provider", changedFiles: ["infrastructure/stripe-payments/index.ts"] },
+  { name: "real provider webhook inbox", changedFiles: ["infrastructure/provider-webhook-inbox/index.ts"] },
+  { name: "real provider credentials contract", changedFiles: ["contracts/provider-credentials/index.ts"] },
+  { name: "mixed Identity runtime and docs", changedFiles: ["bounded-contexts/identity/api.ts", "README.md"] },
+  {
+    name: "mixed Public Presence owner runtime and unrelated script",
+    changedFiles: [
+      "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
+      "scripts/clean-logs.mjs",
+    ],
+  },
+  {
+    name: "platform-pr workflow with cited Identity glossary",
+    changedFiles: [".github/workflows/platform-pr.yml", "bounded-contexts/identity/GLOSSARY.md"],
+  },
+  {
+    name: "platform-pr workflow with docs and script",
+    changedFiles: [".github/workflows/platform-pr.yml", "README.md"],
+  },
+  { name: "blank normalized path", changedFiles: ["", "./"] },
+];
+
 function batchDurationSeconds(batch) {
   return batch
     .split(",")
@@ -693,34 +809,189 @@ describe("change-scope", () => {
     }
   });
 
-  it.each([
-    "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
-    "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
-    "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.test.ts",
-    "scripts/verify-static-surfaces.mjs",
-  ])("selects public-presence for citation fence input %s", (file) => {
+  it.each(publicPresenceCitationFenceInputs)("selects public-presence for citation fence input %s", (file) => {
     const scope = classifyChanges({ changedFiles: [file] });
-    expect(scope.affectedWorkspaces).toContain("@chase-sets/public-presence");
+    expect(publicPresenceOccurrences(scope.affectedWorkspaces)).toBe(1);
     expect(scope.unitTestsRequired).toBe(true);
   });
 
-  it("adds only test coverage for the static-surfaces citation fence input", () => {
-    const scope = classifyChanges({ changedFiles: ["scripts/verify-static-surfaces.mjs"] });
-    const baseline = classifyChanges({ changedFiles: ["scripts/clean-logs.mjs"] });
-    expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual(["@chase-sets/public-presence"]);
-    expect(scope.affectedWorkspaces).toEqual(["@chase-sets/public-presence"]);
-    expect(scope.runtimeAffectedWorkspaces).toEqual([]);
-    expect(baseline.affectedWorkspaces).toEqual([]);
-    expect(baseline.unitTestsRequired).toBe(false);
-    const nonUnitCapabilities = ({
-      changedFiles,
-      affectedWorkspaces,
-      directlyAffectedWorkspaces,
-      directlyTestOnlyAffectedWorkspaces,
-      unitTestsRequired,
-      ...capabilities
-    }) => capabilities;
-    expect(nonUnitCapabilities(scope)).toEqual(nonUnitCapabilities(baseline));
+  it.each(publicPresenceReaderInputs)("enrolls public-presence exactly once, test-only, for %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file] });
+    const output = toOutputMap(scope);
+    expect(publicPresenceOccurrences(scope.affectedWorkspaces)).toBe(1);
+    expect(publicPresenceOccurrences(output.affected_workspaces.split(","))).toBe(1);
+    expect(publicPresenceOccurrences(JSON.parse(output.affected_workspaces_json))).toBe(1);
+    expect(scope.directlyTestOnlyAffectedWorkspaces).toContain(publicPresenceWorkspaceName);
+    expect(scope.runtimeAffectedWorkspaces).not.toContain(publicPresenceWorkspaceName);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(output.unit_tests).toBe("true");
+  });
+
+  it.each(publicPresenceEnrollmentCorpus)(
+    "changes only Public Presence enrollment against the base for $name",
+    ({ changedFiles }) => {
+      expectOnlyPublicPresenceEnrollmentDelta(changedFiles);
+    },
+  );
+
+  it("exercises enrolled, already-selected, empty and DB-sweep inputs in the enrollment corpus", () => {
+    const outcomes = publicPresenceEnrollmentCorpus.map(({ changedFiles }) => {
+      const { base, head } = expectOnlyPublicPresenceEnrollmentDelta(changedFiles);
+      if (head.changedFiles.length === 0) return "empty";
+      if (publicPresenceOccurrences(head.affectedWorkspaces) === 0) return "db-sweep";
+      return publicPresenceOccurrences(base.affectedWorkspaces) === 0 ? "newly-enrolled" : "already-selected";
+    });
+    expect(new Set(outcomes)).toEqual(new Set(["empty", "db-sweep", "newly-enrolled", "already-selected"]));
+  });
+
+  it("enrolls public-presence for modified, added, deleted and both renamed paths from listChangedFiles", () => {
+    const temporary = mkdtempSync(path.join(tmpdir(), "change-scope-public-presence-"));
+    const git = (args) =>
+      execFileSync("git", args, { cwd: temporary, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const paths = [
+      "bounded-contexts/identity/api.ts",
+      "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts",
+      "bounded-contexts/identity/GLOSSARY.md",
+      "scripts/clean-logs.mjs",
+    ];
+    const writePaths = (content) => {
+      for (const file of paths) {
+        mkdirSync(path.dirname(path.join(temporary, file)), { recursive: true });
+        writeFileSync(path.join(temporary, file), content);
+      }
+    };
+    const commit = () => {
+      git(["add", "--all"]);
+      git([
+        "-c",
+        "user.name=Change scope fixture",
+        "-c",
+        "user.email=change-scope@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic path operation",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    const check = (base, head, expectedPaths) => {
+      const changedFiles = listChangedFiles(base, head, { cwd: temporary });
+      expect(changedFiles).toEqual([...expectedPaths].sort());
+      for (const files of [changedFiles, ...changedFiles.map((file) => [file])]) {
+        const scope = expectOnlyPublicPresenceEnrollmentDelta(files).head;
+        expect(publicPresenceOccurrences(scope.affectedWorkspaces), JSON.stringify(files)).toBe(1);
+      }
+    };
+    try {
+      git(["init", "--quiet"]);
+      writePaths("Synthetic fixture baseline\n");
+      let base = commit();
+      writePaths("Synthetic fixture modified\n");
+      let head = commit();
+      check(base, head, paths);
+      base = head;
+      for (const file of paths) rmSync(path.join(temporary, file));
+      head = commit();
+      check(base, head, paths);
+      base = head;
+      writePaths("Synthetic fixture added\n");
+      head = commit();
+      check(base, head, paths);
+      base = head;
+      mkdirSync(path.join(temporary, "archive"), { recursive: true });
+      git(["mv", "bounded-contexts/identity/api.ts", "archive/identity-api.ts"]);
+      head = commit();
+      check(base, head, ["archive/identity-api.ts", "bounded-contexts/identity/api.ts"]);
+      base = head;
+      const renamedIn = "bounded-contexts/pricing/features/repricing-engine/api/runtime-relocated.ts";
+      git(["mv", "archive/identity-api.ts", renamedIn]);
+      head = commit();
+      check(base, head, ["archive/identity-api.ts", renamedIn]);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  });
+
+  it("adds no phantom package for an empty diff or an inventory without public-presence", () => {
+    for (const changedFiles of [[], [""], ["./"]]) {
+      const scope = classifyChanges({ changedFiles });
+      expect(scope.changedFiles).toEqual([]);
+      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(scope.directlyAffectedWorkspaces).toEqual([]);
+      expect(scope.unitTestsRequired).toBe(false);
+    }
+    const baseDir = path.join(process.cwd(), "repo");
+    const changedFiles = ["README.md", "scripts/clean-logs.mjs", "bounded-contexts/identity/api.ts"];
+    for (const [workspaces, expectedAffected] of [
+      [[], []],
+      [[workspace(baseDir, "bounded-contexts", "identity", "@test/identity")], ["@test/identity"]],
+      // Discovery is the bounded-contexts/public-presence directory, not a name.
+      [[workspace(baseDir, "packages", "public-presence", "@test/public-presence")], []],
+    ]) {
+      const scope = classifyChanges({ baseDir, changedFiles, workspaces });
+      expect(scope.affectedWorkspaces).toEqual(expectedAffected);
+      expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual([]);
+      expect(scope.unitTestsRequired).toBe(expectedAffected.length > 0);
+    }
+  });
+
+  it("enrolls a discovered public-presence workspace without runtime, build, deploy or DB capability", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const dependent = workspace(baseDir, "deployables", "public-web", "@test/public-web", {
+      "@test/public-presence": "workspace:*",
+    });
+    for (const scripts of [
+      { test: "vitest run" },
+      { "test:db": "vitest run" },
+      { test: "vitest", "test:db": "a.md" },
+    ]) {
+      const publicPresence = workspaceWithScripts(
+        baseDir,
+        "bounded-contexts",
+        "public-presence",
+        "@test/public-presence",
+        scripts,
+      );
+      const scope = classifyChanges({ baseDir, changedFiles: ["a.md"], workspaces: [publicPresence, dependent] });
+      expect(scope.affectedWorkspaces).toEqual(["@test/public-presence"]);
+      expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual(["@test/public-presence"]);
+      expect(scope.runtimeAffectedWorkspaces).toEqual([]);
+      expect(scope.docsOnly).toBe(true);
+      expect(scope.unitTestsRequired).toBe(true);
+      expect(scope.dbTestsRequired).toBe(false);
+      expect(scope.buildRequired).toBe(false);
+      expect(scope.dockerImageRequired).toBe(false);
+      expect(scope.deployRequired).toBe(false);
+    }
+  });
+
+  it("keeps the platform-pr all-DB sweep unnarrowed, including where the static-surfaces branch narrowed it", () => {
+    for (const changedFiles of [
+      [".github/workflows/platform-pr.yml"],
+      [".github/workflows/platform-pr.yml", "README.md", "scripts/clean-logs.mjs"],
+    ]) {
+      const scope = classifyChanges({ changedFiles });
+      expect(scope.dbTestsRequired).toBe(true);
+      expect(scope.affectedWorkspaces).toEqual([]);
+      expect(scope.unitTestsRequired).toBe(false);
+    }
+    // Explicit delta: the removed exact-path branch enrolled Public Presence
+    // before DB selection, narrowing this sweep to a workspace without DB tests.
+    const changedFiles = [".github/workflows/platform-pr.yml", "scripts/verify-static-surfaces.mjs"];
+    const workspaces = listWorkspacePackages({ repoRoot });
+    const base = baseChangeScope.classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+    const head = classifyChanges({ changedFiles, workspaces, baseDir: repoRoot });
+    expect(base.affectedWorkspaces).toEqual([publicPresenceWorkspaceName]);
+    expect(base.dbTestsRequired).toBe(true);
+    expect(head).toEqual({
+      ...base,
+      affectedWorkspaces: [],
+      directlyAffectedWorkspaces: [],
+      directlyTestOnlyAffectedWorkspaces: [],
+      unitTestsRequired: false,
+    });
   });
 
   it("exposes the exact classifier result for the shared CI gate plan", () => {
