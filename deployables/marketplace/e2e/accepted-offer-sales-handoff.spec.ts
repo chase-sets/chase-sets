@@ -55,6 +55,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     const unique = randomUUID();
     const location = await committed(
       await page.request.post("/api/inventory/storage-locations", {
+        headers: { "Inventory-Mutation-Attempt": randomUUID() },
         data: {
           name: `Offer Sales ${unique}`,
           shipFromCode: `handoff-${unique}`,
@@ -69,6 +70,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     expect(freshLocations.status()).toBe(200);
     const stock = await committed(
       await page.request.post("/api/inventory/items", {
+        headers: { "Inventory-Mutation-Attempt": randomUUID() },
         data: {
           catalogItemId,
           selectedOptions: [],

@@ -18,7 +18,6 @@ import {
   type ProjectionInlineApplyOutcomeSignal,
 } from "./inline-apply";
 import type { ContextProjectionGroup } from "./projection-groups";
-import type { ContextSubscriptionRunner } from "./subscriptions";
 
 export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
   Readonly<{
@@ -73,8 +72,8 @@ type ReadConsistencySubscriptionRunner = Readonly<{
   inlineApply?: boolean;
   errorPolicy?: string;
   areReceiptEventsApplied?: (eventIds: readonly string[]) => Promise<boolean>;
-  readReceiptApplicationOutputs?: ContextSubscriptionRunner["readReceiptApplicationOutputs"];
-  readOutputApplicationStatus?: ContextSubscriptionRunner["readOutputApplicationStatus"];
+  readReceiptApplicationOutputs?: ContextProjectionGroup["subscriptionRunners"][number]["readReceiptApplicationOutputs"];
+  readOutputApplicationStatus?: ContextProjectionGroup["subscriptionRunners"][number]["readOutputApplicationStatus"];
   refreshStatus: () => Promise<
     Readonly<{
       lastGlobalPosition: string;
@@ -267,9 +266,12 @@ export class ProjectionFreshnessTimeoutError extends Error {
 }
 
 class ProjectionFreshnessFailedError extends Error {
-  public constructor(public readonly details: ProjectionFreshnessTimeoutDetails) {
+  public readonly details: ProjectionFreshnessTimeoutDetails;
+
+  public constructor(details: ProjectionFreshnessTimeoutDetails) {
     super("A required event application failed.");
     this.name = "ProjectionFreshnessFailedError";
+    this.details = details;
   }
 }
 
