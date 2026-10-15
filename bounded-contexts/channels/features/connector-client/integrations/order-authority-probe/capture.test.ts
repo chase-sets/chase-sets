@@ -1630,13 +1630,17 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
             .toBe(false);
           await operate("close");
         } finally {
+          const observation = JSON.stringify({
+            scenario,
+            stage: browser?.hostNativeRemovalStage() ?? null,
+            witness: browser?.hostNativeRemovalWitness() ?? null,
+          });
+          // One closed record, not a per-RPC stream or an acceptance artifact.
           console.log(
-            "selector-native-removal-witness/v1",
-            JSON.stringify({
-              scenario,
-              stage: browser?.hostNativeRemovalStage() ?? null,
-              witness: browser?.hostNativeRemovalWitness() ?? null,
-            }),
+            "selector-native-removal-witness/v2",
+            Buffer.byteLength(observation) <= 4000
+              ? observation
+              : JSON.stringify({ scenario, stage: null, witness: { transport: "OVERFLOW", record: null } }),
           );
           try {
             await endpoint?.close();

@@ -5,10 +5,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   symlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,8 +22,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:child_process")>();
   return {
     ...original,
-    execFileSync: (...args: Parameters<typeof original.execFileSync>) =>
-      args[0] === "python3" ? nativeRemoval(...args) : original.execFileSync(...args),
+    spawnSync: (...args: Parameters<typeof original.spawnSync>) => nativeRemoval(...args),
   };
 });
 
@@ -43,6 +44,33 @@ const command = (binding: { runId: string }, operation: string) => ({
   policyHash: control.POLICY.hash,
   operation,
 });
+const nativeWitness = () => ({
+  epoch: 1,
+  names: 2,
+  scanned: 2,
+  enumeration: "COMPLETE",
+  roots: [[1, "RETURNED", "NONE", 0, 0]] as (string | number | null)[][],
+  started: [1, 1, 1, "ROOT", "CHILDREN"],
+  completed: [1, 1, 1, "ROOT", "CHILDREN", "RETURNED", "NONE"],
+  caught: null,
+  caughtCount: 0,
+  terminal: null,
+  predicates: Array(10).fill("NOT_OBSERVED"),
+  lastPredicate: null,
+  dialogBits: Array(3).fill("NOT_OBSERVED"),
+  buttonBits: Array(5).fill("NOT_OBSERVED"),
+  identity: "INITIAL_MATCH",
+  budget: "WITHIN",
+  final: true,
+  integrity: "COMPLETE",
+});
+function nativeSlot(witness: unknown, nonce = "a".repeat(48), child = 5151) {
+  const payload = Buffer.from(JSON.stringify({ nonce, child: hash(`${nonce}:${child}`), witness }));
+  const frame = Buffer.alloc(4096);
+  frame.write(String(payload.length).padStart(8, "0") + hash(payload));
+  payload.copy(frame, 72);
+  return frame;
+}
 function fixture(mode = "S") {
   const root = mkdtempSync(path.join(scratch, "selector-capability-synthetic-"));
   const profile = path.join(root, "profile");
@@ -117,11 +145,12 @@ for node in tree.body:
     elif isinstance(node, ast.While): parts.append(node)
     elif isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and isinstance(node.test.left, ast.Name) and node.test.left.id == 'button': parts.append(node)
     elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple) and [item.id for item in node.targets[0].elts] == ['bus', 'dialog', 'path']: parts.append(node)
+    elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'site': parts.append(node)
     elif isinstance(node, ast.If) and any(isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == 'states' for item in ast.walk(node.test)): parts.append(node)
-assert len(parts) == 6
+assert len(parts) == 10
 nodes, touched, clock = input['nodes'], [], [0]
 root, bus = b'/org/a11y/atspi/accessible/root', b':1.1'
-scope = {'stage':'PROCESS', 'pid':42, 'until':4, 'button':None, 'root':root, 'accessible':b'org.a11y.atspi.Accessible', 'witness':{'owner':False,'window':False,'button':False}, 'emit_witness':lambda:None}
+scope = {'stage':'PROCESS', 'pid':42, 'until':4, 'button':None, 'root':root, 'accessible':b'org.a11y.atspi.Accessible', 'witness':{'epoch':0,'caughtCount':0,'integrity':'COMPLETE'}, 'predicate_keys':list(range(10)), 'emit_witness':lambda:None, 'decoded':lambda fn:fn, 'predicate':lambda key,value:value}
 def children(owner, path):
     touched.append(path.decode())
     return [value.encode() for value in (input['roots'] if path == root else nodes[path.decode()]['children'])]
@@ -182,7 +211,10 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
       "for path in [node for candidate in candidates for node in [candidate] + children(bus, candidate)]:",
     );
     expect(run(broad).accepted).toBe(false);
-    const unguardedInactive = source.replace("if not states(bus, path, 1, 25, 30): continue", "if False: continue");
+    const unguardedInactive = source.replace(
+      "if not predicate('dialogState', states(bus, path, 1, 25, 30)): continue",
+      "if False: continue",
+    );
     expect(run(unguardedInactive).accepted).toBe(false);
     const wrong = { ...nodes, dialog: { ...nodes.dialog, name: "SYNTHETIC_UNKNOWN_ACTIVE_PROMPT" } };
     expect(run(source, wrong).accepted).toBe(false);
@@ -217,29 +249,15 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
   });
   it("native discovery admits only closed host witnesses, never private output or an inferred native action", async () => {
     const exposed = await mutant("function readNativeRemovalOutput(", "export function readNativeRemovalOutput(");
-    const witness = {
-      process: true,
-      bus: true,
-      owner: false,
-      window: false,
-      button: false,
-      action: false,
-      names: 2,
-      owners: 0,
-      error: "NO_OWNER",
-      budget: "WITHIN",
-    };
+    const witness = nativeWitness();
     const output = (value: unknown) => `NATIVE_REMOVE_WITNESS:${JSON.stringify(value)}\nNATIVE_REMOVE_REFUSED:OWNER\n`;
     expect(exposed.readNativeRemovalOutput(output(witness))).toEqual({
       result: "NATIVE_REMOVE_REFUSED:OWNER",
       witness,
     });
     const partial = `NATIVE_REMOVE_WITNESS:${JSON.stringify(witness)}\n`;
-    expect(exposed.readNativeRemovalOutput(partial)).toEqual({ result: "", witness });
-    expect(exposed.readNativeRemovalOutput(partial + output(witness))).toEqual({
-      result: "NATIVE_REMOVE_REFUSED:OWNER",
-      witness,
-    });
+    expect(exposed.readNativeRemovalOutput(partial)).toEqual({ result: "", witness: null });
+    expect(exposed.readNativeRemovalOutput(partial + output(witness))).toEqual({ result: "", witness: null });
     expect(
       exposed.readNativeRemovalOutput('NATIVE_REMOVE_WITNESS:{"private":"SYNTHETIC_PRIVATE"}\n' + output(witness)),
     ).toEqual({
@@ -248,10 +266,10 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
     });
     for (const value of [
       { ...witness, title: "SYNTHETIC_PRIVATE_TITLE" },
-      { ...witness, error: "SYNTHETIC_PRIVATE_EXCEPTION" },
+      { ...witness, terminal: ["ROLE", "SYNTHETIC_PRIVATE_EXCEPTION"] },
       { ...witness, names: 65 },
-      { ...witness, owners: -1 },
-      { ...witness, action: "true" },
+      { ...witness, roots: [[1, "RPC_FAILED", "SYNTHETIC_PRIVATE_ERROR", null, null]] },
+      { ...witness, final: "true" },
       { ...witness, budget: "UNKNOWN" },
     ])
       expect(exposed.readNativeRemovalOutput(output(value))).toEqual({ result: "", witness: null });
@@ -262,6 +280,115 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
     });
     expect(exposed.readNativeRemovalOutput("x".repeat(4097))).toEqual({ result: "", witness: null });
     expect(exposed.readNativeRemovalOutput(partial.repeat(10))).toEqual({ result: "", witness: null });
+    expect(exposed.readNativeRemovalOutput(output(witness).trimEnd())).toEqual({ result: "", witness: null });
+    expect(
+      exposed.readNativeRemovalOutput(`NATIVE_REMOVE_WITNESS:${JSON.stringify(witness)}\nNATIVE_REMOVE_SENT\n`),
+    ).toEqual({ result: "", witness: null });
+  });
+  it("accepts only intact, fixed-size, current-child diagnostic slots and retains an honest in-flight call", async () => {
+    const exposed = await mutant("function readNativeRemovalSlot(", "export function readNativeRemovalSlot(");
+    const witness = {
+      ...nativeWitness(),
+      final: false,
+      enumeration: "IN_FLIGHT",
+      started: [2, 1, 2, "ROOT", "CHILDREN"],
+      roots: [
+        [1, "RETURNED", "NONE", 0, 0],
+        [2, "IN_FLIGHT", "NONE", null, null],
+      ],
+    };
+    const frame = nativeSlot(witness);
+    expect(exposed.readNativeRemovalSlot(frame, "a".repeat(48), 5151)).toEqual(witness);
+    expect(witness.started[0]).toBeGreaterThan(witness.completed[0]);
+    for (const invalid of [
+      frame.subarray(0, 4095),
+      Buffer.concat([frame, Buffer.alloc(1)]),
+      Buffer.alloc(4096),
+      nativeSlot({ ...witness, private: "SYNTHETIC_PRIVATE" }),
+    ])
+      expect(exposed.readNativeRemovalSlot(invalid, "a".repeat(48), 5151)).toBeNull();
+    const torn = Buffer.from(frame);
+    torn[80] ^= 1;
+    expect(exposed.readNativeRemovalSlot(torn, "a".repeat(48), 5151)).toBeNull();
+    const tail = Buffer.from(frame);
+    tail[4095] = 1;
+    expect(exposed.readNativeRemovalSlot(tail, "a".repeat(48), 5151)).toBeNull();
+    expect(exposed.readNativeRemovalSlot(frame, "b".repeat(48), 5151)).toBeNull();
+    expect(exposed.readNativeRemovalSlot(frame, "a".repeat(48), 5152)).toBeNull();
+  });
+  it("executes correlated root, descendant, false-predicate and interrupted-call diagnostic discriminators", async () => {
+    const exposed = await mutant("const nativeRemovalScript =", "export const nativeRemovalScript =");
+    const { execFileSync: execute } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const harness = String.raw`
+import ast, copy, hashlib, json, sys, types
+input = json.load(sys.stdin)
+tree = ast.parse(input['script'])
+prefix = []
+for node in tree.body:
+    if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple):
+        if any(isinstance(item, ast.Name) and item.id == 'profile' for item in node.targets[0].elts): break
+    if not isinstance(node, ast.Import) and not (isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute)): prefix.append(node)
+functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in ['call', 'children']]
+frames, inflight, clock = [], [], [0]
+scope = dict(json=json, hashlib=hashlib, sys=types.SimpleNamespace(argv=['a'*48]), time=types.SimpleNamespace(time=lambda:clock[0]), os=types.SimpleNamespace(getpid=lambda:5151, pwrite=lambda fd,data,offset:frames.append(data)))
+exec(compile(ast.Module(body=prefix+functions, type_ignores=[]), '<production diagnostic functions; synthetic RPC only>', 'exec'), scope)
+scope.update(until=30, site='ROOT', ordinal=1, root=b'/SYNTHETIC_ROOT', accessible=b'SYNTHETIC_ACCESSIBLE', connection=None,
+    ptr=lambda:True, c=types.SimpleNamespace(byref=lambda value:value, string_at=lambda value:value),
+    remote_error=lambda error:b'org.freedesktop.DBus.Error.UnknownMethod', free=lambda value:None,
+    child=lambda value,index:value[index], length=len, unref=lambda value:None, string=lambda value,unused:value)
+scope['witness'].update(epoch=1, names=2, scanned=2, enumeration='IN_FLIGHT', roots=[[1,'NOT_STARTED','NONE',None,None]])
+replies = [None, ([],), None]
+def invoke(*args):
+    inflight.append(copy.deepcopy(scope['witness']))
+    return replies.pop(0)
+scope['invoke'] = invoke
+try: scope['children'](b':SYNTHETIC_UNSUPPORTED', scope['root'])
+except RuntimeError:
+    scope['witness'].update(caught=scope['witness']['completed'], caughtCount=1)
+scope['ordinal'] = 2
+scope['witness']['roots'].append([2,'NOT_STARTED','NONE',None,None])
+scope['children'](b':SYNTHETIC_SUPPORTED', scope['root'])
+after_root = copy.deepcopy(scope['witness'])
+scope['site'] = 'TOP_LEVEL_WIDGET'
+try: scope['children'](b':SYNTHETIC_SUPPORTED', b'/SYNTHETIC_DESCENDANT')
+except RuntimeError: pass
+after_descendant = copy.deepcopy(scope['witness'])
+scope['predicate']('dialogState', False)
+after_false = copy.deepcopy(scope['witness'])
+def killed(*args): raise SystemExit()
+scope['invoke'] = killed
+scope['site'] = 'DIRECT_CHILD'
+try: scope['call'](b':SYNTHETIC_SUPPORTED', b'/SYNTHETIC_CHILD', b'SYNTHETIC_ACCESSIBLE', b'GetRoleName')
+except SystemExit: pass
+print(json.dumps(dict(root=after_root, descendant=after_descendant, falsePredicate=after_false, interrupted=scope['witness'], inflight=inflight, slotSize=max(map(len,frames)), synthetic=True, nativeExecution=False)))
+`;
+    const result = JSON.parse(
+      execute(process.platform === "win32" ? "python" : "python3", ["-c", harness], {
+        input: JSON.stringify({ script: exposed.nativeRemovalScript }),
+        encoding: "utf8",
+      }),
+    );
+    expect(result).toMatchObject({ synthetic: true, nativeExecution: false, slotSize: 4096 });
+    expect(result.root.roots).toEqual([
+      [1, "RPC_FAILED", "UNKNOWN_METHOD", null, null],
+      [2, "RETURNED", "NONE", 0, 0],
+    ]);
+    expect(result.root.completed.slice(3)).toEqual(["ROOT", "CHILDREN", "RETURNED", "NONE"]);
+    expect(result.root.caught.slice(3)).toEqual(["ROOT", "CHILDREN", "RPC_FAILED", "UNKNOWN_METHOD"]);
+    expect(result.descendant.roots).toEqual(result.root.roots);
+    expect(result.descendant.completed.slice(3)).toEqual([
+      "TOP_LEVEL_WIDGET",
+      "CHILDREN",
+      "RPC_FAILED",
+      "UNKNOWN_METHOD",
+    ]);
+    expect(result.falsePredicate.predicates[2]).toBe("FALSE");
+    expect(result.falsePredicate.predicates[1]).toBe("NOT_OBSERVED");
+    expect(result.interrupted.started.slice(3)).toEqual(["DIRECT_CHILD", "ROLE"]);
+    expect(result.interrupted.completed).toEqual(result.descendant.completed);
+    expect(result.interrupted.started[0]).toBeGreaterThan(result.interrupted.completed[0]);
+    expect(result.inflight[0].roots[0][1]).toBe("IN_FLIGHT");
+    expect(result.inflight[0].completed).toBeNull();
   });
   it("explicitly admits browser-local metadata; missing automation flag mutant fails", async () => {
     expect(control.hermeticChromiumArguments.filter((arg: string) => arg === "--enable-automation")).toHaveLength(1);
@@ -330,6 +457,12 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
     "native-executable-unreadable-refusal",
     "native-library-refusal",
     "native-window-refusal",
+    "native-interrupted",
+    "native-torn-slot",
+    "native-foreign-child",
+    "native-stale-slot",
+    "native-malformed-with-slot",
+    "native-oversized-output",
     "missing-private-bus",
     "missing-native-action-mutant",
     "missing-foreground-mutant",
@@ -443,44 +576,76 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
         throw new Error(`Unexpected WebUI confirmation selector: ${selector}`);
       },
     };
-    nativeRemoval.mockReset().mockImplementation((_executable: string, args: string[]) => {
-      expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
-      expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
-      expect(args[7]).toBe("4242");
-      expect(args[1]).not.toContain("'cmdline'");
-      expect(args[1]).toContain("actual_executable != executable");
-      expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
-      expect(args[1]).toContain("b'GetName', params(index)");
-      expect(args[1]).not.toContain("b'GetActions'");
-      expect(args[1]).toContain("if default != [0]: raise RuntimeError()");
-      expect(rendered).toBe(true);
-      if (result === "native-exception")
-        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
-          stdout: "NATIVE_REMOVE_REFUSED:ROLE\n",
+    nativeRemoval
+      .mockReset()
+      .mockImplementation((_executable: string, args: string[], options: { stdio: unknown[] }) => {
+        expect(args.slice(2, 5)).toEqual([f.binding.profile, f.binding.executable, f.binding.executableHash]);
+        expect(args[5]).toBe("unix:path=/SYNTHETIC_PRIVATE_BUS");
+        expect(args[7]).toBe("4242");
+        expect(args[1]).not.toContain("'cmdline'");
+        expect(args[1]).toContain("actual_executable != executable");
+        expect(args[1]).toContain("b'Remove \"Chase Sets Temporary Order Authority Capture\"?'");
+        expect(args[1]).toContain("b'GetName', params(index)");
+        expect(args[1]).not.toContain("b'GetActions'");
+        expect(args[1]).toContain("if default != [0]: raise RuntimeError()");
+        expect(rendered).toBe(true);
+        const witness = nativeWitness();
+        if (
+          [
+            "confirmed",
+            "native-torn-slot",
+            "native-foreign-child",
+            "native-stale-slot",
+            "native-malformed-with-slot",
+            "native-oversized-output",
+          ].includes(result)
+        ) {
+          witness.identity = "ACTION_RECHECK_MATCH";
+          witness.predicates[8] = witness.predicates[9] = "TRUE";
+          witness.started = [2, 1, 1, "REMOVE_BUTTON", "DO_ACTION"];
+          witness.completed = [2, 1, 1, "REMOVE_BUTTON", "DO_ACTION", "RETURNED", "NONE"];
+        }
+        if (result === "native-interrupted") {
+          witness.final = false;
+          witness.enumeration = "IN_FLIGHT";
+          witness.started = [2, 1, 2, "ROOT", "CHILDREN"];
+          witness.roots.push([2, "IN_FLIGHT", "NONE", null, null]);
+        }
+        const slot = nativeSlot(witness, result === "native-stale-slot" ? "a".repeat(48) : args[8]);
+        if (result === "native-torn-slot") slot[80] ^= 1;
+        writeSync(options.stdio[3] as number, slot, 0, 4096, 0);
+        const response = (terminal: string, status = 1) => ({
+          pid: 5151,
+          stdout: `NATIVE_REMOVE_WITNESS:${JSON.stringify(witness)}\n${terminal}\n`,
+          status,
+          signal: null,
         });
-      if (result === "unknown-output") return "SYNTHETIC_PRIVATE_NATIVE_OUTPUT";
-      if (result === "native-executable-unreadable-refusal")
-        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
-          stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_UNREADABLE\n",
-        });
-      if (result === "retired-native-stage")
-        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
-          stdout: "NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_ALIAS\n",
-        });
-      if (
-        result === "native-executable-refusal" ||
-        result === "native-library-refusal" ||
-        result === "native-window-refusal"
-      )
-        throw Object.assign(new Error("SYNTHETIC_PRIVATE_NATIVE_EXCEPTION"), {
-          stdout: `NATIVE_REMOVE_REFUSED:${result === "native-executable-refusal" ? "PROCESS_EXECUTABLE" : result === "native-window-refusal" ? "WINDOW" : "LIBRARY"}\n`,
-        });
-      removed = true;
-      return "NATIVE_REMOVE_SENT\n";
-    });
+        if (result === "native-interrupted") return { pid: 5151, stdout: "", status: null, signal: "SIGTERM" };
+        if (result === "native-foreign-child") return { ...response("NATIVE_REMOVE_SENT", 0), pid: 5152 };
+        if (result === "native-malformed-with-slot")
+          return { ...response("NATIVE_REMOVE_SENT", 0), stdout: "NATIVE_REMOVE_WITNESS:{" };
+        if (result === "native-oversized-output")
+          return { ...response("NATIVE_REMOVE_SENT", 0), stdout: "x".repeat(4097) };
+        if (["native-torn-slot", "native-stale-slot"].includes(result)) return response("NATIVE_REMOVE_SENT", 0);
+        if (result === "native-exception") return response("NATIVE_REMOVE_REFUSED:ROLE");
+        if (result === "unknown-output")
+          return { ...response("NATIVE_REMOVE_SENT"), stdout: "SYNTHETIC_PRIVATE_NATIVE_OUTPUT" };
+        if (result === "native-executable-unreadable-refusal")
+          return response("NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_UNREADABLE");
+        if (result === "retired-native-stage") return response("NATIVE_REMOVE_REFUSED:PROCESS_EXECUTABLE_ALIAS");
+        if (["native-executable-refusal", "native-library-refusal", "native-window-refusal"].includes(result))
+          return response(
+            `NATIVE_REMOVE_REFUSED:${result === "native-executable-refusal" ? "PROCESS_EXECUTABLE" : result === "native-window-refusal" ? "WINDOW" : "LIBRARY"}`,
+          );
+        removed = true;
+        return response("NATIVE_REMOVE_SENT", 0);
+      });
     const browserControl =
       result === "missing-native-action-mutant"
-        ? await mutant("execFileSync(", '(() => "NATIVE_REMOVE_SENT")(')
+        ? await mutant(
+            "const child = spawnSync(",
+            'const child = (() => ({ status: 0, pid: 5151, stdout: "NATIVE_REMOVE_SENT\\n" }))(',
+          )
         : result === "missing-foreground-mutant"
           ? await mutant("await bounded(() => page.bringToFront());", "await Promise.resolve();")
           : control;
@@ -500,8 +665,7 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
       deadline: Date.parse(f.binding.startedAt) + 900000,
       nativeSessionBus: result === "missing-private-bus" ? undefined : "unix:path=/SYNTHETIC_PRIVATE_BUS",
     });
-    if (["missing-native-action-mutant", "missing-foreground-mutant"].includes(result))
-      await expect(browser.action("remove")).rejects.toThrow("to be true");
+    if (result === "missing-foreground-mutant") await expect(browser.action("remove")).rejects.toThrow("to be true");
     else if (result === "confirmed") expect(await browser.action("remove")).toEqual({ ok: true });
     else
       await expect(browser.action("remove")).rejects.toMatchObject({
@@ -527,8 +691,14 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
         "native-executable-unreadable-refusal": "PROCESS_EXECUTABLE_UNREADABLE",
         "native-library-refusal": "LIBRARY",
         "native-window-refusal": "WINDOW",
+        "native-interrupted": "UNKNOWN",
+        "native-torn-slot": "UNKNOWN",
+        "native-foreign-child": "UNKNOWN",
+        "native-stale-slot": "UNKNOWN",
+        "native-malformed-with-slot": "UNKNOWN",
+        "native-oversized-output": "UNKNOWN",
         "missing-private-bus": "CAPABILITY",
-        "missing-native-action-mutant": "SENT",
+        "missing-native-action-mutant": "UNKNOWN",
         "missing-foreground-mutant": "WINDOW",
         "foreground-private-exception": "WINDOW",
         "profile-mismatch": "PROCESS_PROFILE",
@@ -542,6 +712,28 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
         "mode-S-refusal": null,
       }[result],
     );
+    if (result === "native-interrupted")
+      expect(browser.hostNativeRemovalWitness()).toMatchObject({
+        transport: "INTERRUPTED",
+        record: {
+          final: false,
+          started: [2, 1, 2, "ROOT", "CHILDREN"],
+          completed: [1, 1, 1, "ROOT", "CHILDREN", "RETURNED", "NONE"],
+        },
+      });
+    if (
+      [
+        "native-torn-slot",
+        "native-foreign-child",
+        "native-stale-slot",
+        "native-malformed-with-slot",
+        "native-oversized-output",
+      ].includes(result)
+    )
+      expect(browser.hostNativeRemovalWitness()).toEqual({ transport: "REFUSED", record: null });
+    expect(
+      readdirSync(path.dirname(f.root)).filter((name) => name.startsWith(`${path.basename(f.root)}.remove-`)),
+    ).toEqual([]);
     expect(nativeRemoval).toHaveBeenCalledTimes(
       preflightRefused ||
         [

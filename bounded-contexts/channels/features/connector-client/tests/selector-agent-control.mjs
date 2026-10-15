@@ -1,14 +1,18 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
   fsyncSync,
+  fstatSync,
+  ftruncateSync,
   lstatSync,
   openSync,
   readFileSync,
+  readSync,
   realpathSync,
   readdirSync,
+  unlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
@@ -580,16 +584,60 @@ const nativeRemovalStages = [
 const nativeRemovalScript = String.raw`
 import ctypes as c, hashlib, json, os, pathlib, sys, time
 stage = 'PROCESS'
-witness = dict(process=False, bus=False, owner=False, window=False, button=False, action=False, names=0, owners=0, error='NONE')
 until = time.time()
-def emit_witness():
-    print('NATIVE_REMOVE_WITNESS:' + json.dumps(dict(witness, budget='EXHAUSTED' if time.time() >= until else 'WITHIN'), separators=(',', ':')), flush=True)
-def refused(kind, value, trace):
+nonce = sys.argv[-1]
+site, ordinal, sequence, candidate = None, 0, 0, 0
+predicate_keys = ['role', 'title', 'dialogState', 'uniqueButton', 'buttonState', 'actionInterfaceRead', 'actionCount', 'actionDefault', 'actionAttempt', 'actionResult']
+witness = dict(epoch=0, names=0, scanned=0, enumeration='NOT_STARTED', roots=[], started=None, completed=None, caught=None, caughtCount=0, terminal=None, predicates=['NOT_OBSERVED'] * len(predicate_keys), dialogBits=['NOT_OBSERVED'] * 3, buttonBits=['NOT_OBSERVED'] * 5, lastPredicate=None, identity='NOT_OBSERVED', budget='WITHIN', final=False, integrity='COMPLETE')
+
+def emit_witness(final=False):
+    witness['budget'] = 'EXHAUSTED' if time.time() >= until else 'WITHIN'
+    witness['final'] = final
+    if sequence > 65535 or witness['epoch'] > 4095 or witness['caughtCount'] > 65535 or candidate > 65535:
+        witness['integrity'] = 'OVERFLOW'
+    child_binding = hashlib.sha256((nonce + ':' + str(os.getpid())).encode()).hexdigest()
+    payload = json.dumps(dict(nonce=nonce, child=child_binding, witness=witness), separators=(',', ':')).encode('ascii')
+    if len(payload) > 3600:
+        witness['integrity'] = 'OVERFLOW'
+        witness['roots'] = []
+        payload = json.dumps(dict(nonce=nonce, child=child_binding, witness=witness), separators=(',', ':')).encode('ascii')
+    frame = ('%08d' % len(payload)).encode() + hashlib.sha256(payload).hexdigest().encode() + payload
+    os.pwrite(3, frame + bytes(4096 - len(frame)), 0)
+
+def predicate(key, value):
+    index = predicate_keys.index(key)
+    observed = 'TRUE' if value else 'FALSE'
+    old = witness['predicates'][index]
+    witness['predicates'][index] = observed if old in ['NOT_OBSERVED', observed] else 'MIXED'
+    witness['lastPredicate'] = [min(witness['epoch'], 4095), ordinal, min(candidate, 65535), key, bool(value)]
     emit_witness()
+    return value
+
+def complete(outcome, error='NONE'):
+    witness['completed'] = witness['started'][:5] + [outcome, error]
+    if site == 'ROOT' and witness['started'][4] == 'CHILDREN' and witness['roots']:
+        witness['roots'][-1][1:3] = [outcome, error]
+    emit_witness()
+
+def decoded(fn):
+    def read(*args):
+        try: value = fn(*args)
+        except BaseException:
+            if witness['completed'] and witness['completed'][0] == min(sequence, 65535) and witness['completed'][5] == 'RPC_RETURNED': complete('DECODE_FAILED')
+            raise
+        complete('RETURNED')
+        return value
+    return read
+def refused(kind, value, trace):
+    failed = witness['completed']
+    witness['terminal'] = [stage, 'RPC_FAILED' if failed and failed[0] == min(sequence, 65535) and failed[5] == 'RPC_FAILED' else 'UNCLASSIFIED']
+    emit_witness(True)
+    print('NATIVE_REMOVE_WITNESS:' + json.dumps(witness, separators=(',', ':')), flush=True)
     print('NATIVE_REMOVE_REFUSED:' + stage)
 sys.excepthook = refused
-profile, executable, digest, address, until, pid = sys.argv[1:]
+profile, executable, digest, address, until, pid, nonce = sys.argv[1:]
 until = float(until)
+emit_witness()
 if not address.startswith('unix:') or not os.path.isabs(profile): raise RuntimeError()
 pid = int(pid)
 if pid <= 0: raise RuntimeError()
@@ -601,7 +649,7 @@ stage = 'PROCESS_DIGEST'
 if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
 stage = 'PROCESS_START'
 started = pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19]
-witness['process'] = True
+witness['identity'] = 'INITIAL_MATCH'
 emit_witness()
 stage = 'LIBRARY'
 gio, glib = c.CDLL('libgio-2.0.so.0'), c.CDLL('libglib-2.0.so.0')
@@ -627,33 +675,48 @@ error = ptr()
 stage = 'CONNECT'
 connection = api(gio, 'g_dbus_connection_new_for_address_sync', ptr, [c.c_char_p, c.c_int, ptr, ptr, c.POINTER(ptr)])(address.encode(), 9, None, None, c.byref(error))
 if not connection: raise RuntimeError()
-witness['bus'] = True
 emit_witness()
 invoke = api(gio, 'g_dbus_connection_call_sync', ptr, [ptr, c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p, ptr, ptr, c.c_int, c.c_int, ptr, c.POINTER(ptr)])
 remote_error = api(gio, 'g_dbus_error_get_remote_error', ptr, [ptr])
 free = api(glib, 'g_free', None, [ptr])
-def call(bus, path, interface, method, arguments=None):
-    global stage
+def call(bus, path, interface, method, arguments=None, category=None):
+    global stage, sequence
     stage = {b'ListNames':'LIST', b'GetConnectionUnixProcessID':'OWNER', b'GetChildren':'CHILDREN', b'GetRoleName':'ROLE', b'GetState':'WINDOW', b'Get':'NAME', b'GetName':'ACTIONS', b'DoAction':'ACTION'}[method]
+    category = category or {b'ListNames':'LIST', b'GetConnectionUnixProcessID':'OWNER', b'GetChildren':'CHILDREN', b'GetRoleName':'ROLE', b'GetState':'STATE', b'Get':'NAME', b'GetName':'ACTION_NAME', b'DoAction':'DO_ACTION'}[method]
     error = ptr()
     remaining = int((until - time.time()) * 1000)
     if remaining <= 0: raise RuntimeError()
+    if sequence == 65535: witness['integrity'] = 'OVERFLOW'
+    sequence = min(sequence + 1, 65535)
+    witness['started'] = [min(sequence, 65535), min(witness['epoch'], 4095), ordinal, site, category]
+    if site == 'ROOT' and category == 'CHILDREN' and witness['roots']: witness['roots'][-1][1:3] = ['IN_FLIGHT', 'NONE']
+    emit_witness()
+    remaining = int((until - time.time()) * 1000)
+    if remaining <= 0: raise RuntimeError()
+    if category == 'DO_ACTION':
+        predicate('actionAttempt', True)
+        remaining = int((until - time.time()) * 1000)
+        if remaining <= 0: raise RuntimeError()
     reply = invoke(connection, bus, path, interface, method, arguments, None, 0, remaining, None, c.byref(error))
     if not reply:
-        witness['error'] = 'OTHER'
+        code = 'OTHER'
         if error:
             remote = remote_error(error)
             if remote:
                 try:
                     known = {b'org.freedesktop.DBus.Error.NameHasNoOwner':'NO_OWNER', b'org.freedesktop.DBus.Error.AccessDenied':'ACCESS_DENIED', b'org.freedesktop.DBus.Error.UnknownMethod':'UNKNOWN_METHOD', b'org.freedesktop.DBus.Error.InvalidArgs':'INVALID_ARGS', b'org.freedesktop.DBus.Error.NoReply':'NO_REPLY', b'org.freedesktop.DBus.Error.ServiceUnknown':'SERVICE_UNKNOWN'}
-                    witness['error'] = known.get(c.string_at(remote), 'OTHER')
+                    code = known.get(c.string_at(remote), 'OTHER')
                 finally: free(remote)
+        complete('RPC_FAILED', code)
         raise RuntimeError()
+    complete('RPC_RETURNED')
     return reply
+@decoded
 def scalar(reply, reader):
     value = child(reply, 0)
     try: return reader(value)
     finally: unref(value); unref(reply)
+@decoded
 def strings(reply):
     array = child(reply, 0)
     try:
@@ -666,6 +729,7 @@ def strings(reply):
     finally: unref(array); unref(reply)
 accessible = b'org.a11y.atspi.Accessible'
 root = b'/org/a11y/atspi/accessible/root'
+@decoded
 def children(bus, path):
     reply = call(bus, path, accessible, b'GetChildren'); array = child(reply, 0)
     try:
@@ -676,9 +740,11 @@ def children(bus, path):
             try:
                 if string(owner, None) == bus: result.append(string(location, None))
             finally: unref(owner); unref(location); unref(item)
+        if site == 'ROOT' and witness['roots']: witness['roots'][-1][3:] = [length(array), len(result)]
         return result
     finally: unref(array); unref(reply)
 def role(bus, path): return scalar(call(bus, path, accessible, b'GetRoleName'), lambda value: string(value, None))
+@decoded
 def states(bus, path, *required):
     reply = call(bus, path, accessible, b'GetState'); array = child(reply, 0)
     try:
@@ -688,10 +754,17 @@ def states(bus, path, *required):
             word = child(array, i)
             try: words.append(uint(word))
             finally: unref(word)
+        key = 'dialogBits' if site == 'EXACT_DIALOG' else 'buttonBits' if site == 'REMOVE_BUTTON' else None
+        if key:
+            for index, value in enumerate(required):
+                observed = 'TRUE' if words[value // 32] & (1 << (value % 32)) else 'FALSE'
+                old = witness[key][index]
+                witness[key][index] = observed if old in ['NOT_OBSERVED', observed] else 'MIXED'
         return all(words[value // 32] & (1 << (value % 32)) for value in required)
     finally: unref(array); unref(reply)
+@decoded
 def property_value(bus, path, interface, key, reader):
-    reply = call(bus, path, b'org.freedesktop.DBus.Properties', b'Get', params(interface, key))
+    reply = call(bus, path, b'org.freedesktop.DBus.Properties', b'Get', params(interface, key), category='ACTION_COUNT' if key == b'NActions' else 'NAME')
     wrapped = child(reply, 0); value = variant(wrapped)
     try: return reader(value)
     finally: unref(value); unref(wrapped); unref(reply)
@@ -700,129 +773,298 @@ title = b'Remove "Chase Sets Temporary Order Authority Capture"?'
 button = None
 while time.time() < until:
     matches = []
+    owned_ordinals, dialog_candidates = {}, {}
+    if witness['epoch'] == 4095: witness['integrity'] = 'OVERFLOW'
+    witness.update(epoch=min(witness['epoch'] + 1, 4095), names=0, scanned=0, enumeration='IN_FLIGHT', roots=[], predicates=['NOT_OBSERVED'] * len(predicate_keys), dialogBits=['NOT_OBSERVED'] * 3, buttonBits=['NOT_OBSERVED'] * 5, lastPredicate=None)
+    site, ordinal, candidate = None, 0, 0
     names = strings(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'ListNames'))
     if len(names) > 64: raise RuntimeError()
     witness['names'] = len(names)
-    witness['owners'] = 0
+    if len(set(names)) != len(names): witness['integrity'] = 'AMBIGUOUS'
     for bus in names:
+        site = None
+        ordinal += 1
+        witness['scanned'] = ordinal
         if not bus.startswith(b':'): continue
         if scalar(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'GetConnectionUnixProcessID', params(bus)), uint) != pid: continue
-        witness['owners'] += 1
-        if not witness['owner']:
-            witness['owner'] = True
-            emit_witness()
+        witness['roots'].append([ordinal, 'NOT_STARTED', 'NONE', None, None])
+        owned_ordinals[bus] = ordinal
+        emit_witness()
+        site = 'ROOT'
         try: windows = children(bus, root)
-        except RuntimeError: continue
+        except RuntimeError:
+            witness['caught'] = witness['completed']
+            if witness['caughtCount'] == 65535: witness['integrity'] = 'OVERFLOW'
+            witness['caughtCount'] = min(witness['caughtCount'] + 1, 65535)
+            emit_witness()
+            continue
         if len(windows) > 64: raise RuntimeError()
         # Chromium exposes top-level RootViews through the application and
         # child-widget RootViews directly below them, not through page DOM.
         candidates = []
         for window in windows:
+            site = 'TOP_LEVEL_WIDGET'
             candidates.extend([window] + children(bus, window))
         if len(candidates) > 1024: raise RuntimeError()
         seen = set()
         for path in candidates:
             if path in seen: continue
             seen.add(path)
-            if role(bus, path) == b'dialog':
+            if candidate == 65535: witness['integrity'] = 'OVERFLOW'
+            candidate = min(candidate + 1, 65535)
+            site = 'TOP_LEVEL_WIDGET' if path in windows else 'DIRECT_CHILD'
+            if predicate('role', role(bus, path) == b'dialog'):
                 # ACTIVE, SHOWING, VISIBLE: inactive browser UI is not a prompt
                 # to act on; an unknown active native dialog still refuses.
-                if not states(bus, path, 1, 25, 30): continue
+                site = 'EXACT_DIALOG'
+                if not predicate('dialogState', states(bus, path, 1, 25, 30)): continue
                 actual = name(bus, path); stage = 'DIALOG'
+                predicate('title', actual == title)
                 if actual != title: raise RuntimeError()
-                if not witness['window']:
-                    witness['window'] = True
-                    emit_witness()
                 buttons, nested, visited = [], children(bus, path), set()
                 while nested:
                     node = nested.pop()
                     if node in visited: continue
                     visited.add(node)
                     if len(visited) > 512: raise RuntimeError()
+                    site = 'REMOVE_BUTTON'
                     if role(bus, node) == b'push button' and name(bus, node) == b'Remove': buttons.append(node)
+                    site = 'EXACT_DIALOG'
                     nested.extend(children(bus, node))
                 stage = 'BUTTON'
+                predicate('uniqueButton', len(buttons) == 1)
                 if len(buttons) != 1: raise RuntimeError()
-                if not witness['button']:
-                    witness['button'] = True
-                    emit_witness()
                 matches.append((bus, path, buttons[0]))
+                dialog_candidates[path] = candidate
+    witness['enumeration'] = 'COMPLETE'
+    emit_witness()
     if len(matches) > 1: raise RuntimeError()
     if matches: button = matches[0]; break
     time.sleep(.025)
 if button is None: raise RuntimeError()
 stage = 'IDENTITY'
 if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
+witness['identity'] = 'RECHECK_MATCH'
 bus, dialog, path = button
+ordinal, candidate = owned_ordinals[bus], dialog_candidates[dialog]
 # GetActions returns localized names, which Chromium leaves empty for native
 # actions. GetName is the nonlocalized, stable action identity.
 action_interface = b'org.a11y.atspi.Action'
-count = property_value(bus, path, action_interface, b'NActions', int_value)
+site = 'REMOVE_BUTTON'
+try: count = property_value(bus, path, action_interface, b'NActions', int_value)
+except RuntimeError:
+    predicate('actionInterfaceRead', False)
+    raise
+predicate('actionInterfaceRead', True)
 stage = 'ACTIONS'
+predicate('actionCount', 1 <= count <= 16)
 if not 1 <= count <= 16: raise RuntimeError()
 default = []
 for index in range(count):
     label = scalar(call(bus, path, action_interface, b'GetName', params(index)), lambda value: string(value, None))
     if label in [b'click', b'press']: default.append(index)
+predicate('actionDefault', default == [0])
 if default != [0]: raise RuntimeError()
 stage = 'WINDOW'
-if not states(bus, dialog, 1, 25, 30) or not states(bus, path, 8, 12, 24, 25, 30): raise RuntimeError()
+site = 'EXACT_DIALOG'
+if not predicate('dialogState', states(bus, dialog, 1, 25, 30)): raise RuntimeError()
+site = 'REMOVE_BUTTON'
+if not predicate('buttonState', states(bus, path, 8, 12, 24, 25, 30)): raise RuntimeError()
 stage = 'IDENTITY'
 if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
-if not scalar(call(bus, path, b'org.a11y.atspi.Action', b'DoAction', params(0)), boolean): raise RuntimeError()
-witness['action'] = True
-emit_witness()
+witness['identity'] = 'ACTION_RECHECK_MATCH'
+if not predicate('actionResult', scalar(call(bus, path, b'org.a11y.atspi.Action', b'DoAction', params(0)), boolean)): raise RuntimeError()
+emit_witness(True)
+print('NATIVE_REMOVE_WITNESS:' + json.dumps(witness, separators=(',', ':')), flush=True)
 print('NATIVE_REMOVE_SENT')
 `;
 
+const nativeErrors = [
+  "NONE",
+  "OTHER",
+  "NO_OWNER",
+  "ACCESS_DENIED",
+  "UNKNOWN_METHOD",
+  "INVALID_ARGS",
+  "NO_REPLY",
+  "SERVICE_UNKNOWN",
+];
+const nativeSites = [null, "ROOT", "TOP_LEVEL_WIDGET", "DIRECT_CHILD", "EXACT_DIALOG", "REMOVE_BUTTON"];
+const nativeMethods = [
+  "LIST",
+  "OWNER",
+  "CHILDREN",
+  "ROLE",
+  "STATE",
+  "NAME",
+  "ACTION_COUNT",
+  "ACTION_NAME",
+  "DO_ACTION",
+];
+const nativeOutcomes = ["RPC_RETURNED", "RETURNED", "RPC_FAILED", "DECODE_FAILED"];
+const nativePredicates = [
+  "role",
+  "title",
+  "dialogState",
+  "uniqueButton",
+  "buttonState",
+  "actionInterfaceRead",
+  "actionCount",
+  "actionDefault",
+  "actionAttempt",
+  "actionResult",
+];
+// Calls: sequence, epoch, connection ordinal, site, method, then outcome/error.
+// Roots: connection ordinal, outcome, error, decoded total/owned child counts.
+const boundedInteger = (value, max) => Number.isInteger(value) && value >= 0 && value <= max;
+function nativeCall(value, completed = false) {
+  return (
+    Array.isArray(value) &&
+    value.length === (completed ? 7 : 5) &&
+    boundedInteger(value[0], 65535) &&
+    value[0] > 0 &&
+    boundedInteger(value[1], 4095) &&
+    boundedInteger(value[2], 64) &&
+    nativeSites.includes(value[3]) &&
+    nativeMethods.includes(value[4]) &&
+    (!completed ||
+      (nativeOutcomes.includes(value[5]) &&
+        nativeErrors.includes(value[6]) &&
+        (value[5] === "RPC_FAILED" ? value[6] !== "NONE" : value[6] === "NONE")))
+  );
+}
+function validNativeWitness(value) {
+  const observed = (items, size) =>
+    Array.isArray(items) &&
+    items.length === size &&
+    items.every((state) => ["NOT_OBSERVED", "FALSE", "TRUE", "MIXED"].includes(state));
+  return (
+    closed(value, [
+      "epoch",
+      "names",
+      "scanned",
+      "enumeration",
+      "roots",
+      "started",
+      "completed",
+      "caught",
+      "caughtCount",
+      "terminal",
+      "predicates",
+      "dialogBits",
+      "buttonBits",
+      "lastPredicate",
+      "identity",
+      "budget",
+      "final",
+      "integrity",
+    ]) &&
+    boundedInteger(value.epoch, 4095) &&
+    boundedInteger(value.names, 64) &&
+    boundedInteger(value.scanned, value.names) &&
+    ["NOT_STARTED", "IN_FLIGHT", "COMPLETE"].includes(value.enumeration) &&
+    (value.enumeration !== "COMPLETE" || value.scanned === value.names) &&
+    Array.isArray(value.roots) &&
+    value.roots.length <= 64 &&
+    value.roots.every(
+      (root, index) =>
+        Array.isArray(root) &&
+        root.length === 5 &&
+        boundedInteger(root[0], value.scanned) &&
+        root[0] > 0 &&
+        (index === 0 || value.roots[index - 1][0] < root[0]) &&
+        ["NOT_STARTED", "IN_FLIGHT", ...nativeOutcomes].includes(root[1]) &&
+        nativeErrors.includes(root[2]) &&
+        (root[1] === "RPC_FAILED" ? root[2] !== "NONE" : root[2] === "NONE") &&
+        (root[1] === "RETURNED"
+          ? boundedInteger(root[3], 512) && boundedInteger(root[4], root[3])
+          : root[3] === null && root[4] === null),
+    ) &&
+    (value.started === null || nativeCall(value.started)) &&
+    (value.completed === null ||
+      (nativeCall(value.completed, true) && value.started && value.completed[0] <= value.started[0])) &&
+    (value.caught === null ||
+      (nativeCall(value.caught, true) && ["RPC_FAILED", "DECODE_FAILED"].includes(value.caught[5]))) &&
+    boundedInteger(value.caughtCount, 65535) &&
+    (value.caught === null ? value.caughtCount === 0 : value.caughtCount > 0) &&
+    (value.terminal === null ||
+      (Array.isArray(value.terminal) &&
+        value.terminal.length === 2 &&
+        nativeRemovalStages.includes(value.terminal[0]) &&
+        ["RPC_FAILED", "UNCLASSIFIED"].includes(value.terminal[1]))) &&
+    observed(value.predicates, nativePredicates.length) &&
+    observed(value.dialogBits, 3) &&
+    observed(value.buttonBits, 5) &&
+    (value.lastPredicate === null ||
+      (Array.isArray(value.lastPredicate) &&
+        value.lastPredicate.length === 5 &&
+        boundedInteger(value.lastPredicate[0], 4095) &&
+        boundedInteger(value.lastPredicate[1], 64) &&
+        boundedInteger(value.lastPredicate[2], 65535) &&
+        nativePredicates.includes(value.lastPredicate[3]) &&
+        typeof value.lastPredicate[4] === "boolean")) &&
+    ["NOT_OBSERVED", "INITIAL_MATCH", "RECHECK_MATCH", "ACTION_RECHECK_MATCH"].includes(value.identity) &&
+    ["WITHIN", "EXHAUSTED"].includes(value.budget) &&
+    typeof value.final === "boolean" &&
+    ["COMPLETE", "OVERFLOW", "AMBIGUOUS"].includes(value.integrity)
+  );
+}
 function readNativeRemovalOutput(output) {
-  if (typeof output !== "string" || output.length > 4096) return { result: "", witness: null };
-  const lines = output.trim().split("\n");
-  if (lines.length > 9) return { result: "", witness: null };
+  const refused = { result: "", witness: null };
+  if (typeof output !== "string" || Buffer.byteLength(output) > 4096 || !output.endsWith("\n")) return refused;
+  const lines = output.slice(0, -1).split("\n");
+  if (lines.length > 9) return refused;
   const last = lines.at(-1);
-  const result = last === "NATIVE_REMOVE_SENT" || last.startsWith("NATIVE_REMOVE_REFUSED:") ? last : "";
-  const records = lines.filter((line) => line.startsWith("NATIVE_REMOVE_WITNESS:"));
-  if (records.length !== lines.length - (result ? 1 : 0)) return { result: "", witness: null };
-  let witness = null;
-  if (records.length) {
-    try {
-      for (const record of records) {
-        const value = JSON.parse(record.slice("NATIVE_REMOVE_WITNESS:".length));
-        if (
-          closed(value, [
-            "process",
-            "bus",
-            "owner",
-            "window",
-            "button",
-            "action",
-            "names",
-            "owners",
-            "error",
-            "budget",
-          ]) &&
-          ["process", "bus", "owner", "window", "button", "action"].every((key) => typeof value[key] === "boolean") &&
-          ["names", "owners"].every((key) => Number.isInteger(value[key]) && value[key] >= 0 && value[key] <= 64) &&
-          [
-            "NONE",
-            "OTHER",
-            "NO_OWNER",
-            "ACCESS_DENIED",
-            "UNKNOWN_METHOD",
-            "INVALID_ARGS",
-            "NO_REPLY",
-            "SERVICE_UNKNOWN",
-          ].includes(value.error) &&
-          ["WITHIN", "EXHAUSTED"].includes(value.budget)
-        )
-          witness = value;
-        else return { result: "", witness: null };
-      }
-    } catch {
-      return { result: "", witness: null };
-    }
+  const fixed = last.split(":");
+  const result =
+    last === "NATIVE_REMOVE_SENT" ||
+    (fixed.length === 2 && fixed[0] === "NATIVE_REMOVE_REFUSED" && nativeRemovalStages.includes(fixed[1]))
+      ? last
+      : "";
+  if (!result || lines.length !== 2 || !lines[0].startsWith("NATIVE_REMOVE_WITNESS:")) return refused;
+  try {
+    const witness = JSON.parse(lines[0].slice("NATIVE_REMOVE_WITNESS:".length));
+    const sent = result === "NATIVE_REMOVE_SENT";
+    return validNativeWitness(witness) &&
+      witness.final &&
+      (!sent ||
+        (witness.enumeration === "COMPLETE" &&
+          witness.identity === "ACTION_RECHECK_MATCH" &&
+          witness.terminal === null &&
+          witness.predicates[8] === "TRUE" &&
+          witness.predicates[9] === "TRUE" &&
+          witness.completed?.[4] === "DO_ACTION" &&
+          witness.completed[5] === "RETURNED"))
+      ? { result, witness }
+      : refused;
+  } catch {
+    return refused;
   }
-  return { result: records.length && witness === null ? "" : result, witness };
+}
+function readNativeRemovalSlot(bytes, nonce, child) {
+  try {
+    if (!Buffer.isBuffer(bytes) || bytes.length !== 4096 || !boundedInteger(child, 2147483647) || child === 0)
+      return null;
+    const size = Number(bytes.subarray(0, 8).toString("ascii"));
+    if (
+      !/^[0-9]{8}$/.test(bytes.subarray(0, 8).toString("ascii")) ||
+      size < 1 ||
+      size > 4024 ||
+      bytes.subarray(72 + size).some((byte) => byte !== 0)
+    )
+      return null;
+    const payload = bytes.subarray(72, 72 + size);
+    if (hash(payload) !== bytes.subarray(8, 72).toString("ascii")) return null;
+    const envelope = JSON.parse(payload.toString("utf8"));
+    return closed(envelope, ["nonce", "child", "witness"]) &&
+      envelope.nonce === nonce &&
+      envelope.child === hash(Buffer.from(`${nonce}:${child}`)) &&
+      validNativeWitness(envelope.witness)
+      ? envelope.witness
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // Raw browser primitives are private to this offline-only Channels adapter.
@@ -966,6 +1208,7 @@ export function createPlaywrightSelectorBrowser({
   }
   async function remove() {
     if (binding.mode !== "C") throw new SelectorFailure("PROTOCOL_REFUSED");
+    nativeRemovalWitness = null;
     const removalDeadline = Math.min(deadline, Date.now() + 30000);
     const remaining = () => Math.max(1, removalDeadline - Date.now());
     async function bounded(call) {
@@ -1032,35 +1275,56 @@ export function createPlaywrightSelectorBrowser({
       void dialog.dismiss();
     });
     await item.locator("#removeButton").click({ timeout: remaining() });
+    let slot, slotPath;
     try {
       nativeRemovalStage = "UNKNOWN";
-      const output = readNativeRemovalOutput(
-        execFileSync(
-          "python3",
-          [
-            "-c",
-            nativeRemovalScript,
-            binding.profile,
-            binding.executable,
-            binding.executableHash,
-            nativeSessionBus,
-            String(removalDeadline / 1000),
-            String(pid),
-          ],
-          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: remaining() },
-        ),
+      const nonce = randomBytes(24).toString("hex");
+      slotPath = path.join(path.dirname(binding.root), `${path.basename(binding.root)}.remove-${nonce}.slot`);
+      slot = openSync(slotPath, "wx+", 0o600);
+      ftruncateSync(slot, 4096);
+      const child = spawnSync(
+        "python3",
+        [
+          "-c",
+          nativeRemovalScript,
+          binding.profile,
+          binding.executable,
+          binding.executableHash,
+          nativeSessionBus,
+          String(removalDeadline / 1000),
+          String(pid),
+          nonce,
+        ],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore", slot], maxBuffer: 4096, timeout: remaining() },
       );
-      nativeRemovalWitness = output.witness;
-      if (output.result !== "NATIVE_REMOVE_SENT") throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
-      nativeRemovalStage = "SENT";
-    } catch (error) {
-      const output = readNativeRemovalOutput(error.stdout);
-      nativeRemovalWitness = output.witness;
+      const bytes = Buffer.alloc(4096);
+      const retained =
+        fstatSync(slot).size === 4096 && readSync(slot, bytes, 0, 4096, 0) === 4096
+          ? readNativeRemovalSlot(bytes, nonce, child.pid)
+          : null;
+      const output = readNativeRemovalOutput(child.stdout);
+      // Empty stdout is recoverable only for an interrupted child, never private,
+      // malformed or partially emitted output. The slot is not action proof.
+      const interrupted = child.stdout === "" && (child.signal || child.error) && child.status !== 0;
+      const witness =
+        retained && (output.witness && same(retained, output.witness) ? retained : interrupted ? retained : null);
+      nativeRemovalWitness = {
+        transport: witness ? (interrupted ? "INTERRUPTED" : "FINAL") : "REFUSED",
+        record: witness,
+      };
       const fixed = output.result.split(":");
-      if (fixed.length === 2 && fixed[0] === "NATIVE_REMOVE_REFUSED" && nativeRemovalStages.includes(fixed[1]))
-        nativeRemovalStage = fixed[1];
-      else if (nativeRemovalStage !== "CAPABILITY") nativeRemovalStage = "UNKNOWN";
+      if (fixed.length === 2 && fixed[0] === "NATIVE_REMOVE_REFUSED") nativeRemovalStage = fixed[1];
+      if (child.status !== 0 || child.error || !witness || output.result !== "NATIVE_REMOVE_SENT")
+        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+      nativeRemovalStage = "SENT";
+    } catch {
+      nativeRemovalWitness ??= { transport: "REFUSED", record: null };
       throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+    } finally {
+      if (slot !== undefined) {
+        closeSync(slot);
+        unlinkSync(slotPath);
+      }
     }
     if (dialogFailure) throw dialogFailure;
     await item.waitFor({ state: "detached", timeout: remaining() });
