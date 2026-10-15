@@ -17,6 +17,7 @@ import {
   scrydexCountQuery,
   createScrydexOnePieceProviderAdapter,
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as unitKey,
+  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as sealedUnitKey,
 } from "../../source-observations/api/providers/scrydex/adapter";
 import { countFingerprint } from "../domain/count-acquisition";
 import { createScopeSyncBatchRuntime } from "./runtime";
@@ -267,8 +268,8 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
         `INSERT INTO catalog_scope_records (scope_record_id,product_domain,scope_kind,reference_type_key,reference_record_id,reference_record_key,name,lifecycle_status) VALUES ('scope-synthetic','one-piece','set','one-piece-set','ref-synthetic','OP01','Synthetic','active')`,
       );
       await pools.catalog.query(
-        `INSERT INTO catalog_provider_scope_mappings (mapping_id,scope_record_id,provider_key,unit_key,set_id,set_name,confidence,review_status,policy_version) VALUES ('mapping-synthetic','scope-synthetic','scrydex',$1,'OP01','Synthetic Set','exact','accepted','synthetic')`,
-        [unitKey],
+        `INSERT INTO catalog_provider_scope_mappings (mapping_id,scope_record_id,provider_key,unit_key,set_id,set_name,confidence,review_status,policy_version) VALUES ('mapping-synthetic','scope-synthetic','scrydex',$1,'OP01','Synthetic Set','exact','accepted','synthetic'), ('mapping-synthetic-sealed','scope-synthetic','scrydex',$2,'OP01','Synthetic Set','exact','accepted','synthetic')`,
+        [unitKey, sealedUnitKey],
       );
       // Derived envelope from c6127099375; card items below are synthetic and never cached as complete.
       const fetch = vi.fn<typeof globalThis.fetch>(async (input) =>
@@ -313,11 +314,11 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
       const selection = { mode: "ids" as const, scopeRecordIds: ["scope-synthetic"] };
       const quote = await counts.quoteCounts({ selection, context });
       expect(fetch).not.toHaveBeenCalled();
-      expect(quote.plannedCredits).toBe(1);
+      expect(quote.plannedCredits).toBe(2);
       expect(
         (await counts.acquireCounts({ quoteId: quote.quoteId, fingerprint: quote.fingerprint, context })).state,
       ).toBe("complete");
-      expect(fetch).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledTimes(2);
       await pools.catalog.query("DELETE FROM catalog_scope_sync_count_history WHERE event_kind='usage'");
       await pools.catalog.query(
         `INSERT INTO catalog_scope_sync_batches (batch_id,selection,budget,plan_fingerprint,preview,status,event_context,updated_at)
@@ -347,7 +348,8 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
         budget: { creditedProviderRequestLimits: { scrydex: 10 } },
         context,
       });
-      expect(preview.providerRequestEstimates.scrydex).toBe(2);
+      expect(preview.providerRequestEstimates.scrydex).toBe(4);
+      expect(preview.counts.providerUnits).toBe(2);
       expect(preview.blockers).toEqual([]);
       if (freshness === "stale") {
         now = new Date(Date.parse(now) + 901_000).toISOString();
@@ -370,8 +372,9 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
         });
         expect(batch.status).toBe("queued");
         expect(batch.units).toHaveLength(1);
+        expect(batch.preview.counts.providerUnits).toBe(2);
       }
-      expect(fetch.mock.calls.filter(([url]) => !String(url).includes("/usage"))).toHaveLength(1);
+      expect(fetch.mock.calls.filter(([url]) => !String(url).includes("/usage"))).toHaveLength(2);
       expect(
         (await pools.catalog.query("SELECT batch_id FROM catalog_scope_sync_batches WHERE batch_id <> 'synthetic-old'"))
           .rows,

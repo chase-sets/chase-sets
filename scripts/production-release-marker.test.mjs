@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -15,6 +16,7 @@ import {
   readOnlySpawn,
   markerIo,
 } from "./production-release-marker.mjs";
+import { verifyKubernetesDeploymentTransition } from "./platform-kubernetes-deployment.mjs";
 
 // Every mutable control below has unmistakably synthetic identities, never a real hosted job identity.
 const commit = "a".repeat(40);
@@ -276,6 +278,100 @@ describe("same-release retry admission", () => {
       expect(() => validateTransitionAuthority(transition, artifact, syntheticJob(), identity)).toThrow();
     },
   );
+  describe("transition with retry record", () => {
+    // Synthetic chain of the #9662 shape: captured source 20, failed upgrade 21, failed atomic
+    // rollback 22, restore 23, then the one retried upgrade 24.
+    const admissionCall =
+      'cannot patch "synthetic-doks-tls" with kind Certificate: Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": No agent available';
+    const captured = [
+      { revision: 19, status: "superseded", description: "Upgrade complete" },
+      { revision: 20, status: "deployed", description: "Upgrade complete" },
+    ];
+    const baseline = [
+      { ...captured[0] },
+      { ...captured[1], status: "superseded" },
+      { revision: 21, status: "superseded", description: `Upgrade "synthetic" failed: ${admissionCall}` },
+      { revision: 22, status: "failed", description: `Rollback "synthetic" failed: ${admissionCall}` },
+      { revision: 23, status: "deployed", description: "Rollback to 20" },
+    ];
+    const observed = [
+      ...baseline.slice(0, -1),
+      { ...baseline.at(-1), status: "superseded" },
+      { revision: 24, status: "deployed", description: "Upgrade complete" },
+    ];
+    async function retriedTransition() {
+      const transition = await verifyKubernetesDeploymentTransition({
+        release: identity.release,
+        namespace: identity.namespace,
+        checkedAt: timestamp(15),
+        rollbackTarget: {
+          schemaVersion: "platform-kubernetes-rollback-target/v2",
+          sourceRevision: 20,
+          sourceStatus: "deployed",
+          historyHeadRevision: 20,
+          terminalFailedSuffix: [],
+          preDeployHistory: captured,
+        },
+        deployAttempts: {
+          schemaVersion: "platform-kubernetes-deploy-attempts/v1",
+          release: identity.release,
+          namespace: identity.namespace,
+          result: "success",
+          retry: "performed",
+          refusal: null,
+          attempts: [
+            {
+              attempt: 1,
+              result: "failure",
+              admissionWebhookTransient: `UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionCall}`,
+              admissionWebhookTransientCode: "doks-admission-webhook-unreachable",
+            },
+            { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+          ],
+          probeSamples: [
+            { outcome: "success", elapsedMs: 0 },
+            { outcome: "success", elapsedMs: 10_000 },
+          ],
+          recovery: { sourceRevision: 20, resultingRevision: 23, rolledBack: true },
+          // The record keeps each description only as its SHA-256; the verifier rebuilds the text.
+          preRetryHistory: baseline.map(({ revision, status, description }) => ({
+            revision,
+            status,
+            descriptionSha256: `sha256:${createHash("sha256").update(description).digest("hex")}`,
+          })),
+        },
+        spawn: (_command, _args, _options) => {
+          const child = new EventEmitter();
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          queueMicrotask(() => {
+            child.stdout.emit("data", JSON.stringify(observed));
+            child.emit("close", 0);
+          });
+          return child;
+        },
+      });
+      return { ...transition, markerIdentity: syntheticTransition().markerIdentity };
+    }
+
+    it("passes marker authority with the verifier's final-hop output", async () => {
+      const transition = await retriedTransition();
+      expect(transition).toMatchObject({
+        capturedHeadRevision: 23,
+        resultingHeadRevision: 24,
+        capturedHistory: baseline,
+      });
+      expect(validateTransitionAuthority(transition, syntheticArtifact(), syntheticJob(), identity)).toBe(transition);
+    });
+
+    it("refuses an output that kept the original captured head", async () => {
+      const transition = { ...(await retriedTransition()), capturedHeadRevision: 20, capturedHistory: captured };
+      expect(() => validateTransitionAuthority(transition, syntheticArtifact(), syntheticJob(), identity)).toThrow(
+        "invalid retained transition revision",
+      );
+    });
+  });
+
   it("does not inherit enclosing run success for the captured attempt-2 capture-failure shape", () => {
     const job = syntheticJob();
     job.steps[1].conclusion = "failure";

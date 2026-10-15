@@ -36,6 +36,7 @@ const fields = {
   location: ["name", "description", "shipFromCode", "shipFromAddress", "isArchived"],
   checkout: ["checkoutSessionId", "lineKey", "inventoryItemId", "sellerAccountId", "quantity", "reservationAttempt"],
   releaseCheckout: ["checkoutSessionId", "lineKey", "sellerAccountId"],
+  restock: ["expectedVersion", "outcome", "damageNote"],
 } as const;
 
 function closed(value: unknown, allowed: readonly string[]) {
@@ -50,6 +51,19 @@ function closed(value: unknown, allowed: readonly string[]) {
 
 export function validateInventoryMutationBody(value: unknown, allowed: readonly string[]) {
   const body = closed(value, allowed);
+  if (allowed.includes("expectedVersion")) {
+    assert(
+      typeof body.expectedVersion === "number" &&
+        Number.isSafeInteger(body.expectedVersion) &&
+        body.expectedVersion > 0,
+      "Invalid restock version.",
+    );
+    assert(body.outcome === "restocked" || body.outcome === "written-off", "Invalid restock outcome.");
+    assert(
+      body.damageNote === undefined || body.damageNote === null || typeof body.damageNote === "string",
+      "Invalid restock note.",
+    );
+  }
   if (body.isArchived !== undefined) assert(typeof body.isArchived === "boolean", "Invalid archive flag.");
   if (body.selectedOptions !== undefined) {
     const options: unknown =
@@ -103,7 +117,9 @@ export function inventoryMutationBoundary(): MiddlewareHandler<InventoryApiEnv> 
                     ? fields.checkout
                     : /^\/checkout-reservations\/[^/]+\/release$/.test(path)
                       ? fields.releaseCheckout
-                      : null;
+                      : /^\/restock-decisions\/[^/]+\/decision$/.test(path)
+                        ? fields.restock
+                        : null;
     if (!allowed) return next();
     try {
       const actor = c.get("actor");

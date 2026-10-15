@@ -18,6 +18,11 @@ import {
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
+import {
+  ADMISSION_WEBHOOK_TRANSIENT_CODE,
+  classifyAdmissionWebhookTransient,
+  hasAdmissionWebhookTransientPair,
+} from "./platform-deploy-incident.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v2";
@@ -26,6 +31,7 @@ export const PLATFORM_KUBERNETES_STALE_PENDING_RECOVERY_VERSION = "platform-kube
 export const PLATFORM_KUBERNETES_STALE_PENDING_ADMISSION_VERSION =
   "platform-kubernetes-stale-pending-recovery-admission/v1";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
+export const PLATFORM_KUBERNETES_DEPLOY_ATTEMPTS_VERSION = "platform-kubernetes-deploy-attempts/v1";
 export const managedRegistryPullSecretName = "chase-sets";
 export const SCENARIO_SEED_BOOTSTRAP_ERROR_PREFIX = "Platform API bootstrap failed";
 const SCENARIO_SEED_BOOTSTRAP_LOG_TAIL_LINES = 50;
@@ -1388,6 +1394,22 @@ function compactHelmHistory(history) {
   return history.map(({ revision, status, description }) => ({ revision, status, description }));
 }
 
+const helmDescriptionFingerprintPattern = /^sha256:[0-9a-f]{64}$/;
+
+function helmDescriptionFingerprint(description) {
+  return `sha256:${createHash("sha256").update(description, "utf8").digest("hex")}`;
+}
+
+// A retained Helm description can carry any prior error text, so the attempts record keeps
+// only an opaque fingerprint of each exact normalized description; the text stays in memory.
+function fingerprintHelmHistory(history) {
+  return history.map(({ revision, status, description }) => ({
+    revision,
+    status,
+    descriptionSha256: helmDescriptionFingerprint(description),
+  }));
+}
+
 export async function recoverStableStalePendingUpgrade(options = {}) {
   const checkedAt = options.checkedAt ?? new Date().toISOString();
   const sourceRevision = positiveHelmRevision(options.sourceRevision, "sourceRevision");
@@ -1633,14 +1655,82 @@ function reconcileCapturedTransitionHistory({
   }
 }
 
+function performedRetryRecord(deployAttempts, options) {
+  const record = assertDeployAttemptsRecord(deployAttempts);
+  if (
+    record.release !== (options.release ?? defaultRelease) ||
+    record.namespace !== (options.namespace ?? defaultNamespace)
+  ) {
+    throw new Error("Deploy attempts record names another release or namespace.");
+  }
+  if (record.result !== "success") {
+    throw new Error("Deployment transition requires a deploy attempts record whose deploy succeeded.");
+  }
+  return record.retry === "performed" ? record : null;
+}
+
+// A performed admission-webhook retry moves the transition's baseline from the captured
+// head to the recorded pre-retry head; the record must chain from the captured target.
+// Each recorded description is rebuilt from the observed history (or, for a captured
+// revision pruned since, the captured target) and must match its recorded fingerprint;
+// a redacted form is never compared, since different descriptions can redact alike.
+function retriedDeploymentBaseline(record, captured, observedHistory) {
+  const capturedByRevision = new Map(captured.history.map((entry) => [entry.revision, entry]));
+  const observedByRevision = new Map(observedHistory.map((entry) => [entry.revision, entry]));
+  const history = record.preRetryHistory.map(({ revision, status, descriptionSha256 }) => {
+    const raw =
+      observedByRevision.get(revision) ??
+      (revision <= captured.capturedHeadRevision ? capturedByRevision.get(revision) : undefined);
+    if (!raw || helmDescriptionFingerprint(raw.description) !== descriptionSha256) {
+      throw new Error(
+        `Deploy attempts record pre-retry revision ${revision} does not match an observed or captured Helm description.`,
+      );
+    }
+    return { revision, status, description: raw.description };
+  });
+  const baseline = admissionRetryChain(captured, history, record.release, 3);
+  if (
+    !baseline?.recovered ||
+    record.recovery.sourceRevision !== captured.source.revision ||
+    record.recovery.resultingRevision !== baseline.recovered.revision
+  ) {
+    throw new Error("Deploy attempts record pre-retry history does not chain from the captured rollback target.");
+  }
+  return baseline;
+}
+
+// Retained captured revisions obey the retained-prefix rule, and exactly the recorded
+// intermediates remain, unchanged except the pre-retry head moving deployed->superseded.
+function reconcileRetriedTransitionHistory(captured, baseline, observedHistory) {
+  if (!retainedCapturedHistoryIntact(captured, observedHistory)) {
+    throw new Error("Captured Helm revisions moved during the retried deployment transition.");
+  }
+  const head = baseline.recovered.revision;
+  const observed = observedHistory.filter(
+    (entry) => entry.revision > captured.capturedHeadRevision && entry.revision <= head,
+  );
+  const unchanged =
+    observed.length === baseline.intermediates.length &&
+    baseline.intermediates.every((recorded, index) => {
+      const entry = observed[index];
+      return (
+        entry.revision === recorded.revision &&
+        entry.description === recorded.description &&
+        (entry.status === recorded.status || (entry.revision === head && entry.status === "superseded"))
+      );
+    });
+  if (!unchanged) {
+    throw new Error("Recorded retry intermediate Helm revisions moved, disappeared, or were not recorded.");
+  }
+}
+
 export async function verifyKubernetesDeploymentTransition(options = {}) {
-  const {
-    history: capturedHistory,
-    capturedHeadRevision,
-    source,
-    terminalFailedSuffix,
-  } = capturedTransitionHistory(options.rollbackTarget);
+  const captured = capturedTransitionHistory(options.rollbackTarget);
+  const retryRecord = options.deployAttempts ? performedRetryRecord(options.deployAttempts, options) : null;
+  const { history: capturedHistory, source, terminalFailedSuffix } = captured;
   const observedHistory = await readHelmHistory(options);
+  const retried = retryRecord ? retriedDeploymentBaseline(retryRecord, captured, observedHistory) : null;
+  const capturedHeadRevision = retried ? retried.recovered.revision : captured.capturedHeadRevision;
   const expectedRevision = capturedHeadRevision + 1;
   const newEntries = observedHistory.filter((entry) => entry.revision > capturedHeadRevision);
   if (newEntries.length !== 1 || newEntries[0].revision !== expectedRevision) {
@@ -1648,13 +1738,17 @@ export async function verifyKubernetesDeploymentTransition(options = {}) {
       `Deployment transition expected only revision ${expectedRevision}; observed ${newEntries.map((entry) => entry.revision).join(", ") || "none"}.`,
     );
   }
-  reconcileCapturedTransitionHistory({
-    capturedHistory,
-    observedHistory,
-    capturedHeadRevision,
-    source,
-    terminalFailedSuffix,
-  });
+  if (retried) {
+    reconcileRetriedTransitionHistory(captured, retried, observedHistory);
+  } else {
+    reconcileCapturedTransitionHistory({
+      capturedHistory,
+      observedHistory,
+      capturedHeadRevision,
+      source,
+      terminalFailedSuffix,
+    });
+  }
 
   const resultingHead = newEntries[0];
   if (resultingHead.status !== "deployed") {
@@ -1670,7 +1764,7 @@ export async function verifyKubernetesDeploymentTransition(options = {}) {
     namespace: options.namespace ?? defaultNamespace,
     capturedHeadRevision,
     resultingHeadRevision: resultingHead.revision,
-    capturedHistory: capturedHistory.map((entry) => ({ ...entry })),
+    capturedHistory: (retried ? retried.history : capturedHistory).map((entry) => ({ ...entry })),
     observedHistory,
   };
 }
@@ -2057,11 +2151,12 @@ export async function deployPlatformToKubernetes(options = {}) {
     });
   }
 
-  await runProcess({
-    command: helmPath,
-    args: buildHelmUpgradeArgs(options),
-    spawn: options.spawn,
-  });
+  const upgradeArgs = buildHelmUpgradeArgs(options);
+  if (options.onAttempts || options.admissionRetryRollbackTarget) {
+    await upgradeWithAdmissionRetry({ ...options, helmPath, kubectlPath }, upgradeArgs);
+  } else {
+    await runProcess({ command: helmPath, args: upgradeArgs, spawn: options.spawn });
+  }
   await waitForPlatformWorkloads({ ...options, kubectlPath, workloads, acceptedRolloutPhases: ["Paused", "Healthy"] });
 
   return buildDeploymentEvidence({
@@ -2070,6 +2165,423 @@ export async function deployPlatformToKubernetes(options = {}) {
     result: "success",
     workloads,
   });
+}
+
+// The DOKS control plane can briefly lose its konnectivity bridge to an admission
+// webhook mid-upgrade. Production then restores the captured source with the exact
+// workflow rollback, waits for two consecutive server dry-run admissions inside one
+// fixed monotonic window, and retries the identical upgrade once.
+const admissionProbeIntervalMs = 10_000;
+const admissionProbeWindowMs = 180_000;
+const admissionProbeRequiredSuccesses = 2;
+const helmUpgradeStderrTailBytes = 64 * 1024;
+const admissionRetryRefusals = new Set([
+  "not-transient",
+  "retry-not-eligible",
+  "history-unexpected",
+  "probe-deadline",
+  "recovery-failed",
+  "helm-operation-active",
+  "baseline-unexpected",
+]);
+const systemClock = {
+  now: () => performance.now(),
+  isoNow: () => new Date().toISOString(),
+  setTimeout: (callback, milliseconds) => setTimeout(callback, milliseconds),
+  clearTimeout: (timer) => clearTimeout(timer),
+};
+
+export function buildAdmissionProbeArgs(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const certificate = buildDoksIngressValues({ env: options.env ?? {}, environment: "production" }).tls.secretName;
+  return [
+    "annotate",
+    `certificate/${certificate}`,
+    `chasesets.com/admission-probe=${requiredOption(options.probedAt, "probedAt")}`,
+    "--namespace",
+    namespace,
+    "--overwrite",
+    "--dry-run=server",
+    "--request-timeout=10s",
+  ];
+}
+
+async function upgradeWithAdmissionRetry(options, args) {
+  const record = {
+    schemaVersion: PLATFORM_KUBERNETES_DEPLOY_ATTEMPTS_VERSION,
+    release: options.release ?? defaultRelease,
+    namespace: options.namespace ?? defaultNamespace,
+    result: "failure",
+    retry: "not-needed",
+    refusal: null,
+    attempts: [],
+    probeSamples: [],
+    recovery: null,
+    preRetryHistory: null,
+  };
+  const finish = async (result) => {
+    record.result = result;
+    await options.onAttempts?.(assertDeployAttemptsRecord(structuredClone(record)));
+  };
+
+  let originalError;
+  try {
+    await runHelmUpgradeAttempt(options, args, record);
+  } catch (error) {
+    originalError = error;
+  }
+  if (!originalError) {
+    return finish("success");
+  }
+  record.refusal = await admitAdmissionRetry(options, record);
+  if (record.refusal) {
+    record.retry = "refused";
+    await finish("failure");
+    throw originalError;
+  }
+
+  record.retry = "performed";
+  try {
+    await runHelmUpgradeAttempt(options, args, record);
+  } catch (error) {
+    await finish("failure");
+    throw error;
+  }
+  return finish("success");
+}
+
+async function runHelmUpgradeAttempt(options, args, record) {
+  const attempt = {
+    attempt: record.attempts.length + 1,
+    result: "failure",
+    admissionWebhookTransient: null,
+    admissionWebhookTransientCode: null,
+  };
+  record.attempts.push(attempt);
+  try {
+    // Helm's stderr still reaches the job log; only a bounded tail stays in memory.
+    await runProcess({
+      command: options.helmPath,
+      args,
+      spawn: options.spawn,
+      teeStderr: options.stderrSink ?? process.stderr,
+      stderrTailBytes: helmUpgradeStderrTailBytes,
+    });
+  } catch (error) {
+    // Recognized once, on the complete original error, before any retry decision; the
+    // code keeps that recognition when the bounded line loses its `No agent available`.
+    attempt.admissionWebhookTransient = classifyAdmissionWebhookTransient(error?.stderr);
+    attempt.admissionWebhookTransientCode =
+      attempt.admissionWebhookTransient === null ? null : ADMISSION_WEBHOOK_TRANSIENT_CODE;
+    throw error;
+  }
+  attempt.result = "success";
+}
+
+// Returns the refusal code, or null once the retry is admitted. Nothing here retries a
+// stage; any unexpected state refuses and the caller rethrows the original error.
+async function admitAdmissionRetry(options, record) {
+  if (record.attempts[0].admissionWebhookTransientCode === null) {
+    return "not-transient";
+  }
+  const rollbackTarget = options.admissionRetryRollbackTarget;
+  if (!rollbackTarget) {
+    return "retry-not-eligible";
+  }
+  let captured;
+  let admitted;
+  try {
+    captured = capturedTransitionHistory(rollbackTarget);
+    admitted = admissionRetryChain(captured, await readHelmHistory(options), record.release, 2);
+  } catch {
+    return "history-unexpected";
+  }
+  if (!admitted) {
+    return "history-unexpected";
+  }
+  if (!(await awaitAdmissionWebhookReachable(options, record))) {
+    return "probe-deadline";
+  }
+
+  const sourceRevision = captured.source.revision;
+  if (admitted.recovered) {
+    record.recovery = { sourceRevision, resultingRevision: admitted.recovered.revision, rolledBack: false };
+  } else {
+    // Helm's atomic rollback targets the newest deployed or superseded revision, which is
+    // the failed candidate here, so the source is restored exactly first.
+    const rollback = await rollbackPlatformOnKubernetes({
+      ...options,
+      revision: sourceRevision,
+      rollbackTarget,
+      releaseExists: true,
+      expectedPreRollbackHistory: admitted.history,
+    });
+    record.recovery = {
+      sourceRevision,
+      resultingRevision: rollback.rollbackIdentity?.resultingRevision ?? null,
+      rolledBack: true,
+    };
+    if (rollback.result !== "success") {
+      return "recovery-failed";
+    }
+  }
+  try {
+    assertNoActiveHelmOperation(await readHelmOperationCensus(options));
+  } catch {
+    return "helm-operation-active";
+  }
+
+  const expectedIntermediates = admitted.recovered
+    ? admitted.intermediates
+    : [
+        ...admitted.intermediates,
+        {
+          revision: record.recovery.resultingRevision,
+          status: "deployed",
+          description: `Rollback to ${sourceRevision}`,
+        },
+      ];
+  let baseline;
+  try {
+    baseline = admissionRetryChain(captured, await readHelmHistory(options), record.release, 3);
+  } catch {
+    return "baseline-unexpected";
+  }
+  if (
+    !baseline?.recovered ||
+    canonicalJson(compactHelmHistory(baseline.intermediates)) !==
+      canonicalJson(compactHelmHistory(expectedIntermediates))
+  ) {
+    return "baseline-unexpected";
+  }
+  record.preRetryHistory = fingerprintHelmHistory(baseline.history);
+  return null;
+}
+
+// Two consecutive successful server dry-run admissions of the release's own Certificate,
+// both completing before one monotonic deadline that also bounds every child and sleep.
+async function awaitAdmissionWebhookReachable(options, record) {
+  const clock = options.clock ?? systemClock;
+  const startedAt = clock.now();
+  const deadline = startedAt + admissionProbeWindowMs;
+  let consecutiveSuccesses = 0;
+  while (clock.now() < deadline) {
+    let outcome;
+    try {
+      await runProcess({
+        command: options.kubectlPath ?? "kubectl",
+        args: buildAdmissionProbeArgs({ ...options, probedAt: clock.isoNow() }),
+        spawn: options.spawn,
+        captureOutput: true,
+        deadline: { clock, at: deadline },
+      });
+      outcome = "success";
+    } catch (error) {
+      outcome = error instanceof ProcessDeadlineError ? "timeout" : "failure";
+    }
+    if (clock.now() >= deadline) {
+      outcome = "timeout";
+    }
+    record.probeSamples.push({ outcome, elapsedMs: Math.round(clock.now() - startedAt) });
+    if (outcome === "timeout") {
+      return false;
+    }
+    consecutiveSuccesses = outcome === "success" ? consecutiveSuccesses + 1 : 0;
+    if (consecutiveSuccesses === admissionProbeRequiredSuccesses) {
+      return true;
+    }
+    await new Promise((resolve) =>
+      clock.setTimeout(resolve, Math.min(admissionProbeIntervalMs, deadline - clock.now())),
+    );
+  }
+  return false;
+}
+
+// Retained-prefix rule: Helm's history limit may prune only a contiguous oldest prefix of
+// the captured history, never the source (and so never the terminal failed suffix after
+// it); every retained captured revision keeps its description and status, except that
+// the source may move from deployed to superseded.
+function retainedCapturedHistoryIntact(captured, history) {
+  const retained = history.filter((entry) => entry.revision <= captured.capturedHeadRevision);
+  const pruned = captured.history.length - retained.length;
+  if (pruned < 0 || captured.history.slice(0, pruned).some((entry) => entry.revision >= captured.source.revision)) {
+    return false;
+  }
+  return captured.history.slice(pruned).every((entry, index) => {
+    const observed = retained[index];
+    return (
+      observed.revision === entry.revision &&
+      observed.description === entry.description &&
+      (observed.status === entry.status ||
+        (entry.revision === captured.source.revision &&
+          entry.status === "deployed" &&
+          observed.status === "superseded"))
+    );
+  });
+}
+
+// The intact retained history plus, after the captured head H, the failed upgrade H+1,
+// an optional failed atomic rollback, and an optional deployed `Rollback to <source>`
+// that ends the chain. Returns null for any other history.
+function admissionRetryChain(captured, history, release, maxIntermediates) {
+  if (
+    history.some((entry) => entry.status.startsWith("pending-")) ||
+    !retainedCapturedHistoryIntact(captured, history)
+  ) {
+    return null;
+  }
+  const intermediates = history.filter((entry) => entry.revision > captured.capturedHeadRevision);
+  if (
+    intermediates.length < 1 ||
+    intermediates.length > maxIntermediates ||
+    intermediates.some((entry, index) => entry.revision !== captured.capturedHeadRevision + 1 + index)
+  ) {
+    return null;
+  }
+  const [upgrade, ...rest] = intermediates;
+  if (
+    !upgrade.description.startsWith(`Upgrade "${release}" failed`) ||
+    !["failed", "superseded"].includes(upgrade.status)
+  ) {
+    return null;
+  }
+  const last = rest.at(-1);
+  const recovered =
+    last?.status === "deployed" && last.description === `Rollback to ${captured.source.revision}` ? last : null;
+  const failedRollbacks = recovered ? rest.slice(0, -1) : rest;
+  if (
+    failedRollbacks.length > 1 ||
+    failedRollbacks.some(
+      (entry) => entry.status !== "failed" || !entry.description.startsWith(`Rollback "${release}" failed: `),
+    )
+  ) {
+    return null;
+  }
+  return { history, intermediates, recovered };
+}
+
+const deployAttemptsKeys = [
+  "attempts",
+  "namespace",
+  "preRetryHistory",
+  "probeSamples",
+  "recovery",
+  "refusal",
+  "release",
+  "result",
+  "retry",
+  "schemaVersion",
+];
+
+function assertDeployAttemptsShape(condition, reason) {
+  if (!condition) {
+    throw new Error(`Deploy attempts record ${reason}.`);
+  }
+}
+
+function hasExactKeys(value, keys) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort())
+  );
+}
+
+// Closed platform-kubernetes-deploy-attempts/v1: one terminal result, at most two
+// attempts, and no text except each attempt's bounded admission transient line, paired
+// with its closed recognition code; the pre-retry history keeps descriptions only as
+// fingerprints.
+export function assertDeployAttemptsRecord(record) {
+  assertDeployAttemptsShape(hasExactKeys(record, deployAttemptsKeys), "must contain exactly its v1 fields");
+  assertDeployAttemptsShape(
+    record.schemaVersion === PLATFORM_KUBERNETES_DEPLOY_ATTEMPTS_VERSION,
+    `schemaVersion must be ${PLATFORM_KUBERNETES_DEPLOY_ATTEMPTS_VERSION}`,
+  );
+  assertDeployAttemptsShape(
+    [record.release, record.namespace].every((value) => typeof value === "string" && value !== ""),
+    "must name its release and namespace",
+  );
+  const { attempts } = record;
+  assertDeployAttemptsShape(
+    Array.isArray(attempts) &&
+      attempts.length >= 1 &&
+      attempts.length <= 2 &&
+      attempts.every(
+        (attempt, index) =>
+          hasExactKeys(attempt, ["admissionWebhookTransient", "admissionWebhookTransientCode", "attempt", "result"]) &&
+          attempt.attempt === index + 1 &&
+          ["success", "failure"].includes(attempt.result) &&
+          hasAdmissionWebhookTransientPair(attempt) &&
+          (index === attempts.length - 1 || attempt.result === "failure"),
+      ),
+    "must contain one or two closed attempts that end at the first success",
+  );
+  assertDeployAttemptsShape(record.result === attempts.at(-1).result, "result must be its last attempt's result");
+  assertDeployAttemptsShape(
+    Array.isArray(record.probeSamples) &&
+      record.probeSamples.length <= Math.ceil(admissionProbeWindowMs / admissionProbeIntervalMs) + 1 &&
+      record.probeSamples.every(
+        (sample) =>
+          hasExactKeys(sample, ["elapsedMs", "outcome"]) &&
+          ["success", "failure", "timeout"].includes(sample.outcome) &&
+          Number.isSafeInteger(sample.elapsedMs) &&
+          sample.elapsedMs >= 0,
+      ),
+    "probeSamples must be bounded closed outcomes",
+  );
+  assertDeployAttemptsShape(
+    record.recovery === null ||
+      (hasExactKeys(record.recovery, ["resultingRevision", "rolledBack", "sourceRevision"]) &&
+        Number.isSafeInteger(record.recovery.sourceRevision) &&
+        record.recovery.sourceRevision > 0 &&
+        (record.recovery.resultingRevision === null ||
+          (Number.isSafeInteger(record.recovery.resultingRevision) &&
+            record.recovery.resultingRevision > record.recovery.sourceRevision)) &&
+        typeof record.recovery.rolledBack === "boolean"),
+    "recovery must be null or closed revisions",
+  );
+  assertDeployAttemptsShape(
+    record.preRetryHistory === null ||
+      (Array.isArray(record.preRetryHistory) &&
+        record.preRetryHistory.length > 0 &&
+        record.preRetryHistory.every(
+          (entry, index) =>
+            hasExactKeys(entry, ["descriptionSha256", "revision", "status"]) &&
+            Number.isSafeInteger(entry.revision) &&
+            entry.revision > (index === 0 ? 0 : record.preRetryHistory[index - 1].revision) &&
+            typeof entry.status === "string" &&
+            entry.status !== "" &&
+            entry.status === entry.status.trim().toLowerCase() &&
+            typeof entry.descriptionSha256 === "string" &&
+            helmDescriptionFingerprintPattern.test(entry.descriptionSha256),
+        )),
+    "preRetryHistory must be null or closed, strictly increasing revisions with normalized statuses and description fingerprints",
+  );
+  const performed = record.retry === "performed";
+  assertDeployAttemptsShape(
+    (record.retry === "not-needed" &&
+      attempts.length === 1 &&
+      record.result === "success" &&
+      record.refusal === null &&
+      record.probeSamples.length === 0 &&
+      record.recovery === null &&
+      record.preRetryHistory === null) ||
+      (record.retry === "refused" &&
+        attempts.length === 1 &&
+        record.result === "failure" &&
+        admissionRetryRefusals.has(record.refusal) &&
+        (record.refusal === "not-transient") === (attempts[0].admissionWebhookTransientCode === null) &&
+        record.preRetryHistory === null) ||
+      (performed &&
+        attempts.length === 2 &&
+        attempts[0].admissionWebhookTransientCode === ADMISSION_WEBHOOK_TRANSIENT_CODE &&
+        record.refusal === null &&
+        record.recovery?.resultingRevision != null &&
+        record.preRetryHistory !== null),
+    "retry, refusal, recovery and preRetryHistory must agree",
+  );
+  return record;
 }
 
 export async function reconcileManagedPostgresCaOnKubernetes(options = {}) {
@@ -2990,22 +3502,44 @@ function runProcess(options) {
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    // teeStderr forwards stderr unchanged and keeps only its last stderrTailBytes.
+    let stderrTail = Buffer.alloc(0);
     const hasInput = options.input != null;
     const stdin = hasInput ? "pipe" : options.captureOutput ? "ignore" : "inherit";
     const stdout_ = options.captureOutput ? "pipe" : "inherit";
-    const stderr_ = options.captureOutput ? "pipe" : "inherit";
+    const stderr_ = options.captureOutput || options.teeStderr ? "pipe" : "inherit";
     const child = spawnImpl(options.command, options.args, {
       stdio: [stdin, stdout_, stderr_],
       windowsHide: true,
     });
+    // A deadline settles the call at its instant even when the child never closes.
+    const deadlineTimer = options.deadline
+      ? options.deadline.clock.setTimeout(
+          () => {
+            child.kill("SIGKILL");
+            reject(new ProcessDeadlineError(`${options.command} ${options.args[0] ?? ""} exceeded its deadline.`));
+          },
+          Math.max(0, options.deadline.at - options.deadline.clock.now()),
+        )
+      : undefined;
+    const clearDeadline = () => {
+      if (deadlineTimer !== undefined) options.deadline.clock.clearTimeout(deadlineTimer);
+    };
 
     child.stdout?.on("data", (chunk) => {
       stdout += chunk.toString("utf8");
     });
     child.stderr?.on("data", (chunk) => {
+      if (options.teeStderr) {
+        options.teeStderr.write(chunk);
+        stderrTail = Buffer.concat([stderrTail, Buffer.from(chunk)]).subarray(-options.stderrTailBytes);
+        stderr = stderrTail.toString("utf8");
+        return;
+      }
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
+      clearDeadline();
       if (options.allowFailure) {
         resolve({ stdout, stderr, error });
         return;
@@ -3013,6 +3547,7 @@ function runProcess(options) {
       reject(error);
     });
     child.on("close", (code) => {
+      clearDeadline();
       if (code === 0 || options.allowFailure) {
         resolve({ stdout, stderr, code });
         return;
@@ -3043,6 +3578,13 @@ class ProcessExitError extends Error {
     this.code = options.code;
     this.stdout = options.stdout;
     this.stderr = options.stderr;
+  }
+}
+
+class ProcessDeadlineError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ProcessDeadlineError";
   }
 }
 
@@ -3083,7 +3625,7 @@ export function parseArgs(argv, env = process.env) {
     ].includes(command)
   ) {
     throw new Error(
-      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
+      "Usage: node ./scripts/platform-kubernetes-deployment.mjs <deploy|reconcile-managed-postgres-ca|scenario-seed|promote|abort|rollback|diagnostics|plan|capture-rollback-target|verify-deployment-transition|recover-stale-pending-upgrade|teardown> [--image <ref>] [--namespace <name>] [--release <name>] [--timeout <duration>] [--revision <n>] [--pending-revision <n>] [--source-description <text>] [--pending-description <text>] [--issue-number <n>] [--admission-out <path>] [--rollback-target <path>] [--attempts-out <path>] [--admission-retry-rollback-target <path>] [--deploy-attempts <path>] [--index-manifest <path>] [--platform <os/architecture>] [--rollouts-enabled true|false] [--quiesce-workers true|false] [--beta-wave-size <n>] [--beta-wave-rollout-exposure <10|25|50>] [--observability-exporter-endpoint <url>] [--managed-postgres-ca-sha256 <digest>] [--runtime-env NAME=VALUE] [--out <path>] [--github-output <path>]",
     );
   }
 
@@ -3125,6 +3667,10 @@ export function parseArgs(argv, env = process.env) {
     rollbackTargetPath: readOption(rest, "--rollback-target", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET),
     outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
     admissionOutPath: readOption(rest, "--admission-out", env.PLATFORM_KUBERNETES_RECOVERY_ADMISSION_OUT),
+    // The production-only admission-retry flags have no environment fallback, so no other deploy inherits them.
+    attemptsOutPath: readOption(rest, "--attempts-out"),
+    admissionRetryRollbackTargetPath: readOption(rest, "--admission-retry-rollback-target"),
+    deployAttemptsPath: readOption(rest, "--deploy-attempts"),
     jobName: readOption(rest, "--job-name", env.PLATFORM_KUBERNETES_SCENARIO_SEED_JOB_NAME),
     githubOutputPath: readOption(rest, "--github-output", env.GITHUB_OUTPUT),
     env,
@@ -3195,8 +3741,8 @@ function normalizeEnvOverrides(overrides) {
   );
 }
 
-async function main(argv, env = process.env) {
-  const options = parseArgs(argv, env);
+async function main(argv, env = process.env, overrides = {}) {
+  const options = { ...parseArgs(argv, env), ...overrides };
 
   if (options.command === "plan") {
     console.log(JSON.stringify(buildDeploymentEvidence({ ...options, action: "deploy" }), null, 2));
@@ -3204,7 +3750,25 @@ async function main(argv, env = process.env) {
   }
 
   if (options.command === "deploy") {
-    console.log(JSON.stringify(await deployPlatformToKubernetes(options), null, 2));
+    const admissionRetryRollbackTarget = options.admissionRetryRollbackTargetPath
+      ? parseJsonCommandOutput(readFileSync(options.admissionRetryRollbackTargetPath, "utf8"), "rollback target file")
+      : undefined;
+    let evidence;
+    try {
+      evidence = await deployPlatformToKubernetes({
+        ...options,
+        admissionRetryRollbackTarget,
+        onAttempts: options.attemptsOutPath ? (record) => writeJsonRecord(options.attemptsOutPath, record) : undefined,
+      });
+    } catch (error) {
+      // A recorded production deploy never echoes the helm upgrade argv, which carries
+      // --set-string values and runtime env overrides; the attempts record names the cause.
+      if (options.attemptsOutPath && error instanceof ProcessExitError && error.args?.[0] === "upgrade") {
+        throw new Error(`${error.command} upgrade exited with code ${error.code ?? "unknown"}.`);
+      }
+      throw error;
+    }
+    console.log(JSON.stringify(evidence, null, 2));
     return 0;
   }
 
@@ -3291,7 +3855,10 @@ async function main(argv, env = process.env) {
   if (options.command === "verify-deployment-transition") {
     const rollbackTargetPath = requiredOption(options.rollbackTargetPath, "rollback-target");
     const rollbackTarget = parseJsonCommandOutput(readFileSync(rollbackTargetPath, "utf8"), "rollback target file");
-    const transition = await verifyKubernetesDeploymentTransition({ ...options, rollbackTarget });
+    const deployAttempts = options.deployAttemptsPath
+      ? parseJsonCommandOutput(readFileSync(options.deployAttemptsPath, "utf8"), "deploy attempts file")
+      : undefined;
+    const transition = await verifyKubernetesDeploymentTransition({ ...options, rollbackTarget, deployAttempts });
     if (options.outPath) {
       await writeJsonRecord(options.outPath, transition);
     }
@@ -3358,14 +3925,18 @@ function writeGithubOutput(filePath, values) {
   );
 }
 
+// Exported so tests drive the exact CLI output path with injected spawn and clock doubles.
+export async function runPlatformKubernetesDeploymentCli(argv, env = process.env, overrides = {}) {
+  try {
+    return await main(argv, env, overrides);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 if (process.argv[1]?.endsWith("platform-kubernetes-deployment.mjs")) {
-  main(process.argv.slice(2)).then(
-    (code) => {
-      process.exitCode = code;
-    },
-    (error) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-    },
-  );
+  runPlatformKubernetesDeploymentCli(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  });
 }

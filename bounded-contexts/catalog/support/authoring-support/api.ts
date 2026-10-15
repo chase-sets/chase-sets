@@ -106,7 +106,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/provider-scope-mappings", providerScopeMappingRoutes(services.providerScopeMappings));
   app.route("/scope-records", catalogScopeRegistryRoutes(services.scopeRegistry));
   app.route("/provider-scope-discovery", providerScopeDiscoveryRoutes(services.providerScopeDiscovery));
-  app.route("/scope-sync-batches", scopeSyncBatchRoutes(services.scopeSyncBatches));
+  app.route("/scope-sync-batches", scopeSyncBatchRoutes(services.scopeSyncBatches, services.countCapture));
 
   return app;
 }

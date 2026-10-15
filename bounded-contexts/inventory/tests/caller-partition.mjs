@@ -31,6 +31,7 @@ const methods = {
   commitImportBatch: "import-commit",
   resolveImportBatchRow: "import-resolve",
   recordRestockDecision: "restock-record",
+  recordDecision: "restock-record",
 };
 const commands = {
   CreateInventoryItem: "item-create",
@@ -41,6 +42,7 @@ const commands = {
   CreateStorageLocation: "location-create",
   UpdateStorageLocation: "location-update",
   ArchiveStorageLocation: "location-archive",
+  RecordRestockDecision: "restock-record",
 };
 const methodFamily = (symbol) => (Object.hasOwn(methods, symbol) ? methods[symbol] : null);
 const commandFamily = (symbol) => (Object.hasOwn(commands, symbol) ? commands[symbol] : null);
@@ -66,6 +68,16 @@ function ignored(file) {
 
 function name(node) {
   return node && (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) ? node.text : null;
+}
+
+function isInventoryService(node, source) {
+  return (
+    /\binventory\b|\.holds\b|\.storageLocations\b|\.restockDecisions\b/.test(node.getText(source)) ||
+    (ts.isPropertyAccessExpression(node) && name(node.name) === "restockDecisions") ||
+    (ts.isElementAccessExpression(node) &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      name(node.argumentExpression) === "restockDecisions")
+  );
 }
 
 export function discoverInventoryCallers(sources) {
@@ -155,7 +167,7 @@ export function discoverInventoryCallers(sources) {
       if (
         ts.isElementAccessExpression(node) &&
         !ts.isStringLiteralLike(node.argumentExpression) &&
-        /\binventory\b|\.holds\b|\.storageLocations\b/.test(node.expression.getText(source))
+        isInventoryService(node.expression, source)
       ) {
         throw new Error(
           `Unresolved Inventory call: ${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`,
@@ -173,7 +185,7 @@ export function discoverInventoryCallers(sources) {
         if (
           ts.isElementAccessExpression(node.expression) &&
           !ts.isStringLiteralLike(node.expression.argumentExpression) &&
-          /\binventory\b|\.holds\b|\.storageLocations\b/.test(node.expression.expression.getText(source))
+          isInventoryService(node.expression.expression, source)
         ) {
           throw new Error(
             `Unresolved Inventory call: ${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`,

@@ -239,6 +239,8 @@ taken under the rules in force. Grading never changes a Goal Lifecycle.
 
 Run `pnpm --filter @chase-sets/pricing run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/pricing run test` before opening a PR.
 
+Every Pricing registry (goals, guardrail kinds, curve builders, Economics providers) runs through the Conformance Kit in `tests/conformance/`. To add a Pricing Goal, follow [Authoring a Pricing Goal](./docs/pricing-goal-authoring.md).
+
 ## Open Extraction Candidates
 
 - Seller strategy automation can be extracted later if it grows beyond recommendation generation.
