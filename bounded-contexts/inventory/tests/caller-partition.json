@@ -192,12 +192,20 @@
     "status": "cutover"
   },
   "bounded-contexts/inventory/features/restock-decisions/api/runtime.ts": {
-    "families": ["item-adjust"],
-    "authority": "existing Inventory account authority",
-    "attempt": "existing path retained until #9500 or #9503",
-    "read": "existing Inventory reader retained",
-    "consumer": "pending later-family cutover",
-    "status": "pending"
+    "families": ["item-adjust", "restock-record"],
+    "authority": "trusted Inventory tenant/acting User/account and complete decision history",
+    "attempt": "root restock attempt and distinct restock-stock child share the owner transaction",
+    "read": "private actor/account-bound first mutation receipt",
+    "consumer": "Inventory restock",
+    "status": "cutover"
+  },
+  "bounded-contexts/inventory/features/restock-decisions/api/route.ts": {
+    "families": ["restock-record"],
+    "authority": "authenticated actor/account; recursively closed request boundary",
+    "attempt": "caller UUID in Inventory-Mutation-Attempt and expected decision version",
+    "read": "private actor/account-bound first mutation receipt",
+    "consumer": "Inventory restock HTTP",
+    "status": "cutover"
   },
   "bounded-contexts/inventory/features/storage-locations/api/route.ts": {
     "families": ["location-create", "location-read", "location-update"],
@@ -249,11 +257,11 @@
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": {
     "families": ["restock-record"],
-    "authority": "existing Inventory account authority",
-    "attempt": "existing path retained until #9500 or #9503",
-    "read": "existing Inventory reader retained",
-    "consumer": "pending later-family cutover",
-    "status": "pending"
+    "authority": "authenticated request actor/account",
+    "attempt": "form-persisted caller UUID forwarded unchanged with the expected decision version",
+    "read": "private actor/account-bound first mutation receipt; restore never resubmits",
+    "consumer": "Inventory restock browser",
+    "status": "cutover"
   },
   "bounded-contexts/inventory/routes/marketplace/account-inventory.tsx": {
     "families": ["item-create", "item-read", "location-read"],
@@ -295,10 +303,11 @@
       "hold-create",
       "hold-release",
       "location-create",
-      "location-update"
+      "location-update",
+      "restock-record"
     ],
     "authority": "Inventory owner context",
-    "attempt": "composed by createInventoryServices; pending imports/restock receive separate raw services",
+    "attempt": "composed by createInventoryServices; only pending imports receive separate raw services",
     "read": "private actor/requesting-account-bound mutation receipt; retained account-scoped queries",
     "consumer": "Inventory recovery composition",
     "status": "cutover"

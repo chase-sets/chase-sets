@@ -31,7 +31,9 @@ const families: readonly InventoryMutationFamily[] = [
   "location-create",
   "location-update",
   "location-archive",
+  "restock-record",
 ];
+
 const fields = ["version", "attemptId", "accountId", "actorUserId", "family", "targetId", "createdAt"];
 
 function key(authority: InventoryRecoveryAuthority, family: InventoryMutationFamily) {
