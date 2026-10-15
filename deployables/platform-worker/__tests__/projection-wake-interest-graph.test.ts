@@ -274,9 +274,15 @@ describe("platform worker projection wake interest graph", () => {
       "payments-wallet-funding-projection:payments:v1",
       "platform-policy-document-projection:payments:v1",
     ]);
+    // #9392 adds exactly one runner: Platform Operations' own Support evidence cleanup locator.
+    expect(
+      inheritedRunners
+        .filter((runner) => runner.projectionName === "support-evidence-cleanup-locator-projection")
+        .map((runner) => runner.checkpointKey),
+    ).toEqual(["support-evidence-cleanup-locator-projection:platform-operations:v1"]);
     expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutOperatorRemoval(runner))))).toEqual({
-      count: 254,
-      sha256: "edd07092ca19870223d34bead85750ed4d971ccdec660ea7aca9df666a3a60b6",
+      count: 255,
+      sha256: "bdb151d114a9db5fef88a306222b3b36b84c26d836deca14b3040f0ccb22694a",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -304,8 +310,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 254,
-      sha256: "c41a35ae55ec97bd1a2c40b918d4f7298db9f15dce07c96909986bb638f09c55",
+      count: 255,
+      sha256: "cb40eebd6252d584cd1f4efd1bea9b73a4495430e9ac5da4702529d656198cec",
     });
     expect(
       fingerprint(
@@ -326,8 +332,8 @@ describe("platform worker projection wake interest graph", () => {
       sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 254,
-      sha256: "2d223ed968afe34f83860c79f106a23f85c0b29ca4d2baf7581074891e6ffcbe",
+      count: 255,
+      sha256: "ab2e62c3f61ef3f035af96f15b3fe49678739cd5c68ee201b05b2b07ff5667fd",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 123,
