@@ -701,46 +701,31 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "shipments",
-      "label": "Shipments",
-      "icon": "package",
-      "href": "/account/shipments",
-      "order": 150,
-      "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "shipments",
-      "label": "Shipments",
-      "icon": "package",
-      "href": "/account/shipments",
-      "order": 150,
-      "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
       "key": "sale-shipments",
-      "label": "Sale shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
       "icon": "truck",
       "href": "/account/sales/shipments",
-      "order": 155,
+      "parentKey": "selling-workspace",
+      "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
+      "requiredPermissions": ["fulfillment.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sale-shipments",
-      "label": "Sale shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
       "icon": "truck",
       "href": "/account/sales/shipments",
-      "order": 155,
+      "parentKey": "selling-workspace",
+      "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
+      "requiredPermissions": ["fulfillment.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

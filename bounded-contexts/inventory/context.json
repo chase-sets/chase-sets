@@ -913,11 +913,15 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "inventory",
       "label": "Inventory",
+      "labelKey": "inventory.shell.inventory.label",
       "icon": "package",
       "href": "/account/inventory",
+      "parentKey": "selling-workspace",
       "order": 100,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"]
+      "requiredPermissions": ["inventory.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -925,11 +929,15 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "inventory-imports",
       "label": "Import",
+      "labelKey": "inventory.shell.inventoryImports.label",
       "icon": "package",
       "href": "/account/inventory/imports",
+      "parentKey": "selling-workspace",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"]
+      "requiredPermissions": ["inventory.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -939,9 +947,12 @@
       "label": "Restock",
       "icon": "package",
       "href": "/account/inventory/restock-decisions",
+      "parentKey": "selling-workspace",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": ["inventory.view"]
+      "requiredPermissions": ["inventory.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {
