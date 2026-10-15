@@ -51,8 +51,9 @@ import {
 } from "@chase-sets/pricing/server";
 import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } from "@chase-sets/channels/server";
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
-import { createIdentityOperatorAuthority, module as identityModule } from "@chase-sets/identity";
+import { module as identityModule } from "@chase-sets/identity";
 import {
+  createIdentityOperatorAuthority,
   createIdentityTermsAcceptanceResolver,
   createIdentityWalletFundingEligibilityResolver,
   identityTermsOfServicePolicy,

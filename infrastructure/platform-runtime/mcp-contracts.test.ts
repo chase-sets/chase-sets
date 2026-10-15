@@ -1139,7 +1139,12 @@ describe("isOperatorToolAllowed", () => {
   it.each([
     { label: "session actor, read tool", actor: operatorActor, tool: readTool, allowed: true },
     { label: "session actor, write tool", actor: operatorActor, tool: writeTool, allowed: true },
-    { label: "operations:read grant, read tool", actor: grantActor(["operations:read"]), tool: readTool, allowed: true },
+    {
+      label: "operations:read grant, read tool",
+      actor: grantActor(["operations:read"]),
+      tool: readTool,
+      allowed: true,
+    },
     {
       label: "operations:read grant, write tool",
       actor: grantActor(["operations:read"]),
@@ -1174,9 +1179,9 @@ describe("isOperatorToolAllowed", () => {
     "denies a %s authority for every actor",
     async (reason) => {
       for (const actor of [operatorActor, grantActor(["operations:write"])]) {
-        await expect(
-          isOperatorToolAllowed(readTool, actor, async () => ({ kind: "denied", reason })),
-        ).resolves.toEqual({ allowed: false, reason: `operator-authority-${reason}` });
+        await expect(isOperatorToolAllowed(readTool, actor, async () => ({ kind: "denied", reason }))).resolves.toEqual(
+          { allowed: false, reason: `operator-authority-${reason}` },
+        );
       }
     },
   );

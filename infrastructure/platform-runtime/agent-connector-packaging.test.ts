@@ -58,7 +58,10 @@ describe("agent connector packaging", () => {
 
     expect(operatorTools.map((tool) => tool.name)).toContain("platform-operations.get-offer-economics-summary");
     expect(operatorResources.length).toBeGreaterThan(0);
-    for (const capability of [...operatorTools.map((tool) => tool.name), ...operatorResources.map((r) => r.uriTemplate)]) {
+    for (const capability of [
+      ...operatorTools.map((tool) => tool.name),
+      ...operatorResources.map((r) => r.uriTemplate),
+    ]) {
       expect(serialized).not.toContain(`"${capability}"`);
     }
     expect(serialized).not.toContain('"operator"');

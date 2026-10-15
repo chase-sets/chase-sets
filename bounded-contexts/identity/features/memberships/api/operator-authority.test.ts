@@ -77,7 +77,11 @@ describe("Identity operator authority", () => {
     await grant("mem_demoted", "platform-admin");
     await expect(authority(actor("mem_demoted"))).resolves.toMatchObject({ kind: "granted" });
 
-    await run("mem_demoted", { type: "ChangeMembershipRole", roleKey: "owner", assignmentAuthority: { type: "system" } });
+    await run("mem_demoted", {
+      type: "ChangeMembershipRole",
+      roleKey: "owner",
+      assignmentAuthority: { type: "system" },
+    });
 
     await expect(authority(actor("mem_demoted"))).resolves.toEqual({ kind: "denied", reason: "not-platform-admin" });
   });

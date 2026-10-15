@@ -2559,8 +2559,17 @@ const operatorMatrixServices: readonly McpServiceDescriptor[] = [
           accountScoped: false,
           auditPrincipal: "actor",
         },
-        guardrails: { confirmation: { required: false }, idempotencyKey: "not-applicable", dryRunSupported: false, notes: [] },
-        audit: { eventName: "mcp.platform-operations.inspect-catalog-plan", targetType: "catalog-plan", sensitiveInputFields: [] },
+        guardrails: {
+          confirmation: { required: false },
+          idempotencyKey: "not-applicable",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: {
+          eventName: "mcp.platform-operations.inspect-catalog-plan",
+          targetType: "catalog-plan",
+          sensitiveInputFields: [],
+        },
         expectedUsage: ["Synthetic operator read."],
       },
       {
@@ -2593,7 +2602,11 @@ const operatorMatrixServices: readonly McpServiceDescriptor[] = [
           dryRunSupported: false,
           notes: [],
         },
-        audit: { eventName: "mcp.platform-operations.apply-catalog-plan", targetType: "catalog-plan", sensitiveInputFields: [] },
+        audit: {
+          eventName: "mcp.platform-operations.apply-catalog-plan",
+          targetType: "catalog-plan",
+          sensitiveInputFields: [],
+        },
         expectedUsage: ["Synthetic operator write."],
       },
       {
@@ -2611,8 +2624,17 @@ const operatorMatrixServices: readonly McpServiceDescriptor[] = [
           accountScoped: true,
           auditPrincipal: "actor",
         },
-        guardrails: { confirmation: { required: false }, idempotencyKey: "not-applicable", dryRunSupported: false, notes: [] },
-        audit: { eventName: "mcp.platform-operations.list-own-listings", targetType: "listing", sensitiveInputFields: [] },
+        guardrails: {
+          confirmation: { required: false },
+          idempotencyKey: "not-applicable",
+          dryRunSupported: false,
+          notes: [],
+        },
+        audit: {
+          eventName: "mcp.platform-operations.list-own-listings",
+          targetType: "listing",
+          sensitiveInputFields: [],
+        },
         expectedUsage: ["Synthetic commerce read."],
       },
     ],
@@ -2752,7 +2774,11 @@ describe("operator predicate matrix", () => {
       services: operatorMatrixServices,
       operatorAuthority: authority,
       audit,
-      idempotencyStore: { reserve, complete: vi.fn(async () => undefined), abandon: vi.fn(async () => undefined) } as never,
+      idempotencyStore: {
+        reserve,
+        complete: vi.fn(async () => undefined),
+        abandon: vi.fn(async () => undefined),
+      } as never,
       toolHandlers: {
         "platform-operations.inspect-catalog-plan": toolHandler,
         "platform-operations.apply-catalog-plan": toolHandler,
@@ -2780,7 +2806,9 @@ describe("operator predicate matrix", () => {
       arguments: { planFingerprint: "plan-7f3a", idempotencyKey: "idem_matrix" },
       confirmation: { confirmed: true, text: "plan-7f3a" },
     });
-    const resource = await postMcp(app, "resources/read", { uri: "chase-sets://platform-operations/catalog-plans/summary" });
+    const resource = await postMcp(app, "resources/read", {
+      uri: "chase-sets://platform-operations/catalog-plans/summary",
+    });
 
     for (const [result, admitted] of [
       [read, row.operatorRead],
@@ -2962,15 +2990,24 @@ describe("operator invocation context", () => {
       }),
     ]);
 
-    const resource = await postMcp(app, "resources/read", { uri: "chase-sets://platform-operations/catalog-plans/summary" });
-    expect(resource.body).toEqual({ jsonrpc: "2.0", id: "request_1", error: { code: -32001, message: OPERATOR_DENIAL } });
+    const resource = await postMcp(app, "resources/read", {
+      uri: "chase-sets://platform-operations/catalog-plans/summary",
+    });
+    expect(resource.body).toEqual({
+      jsonrpc: "2.0",
+      id: "request_1",
+      error: { code: -32001, message: OPERATOR_DENIAL },
+    });
     expect(handler).not.toHaveBeenCalled();
     expect(auditRecords.at(-1)).toMatchObject({ outcome: "denied", method: "resources/read", reason });
   });
 
   it("evaluates the operator authority at most once per request", async () => {
     const authority = vi.fn(async () => grantedPlatformAdmin);
-    const app = createActorApp(platformAdminSession, { services: operatorMatrixServices, operatorAuthority: authority });
+    const app = createActorApp(platformAdminSession, {
+      services: operatorMatrixServices,
+      operatorAuthority: authority,
+    });
     await postMcp(app, "tools/list");
     expect(authority).toHaveBeenCalledTimes(1);
     await postMcp(app, "resources/list");

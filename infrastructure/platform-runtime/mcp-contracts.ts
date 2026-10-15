@@ -371,7 +371,9 @@ export function validateMcpServiceCatalog(
         (tool.inputSchema.properties[matchInputValue]?.type !== "string" ||
           !tool.inputSchema.required?.includes(matchInputValue))
       ) {
-        errors.push(`${tool.name} confirmation matchInputValue '${matchInputValue}' must name a required string input.`);
+        errors.push(
+          `${tool.name} confirmation matchInputValue '${matchInputValue}' must name a required string input.`,
+        );
       }
 
       if (tool.risk !== "read") {
