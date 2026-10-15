@@ -293,6 +293,12 @@ describe("render platform Helm values", () => {
         componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED"),
     ).toBe("false");
     expect(production.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBe("true");
+    // Offer lifecycle producers stay closed until a reviewed change opens them after the worker rollout.
+    expect(componentEnvValue(values.components["platform-api"], "CHASE_SETS_OFFER_LIFECYCLE_OPEN")).toBe("false");
+    expect(
+      staging.components["platform-api"].envOverrides?.CHASE_SETS_OFFER_LIFECYCLE_OPEN ??
+        staging.global?.envOverrides?.CHASE_SETS_OFFER_LIFECYCLE_OPEN,
+    ).toBeUndefined();
     for (const filename of [
       "infrastructure/helm/platform/values.yaml",
       "infrastructure/helm/platform/runtime-values.json",
@@ -1109,7 +1115,7 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 137,
+      "platform-api": 138,
       "platform-bootstrap": 64,
       "platform-worker": 134,
       "public-web": 13,
