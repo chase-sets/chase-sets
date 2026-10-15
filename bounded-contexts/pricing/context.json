@@ -816,18 +816,8 @@
       "href": "/account/repricing",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": ["pricing.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "repricing",
-      "label": "Pricing",
-      "icon": "chart",
-      "href": "/account/repricing",
-      "order": 120,
-      "visibility": "signed-in",
-      "requiredPermissions": ["pricing.view"]
+      "requiredPermissions": ["pricing.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     }
   ],
   "directoryIntent": {
