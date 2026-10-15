@@ -20,6 +20,7 @@ export const DEPLOY_ROOT_CAUSE_CODES = Object.freeze([
   "blocking-staging-verification",
   "production-verification",
   "superseded-pre-mutation",
+  "doks-admission-webhook-unreachable",
   "unknown",
 ]);
 
@@ -68,6 +69,14 @@ const ROOT_CAUSES = Object.freeze({
     remediation: "No recovery is required; the newer main commit owns the deploy lane.",
     phase: "pre-mutation",
     affectedComponent: "deploy-lane",
+  },
+  "doks-admission-webhook-unreachable": {
+    summary:
+      "The production Helm upgrade failed because the DOKS control plane could not reach an admission webhook (No agent available).",
+    remediation:
+      "The deploy restores the last-known-good release and retries once; when that retry is refused or fails, confirm the admission webhook answers a server dry-run, then rerun the failed Platform Deploy run.",
+    phase: "production-deploy",
+    affectedComponent: "doks-control-plane",
   },
   unknown: {
     summary: "The deployment failed without a known safe classification.",
@@ -174,6 +183,74 @@ function relevantTextLine(text, pattern) {
   );
 }
 
+// An admission call the DOKS control plane could not route through its konnectivity
+// bridge, exactly as the API server reports it inside a Helm resource error.
+const admissionWebhookNoAgentCall = String.raw`(?:cannot (?:patch|create|update|delete) "[^"]+" with kind [A-Za-z]+: )?Internal error occurred: failed calling webhook "[^"\s]+": failed to call webhook: Post "[^"\s]+": No agent available`;
+// Helm's two atomic renditions; only the original upgrade error is matched, never a hook
+// failure or a rollback-only error.
+const helmAdmissionWebhookTransientPattern = new RegExp(
+  String.raw`^UPGRADE FAILED: (?:an error occurred while rolling back the release\. original upgrade error: ${admissionWebhookNoAgentCall}(?:: |$)|release \S+ failed, and has been rolled back due to atomic being set: ${admissionWebhookNoAgentCall}$)`,
+);
+const ADMISSION_WEBHOOK_TRANSIENT_MAX_LENGTH = 500;
+
+export function classifyAdmissionWebhookTransient(text) {
+  const line = String(text ?? "")
+    .split(/\r?\n/)
+    .filter((candidate) => candidate.includes("UPGRADE FAILED: "))
+    .at(-1);
+  if (!line) {
+    return null;
+  }
+  const failure = line.slice(line.indexOf("UPGRADE FAILED: ")).trim();
+  if (!helmAdmissionWebhookTransientPattern.test(failure)) {
+    return null;
+  }
+  return redactDeployDiagnosticText(failure).replace(/\s+/g, " ").slice(0, ADMISSION_WEBHOOK_TRANSIENT_MAX_LENGTH);
+}
+
+const DEPLOY_ATTEMPTS_SCHEMA_VERSION = "platform-kubernetes-deploy-attempts/v1";
+const deployAttemptsRecordKeys = [
+  "attempts",
+  "namespace",
+  "preRetryHistory",
+  "probeSamples",
+  "recovery",
+  "refusal",
+  "release",
+  "result",
+  "retry",
+  "schemaVersion",
+];
+const deployAttemptKeys = ["admissionWebhookTransient", "attempt", "result"];
+const hasExactKeys = (value, keys) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify(keys);
+
+// The production deploy's closed attempts record names the admission transient only
+// when its last attempt failed with an AC1 line; anything else keeps today's taxonomy.
+function admissionWebhookTransientFromAttempts(diagnostics) {
+  for (const record of diagnostics ?? []) {
+    if (
+      !hasExactKeys(record, deployAttemptsRecordKeys) ||
+      record.schemaVersion !== DEPLOY_ATTEMPTS_SCHEMA_VERSION ||
+      !Array.isArray(record.attempts) ||
+      !record.attempts.every((attempt) => hasExactKeys(attempt, deployAttemptKeys))
+    ) {
+      continue;
+    }
+    const last = record.attempts.at(-1);
+    if (record.result === "failure" && last?.result === "failure") {
+      const line = classifyAdmissionWebhookTransient(last.admissionWebhookTransient);
+      if (line) {
+        return line;
+      }
+    }
+  }
+  return null;
+}
+
 function providerOverridesForMatch(steps, text, pattern) {
   const providerStep = steps.find((step) =>
     pattern.test([step.name, step.componentName, step.phase, step.reasonCode, step.message].join(" ")),
@@ -244,6 +321,12 @@ export function classifyDeploymentRootCause(input = {}) {
 
   if (input.superseded === true || /superseded-pre-mutation/.test(phaseHint)) {
     return rootCauseRecord("superseded-pre-mutation", input, steps, text);
+  }
+  const admissionWebhookTransient = admissionWebhookTransientFromAttempts(input.diagnostics);
+  if (admissionWebhookTransient) {
+    return rootCauseRecord("doks-admission-webhook-unreachable", input, steps, text, {
+      providerReason: admissionWebhookTransient,
+    });
   }
   if (stagingDnsPattern.test(allText)) {
     return rootCauseRecord(

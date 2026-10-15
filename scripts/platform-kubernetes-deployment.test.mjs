@@ -53,6 +53,7 @@ import {
   verifyKubernetesDeploymentTransition,
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
+import * as platformKubernetesDeployment from "./platform-kubernetes-deployment.mjs";
 import { assertExclusiveMarkerWriter } from "./production-release-marker.mjs";
 
 const sampleValues = {
@@ -4755,5 +4756,766 @@ describe("platform Kubernetes deployment", () => {
       observedDigest: rollbackDigest,
       workloadIdentities: [],
     });
+  });
+});
+
+// #9662 admission-webhook transient retry. Real fixtures come from Platform Deploy run 38672454609:
+// attempt-1 rollback target 683-692 (artifact 11945153043), attempt-2 rollback target 686-695
+// (artifact 11946120539) and attempt-2 transition 695 -> 696 (artifact 11946265479). Every one-job
+// reshape below is labelled synthetic.
+const retryRelease = "chase-sets-platform";
+const retryNamespace = "chase-sets-platform";
+const admissionNoAgentCall =
+  'cannot patch "chase-sets-platform-doks-tls" with kind Certificate: Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": No agent available';
+const admissionTransientStderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionNoAgentCall}: ${admissionNoAgentCall}\n`;
+const admissionTransientLine = admissionTransientStderr.trim().slice("Error: ".length, "Error: ".length + 500);
+const plantedEnvOverride = "planted-override-9662.invalid";
+const retryCapturedHistory = Array.from({ length: 10 }, (_, index) => ({
+  revision: 683 + index,
+  status: index === 9 ? "deployed" : "superseded",
+  description: "Upgrade complete",
+}));
+const retryUpgradeFailure = {
+  revision: 693,
+  status: "superseded",
+  description: `Upgrade "chase-sets-platform" failed: ${admissionNoAgentCall}`,
+};
+const retryRollbackFailure = {
+  revision: 694,
+  status: "failed",
+  description: `Rollback "chase-sets-platform" failed: ${admissionNoAgentCall}`,
+};
+// Synthetic: the in-job history between the failed atomic rollback and the restore; Helm keeps
+// ten revisions, so 693 and 694 prune 683-684 while the captured source 692 is still deployed.
+const retryAdmissionHistory = [...retryCapturedHistory.slice(2), retryUpgradeFailure, retryRollbackFailure];
+// Real: the attempt-2 rollback target history 686-695.
+const retryBaselineHistory = [
+  ...retryCapturedHistory.slice(3, 9),
+  { ...retryCapturedHistory[9], status: "superseded" },
+  retryUpgradeFailure,
+  retryRollbackFailure,
+  { revision: 695, status: "deployed", description: "Rollback to 692" },
+];
+// Real: the attempt-2 transition's observed history 687-696.
+const retryObservedHistory = [
+  ...retryBaselineHistory.slice(1, 9),
+  { ...retryBaselineHistory[9], status: "superseded" },
+  { revision: 696, status: "deployed", description: "Upgrade complete" },
+];
+// Synthetic: Helm's atomic rollback succeeded, leaving a deployed `Rollback to 692` at H+2.
+const atomicRolledBackHistory = [
+  ...retryCapturedHistory.slice(2, 9),
+  { ...retryCapturedHistory[9], status: "superseded" },
+  { ...retryUpgradeFailure, status: "failed" },
+  { revision: 694, status: "deployed", description: "Rollback to 692" },
+];
+const retryWorkloadList = rollbackWorkloadList().replaceAll('"proof', `"${retryRelease}`);
+const probeCertificate = "certificate/chase-sets-platform-doks-tls";
+
+function manualClock() {
+  const epoch = Date.parse("2026-10-15T03:00:00.000Z");
+  const timers = [];
+  let now = 0;
+  let sequence = 0;
+  return {
+    now: () => now,
+    isoNow: () => new Date(epoch + now).toISOString(),
+    setTimeout(callback, milliseconds) {
+      const timer = { at: now + Math.max(0, milliseconds), callback, sequence: sequence++ };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout(timer) {
+      const index = timers.indexOf(timer);
+      if (index !== -1) timers.splice(index, 1);
+    },
+    fireNext() {
+      timers.sort((left, right) => left.at - right.at || left.sequence - right.sequence);
+      const timer = timers.shift();
+      if (!timer) return false;
+      now = Math.max(now, timer.at);
+      timer.callback();
+      return true;
+    },
+  };
+}
+
+async function runOnClock(clock, promise) {
+  let settled = null;
+  promise.then(
+    (value) => (settled = { value }),
+    (error) => (settled = { error }),
+  );
+  for (let turn = 0; turn < 20_000 && !settled; turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (!settled) clock.fireNext();
+  }
+  if (!settled) throw new Error("The deploy did not settle on the manual clock.");
+  if (settled.error) throw settled.error;
+  return settled.value;
+}
+
+function stderrSink() {
+  const chunks = [];
+  return { chunks, write: (chunk) => chunks.push(String(chunk)) > 0, text: () => chunks.join("") };
+}
+
+// Routes each fake child by its command so every scenario scripts only what it changes.
+function retrySpawn(calls, scenario) {
+  return (command, args, options) => {
+    const call = { command, args, options, killed: null };
+    calls.push(call);
+    let completion;
+    if (command === "helm" && args[0] === "upgrade") completion = scenario.upgrades.shift();
+    else if (command === "helm" && args[0] === "history") {
+      const history = scenario.histories.shift();
+      completion = history && { stdout: helmHistory(history) };
+    } else if (command === "helm" && args[0] === "get") completion = { stdout: JSON.stringify(rollbackValues) };
+    else if (command === "helm" && args[0] === "rollback") completion = { code: scenario.rollbackCode ?? 0 };
+    else if (command === "kubectl" && args[0] === "annotate") completion = scenario.probes.shift();
+    else if (command === "kubectl" && args[1] === "jobs,pods")
+      completion = { stdout: scenario.census ?? '{"items":[]}' };
+    else if (command === "kubectl" && args[1] === "deployments.apps,jobs.batch,rollouts.argoproj.io")
+      completion = { stdout: retryWorkloadList };
+    else completion = { code: 0 };
+    if (!completion) throw new Error(`Unscripted ${command} ${args[0]} call.`);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end: () => {} };
+    child.kill = (signal) => {
+      call.killed = signal;
+      return true;
+    };
+    const finish = () => {
+      if (completion.stdout) child.stdout.emit("data", Buffer.from(completion.stdout));
+      if (completion.stderr) child.stderr.emit("data", Buffer.from(completion.stderr));
+      child.emit("close", completion.code ?? 0);
+    };
+    if (completion.hang) return child;
+    if (completion.delayMs) scenario.clock.setTimeout(finish, completion.delayMs);
+    else queueMicrotask(finish);
+    return child;
+  };
+}
+
+async function retryRollbackTarget(history = retryCapturedHistory) {
+  const target = await captureKubernetesRollbackTarget({
+    values: rollbackValues,
+    release: retryRelease,
+    namespace: retryNamespace,
+    registryName: "chase-sets",
+    repository: "chase-sets-platform",
+    tag: rollbackTag,
+    digest: rollbackDigest,
+    lastKnownGoodCommit: rollbackTag,
+    releaseTag: "release-synthetic-9662",
+    checkedAt: "2026-10-15T02:55:00.000Z",
+    spawn: completedSpawn(
+      [],
+      [
+        { code: 0, stdout: helmHistory(history) },
+        { code: 0, stdout: JSON.stringify(rollbackValues) },
+        { code: 0, stdout: retryWorkloadList },
+        { code: 0, stdout: helmHistory(history) },
+      ],
+    ),
+  });
+  // The workflow round-trips the record through production-rollback-target.json.
+  return JSON.parse(JSON.stringify(target));
+}
+
+function retryScenario(overrides = {}) {
+  return {
+    clock: manualClock(),
+    upgrades: [{ code: 1, stderr: admissionTransientStderr }, { code: 0 }],
+    histories: [
+      retryAdmissionHistory,
+      retryAdmissionHistory,
+      retryAdmissionHistory,
+      retryBaselineHistory,
+      retryBaselineHistory,
+      retryBaselineHistory,
+    ],
+    probes: [
+      { code: 0, delayMs: 900 },
+      { code: 0, delayMs: 900 },
+    ],
+    ...overrides,
+  };
+}
+
+function retryDeployOptions(scenario, calls, extra = {}) {
+  return {
+    values: rollbackValues,
+    release: retryRelease,
+    namespace: retryNamespace,
+    timeout: "30s",
+    image: `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+    envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: plantedEnvOverride },
+    // A context whose own default namespace is `default`; the probe must still name the deploy namespace.
+    env: { KUBECONFIG: "/synthetic/kubeconfig-with-default-namespace" },
+    clock: scenario.clock,
+    stderrSink: stderrSink(),
+    spawn: retrySpawn(calls, scenario),
+    ...extra,
+  };
+}
+
+async function runRetryDeploy(scenario, extra = {}) {
+  const calls = [];
+  const records = [];
+  const options = retryDeployOptions(scenario, calls, {
+    admissionRetryRollbackTarget: await retryRollbackTarget(),
+    onAttempts: (record) => records.push(record),
+    ...extra,
+  });
+  let outcome;
+  try {
+    outcome = { value: await runOnClock(scenario.clock, deployPlatformToKubernetes(options)) };
+  } catch (error) {
+    outcome = { error };
+  }
+  return { ...outcome, calls, records, options };
+}
+
+const upgradeCalls = (calls) => calls.filter((call) => call.command === "helm" && call.args[0] === "upgrade");
+const rollbackCalls = (calls) => calls.filter((call) => call.command === "helm" && call.args[0] === "rollback");
+const probeCalls = (calls) => calls.filter((call) => call.command === "kubectl" && call.args[0] === "annotate");
+const probeArgs = (iso) => [
+  "annotate",
+  probeCertificate,
+  `chasesets.com/admission-probe=${iso}`,
+  "--namespace",
+  retryNamespace,
+  "--overwrite",
+  "--dry-run=server",
+  "--request-timeout=10s",
+];
+
+describe("admission transient retry", () => {
+  it("restores the captured source, probes the namespaced Certificate, and retries the failed-rollback shape once", async () => {
+    const scenario = retryScenario();
+    const { value, error, calls, records, options } = await runRetryDeploy(scenario);
+
+    expect(error).toBeUndefined();
+    expect(value).toMatchObject({ action: "deploy", result: "success", release: retryRelease });
+    const upgrades = upgradeCalls(calls);
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1].args).toEqual(upgrades[0].args);
+    expect(upgrades[0].args).toEqual(buildHelmUpgradeArgs(options));
+    expect(upgrades[0].args).toContain("--atomic");
+    expect(upgrades.map((call) => call.options.stdio)).toEqual([
+      ["inherit", "inherit", "pipe"],
+      ["inherit", "inherit", "pipe"],
+    ]);
+    expect(rollbackCalls(calls).map((call) => call.args)).toEqual([
+      ["rollback", retryRelease, "692", "--namespace", retryNamespace, "--wait", "--timeout", "30s"],
+    ]);
+    expect(probeCalls(calls).map((call) => call.args)).toEqual([
+      probeArgs("2026-10-15T03:00:00.000Z"),
+      probeArgs("2026-10-15T03:00:10.900Z"),
+    ]);
+    expect(probeCalls(calls).every((call) => !call.args.includes("default"))).toBe(true);
+    const order = (predicate) => calls.findIndex(predicate);
+    expect(order((call) => call.args[0] === "annotate")).toBeLessThan(order((call) => call.args[0] === "rollback"));
+    expect(order((call) => call.args[0] === "rollback")).toBeLessThan(order((call) => call.args[1] === "jobs,pods"));
+    expect(order((call) => call.args[1] === "jobs,pods")).toBeLessThan(calls.indexOf(upgrades[1]));
+    expect(scenario.histories).toEqual([]);
+    expect(options.stderrSink.text()).toBe(admissionTransientStderr);
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toEqual({
+      schemaVersion: "platform-kubernetes-deploy-attempts/v1",
+      release: retryRelease,
+      namespace: retryNamespace,
+      result: "success",
+      retry: "performed",
+      refusal: null,
+      attempts: [
+        { attempt: 1, result: "failure", admissionWebhookTransient: admissionTransientLine },
+        { attempt: 2, result: "success", admissionWebhookTransient: null },
+      ],
+      probeSamples: [
+        { outcome: "success", elapsedMs: 900 },
+        { outcome: "success", elapsedMs: 11_800 },
+      ],
+      recovery: { sourceRevision: 692, resultingRevision: 695, rolledBack: true },
+      // The real 683-692 -> 686-695 trim: only the oldest unprotected prefix disappeared.
+      preRetryHistory: retryBaselineHistory,
+    });
+  });
+
+  it("retries the synthetic successful-atomic-rollback shape without restoring again", async () => {
+    const scenario = retryScenario({ histories: [atomicRolledBackHistory, atomicRolledBackHistory] });
+    const { error, calls, records } = await runRetryDeploy(scenario);
+
+    expect(error).toBeUndefined();
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(rollbackCalls(calls)).toEqual([]);
+    expect(records[0]).toMatchObject({
+      result: "success",
+      retry: "performed",
+      recovery: { sourceRevision: 692, resultingRevision: 694, rolledBack: false },
+      preRetryHistory: atomicRolledBackHistory,
+    });
+  });
+});
+
+describe("admission transient refusals", () => {
+  async function expectRefusal(scenario, refusal, extra = {}, originalStderr = admissionTransientStderr) {
+    const result = await runRetryDeploy(scenario, extra);
+    // The original upgrade error is rethrown, not a wrapper and not a later stage's error.
+    expect(result.error).toBeInstanceOf(Error);
+    expect(result.error.name).toBe("ProcessExitError");
+    expect(result.error.message).toMatch(/^helm upgrade --install /);
+    expect(result.error.stderr).toBe(originalStderr);
+    expect(upgradeCalls(result.calls)).toHaveLength(1);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({ result: "failure", retry: "refused", refusal });
+    return result;
+  }
+
+  it("rethrows a non-transient upgrade failure without reading history", async () => {
+    const stderr =
+      "Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition\n";
+    const { calls, records } = await expectRefusal(
+      retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
+      "not-transient",
+      {},
+      stderr,
+    );
+    expect(calls).toHaveLength(1);
+    expect(records[0].attempts).toEqual([{ attempt: 1, result: "failure", admissionWebhookTransient: null }]);
+  });
+
+  it("classifies but never retries a transient failure without the retry flag", async () => {
+    const { calls, records } = await expectRefusal(retryScenario(), "retry-not-eligible", {
+      admissionRetryRollbackTarget: undefined,
+    });
+    expect(calls).toHaveLength(1);
+    expect(records[0].attempts[0].admissionWebhookTransient).toBe(admissionTransientLine);
+  });
+
+  it.each([
+    [
+      "a pending revision",
+      [...retryAdmissionHistory.slice(0, -1), { ...retryRollbackFailure, status: "pending-rollback" }],
+    ],
+    [
+      "an extra revision",
+      [
+        ...retryAdmissionHistory.slice(1),
+        { revision: 695, status: "failed", description: 'Upgrade "chase-sets-platform" failed: other' },
+      ],
+    ],
+    [
+      "another first revision",
+      [...retryAdmissionHistory.slice(0, -2), { ...retryUpgradeFailure, description: "Upgrade complete" }],
+    ],
+    ["a missing protected source", retryAdmissionHistory.filter((entry) => entry.revision !== 692)],
+    ["an interior gap", retryAdmissionHistory.filter((entry) => entry.revision !== 688)],
+    [
+      "an inserted old revision",
+      [{ revision: 682, status: "superseded", description: "Upgrade complete" }, ...retryAdmissionHistory.slice(1)],
+    ],
+    [
+      "a changed retained entry",
+      retryAdmissionHistory.map((entry) => (entry.revision === 690 ? { ...entry, status: "failed" } : entry)),
+    ],
+    [
+      "a changed retained description",
+      retryAdmissionHistory.map((entry) =>
+        entry.revision === 692 ? { ...entry, description: "Rollback to 690" } : entry,
+      ),
+    ],
+  ])("refuses %s before any probe or rollback", async (_name, history) => {
+    const { calls } = await expectRefusal(retryScenario({ histories: [history] }), "history-unexpected");
+    expect(probeCalls(calls)).toEqual([]);
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("refuses a retained pending revision even when the capture already held it", async () => {
+    // Synthetic: a pending-upgrade older than the source survives capture unchanged.
+    const capturedWithPending = retryCapturedHistory.map((entry) =>
+      entry.revision === 688 ? { ...entry, status: "pending-upgrade" } : entry,
+    );
+    const admission = [...capturedWithPending.slice(2), retryUpgradeFailure, retryRollbackFailure];
+    const { calls } = await expectRefusal(retryScenario({ histories: [admission] }), "history-unexpected", {
+      admissionRetryRollbackTarget: await retryRollbackTarget(capturedWithPending),
+    });
+    expect(probeCalls(calls)).toEqual([]);
+  });
+
+  it("refuses the retry when the post-restore baseline is not the recorded chain", async () => {
+    const movedBaseline = [
+      ...retryBaselineHistory.slice(1),
+      { revision: 696, status: "failed", description: 'Upgrade "chase-sets-platform" failed: concurrent' },
+    ];
+    const scenario = retryScenario({
+      histories: [...retryScenario().histories.slice(0, 5), movedBaseline],
+    });
+    const { calls, records } = await expectRefusal(scenario, "baseline-unexpected");
+    expect(rollbackCalls(calls)).toHaveLength(1);
+    expect(records[0].preRetryHistory).toBeNull();
+  });
+
+  it("kills and settles a never-closing probe child at the deadline", async () => {
+    const scenario = retryScenario({ probes: [{ hang: true }] });
+    const { calls, records } = await expectRefusal(scenario, "probe-deadline");
+    expect(probeCalls(calls)).toHaveLength(1);
+    expect(probeCalls(calls)[0].killed).toBe("SIGKILL");
+    expect(scenario.clock.now()).toBe(180_000);
+    expect(records[0].probeSamples).toEqual([{ outcome: "timeout", elapsedMs: 180_000 }]);
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("resets the streak on an interleaved failure and starts no probe at or after expiry", async () => {
+    const probes = Array.from({ length: 25 }, (_, index) => ({ code: index % 2 }));
+    const scenario = retryScenario({ probes });
+    const { calls, records } = await expectRefusal(scenario, "probe-deadline");
+    const started = probeCalls(calls);
+    expect(started).toHaveLength(18);
+    expect(started.at(-1).args[2]).toBe("chasesets.com/admission-probe=2026-10-15T03:02:50.000Z");
+    expect(records[0].probeSamples.map((sample) => sample.outcome)).toEqual(
+      Array.from({ length: 18 }, (_, index) => (index % 2 ? "failure" : "success")),
+    );
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("does not count a success that completes at expiry", async () => {
+    const scenario = retryScenario({ probes: [{ code: 0 }, { code: 0, delayMs: 170_000 }] });
+    const { calls, records } = await expectRefusal(scenario, "probe-deadline");
+    expect(records[0].probeSamples).toEqual([
+      { outcome: "success", elapsedMs: 0 },
+      { outcome: "timeout", elapsedMs: 180_000 },
+    ]);
+    expect(probeCalls(calls)[1].killed).toBeNull();
+    expect(rollbackCalls(calls)).toEqual([]);
+  });
+
+  it("stops after a failed restore without a second upgrade", async () => {
+    const scenario = retryScenario({
+      rollbackCode: 1,
+      histories: [retryAdmissionHistory, retryAdmissionHistory, retryAdmissionHistory],
+    });
+    const { records } = await expectRefusal(scenario, "recovery-failed");
+    expect(records[0].recovery).toEqual({ sourceRevision: 692, resultingRevision: null, rolledBack: true });
+  });
+
+  it("stops before the retry when a Helm hook operation is still active", async () => {
+    const census = JSON.stringify({
+      items: [
+        {
+          kind: "Job",
+          metadata: { name: "chase-sets-platform-bootstrap", annotations: { "helm.sh/hook": "pre-upgrade" } },
+          status: { active: 1 },
+        },
+      ],
+    });
+    await expectRefusal(retryScenario({ census }), "helm-operation-active");
+  });
+
+  it("never runs a third upgrade after a failed retry", async () => {
+    const scenario = retryScenario({
+      upgrades: [
+        { code: 1, stderr: admissionTransientStderr },
+        { code: 1, stderr: `${admissionTransientStderr}retry\n` },
+        { code: 0 },
+      ],
+    });
+    const { error, calls, records } = await runRetryDeploy(scenario);
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(scenario.upgrades).toEqual([{ code: 0 }]);
+    // The retry's own error is the step's terminal error.
+    expect(error.stderr).toBe(`${admissionTransientStderr}retry\n`);
+    expect(records[0]).toMatchObject({
+      result: "failure",
+      retry: "performed",
+      attempts: [
+        { attempt: 1, result: "failure", admissionWebhookTransient: admissionTransientLine },
+        { attempt: 2, result: "failure", admissionWebhookTransient: admissionTransientLine },
+      ],
+    });
+  });
+
+  it("keeps a deploy without either flag (staging, preview) on base spawn calls and inherited stdio", async () => {
+    const scenario = retryScenario();
+    const calls = [];
+    const options = retryDeployOptions(scenario, calls);
+    await expect(runOnClock(scenario.clock, deployPlatformToKubernetes(options))).rejects.toThrow(/^helm upgrade /);
+    expect(calls.map((call) => [call.command, call.args, call.options.stdio])).toEqual([
+      ["helm", buildHelmUpgradeArgs(options), ["inherit", "inherit", "inherit"]],
+    ]);
+    expect(options.stderrSink.text()).toBe("");
+  });
+
+  it("lets the workflow rollback restore a superseded source after a failed retry", async () => {
+    // Synthetic: the second upgrade failed and Helm's atomic rollback returned to 695's content.
+    const afterFailedRetry = [
+      ...retryBaselineHistory.slice(2, 9),
+      { ...retryBaselineHistory[9], status: "superseded" },
+      { revision: 696, status: "failed", description: `Upgrade "chase-sets-platform" failed: ${admissionNoAgentCall}` },
+      { revision: 697, status: "deployed", description: "Rollback to 695" },
+    ];
+    const restored = [
+      ...afterFailedRetry.slice(1, 9),
+      { ...afterFailedRetry[9], status: "superseded" },
+      { revision: 698, status: "deployed", description: "Rollback to 692" },
+    ];
+    const calls = [];
+    const result = await rollbackPlatformOnKubernetes({
+      values: rollbackValues,
+      release: retryRelease,
+      namespace: retryNamespace,
+      timeout: "30s",
+      revision: 692,
+      releaseExists: true,
+      rollbackTarget: await retryRollbackTarget(),
+      spawn: retrySpawn(calls, {
+        clock: manualClock(),
+        upgrades: [],
+        probes: [],
+        histories: [afterFailedRetry, afterFailedRetry, restored, restored],
+      }),
+    });
+    expect(result).toMatchObject({
+      result: "success",
+      rollbackIdentity: { sourceRevision: 692, resultingRevision: 698 },
+    });
+  });
+});
+
+describe("attempts record", () => {
+  async function performedRecord() {
+    const { records } = await runRetryDeploy(retryScenario());
+    return records[0];
+  }
+
+  it("is closed and carries exactly one terminal result", async () => {
+    const record = await performedRecord();
+    expect(platformKubernetesDeployment.assertDeployAttemptsRecord(structuredClone(record))).toEqual(record);
+    for (const [name, mutate] of [
+      ["unknown field", (value) => Object.assign(value, { helmArgs: [] })],
+      ["unknown attempt field", (value) => Object.assign(value.attempts[0], { message: "helm upgrade" })],
+      ["missing field", (value) => delete value.preRetryHistory],
+      ["second terminal result", (value) => Object.assign(value, { result: "failure" })],
+      [
+        "third attempt",
+        (value) => value.attempts.push({ attempt: 3, result: "success", admissionWebhookTransient: null }),
+      ],
+      ["unbounded line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "x".repeat(501) })],
+      ["retry without recovery", (value) => Object.assign(value, { recovery: null })],
+      [
+        "unknown refusal",
+        (value) =>
+          Object.assign(value, {
+            retry: "refused",
+            refusal: "other",
+            attempts: value.attempts.slice(0, 1),
+            result: "failure",
+          }),
+      ],
+      ["untyped probe sample", (value) => Object.assign(value.probeSamples[0], { outcome: "pending" })],
+    ]) {
+      const mutated = structuredClone(record);
+      mutate(mutated);
+      expect(() => platformKubernetesDeployment.assertDeployAttemptsRecord(mutated), name).toThrow(
+        "Deploy attempts record",
+      );
+    }
+  });
+
+  it.each([
+    ["recovered", [{ code: 1, stderr: admissionTransientStderr }, { code: 0 }], 0],
+    ["refused", [{ code: 1, stderr: admissionTransientStderr }], 1],
+  ])("keeps a planted env-override value out of the %s record and CLI output", async (_name, upgrades, exitCode) => {
+    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
+    const targetPath = join(directory, "production-rollback-target.json");
+    const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
+    const scenario = retryScenario({
+      upgrades,
+      ...(exitCode ? { probes: [{ hang: true }] } : {}),
+    });
+    const calls = [];
+    const sink = stderrSink();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      writeFileSync(targetPath, JSON.stringify(await retryRollbackTarget()));
+      const code = await runOnClock(
+        scenario.clock,
+        platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+          [
+            "--",
+            "deploy",
+            "--image",
+            `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+            "--runtime-env",
+            "DEPLOYMENT_ENVIRONMENT=production",
+            "--runtime-env",
+            `ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${plantedEnvOverride}`,
+            "--managed-postgres-ca-sha256",
+            managedPostgresCaSha256,
+            "--namespace",
+            retryNamespace,
+            "--release",
+            retryRelease,
+            "--timeout",
+            "30s",
+            "--attempts-out",
+            attemptsPath,
+            "--admission-retry-rollback-target",
+            targetPath,
+          ],
+          {},
+          { values: rollbackValues, spawn: retrySpawn(calls, scenario), clock: scenario.clock, stderrSink: sink },
+        ),
+      );
+      expect(code).toBe(exitCode);
+      expect(upgradeCalls(calls)[0].args.join(" ")).toContain(plantedEnvOverride);
+      const record = readFileSync(attemptsPath, "utf8");
+      expect(JSON.parse(record)).toMatchObject({ result: exitCode ? "failure" : "success" });
+      const output = [record, sink.text(), ...log.mock.calls.flat(), ...error.mock.calls.flat()].map(String).join("\n");
+      expect(output).toContain("No agent available");
+      expect(output).not.toContain(plantedEnvOverride);
+      expect(output).not.toContain("--set-string");
+      if (exitCode) expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("parses the production deploy and verifier record flags without environment fallbacks", () => {
+    expect(
+      parseArgs(
+        [
+          "deploy",
+          "--attempts-out=artifacts/release-health/production-kubernetes-deploy-attempts.json",
+          "--admission-retry-rollback-target=artifacts/release-health/production-rollback-target.json",
+        ],
+        {},
+      ),
+    ).toMatchObject({
+      attemptsOutPath: "artifacts/release-health/production-kubernetes-deploy-attempts.json",
+      admissionRetryRollbackTargetPath: "artifacts/release-health/production-rollback-target.json",
+    });
+    expect(
+      parseArgs(["verify-deployment-transition", "--deploy-attempts", "attempts.json"], {}).deployAttemptsPath,
+    ).toBe("attempts.json");
+    expect(parseArgs(["deploy"], { PLATFORM_KUBERNETES_ROLLBACK_TARGET: "target.json" })).toMatchObject({
+      attemptsOutPath: undefined,
+      admissionRetryRollbackTargetPath: undefined,
+      deployAttemptsPath: undefined,
+    });
+  });
+});
+
+describe("transition with retry record", () => {
+  async function retriedChain() {
+    const { records } = await runRetryDeploy(retryScenario());
+    return { rollbackTarget: await retryRollbackTarget(), deployAttempts: JSON.parse(JSON.stringify(records[0])) };
+  }
+  const verify = (chain, observed, extra = {}) =>
+    verifyKubernetesDeploymentTransition({
+      release: retryRelease,
+      namespace: retryNamespace,
+      checkedAt: "2026-10-15T03:20:00.000Z",
+      ...chain,
+      spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observed) }]),
+      ...extra,
+    });
+
+  it("validates the whole chain, then emits the final hop from the recorded pre-retry baseline", async () => {
+    const transition = await verify(await retriedChain(), retryObservedHistory);
+    // The same 695 -> 696 hop the attempt-2 host rerun emitted (artifact 11946265479).
+    expect(transition).toEqual({
+      schemaVersion: "platform-kubernetes-deployment-transition/v1",
+      checkedAt: "2026-10-15T03:20:00.000Z",
+      release: retryRelease,
+      namespace: retryNamespace,
+      capturedHeadRevision: 695,
+      resultingHeadRevision: 696,
+      capturedHistory: retryBaselineHistory,
+      observedHistory: retryObservedHistory,
+    });
+  });
+
+  it.each([
+    [
+      "an altered intermediate",
+      retryObservedHistory.map((entry) => (entry.revision === 694 ? { ...entry, status: "superseded" } : entry)),
+    ],
+    ["a missing intermediate", retryObservedHistory.filter((entry) => entry.revision !== 693)],
+    ["a moved captured source", retryObservedHistory.filter((entry) => entry.revision !== 692)],
+    [
+      "a second new revision",
+      [...retryObservedHistory.slice(1), { revision: 697, status: "deployed", description: "Upgrade complete" }],
+    ],
+    [
+      "a non-deployed final hop",
+      [...retryObservedHistory.slice(0, -1), { revision: 696, status: "failed", description: "Upgrade failed" }],
+    ],
+  ])("refuses %s before emission", async (_name, observed) => {
+    await expect(verify(await retriedChain(), observed)).rejects.toThrow();
+  });
+
+  it.each([
+    ["an unrecorded intermediate", (record) => record.preRetryHistory.splice(-2, 1)],
+    [
+      "an altered recorded intermediate",
+      (record) => Object.assign(record.preRetryHistory.at(-2), { status: "superseded" }),
+    ],
+    [
+      "a recovery that is not the recorded head",
+      (record) => Object.assign(record.recovery, { resultingRevision: 694 }),
+    ],
+    ["a recovery from another source", (record) => Object.assign(record.recovery, { sourceRevision: 691 })],
+    [
+      "a failed deploy",
+      (record) =>
+        Object.assign(record, {
+          result: "failure",
+          attempts: [record.attempts[0], { ...record.attempts[1], result: "failure" }],
+        }),
+    ],
+    ["another release", (record) => Object.assign(record, { release: "proof" })],
+  ])("refuses a record with %s before emission", async (_name, mutate) => {
+    const chain = await retriedChain();
+    mutate(chain.deployAttempts);
+    await expect(verify(chain, retryObservedHistory)).rejects.toThrow();
+  });
+
+  it("is unchanged without a performed retry", async () => {
+    const capturedHistory = [{ revision: 308, status: "deployed", description: "Synthetic source" }];
+    const rollbackTarget = {
+      schemaVersion: "platform-kubernetes-rollback-target/v2",
+      sourceRevision: 308,
+      sourceStatus: "deployed",
+      historyHeadRevision: 308,
+      terminalFailedSuffix: [],
+      preDeployHistory: capturedHistory,
+    };
+    const observed = [
+      { ...capturedHistory[0], status: "superseded" },
+      { revision: 309, status: "deployed", description: "Synthetic upgrade complete" },
+    ];
+    const deployAttempts = {
+      schemaVersion: "platform-kubernetes-deploy-attempts/v1",
+      release: retryRelease,
+      namespace: retryNamespace,
+      result: "success",
+      retry: "not-needed",
+      refusal: null,
+      attempts: [{ attempt: 1, result: "success", admissionWebhookTransient: null }],
+      probeSamples: [],
+      recovery: null,
+      preRetryHistory: null,
+    };
+    expect(await verify({ rollbackTarget, deployAttempts }, observed)).toEqual(
+      await verify({ rollbackTarget }, observed),
+    );
   });
 });
