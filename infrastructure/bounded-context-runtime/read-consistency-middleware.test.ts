@@ -3,6 +3,8 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   encodeFreshWriteReceipt,
+  appendFreshWriteToken,
+  classifyFreshWriteReadError,
 } from "@chase-sets/http/responses";
 import { createEventCoreMock, createEventCorePostgresMock, resetMockPoolState } from "./index-test-harness";
 
@@ -14,6 +16,47 @@ import { attachReadConsistencyMiddleware, waitForProjectionFreshness } from "./i
 describe("bounded context read consistency middleware", () => {
   beforeEach(() => {
     resetMockPoolState();
+  });
+
+  it.each(["reaction", "orders"])("refuses failed %s applications with a redacted non-transient error and failed audit", async (failedGroup) => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const sources = [{ sourceContextName: "marketplace", maxGlobalPosition: "1000", eventIds: ["accepted"] }];
+    const receipt = encodeFreshWriteReceipt({ observedAtMs: Date.now(), sources });
+    const recordReadConsistencyAudit = vi.fn();
+    const next = vi.fn();
+    attachReadConsistencyMiddleware(
+      { use: (_path, middleware) => { middlewares.push(middleware); } },
+      [{ contextName: "ordering", mountPath: "/api/marketplace", readFreshnessRoutes: [{ routePath: "/account/sales", dependencies: [{ projectionName: "reaction" }, { projectionName: "orders" }] }] }],
+      [
+        {
+          targetContextName: "ordering", projectionName: "reaction", handlerKind: "reaction",
+          subscriptionRunners: [{
+            sourceContextName: "marketplace", checkpointKey: "private-checkpoint-reaction",
+            refreshStatus: async () => ({ lastGlobalPosition: "1000", state: "degraded", lastError: "private-error" }),
+            readReceiptApplicationOutputs: async () => ({ state: failedGroup === "reaction" ? "failed" : "applied", outputPositions: ["20"] }),
+          }],
+        },
+        {
+          targetContextName: "ordering", projectionName: "orders",
+          subscriptionRunners: [{
+            sourceContextName: "ordering", checkpointKey: "private-checkpoint-orders",
+            refreshStatus: async () => ({ lastGlobalPosition: "20", state: "degraded", lastError: "private-error" }),
+            readOutputApplicationStatus: async () => ({ failed: failedGroup === "orders", requiredGlobalPosition: "20" }),
+          }],
+        },
+      ],
+      { timeoutMs: 0, recordReadConsistencyAudit },
+    );
+    const result = await middlewares[0]!({
+      req: { method: "GET", path: "/api/marketplace/account/sales", header: (name: string) => name === CHASE_SETS_READ_AFTER_WRITE_HEADER ? receipt : name === CHASE_SETS_READ_TARGET_CONTEXT_HEADER ? "ordering" : undefined },
+      json: (body: unknown, status: number) => ({ body, status }),
+    }, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 500, body: { error: { code: "internal_error", pending: [expect.objectContaining({ projectionName: failedGroup, lastError: "present" })] } } });
+    expect(JSON.stringify(result)).not.toContain("private-");
+    expect(recordReadConsistencyAudit).toHaveBeenCalledWith(expect.objectContaining({ outcome: "failed", pending: [expect.objectContaining({ projectionName: failedGroup })] }));
+    const request = appendFreshWriteToken("http://localhost/account/sales", { sources });
+    expect(classifyFreshWriteReadError({ request, error: result, getStatus: () => 500, getBody: () => (result as { body: unknown }).body })).toMatchObject({ transient: false, errorCode: "internal_error" });
   });
 
   it("returns a projection freshness timeout response before serving stale API reads", async () => {
