@@ -137,6 +137,10 @@ test.describe("Invitation real browser route @marketplace-account", () => {
     test(`${scenario} retains real route states, focus and secret-free recovery evidence`, async ({
       browser,
     }, testInfo) => {
+      const started = performance.now();
+      const diagnostic = (phase: string) =>
+        console.log(JSON.stringify({ invitationDiagnostic: scenario, phase, utc: new Date().toISOString(), elapsedMs: Math.round(performance.now() - started) }));
+      diagnostic("allocation:start");
       const root = resolve(".");
       const config = ts.readConfigFile(resolve(root, "tsconfig.base.json"), ts.sys.readFile);
       expect(config.error).toBeUndefined();
@@ -152,22 +156,38 @@ test.describe("Invitation real browser route @marketplace-account", () => {
         resolve: { alias },
         server: { host: "127.0.0.1", port: 0 },
       });
+      diagnostic("server:allocated");
+      server.httpServer?.on("close", () => diagnostic("server:closed"));
       const context = await browser.newContext();
+      diagnostic("context:allocated");
+      context.on("close", () => diagnostic("context:closed"));
       const archive = testInfo.outputPath(`${scenario}-trace.zip`);
       let tracing = false;
       try {
+        diagnostic("listen:start");
         await server.listen();
+        diagnostic("listen:complete");
         const address = server.httpServer!.address();
         if (!address || typeof address === "string") throw new Error("fixture listener unavailable");
         const page = await context.newPage();
+        diagnostic("page:allocated");
+        page.on("framenavigated", (frame) => diagnostic(frame === page.mainFrame() ? "navigation:main-frame" : "navigation:child-frame"));
+        page.on("close", () => diagnostic("page:closed"));
+        diagnostic("navigation:start");
         await page.goto(`http://127.0.0.1:${address.port}/invitation-proof?scenario=${scenario}`);
+        diagnostic("navigation:complete");
         await page.getByRole("radio", { name: "Password", exact: true }).click();
+        diagnostic("readiness:complete");
         // Private setup is intentionally untraced. The actual route action still
         // receives and validates the synthetic bearer/password through its adapter.
         await page.getByLabel("Enter or create a password").fill(secretMarkers[1]);
+        diagnostic("submit:start");
         await page.getByRole("button", { name: /Accept with password/i }).click();
         await expect(page.getByRole("status")).toContainText("Submitting your invitation acceptance");
+        diagnostic("submit:complete");
+        diagnostic("trace:start");
         await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
+        diagnostic("trace:started");
         tracing = true;
         const phases: string[] = [];
         async function frame(phase: string, copy: string) {
@@ -178,13 +198,17 @@ test.describe("Invitation real browser route @marketplace-account", () => {
           for (const marker of secretMarkers) expect(await page.locator("body").innerHTML()).not.toContain(marker);
           await page.screenshot({ path: testInfo.outputPath(`${phase}.png`) });
           phases.push(phase);
+          diagnostic(`capture:${phase}`);
         }
         await frame("submitting", "Submitting your invitation acceptance");
+        diagnostic("settlement:start");
         await page.evaluate("window.invitationProbe.settleWrite()");
+        diagnostic("settlement:complete");
         if (scenario === "success") {
           await expect(page.getByRole("heading", { name: "Current Account" })).toBeVisible();
           await page.screenshot({ path: testInfo.outputPath("succeeded.png") });
           phases.push("succeeded");
+          diagnostic("capture:succeeded");
         } else if (scenario === "retry-failure") {
           await expect.poll(() => page.evaluate("window.invitationProbe.reads")).toBe(1);
           await page.evaluate("window.invitationProbe.settleRead()");
@@ -225,9 +249,14 @@ test.describe("Invitation real browser route @marketplace-account", () => {
         expect(counters.completions).toBe(scenario === "success" ? 1 : 0);
         expect(counters.accountLoads).toBe(scenario === "success" ? 1 : 0);
         expect(counters.inspect).toBe(scenario === "success" ? 1 : scenario === "retry-failure" ? 3 : 2);
+        diagnostic("proof:complete");
+        diagnostic("trace-stop:start");
         await context.tracing.stop({ path: archive });
+        diagnostic("trace-stop:complete");
         tracing = false;
+        diagnostic("scan:start");
         const scan = await extractAndScan(archive, testInfo.outputPath(`${scenario}-extracted`));
+        diagnostic("scan:complete");
         await testInfo.attach("invitation-route-proof", {
           body: JSON.stringify({
             fixture: "test-only-owner-adapters; production route/action/loader/UI; rollout unchanged",
@@ -237,16 +266,30 @@ test.describe("Invitation real browser route @marketplace-account", () => {
           }),
           contentType: "application/json",
         });
+        diagnostic("attachment:complete");
+      } catch (error) {
+        diagnostic(`primary-error:${error instanceof Error ? error.name : "unknown"}`);
+        throw error;
       } finally {
+        diagnostic("disposal:start");
         try {
           if (tracing) {
+            diagnostic("failure-trace-stop:start");
             await context.tracing.stop({ path: archive });
+            diagnostic("failure-trace-stop:complete");
+            diagnostic("failure-scan:start");
             await extractAndScan(archive, testInfo.outputPath(`${scenario}-failure-extracted`));
+            diagnostic("failure-scan:complete");
           }
         } finally {
+          diagnostic("context-close:start");
           await context.close();
+          diagnostic("context-close:complete");
+          diagnostic("server-close:start");
           await server.close();
+          diagnostic("server-close:complete");
         }
+        diagnostic("disposal:complete");
       }
     });
   }
