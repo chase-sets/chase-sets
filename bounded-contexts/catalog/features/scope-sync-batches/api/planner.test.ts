@@ -5,7 +5,10 @@ import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/quer
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { ProviderAdapterRegistry } from "../../source-observations/api/provider-adapters/registry";
 import type { ProviderAdapter } from "../../source-observations/api/provider-adapters/provider-adapter";
-import { catalogProviderIntegrationProfileVersions } from "../../source-observations/api/provider-integration-profiles";
+import {
+  catalogProviderIntegrationProfileVersions,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "../../source-observations/api/provider-integration-profiles";
 import { unitKeyForCatalogProviderProfileVersion } from "../../source-observations/api/governance/catalog-integration-impact-analysis";
 import { previewCatalogSyncProviderParticipation } from "../../source-observations/api/catalog-sync-scope-planner";
 import {
@@ -49,6 +52,9 @@ describe("whole Magic mapping preview", () => {
       blockers: [],
     });
     expect(plans).toHaveLength(1);
+    expect(preview.planFingerprint).toMatchInlineSnapshot(
+      `"41eac95ef7563e871b28b77c5c8d7043f67c844d1caa421261b6bf1f3d851185"`,
+    );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
     expect(plans[0]!.participationPreview.units.every((unit) => unit.selected && unit.eligibility === "eligible")).toBe(
       true,
@@ -57,6 +63,38 @@ describe("whole Magic mapping preview", () => {
     expect(fixture.planImport).toHaveBeenCalledTimes(2);
     const mtgjsonPlans = await Promise.all(fixture.planImport.mock.results.map((result) => result.value));
     expect(mtgjsonPlans.map((plan) => plan.planKey).sort()).toEqual(["mtgjson:cards:set:TSP", "mtgjson:set:TSP"]);
+  });
+
+  it("keeps the five mapped units with every active Magic profile, without planning the requirement pass", async () => {
+    const activeMagicProfiles = catalogProviderIntegrationProfileVersions.filter(
+      (profile) =>
+        profile.active &&
+        profile.lifecycle === "active" &&
+        profile.profile.status === "active" &&
+        unitKeyForCatalogProviderProfileVersion(profile).split(":")[1] === "mtg",
+    );
+    expect(activeMagicProfiles.map((profile) => profile.profileKey)).toContain("mtg-card-image-evidence");
+    const fixture = await magicFixture(activeMagicProfiles);
+    const { preview, plans } = await fixture.resolve();
+    expect(preview).toMatchObject({
+      confirmAllowed: true,
+      counts: { scopes: 1, readyScopes: 1, blockedScopes: 0, providerUnits: 5 },
+      providerUnitTotals: { mtgjson: 2, scryfall: 1, tcgplayer: 2 },
+      budget: { creditedProviderRequestLimits: { scrydex: 0 } },
+      blockers: [],
+    });
+    expect(plans[0]!.scope.providerParticipation?.selectedUnitKeys).toEqual(
+      fixture.mappings.map((mapping) => mapping.unit_key),
+    );
+    expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
+    expect(fixture.previewCatalogSyncScope).toHaveBeenCalledTimes(2);
+    const baseline = await (await magicFixture()).resolve();
+    expect(preview.planFingerprint).toBe(baseline.preview.planFingerprint);
+    const requirementInput = fixture.previewCatalogSyncScope.mock.calls[0]![0];
+    expect(requirementInput).toMatchObject({ acceptedScopeMappings: [], includeOperationalGates: false });
+    expect(requirementInput.scope.providerParticipation).toBeUndefined();
+    expect(fixture.planImport).toHaveBeenCalledTimes(2);
+    expect(fixture.deniedFetch).not.toHaveBeenCalled();
   });
 
   it("blocks the entire selection when an accepted mapping loses its required coordinate", async () => {
@@ -89,6 +127,7 @@ describe("whole Magic mapping preview", () => {
     expect(preview).toMatchObject({ confirmAllowed: false, counts: { scopes: 2, readyScopes: 1, blockedScopes: 1 } });
     expect(plans.map((plan) => plan.scopeRecordId)).toEqual(fixture.records.map((record) => record.scope_record_id));
     expect(plans[1]!.participationPreview.units).toHaveLength(5);
+    expect(plans[1]!.scope.providerParticipation?.selectedUnitKeys).toEqual([]);
     expect(preview.blockers).toContainEqual(
       expect.objectContaining({ code: "mapping-missing", scopeRecordId: fixture.records[1]!.scope_record_id }),
     );
@@ -109,12 +148,21 @@ describe("whole Magic mapping preview", () => {
     fixture.mappings = fixture.mappings.filter((mapping) => mapping !== requiredMapping);
     const { preview, plans } = await fixture.resolve();
     expect(fixture.deniedFetch).not.toHaveBeenCalled();
-    expect.soft(preview).toMatchObject({ confirmAllowed: false, counts: { scopes: 1, providerUnits: 5 } });
+    expect(preview).toMatchObject({
+      confirmAllowed: false,
+      counts: { scopes: 1, readyScopes: 0, blockedScopes: 1, providerUnits: 5 },
+    });
+    expect(plans[0]!.participationPreview.units).toContainEqual(
+      expect.objectContaining({ unitKey: requiredMapping.unit_key, selected: true, requirement: "required" }),
+    );
+    expect(preview.blockers).toContainEqual(
+      expect.objectContaining({ code: "scope-planning-blocked", providerKey: "tcgplayer" }),
+    );
     expect(plans[0]!.participationPreview.units.map((unit) => unit.unitKey).sort()).toEqual(fixture.unitKeys);
   });
 });
 
-async function magicFixture() {
+async function magicFixture(providerProfiles: readonly CatalogProviderIntegrationProfileVersionRecord[] = profiles) {
   expect(profiles).toHaveLength(5);
   const {
     items: [option],
@@ -128,9 +176,27 @@ async function magicFixture() {
   });
   const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
   const planImport = vi.spyOn(adapter, "planImport");
+  const siblingAdapters = [offlineAdapter("scryfall"), offlineAdapter("tcgplayer")];
+  const planningCalls = [planImport, ...siblingAdapters.map((sibling) => vi.spyOn(sibling, "planImport"))];
   const fixture = {
     deniedFetch,
     planImport,
+    previewCatalogSyncScope: vi.fn<Parameters<typeof createScopeSyncBatchPlanner>[0]["previewCatalogSyncScope"]>(
+      async (input) => {
+        const callsBefore = planningCalls.map((call) => call.mock.calls.length);
+        const result = await previewCatalogSyncProviderParticipation({
+          ...input,
+          acceptedScopeMappings: input.acceptedScopeMappings ?? [],
+          providerProfileVersions: providerProfiles,
+          providerAdapterRegistry: new ProviderAdapterRegistry([adapter, ...siblingAdapters]),
+        });
+        if (input.acceptedScopeMappings?.length === 0) {
+          expect(planningCalls.map((call) => call.mock.calls.length)).toEqual(callsBefore);
+          expect(result.units.every((unit) => unit.childExecutionScope === null)).toBe(true);
+        }
+        return result;
+      },
+    ),
     unitKeys: profiles.map(unitKeyForCatalogProviderProfileVersion).sort(),
     records: [scopeRecord("scope_synthetic_magic_tsp")],
     mappings: profiles.map(
@@ -181,17 +247,7 @@ async function magicFixture() {
   const planner = createScopeSyncBatchPlanner({
     db,
     now: () => timestamp,
-    previewCatalogSyncScope: (input) =>
-      previewCatalogSyncProviderParticipation({
-        ...input,
-        acceptedScopeMappings: input.acceptedScopeMappings ?? [],
-        providerProfileVersions: profiles,
-        providerAdapterRegistry: new ProviderAdapterRegistry([
-          adapter,
-          offlineAdapter("scryfall"),
-          offlineAdapter("tcgplayer"),
-        ]),
-      }),
+    previewCatalogSyncScope: fixture.previewCatalogSyncScope,
   });
   return fixture;
 }
