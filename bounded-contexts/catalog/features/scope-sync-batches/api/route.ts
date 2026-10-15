@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { t } from "@chase-sets/localization";
 import {
@@ -13,29 +13,72 @@ import { readHeldSetExportUpload } from "./held-set-upload";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { CountAcquisitionRefused } from "../domain/count-acquisition";
+import { countCaptureFields } from "../domain/count-capture-plan";
+import type { CountCaptureLifecycle } from "./count-capture-lifecycle";
+import type { CountCaptureSession } from "./count-capture-session";
 import { z } from "zod";
 
 type Env = { Variables: { context: EventStoreContext; actor: ResolvedActor | null } };
+// The explicit capture marker. Without it the capture paths stay unrouted.
+const countCaptureMarker = "x-catalog-count-capture";
+const captureBodies = {
+  baseline: z.object({ scopeRecordId: countCaptureFields.id, authority: z.unknown() }).strict(),
+  empty: z.object({}).strict(),
+};
 
-export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
+// Count and capture commands need a same-origin platform-admin with Catalog access.
+async function adminCountAccess(c: Context<Env>, next: Next) {
+  c.header("Cache-Control", "no-store");
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: { code: "unauthenticated" } }, 401);
+  if (
+    actor.roleKey !== "platform-admin" ||
+    !actor.permissions.includes(c.req.method === "GET" ? "catalog.view" : "catalog.manage")
+  )
+    return c.json({ error: { code: "forbidden" } }, 403);
+  if (
+    c.req.method !== "GET" &&
+    (c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
+      c.req.header("sec-fetch-site") === "cross-site")
+  )
+    return c.json({ error: { code: "forbidden" } }, 403);
+  await next();
+}
+
+export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: CountCaptureLifecycle | null = null) {
   const app = new Hono<Env>();
-  app.use("/counts/*", async (c, next) => {
+  app.use("/counts/*", adminCountAccess);
+  app.use("/count-capture/*", async (c, next) => {
+    const marker = c.req.header(countCaptureMarker);
+    if (marker === undefined) return c.notFound();
     c.header("Cache-Control", "no-store");
-    const actor = c.get("actor");
-    if (!actor) return c.json({ error: { code: "unauthenticated" } }, 401);
-    if (
-      actor.roleKey !== "platform-admin" ||
-      !actor.permissions.includes(c.req.method === "GET" ? "catalog.view" : "catalog.manage")
-    )
-      return c.json({ error: { code: "forbidden" } }, 403);
-    if (
-      c.req.method !== "GET" &&
-      (c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
-        c.req.header("sec-fetch-site") === "cross-site")
-    )
-      return c.json({ error: { code: "forbidden" } }, 403);
-    await next();
+    if (marker !== "1" || !capture) return c.json({ error: { code: "capture-stopped" } }, 409);
+    return adminCountAccess(c, next);
   });
+  // Every capture outcome is uncacheable, and every failure is one support-safe refusal.
+  const captureStep =
+    <T>(body: z.ZodType<T>, work: (session: CountCaptureSession, input: T) => Promise<unknown>) =>
+    async (c: Context<Env>) => {
+      c.header("Cache-Control", "no-store");
+      try {
+        const session = { request: c.req.raw, actor: c.get("actor"), context: c.get("context") };
+        return c.json(await work(session, body.parse(await c.req.json())));
+      } catch {
+        return c.json({ error: { code: "capture-stopped" } }, 409);
+      }
+    };
+  app.post(
+    "/count-capture/baseline",
+    captureStep(captureBodies.baseline, (session, input) => capture!.baseline(session, input)),
+  );
+  app.post(
+    "/count-capture/initial-notice",
+    captureStep(captureBodies.empty, (session) => capture!.initialNotice(session)),
+  );
+  app.post(
+    "/count-capture/usage",
+    captureStep(captureBodies.empty, (session) => capture!.usage(session)),
+  );
   app.onError((error, c) => {
     if (error instanceof CountAcquisitionRefused)
       return c.json({ error: { code: error.code, message: error.message } }, 409);

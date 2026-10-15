@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCatalogAuthoringApi } from "../../authoring-support/api";
+import type { CountCaptureLifecycle } from "../../../features/scope-sync-batches/api/count-capture-lifecycle";
 
 type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
 
@@ -2089,6 +2090,24 @@ export function createCatalogApiClient({
     async acquireScopeSyncCounts<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/acquire", input);
     },
+    // Staging count-capture steps, each sent with the explicit capture marker.
+    async captureScopeSyncCountBaseline(
+      input: Readonly<{ scopeRecordId: string; authority: unknown }>,
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["baseline"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/baseline", input);
+    },
+    async captureScopeSyncCountInitialNotice(): Promise<Awaited<ReturnType<CountCaptureLifecycle["initialNotice"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/initial-notice",
+        {},
+      );
+    },
+    async captureScopeSyncCountUsage(): Promise<Awaited<ReturnType<CountCaptureLifecycle["usage"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/usage", {});
+    },
     async getScopeSyncCountQuote<T>(quoteId: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/counts/quote/${encodeURIComponent(quoteId)}`,
@@ -2644,6 +2663,10 @@ async function scopeSyncBatchRequest<T>(
     ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }),
   });
   return parseJsonResponse<T>(response);
+}
+
+function captureHeaders(headers?: HeadersInit): Record<string, string> {
+  return { ...headersToRecord(headers), "x-catalog-count-capture": "1" };
 }
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {
