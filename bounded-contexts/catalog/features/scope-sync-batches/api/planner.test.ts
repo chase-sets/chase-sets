@@ -77,7 +77,13 @@ describe("whole Magic mapping preview", () => {
 
   it("retains a second blocked active Magic scope rather than confirming a ready subset", async () => {
     const fixture = await magicFixture();
-    fixture.records.push(scopeRecord("scope_synthetic_magic_unmapped"));
+    fixture.records.push({
+      ...scopeRecord("scope_synthetic_magic_unmapped"),
+      reference_record_id: "ref_synthetic_magic_unmapped",
+      reference_record_key: "synthetic_unmapped",
+      name: "Synthetic unmapped Magic set",
+      official_set_code: null,
+    });
     const { preview, plans } = await fixture.resolve();
     expect(preview).toMatchObject({ confirmAllowed: false, counts: { scopes: 2, readyScopes: 1, blockedScopes: 1 } });
     expect(plans.map((plan) => plan.scopeRecordId)).toEqual(fixture.records.map((record) => record.scope_record_id));
