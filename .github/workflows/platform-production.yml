@@ -3903,11 +3903,23 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}
+          ADMISSION_RETRY_ROLLBACK_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
         run: |
           set -euo pipefail
           node ./scripts/agent-grant-revocation-release.mjs prepare \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
+
+          # A transient DOKS admission-webhook loss (#9662) is retried once after an exact
+          # restore of the captured source, so it is offered only under the workflow
+          # rollback's own eligibility; otherwise the deploy fails exactly as before.
+          admission_retry_args=()
+          if [ "$ADMISSION_RETRY_READINESS_RESULT" = "success" ] && node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "$ADMISSION_RETRY_ROLLBACK_COMMIT"; then
+            admission_retry_args=(--admission-retry-rollback-target "artifacts/release-health/production-rollback-target.json")
+          fi
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
@@ -3984,7 +3996,9 @@ jobs:
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --managed-postgres-ca-sha256 "${{ steps.production_managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
-            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --attempts-out "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
+            "${admission_retry_args[@]}"
 
       - name: Capture production Kubernetes deploy diagnostics
         env:
@@ -4317,6 +4331,7 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollback-target "artifacts/release-health/production-rollback-target.json" \
+            --deploy-attempts "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
           node ./scripts/production-release-marker.mjs retain-identity
           if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then
@@ -4652,6 +4667,7 @@ jobs:
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
             --diagnostics artifacts/release-health/production-rollback.json \
+            --diagnostics artifacts/release-health/production-kubernetes-deploy-attempts.json \
             --out artifacts/release-health/production-deploy-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"
