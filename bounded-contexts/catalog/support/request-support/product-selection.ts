@@ -63,7 +63,7 @@ export async function resolveCatalogProductSelection(
   }
 }
 
-function parseBlueprint(dimensionRules: unknown, canonicalOrder: unknown): ProductDefiningBlueprint {
+export function parseBlueprint(dimensionRules: unknown, canonicalOrder: unknown): ProductDefiningBlueprint {
   const rules = Array.isArray(dimensionRules) ? dimensionRules : [];
   const order = Array.isArray(canonicalOrder) ? canonicalOrder : [];
   return {
