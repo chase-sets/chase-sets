@@ -791,6 +791,7 @@ describeDb("Support evidence cleanup claims on real PostgreSQL (AC-E1, AC-E2, AC
       ]);
       await project([pendingStream]);
       expect(await cleanup(cleanupRuntime(store, storage)).run({ now: later(hour) })).toMatchObject({ deleted: 1 });
+      await project([pendingStream]);
       expect(await cleanup(cleanupRuntime(store, storage)).run({ now: later(2 * hour) })).toMatchObject({
         examined: 0,
       });
@@ -851,8 +852,7 @@ describeDb("Support evidence cleanup claims on real PostgreSQL (AC-E1, AC-E2, AC
         }
         return storage.deleteKeys(requested);
       },
-      verifyPrivate: async (key, expected) =>
-        fault === "confirm" ? { status: "match" } : storage.verifyPrivate(key, expected),
+      verifyPrivate: async (key) => (fault === "confirm" ? { status: "match" } : storage.verifyPrivate(key)),
     };
     if (fault === "append")
       faulty = {
@@ -872,6 +872,10 @@ describeDb("Support evidence cleanup claims on real PostgreSQL (AC-E1, AC-E2, AC
     store = createPostgresEventStore({ pool });
     await project();
     expect(await cleanup(cleanupRuntime(store, storage)).run({ now: later(120_000) })).toMatchObject({ deleted: 1 });
+    await project();
+    expect(await locators()).toEqual([
+      { operation_stream_id: operationStream, state: "deleted-unreferenced", stream_version: events },
+    ]);
     expect(await cleanup(cleanupRuntime(store, storage)).run({ now: later(25 * hour) })).toMatchObject({ examined: 0 });
     const types = await operationTypes();
     expect(types).toHaveLength(events);
@@ -1008,7 +1012,7 @@ describeDb("Support evidence cleanup claims on real PostgreSQL (AC-E1, AC-E2, AC
 
   it("fresh, upgraded and boot-twice schemas converge and a rebuilt locator replays identically", async () => {
     await pool.query(platformOperationsModule.schemaSql);
-    const migration = platformOperationsModule.schemaMigrations.find(
+    const migration = (platformOperationsModule.schemaMigrations ?? []).find(
       (entry) => entry.migrationId === "20261015_support_evidence_cleanup_locators",
     )!;
     for (const statement of migration.statements) await pool.query(statement);
