@@ -141,9 +141,12 @@ describe("read-after-write live wait declarations", () => {
       expect(entries.map(({ mountPath }) => mountPath), `${contextName} mount coverage`).toEqual(
         module.apiMounts.map(({ mountPath }) => mountPath),
       );
-      for (const [index, mount] of module.apiMounts.entries()) {
-        const app = new Hono().route(mount.mountPath, entries[index].router);
-        const getPaths = new Set(app.routes.filter(({ method }) => method === "GET").map(({ path }) => path));
+      const app = new Hono();
+      for (const { mountPath, router } of entries) {
+        app.route(mountPath, router);
+      }
+      const getPaths = new Set(app.routes.filter(({ method }) => method === "GET").map(({ path }) => path));
+      for (const mount of module.apiMounts) {
         for (const route of mount.readFreshnessRoutes ?? []) {
           const path = `${mount.mountPath}${route.routePath}`;
           if (!getPaths.has(path)) {
