@@ -20,7 +20,7 @@ export function createBrowserProofResources() {
           errors.push(error);
         }
         const results = await Promise.allSettled(
-          releases.toReversed().map((release) => Promise.resolve().then(release)),
+          [...releases].reverse().map((release) => Promise.resolve().then(release)),
         );
         for (const result of results) if (result.status === "rejected") errors.push(result.reason);
         if (errors.length) throw new AggregateError(errors, "Invitation proof cleanup failed");

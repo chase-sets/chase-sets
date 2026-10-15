@@ -22,10 +22,13 @@ describe("Invitation browser proof resource ownership", () => {
 
   it("shares concurrent disposal and finishes tracing before either close", async () => {
     const resources = createBrowserProofResources();
-    const trace = Promise.withResolvers<void>();
+    let resolveTrace!: () => void;
+    const trace = new Promise<void>((resolve) => {
+      resolveTrace = resolve;
+    });
     const server = vi.fn(async () => {});
     const context = vi.fn(async () => {});
-    const stop = vi.fn(() => trace.promise);
+    const stop = vi.fn(() => trace);
     resources.release(server);
     resources.release(context);
     resources.beforeDispose(stop);
@@ -36,7 +39,7 @@ describe("Invitation browser proof resource ownership", () => {
     expect(stop).toHaveBeenCalledTimes(1);
     expect(server).not.toHaveBeenCalled();
     expect(context).not.toHaveBeenCalled();
-    trace.resolve();
+    resolveTrace();
     await first;
     await resources.dispose();
     expect(stop).toHaveBeenCalledTimes(1);
