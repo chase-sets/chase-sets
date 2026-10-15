@@ -289,6 +289,8 @@ components:
         value: ""
       - name: "CHASE_SETS_CHECKOUT_CLOSED"
         value: "false"
+      - name: "CHASE_SETS_OFFER_LIFECYCLE_OPEN"
+        value: "false"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "ADMIN_REGISTRATION_ENABLED"

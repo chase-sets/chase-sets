@@ -119,4 +119,15 @@ describe("Submitted Offers list lifecycle controls", () => {
     expect(screen.getByText("Blastoise: already Paused")).toBeTruthy();
     expect(screen.getByText("off_gone: withdrawn and accepted Offers are final")).toBeTruthy();
   });
+
+  it("tells the buyer when lifecycle changes are not open yet", () => {
+    renderPage({
+      lifecycle: {
+        pending: false,
+        onAction: vi.fn(),
+        outcomes: [{ offerId: "off_open", outcome: "rejected", code: "offer_lifecycle_closed" }],
+      },
+    });
+    expect(screen.getByText("Charizard: Pause, Resume and Withdraw are not open yet. Try again later.")).toBeTruthy();
+  });
 });

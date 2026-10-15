@@ -61,6 +61,7 @@ import {
 import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
 import { createManagedOfferAuthority, ManagedOfferConflictError, type ManagedOfferTarget } from "./managed-authority";
 import { BuyerOfferPolicyError } from "../../offer-policy/domain/domain";
+import { MarketplaceOfferLifecycleClosedError } from "./lifecycle-admission";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
@@ -318,6 +319,13 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       ...quote,
       fee_quote_fingerprint: `${quote.fee_quote_fingerprint}|${offerId}:${current.version}|${listingId}:${listing.version}`,
     };
+  }
+
+  async function assertOfferLifecycleAdmitted() {
+    const decision = deps.offerLifecycleAdmission
+      ? await deps.offerLifecycleAdmission.check()
+      : ({ admitted: false, reason: "admission_not_configured" } as const);
+    if (!decision.admitted) throw new MarketplaceOfferLifecycleClosedError(decision.reason);
   }
 
   async function changeOfferLifecycle(
@@ -595,10 +603,14 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       });
       return { offerId: params.offerId, version: result.version, status: result.state.status };
     },
-    changeOfferLifecycle,
+    changeOfferLifecycle: async (params, context) => {
+      await assertOfferLifecycleAdmitted();
+      return changeOfferLifecycle(params, context);
+    },
     bulkChangeOfferLifecycle: async (params, context) => {
       if (params.offerIds.length === 0 || params.offerIds.length > MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT)
         throw new Error(`Bulk Offer changes take 1 to ${MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT} Offers.`);
+      await assertOfferLifecycleAdmitted();
       const outcomes: MarketplaceOfferLifecycleOutcome[] = [];
       for (const offerId of params.offerIds) {
         try {

@@ -662,11 +662,12 @@ describe("buyer Offer lifecycle routes", () => {
     permissions,
   });
 
-  async function lifecycleApps(offerIds: Readonly<Record<string, string>>) {
+  async function lifecycleApps(offerIds: Readonly<Record<string, string>>, lifecycleOpen = true) {
     const eventStore = createInMemoryEventStore().eventStore;
     const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
     const appendToStream = vi.spyOn(eventStore, "appendToStream");
     const services = createMarketplaceOfferRuntime({
+      ...(lifecycleOpen ? { offerLifecycleAdmission: { check: async () => ({ admitted: true }) as const } } : {}),
       eventStore,
       db: { query: vi.fn(async () => ({ rows: [] })) },
       checkpointStore: {} as never,
@@ -727,6 +728,26 @@ describe("buyer Offer lifecycle routes", () => {
         body: JSON.stringify({ priceAmount, priceCurrencyCode: "USD" }),
       }),
     );
+
+  it("refuses every lifecycle producer with 503 offer_lifecycle_closed and no write until admission opens", async () => {
+    const { buyer, writes } = await lifecycleApps({ off_1: "acc_buyer" }, false);
+    for (const [path, body] of [
+      ["/offers/submitted/off_1/pause", {}],
+      ["/offers/submitted/off_1/resume", {}],
+      ["/offers/submitted/off_1/withdraw", {}],
+      ["/offers/submitted/bulk", { action: "withdraw", offerIds: ["off_1", "off_2"] }],
+    ] as const) {
+      const response = await post(buyer, path, body);
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "offer_lifecycle_closed",
+          message: "Pausing, resuming and withdrawing Offers is not open yet. Try again later.",
+        },
+      });
+    }
+    expect(writes()).toBe(0);
+  });
 
   it("pauses, re-prices while paused, resumes and withdraws one Offer, reporting the real status", async () => {
     const { buyer } = await lifecycleApps({ off_1: "acc_buyer" });

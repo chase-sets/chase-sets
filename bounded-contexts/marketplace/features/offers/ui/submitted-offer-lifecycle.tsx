@@ -23,7 +23,9 @@ export type SubmittedOfferLifecycleControls = Readonly<{
 }>;
 
 const lifecycleStatuses: readonly string[] = ["submitted", "paused", "withdrawn", "accepted"];
-const rejectionCodes: readonly string[] = ["not_found", "offer_transition_rejected", "offer_conflict"];
+const rejectionCodes = ["not_found", "offer_transition_rejected", "offer_conflict", "offer_lifecycle_closed"] as const;
+const isRejectionCode = (code: string): code is (typeof rejectionCodes)[number] =>
+  (rejectionCodes as readonly string[]).includes(code);
 
 /** Posts Pause/Resume/Withdraw to the current Submitted Offer route action; the reply is per-row outcomes. */
 export function useSubmittedOfferLifecycle(): SubmittedOfferLifecycleControls {
@@ -110,9 +112,7 @@ export function SubmittedOfferLifecycleOutcomes({
                 {outcome.outcome === "rejected"
                   ? t(
                       `marketplace.features.offers.ui.submittedOfferLifecycle.outcome.${
-                        rejectionCodes.includes(outcome.code)
-                          ? (outcome.code as "not_found" | "offer_transition_rejected" | "offer_conflict")
-                          : "request_failed"
+                        isRejectionCode(outcome.code) ? outcome.code : "request_failed"
                       }`,
                       { offer },
                     )

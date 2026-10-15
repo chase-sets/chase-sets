@@ -41,19 +41,33 @@ async function submittedOfferLifecycleAction(
   const lifecycleAction = submittedOfferLifecycleActionValues.find((value) => value === form.get("lifecycleAction"));
   const offerIds = [...new Set(form.getAll("offerId").map(String).filter(Boolean))];
   if (!lifecycleAction || offerIds.length === 0) throw new Response(null, { status: 400 });
-  if (offerIds.length > 1) {
-    const result = await api.bulkChangeSubmittedOfferLifecycle(lifecycleAction, offerIds);
-    return { lifecycle: { outcomes: [...result.items] } };
-  }
-  const offerId = offerIds[0]!;
   try {
+    if (offerIds.length > 1) {
+      const result = await api.bulkChangeSubmittedOfferLifecycle(lifecycleAction, offerIds);
+      return { lifecycle: { outcomes: [...result.items] } };
+    }
+    const offerId = offerIds[0]!;
     const result = await api.changeSubmittedOfferLifecycle(offerId, lifecycleAction);
     return {
       lifecycle: { outcomes: [{ offerId, outcome: result.outcome, status: result.status, version: result.version }] },
     };
   } catch (error) {
-    if (error instanceof MarketplaceApiError && (error.status === 404 || error.status === 409))
-      return { lifecycle: { outcomes: [{ offerId, outcome: "rejected", code: marketplaceErrorCode(error) }] } };
+    // Closed admission refuses the whole request before any write, so every selected Offer reports it.
+    const rejectsEveryOffer =
+      error instanceof MarketplaceApiError &&
+      (error.status === 503
+        ? marketplaceErrorCode(error) === "offer_lifecycle_closed"
+        : offerIds.length === 1 && (error.status === 404 || error.status === 409));
+    if (rejectsEveryOffer)
+      return {
+        lifecycle: {
+          outcomes: offerIds.map((offerId) => ({
+            offerId,
+            outcome: "rejected" as const,
+            code: marketplaceErrorCode(error),
+          })),
+        },
+      };
     throw error;
   }
 }

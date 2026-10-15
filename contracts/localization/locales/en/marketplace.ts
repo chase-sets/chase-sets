@@ -636,6 +636,8 @@ export const marketplaceEnglishTranslations = {
     "This Offer can no longer make that change. Withdrawn and accepted Offers are final.",
   "marketplace.features.offers.api.route.offer.conflict":
     "This Offer changed while your request was running. Try again.",
+  "marketplace.features.offers.api.route.offer.lifecycle.closed":
+    "Pausing, resuming and withdrawing Offers is not open yet. Try again later.",
   "marketplace.features.offers.api.route.bulk.invalid": "Choose pause, resume or withdraw for 1 to {limit} Offers.",
   "marketplace.features.offers.api.route.submitted.offer.not.found": "Submitted offer not found.",
   "marketplace.features.offers.api.runtime.catalog.item.not.found": "Catalog item not found.",
@@ -872,6 +874,8 @@ export const marketplaceEnglishTranslations = {
     "{offer}: withdrawn and accepted Offers are final",
   "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.offer_conflict":
     "{offer}: changed during the request. Try again.",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.offer_lifecycle_closed":
+    "{offer}: Pause, Resume and Withdraw are not open yet. Try again later.",
   "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.request_failed":
     "{offer}: could not change. Try again.",
   "marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps":

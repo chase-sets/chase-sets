@@ -1280,6 +1280,60 @@ describe("Submitted Offers lifecycle route", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it("reports closed lifecycle admission on every selected Offer, single or bulk", async () => {
+    let closedCode = "offer_lifecycle_closed";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+        return jsonResponse({ error: { code: closedCode, message: "not open" } }, 503);
+      }),
+    );
+    const post = async (fields: [string, string][]) =>
+      (
+        await submittedOffersAction({
+          request: new Request("http://localhost/account/offers/submitted", {
+            method: "POST",
+            body: new URLSearchParams([["intent", "offer-lifecycle"], ...fields]),
+          }),
+          params: {},
+          context: undefined,
+        } as never)
+      ).data;
+
+    await expect(
+      post([
+        ["lifecycleAction", "pause"],
+        ["offerId", "off_1"],
+      ]),
+    ).resolves.toEqual({
+      lifecycle: { outcomes: [{ offerId: "off_1", outcome: "rejected", code: "offer_lifecycle_closed" }] },
+    });
+    await expect(
+      post([
+        ["lifecycleAction", "withdraw"],
+        ["offerId", "off_1"],
+        ["offerId", "off_2"],
+      ]),
+    ).resolves.toEqual({
+      lifecycle: {
+        outcomes: [
+          { offerId: "off_1", outcome: "rejected", code: "offer_lifecycle_closed" },
+          { offerId: "off_2", outcome: "rejected", code: "offer_lifecycle_closed" },
+        ],
+      },
+    });
+    // Any other unavailable reply still reaches the route error boundary.
+    closedCode = "service_unavailable";
+    await expect(
+      post([
+        ["lifecycleAction", "pause"],
+        ["offerId", "off_1"],
+      ]),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+
   it("runs a row Pause from the rendered list through the route action and shows its outcome", async () => {
     const commands: string[] = [];
     vi.stubGlobal(

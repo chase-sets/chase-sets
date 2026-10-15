@@ -20,10 +20,24 @@ import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./respo
 import { ManagedOfferConflictError } from "./managed-authority";
 import { parseSubmittedOfferStatus } from "../read-model/queries";
 import type { OfferLifecycleAction } from "../domain/domain";
+import { MarketplaceOfferLifecycleClosedError } from "./lifecycle-admission";
 
 const offerLifecycleActions = ["pause", "resume", "withdraw"] as const satisfies readonly OfferLifecycleAction[];
 
+function lifecycleClosedResponse(c: { json: (body: unknown, status?: number) => Response }) {
+  return c.json(
+    {
+      error: {
+        code: "offer_lifecycle_closed",
+        message: t("marketplace.features.offers.api.route.offer.lifecycle.closed"),
+      },
+    },
+    503,
+  );
+}
+
 function lifecycleErrorResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+  if (error instanceof MarketplaceOfferLifecycleClosedError) return lifecycleClosedResponse(c);
   if (!(error instanceof MarketplaceOfferLifecycleError)) return validationError(c, error);
   if (error.code === "not_found")
     return c.json(
@@ -324,10 +338,16 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
         400,
       );
     }
-    const items = await services.bulkChangeOfferLifecycle(
-      { buyerAccountId: access.actor.accountId as AccountId, action: request.action, offerIds: request.offerIds },
-      context,
-    );
+    let items: Awaited<ReturnType<MarketplaceOfferServices["bulkChangeOfferLifecycle"]>>;
+    try {
+      items = await services.bulkChangeOfferLifecycle(
+        { buyerAccountId: access.actor.accountId as AccountId, action: request.action, offerIds: request.offerIds },
+        context,
+      );
+    } catch (error) {
+      if (error instanceof MarketplaceOfferLifecycleClosedError) return lifecycleClosedResponse(c);
+      throw error;
+    }
     return c.json({ action: request.action, items, total: items.length, count: items.length });
   });
 

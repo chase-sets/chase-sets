@@ -643,6 +643,7 @@ const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,
+  offerLifecycleOpen: config.offerLifecycleOpen,
   controlPlane,
   ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
     ? {

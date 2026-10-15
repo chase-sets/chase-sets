@@ -3,6 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createMarketplaceOfferRuntime } from "./runtime";
+import { MarketplaceOfferLifecycleClosedError, type MarketplaceOfferLifecycleAdmission } from "./lifecycle-admission";
 import { MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -847,14 +848,18 @@ describe("marketplace offer lifecycle runtime", () => {
   };
   const fingerprint = "350.00|17.50|332.50|500|sch_standard|";
 
+  const openAdmission: MarketplaceOfferLifecycleAdmission = { check: async () => ({ admitted: true }) };
+
   async function lifecycleServices(
     wrapAppend?: (
       append: NonNullable<EventStore["appendToStreams"]>,
       memory: EventStore,
     ) => NonNullable<EventStore["appendToStreams"]>,
+    admission: MarketplaceOfferLifecycleAdmission | null = openAdmission,
   ) {
     const memory = createInMemoryEventStore().eventStore;
     const services = createMarketplaceOfferRuntime({
+      ...(admission ? { offerLifecycleAdmission: admission } : {}),
       eventStore: wrapAppend ? { ...memory, appendToStreams: wrapAppend(memory.appendToStreams!, memory) } : memory,
       db: { query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })) },
       checkpointStore: {} as never,
@@ -904,6 +909,53 @@ describe("marketplace offer lifecycle runtime", () => {
       { offerId: "off_1" as never, buyerAccountId: buyerAccountId as never, action },
       buyerContext,
     );
+
+  it("keeps Pause, Resume and Withdraw closed without a host admission and appends nothing", async () => {
+    const { memory, services } = await lifecycleServices(undefined, null);
+    for (const action of ["pause", "resume", "withdraw"] as const) {
+      const refusal = change(services, action);
+      await expect(refusal).rejects.toBeInstanceOf(MarketplaceOfferLifecycleClosedError);
+      await expect(refusal).rejects.toMatchObject({
+        code: "offer_lifecycle_closed",
+        reason: "admission_not_configured",
+      });
+    }
+    await expect(
+      services.bulkChangeOfferLifecycle(
+        { buyerAccountId: "acc_buyer" as never, action: "withdraw", offerIds: ["off_1" as never, "off_2" as never] },
+        buyerContext,
+      ),
+    ).rejects.toBeInstanceOf(MarketplaceOfferLifecycleClosedError);
+    expect((await memory.readStream({ streamId: "marketplace.offer-off_1" })).map((event) => event.eventType)).toEqual([
+      "marketplace.offer.submitted",
+    ]);
+  });
+
+  it("asks admission once per request and appends only after it opens", async () => {
+    let admitted = false;
+    const check = vi.fn(async () =>
+      admitted ? ({ admitted: true } as const) : ({ admitted: false, reason: "worker_without_capability" } as const),
+    );
+    const { memory, services } = await lifecycleServices(undefined, { check });
+    await expect(change(services, "pause")).rejects.toMatchObject({ reason: "worker_without_capability" });
+    const bulk = () =>
+      services.bulkChangeOfferLifecycle(
+        { buyerAccountId: "acc_buyer" as never, action: "pause", offerIds: ["off_1" as never, "off_1" as never] },
+        buyerContext,
+      );
+    await expect(bulk()).rejects.toBeInstanceOf(MarketplaceOfferLifecycleClosedError);
+    expect(await memory.readStream({ streamId: "marketplace.offer-off_1" })).toHaveLength(1);
+    admitted = true;
+    check.mockClear();
+    expect(await bulk()).toMatchObject([
+      { outcome: "changed", status: "paused" },
+      { outcome: "unchanged", status: "paused" },
+    ]);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect((await memory.readStream({ streamId: "marketplace.offer-off_1" })).at(-1)?.eventType).toBe(
+      "marketplace.offer.paused",
+    );
+  });
 
   it("lets only the Offer's buyer pause, resume and withdraw, reporting each outcome", async () => {
     const { memory, services } = await lifecycleServices();
