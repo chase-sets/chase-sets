@@ -42,6 +42,17 @@ A **Shadow Evaluation** compares the whole matched directive on the incumbent ro
 
 A **Goal Decision** is a Pricing Goal's answer on one curve: selected and unconstrained amounts in the curve currency, the equivalent percentile and sell-time forecast read at the selected price, whether Net Proceeds there clear overhead, and the echoed parameters. A goal that cannot solve returns a typed unavailable reason and no price.
 
+## Goal Version
+
+A **Goal Version** is one `(id, version)` registration of a Pricing Goal. Any change to its Golden Decision makes a new version, which registers as `shadow` beside the incumbent; a change that keeps every Golden Decision keeps the version.
+
+## Golden Decision
+
+A **Golden Decision** is a Goal Version's recorded decision at default parameters on each shared fixture curve, kept as reviewed data in the Conformance Kit and checked against an independent expectation when recorded. A test run never rewrites one; a changed decision is a new Goal Version with its own Golden Decision.
+
+## Conformance Kit
+
+The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run records the production registrations through `recordRegistrations`, or reads them from the enumeration a production module exports beside its own construction of the registry, fails any registration it does not exercise and an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `bounded-contexts/pricing/docs/pricing-goal-authoring.md`.
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from

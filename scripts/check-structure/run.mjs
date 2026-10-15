@@ -39,6 +39,7 @@ import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-t
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
 import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
@@ -278,6 +279,8 @@ const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
+const pricingRegistryConformance = await validatePricingRegistryConformance({ repoRoot });
+violations.push(...pricingRegistryConformance.violations);
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [
