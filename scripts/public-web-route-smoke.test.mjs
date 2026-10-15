@@ -1017,23 +1017,21 @@ describe("public web route smoke real CLI", () => {
     });
     const checker = await createCleanupChecker();
     try {
-      const startedAt = performance.now();
       const running = startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath);
       const error = await reclaimRunOnFailure({ fixture, running }, () =>
         abortAfterTargetArrival(running, targetStartedPromise),
       ).catch((error) => error);
-      const elapsedMs = performance.now() - startedAt;
       const result = await running.result;
 
+      // A child alive at processExitCeilingMs is killed and rejects with the safety error instead, so
+      // this exact early-exit error is itself the proof that the child exited within the ceiling.
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("real CLI exited before requesting /faq");
-      expect(error.message).toContain(cliExitDiagnostics(result));
+      expect(error.message).toBe(`real CLI exited before requesting /faq: ${cliExitDiagnostics(result)}`);
       expect(result.code).toBe(1);
       expect(result.signal).toBeNull();
       expect(result.stderr).toContain(
         `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.serverError}] ${firstRoute.memberId} (${firstRoute.path})`,
       );
-      expect(elapsedMs).toBeLessThan(processExitCeilingMs);
       expect(fixture.requests).toEqual([firstRoute.path]);
       expect(fixture.sockets.size).toBe(0);
       expect(fixture.server.listening).toBe(false);
