@@ -13,7 +13,15 @@ export type ConformanceSuite<Entry, Registration = Entry> = Readonly<{
   entries: () => readonly Entry[] | Promise<readonly Entry[]>;
   key: (entry: Entry) => string;
   properties: readonly ConformanceProperty<Entry>[];
-  /** The key of the entry that exercises one recorded registration; defaults to `key`. */
+  /**
+   * The registry's own enumeration, exported by the production module that
+   * constructs it, for a factory whose module constructs the registry itself:
+   * that call is lexical, so `recordRegistrations` never sees it. The structure
+   * guard checks that this is an enumeration member of a production construction
+   * of `registry`; when set, it replaces the recorded registrations.
+   */
+  production?: () => readonly Registration[] | Promise<readonly Registration[]>;
+  /** The key of the entry that exercises one production registration; defaults to `key`. */
   registrationKey?: (registration: Registration) => string;
   /** Keys of exercised entries that no registration supplies, such as a provider wired beside the registry. */
   unregisteredKeys?: readonly string[];
@@ -104,34 +112,38 @@ export async function runConformance<Entry, Registration = Entry>(
 }
 
 /**
- * Fails unless the exercised entries are exactly the recorded production
- * registrations plus the suite's declared `unregisteredKeys`, so a registration
- * a hand-written entry list omits fails by its key.
+ * Fails unless the exercised entries are exactly the production registrations,
+ * recorded or read from the suite's `production` enumeration, plus the suite's
+ * declared `unregisteredKeys`, so a registration a hand-written entry list
+ * omits fails by its key.
  */
 export async function registrationCoverage<Entry, Registration = Entry>(
   suite: ConformanceSuite<Entry, Registration>,
 ): Promise<readonly ConformanceFailure[]> {
   const property = "production-registrations";
-  const recording = recordings.get(suite.registry);
-  if (!recording)
-    return [
-      {
-        entry: null,
-        property,
-        message: `${suite.registry.name} is not recorded; vi.mock its module through recordRegistrations so the run reads every production registration.`,
-      },
-    ];
+  const refusal = (message: string): readonly ConformanceFailure[] => [{ entry: null, property, message }];
+  // Entries are read first: reading them may load the composition that constructs the registry.
   const exercised = new Set((await suite.entries()).map(suite.key));
-  if (recording.constructions === 0)
-    return [
-      {
-        entry: null,
-        property,
-        message: `No production composition constructed ${suite.registry.name}; load the composition that registers its entries.`,
-      },
-    ];
+  let registrations: readonly Registration[];
+  if (suite.production) {
+    const enumerated: unknown = await suite.production();
+    if (!Array.isArray(enumerated))
+      return refusal(`The production enumeration of ${suite.registry.name} returned no entry list.`);
+    registrations = enumerated as Registration[];
+  } else {
+    const recording = recordings.get(suite.registry);
+    if (!recording)
+      return refusal(
+        `${suite.registry.name} is not recorded; vi.mock its module through recordRegistrations so the run reads every production registration.`,
+      );
+    if (recording.constructions === 0)
+      return refusal(
+        `No production composition constructed ${suite.registry.name}; load the composition that registers its entries.`,
+      );
+    registrations = recording.registrations as Registration[];
+  }
   const registrationKey = suite.registrationKey ?? (suite.key as unknown as (registration: Registration) => string);
-  const registered = new Set((recording.registrations as Registration[]).map(registrationKey));
+  const registered = new Set(registrations.map(registrationKey));
   const unregistered = new Set(suite.unregisteredKeys ?? []);
   const failure = (entry: string, message: string): ConformanceFailure => ({ entry, property, message });
   return [

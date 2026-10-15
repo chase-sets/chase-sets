@@ -242,3 +242,70 @@ describe("Conformance Kit production-registration binding", () => {
     ]);
   });
 });
+
+// Modeled on the Forecast Kind registry (#9638, 7711-split-delta-r1 F2): the
+// factory's own module constructs the registry and exports its enumeration, so
+// the construction calls the factory lexically and a vi.mock wrapper never sees it.
+const syntheticKinds = [
+  { id: "synthetic-curve", conforms: true },
+  { id: "synthetic-buyer-choice", conforms: true },
+  { id: "synthetic-condition-rate", conforms: true },
+];
+const syntheticKindRegistry = createSyntheticStyles(syntheticKinds);
+const syntheticKindDefinitions = syntheticKindRegistry.definitions;
+const kindSuite = (entries: () => readonly SyntheticStyle[]) =>
+  styleSuite(createSyntheticStyles, entries, { production: syntheticKindDefinitions });
+
+describe("Conformance Kit production-enumeration binding", () => {
+  it("cannot record a construction in the factory's own module", async () => {
+    const registry = recordRegistrations({ createSyntheticStyles }, "createSyntheticStyles").createSyntheticStyles;
+
+    expect(await registrationCoverage(styleSuite(registry, syntheticKindDefinitions))).toEqual([
+      {
+        entry: null,
+        property: "production-registrations",
+        message:
+          "No production composition constructed createSyntheticStyles; load the composition that registers its entries.",
+      },
+    ]);
+  });
+
+  it("passes a run that exercises every kind the bound enumeration registers", async () => {
+    const suite = kindSuite(syntheticKindDefinitions);
+
+    expect(await registrationCoverage(suite)).toEqual([]);
+    expect(await runConformance(suite)).toEqual([]);
+  });
+
+  it("fails a run that omits a registered kind, naming the kind", async () => {
+    const subset = () => syntheticKindDefinitions().filter((kind) => kind.id !== "synthetic-condition-rate");
+
+    expect(await registrationCoverage(kindSuite(subset))).toEqual([notExercised("synthetic-condition-rate")]);
+    expect(await registrationCoverage(kindSuite(() => [syntheticKinds[0]!]))).toEqual([
+      notExercised("synthetic-buyer-choice"),
+      notExercised("synthetic-condition-rate"),
+    ]);
+  });
+
+  it("enumerates kinds registered after construction through the register member", async () => {
+    const registry = createSyntheticStyles([syntheticKinds[0]!]);
+    registry.registerSyntheticStyle({ id: "synthetic-late", conforms: true });
+    const suite = styleSuite(createSyntheticStyles, () => [syntheticKinds[0]!], { production: registry.definitions });
+
+    expect(await registrationCoverage(suite)).toEqual([notExercised("synthetic-late")]);
+  });
+
+  it("fails an enumeration that returns no entry list", async () => {
+    const suite = styleSuite(createSyntheticStyles, syntheticKindDefinitions, {
+      production: (() => null) as unknown as () => readonly SyntheticStyle[],
+    });
+
+    expect(await registrationCoverage(suite)).toEqual([
+      {
+        entry: null,
+        property: "production-registrations",
+        message: "The production enumeration of createSyntheticStyles returned no entry list.",
+      },
+    ]);
+  });
+});

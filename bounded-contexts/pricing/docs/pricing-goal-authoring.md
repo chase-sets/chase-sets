@@ -153,7 +153,15 @@ the kit's `recordRegistrations`, which records every entry production
 registers: the factory's initial entries and every `register<Name>` call,
 including registration ports. The run then fails any recorded registration it
 does not exercise, and any exercised entry that is neither recorded nor listed
-in its `unregisteredKeys`:
+in its `unregisteredKeys`.
+
+A registry the factory's own module constructs cannot be recorded: that module
+calls the factory directly, and the mock wraps only its export. Its run passes
+the construction's exported enumeration as `production` instead, for example
+`export const definitions = registry.definitions` beside
+`const registry = createRegistry([...])`. The run then fails any entry that
+enumeration returns and the run does not exercise. A test-built registry or a
+hand-written list is not accepted as `production`:
 
 | Registry | Run | Contract checked |
 | --- | --- | --- |
@@ -166,8 +174,15 @@ in its `unregisteredKeys`:
 registry in Pricing production code by code shape: a function that builds a
 `Map` or `Set` in its own body and returns a `register<Name>` member. It fails
 when a registry has no `describeConformance({ registry })` run, or when that
-`describeConformance` is not the kit's export. It also fails when a run does
-not mock the registry's module for recording. Finally, it fails when a run does
-not execute a production module that constructs the registry. Executing means
-following value imports and re-exports, including `export *`, transitively.
-Type-only imports and imports whose bindings are never used do not count.
+`describeConformance` is not the kit's export. It also fails when a run neither
+mocks the registry's module for recording nor passes a `production`
+enumeration. That enumeration must resolve to a production module's
+`const <name> = <construction>.<member>`, where `<construction>` is that
+module's `const <construction> = <factory>(...)` of the run's registry and
+`<member>` is a non-`register` member the factory returns. Finally, it fails
+when a production module constructs the registry and no run covers it. A run
+covers a construction it binds as `production`. A recording run covers one in
+any module but the factory's own, if the run executes that module. Executing
+means following value imports and re-exports, including `export *`,
+transitively. Type-only imports and imports whose bindings are never used do
+not count.

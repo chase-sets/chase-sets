@@ -366,6 +366,192 @@ describe("pricing registry conformance guard", () => {
     });
   });
 
+  // Modeled on the Forecast Kind registry (#9638, 7711-split-delta-r1 F2): the
+  // factory's module constructs the registry itself and exports its enumeration.
+  describe("production-enumeration binding (7711-split-delta-r1 F2)", () => {
+    const kinds = "bounded-contexts/pricing/features/synthetic-ledger/domain/kinds.ts";
+    const kindsRun = "bounded-contexts/pricing/tests/conformance/kinds.test.ts";
+    const colocated = {
+      [kinds]: `export function createKindRegistry(initial = []) {
+        const kinds = new Map();
+        const registerKind = kind => kinds.set(kind.name, kind);
+        initial.forEach(registerKind);
+        return { registerKind, definitions: () => [...kinds.values()] };
+      }
+      export const curveKind = { name: "synthetic-curve" };
+      export const buyerChoiceKind = { name: "synthetic-buyer-choice" };
+      export const conditionRateKind = { name: "synthetic-condition-rate" };
+      const kindRegistry = createKindRegistry([curveKind, buyerChoiceKind, conditionRateKind]);
+      export const kindDefinitions = kindRegistry.definitions;`,
+      [kitPath]: kit,
+      [kindsRun]: `import { createKindRegistry, kindDefinitions } from "../../features/synthetic-ledger/domain/kinds";
+        import { describeConformance } from "./kit";
+        describeConformance({ registry: createKindRegistry, production: kindDefinitions, entries: () => kindDefinitions(), key: kind => kind.name });`,
+    };
+    const withKindsRun = (edit, extra = {}) => ({ ...colocated, [kindsRun]: edit(colocated[kindsRun]), ...extra });
+    const kindsRegistry = `${kinds}#createKindRegistry`;
+    const notBound = (reference, line = 3) =>
+      `${kindsRun}:${line}: conformance run of 'createKindRegistry' reads production entries from '${reference}', which is not an enumeration member of a production construction of that registry; pass an export such as \`export const definitions = registry.definitions\` from the module that constructs it (see ${guide}).`;
+    const ownModule = `${kinds}:10: constructs Pricing registry 'createKindRegistry' in the factory's own module, which recordRegistrations cannot intercept; export an enumeration member of this construction and pass it to the registry's run as \`production\` (see ${guide}).`;
+
+    it("accepts a run that binds the enumeration of the co-located production construction", async () => {
+      const result = await validateFixture(colocated);
+
+      expect(result.violations).toEqual([]);
+      expect(result.runs).toEqual([{ file: kindsRun, registry: kindsRegistry, binds: { file: kinds, line: 10 } }]);
+      expect(result.constructions).toEqual([{ file: kinds, line: 10, registry: kindsRegistry }]);
+    });
+
+    it("follows a namespace import and a barrel to the bound enumeration", async () => {
+      const barrel = "bounded-contexts/pricing/features/synthetic-ledger/index.ts";
+      const result = await validateFixture(
+        withKindsRun(
+          (source) =>
+            source
+              .replace(
+                'import { createKindRegistry, kindDefinitions } from "../../features/synthetic-ledger/domain/kinds";',
+                'import { createKindRegistry } from "../../features/synthetic-ledger/domain/kinds";\nimport * as ledger from "../../features/synthetic-ledger/index";',
+              )
+              .replaceAll("kindDefinitions", "ledger.forecastKinds"),
+          { [barrel]: 'export { kindDefinitions as forecastKinds } from "./domain/kinds";' },
+        ),
+      );
+
+      expect(result.violations).toEqual([]);
+    });
+
+    it("rejects a recording run, whose wrapper cannot intercept the co-located construction", async () => {
+      const result = await validateFixture(
+        withKindsRun((source) =>
+          source
+            .replace(
+              'import { describeConformance } from "./kit";',
+              `import { describeConformance } from "./kit";
+        import { vi } from "vitest";
+        vi.mock("../../features/synthetic-ledger/domain/kinds", async (importOriginal) =>
+          (await import("./kit")).recordRegistrations(await importOriginal(), "createKindRegistry"));`,
+            )
+            .replace("production: kindDefinitions, ", ""),
+        ),
+      );
+
+      expect(result.violations).toEqual([ownModule]);
+    });
+
+    it("rejects a test-only reconstruction as the production enumeration", async () => {
+      const result = await validateFixture(
+        withKindsRun((source) =>
+          source
+            .replace(
+              'import { describeConformance } from "./kit";',
+              'import { describeConformance } from "./kit";\nconst reconstructed = createKindRegistry(kindDefinitions());\nconst rebuilt = reconstructed.definitions;',
+            )
+            .replace("production: kindDefinitions", "production: rebuilt"),
+        ),
+      );
+
+      expect(result.violations).toEqual([notBound("rebuilt", 5), ownModule]);
+    });
+
+    it("rejects a reconstruction exported by a test helper module", async () => {
+      const helper = "bounded-contexts/pricing/tests/conformance/kinds-fixture.ts";
+      const result = await validateFixture(
+        withKindsRun(
+          (source) =>
+            source
+              .replace(
+                'import { describeConformance } from "./kit";',
+                'import { describeConformance } from "./kit";\nimport { rebuilt } from "./kinds-fixture";',
+              )
+              .replace("production: kindDefinitions", "production: rebuilt"),
+          {
+            [helper]: `import { createKindRegistry, kindDefinitions } from "../../features/synthetic-ledger/domain/kinds";
+              const reconstructed = createKindRegistry(kindDefinitions());
+              export const rebuilt = reconstructed.definitions;`,
+          },
+        ),
+      );
+
+      expect(result.violations).toEqual([notBound("rebuilt", 4), ownModule]);
+    });
+
+    it("rejects a handwritten production list, a type-only enumeration, a register member and a reassignable construction", async () => {
+      const handwritten = await validateFixture(
+        withKindsRun((source) =>
+          source
+            .replace(
+              "import { createKindRegistry, kindDefinitions }",
+              "import { createKindRegistry, kindDefinitions, curveKind }",
+            )
+            .replace("production: kindDefinitions", "production: () => [curveKind]"),
+        ),
+      );
+      expect(handwritten.violations).toEqual([notBound("() => [curveKind]"), ownModule]);
+
+      const typeOnly = await validateFixture(
+        withKindsRun((source) =>
+          source.replace(
+            "import { createKindRegistry, kindDefinitions }",
+            "import { createKindRegistry, type kindDefinitions }",
+          ),
+        ),
+      );
+      expect(typeOnly.violations).toEqual([notBound("kindDefinitions"), ownModule]);
+
+      const registerMember = await validateFixture({
+        ...withKindsRun((source) => source.replaceAll("kindDefinitions", "addKind")),
+        [kinds]: `${colocated[kinds]}\nexport const addKind = kindRegistry.registerKind;`,
+      });
+      expect(registerMember.violations).toEqual([notBound("addKind"), ownModule]);
+
+      const reassignable = await validateFixture({
+        ...colocated,
+        [kinds]: colocated[kinds].replace("const kindRegistry", "let kindRegistry"),
+      });
+      expect(reassignable.violations).toEqual([notBound("kindDefinitions"), ownModule]);
+    });
+
+    it("rejects an enumeration of another registry's construction", async () => {
+      const result = await validateFixture({
+        ...withKindsRun((source) =>
+          source
+            .replace("import { createKindRegistry, kindDefinitions }", "import { createKindRegistry }")
+            .replace(
+              'import { describeConformance } from "./kit";',
+              'import { describeConformance } from "./kit";\nimport { styleDefinitions } from "../../features/styles/api/runtime";',
+            )
+            .replace("production: kindDefinitions", "production: styleDefinitions")
+            .replace("entries: () => kindDefinitions()", "entries: () => styleDefinitions()"),
+        ),
+        ...styles,
+        [stylesRuntime]: `${styles[stylesRuntime]}\nexport const styleDefinitions = styles.definitions;`,
+      });
+
+      expect(result.violations).toEqual([notBound("styleDefinitions", 4), ownModule]);
+    });
+
+    it("rejects a construction elsewhere that the enumeration does not bind and no run records", async () => {
+      const runtime = "bounded-contexts/pricing/features/synthetic-ledger/api/runtime.ts";
+      const result = await validateFixture(
+        withKindsRun(
+          (source) =>
+            source.replace(
+              'import { describeConformance } from "./kit";',
+              'import { describeConformance } from "./kit";\nimport { extraKinds } from "../../features/synthetic-ledger/api/runtime";\nconst unused = () => extraKinds;',
+            ),
+          {
+            [runtime]: `import { createKindRegistry } from "../domain/kinds";
+              export const extraKinds = createKindRegistry([{ name: "synthetic-extra" }]);`,
+          },
+        ),
+      );
+
+      expect(result.violations).toEqual([
+        `${runtime}:2: constructs Pricing registry 'createKindRegistry' but neither binds the enumeration of a run of that registry nor is executed by a run that records it, so the entries registered here are never run; bind its enumeration or record it from a run (see ${guide}).`,
+      ]);
+    });
+  });
+
   it("passes on this repository with every discovered registry run", async () => {
     const result = await validatePricingRegistryConformance({ repoRoot });
 

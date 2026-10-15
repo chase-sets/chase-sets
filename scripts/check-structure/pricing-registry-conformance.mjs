@@ -13,7 +13,11 @@ import { collectFiles, defaultSkippedDirectories } from "../lib/files.mjs";
 // `recordRegistrations`; the kit then fails any entry production registers that
 // the run does not exercise. A production module that calls a factory registers
 // entries there, so a run of that registry must execute the module through
-// value imports or re-exports.
+// value imports or re-exports. The factory's own module calls it lexically,
+// which no mock intercepts, so a construction there is instead bound by a run's
+// `production`: an export `const <name> = <construction>.<member>` of a
+// module-level `const <construction> = <factory>(...)`, whose member is a
+// returned non-register member of the factory.
 
 const contextRoot = "bounded-contexts/pricing";
 const kitExport = `${contextRoot}/tests/conformance/kit.ts#describeConformance`;
@@ -65,22 +69,41 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
     return reached;
   };
 
+  const bindingTargetIn = (facts, reference) => {
+    const [head, member] = reference.split(".");
+    const imported = facts.imports.get(head);
+    if (member !== undefined) return imported?.name === "*" ? resolveExport(imported.module, member) : null;
+    return facts.locals.get(head) ?? (imported ? resolveExport(imported.module, imported.name) : null);
+  };
+
+  const registryMembers = new Map();
   const registries = [...modules]
     .filter(([file]) => !isTestFile(file))
     .flatMap(([file, facts]) =>
-      facts.registryDeclarations.map(({ name, line, exported }) => ({ id: `${file}#${name}`, line, exported })),
+      facts.registryDeclarations.map(({ name, line, exported, members }) => {
+        registryMembers.set(`${file}#${name}`, members);
+        return { id: `${file}#${name}`, line, exported };
+      }),
     );
   const registryIds = new Set(registries.map(({ id }) => id));
+  // The production construction whose enumeration member `target` exports, or null.
+  const enumerationOf = (target) => {
+    if (typeof target !== "string") return null;
+    const [module, local] = target.split("#");
+    const facts = modules.get(module);
+    const read = isTestFile(module) ? undefined : facts?.memberReads.get(local);
+    const construction = read && facts.constructedLocals.get(read.local);
+    if (!construction || registerMemberPattern.test(read.member)) return null;
+    const registry = bindingTargetIn(facts, construction.callee);
+    return registryMembers.get(registry)?.includes(read.member)
+      ? { registry, file: module, line: construction.line }
+      : null;
+  };
   const runs = [];
   const constructions = [];
   const violations = [];
   for (const [file, facts] of modules) {
-    const bindingTarget = (reference) => {
-      const [head, member] = reference.split(".");
-      const imported = facts.imports.get(head);
-      if (member !== undefined) return imported?.name === "*" ? resolveExport(imported.module, member) : null;
-      return facts.locals.get(head) ?? (imported ? resolveExport(imported.module, imported.name) : null);
-    };
+    const bindingTarget = (reference) => bindingTargetIn(facts, reference);
     if (isSpecFile(file)) {
       for (const call of facts.calls) {
         const harness = bindingTarget(call.callee);
@@ -92,11 +115,25 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
             );
           continue;
         }
-        const reference = registryArgument(call.suite);
+        const reference = referenceOf(suiteProperty(call.suite, "registry"));
         const target = reference === null ? null : bindingTarget(reference);
         if (typeof target === "string" && registryIds.has(target)) {
-          runs.push({ file, registry: target });
           const [factoryFile, name] = target.split("#");
+          const production = suiteProperty(call.suite, "production");
+          if (production) {
+            const productionReference = referenceOf(production);
+            const binding = productionReference === null ? null : enumerationOf(bindingTarget(productionReference));
+            if (binding?.registry === target)
+              runs.push({ file, registry: target, binds: { file: binding.file, line: binding.line } });
+            else {
+              runs.push({ file, registry: target });
+              violations.push(
+                `${file}:${call.line}: conformance run of '${name}' reads production entries from '${production.getText()}', which is not an enumeration member of a production construction of that registry; pass an export such as \`export const definitions = registry.definitions\` from the module that constructs it (see ${guide}).`,
+              );
+            }
+            continue;
+          }
+          runs.push({ file, registry: target });
           if (!facts.mockedModules.has(factoryFile))
             violations.push(
               `${file}:${call.line}: conformance run of '${name}' does not record its production registrations; vi.mock("${moduleSpecifier(file, factoryFile)}") through recordRegistrations from the kit so the run fails any registered entry it does not exercise (see ${guide}).`,
@@ -136,11 +173,25 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
   }
   const reachable = new Map();
   for (const construction of constructions) {
-    const runFiles = [...new Set(runs.filter((run) => run.registry === construction.registry).map((run) => run.file))];
+    const registryRuns = runs.filter((run) => run.registry === construction.registry);
+    if (registryRuns.length === 0) continue;
+    if (registryRuns.some(({ binds }) => binds?.file === construction.file && binds.line === construction.line))
+      continue;
+    const [factoryFile, name] = construction.registry.split("#");
+    const at = `${construction.file}:${construction.line}: constructs Pricing registry '${name}'`;
+    if (construction.file === factoryFile) {
+      violations.push(
+        `${at} in the factory's own module, which recordRegistrations cannot intercept; export an enumeration member of this construction and pass it to the registry's run as \`production\` (see ${guide}).`,
+      );
+      continue;
+    }
+    const runFiles = [...new Set(registryRuns.filter(({ binds }) => !binds).map((run) => run.file))];
     for (const file of runFiles) if (!reachable.has(file)) reachable.set(file, reachableFrom(file));
-    if (runFiles.length === 0 || runFiles.some((file) => reachable.get(file).has(construction.file))) continue;
+    if (runFiles.some((file) => reachable.get(file).has(construction.file))) continue;
     violations.push(
-      `${construction.file}:${construction.line}: constructs Pricing registry '${construction.registry.split("#")[1]}' but no conformance run of that registry executes this module through value imports or re-exports, so the entries registered here are never run; import it from the run in ${runFiles.join(", ")}.`,
+      runFiles.length === 0
+        ? `${at} but neither binds the enumeration of a run of that registry nor is executed by a run that records it, so the entries registered here are never run; bind its enumeration or record it from a run (see ${guide}).`
+        : `${at} but no conformance run of that registry executes this module through value imports or re-exports, so the entries registered here are never run; import it from the run in ${runFiles.join(", ")}.`,
     );
   }
 
@@ -194,6 +245,9 @@ function moduleFacts(sourceFile, file, sources) {
   const harnessAliases = new Set([harnessName]);
   const registryDeclarations = [];
   const calls = [];
+  // Module-level `const <name> = <callee>(...)` and `const <name> = <local>.<member>`; `let` may be reassigned.
+  const constructedLocals = new Map();
+  const memberReads = new Map();
 
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
@@ -233,12 +287,18 @@ function moduleFacts(sourceFile, file, sources) {
     } else if (ts.isFunctionDeclaration(statement) && statement.name) {
       declare(statement.name.text, statement, statement, hasExportModifier(statement));
     } else if (ts.isVariableStatement(statement)) {
+      const constant = (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
       for (const declaration of statement.declarationList.declarations) {
         if (!ts.isIdentifier(declaration.name)) continue;
         const initializer = declaration.initializer && unwrap(declaration.initializer);
         const functionNode =
           initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) ? initializer : null;
         declare(declaration.name.text, statement, functionNode, hasExportModifier(statement));
+        if (!constant || !initializer) continue;
+        const callee = ts.isCallExpression(initializer) ? referenceOf(initializer.expression) : null;
+        if (callee !== null) constructedLocals.set(declaration.name.text, { callee, line: lineOf(initializer) });
+        else if (ts.isPropertyAccessExpression(initializer) && ts.isIdentifier(initializer.expression))
+          memberReads.set(declaration.name.text, { local: initializer.expression.text, member: initializer.name.text });
       }
     }
   }
@@ -250,8 +310,8 @@ function moduleFacts(sourceFile, file, sources) {
   function declare(name, statement, functionNode, exported) {
     locals.set(name, `${file}#${name}`);
     if (exported) exportedNames.set(name, name);
-    if (functionNode && isRegistryShape(functionNode))
-      registryDeclarations.push({ name, line: lineOf(statement), exported });
+    const members = functionNode && registryShapeMembers(functionNode);
+    if (members) registryDeclarations.push({ name, line: lineOf(statement), exported, members });
   }
 
   const visit = (node) => {
@@ -293,6 +353,8 @@ function moduleFacts(sourceFile, file, sources) {
     harnessAliases,
     registryDeclarations,
     calls,
+    constructedLocals,
+    memberReads,
   };
 }
 
@@ -324,30 +386,38 @@ function valueIdentifiers(sourceFile) {
   return names;
 }
 
-function registryArgument(suite) {
+/** The value node of a suite literal's property `name`, or null. */
+function suiteProperty(suite, name) {
   if (!suite || !ts.isObjectLiteralExpression(suite)) return null;
   const property = suite.properties.find(
-    (candidate) => candidate.name && ts.isIdentifier(candidate.name) && candidate.name.text === "registry",
+    (candidate) => candidate.name && ts.isIdentifier(candidate.name) && candidate.name.text === name,
   );
-  if (property && ts.isShorthandPropertyAssignment(property)) return property.name.text;
-  if (!property || !ts.isPropertyAssignment(property)) return null;
-  const value = unwrap(property.initializer);
+  if (property && ts.isShorthandPropertyAssignment(property)) return property.name;
+  return property && ts.isPropertyAssignment(property) ? property.initializer : null;
+}
+
+/** `name` or `namespace.name` for an identifier or one-level member access, otherwise null. */
+function referenceOf(node) {
+  const value = node && unwrap(node);
+  if (!value) return null;
   if (ts.isIdentifier(value)) return value.text;
   if (ts.isPropertyAccessExpression(value) && ts.isIdentifier(value.expression))
     return `${value.expression.text}.${value.name.text}`;
   return null;
 }
 
-/** Own-body store construction plus a returned object literal exposing a `register<Name>` member. */
-function isRegistryShape(functionNode) {
+/**
+ * The returned member names of a registry: own-body store construction plus a
+ * returned object literal exposing a `register<Name>` member. Null otherwise.
+ */
+function registryShapeMembers(functionNode) {
   let constructsStore = false;
-  let exposesRegister = false;
+  const members = new Set();
   const inspectReturned = (expression) => {
     const value = expression && unwrap(expression);
     if (value && ts.isObjectLiteralExpression(value))
-      exposesRegister ||= value.properties.some(
-        (property) => property.name && ts.isIdentifier(property.name) && registerMemberPattern.test(property.name.text),
-      );
+      for (const property of value.properties)
+        if (property.name && ts.isIdentifier(property.name)) members.add(property.name.text);
   };
   const visit = (node) => {
     if (ts.isFunctionLike(node)) return;
@@ -356,10 +426,10 @@ function isRegistryShape(functionNode) {
     if (ts.isReturnStatement(node)) inspectReturned(node.expression);
     ts.forEachChild(node, visit);
   };
-  if (!functionNode.body) return false;
+  if (!functionNode.body) return null;
   if (ts.isBlock(functionNode.body)) ts.forEachChild(functionNode.body, visit);
   else inspectReturned(functionNode.body);
-  return constructsStore && exposesRegister;
+  return constructsStore && [...members].some((member) => registerMemberPattern.test(member)) ? [...members] : null;
 }
 
 function unwrap(node) {
