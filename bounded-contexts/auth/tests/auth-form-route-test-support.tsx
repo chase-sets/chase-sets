@@ -1,5 +1,6 @@
 import { act, render, waitFor } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider, type RouteObject } from "react-router";
+import { useEffect } from "react";
+import { createMemoryRouter, RouterProvider, useNavigation, type RouteObject } from "react-router";
 import { afterEach, vi } from "vitest";
 import { AuthApiError } from "../client";
 import { authApiActionError, type AuthActionIntent } from "../support/route-support/auth-action-errors";
@@ -30,11 +31,17 @@ export const successfulPasskey = {
 };
 
 export function pendingPasskey() {
+  let resolve: (payload: PasskeyCredentialPayload) => void = () => {};
   let reject: (reason: Error) => void = () => {};
-  const promise = new Promise<PasskeyCredentialPayload>((_, rejectPromise) => {
+  const promise = new Promise<PasskeyCredentialPayload>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
     reject = rejectPromise;
   });
-  return { promise, reject: (reason: Error) => reject(reason) };
+  return {
+    promise,
+    resolve: (payload: PasskeyCredentialPayload) => resolve(payload),
+    reject: (reason: Error) => reject(reason),
+  };
 }
 
 export function mockNativeRequestSubmit() {
@@ -48,12 +55,38 @@ export async function renderAuthRoute(route: RouteObject, path: string) {
   let resolveAction: (value: unknown) => void = () => {};
   let resolveLoading: (() => void) | undefined;
   const requests = vi.fn();
+  const submittedFields: Record<string, FormDataEntryValue>[] = [];
   const originalLoader = route.loader;
+  let pendingCommits = 0;
+  let observedPendingCommits = 0;
+  let notifyPendingCommit: (() => void) | undefined;
+  function NavigationCommitObserver() {
+    const pending = useNavigation().state !== "idle";
+    useEffect(() => {
+      if (!pending) return;
+      pendingCommits++;
+      notifyPendingCommit?.();
+    }, [pending]);
+    return null;
+  }
+  const RouteComponent = route.Component;
+  const ObservedRoute = RouteComponent
+    ? function ObservedRoute() {
+        return (
+          <>
+            <NavigationCommitObserver />
+            <RouteComponent />
+          </>
+        );
+      }
+    : undefined;
   const router = createMemoryRouter(
     [
       {
         ...route,
+        ...(ObservedRoute ? { Component: ObservedRoute } : {}),
         action: async ({ request }) => {
+          submittedFields.push(Object.fromEntries(await request.formData()));
           requests(request.method, new URL(request.url).pathname);
           return new Promise((resolve) => {
             resolveAction = resolve;
@@ -81,6 +114,15 @@ export async function renderAuthRoute(route: RouteObject, path: string) {
   return {
     router,
     requests,
+    submittedFields,
+    async submissionCommitted() {
+      if (pendingCommits === observedPendingCommits)
+        await new Promise<void>((resolve) => {
+          notifyPendingCommit = resolve;
+        });
+      notifyPendingCommit = undefined;
+      observedPendingCommits = pendingCommits;
+    },
     async settle(result: unknown, holdLoading = false) {
       if (holdLoading) resolveLoading = () => {};
       await act(async () => {

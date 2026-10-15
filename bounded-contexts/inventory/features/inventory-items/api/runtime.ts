@@ -34,11 +34,11 @@ import {
 } from "../../../support/runtime-support/inventory-adjustment-idempotency";
 import {
   loadAuthoritativeInventoryStockSnapshot,
-  loadInventoryStockSnapshot,
   type InventoryItemRepository,
 } from "../../../support/runtime-support/stock-snapshot";
 import { getStorageLocation } from "../../storage-locations/read-model/queries";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
+import { withInventoryMutationChildAttempt } from "../../../support/runtime-support/mutation-attempt";
 import {
   decideInventoryItem,
   evolveInventoryItem,
@@ -125,6 +125,8 @@ export function createInventoryItemRuntime(
   catalogItems: InventoryCatalogItemServices,
   storageLocations: StorageLocationServices,
 ): InventoryItemServices {
+  const child: NonNullable<InventoryRuntimeDeps["mutationChild"]> =
+    deps.mutationChild ?? (async (_name, _family, _target, _params, context, work) => work(context));
   const codec = createPassthroughDomainEventCodec<InventoryItemEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -332,8 +334,9 @@ export function createInventoryItemRuntime(
             csatOutcomeFact,
           });
         } else {
-          const stock = await loadInventoryStockSnapshot({
+          const stock = await loadAuthoritativeInventoryStockSnapshot({
             db: deps.db,
+            eventStore: deps.eventStore,
             itemRepository: repository,
             itemId: params.itemId,
             accountId: params.accountId as AccountId,
@@ -435,7 +438,7 @@ export function createInventoryItemRuntime(
             shipFromCode: params.shipFromCode?.trim() || "LISTING-STOCK",
             shipFromAddress: params.shipFromAddress,
           },
-          context,
+          deps.mutationChild ? withInventoryMutationChildAttempt(context, "listing-location") : context,
         );
         createdStorageLocation = true;
         await upsertStorageLocationReadModel({
@@ -473,6 +476,20 @@ export function createInventoryItemRuntime(
       let adjustedQuantityBy = 0;
       let totalQuantity = existingItem?.total_quantity ?? 0;
       let availableQuantity = existingItem?.available_quantity ?? 0;
+      const aggregate = existingItem ? await repository.load(`inventory.item-${existingItem.item_id}`) : null;
+      if (existingItem && aggregate) {
+        const stock = await loadAuthoritativeInventoryStockSnapshot({
+          db: deps.db,
+          eventStore: deps.eventStore,
+          itemRepository: repository,
+          itemId: existingItem.item_id,
+          accountId: params.accountId,
+          context,
+          itemAggregate: aggregate,
+        });
+        totalQuantity = stock.totalQuantity;
+        availableQuantity = stock.availableQuantity;
+      }
 
       if (!inventoryItemId) {
         const itemId = createListingStockInventoryItemId({
@@ -483,54 +500,91 @@ export function createInventoryItemRuntime(
           gradedCard,
           storageLocationId: location.storage_location_id,
         });
-        await commandHandler({
-          streamId: `inventory.item-${itemId}`,
-          command: {
-            type: "CreateInventoryItem",
-            itemId,
+        await child(
+          "listing-item",
+          "item-create",
+          itemId,
+          {
             accountId: params.accountId,
-            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-              accountId: params.accountId,
-              itemId,
-              idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
-            }),
-            catalogItemId: params.catalogItemId as CatalogItemId,
-            productId: catalogVersion.productId,
+            itemIdOverride: itemId,
+            catalogItemId: params.catalogItemId,
             selectedOptions: catalogVersion.selection,
             gradedCard,
             storageLocationId: location.storage_location_id,
             totalQuantity: params.quantity,
-            acquisitionCostAmount: null,
-            acquisitionCostCurrencyCode: null,
-            acquisitionOccurrence: { kind: "unknown" },
-            commandOccurredAt: new Date().toISOString(),
           },
           context,
-        });
+          async (childContext) => {
+            const result = await commandHandler({
+              streamId: `inventory.item-${itemId}`,
+              command: {
+                type: "CreateInventoryItem",
+                itemId,
+                accountId: params.accountId,
+                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                  accountId: params.accountId,
+                  itemId,
+                  idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
+                }),
+                catalogItemId: params.catalogItemId as CatalogItemId,
+                productId: catalogVersion.productId,
+                selectedOptions: catalogVersion.selection,
+                gradedCard,
+                storageLocationId: location.storage_location_id,
+                totalQuantity: params.quantity,
+                acquisitionCostAmount: null,
+                acquisitionCostCurrencyCode: null,
+                acquisitionOccurrence: { kind: "unknown" },
+                commandOccurredAt: new Date().toISOString(),
+              },
+              context: childContext,
+            });
+            return { itemId, version: result.version };
+          },
+        );
         inventoryItemId = itemId;
         createdInventoryItem = true;
         totalQuantity = params.quantity;
         availableQuantity = params.quantity;
-      } else if (availableQuantity < params.quantity) {
+      } else if (aggregate && availableQuantity < params.quantity) {
+        const adjustedItemId = inventoryItemId;
         adjustedQuantityBy = params.quantity - availableQuantity;
-        await commandHandler({
-          streamId: `inventory.item-${inventoryItemId}`,
-          command: {
-            type: "AdjustInventoryItemQuantity",
-            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-              accountId: params.accountId,
-              itemId: inventoryItemId,
-              idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
-            }),
+        await child(
+          "listing-adjustment",
+          "item-adjust",
+          inventoryItemId,
+          {
+            accountId: params.accountId,
+            itemId: inventoryItemId,
             quantityDelta: adjustedQuantityBy,
-            heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",
             reasonCode: "intake",
             acquisitionOccurrence: { kind: "unknown" },
-            commandOccurredAt: new Date().toISOString(),
           },
           context,
-        });
+          async (childContext) => {
+            const result = await commandHandler({
+              streamId: `inventory.item-${inventoryItemId}`,
+              expectedVersion: aggregate.version,
+              command: {
+                type: "AdjustInventoryItemQuantity",
+                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                  accountId: params.accountId,
+                  itemId: adjustedItemId,
+                  idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
+                }),
+                quantityDelta: adjustedQuantityBy,
+                heldQuantity: totalQuantity - availableQuantity,
+                reason: "Automatic listing stock",
+                reasonCode: "intake",
+                acquisitionOccurrence: { kind: "unknown" },
+                commandOccurredAt: new Date().toISOString(),
+              },
+              context: childContext,
+            });
+            return { itemId: inventoryItemId, version: result.version };
+          },
+        );
         totalQuantity += adjustedQuantityBy;
         availableQuantity += adjustedQuantityBy;
       }
@@ -597,6 +651,7 @@ async function appendAuthoritativeNegativeAdjustment(
     const aggregate = await input.repository.load(`inventory.item-${input.params.itemId}`);
     const stock = await loadAuthoritativeInventoryStockSnapshot({
       db: input.deps.db,
+      eventStore: input.deps.eventStore,
       itemRepository: input.repository,
       itemId: input.params.itemId,
       accountId: input.params.accountId as AccountId,

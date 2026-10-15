@@ -150,6 +150,7 @@ export async function action({ request }: ActionFunctionArgs) {
           evidenceType: "photo",
           summary: t("support.routes.marketplace.accountSupport.photos.summary"),
           attachments: uploadedAttachmentReferences,
+          attachmentOperationId,
         },
         formValue(formData, "evidenceAttemptId") || crypto.randomUUID(),
         supportRequestId,

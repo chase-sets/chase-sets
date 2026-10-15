@@ -123,8 +123,11 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
     const engine = createCountAcquisition({
       ledger: {
         ...store,
+        admit: (quote, owner, authority) => store.admit(pools.catalog, quote, owner, authority),
         approve: (id, fingerprint, owner) => store.approve(pools.catalog, id, fingerprint, owner),
-        claim: (quote, target, owner, authority) => store.claim(pools.catalog, quote, target, owner, authority),
+        claim: (quote, target, owner, authority, executionId) =>
+          store.claim(pools.catalog, quote, target, owner, authority, executionId),
+        end: (quoteId, executionId, owner, state) => store.end(pools.catalog, quoteId, executionId, owner, state),
       },
       resolve: async () => ({ membershipFingerprint: "synthetic-membership", targets }),
       send,

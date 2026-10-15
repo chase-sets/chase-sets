@@ -29,7 +29,13 @@ function buildApp(holds: InventoryHoldServices, actor?: InventoryActor) {
     await next();
   });
   app.route("/holds", inventoryHoldRoutes(holds));
-  app.route("/checkout-reservations", inventoryCheckoutReservationRoutes(holds));
+  app.route(
+    "/checkout-reservations",
+    inventoryCheckoutReservationRoutes(holds, async (input) => {
+      if (!["chk_1", "chk_own"].includes(input.checkoutSessionId) || input.inventoryItemId !== "inv_1") return null;
+      return { accountId: input.lineKey === "cli_1" ? "acc_inventory" : "acc_seller" };
+    }),
+  );
   return app;
 }
 

@@ -1,5 +1,6 @@
 import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createInventoryRepresentativeSeedServices, type InventoryServices } from "@chase-sets/inventory/server";
 import {
   catalogScenarioItems,
   ensureRepresentativeInventoryStock,
@@ -82,7 +83,7 @@ describeWithMarketplaceSeedDatabase(
 type MarketplaceSeedRuntime = Awaited<ReturnType<ReturnType<typeof useMarketplaceSeedRuntime>["seed"]>>;
 
 function getInventoryServices(services: Readonly<Record<string, unknown>>): RepresentativeInventoryServices {
-  return services.inventory as RepresentativeInventoryServices;
+  return createInventoryRepresentativeSeedServices(services.inventory as InventoryServices);
 }
 
 function getMarketplaceServices(services: Readonly<Record<string, unknown>>): MarketplaceServices {

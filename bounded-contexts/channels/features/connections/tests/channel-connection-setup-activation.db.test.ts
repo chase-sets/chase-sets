@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
@@ -10,7 +11,7 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
 import { module as inventoryModule } from "@chase-sets/inventory";
-import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
+import { createStorageLocationAuthority, withInventoryMutationAttempt } from "@chase-sets/inventory/server";
 import type { ChannelConnectionHostPorts, ChannelConnectionSetupDeclaration } from "../domain/contracts";
 import { testContext } from "./test-support";
 
@@ -121,11 +122,11 @@ describeDb("channel-connection-setup-activation", () => {
     };
     const first = await inventory.createStorageLocation(
       { accountId: "acc_owner" as never, name: "First", shipFromCode: "first", shipFromAddress: address },
-      testContext,
+      withInventoryMutationAttempt(testContext, randomUUID()),
     );
     const second = await inventory.createStorageLocation(
       { accountId: "acc_owner" as never, name: "Second", shipFromCode: "second", shipFromAddress: address },
-      testContext,
+      withInventoryMutationAttempt(testContext, randomUUID()),
     );
     const updated = await inventory.updateStorageLocation(
       {
@@ -135,7 +136,7 @@ describeDb("channel-connection-setup-activation", () => {
         shipFromCode: "first",
         shipFromAddress: address,
       },
-      testContext,
+      withInventoryMutationAttempt(testContext, randomUUID()),
     );
     // The authority still resolves after removing its projection: the committed stream owns both state and revision.
     await pools.inventory.query("DELETE FROM inventory_storage_locations WHERE storage_location_id = $1", [
@@ -175,7 +176,7 @@ describeDb("channel-connection-setup-activation", () => {
         shipFromAddress: address,
         isArchived: true,
       },
-      testContext,
+      withInventoryMutationAttempt(testContext, randomUUID()),
     );
     expect(
       await authority.resolveStorageLocationAuthority({

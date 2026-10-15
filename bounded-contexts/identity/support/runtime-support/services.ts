@@ -14,6 +14,12 @@ import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createAccessHubRuntime } from "../../features/access-hub/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
+import {
+  assertRegistrationConsentDeclaration,
+  bindRegistrationConsentSubject,
+  resolveConsentBundle,
+  type RegistrationConsentBundles,
+} from "../../features/consents/domain/consent-bundle";
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
 import { createFoundersCohortRuntime } from "../../features/founders-cohort/api/runtime";
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
@@ -21,6 +27,7 @@ import { createUserPreferencesRuntime } from "../../features/preferences/api/run
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
+import { createAgentGrantRevocations, type AgentGrantRevocations } from "../../features/agent-grants/api/revocation";
 import { createIdentityMutationPersistence } from "../../features/account-management/api/fences";
 import {
   createAccountManagementRuntime,
@@ -39,8 +46,10 @@ export type IdentityServices = Readonly<{
   foundersCohort: ReturnType<typeof createFoundersCohortRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
   consents: ReturnType<typeof createConsentRuntime>;
+  registrationConsentBundles: RegistrationConsentBundles;
   preferences: ReturnType<typeof createUserPreferencesRuntime>;
   linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
+  agentGrantRevocations: AgentGrantRevocations;
   shippingAddresses: ReturnType<typeof createShippingAddressRuntime>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (Terms of Service active version). */
   policies: PolicyRuntime;
@@ -74,6 +83,16 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
   const policies = createPolicyRuntime({ eventStore, db });
+  const registrationConsentBundles: RegistrationConsentBundles = {
+    async resolve() {
+      const declaration = await resolveConsentBundle(policies.consentActivation, "registration");
+      assertRegistrationConsentDeclaration(declaration);
+      return declaration;
+    },
+    async forRegistration(subject) {
+      return bindRegistrationConsentSubject(await registrationConsentBundles.resolve(), subject);
+    },
+  };
   const deps = {
     eventStore,
     checkpointStore,
@@ -101,7 +120,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
   const preferences = createUserPreferencesRuntime(deps);
-  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db);
+  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool);
   const shippingAddresses = createShippingAddressRuntime(deps);
   const accountManagement = createAccountManagementRuntime(mutationPersistence, { auth, shippingAddresses });
 
@@ -120,6 +139,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
 
   return {
     eventStore,
+    agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore),
     accountManagement,
     accessHub,
     accounts,
@@ -130,6 +150,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     foundersCohort,
     apiKeys,
     consents,
+    registrationConsentBundles,
     preferences,
     linkedPlatformAuthorizations,
     shippingAddresses,

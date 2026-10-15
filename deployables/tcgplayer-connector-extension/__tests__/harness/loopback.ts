@@ -1,9 +1,45 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { assertConnectorClaim, assertConnectorReport } from "@chase-sets/channels/server";
 import { loopbackPlatform, synthetic } from "../../e2e/loopback-platform";
-import { assertHarnessOrigins, connectorHostRegistry, platformOrigin, portalOrigin, sentinel } from "./origins";
+import {
+  assertHarnessOrigins,
+  connectorHostRegistry,
+  platformOrigin,
+  portalOrigin,
+  sentinel,
+  syntheticExportHeader,
+} from "./origins";
 import type { Claim } from "./claim";
 import { connectorTransport } from "../../src/adapters/connector-transport";
+
+export const exportSentinel = "SYNTHETIC_9288_PLAINTEXT_SENTINEL";
+const exportRoute = "/Admin/Pricing/DownloadMyExportCSV?type=Pricing";
+/** A labelled synthetic Export From Live file with a plaintext sentinel in its first product name. */
+export function syntheticExportCsv(rows = 3): string {
+  const lines = [syntheticExportHeader.join(",")];
+  for (let index = 0; index < rows; index++)
+    lines.push(
+      [
+        1000 + index,
+        "Synthetic Line",
+        "Synthetic Set",
+        index === 0 ? exportSentinel : `Synthetic Card ${index}`,
+        "",
+        index,
+        "Common",
+        "Near Mint",
+        "1.00",
+        "",
+        "1.50",
+        "0.90",
+        1,
+        0,
+        "1.25",
+        "",
+      ].join(","),
+    );
+  return `${lines.join("\n")}\n`;
+}
 
 async function body(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -27,11 +63,40 @@ export async function startLoopback() {
   const releases = new Map<string, () => void>();
   let claimCount = 0;
   let pollWindowSeconds = 30;
+  const provider = {
+    reply: "csv" as "csv" | "redirect",
+    csv: syntheticExportCsv(),
+    session: null as string | null,
+    exports: 0,
+    signins: 0,
+  };
+  const ingests: string[] = [];
+  const claimBodies: unknown[] = [];
+  let withheld = 0;
+  let lostIngests = 0;
+  let ingestStatus = 202;
+  const lost: (() => void)[] = [];
   const wait = async (route: string) => {
     await holds.get(route);
   };
   const portal = createServer(async (request, reply) => {
     reply.setHeader("Connection", "close");
+    if (request.method === "GET" && request.headers.host === "127.0.0.1:46175") {
+      if (request.url === exportRoute) {
+        provider.exports++;
+        await wait("export");
+        const session = provider.session === null || String(request.headers.cookie ?? "").includes(provider.session);
+        if (provider.reply === "redirect" || !session)
+          reply.writeHead(302, { Location: `${portalOrigin}/signin` }).end();
+        else reply.writeHead(200, { "Content-Type": "text/csv; charset=utf-8" }).end(provider.csv);
+        return;
+      }
+      if (request.url === "/signin") {
+        provider.signins++;
+        reply.writeHead(200, { "Content-Type": "text/html" }).end("<html>synthetic sign-in</html>");
+        return;
+      }
+    }
     try {
       if (
         request.headers.host !== "127.0.0.1:46175" ||
@@ -70,7 +135,9 @@ export async function startLoopback() {
             ? "claim"
             : request.url === "/channel-connector/oauth/connections/connection_synthetic/report"
               ? "report"
-              : null;
+              : request.url === "/channel-connector/oauth/connections/connection_synthetic/ingest"
+                ? "ingest"
+                : null;
         if (!action) return false;
         try {
           if (
@@ -80,10 +147,27 @@ export async function startLoopback() {
           )
             throw new Error("synthetic-authority-refused");
           const input = await body(request);
-          if (action === "claim") {
+          if (action === "ingest") {
+            ingests.push(JSON.stringify(input));
+            await wait("ingest");
+            // A lost admission: the platform recorded the post but the worker never observes its 202.
+            if (lostIngests > 0) {
+              lostIngests--;
+              lost.push(() => request.socket.destroy());
+              return true;
+            }
+            reply.writeHead(ingestStatus, { "Content-Type": "application/json" }).end("{}");
+          } else if (action === "claim") {
             assertConnectorClaim(input);
             claimCount++;
-            const reservation = claims.shift() ?? null;
+            claimBodies.push(input);
+            // Mirrors #9285: export members are withheld from a claim that does not advertise the capability.
+            const exportMember = claims[0]?.operations.some(
+              (operation) => operation.operationKind === "tcgplayer-live-export",
+            );
+            const capable = input.capabilities?.includes("tcgplayer-live-export") === true;
+            if (exportMember && !capable) withheld++;
+            const reservation = exportMember && !capable ? null : (claims.shift() ?? null);
             if (reservation) admitted.set(reservation.reservationId, reservation);
             await wait("claim");
             reply
@@ -104,9 +188,14 @@ export async function startLoopback() {
                       member.operationId === item.operationId &&
                       member.attemptId === item.attemptId &&
                       member.claimGeneration === item.claimGeneration &&
-                      "desiredStateSequence" in member &&
-                      "desiredStateSequence" in item &&
-                      member.desiredStateSequence === item.desiredStateSequence,
+                      (("desiredStateSequence" in member &&
+                        "desiredStateSequence" in item &&
+                        member.desiredStateSequence === item.desiredStateSequence) ||
+                        (member.operationKind === "tcgplayer-live-export" &&
+                          "operationKind" in item &&
+                          item.operationKind === "tcgplayer-live-export" &&
+                          item.exportId === member.exportId &&
+                          item.payloadDigest === member.payloadDigest)),
                   ),
               )
             )
@@ -158,13 +247,33 @@ export async function startLoopback() {
     claims,
     reports,
     portalCalls,
+    provider,
+    ingests,
+    claimBodies,
+    withheld: () => withheld,
+    setIngestStatus: (status: number) => {
+      ingestStatus = status;
+    },
+    loseNextIngest: () => {
+      lostIngests++;
+    },
+    /** Ends every unanswered lost admission so its worker observes a transport failure. */
+    dropLostIngests: () => {
+      for (const drop of lost.splice(0)) drop();
+    },
     reset() {
       claims.length = 0;
       reports.length = 0;
       portalCalls.length = 0;
+      ingests.length = 0;
+      claimBodies.length = 0;
       admitted.clear();
       accepted.clear();
       claimCount = 0;
+      withheld = 0;
+      lostIngests = 0;
+      ingestStatus = 202;
+      Object.assign(provider, { reply: "csv", csv: syntheticExportCsv(), session: null, exports: 0, signins: 0 });
     },
     claimCount: () => claimCount,
     setPollWindow: (seconds: number) => {
@@ -175,15 +284,16 @@ export async function startLoopback() {
       assertConnectorReport(value);
       return value;
     },
-    hold(route: "claim" | "portal" | "report") {
+    hold(route: "claim" | "portal" | "report" | "export" | "ingest") {
       holds.set(route, new Promise<void>((resolve) => releases.set(route, resolve)));
     },
-    release(route: "claim" | "portal" | "report") {
+    release(route: "claim" | "portal" | "report" | "export" | "ingest") {
       releases.get(route)?.();
       holds.delete(route);
       releases.delete(route);
     },
     async close() {
+      for (const drop of lost.splice(0)) drop();
       for (const release of releases.values()) release();
       await platform.close();
       portal.closeAllConnections();

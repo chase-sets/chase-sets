@@ -1090,6 +1090,12 @@ export function SearchPage({
             />
           ) : data && data.items.length > 0 && !showHomeMerchandising ? (
             <>
+              {data.retrievalMode === "corrected" ? (
+                <Banner
+                  tone="info"
+                  title={t("discovery.features.search.ui.searchPage.close.spellings", { query: committedSearch })}
+                />
+              ) : null}
               {data.retrievalMode === "rescue" ? (
                 <Stack gap={1}>
                   <Heading level={2} visualSize={4}>

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
+import { fixedPercentileGoal } from "../../repricing-policies/domain/goals/fixed-percentile";
+import { profitPerDayGoal } from "../../repricing-policies/domain/goals/profit-per-day";
+import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { hopelessForecastHold } from "../../repricing-policies/domain/guardrails/hopeless-forecast-hold";
 import { marketEvidenceFloor } from "../../repricing-policies/domain/guardrails/market-evidence-floor";
 import {
@@ -7,6 +10,10 @@ import {
   unavailableGoalEconomics,
 } from "../../repricing-policies/tests/fixtures/goal-economics";
 import { evaluateRepricingListing, type RepricingListingEconomics } from "../domain/evaluate";
+import { REPRICING_ENGINE_LAUNCH_POLICY_VALUE } from "../domain/policy";
+import { evaluateShadowGoals, requiresGoalEconomics } from "../domain/round";
+import type { RepricingRoundInputs, RepricingRoundListing } from "../read-model/queries";
+import { registerShadowGoals, shadowGoal } from "./shadow-goal-fixture";
 import {
   freshUntil,
   goalAnchor,
@@ -27,6 +34,190 @@ const goals = [
 
 const economicsFor = (recorded: (typeof goals)[number]["economics"]) =>
   recorded === null ? null : resolvedGoalEconomics(typicalFeeTerms, recorded.dailyReturnHurdle);
+
+describe("full-directive shadow comparisons", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("uses the identical captured curve, Economics and parameters after the incumbent", () => {
+    const order: string[] = [];
+    const originalSolve = fixedPercentileGoal.solve;
+    const incumbent = vi.spyOn(fixedPercentileGoal, "solve").mockImplementation((input) => {
+      order.push("incumbent");
+      return originalSolve(input);
+    });
+    const shadowSolve = vi.fn<PricingGoalDefinition["solve"]>((input) => {
+      order.push("shadow");
+      return originalSolve(input);
+    });
+    registerShadowGoals([shadowGoal("fixed-percentile", { solve: shadowSolve })]);
+    const listing = goalListing();
+    const snapshot = goalSnapshot();
+    evaluateRepricingListing(listing, snapshot);
+    evaluateShadowGoals(listing, snapshot, pricingGoalDefinitions());
+    expect(order).toEqual(["incumbent", "shadow"]);
+    expect(shadowSolve.mock.calls[0]![0]).toEqual(incumbent.mock.calls[0]![0]);
+    expect(shadowSolve.mock.calls[0]![0].curve.points).toBe(snapshot.demandCurve!.points);
+  });
+
+  it("never resolves a recorded shadow on the incumbent path and runs a promoted version without comparisons", () => {
+    const registry = registerShadowGoals([shadowGoal()]);
+    const listing = goalListing(
+      goalDirective({ anchorChain: [{ ...goalAnchor(), goalVersion: 2 }, { source: "market-estimate" }] }),
+    );
+    expect(evaluateRepricingListing(listing, goalSnapshot())).toMatchObject({
+      anchor: { source: "market-estimate" },
+      exhaustedAnchors: [{ source: "curve-objective", state: "absent", reason: "goal-retired" }],
+    });
+    // Promotion is a reviewed registration replacement, not a runtime transition.
+    vi.restoreAllMocks();
+    registerShadowGoals([{ ...registry.resolve("fixed-percentile", 2)!, lifecycle: "selectable" }]);
+    expect(evaluateRepricingListing(listing, goalSnapshot()).anchor?.goal).toMatchObject({ goalVersion: 2 });
+    expect(evaluateShadowGoals(listing, goalSnapshot(), pricingGoalDefinitions())).toEqual([]);
+  });
+
+  it.each([
+    [goalAnchor("target-horizon", { horizonDays: 30 }), goalAnchor()],
+    [goalAnchor("fixed-percentile", { percentile: 20 }), goalAnchor("fixed-percentile", { percentile: 80 })],
+  ])("substitutes each occurrence independently, preserving unreached-anchor parity: %j", (...anchorChain) => {
+    registerShadowGoals([shadowGoal(), shadowGoal("target-horizon")]);
+    const listing = goalListing(goalDirective({ anchorChain }));
+    const snapshot = goalSnapshot();
+    const before = JSON.stringify({ listing, snapshot });
+    const incumbent = evaluateRepricingListing(listing, snapshot);
+    const traces = evaluateShadowGoals(listing, snapshot, pricingGoalDefinitions());
+    expect(traces).toHaveLength(2);
+    traces.forEach((trace, anchorIndex) => {
+      const substituted = goalListing(
+        goalDirective({
+          anchorChain: anchorChain.map((anchor, index) =>
+            index === anchorIndex ? { ...anchor, goalVersion: 2 } : anchor,
+          ),
+        }),
+      );
+      const result = evaluateRepricingListing(substituted, snapshot, anchorIndex);
+      const { targetPriceAmount, action, skipReason, anchor, flags } = result;
+      expect(trace).toEqual({
+        goalId: anchorChain[anchorIndex]!.goalId,
+        goalVersion: 2,
+        anchorIndex,
+        curveVersion: 1,
+        targetPriceAmount,
+        action,
+        skipReason,
+        anchor,
+        flags,
+        skipped: null,
+      });
+    });
+    expect(traces[1]).toMatchObject({
+      targetPriceAmount: incumbent.targetPriceAmount,
+      action: incumbent.action,
+      skipReason: incumbent.skipReason,
+      anchor: incumbent.anchor,
+      flags: incumbent.flags,
+    });
+    expect(JSON.stringify({ listing, snapshot })).toBe(before);
+    expect(evaluateRepricingListing(listing, snapshot)).toEqual(incumbent);
+  });
+
+  it("skips only incompatible parameters with null results and no solver work", () => {
+    const solve = vi.fn(shadowGoal().solve);
+    registerShadowGoals([shadowGoal("fixed-percentile", { parameterSchema: {}, solve })]);
+    expect(evaluateShadowGoals(goalListing(), goalSnapshot(), pricingGoalDefinitions())).toEqual([
+      {
+        goalId: "fixed-percentile",
+        goalVersion: 2,
+        anchorIndex: 0,
+        curveVersion: null,
+        targetPriceAmount: null,
+        action: null,
+        skipReason: null,
+        anchor: null,
+        flags: [],
+        skipped: "parameters-incompatible",
+      },
+    ]);
+    expect(solve).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "evaluates newly required null Economics through fallback or terminal (terminal=%s)",
+    (terminal) => {
+      const solve = vi.fn<PricingGoalDefinition["solve"]>(() => ({
+        kind: "unavailable",
+        reason: "economics-unavailable",
+      }));
+      registerShadowGoals([shadowGoal("fixed-percentile", { requiresEconomics: true, solve })]);
+      const anchorChain = terminal ? [goalAnchor()] : [goalAnchor(), goalAnchor("target-horizon", { horizonDays: 30 })];
+      const listing = goalListing(goalDirective({ anchorChain }));
+      const snapshot = goalSnapshot();
+      const incumbent = evaluateRepricingListing(listing, snapshot);
+      const forced = evaluateRepricingListing(
+        goalListing(
+          goalDirective({
+            anchorChain: anchorChain.map((anchor, index) => (index === 0 ? { ...anchor, goalVersion: 2 } : anchor)),
+          }),
+        ),
+        snapshot,
+        0,
+      );
+      expect(forced.exhaustedAnchors).toContainEqual({
+        source: "curve-objective",
+        state: "absent",
+        reason: "economics-unavailable",
+      });
+      const [trace] = evaluateShadowGoals(listing, snapshot, pricingGoalDefinitions());
+      expect(trace).toMatchObject({
+        skipped: null,
+        targetPriceAmount: forced.targetPriceAmount,
+        action: forced.action,
+        skipReason: forced.skipReason,
+        anchor: forced.anchor,
+        flags: forced.flags,
+      });
+      if (terminal)
+        expect(trace).toMatchObject({ action: "hold", targetPriceAmount: null, skipReason: "terminal-hold" });
+      else expect(trace?.anchor?.goal).toMatchObject({ goalId: "target-horizon", goalVersion: 1 });
+      expect(solve.mock.calls.every(([input]) => input.economics === null)).toBe(true);
+      expect(evaluateRepricingListing(listing, snapshot)).toEqual(incumbent);
+    },
+  );
+
+  it("records all five exhausted shadowed anchors as evaluated terminal results", () => {
+    registerShadowGoals([shadowGoal()]);
+    const listing = goalListing(goalDirective({ anchorChain: Array.from({ length: 5 }, () => goalAnchor()) }));
+    const result = evaluateShadowGoals(listing, goalSnapshot({ demandCurve: null }), pricingGoalDefinitions());
+    expect(result.map((entry) => entry.anchorIndex)).toEqual([0, 1, 2, 3, 4]);
+    for (const entry of result)
+      expect(entry).toMatchObject({
+        skipped: null,
+        action: "hold",
+        targetPriceAmount: null,
+        skipReason: "terminal-hold",
+      });
+  });
+
+  it("does no solver work with no shadows, no goal anchor, or no matched rule", () => {
+    const solve = vi.fn(shadowGoal().solve);
+    registerShadowGoals([shadowGoal("fixed-percentile", { solve })]);
+    expect(evaluateShadowGoals(goalListing(), goalSnapshot(), [])).toEqual([]);
+    expect(
+      evaluateShadowGoals(
+        goalListing(goalDirective({ anchorChain: [{ source: "market-estimate" }] })),
+        goalSnapshot(),
+        pricingGoalDefinitions(),
+      ),
+    ).toEqual([]);
+    expect(
+      evaluateShadowGoals(
+        goalListing(undefined, { currentPriceCurrencyCode: null }),
+        goalSnapshot(),
+        pricingGoalDefinitions(),
+      ),
+    ).toEqual([]);
+    expect(solve).not.toHaveBeenCalled();
+  });
+});
 
 describe("curve-objective anchor evaluation", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -163,6 +354,60 @@ describe("curve-objective anchor evaluation", () => {
 });
 
 describe("curve-objective anchor states", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(fixedPercentileGoal, "lifecycle", { value: "selectable" });
+    Object.defineProperty(profitPerDayGoal, "lifecycle", { value: "selectable" });
+  });
+
+  it("reads Economics for a selectable goal but not its registered retired version", () => {
+    const input = goalListing(
+      goalDirective({ anchorChain: [goalAnchor("profit-per-day", {}), { source: "market-estimate" }] }),
+    );
+    const snapshot = goalSnapshot();
+    const listing: RepricingRoundListing = {
+      ...input,
+      inventoryItemId: null,
+      catalogItemId: snapshot.catalogItemId,
+      productId: snapshot.productId,
+      priceAmount: input.currentPriceAmount,
+      priceCurrencyCode: "USD",
+      listingVersion: 1,
+      listingStatus: "active",
+      pauseReason: null,
+      policyId: "policy_goal",
+      policyRevision: "1",
+      maxChangesPerDay: 10,
+      costBasisCurrencyCode: null,
+      economics: null,
+    };
+    const round: RepricingRoundInputs = {
+      listings: [listing],
+      competingAsks: [],
+      marketEstimate: { amount: "10.00", currencyCode: "USD", freshUntil },
+      lastSold: null,
+      demandCurve: null,
+    };
+    const requiresEconomics = () =>
+      requiresGoalEconomics(round, listing, snapshot.capturedAt, REPRICING_ENGINE_LAUNCH_POLICY_VALUE);
+    expect(requiresEconomics()).toBe(true);
+    Object.defineProperty(profitPerDayGoal, "lifecycle", { value: "retired" });
+    expect(requiresEconomics()).toBe(false);
+  });
+
+  it("exhausts a recorded retired version as goal-retired and continues the chain", () => {
+    Object.defineProperty(fixedPercentileGoal, "lifecycle", { value: "retired" });
+    expect(
+      evaluateRepricingListing(
+        goalListing(goalDirective({ anchorChain: [goalAnchor(), { source: "market-estimate" }] })),
+        goalSnapshot(),
+      ),
+    ).toMatchObject({
+      targetPriceAmount: "10.00",
+      anchor: { source: "market-estimate" },
+      exhaustedAnchors: [{ source: "curve-objective", state: "absent", reason: "goal-retired" }],
+    });
+  });
   const profitPerDay = goalAnchor("profit-per-day", {});
   const estimate = { amount: "12.00", currencyCode: "USD", freshUntil };
   const marketEstimateAnchor = {

@@ -1,4 +1,18 @@
 export const authEnglishTranslations = {
+  "auth.invitationAttempt.invalid": "Invitation acceptance attempt is invalid.",
+  "auth.invitationAttempt.notActive": "Invitation acceptance attempts are not active.",
+  "auth.invitationAttempt.required": "Invitation acceptance attempt is required.",
+  "auth.invitationAttempt.submitting": "Submitting your invitation acceptance",
+  "auth.invitationAttempt.confirming": "Confirming invitation acceptance",
+  "auth.invitationAttempt.succeeded": "Invitation accepted",
+  "auth.invitationAttempt.accepted-reauth-required": "Invitation accepted. Sign in to continue.",
+  "auth.invitationAttempt.conflict": "This invitation acceptance does not match the original attempt.",
+  "auth.invitationAttempt.ambiguous": "Invitation acceptance could not be confirmed.",
+  "auth.invitationAttempt.route-denied": "This invitation is unavailable.",
+  "auth.invitationAttempt.failed-safe": "Review your input or check this attempt's status before continuing.",
+  "auth.invitationAttempt.safeRecovery": "Check the status or sign in. Do not submit another acceptance.",
+  "auth.invitationAttempt.signIn": "Sign in",
+  "auth.invitationAttempt.checkStatus": "Check status",
   "auth.features.accountSelection.readModel.role.member": "Member",
   "auth.features.accountSelection.readModel.role.platformAdministrator": "Platform administrator",
   "auth.features.accountSelection.ui.accountSelectionPage.choose.account": "Choose Account",
@@ -171,6 +185,24 @@ export const authEnglishTranslations = {
   "auth.features.agentGrants.ui.agentGrantDetailPage.activity.outcome": "Outcome",
   "auth.features.agentGrants.ui.agentGrantDetailPage.activity.reason": "Reason",
   "auth.features.agentGrants.ui.agentGrantDetailPage.revoke": "Revoke access",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.editing":
+    "You can revoke access or confirm interrupted cleanup.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.loading": "Loading connected agent...",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.submitting": "Revoking access...",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.confirming": "Confirming cleanup...",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.succeeded": "Access revoked and cleanup complete.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.already.complete":
+    "Access was already revoked. Cleanup is complete.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.failed.safe":
+    "Cleanup could not be confirmed. Resume this attempt to finish safely.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.conflict":
+    "This attempt belongs to a different request. It has not been changed.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.ambiguous":
+    "The result is not confirmed. Resume the same attempt; do not start another.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.reauth":
+    "Sign in again before confirming this attempt.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.denied":
+    "This connected agent is not available in your current account.",
   "auth.features.agentGrants.ui.agentGrantDetailPage.revoke.confirm.title": "Revoke connected agent?",
   "auth.features.agentGrants.ui.agentGrantDetailPage.revoke.confirm.description":
     "{name} immediately loses access to your account. Any purchase it was mid-flow on will fail with an auth error. This cannot be undone.",

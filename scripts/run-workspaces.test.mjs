@@ -845,13 +845,16 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(54);
+    expect(census.entries).toHaveLength(56);
+    expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/activate-agent-grant-revocation.test.ts");
     expect(census.entries).toContain("__tests__/ucp-profile-negotiation.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/ucp-profile-negotiation.test.ts");
     expect(census.entries).toContain("__tests__/channels-services-production-ports.test.ts");
     expect(census.entries).toContain("__tests__/connector-transport-composition.test.ts");
     expect(census.entries).toContain("__tests__/ebay-account-deletion-composition.test.ts");
     expect(census.entries).toContain("__tests__/ebay-account-deletion-config.test.ts");
+    expect(census.entries).toContain("__tests__/ebay-account-deletion-staff-composition.test.ts");
     expect(census.entries).toContain("__tests__/staging-proof-credit-environment.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/staging-proof-credit-environment.test.ts");
     expect(census.dbEntries).toHaveLength(18);
@@ -869,7 +872,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([8, 10]);
+      expect(groups.map((files) => files.length)).toEqual([7, 11]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),

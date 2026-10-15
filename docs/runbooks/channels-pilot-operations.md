@@ -17,6 +17,8 @@ named here does not exist for this pilot.
 
 ## Evidence And Redaction Rules
 
+For production packages, use the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. The #7728 inventory includes Account Channels, connection and publication routes, the manual-sync download route, Admin `/catalog/catalog-items/<id>`, Seller Portal entry, all sign-in hops and tooling/API calls. Never claim a reservation or send a mutating download request to prove reachability. Preserve read-only Phase A, performer/custody and no-redelivery gates; routing evidence is neither authenticated data proof nor execution GO.
+
 Evidence for phase-1 operator actions is the `phase1WatchLog` record referenced
 in #7728 and #7729. This runbook does not define its wire format; capture the
 fields listed in "Evidence Capture Checklist" below and cite the issue for the
@@ -246,4 +248,38 @@ Not yet written; see #7700 phase 2 and #7037.
 
 ## eBay
 
-Not yet written; see #7700 phase 2 and #7037.
+### Account-deletion receipts
+
+Weekly, and immediately before the #8618 Production Save, a staff operator with
+`support.manage` opens **eBay Deletion Lookup** in admin. Look up each exact
+operator-held eBay user ID separately. The page does not list or export subjects;
+an empty result means only that no unexpired receipt matches that identity.
+For every matching receipt, delete the corresponding tokens and usernames from
+the operator store. Record completion separately in the operator's restricted
+record, using the notification ID and completion time, not a copied subject.
+Receipt presence is not proof of erasure or of provider acceptance.
+
+Before Production Save, both displayed platform counts must be zero:
+non-disconnected Production `ebay` connections and their credential envelopes.
+A failed lookup/count is not zero. Stop Save on unavailable or nonzero counts;
+do not copy user IDs into logs, issue comments, screenshots, or verification
+artifacts. POST signature acceptance and deletion activation belong to #9296
+and #9304, not this lookup.
+
+Receipts retain encrypted subjects for 30 days from server receipt time. The
+worker starts on restart, then at fixed 1800-second intervals, draining up to
+500 rows per DELETE for at most 1800 seconds. `cleanup-incomplete` is a failure,
+not successful expiry. Inspect subject-free reason/count/timing observations
+and restore the worker/database promptly; never infer cleanup from a short
+batch. An outage or backlog outside the measured operating envelope requires
+an explicit host decision, not a retention waiver.
+
+The existing `CHANNELS_CREDENTIAL_KEYRING_JSON` must retain the immutable named
+root `ebay-subject-root-v1`, independent of `activeKeyId`. Keep its material and
+identity unchanged across seal rotations. Keep historical seal keys while
+referenced. Before installing a replacement keyring, use Channels' receipt and
+subject-binding continuity checks against receipt references and subject-binding
+references owned by #9299/#9304. Never remove referenced root or seal keys. A
+missing key makes custody unavailable; it does not authorize overwriting a
+receipt or treating a retry as a different subject. Root metadata lives in the
+fingerprint, not an additional table column or keyring.

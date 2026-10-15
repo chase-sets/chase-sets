@@ -6,6 +6,8 @@ The private proof-mode collection phase is retired. Historical proof artifacts b
 
 ## Served Marketplace (Not Public)
 
+Production operator packages must satisfy the shared [Operator-Package Target Reachability](../../.agents/skills/delivery/SKILL.md#operator-package-target-reachability) gate before package READY, at host signal and at window-open re-verification. A green deploy or closed serving-capability issue does not establish the window's target hosts/paths; retain the landing-posture failure, independently gate staging, and preserve the identity-term receipt and admission requirements below. The serving-posture choice remains Todd's separate product question, not an operator-package authorization.
+
 `PRODUCTION_MARKETPLACE_SERVED=true` exposes `marketplace.chasesets.com` to invited production accounts without declaring a public launch. This posture uses the existing `proof` runtime profile, keeps `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, requires none of the public-launch approval variables, leaves registration in `invitation` admission mode, and leaves marketplace indexing disabled.
 
 To enter this posture, set `PRODUCTION_MARKETPLACE_SERVED=true` in the production GitHub Environment, keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, leave `PRODUCTION_RUNTIME_PROFILE` unset, and run the normal Platform Deploy workflow. The workflow derives `proof`, applies the reviewed Terraform plan bytes, waits for the marketplace certificate, and captures `served-marketplace-smoke/v1` evidence proving the root returns 200 with `noindex,nofollow`, anonymous registration is rejected with `403 registration_admission_required`, and a malformed invitation URL remains routed rather than returning 404.

@@ -1,5 +1,6 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
@@ -476,7 +477,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         if (!deps.eventStore.appendToStreams)
           throw new Error("Managed Offers require atomic multi-stream append support.");
         try {
-          await deps.eventStore.appendToStreams([
+          const results = await deps.eventStore.appendToStreams([
             managed.guard(policy, context),
             {
               streamId: `marketplace.offer-${params.offerId}`,
@@ -485,6 +486,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
               context,
             },
           ]);
+          recordCommittedEvents(results.flatMap((result) => result.storedEvents));
         } catch (error) {
           if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict")
             throw new ManagedOfferConflictError("managed_offer_conflict");
@@ -702,7 +704,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       }
 
       try {
-        await appendToStreams([
+        const results = await appendToStreams([
           ...(commitment ? [commitment.append] : []),
           {
             streamId: offerStreamId,
@@ -723,6 +725,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
             context,
           },
         ]);
+        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
       } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
           const latest = await repository.load(offerStreamId);

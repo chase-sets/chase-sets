@@ -147,6 +147,7 @@ export type RepricingListingEvaluation = Readonly<{
 export function evaluateRepricingListing(
   listing: RepricingListingEvaluationInput,
   snapshot: RepricingMarketInputSnapshot,
+  shadowAnchorIndex?: number,
 ): RepricingListingEvaluation {
   const match = matchRepricingRule(listing, snapshot);
   if (!match) {
@@ -160,6 +161,7 @@ export function evaluateRepricingListing(
     competingHardAsks,
     compatibleListing.currentPriceCurrencyCode,
     listing.sellerAccountId,
+    shadowAnchorIndex,
   );
   if (
     resolved.exhaustedAnchors.some(
@@ -317,10 +319,11 @@ function resolveAnchor(
   hardAsks: readonly RepricingMarketInputSnapshot["competingAsks"][number][],
   targetCurrencyCode: string,
   sellerAccountId: string,
+  shadowAnchorIndex?: number,
 ): ResolvedAnchor {
   const exhaustedAnchors: RepricingExhaustedAnchor[] = [];
 
-  for (const candidate of directive.anchorChain) {
+  for (const [anchorIndex, candidate] of directive.anchorChain.entries()) {
     switch (candidate.source) {
       case "market-estimate": {
         const estimate = snapshot.marketEstimate;
@@ -464,7 +467,11 @@ function resolveAnchor(
       }
       case "curve-objective": {
         const goal = resolvePricingGoal(candidate.goalId, candidate.goalVersion);
-        if (!goal) {
+        if (
+          !goal ||
+          goal.lifecycle === "retired" ||
+          (goal.lifecycle === "shadow" && anchorIndex !== shadowAnchorIndex)
+        ) {
           exhaustedAnchors.push({ source: candidate.source, state: "absent", reason: "goal-retired" });
           break;
         }

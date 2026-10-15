@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { isCatalogFixtureTransport } from "./catalog-fixture-transports";
+import { countCaptureTransport } from "./count-capture-transport";
 
 export const providerSendPolicy = Object.freeze({
   preflightCard: 32,
@@ -208,6 +209,13 @@ export function sendCatalogProviderRequest(
   category?: ProviderSendCategory,
   fallbackCategory?: ProviderSendCategory,
 ): Promise<Response> {
+  // A bound count capture debits every possible send, fixture transports included.
+  transport =
+    countCaptureTransport(
+      provider,
+      category ?? providerSendContext.getStore()?.request?.category ?? fallbackCategory,
+      transport,
+    ) ?? transport;
   if (isCatalogFixtureTransport(transport)) return transport(input, init);
   const context = providerSendContext.getStore();
   if (!context) {

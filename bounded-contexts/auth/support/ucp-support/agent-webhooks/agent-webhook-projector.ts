@@ -88,6 +88,7 @@ async function enqueueForOrder(
   for (const target of targets) {
     await deps.outbox.enqueueDelivery({
       clientId: target.clientId,
+      grantIds: target.grantIds,
       accountId: target.accountId,
       callbackUrl: target.callbackUrl,
       sourceEventId: event.id,

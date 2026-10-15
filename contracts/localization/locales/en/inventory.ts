@@ -1,4 +1,16 @@
 export const inventoryEnglishTranslations = {
+  "inventory.recovery.editing": "Inventory changes are ready.",
+  "inventory.recovery.submitting": "Submitting Inventory change.",
+  "inventory.recovery.confirming": "Confirming the original Inventory result. No change will be resubmitted.",
+  "inventory.recovery.succeeded": "The original Inventory change is confirmed.",
+  "inventory.recovery.reauth": "Sign in with the original account to confirm this Inventory change.",
+  "inventory.recovery.failedSafe": "Inventory recovery storage is unavailable. No change was sent.",
+  "inventory.recovery.ambiguous":
+    "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+  "inventory.recovery.check": "Check original result",
+  "inventory.recovery.discard": "Discard recovery metadata",
+  "inventory.recovery.discardConfirmation":
+    "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
   "inventory.features.inventoryItems.api.route.collision.mode.invalid":
     "Collision mode must protect orders or honor offline.",
   "inventory.features.inventoryItems.api.route.honor.offline.authority.required":
@@ -429,4 +441,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.recoveredItems.ui.page.action.failed": "The recovered item action could not be recorded.",
   "inventory.features.recoveredItems.ui.page.action.unknown": "Choose a recovered item action.",
   "inventory.routes.admin.recoveredItems.title": "Recovered Returns | Admin",
+  "inventory.checkoutReservation.unavailable": "Checkout reservation is unavailable.",
+  "inventory.checkoutReservation.extensionUnavailable": "Checkout reservation extension is unavailable.",
+  "inventory.checkoutReservation.releaseUnavailable": "Checkout reservation release is unavailable.",
 } as const;

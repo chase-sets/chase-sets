@@ -373,7 +373,7 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
-          "routePath": "/purchases/:id",
+          "routePath": "/account/purchases/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -394,7 +394,7 @@
           ]
         },
         {
-          "routePath": "/sales/:id",
+          "routePath": "/account/sales/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -415,7 +415,7 @@
           ]
         },
         {
-          "routePath": "/sales",
+          "routePath": "/account/sales",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -478,7 +478,7 @@
       "destination": {
         "routeId": "account-sales",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales",
+        "apiRoutePath": "/account/sales",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages"],
         "projectionDependencies": ["ordering-marketplace-offer-acceptance"],
         "freshnessDependencyReason": "The sales list must wait for the Marketplace accepted-offer process that creates the Ordering order, then wait on the Ordering-owned sale list read models when an Ordering receipt is present. Account and fulfillment joins are display/cancellation adornments and must not gate the accepted-offer handoff.",
@@ -507,7 +507,7 @@
       "destination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
-        "apiRoutePath": "/purchases/:id",
+        "apiRoutePath": "/account/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -534,7 +534,7 @@
       "destination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales/:id",
+        "apiRoutePath": "/account/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -650,7 +650,7 @@
       "visibleDestination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
-        "apiRoutePath": "/purchases/:id",
+        "apiRoutePath": "/account/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -673,7 +673,7 @@
       "visibleDestination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales/:id",
+        "apiRoutePath": "/account/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -757,6 +757,10 @@
       }
     }
   ],
+  "agentCoverage": {
+    "ordering-postage-policies": { "pending": "#9238" },
+    "ordering-postage-policies-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",

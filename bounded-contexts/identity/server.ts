@@ -159,11 +159,14 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         userId,
         roleKey,
       }),
-    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash }) =>
+    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash, operation }) =>
       postJson(`invitations/${invitationId}/accept`, {
         userId,
         acceptanceTokenHash,
+        ...(operation ? { operation } : {}),
       }),
+    readInvitationAcceptanceAuthority: ({ invitationId, ...params }) =>
+      postJson(`invitations/${invitationId}/acceptance-authority`, params),
     issueInvitationAcceptanceToken: ({ invitationId, tokenHash, expiresAt }) =>
       postJson(`invitations/${invitationId}/acceptance-token`, {
         tokenHash,
@@ -181,3 +184,17 @@ export function createActorEventStoreContext(actor: ResolvedActor) {
   return createGenericActorEventStoreContext(actor);
 }
 export { identitySeedIds } from "@chase-sets/identity-seed";
+export {
+  createAgentGrantRevocations,
+  createActiveAgentGrantFence,
+  newRevocationAttemptId,
+  type AgentGrantRevocations,
+  type RevocationBinding,
+  type RevocationState,
+} from "./features/agent-grants/api/revocation";
+export {
+  AGENT_GRANT_REVOCATION_SUPPORT_VERSION,
+  assertRevocationActivationProof,
+  revocationActivationProofDigest,
+  type RevocationActivationProof,
+} from "./features/agent-grants/api/revocation-floor";

@@ -4,6 +4,7 @@ import {
   countFingerprint,
   countQueryKey,
   countSourceIsCurrent,
+  type CountAdmission,
   type CountAuthority,
   type CountQuote,
   type CountTarget,
@@ -15,8 +16,16 @@ export type CountAcquisitionLedger = Readonly<{
   authority(): Promise<CountAuthority>;
   saveQuote(quote: CountQuote, owner: string): Promise<void>;
   loadQuote(quoteId: string, owner: string): Promise<CountQuote>;
+  /** Holds the quote's whole P under the headroom lock and returns its single execution id. */
+  admit(quote: CountQuote, owner: string, authority: CountAuthority): Promise<string>;
   approve(quoteId: string, fingerprint: string, owner: string): Promise<CountQuote>;
-  claim(quote: CountQuote, target: CountTarget, owner: string, authority: CountAuthority): Promise<string | null>;
+  claim(
+    quote: CountQuote,
+    target: CountTarget,
+    owner: string,
+    authority: CountAuthority,
+    executionId?: string,
+  ): Promise<string | null>;
   result(
     debitId: string,
     quoteId: string,
@@ -24,6 +33,7 @@ export type CountAcquisitionLedger = Readonly<{
     outcome: "complete" | "failed" | "uncertain",
     evidence: ScrydexCountEvidence | null,
   ): Promise<void>;
+  end(quoteId: string, executionId: string, owner: string, state: "complete" | "failed" | "uncertain"): Promise<void>;
 }>;
 export function createCountAcquisition(deps: {
   ledger: CountAcquisitionLedger;
@@ -56,7 +66,12 @@ export function createCountAcquisition(deps: {
     await deps.ledger.saveQuote(result, input.owner);
     return result;
   }
-  async function acquire(input: { quoteId: string; fingerprint: string; owner: string }): Promise<CountQuote> {
+  async function acquire(input: {
+    quoteId: string;
+    fingerprint: string;
+    owner: string;
+    admission?: CountAdmission;
+  }): Promise<CountQuote> {
     const original = await deps.ledger.loadQuote(input.quoteId, input.owner);
     const current = await deps.resolve(original.selection);
     const authority = await deps.ledger.authority();
@@ -77,63 +92,81 @@ export function createCountAcquisition(deps: {
       )
     )
       throw new CountAcquisitionRefused();
-    await deps.ledger.approve(original.quoteId, original.fingerprint, input.owner);
-    const acquired: CountTarget[] = [...current.targets];
-    let state: CountQuote["state"] = "complete";
-    for (const [index, target] of current.targets.entries()) {
-      if (target.source) continue;
-      let debit: string | null;
-      try {
-        debit = await deps.ledger.claim(original, target, input.owner, authority);
-      } catch {
-        state = "failed";
-        break;
-      }
-      if (!debit) {
-        const reused = await deps.resolve(original.selection);
-        const source = reused.targets.find(
-          (item) =>
-            item.scopeRecordId === target.scopeRecordId && countQueryKey(item.query) === countQueryKey(target.query),
-        )?.source;
-        if (reused.membershipFingerprint !== original.membershipFingerprint || !source) {
+    // Whole-quote admission buys all of P or nothing: a known shortfall refuses
+    // before the ledger is touched, and the locked admission refuses a later one.
+    if (
+      input.admission === "whole-quote" &&
+      (original.plannedCredits < 1 ||
+        original.cap < original.plannedCredits ||
+        current.targets.some((target) => target.blocked && !target.source))
+    )
+      throw new CountAcquisitionRefused();
+    const executionId =
+      input.admission === "whole-quote" ? await deps.ledger.admit(original, input.owner, authority) : undefined;
+    let state: "complete" | "failed" | "uncertain" = "failed";
+    try {
+      await deps.ledger.approve(original.quoteId, original.fingerprint, input.owner);
+      const acquired: CountTarget[] = [...current.targets];
+      state = "complete";
+      for (const [index, target] of current.targets.entries()) {
+        if (target.source) continue;
+        let debit: string | null;
+        try {
+          debit = await deps.ledger.claim(original, target, input.owner, authority, executionId);
+        } catch {
           state = "failed";
           break;
         }
-        acquired[index] = { ...target, source };
-        continue;
+        if (!debit) {
+          const reused = await deps.resolve(original.selection);
+          const source = reused.targets.find(
+            (item) =>
+              item.scopeRecordId === target.scopeRecordId && countQueryKey(item.query) === countQueryKey(target.query),
+          )?.source;
+          if (reused.membershipFingerprint !== original.membershipFingerprint || !source) {
+            state = "failed";
+            break;
+          }
+          acquired[index] = { ...target, source };
+          continue;
+        }
+        let outcome: "complete" | "failed" | "uncertain" = "complete";
+        let evidence: ScrydexCountEvidence | null = null;
+        try {
+          const response = await deps.send(target.query);
+          evidence = {
+            query: target.query,
+            sourceId: debit,
+            validationKind: "page-1-count",
+            ...response,
+            expiresAt: new Date(Date.parse(response.observedAt) + 900_000).toISOString(),
+          };
+          if (!countSourceIsCurrent(evidence, target.query, now())) throw new Error("Invalid count evidence.");
+          acquired[index] = { ...target, source: evidence };
+        } catch (error) {
+          evidence = null;
+          outcome =
+            error instanceof TypeError ||
+            (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))
+              ? "uncertain"
+              : "failed";
+        }
+        try {
+          await deps.ledger.result(debit, original.quoteId, target.query, outcome, evidence);
+        } catch {
+          state = "uncertain";
+          break;
+        }
+        if (outcome !== "complete") {
+          state = outcome;
+          break;
+        }
       }
-      let outcome: "complete" | "failed" | "uncertain" = "complete";
-      let evidence: ScrydexCountEvidence | null = null;
-      try {
-        const response = await deps.send(target.query);
-        evidence = {
-          query: target.query,
-          sourceId: debit,
-          validationKind: "page-1-count",
-          ...response,
-          expiresAt: new Date(Date.parse(response.observedAt) + 900_000).toISOString(),
-        };
-        if (!countSourceIsCurrent(evidence, target.query, now())) throw new Error("Invalid count evidence.");
-        acquired[index] = { ...target, source: evidence };
-      } catch (error) {
-        evidence = null;
-        outcome =
-          error instanceof TypeError || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name))
-            ? "uncertain"
-            : "failed";
-      }
-      try {
-        await deps.ledger.result(debit, original.quoteId, target.query, outcome, evidence);
-      } catch {
-        state = "uncertain";
-        break;
-      }
-      if (outcome !== "complete") {
-        state = outcome;
-        break;
-      }
+      return { ...original, targets: acquired, state };
+    } finally {
+      // Fence and release unconverted capacity; a failed end leaves it held until expiry.
+      if (executionId) await deps.ledger.end(original.quoteId, executionId, input.owner, state).catch(() => undefined);
     }
-    return { ...original, targets: acquired, state };
   }
   return { quote, acquire };
 }

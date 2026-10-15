@@ -100,7 +100,7 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1956-1976",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2051-2071",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
@@ -125,7 +125,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2084-2091",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2179-2186",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -153,7 +153,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2532-2573",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2668",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -175,12 +175,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:267-297",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:269-299",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1229-1271",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1231-1273",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -830,8 +830,8 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  // Refreshed for byte-identical citation relocations; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "3107386fd3d02e7072c633be6def3eec052efeee68b49d245f26aecc53aa5578",
+  // Includes #7422 revocation and #9499 Inventory recovery storage; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "339e93d0b8c20040bd55583ef8adbe6e9720bb038dc817032e1f8a97fb4c7b25",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };
@@ -960,7 +960,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2040-2051"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2135-2146"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
@@ -2011,6 +2011,12 @@ describe("occurrence-scoped citation byte fence", () => {
         file: citationFencePaths.privacyPolicy,
         before: "Launch jurisdiction scope is undecided",
         after: "Launch region scope is undecided",
+      },
+      {
+        name: "revocation storage disclosure edited",
+        file: citationFencePaths.privacyPolicy,
+        before: "The stored value contains only that identifier, not a revocation receipt or credentials.",
+        after: "The stored value contains the revocation receipt and credentials.",
       },
       {
         name: "provenance key edited",

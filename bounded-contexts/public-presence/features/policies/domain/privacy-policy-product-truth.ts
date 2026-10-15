@@ -305,6 +305,31 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["chase-sets:review-draft:"] }],
   },
   {
+    factId: "web-storage-agent-grant-revocation",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "agent-grant-revocation:*",
+    evidenceRefs: [
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:269",
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:273",
+    ],
+    factualSummary:
+      "The connected-agent page reads and writes an Account-and-Grant-scoped sessionStorage entry holding only a revocation attempt UUID, so a reload can retain the same attempt without storing receipts or credentials.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["agent-grant-revocation:"] }],
+  },
+  {
+    factId: "web-storage-inventory-recovery",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "inventory-mutation/v1:*",
+    evidenceRefs: [
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:79",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:88",
+    ],
+    factualSummary:
+      "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["inventory-mutation/v1:"] }],
+  },
+  {
     factId: "web-storage-search-restoration",
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.restoration.v2",

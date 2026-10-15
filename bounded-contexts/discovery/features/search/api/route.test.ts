@@ -81,6 +81,52 @@ function createServices(): DiscoveryItemSearchServices {
 }
 
 describe("discovery item search routes", () => {
+  it("exposes corrected mode through the real runtime and HTTP route without raw query telemetry", async () => {
+    const statements: string[] = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        statements.push(sql);
+        const rows = sql.startsWith("SELECT EXISTS")
+          ? [{ literal: false, prefix: false, candidates: ["charizard"] }]
+          : sql.startsWith("SELECT * FROM (") && String(values[1]).includes("charizard")
+            ? [
+                {
+                  catalog_item_id: "right",
+                  slug: "right",
+                  title: "Charizard",
+                  subtitle: "Base Set",
+                  lowest_price_amount: null,
+                  lowest_price_currency_code: null,
+                  visible_quantity: null,
+                },
+              ]
+            : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    const recordSearchQuery = vi.fn();
+    const runtime = createDiscoveryItemSearchRuntime(
+      { db, eventStore: {} as never, checkpointStore: {} as never },
+      { recordSearchQuery },
+    );
+    const response = await discoveryItemSearchRoutes(runtime).request("/?search=chraizard&limit=1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      items: [{ catalog_item_id: "right" }],
+      retrievalMode: "corrected",
+      lexicalCount: 0,
+      total: 1,
+      count: 1,
+      nextCursor: null,
+      facets: [],
+      category_counts: [],
+    });
+    expect(statements.filter((sql) => sql.startsWith("SELECT EXISTS"))).toHaveLength(1);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ retrievalMode: "corrected", queryEmbeddingOutcome: "not-attempted", resultCount: 1 }),
+    );
+    expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
+  });
   it.each(["price_asc", "price_desc"])(
     "selected price cursor restarts over HTTP then continues pv=2: %s",
     async (sort) => {

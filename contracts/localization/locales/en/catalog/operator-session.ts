@@ -46,6 +46,9 @@ export const catalogOperatorSessionEnglishTranslations = {
   "catalog.features.operatorSession.ui.adminPanel.pair.grant.dismiss": "Dismiss grant",
   "catalog.features.operatorSession.ui.adminPanel.pair.grant.announcement":
     "A new extension grant is ready to copy. It is shown once.",
+  "catalog.features.operatorSession.ui.adminPanel.pair.handoff.paired": "Paired with extension.",
+  "catalog.features.operatorSession.ui.adminPanel.pair.handoff.notConfirmed":
+    "Automatic pairing was not confirmed. You can paste this grant into the extension.",
   "catalog.features.operatorSession.ui.adminPanel.disconnect.submit": "Disconnect",
   "catalog.features.operatorSession.ui.adminPanel.disconnect.submitting": "Disconnecting…",
   "catalog.features.operatorSession.ui.adminPanel.disconnect.submitting.accessible": "Disconnecting the stored session",

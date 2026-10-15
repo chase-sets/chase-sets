@@ -4,6 +4,8 @@ import {
   type ValidatedConsentActivationGuard,
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import type { ConsentActivationAuthorityRuntime } from "@chase-sets/platform-policy/runtime";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../memberships/read-model/constants";
 import {
   publicPolicyHrefsByKey,
   publicPolicyPublicationRecords,
@@ -73,18 +75,18 @@ export type ConsentBundleDeclaration = Readonly<{
  * account-scoped: the seller obligations bind the selling account, with the
  * acting user captured by the write slice that records the agreement.
  */
-export const consentBundleDeclarations = {
-  registration: {
+export const consentBundleDeclarations = Object.freeze({
+  registration: Object.freeze({
     bundleKey: "registration",
     subjectScope: "user",
-    members: ["terms-of-service", "privacy-policy"],
-  },
-  "seller-onboarding": {
+    members: Object.freeze(["terms-of-service", "privacy-policy"] as const),
+  }),
+  "seller-onboarding": Object.freeze({
     bundleKey: "seller-onboarding",
     subjectScope: "account",
-    members: ["seller-agreement", "payments-terms"],
-  },
-} as const satisfies Readonly<Record<ConsentBundleKey, ConsentBundleDeclaration>>;
+    members: Object.freeze(["seller-agreement", "payments-terms"] as const),
+  }),
+} as const satisfies Readonly<Record<ConsentBundleKey, ConsentBundleDeclaration>>);
 
 export function isConsentBundleKey(bundleKey: string): bundleKey is ConsentBundleKey {
   return (CONSENT_BUNDLE_KEYS as readonly string[]).includes(bundleKey);
@@ -185,6 +187,83 @@ export type ConsentBundleResolution =
  * value is not reachable from anything requirement derivation is handed.
  */
 export type ConsentActivationAuthorityReader = Pick<ConsentActivationAuthorityRuntime, "read">;
+
+declare const registrationDeclarationBrand: unique symbol;
+declare const boundRegistrationDeclarationBrand: unique symbol;
+
+export type RegistrationConsentDeclaration = Extract<ConsentBundleResolution, { resolved: true }> &
+  Readonly<{
+    bundleKey: "registration";
+    subjectScope: "user";
+    [registrationDeclarationBrand]: true;
+  }>;
+
+export type RegistrationConsentSubject = Readonly<{ userId: UserId; accountId: AccountId }>;
+
+export type BoundRegistrationConsentDeclaration = Readonly<{
+  declaration: RegistrationConsentDeclaration;
+  subject: RegistrationConsentSubject;
+  [boundRegistrationDeclarationBrand]: true;
+}>;
+
+export type RegistrationConsentBundles = Readonly<{
+  resolve(): Promise<RegistrationConsentDeclaration>;
+  forRegistration(subject: RegistrationConsentSubject): Promise<BoundRegistrationConsentDeclaration>;
+}>;
+
+export class RegistrationConsentBundleUnresolvedError extends Error {
+  constructor() {
+    super("Registration requires an issued canonical consent declaration bound to its registering subject.");
+    this.name = "RegistrationConsentBundleUnresolvedError";
+  }
+}
+
+const issuedRegistrationDeclarations = new WeakSet<object>();
+const issuedBoundRegistrationDeclarations = new WeakSet<object>();
+
+export function assertRegistrationConsentDeclaration(value: unknown): asserts value is RegistrationConsentDeclaration {
+  if (typeof value !== "object" || value === null || !issuedRegistrationDeclarations.has(value)) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+}
+
+export function bindRegistrationConsentSubject(
+  declaration: RegistrationConsentDeclaration,
+  subject: RegistrationConsentSubject,
+): BoundRegistrationConsentDeclaration {
+  assertRegistrationConsentDeclaration(declaration);
+  if (
+    !subject ||
+    typeof subject.userId !== "string" ||
+    !/^usr_[A-Za-z0-9_-]{1,80}$/.test(subject.userId) ||
+    typeof subject.accountId !== "string" ||
+    !/^acc_[A-Za-z0-9_-]{1,80}$/.test(subject.accountId) ||
+    subject.userId === "usr_guest_checkout" ||
+    subject.userId === IDENTITY_BOOTSTRAP_USER_ID ||
+    subject.accountId === IDENTITY_BOOTSTRAP_ACCOUNT_ID
+  ) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+  const bound = Object.freeze({
+    declaration,
+    subject: Object.freeze({ userId: subject.userId, accountId: subject.accountId }),
+  });
+  issuedBoundRegistrationDeclarations.add(bound);
+  return bound as BoundRegistrationConsentDeclaration;
+}
+
+export function assertBoundRegistrationConsentDeclaration(
+  value: unknown,
+  expected: RegistrationConsentSubject,
+): asserts value is BoundRegistrationConsentDeclaration {
+  if (typeof value !== "object" || value === null || !issuedBoundRegistrationDeclarations.has(value)) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+  const bound = value as BoundRegistrationConsentDeclaration;
+  if (bound.subject.userId !== expected.userId || bound.subject.accountId !== expected.accountId) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+}
 
 /**
  * The publication metadata requirement derivation consults, keyed by consent
@@ -363,14 +442,14 @@ export async function resolveConsentBundleAgainstCorpus(
     }
 
     if (outcome.kind === "unresolved") {
-      return {
+      return Object.freeze({
         bundleKey: declaration.bundleKey,
         subjectScope: declaration.subjectScope,
         resolved: false,
         unresolvedPolicyKey: outcome.policyKey,
         unresolvedReason: outcome.reason,
-        guards,
-      };
+        guards: Object.freeze(guards),
+      });
     }
 
     outcomes.push(outcome);
@@ -379,14 +458,16 @@ export async function resolveConsentBundleAgainstCorpus(
     }
   }
 
-  return {
+  const resolution = Object.freeze({
     bundleKey: declaration.bundleKey,
     subjectScope: declaration.subjectScope,
-    resolved: true,
-    requirements,
-    guards,
-    outcomes,
-  };
+    resolved: true as const,
+    requirements: Object.freeze(requirements),
+    guards: Object.freeze(guards),
+    outcomes: Object.freeze(outcomes),
+  });
+  if (bundleKey === "registration") issuedRegistrationDeclarations.add(resolution);
+  return resolution;
 }
 
 /**

@@ -5,6 +5,8 @@ import {
   currentProviderSendAdmission,
   currentProviderSendBinding,
 } from "../provider-send-admission";
+import { runCountCaptureUsage } from "../count-capture-transport";
+import { reportCountSourceWinner } from "../count-capture-winners";
 import { createHash } from "node:crypto";
 import {
   countQuerySchema,
@@ -389,7 +391,9 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
     },
     async planImport(scope) {
       assertScrydexOnePieceUnit(scope.unitKey);
-      const usageReadiness = await getScrydexUsageReadiness(options);
+      const usageReadiness = await runCountCaptureUsage({ purpose: "planImport", unitKey: scope.unitKey }, () =>
+        getScrydexUsageReadiness(options),
+      );
       const productDomain = scrydexProductDomainForUnit(scope.unitKey);
 
       if (
@@ -701,7 +705,7 @@ function createScrydexAdapter(options: ScrydexOnePieceProviderAdapterOptions): S
     },
     async getUsageSnapshot() {
       const snapshot = scrydexUsageSnapshot(
-        scrydexCredentialState(options).configured ? await usageObservations.read() : null,
+        scrydexCredentialState(options).configured ? await usageObservations.read("bootstrap") : null,
       );
       await options.onUsageObserved?.(snapshot);
       return snapshot;
@@ -1202,7 +1206,9 @@ export async function readScrydexCountSource(
   } catch {
     /* Missing read authority is unavailable, never refreshed. */
   }
-  return newestCountSource(cache, count);
+  const selected = newestCountSource(cache, count);
+  reportCountSourceWinner({ query, source: selected, readAt: now });
+  return selected;
 }
 
 async function readScrydexCompletedCount(
@@ -1833,7 +1839,12 @@ export async function acquireScrydexPageOneCount(
   if (expected.requestFingerprint !== query.requestFingerprint) throw new Error("Count query changed.");
   const request = scrydexCountRequest(query);
   const url = scrydexUrl(request.path, request.query, options, query.productDomain);
-  const body = await fetchScrydexJson(url, options, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
+  const body = await fetchScrydexJson(
+    url,
+    options,
+    { redirect: "manual", signal: AbortSignal.timeout(30_000) },
+    "card-force",
+  );
   const value = validateScrydexCountPage(body, 1);
   return { ...value, returnedPage: 1 as const, observedAt: (options.now ?? (() => new Date()))().toISOString() };
 }
@@ -1919,9 +1930,9 @@ function createScrydexUsageObservationCache(options: ScrydexOnePieceProviderAdap
   let latest: ScrydexUsageObservation | null = null;
   let pending: Promise<ScrydexUsageObservation> | null = null;
 
-  async function refresh(): Promise<ScrydexUsageObservation> {
+  async function refresh(purpose: "readiness" | "bootstrap"): Promise<ScrydexUsageObservation> {
     const attemptedAt = now().toISOString();
-    const readiness = await getScrydexUsageReadiness(options);
+    const readiness = await runCountCaptureUsage({ purpose }, () => getScrydexUsageReadiness(options));
     latest = {
       attemptedAt,
       readiness,
@@ -1934,11 +1945,11 @@ function createScrydexUsageObservationCache(options: ScrydexOnePieceProviderAdap
   }
 
   return {
-    read(): Promise<ScrydexUsageObservation> {
+    read(purpose: "readiness" | "bootstrap" = "readiness"): Promise<ScrydexUsageObservation> {
       if (latest && secondsSince(latest.attemptedAt, now()) < SCRYDEX_USAGE_FRESH_WITHIN_SECONDS) {
         return Promise.resolve(latest);
       }
-      pending ??= refresh().finally(() => {
+      pending ??= refresh(purpose).finally(() => {
         pending = null;
       });
       return pending;
@@ -2043,6 +2054,7 @@ async function fetchScrydexJson(
   url: string,
   options: ScrydexOnePieceProviderAdapterOptions,
   init?: RequestInit,
+  category?: "card-force",
 ): Promise<JsonValue> {
   const credentials = requireScrydexCredentials(options);
   const response = await sendCatalogProviderRequest(
@@ -2057,7 +2069,7 @@ async function fetchScrydexJson(
         "X-Team-ID": credentials.teamId,
       },
     },
-    new URL(url).pathname === "/account/v1/usage" ? "usage" : undefined,
+    new URL(url).pathname === "/account/v1/usage" ? "usage" : category,
   );
   if (!response.ok) {
     throw await scrydexTransportError(response);
