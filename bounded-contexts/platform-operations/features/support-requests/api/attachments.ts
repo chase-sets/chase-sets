@@ -191,8 +191,12 @@ export async function storeSupportEvidenceAttachments(
           events: events.map((event) => ({ eventType: event.type, payload: event.data })),
         });
       } catch (error) {
-        // A concurrent CleanupRequired must not strand a settling put: re-decide on the fresh history.
-        if (retry >= 2 || !(error instanceof Error && "code" in error && error.code === "concurrency_conflict"))
+        // A concurrent CleanupRequired must not strand a settling put: only a settle re-decides on the fresh history.
+        if (
+          command.type !== "SettleSupportAttachmentPut" ||
+          retry >= 2 ||
+          !(error instanceof Error && "code" in error && error.code === "concurrency_conflict")
+        )
           throw error;
         operation = await load();
         continue;
