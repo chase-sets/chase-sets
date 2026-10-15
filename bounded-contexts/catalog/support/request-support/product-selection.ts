@@ -1,7 +1,8 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import { z } from "zod";
 import type { CatalogItemId, DimensionId, OptionId, SelectedOptionEntry } from "../../ids";
-import { getBlueprintDetail } from "../../features/blueprints/read-model/queries";
+import { getBlueprintProductResolutionRules } from "../../features/blueprints/read-model/queries";
 import { getCatalogItemDetail } from "../../features/catalog-items/read-model/queries";
 import { resolveProduct, type ProductDefiningBlueprint } from "../runtime-support/versioning";
 
@@ -27,24 +28,27 @@ export async function resolveCatalogProductSelection(
   }
   if (item.status !== "active") return { availability: "unavailable", product: null };
 
-  try {
-    if (!item.blueprint_id) {
-      if (selection.selectedOptions.length > 0) return { availability: "active", product: null };
-      return {
-        availability: "active",
-        product: {
-          catalogItemId: selection.catalogItemId,
-          productId: `${selection.catalogItemId}::` as ProductKey,
-          selectedOptions: [],
-        },
-      };
-    }
+  if (!item.blueprint_id) {
+    if (selection.selectedOptions.length > 0) return { availability: "active", product: null };
+    return {
+      availability: "active",
+      product: {
+        catalogItemId: selection.catalogItemId,
+        productId: `${selection.catalogItemId}::` as ProductKey,
+        selectedOptions: [],
+      },
+    };
+  }
 
-    const blueprint = await getBlueprintDetail(db, item.blueprint_id);
-    if (!blueprint) return { availability: "unavailable", product: null };
+  const row = await getBlueprintProductResolutionRules(db, item.blueprint_id);
+  if (!row) return { availability: "unavailable", product: null };
+  const blueprint = parseBlueprint(row.dimension_rules, row.canonical_dimension_order);
+  if (!blueprint) return { availability: "unavailable", product: null };
+
+  try {
     const resolved = resolveProduct({
       catalogItemId: selection.catalogItemId,
-      blueprint: parseBlueprint(blueprint.dimension_rules, blueprint.canonical_dimension_order),
+      blueprint,
       selectedOptions: selection.selectedOptions.map((entry) => ({
         dimensionId: entry.dimensionId as DimensionId,
         optionId: entry.optionId as OptionId,
@@ -63,34 +67,37 @@ export async function resolveCatalogProductSelection(
   }
 }
 
-export function parseBlueprint(dimensionRules: unknown, canonicalOrder: unknown): ProductDefiningBlueprint {
-  const rules = Array.isArray(dimensionRules) ? dimensionRules : [];
-  const order = Array.isArray(canonicalOrder) ? canonicalOrder : [];
-  return {
-    dimensionRules: rules.map((value) => {
-      const rule = asRecord(value);
-      const appliesWhen = Array.isArray(rule.appliesWhen) ? rule.appliesWhen : [];
-      return {
-        dimensionId: String(rule.dimensionId ?? "") as DimensionId,
-        required: Boolean(rule.required),
-        allowedOptionIds: (Array.isArray(rule.allowedOptionIds) ? rule.allowedOptionIds : []).map(
-          (optionId) => String(optionId) as OptionId,
-        ),
-        appliesWhen: appliesWhen.map((value) => {
-          const clause = asRecord(value);
-          return {
-            dimensionId: String(clause.dimensionId ?? "") as DimensionId,
-            optionIds: (Array.isArray(clause.optionIds) ? clause.optionIds : []).map(
-              (optionId) => String(optionId) as OptionId,
-            ),
-          };
-        }),
-      };
+const storedBlueprintSchema = z.object({
+  dimensionRules: z.array(
+    z.object({
+      dimensionId: z
+        .string()
+        .min(1)
+        .transform((id) => id as DimensionId),
+      required: z.boolean(),
+      allowedOptionIds: z.array(z.string().transform((id) => id as OptionId)),
+      appliesWhen: z
+        .array(
+          z.object({
+            dimensionId: z.string().transform((id) => id as DimensionId),
+            optionIds: z.array(z.string().transform((id) => id as OptionId)),
+          }),
+        )
+        .optional()
+        .default([]),
     }),
-    canonicalDimensionOrder: order.map((dimensionId) => String(dimensionId) as DimensionId),
-  };
-}
+  ),
+  canonicalDimensionOrder: z.array(
+    z
+      .string()
+      .min(1)
+      .transform((id) => id as DimensionId),
+  ),
+});
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+export function parseBlueprint(dimensionRules: unknown, canonicalOrder: unknown): ProductDefiningBlueprint | null {
+  const result = storedBlueprintSchema.safeParse({ dimensionRules, canonicalDimensionOrder: canonicalOrder });
+  return result.success
+    ? { ...result.data, dimensionRules: result.data.dimensionRules.map((rule) => ({ ...rule, allowedOptionIds: [] })) }
+    : null;
 }
