@@ -93,7 +93,7 @@ describe("whole Magic mapping preview", () => {
     const baseline = await fixture.resolve();
     expect(baseline.preview.confirmAllowed).toBe(true);
     const requiredMapping = fixture.mappings.find(
-      (mapping) => mapping.unit_key === "tcgplayer:mtg:single-card:source-observation-import",
+      (mapping) => mapping.unit_key === "tcgplayer:mtg:sealed-product:source-observation-import",
     )!;
     expect(requiredMapping).toBeDefined();
     expect(baseline.plans[0]!.participationPreview.units).toContainEqual(
