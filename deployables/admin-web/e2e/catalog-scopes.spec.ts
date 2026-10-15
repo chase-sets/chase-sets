@@ -173,7 +173,7 @@ test.describe.serial("catalog admin scopes", () => {
     });
     const previewIds = await previewTable.locator("tbody tr td:nth-child(1)").allTextContents();
     expect(previewIds).toEqual(resolvedIds);
-    await expect(page.getByText("0 ready scopes, 4 blocked scopes, 4 provider units.", { exact: true })).toBeVisible();
+    await expect(page.getByText("0 ready scopes, 4 blocked scopes, 10 provider units.", { exact: true })).toBeVisible();
     const planningBlockerAlerts = page
       .getByRole("alert")
       .filter({ has: page.getByText("scope-planning-blocked", { exact: true }) });

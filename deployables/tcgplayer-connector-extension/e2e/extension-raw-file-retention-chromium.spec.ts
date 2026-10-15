@@ -42,8 +42,72 @@ async function custodyWitness(worker: Worker) {
   });
 }
 
-for (const blocked of [false, true]) {
-  test(`extension-raw-file-retention-chromium synthetic ${blocked ? "blocked open" : "versionchange"} preserves custody`, async () => {
+type VersionchangeObservation = {
+  trigger: "open-success" | "product-close";
+  handlerRemoved: boolean;
+  productOpenSuccessAt: number | null;
+  productCloses: { at: number; inDispatch: boolean }[];
+  handlerNeutralized: boolean;
+  versionchangeAt: number | null;
+  upgradeBlockedAt: number | null;
+  deferredCloseReleasedAt: number | null;
+  upgradeCommittedAt: number | null;
+  order: "versionchange-not-dispatched" | "close-before-versionchange" | "versionchange-before-close";
+};
+
+// The competing upgrade opens on product open success (natural order) or on the product's first
+// close() (forced order: the hosted losing order). handlerRemoved never registers the product's
+// onversionchange, equivalent to deleting connector-indexeddb.ts:60.
+const competitions: readonly {
+  title: string;
+  scenario: string;
+  record: string;
+  blocked: boolean;
+  trigger?: VersionchangeObservation["trigger"];
+  handlerRemoved?: boolean;
+}[] = [
+  {
+    title: "synthetic versionchange preserves custody",
+    scenario: "synthetic-newer-owner-versionchange",
+    record: "versionchange.json",
+    blocked: false,
+    trigger: "open-success",
+    handlerRemoved: false,
+  },
+  {
+    title: "synthetic blocked open preserves custody",
+    scenario: "synthetic-blocked-newer-owner",
+    record: "blocked-open.json",
+    blocked: true,
+  },
+  {
+    title: "synthetic forced-order versionchange after operation close preserves custody",
+    scenario: "synthetic-newer-owner-versionchange-after-close",
+    record: "versionchange-forced.json",
+    blocked: false,
+    trigger: "product-close",
+    handlerRemoved: false,
+  },
+  {
+    title: "versionchange-handler-removed mutant is caught in natural order",
+    scenario: "versionchange-handler-removed-natural-mutant",
+    record: "versionchange-handler-removed-natural.json",
+    blocked: false,
+    trigger: "open-success",
+    handlerRemoved: true,
+  },
+  {
+    title: "versionchange-handler-removed mutant is caught in forced order",
+    scenario: "versionchange-handler-removed-forced-mutant",
+    record: "versionchange-handler-removed-forced.json",
+    blocked: false,
+    trigger: "product-close",
+    handlerRemoved: true,
+  },
+];
+
+for (const { title, scenario, record, blocked, trigger, handlerRemoved = false } of competitions) {
+  test(`extension-raw-file-retention-chromium ${title}`, async () => {
     const { context, worker } = await launchRetention();
     const phases: unknown[] = [];
     try {
@@ -51,12 +115,11 @@ for (const blocked of [false, true]) {
       await clockAt(worker, time.before);
       phases.push({ phase: "before", ...(await observeRetention(worker)) });
       const before = await custodyWitness(worker);
-      await worker.evaluate(async (block) => {
+      const arm = { block: blocked, trigger, handlerRemoved };
+      const competing = worker.evaluate(async ({ block, trigger, handlerRemoved }) => {
         const nativeOpen = indexedDB.open.bind(indexedDB);
         const currentVersion = (await indexedDB.databases()).find((db) => db.name === "connector-raw-exports")?.version;
         if (!currentVersion) throw new Error("fixture-database-missing");
-        let changed = false;
-        let closedOnChange = false;
         const startUpgrade = () => {
           const request = nativeOpen("connector-raw-exports", currentVersion + 1);
           request.onupgradeneeded = () =>
@@ -84,28 +147,114 @@ for (const blocked of [false, true]) {
             request.onblocked = () => resolve();
           });
         } else {
+          const observation: VersionchangeObservation = {
+            trigger: trigger!,
+            handlerRemoved,
+            productOpenSuccessAt: null,
+            productCloses: [],
+            handlerNeutralized: false,
+            versionchangeAt: null,
+            upgradeBlockedAt: null,
+            deferredCloseReleasedAt: null,
+            upgradeCommittedAt: null,
+            order: "versionchange-not-dispatched",
+          };
+          Reflect.set(globalThis, "__retentionVersionchange", observation);
+          let upgrade: ReturnType<typeof startUpgrade> | undefined;
           indexedDB.open = (name, version) => {
             indexedDB.open = nativeOpen;
             const request = nativeOpen(name, version!);
             request.addEventListener("success", () => {
+              observation.productOpenSuccessAt = performance.now();
               const db = request.result;
-              db.addEventListener("versionchange", () => {
-                changed = true;
+              if (handlerRemoved)
+                Object.defineProperty(db, "onversionchange", {
+                  get: () => null,
+                  set: (handler: unknown) => {
+                    observation.handlerNeutralized = typeof handler === "function";
+                  },
+                });
+              // Registered before the product's onsuccess installs its handler, so it runs first.
+              let dispatch: Event | undefined;
+              db.addEventListener("versionchange", (event) => {
+                if (!event.isTrusted) return;
+                observation.versionchangeAt = performance.now();
+                dispatch = event;
               });
-              const close = db.close.bind(db);
-              db.close = () => {
-                closedOnChange ||= changed;
-                close();
+              // A close counts only while native versionchange is dispatched to this connection. A
+              // close before dispatch would set close-pending and suppress the event, so its native
+              // close is deferred; it is released only when the product's handler left the upgrade blocked.
+              const nativeClose = db.close.bind(db);
+              let deferred = false;
+              const compete = () => {
+                upgrade = startUpgrade();
+                upgrade.request.addEventListener("blocked", () => {
+                  observation.upgradeBlockedAt = performance.now();
+                  if (!deferred) return;
+                  deferred = false;
+                  observation.deferredCloseReleasedAt = performance.now();
+                  nativeClose();
+                });
               };
-              startUpgrade();
+              db.close = () => {
+                observation.productCloses.push({
+                  at: performance.now(),
+                  inDispatch: dispatch !== undefined && dispatch.eventPhase !== Event.NONE,
+                });
+                if (trigger === "product-close" && !upgrade) compete();
+                deferred = !dispatch;
+                if (dispatch) nativeClose();
+              };
+              if (trigger === "open-success") compete();
             });
             return request;
           };
           await globalThis.__retentionProduct.retentionStore.inspect();
-          await Reflect.get(globalThis, "__retentionSyntheticUpgrade");
-          if (!changed || !closedOnChange) throw new Error("product-versionchange-close-not-observed");
+          await upgrade?.committed;
+          if (upgrade) observation.upgradeCommittedAt = performance.now();
+          const [first] = observation.productCloses;
+          if (observation.versionchangeAt !== null)
+            observation.order =
+              first && first.at < observation.versionchangeAt
+                ? "close-before-versionchange"
+                : "versionchange-before-close";
+          if (observation.versionchangeAt === null || !observation.productCloses.some((close) => close.inDispatch))
+            throw new Error("product-versionchange-close-not-observed");
         }
-      }, blocked);
+      }, arm);
+      if (blocked) await competing;
+      else {
+        const failure = await competing.then(
+          () => undefined,
+          (error: Error) => error,
+        );
+        const observation = (await worker.evaluate(() =>
+          Reflect.get(globalThis, "__retentionVersionchange"),
+        )) as VersionchangeObservation;
+        phases.push({ phase: "versionchange", ...observation });
+        if (handlerRemoved) {
+          // The mutant must reach the named check after the upgrade committed, not hang or fail elsewhere.
+          expect(failure?.message.split("\n")[0]).toBe(
+            "worker.evaluate: Error: product-versionchange-close-not-observed",
+          );
+          expect(observation).toMatchObject({
+            handlerNeutralized: true,
+            versionchangeAt: expect.any(Number),
+            upgradeCommittedAt: expect.any(Number),
+          });
+          expect(observation.productCloses.length).toBeGreaterThan(0);
+          expect(observation.productCloses.some((close) => close.inDispatch)).toBe(false);
+          if (trigger === "product-close")
+            expect(observation).toMatchObject({
+              order: "close-before-versionchange",
+              deferredCloseReleasedAt: expect.any(Number),
+            });
+          return;
+        }
+        if (failure) throw failure;
+        expect(observation.handlerNeutralized).toBe(false);
+        if (trigger === "product-close") expect(observation.order).toBe("close-before-versionchange");
+      }
       if (blocked) {
         await clockAt(worker, time.deadline);
         expect(
@@ -174,10 +323,10 @@ for (const blocked of [false, true]) {
       const evidence = resolve(import.meta.dirname, "../../../artifacts/7922-retention");
       mkdirSync(evidence, { recursive: true });
       writeFileSync(
-        resolve(evidence, blocked ? "blocked-open.json" : "versionchange.json"),
+        resolve(evidence, record),
         JSON.stringify(
           {
-            scenario: blocked ? "synthetic-blocked-newer-owner" : "synthetic-newer-owner-versionchange",
+            scenario,
             chromium: await chromiumVersion(context),
             digest: productDigest(),
             phases,

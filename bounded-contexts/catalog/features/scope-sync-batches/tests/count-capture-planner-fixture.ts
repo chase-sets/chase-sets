@@ -153,14 +153,14 @@ export function createCapturePlannerFixture(readUnit: UnitRead) {
       rows: sql.includes("catalog_scope_records") ? [record] : mappings,
     })),
   };
-  const previewCatalogSyncScope = vi.fn(
-    async ({ scope }: { scope: CatalogSyncProviderParticipationPreview["scope"] }) => {
+  const previewCatalogSyncScope = vi.fn<Parameters<typeof createScopeSyncBatchPlanner>[0]["previewCatalogSyncScope"]>(
+    async ({ scope, acceptedScopeMappings }) => {
       const units: CatalogSyncProviderParticipationUnit[] = [];
       for (const unitKey of countCaptureUnitKeys) {
         const kind = (Object.keys(countCaptureKindUnitKeys) as CountCaptureKind[]).find(
           (candidate) => countCaptureKindUnitKeys[candidate] === unitKey,
         );
-        const source = kind ? await readUnit(kind) : null;
+        const source = kind && acceptedScopeMappings?.length ? await readUnit(kind) : null;
         const estimatedRequestCount = kind
           ? source
             ? Math.max(1, Math.ceil(source.totalCount / source.pageSize))
