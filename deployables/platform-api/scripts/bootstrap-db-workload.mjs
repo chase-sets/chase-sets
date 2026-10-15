@@ -128,6 +128,8 @@ export const bootstrapDbWorkloadSelectors = Object.freeze({
       "unstubGlobals",
       "vmMemoryLimit",
     ]),
+    // The hosted DB job runs on GitHub Actions with lane mode unset.
+    environment: Object.freeze({ CI: "true", GITHUB_ACTIONS: "true" }),
     postgres: `${workflowPath} db-tests job`,
   }),
   w5: Object.freeze({ lockfile: lockfilePath, importer: platformApiPath, packages: Object.freeze(["pg", "vitest"]) }),
@@ -495,6 +497,7 @@ function derivePostgresSettings(tree, gaps) {
 }
 
 const hostedConfigCache = new Map();
+const hostedConfigFlag = "--hosted-vitest-config";
 
 function relativeWithin(base, path) {
   const value = relative(base, path);
@@ -523,11 +526,66 @@ function projectConfigValue(value, roots, gaps, field) {
 }
 
 /**
- * Evaluates the hosted Vitest configuration of `tree` with Vitest's own
- * resolver, lane mode unset, once per execution unit. The configuration's
- * module closure and every workspace manifest its aliases read are copied out
- * of `tree` into a scratch root beneath the installed tooling, so the frozen
- * source, a mutated mirror and the live checkout are evaluated identically.
+ * Child-process side of W4: resolves each unit's configuration with Vitest's
+ * own resolver inside the copied configuration tree and projects the hosted
+ * fields. Runs only under the hosted environment `deriveHostedVitestConfig`
+ * pins, because Vitest reads CI-dependent defaults once at import.
+ */
+async function resolveHostedUnits(treeRoot, units) {
+  const roots = [realpathSync(treeRoot), treeRoot];
+  const result = { bindings: [], aliases: [], extensions: [], gaps: [] };
+  for (const { name, options } of units) {
+    const { vitestConfig, viteConfig } = await resolveConfig({
+      ...options,
+      root: join(treeRoot, ...platformApiPath.split("/")),
+      config: join(treeRoot, ...vitestConfigPath.split("/")),
+    });
+    const unitGaps = [];
+    const projected = Object.fromEntries(
+      bootstrapDbWorkloadSelectors.w4.fields.map((field) => [
+        field,
+        projectConfigValue(vitestConfig[field], roots, unitGaps, field),
+      ]),
+    );
+    result.gaps.push(...unitGaps.map((gap) => `${name} ${gap}`));
+    projected.resolveExtensions = [...viteConfig.resolve.extensions];
+    result.bindings.push(["W4 unit", name, projected]);
+    result.extensions = [...viteConfig.resolve.extensions];
+    result.aliases = viteConfig.resolve.alias.flatMap(({ find, replacement }) => {
+      const path =
+        typeof replacement === "string" ? roots.map((root) => relativeWithin(root, replacement)).find(Boolean) : null;
+      return path ? [{ find: find instanceof RegExp ? find.source : `^${find}$`, replacement: path }] : [];
+    });
+  }
+  return result;
+}
+
+// Host variables a Node child needs to start; nothing else of this host's
+// environment reaches the hosted configuration.
+const childPlatformVariables = [
+  "APPDATA",
+  "ComSpec",
+  "HOME",
+  "LOCALAPPDATA",
+  "PATH",
+  "PATHEXT",
+  "Path",
+  "SYSTEMROOT",
+  "SystemRoot",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "USERPROFILE",
+  "windir",
+];
+
+/**
+ * Evaluates the hosted Vitest configuration of `tree`, once per execution unit,
+ * in a child Node process whose environment is the hosted one (GitHub Actions,
+ * lane mode unset) wherever this runs. The configuration's module closure and
+ * every workspace manifest its aliases read are copied out of `tree` into a
+ * scratch root beneath the installed tooling, so the frozen source, a mutated
+ * mirror and the live checkout are evaluated identically.
  */
 async function deriveHostedVitestConfig(tree, units, installedVitest, gaps) {
   const files = new Map();
@@ -583,49 +641,33 @@ async function deriveHostedVitestConfig(tree, units, installedVitest, gaps) {
   const scratchParent = join(toolingRoot, "node_modules", ".cache", "bootstrap-db-workload");
   mkdirSync(scratchParent, { recursive: true });
   const scratch = mkdtempSync(join(scratchParent, "w4-"));
-  const laneMode = process.env.CHASE_SETS_LANE_MODE;
   try {
+    const treeRoot = join(scratch, "tree");
     for (const [path, bytes] of files) {
-      const target = join(scratch, ...path.split("/"));
+      const target = join(treeRoot, ...path.split("/"));
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, bytes);
     }
-    const roots = [realpathSync(scratch), scratch];
-    const workspaceRoot = join(scratch, ...platformApiPath.split("/"));
-    delete process.env.CHASE_SETS_LANE_MODE;
-    const evaluated = { bindings: [], aliases: [], extensions: [] };
-    for (const { name, options } of units) {
-      const { vitestConfig, viteConfig } = await resolveConfig({
-        ...options,
-        root: workspaceRoot,
-        config: join(scratch, ...vitestConfigPath.split("/")),
-      });
-      const unitGaps = [];
-      const projected = Object.fromEntries(
-        bootstrapDbWorkloadSelectors.w4.fields.map((field) => [
-          field,
-          projectConfigValue(vitestConfig[field], roots, unitGaps, field),
-        ]),
-      );
-      gaps.push(...unitGaps.map((gap) => `${name} ${gap}`));
-      projected.resolveExtensions = [...viteConfig.resolve.extensions];
-      evaluated.bindings.push(["W4 unit", name, projected]);
-      evaluated.extensions = [...viteConfig.resolve.extensions];
-      evaluated.aliases = viteConfig.resolve.alias.flatMap(({ find, replacement }) => {
-        const path =
-          typeof replacement === "string" ? roots.map((root) => relativeWithin(root, replacement)).find(Boolean) : null;
-        return path ? [{ find: find instanceof RegExp ? find.source : `^${find}$`, replacement: path }] : [];
-      });
-    }
+    const resultPath = join(scratch, "hosted-config.json");
+    const env = Object.fromEntries(
+      childPlatformVariables.flatMap((name) => (name in process.env ? [[name, process.env[name]]] : [])),
+    );
+    execFileSync(process.execPath, [fileURLToPath(import.meta.url), hostedConfigFlag, treeRoot, resultPath], {
+      input: JSON.stringify(units),
+      env: { ...env, ...bootstrapDbWorkloadSelectors.w4.environment },
+      stdio: ["pipe", "ignore", "pipe"],
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const evaluated = JSON.parse(readFileSync(resultPath, "utf8"));
+    gaps.push(...evaluated.gaps);
     if (gaps.length > 0) return null;
     hostedConfigCache.set(key, evaluated);
     return evaluated;
   } catch (error) {
-    gaps.push(`W4 hosted Vitest configuration could not be resolved: ${error.message}`);
+    const detail = error.stderr?.toString("utf8").trim().split("\n").at(-1) || error.message;
+    gaps.push(`W4 hosted Vitest configuration could not be resolved: ${detail}`);
     return null;
   } finally {
-    if (laneMode === undefined) delete process.env.CHASE_SETS_LANE_MODE;
-    else process.env.CHASE_SETS_LANE_MODE = laneMode;
     rmSync(scratch, { recursive: true, force: true });
   }
 }
@@ -1110,9 +1152,15 @@ async function main() {
   }
 }
 
+async function resolveHostedConfigChild() {
+  const [treeRoot, resultPath] = process.argv.slice(3);
+  const units = JSON.parse(readFileSync(0, "utf8"));
+  writeFileSync(resultPath, JSON.stringify(await resolveHostedUnits(treeRoot, units)));
+}
+
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
+  (process.argv[2] === hostedConfigFlag ? resolveHostedConfigChild() : main()).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

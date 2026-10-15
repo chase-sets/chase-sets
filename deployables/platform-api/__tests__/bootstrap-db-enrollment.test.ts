@@ -2322,7 +2322,11 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(bound.get("W4 postgres workspaceConcurrency")).toBe(String(capture.provenance.workspaceConcurrency));
       for (const unit of ["test:db:1", "test:db:2"]) {
         expect(bound.get(`W1 partition ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
-        expect(bound.get(`W4 unit ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
+        // CI-dependent defaults resolve as on the hosted runner, not this host.
+        expect(bound.get(`W4 unit ${unit}`)).toMatchObject({
+          maxWorkers: capture.provenance.maxWorkers,
+          allowOnly: false,
+        });
       }
       expect(capture.provenance.laneMode).toBeNull();
     });

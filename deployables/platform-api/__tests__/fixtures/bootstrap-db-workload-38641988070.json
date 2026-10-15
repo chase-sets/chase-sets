@@ -14,8 +14,8 @@
     "historicalBranch": "codex/8396-impl-g1",
     "historicalHead": "2742ea6ea97b9995630431c95cf0d4228b63e614"
   },
-  "selectorsSha256": "6e56c1d2f5ec058444e0d2b70e107c2aa3e1413eda76f8b0196feb9291687615",
-  "bindingsSha256": "06272862307b9e9c41a37da0fef053b736e08bbeec06f700cb518991eaf8bef4",
+  "selectorsSha256": "1d32463b04323c1ef29d2c280943c250fbb466061396e0672a9de212ef957c46",
+  "bindingsSha256": "aaa7f581cefeb5a960d48acf8334a64e4b823af06da1a192aacd84bae540a4f6",
   "bindings": [
     [
       "W1 case identities",
@@ -2134,7 +2134,7 @@
       "W4 unit",
       "test:db:1",
       {
-        "allowOnly": true,
+        "allowOnly": false,
         "clearMocks": false,
         "dangerouslyIgnoreUnhandledErrors": false,
         "environment": "node",
@@ -2174,7 +2174,7 @@
       "W4 unit",
       "test:db:2",
       {
-        "allowOnly": true,
+        "allowOnly": false,
         "clearMocks": false,
         "dangerouslyIgnoreUnhandledErrors": false,
         "environment": "node",
