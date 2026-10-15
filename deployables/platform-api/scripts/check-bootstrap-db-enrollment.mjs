@@ -53,7 +53,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "records context schema migrations once during concurrent bootstrap",
         referenceDurationMs: 1632,
-        identity: "5765a6ba4a890be6",
+        identity: "9d02b6a444073ea6",
       }),
     ]),
   }),
