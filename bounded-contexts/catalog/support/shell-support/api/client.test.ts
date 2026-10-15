@@ -231,6 +231,56 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
     );
   });
 
+  it("sends each count-capture step with the explicit marker, and only those steps", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ ok: true }));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog",
+      fetch,
+      headers: { origin: "https://admin.example" },
+    });
+    const input = { scopeRecordId: "scope-synthetic-op01", authority: { dispatchId: "synthetic-dispatch" } };
+    await client.captureScopeSyncCountBaseline(input);
+    await client.captureScopeSyncCountInitialNotice();
+    await client.captureScopeSyncCountUsage();
+    await client.quoteScopeSyncCounts({ selection: { mode: "ids", scopeRecordIds: ["scope-synthetic-op01"] } });
+    const sent = fetch.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      method: init?.method,
+      body: init?.body,
+      marker: new Headers(init?.headers).get("x-catalog-count-capture"),
+      origin: new Headers(init?.headers).get("origin"),
+    }));
+    expect(sent).toEqual([
+      {
+        url: "/api/catalog/scope-sync-batches/count-capture/baseline",
+        method: "POST",
+        body: JSON.stringify(input),
+        marker: "1",
+        origin: "https://admin.example",
+      },
+      {
+        url: "/api/catalog/scope-sync-batches/count-capture/initial-notice",
+        method: "POST",
+        body: "{}",
+        marker: "1",
+        origin: "https://admin.example",
+      },
+      {
+        url: "/api/catalog/scope-sync-batches/count-capture/usage",
+        method: "POST",
+        body: "{}",
+        marker: "1",
+        origin: "https://admin.example",
+      },
+      {
+        url: "/api/catalog/scope-sync-batches/counts/quote",
+        method: "POST",
+        body: JSON.stringify({ selection: { mode: "ids", scopeRecordIds: ["scope-synthetic-op01"] } }),
+        marker: null,
+        origin: "https://admin.example",
+      },
+    ]);
+  });
   it("previews source observation integration imports without enqueueing a job", async () => {
     const preview = {
       action: "import",

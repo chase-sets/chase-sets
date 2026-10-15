@@ -28,8 +28,14 @@ import { createScopeSyncCountRuntime } from "../../features/scope-sync-batches/a
 import { createCountStore, countAccountSlot } from "../../features/scope-sync-batches/read-model/count-store";
 import {
   createCountCaptureStore,
-  type CountCaptureStore,
+  readCountCaptureEffects,
 } from "../../features/scope-sync-batches/read-model/count-capture-store";
+import {
+  createCountCaptureLifecycle,
+  observeDeployedScrydexUsage,
+  readCountCaptureRoster,
+  type CountCaptureLifecycle,
+} from "../../features/scope-sync-batches/api/count-capture-lifecycle";
 import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/source-observations/api/providers/provider-option-query-cache";
 import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observations/api/providers/provider-option-queries";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
@@ -67,7 +73,7 @@ export type CatalogServices = Readonly<{
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   scopeSyncBatches: ReturnType<typeof createScopeSyncBatchRuntime>;
   // Dormant staging count capture; no other environment composes a capture store.
-  countCapture: CountCaptureStore | null;
+  countCapture: CountCaptureLifecycle | null;
   catalogAliases: ReturnType<typeof createCatalogAliasRuntime>;
   attentionQueue: ReturnType<typeof createCatalogAttentionQueueRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
@@ -190,7 +196,21 @@ export function createCatalogServices(
     providerIntegrationProfiles,
     sourceObservations,
     scopeSyncBatches,
-    countCapture: countEnvironment === "staging" ? createCountCaptureStore(pool) : null,
+    countCapture:
+      countEnvironment === "staging"
+        ? createCountCaptureLifecycle({
+            environment: countEnvironment,
+            accountRevision: countAccountRevision,
+            store: createCountCaptureStore(pool),
+            readRoster: (scopeRecordId) => readCountCaptureRoster(db, providerIntegrationProfiles, scopeRecordId),
+            readEffects: (at) => readCountCaptureEffects(db, at),
+            countAuthority: () => countStore.authority(),
+            observeUsage: observeDeployedScrydexUsage(
+              sourceObservations.providerAdapterRegistry,
+              deps.providerSendRuntime,
+            ),
+          })
+        : null,
     catalogAliases,
     attentionQueue,
     authoringBulkJobs,

@@ -3,9 +3,11 @@ import type {
   InventoryRestockDecisionOutcome,
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { assert } from "../../../support/runtime-support/common";
 
 export type InventoryRestockDecisionRow = Readonly<{
   decision_id: string;
+  version: number;
   account_id: string;
   order_id: string;
   item_id: string;
@@ -36,8 +38,11 @@ export async function listPendingRestockDecisions(
   db: PgQueryable,
   params: Readonly<{ accountId: string; limit?: number; offset?: number }>,
 ) {
-  const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
-  const offset = Math.max(0, params.offset ?? 0);
+  const requestedLimit = params.limit ?? 50;
+  const offset = params.offset ?? 0;
+  assert(Number.isSafeInteger(requestedLimit) && requestedLimit > 0, "Restock page limit is invalid.");
+  assert(Number.isSafeInteger(offset) && offset >= 0, "Restock page offset is invalid.");
+  const limit = Math.min(requestedLimit, 250);
   const result = await db.query<InventoryRestockDecisionRow & Readonly<{ total_count: number }>>(
     `WITH paged AS (
        SELECT *, COUNT(*) OVER()::integer AS total_count
@@ -51,6 +56,7 @@ export async function listPendingRestockDecisions(
      SELECT
        paged.total_count,
        paged.decision_id,
+       paged.last_stream_version AS version,
        paged.account_id,
        paged.order_id,
        paged.item_id,
@@ -77,9 +83,19 @@ export async function listPendingRestockDecisions(
     [params.accountId, limit, offset],
   );
 
+  const total = result.rows.length
+    ? Number(result.rows[0].total_count)
+    : Number(
+        (
+          await db.query<{ total: string }>(
+            "SELECT COUNT(*)::text AS total FROM inventory_restock_decisions WHERE account_id = $1 AND status = 'pending'",
+            [params.accountId],
+          )
+        ).rows[0]?.total ?? 0,
+      );
   return {
-    items: result.rows.map(({ total_count: _totalCount, ...row }) => row),
-    total: Number(result.rows[0]?.total_count ?? 0),
+    items: result.rows.map(({ total_count: _totalCount, ...row }) => ({ ...row, version: Number(row.version) })),
+    total,
   };
 }
 
@@ -87,6 +103,7 @@ export async function getRestockDecision(db: PgQueryable, decisionId: string, ac
   const result = await db.query<InventoryRestockDecisionRow>(
     `SELECT
        decision.decision_id,
+       decision.last_stream_version AS version,
        decision.account_id,
        decision.order_id,
        decision.item_id,
@@ -114,7 +131,7 @@ export async function getRestockDecision(db: PgQueryable, decisionId: string, ac
     [decisionId, accountId],
   );
 
-  return result.rows[0] ?? null;
+  return result.rows[0] ? { ...result.rows[0], version: Number(result.rows[0].version) } : null;
 }
 
 export async function getFulfillmentShipmentSource(db: PgQueryable, shipmentId: string) {

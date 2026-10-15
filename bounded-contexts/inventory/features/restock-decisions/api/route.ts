@@ -43,6 +43,7 @@ export function inventoryRestockDecisionRoutes(restockDecisions: RestockDecision
       {
         accountId: actor.accountId,
         decisionId: c.req.param("id"),
+        expectedVersion: body.expectedVersion,
         outcome,
         damageNote: typeof body.damageNote === "string" ? body.damageNote : null,
       },

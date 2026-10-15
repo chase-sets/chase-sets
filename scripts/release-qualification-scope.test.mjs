@@ -980,10 +980,25 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     expect(misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 164,
-      persistentCount: 159,
+      discovered: 165,
+      persistentCount: 160,
       ruledCount: 5,
     });
+  });
+
+  it("classifies the Inventory restock browser seed-support caller as persistence-sensitive", () => {
+    const filePath = "bounded-contexts/inventory/support/seed-support/restock-recovery-browser.ts";
+    expect(discovered).toContain(filePath);
+    const record = classifyReleaseQualificationScope({
+      base: DUMMY_BASE,
+      candidate: DUMMY_CANDIDATE,
+      changedFiles: [{ path: filePath, status: "modified" }],
+      readFileAt: realReadFileAt,
+      releaseWorkflowScriptReferences,
+      now: () => 1753100000000,
+    });
+    expect(record.class).toBe("persistent_required");
+    expect(record.reasonCodes).toContain("seed_bootstrap_import_reconciliation");
   });
 
   it("pins both browser bootstrap callers and discriminates the exact inventory ruling", () => {
