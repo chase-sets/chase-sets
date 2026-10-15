@@ -160,7 +160,8 @@ const curveBuilderProperties: readonly ConformanceProperty<CurveBuilderDefinitio
   {
     name: "never returns more sales than the window's limit",
     check: async (builder) => {
-      for (const salesLimit of [1, 2]) expect((await load(builder, { salesLimit })).length).toBeLessThanOrEqual(salesLimit);
+      for (const salesLimit of [1, 2])
+        expect((await load(builder, { salesLimit })).length).toBeLessThanOrEqual(salesLimit);
     },
   },
   {

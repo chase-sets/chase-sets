@@ -44,9 +44,7 @@ describe("Conformance Kit negative controls", () => {
         key: goalVersionKey,
         properties,
       }),
-    ).toEqual([
-      { entry: null, property: "registered-entries", message: "Repeated entry keys: fixed-percentile@1." },
-    ]);
+    ).toEqual([{ entry: null, property: "registered-entries", message: "Repeated entry keys: fixed-percentile@1." }]);
   });
 
   it("passes the registered goal it starts from", async () => {

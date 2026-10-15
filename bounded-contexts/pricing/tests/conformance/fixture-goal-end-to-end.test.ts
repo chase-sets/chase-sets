@@ -26,7 +26,11 @@ import {
   createPricingGoalRegistry,
   type PricingGoalDefinition,
 } from "../../features/repricing-policies/domain/goals/registry";
-import { defineFixtureFlatOffsetGoal, fixtureFlatOffsetDeclaration, fixtureFlatOffsetGoal } from "./fixture-flat-offset";
+import {
+  defineFixtureFlatOffsetGoal,
+  fixtureFlatOffsetDeclaration,
+  fixtureFlatOffsetGoal,
+} from "./fixture-flat-offset";
 import { goalDeclarations } from "./goal-declarations";
 import { goalConformanceProperties, goalVersionKey } from "./goal-properties";
 import { runConformance } from "./kit";
@@ -170,15 +174,18 @@ describe("a goal added by the authoring guide, with no engine or surface edit", 
 
   it("Step 4 — Authoring and dry runs validate it as a curve-objective anchor", () => {
     expect(authoredRules([anchoredRule(1)])[0]!.directive.anchorChain).toEqual([
-      { source: "curve-objective", goalId: fixtureFlatOffsetGoal.id, goalVersion: 1, parameters: { offsetPercentiles: 10 } },
+      {
+        source: "curve-objective",
+        goalId: fixtureFlatOffsetGoal.id,
+        goalVersion: 1,
+        parameters: { offsetPercentiles: 10 },
+      },
     ]);
     expect(() => authoredRules([anchoredRule(1, { offsetPercentiles: 41 })])).toThrow(
       "goal-parameter-out-of-bounds: offsetPercentiles",
     );
     expect(() => authoredRules([anchoredRule(1, { spread: 1 })])).toThrow("goal-parameter-unknown: spread");
-    expect(() =>
-      validateRepricingDryRunBody({ ...dryRunBody, rules: [anchoredRule(1)] }, "acc_fixture"),
-    ).not.toThrow();
+    expect(() => validateRepricingDryRunBody({ ...dryRunBody, rules: [anchoredRule(1)] }, "acc_fixture")).not.toThrow();
   });
 
   it("Step 5 — Preview prices listings with it", () => {
@@ -210,7 +217,9 @@ describe("a goal added by the authoring guide, with no engine or surface edit", 
 
     expect(() => authoredRules([anchoredRule(2)])).toThrow("goal-not-selectable");
     expect(JSON.stringify(preview(rules))).toBe(incumbent);
-    expect(planRepricingShadows(round(rules), capturedAt, REPRICING_ENGINE_LAUNCH_POLICY_VALUE).get("lst_fixture")).toEqual([
+    expect(
+      planRepricingShadows(round(rules), capturedAt, REPRICING_ENGINE_LAUNCH_POLICY_VALUE).get("lst_fixture"),
+    ).toEqual([
       expect.objectContaining({
         goalId: fixtureFlatOffsetGoal.id,
         goalVersion: 2,

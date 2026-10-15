@@ -156,7 +156,11 @@ function moduleFacts(sourceFile, file, sources) {
       } else if (bindings && ts.isNamespaceImport(bindings) && module) {
         imports.set(bindings.name.text, { module, name: "*" });
       }
-    } else if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+    } else if (
+      ts.isExportDeclaration(statement) &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
       const specifier = statement.moduleSpecifier;
       const module = specifier && ts.isStringLiteral(specifier) ? importModule(specifier.text) : null;
       for (const element of statement.exportClause.elements) {

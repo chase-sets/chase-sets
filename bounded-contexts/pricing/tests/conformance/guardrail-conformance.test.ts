@@ -26,9 +26,7 @@ type GuardrailScenario = Readonly<{
   hit: GuardrailContext;
   miss: GuardrailContext;
   /** A listing whose directive carries the kind and meets its hit evidence; overrides edit that directive. */
-  evaluation: (
-    overrides: Partial<RepricingRuleDirective>,
-  ) => Parameters<typeof evaluateRepricingListing>;
+  evaluation: (overrides: Partial<RepricingRuleDirective>) => Parameters<typeof evaluateRepricingListing>;
 }>;
 
 const context = (overrides: Partial<GuardrailContext>): GuardrailContext => ({
@@ -86,7 +84,11 @@ const scenarios = {
     evaluation: (overrides) => [
       goalListing(goalDirective({ guardrails: [{ kind: "hopeless-forecast-hold" }], ...overrides })),
       goalSnapshot({
-        demandCurve: { ...parityCurve, freshUntil, points: parityCurve.points.map((point) => ({ ...point, hopeless: true })) },
+        demandCurve: {
+          ...parityCurve,
+          freshUntil,
+          points: parityCurve.points.map((point) => ({ ...point, hopeless: true })),
+        },
       }),
     ],
   },

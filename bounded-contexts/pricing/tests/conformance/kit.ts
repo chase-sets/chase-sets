@@ -27,7 +27,9 @@ export async function runConformance<Entry>(
 ): Promise<readonly ConformanceFailure[]> {
   const entries = await suite.entries();
   if (entries.length === 0)
-    return [{ entry: null, property: "registered-entries", message: "No registered entries; an empty run proves nothing." }];
+    return [
+      { entry: null, property: "registered-entries", message: "No registered entries; an empty run proves nothing." },
+    ];
   const keys = entries.map(suite.key);
   const repeated = keys.filter((key, index) => keys.indexOf(key) !== index);
   if (repeated.length > 0)

@@ -66,7 +66,8 @@ export function solveOnFixture(
   return goal.solve({
     curve,
     parameters: overrides.parameters ?? defaultParameters(goal),
-    economics: overrides.economics !== undefined ? overrides.economics : goal.requiresEconomics ? fixtureEconomics : null,
+    economics:
+      overrides.economics !== undefined ? overrides.economics : goal.requiresEconomics ? fixtureEconomics : null,
   });
 }
 
@@ -119,9 +120,7 @@ function expectExplained(goal: PricingGoalDefinition, result: GoalResult): void 
     ).toBe(true);
 }
 
-export const goldenDecisionProperty = (
-  declarations: GoalDeclarations,
-): ConformanceProperty<PricingGoalDefinition> => ({
+export const goldenDecisionProperty = (declarations: GoalDeclarations): ConformanceProperty<PricingGoalDefinition> => ({
   name: "reproduces its Golden Decision on the shared fixture curves",
   check: (goal) => {
     const { golden } = declarationOf(declarations, goal);
@@ -181,14 +180,16 @@ export function goalConformanceProperties(
             });
         }
         for (const parameters of parameterExtremes(goal))
-          for (const curve of Object.values(fixtureCurves)) expectExplained(goal, solveOnFixture(goal, curve, { parameters }));
+          for (const curve of Object.values(fixtureCurves))
+            expectExplained(goal, solveOnFixture(goal, curve, { parameters }));
       },
     },
     {
       name: "answers a stable unavailable result for each missing input it declares",
       check: (goal) => {
         const curve = fixtureCurves.observed!;
-        const unavailable = (result: GoalResult, reason: string) => expect(result).toEqual({ kind: "unavailable", reason });
+        const unavailable = (result: GoalResult, reason: string) =>
+          expect(result).toEqual({ kind: "unavailable", reason });
         unavailable(solveOnFixture(goal, { ...curve, points: [] }), "curve-empty");
         for (const feature of goal.requiredCurveFeatures) {
           const cleared = withoutFeature(curve, feature);
@@ -255,7 +256,11 @@ export function goalConformanceProperties(
         const shadow =
           goal.lifecycle === "shadow"
             ? goal
-            : { ...goal, version: Math.max(...registered.map(({ version }) => version)) + 1, lifecycle: "shadow" as const };
+            : {
+                ...goal,
+                version: Math.max(...registered.map(({ version }) => version)) + 1,
+                lifecycle: "shadow" as const,
+              };
         const listing = goalListing(
           goalDirective({
             anchorChain: [

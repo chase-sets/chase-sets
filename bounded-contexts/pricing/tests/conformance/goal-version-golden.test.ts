@@ -31,10 +31,9 @@ const recordedP70 = (curve: "observed" | "truncated-supply") => ({
 });
 
 const goldenFailures = (goals: readonly PricingGoalDefinition[], declarations: GoalDeclarations = goalDeclarations) =>
-  runConformance(
-    { registry: createPricingGoalRegistry, entries: () => goals, key: goalVersionKey, properties: [] },
-    [goldenDecisionProperty(declarations)],
-  );
+  runConformance({ registry: createPricingGoalRegistry, entries: () => goals, key: goalVersionKey, properties: [] }, [
+    goldenDecisionProperty(declarations),
+  ]);
 
 describe("Goal Version is enforced by the Golden Decision", () => {
   it("passes an unchanged decision at the same version", async () => {
