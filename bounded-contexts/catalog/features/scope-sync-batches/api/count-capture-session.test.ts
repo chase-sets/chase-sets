@@ -245,8 +245,7 @@ describe("guard-disabled bypass mutants", () => {
   } as const;
   it.each(Object.entries(sessionGuards))("the %s guard", (_name, [needle, hostile]) => {
     const refusal = refusalSessions[hostile]!;
-    const real = () =>
-      countCaptureSessionOwner(captureSession(refusal.session), refusal.environment ?? "staging");
+    const real = () => countCaptureSessionOwner(captureSession(refusal.session), refusal.environment ?? "staging");
     expect(real).toThrow(CountCaptureStopped);
     const mutant = guardDisabledMutant<typeof countCaptureSessionOwner>(
       "../api/count-capture-lifecycle.ts",
