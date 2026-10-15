@@ -1,10 +1,13 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve, sep } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { expect, test } from "@playwright/test";
 import { createServer, type Plugin } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import ts from "@chase-sets/typescript-compiler-api";
+import { runBrowserProof } from "./browser-proof-resources";
 
 const secretMarkers = ["PRIVATE_INVITATION_TOKEN", "PRIVATE_PASSWORD", "PRIVATE_SESSION_TOKEN", "PRIVATE_ERROR"];
 const routePath = "/bounded-contexts/auth/routes/marketplace/invite.tsx";
@@ -139,141 +142,64 @@ test.describe("Invitation real browser route @marketplace-account", () => {
     }, testInfo) => {
       const started = performance.now();
       const diagnostic = (phase: string) =>
-        console.log(JSON.stringify({ invitationDiagnostic: scenario, phase, utc: new Date().toISOString(), elapsedMs: Math.round(performance.now() - started) }));
-      diagnostic("allocation:start");
-      const root = resolve(".");
-      const config = ts.readConfigFile(resolve(root, "tsconfig.base.json"), ts.sys.readFile);
-      expect(config.error).toBeUndefined();
-      const paths = config.config.compilerOptions.paths as Record<string, string[]>;
-      const alias = Object.entries(paths).map(([name, targets]) => ({
-        find: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\*", "(.*)")}$`),
-        replacement: resolve(root, targets[0]).replace("*", "$1"),
-      }));
-      const server = await createServer({
-        configFile: false,
-        root,
-        plugins: [browserFixturePlugin(), tailwindcss()],
-        resolve: { alias },
-        server: { host: "127.0.0.1", port: 0 },
-      });
-      diagnostic("server:allocated");
-      server.httpServer?.on("close", () => diagnostic("server:closed"));
-      const context = await browser.newContext();
-      diagnostic("context:allocated");
-      context.on("close", () => diagnostic("context:closed"));
-      const archive = testInfo.outputPath(`${scenario}-trace.zip`);
-      let tracing = false;
-      try {
-        diagnostic("listen:start");
-        await server.listen();
-        diagnostic("listen:complete");
-        const address = server.httpServer!.address();
-        if (!address || typeof address === "string") throw new Error("fixture listener unavailable");
-        const page = await context.newPage();
-        diagnostic("page:allocated");
-        page.on("framenavigated", (frame) => diagnostic(frame === page.mainFrame() ? "navigation:main-frame" : "navigation:child-frame"));
-        page.on("close", () => diagnostic("page:closed"));
-        diagnostic("navigation:start");
-        await page.goto(`http://127.0.0.1:${address.port}/invitation-proof?scenario=${scenario}`);
-        diagnostic("navigation:complete");
-        await page.getByRole("radio", { name: "Password", exact: true }).click();
-        diagnostic("readiness:complete");
-        // Private setup is intentionally untraced. The actual route action still
-        // receives and validates the synthetic bearer/password through its adapter.
-        await page.getByLabel("Enter or create a password").fill(secretMarkers[1]);
-        diagnostic("submit:start");
-        await page.getByRole("button", { name: /Accept with password/i }).click();
-        await expect(page.getByRole("status")).toContainText("Submitting your invitation acceptance");
-        diagnostic("submit:complete");
-        diagnostic("trace:start");
-        await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
-        diagnostic("trace:started");
-        tracing = true;
-        const phases: string[] = [];
-        async function frame(phase: string, copy: string) {
-          const status = page.getByRole("status");
-          await expect(status).toContainText(copy);
-          await expect(status).toBeFocused();
-          await expect(status).toHaveAttribute("aria-live", "polite");
-          for (const marker of secretMarkers) expect(await page.locator("body").innerHTML()).not.toContain(marker);
-          await page.screenshot({ path: testInfo.outputPath(`${phase}.png`) });
-          phases.push(phase);
-          diagnostic(`capture:${phase}`);
-        }
-        await frame("submitting", "Submitting your invitation acceptance");
-        diagnostic("settlement:start");
-        await page.evaluate("window.invitationProbe.settleWrite()");
-        diagnostic("settlement:complete");
-        if (scenario === "success") {
-          await expect(page.getByRole("heading", { name: "Current Account" })).toBeVisible();
-          await page.screenshot({ path: testInfo.outputPath("succeeded.png") });
-          phases.push("succeeded");
-          diagnostic("capture:succeeded");
-        } else if (scenario === "retry-failure") {
-          await expect.poll(() => page.evaluate("window.invitationProbe.reads")).toBe(1);
-          await page.evaluate("window.invitationProbe.settleRead()");
-          await expect.poll(() => page.evaluate("window.invitationProbe.inspect")).toBe(2);
-          await frame("confirming", "Confirming invitation acceptance");
-          await page.evaluate("window.invitationProbe.settleInspect()");
-          await frame("ambiguous", "Invitation acceptance could not be confirmed.");
-          await page.getByRole("button", { name: "Check status" }).click();
-          await expect.poll(() => page.evaluate("window.invitationProbe.reads")).toBe(2);
-          await page.evaluate("window.invitationProbe.settleRead()");
-          await expect.poll(() => page.evaluate("window.invitationProbe.inspect")).toBe(3);
-          await page.evaluate("window.invitationProbe.settleInspect()");
-          await frame("accepted-reauth-required", "Invitation accepted. Sign in to continue.");
-        } else {
-          await expect.poll(() => page.evaluate("window.invitationProbe.inspect")).toBe(2);
-          await page.evaluate("window.invitationProbe.settleInspect()");
-          await frame(
-            scenario,
-            scenario === "conflict"
-              ? "This invitation acceptance does not match the original attempt."
-              : scenario === "failed-safe"
-                ? "Invitation could not be accepted"
-                : "This invitation is unavailable.",
-          );
-        }
-        const counters = (await page.evaluate(
-          "({...window.invitationProbe,settleWrite:undefined,settleRead:undefined,settleInspect:undefined})",
-        )) as {
-          writes: number;
-          reads: number;
-          completions: number;
-          accountLoads: number;
-          inspect: number;
-          attempts: string[];
-        };
-        expect(counters.writes).toBe(1);
-        expect(new Set(counters.attempts).size).toBe(1);
-        expect(counters.completions).toBe(scenario === "success" ? 1 : 0);
-        expect(counters.accountLoads).toBe(scenario === "success" ? 1 : 0);
-        expect(counters.inspect).toBe(scenario === "success" ? 1 : scenario === "retry-failure" ? 3 : 2);
-        diagnostic("proof:complete");
-        diagnostic("trace-stop:start");
-        await context.tracing.stop({ path: archive });
-        diagnostic("trace-stop:complete");
-        tracing = false;
-        diagnostic("scan:start");
-        const scan = await extractAndScan(archive, testInfo.outputPath(`${scenario}-extracted`));
-        diagnostic("scan:complete");
-        await testInfo.attach("invitation-route-proof", {
-          body: JSON.stringify({
-            fixture: "test-only-owner-adapters; production route/action/loader/UI; rollout unchanged",
-            phases,
-            counters,
-            scan,
+        console.log(
+          JSON.stringify({
+            invitationDiagnostic: scenario,
+            phase,
+            utc: new Date().toISOString(),
+            elapsedMs: Math.round(performance.now() - started),
           }),
-          contentType: "application/json",
+        );
+      diagnostic("allocation:start");
+      await runBrowserProof(async (resources) => {
+        const root = resolve(".");
+        const config = ts.readConfigFile(resolve(root, "tsconfig.base.json"), ts.sys.readFile);
+        expect(config.error).toBeUndefined();
+        const paths = config.config.compilerOptions.paths as Record<string, string[]>;
+        const alias = Object.entries(paths).map(([name, targets]) => ({
+          find: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("\\*", "(.*)")}$`),
+          replacement: resolve(root, targets[0]).replace("*", "$1"),
+        }));
+        const server = await createServer({
+          configFile: false,
+          root,
+          plugins: [browserFixturePlugin(), tailwindcss()],
+          resolve: { alias },
+          // The HTML and entry are virtual, so disk entry discovery cannot see
+          // their imports. Optimize the real entry/route dependencies together.
+          optimizeDeps: {
+            entries: [],
+            include: [
+              "react",
+              "react/jsx-dev-runtime",
+              "react-dom/client",
+              "react-router",
+              "@chase-sets/design-system",
+            ],
+          },
+          server: { host: "127.0.0.1", port: 0 },
         });
-        diagnostic("attachment:complete");
-      } catch (error) {
-        diagnostic(`primary-error:${error instanceof Error ? error.name : "unknown"}`);
-        throw error;
-      } finally {
-        diagnostic("disposal:start");
-        try {
+        diagnostic("server:allocated");
+        resources.release(async () => {
+          diagnostic("server-close:start");
+          await server.close();
+          diagnostic("server-close:complete");
+        });
+        server.httpServer?.on("close", () => diagnostic("server:closed"));
+        const context = await browser.newContext();
+        diagnostic("context:allocated");
+        resources.release(async () => {
+          diagnostic("context-close:start");
+          await context.close();
+          diagnostic("context-close:complete");
+        });
+        context.on("close", () => diagnostic("context:closed"));
+        const archive = testInfo.outputPath(`${scenario}-trace.zip`);
+        let tracing = false;
+        resources.beforeDispose(async () => {
+          diagnostic("disposal:start");
           if (tracing) {
+            tracing = false;
             diagnostic("failure-trace-stop:start");
             await context.tracing.stop({ path: archive });
             diagnostic("failure-trace-stop:complete");
@@ -281,16 +207,164 @@ test.describe("Invitation real browser route @marketplace-account", () => {
             await extractAndScan(archive, testInfo.outputPath(`${scenario}-failure-extracted`));
             diagnostic("failure-scan:complete");
           }
-        } finally {
-          diagnostic("context-close:start");
-          await context.close();
-          diagnostic("context-close:complete");
-          diagnostic("server-close:start");
-          await server.close();
-          diagnostic("server-close:complete");
+        });
+        try {
+          diagnostic("listen:start");
+          await server.listen();
+          diagnostic("listen:complete");
+          const address = server.httpServer!.address();
+          if (!address || typeof address === "string") throw new Error("fixture listener unavailable");
+          const page = await context.newPage();
+          diagnostic("page:allocated");
+          page.on("framenavigated", (frame) =>
+            diagnostic(frame === page.mainFrame() ? "navigation:main-frame" : "navigation:child-frame"),
+          );
+          page.on("close", () => diagnostic("page:closed"));
+          diagnostic("navigation:start");
+          await page.goto(`http://127.0.0.1:${address.port}/invitation-proof?scenario=${scenario}`);
+          diagnostic("navigation:complete");
+          await page.getByRole("radio", { name: "Password", exact: true }).click();
+          diagnostic("readiness:complete");
+          // Private setup is intentionally untraced. The actual route action still
+          // receives and validates the synthetic bearer/password through its adapter.
+          await page.getByLabel("Enter or create a password").fill(secretMarkers[1]);
+          diagnostic("submit:start");
+          await page.getByRole("button", { name: /Accept with password/i }).click();
+          await expect(page.getByRole("status")).toContainText("Submitting your invitation acceptance");
+          diagnostic("submit:complete");
+          diagnostic("trace:start");
+          await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
+          diagnostic("trace:started");
+          tracing = true;
+          const phases: string[] = [];
+          async function frame(phase: string, copy: string) {
+            const status = page.getByRole("status");
+            await expect(status).toContainText(copy);
+            await expect(status).toBeFocused();
+            await expect(status).toHaveAttribute("aria-live", "polite");
+            for (const marker of secretMarkers) expect(await page.locator("body").innerHTML()).not.toContain(marker);
+            await page.screenshot({ path: testInfo.outputPath(`${phase}.png`) });
+            phases.push(phase);
+            diagnostic(`capture:${phase}`);
+          }
+          await frame("submitting", "Submitting your invitation acceptance");
+          diagnostic("settlement:start");
+          await page.evaluate("window.invitationProbe.settleWrite()");
+          diagnostic("settlement:complete");
+          if (scenario === "success") {
+            await expect(page.getByRole("heading", { name: "Current Account" })).toBeVisible();
+            await page.screenshot({ path: testInfo.outputPath("succeeded.png") });
+            phases.push("succeeded");
+            diagnostic("capture:succeeded");
+          } else if (scenario === "retry-failure") {
+            await expect.poll(() => page.evaluate("window.invitationProbe.reads")).toBe(1);
+            await page.evaluate("window.invitationProbe.settleRead()");
+            await expect.poll(() => page.evaluate("window.invitationProbe.inspect")).toBe(2);
+            await frame("confirming", "Confirming invitation acceptance");
+            await page.evaluate("window.invitationProbe.settleInspect()");
+            await frame("ambiguous", "Invitation acceptance could not be confirmed.");
+            await page.getByRole("button", { name: "Check status" }).click();
+            await expect.poll(() => page.evaluate("window.invitationProbe.reads")).toBe(2);
+            await page.evaluate("window.invitationProbe.settleRead()");
+            await expect.poll(() => page.evaluate("window.invitationProbe.inspect")).toBe(3);
+            await page.evaluate("window.invitationProbe.settleInspect()");
+            await frame("accepted-reauth-required", "Invitation accepted. Sign in to continue.");
+          } else {
+            await expect.poll(() => page.evaluate("window.invitationProbe.inspect")).toBe(2);
+            await page.evaluate("window.invitationProbe.settleInspect()");
+            await frame(
+              scenario,
+              scenario === "conflict"
+                ? "This invitation acceptance does not match the original attempt."
+                : scenario === "failed-safe"
+                  ? "Invitation could not be accepted"
+                  : "This invitation is unavailable.",
+            );
+          }
+          const counters = (await page.evaluate(
+            "({...window.invitationProbe,settleWrite:undefined,settleRead:undefined,settleInspect:undefined})",
+          )) as {
+            writes: number;
+            reads: number;
+            completions: number;
+            accountLoads: number;
+            inspect: number;
+            attempts: string[];
+          };
+          expect(counters.writes).toBe(1);
+          expect(new Set(counters.attempts).size).toBe(1);
+          expect(counters.completions).toBe(scenario === "success" ? 1 : 0);
+          expect(counters.accountLoads).toBe(scenario === "success" ? 1 : 0);
+          expect(counters.inspect).toBe(scenario === "success" ? 1 : scenario === "retry-failure" ? 3 : 2);
+          diagnostic("proof:complete");
+          diagnostic("trace-stop:start");
+          tracing = false;
+          await context.tracing.stop({ path: archive });
+          diagnostic("trace-stop:complete");
+          diagnostic("scan:start");
+          const scan = await extractAndScan(archive, testInfo.outputPath(`${scenario}-extracted`));
+          diagnostic("scan:complete");
+          await testInfo.attach("invitation-route-proof", {
+            body: JSON.stringify({
+              fixture: "test-only-owner-adapters; production route/action/loader/UI; rollout unchanged",
+              phases,
+              counters,
+              scan,
+            }),
+            contentType: "application/json",
+          });
+          diagnostic("attachment:complete");
+        } catch (error) {
+          diagnostic(`primary-error:${error instanceof Error ? error.name : "unknown"}`);
+          throw error;
         }
-        diagnostic("disposal:complete");
-      }
+      });
+      diagnostic("disposal:complete");
     });
   }
+
+  test("already-closed context still releases the real fixture server", async ({ browser }) => {
+    await runBrowserProof(async (resources) => {
+      const server = await createServer({
+        configFile: false,
+        optimizeDeps: { entries: [] },
+        server: { host: "127.0.0.1", port: 0 },
+      });
+      resources.release(() => server.close());
+      await server.listen();
+      const context = await browser.newContext();
+      resources.release(() => context.close());
+      await context.close();
+      await resources.dispose();
+      expect(server.httpServer?.listening).toBe(false);
+      await resources.dispose();
+    });
+  });
+
+  test("trace scanner rejects injected secret markers without publishing the archive", async ({
+    browser,
+  }, testInfo) => {
+    await runBrowserProof(async (resources) => {
+      const context = await browser.newContext();
+      resources.release(() => context.close());
+      const page = await context.newPage();
+      for (const [index, marker] of secretMarkers.entries()) {
+        const archive = resolve(tmpdir(), `invitation-scan-negative-${randomUUID()}.zip`);
+        resources.release(async () => {
+          try {
+            await unlink(archive);
+          } catch (error) {
+            if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+          }
+        });
+        await page.setContent("<div>Clean scanner control</div>");
+        await context.tracing.start({ snapshots: true, screenshots: false, sources: false });
+        await page.setContent(`<div>${marker}</div>`);
+        await context.tracing.stop({ path: archive });
+        await expect(extractAndScan(archive, testInfo.outputPath(`scanner-negative-${index}`))).rejects.toThrow(
+          "secret scan:",
+        );
+      }
+    });
+  });
 });
