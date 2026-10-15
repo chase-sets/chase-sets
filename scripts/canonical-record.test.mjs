@@ -322,8 +322,9 @@ function newCorpusWork() {
 let currentCorpusWork = newCorpusWork();
 
 function assertCorpusWork(work, paths) {
+  const expectedPaths = paths.map((path) => path.replaceAll("\\", "/")).sort();
   for (const operation of ["reads", "preprocesses", "sourceFiles", "literalIndexes"]) {
-    expect([...work[operation]].sort(), `${operation}: exactly once per candidate`).toEqual([...paths].sort());
+    expect([...work[operation]].sort(), `${operation}: exactly once per candidate`).toEqual(expectedPaths);
   }
   expect(work.ancestry.operations, "ancestry operations stay input bounded").toBeLessThanOrEqual(
     ancestryWorkCeiling(work.ancestry),
@@ -453,9 +454,9 @@ function compilerRows(path, source, options = {}) {
   let sourceFile;
   try {
     if (options.forceScanFailure) throw new Error("injected scan failure");
-    corpusWork.preprocesses.push(path);
+    corpusWork.preprocesses.push(path.replaceAll("\\", "/"));
     preprocessed = ts.preProcessFile(source, true, true);
-    corpusWork.sourceFiles.push(path);
+    corpusWork.sourceFiles.push(path.replaceAll("\\", "/"));
     sourceFile = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, scriptKindFor(path));
   } catch (error) {
     importerRefuse("IMPORTER_SCAN_FAILURE", `${path}: ${error.message}`);
@@ -648,7 +649,7 @@ function scanEntry(entry, options = {}) {
   let source;
   try {
     if (options.forceReadFailure) throw new Error("injected read failure");
-    (options.corpusWork ?? currentCorpusWork).reads.push(entry.path);
+    (options.corpusWork ?? currentCorpusWork).reads.push(entry.path.replaceAll("\\", "/"));
     source = (options.readFile ?? readFileSync)(options.absolutePath ?? resolve(ROOT, entry.path), "utf8");
   } catch (error) {
     importerRefuse("IMPORTER_READ_FAILURE", `${entry.path}: ${error.message}`);
@@ -1072,9 +1073,10 @@ describe.sequential("chase-sets-canonical/v1", () => {
 });
 
 describe.sequential("canonical importer authority", () => {
-  it("canonical work verdict ignores elapsed diagnostics", () => {
+  it.each(["native", "forward-slash"])("canonical work verdict ignores elapsed diagnostics (%s paths)", (pathStyle) => {
     withTempDirectory("chase-canonical-work-verdict-", (directory) => {
-      const path = join(directory, "input.ts");
+      const nativePath = join(directory, "input.ts");
+      const path = pathStyle === "forward-slash" ? nativePath.replaceAll("\\", "/") : nativePath;
       writeFileSync(path, 'import "node:fs";');
       const work = newCorpusWork();
       scanEntry({ path, mode: "100644" }, { corpusWork: work, ancestryWork: work.ancestry });
@@ -1493,28 +1495,33 @@ describe.sequential("canonical importer authority", () => {
     expect([...scannedPaths].sort()).toEqual([...expectedCandidates].sort());
   });
 
-  it("canonical corpus work rejects repeat scans and probes without losing records", () => {
-    withTempDirectory("chase-canonical-repeat-scan-", (directory) => {
-      const path = join(directory, "input.ts");
-      writeFileSync(path, 'import "node:fs";');
-      const entry = { path, mode: "100644" };
-      const work = newCorpusWork();
-      const first = scanEntry(entry, { corpusWork: work });
-      assertCorpusWork(work, [path]);
-      const repeated = scanEntry(entry, { corpusWork: work });
-      expect(repeated).toEqual(first);
-      expect(() => assertCorpusWork(work, [path]), "repeat-candidate-scan").toThrow();
-      expect(() => assertCorpusWork(newCorpusWork(), [path]), "omit-census-candidate").toThrow();
-      console.info(JSON.stringify({ mutant: "repeat-candidate-scan", work }));
-    });
-    const group = { extension: ".mjs", scopeType: "module" };
-    const work = { probes: [], children: [] };
-    const first = probeCapability(group, { capabilityWork: work });
-    assertCapabilityWork(work, [".mjs\0module"]);
-    expect(probeCapability(group, { capabilityWork: work })).toEqual(first);
-    expect(() => assertCapabilityWork(work, [".mjs\0module"]), "repeat-capability-probe").toThrow();
-    console.info(JSON.stringify({ mutant: "repeat-capability-probe", work }));
-  });
+  it.each(["native", "forward-slash"])(
+    "canonical corpus work rejects repeat scans and probes without losing records (%s paths)",
+    (pathStyle) => {
+      withTempDirectory("chase-canonical-repeat-scan-", (directory) => {
+        const nativePath = join(directory, "input.ts");
+        const path = pathStyle === "forward-slash" ? nativePath.replaceAll("\\", "/") : nativePath;
+        writeFileSync(path, 'import "node:fs";');
+        const entry = { path, mode: "100644" };
+        const work = newCorpusWork();
+        const first = scanEntry(entry, { corpusWork: work });
+        expect(first.map(({ path }) => path)).toEqual([path]);
+        assertCorpusWork(work, [path]);
+        const repeated = scanEntry(entry, { corpusWork: work });
+        expect(repeated).toEqual(first);
+        expect(() => assertCorpusWork(work, [path]), "repeat-candidate-scan").toThrow();
+        expect(() => assertCorpusWork(newCorpusWork(), [path]), "omit-census-candidate").toThrow();
+        console.info(JSON.stringify({ mutant: "repeat-candidate-scan", work }));
+      });
+      const group = { extension: ".mjs", scopeType: "module" };
+      const work = { probes: [], children: [] };
+      const first = probeCapability(group, { capabilityWork: work });
+      assertCapabilityWork(work, [".mjs\0module"]);
+      expect(probeCapability(group, { capabilityWork: work })).toEqual(first);
+      expect(() => assertCapabilityWork(work, [".mjs\0module"]), "repeat-capability-probe").toThrow();
+      console.info(JSON.stringify({ mutant: "repeat-capability-probe", work }));
+    },
+  );
 
   it("the authorized importer inventory is exact", () => {
     assertUniqueSetEqual([...discoveredImporters].sort(), [...AUTHORIZED_IMPORTERS]);
