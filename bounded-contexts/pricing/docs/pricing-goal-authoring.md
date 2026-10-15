@@ -148,20 +148,12 @@ Health surface (#7709) is not yet on `main`, so no step proves a goal there.
 
 Each Pricing registry runs through the same harness
 (`tests/conformance/kit.ts`). Each run reads entries from the composition that
-registers them. Each run also passes its factory's module to `vi.mock` through
-the kit's `recordRegistrations`, which records every entry production
+registers them. Each run below also passes its factory's module to `vi.mock`
+through the kit's `recordRegistrations`, which records every entry production
 registers: the factory's initial entries and every `register<Name>` call,
 including registration ports. The run then fails any recorded registration it
 does not exercise, and any exercised entry that is neither recorded nor listed
-in its `unregisteredKeys`.
-
-A registry the factory's own module constructs cannot be recorded: that module
-calls the factory directly, and the mock wraps only its export. Its run passes
-the construction's exported enumeration as `production` instead, for example
-`export const definitions = registry.definitions` beside
-`const registry = createRegistry([...])`. The run then fails any entry that
-enumeration returns and the run does not exercise. A test-built registry or a
-hand-written list is not accepted as `production`:
+in its `unregisteredKeys`:
 
 | Registry | Run | Contract checked |
 | --- | --- | --- |
@@ -169,6 +161,14 @@ hand-written list is not accepted as `production`:
 | Curve builders | `curve-builder-conformance.test.ts` | Identity, deterministic loads over frozen inputs, sales of the requested variant and language in one sale shape, the window's sales limit, no sales when no evidence is stored. |
 | Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. The native marketplace provider and the unregistered-channel result are its `unregisteredKeys`; an exact or fallback provider registered in production fails the run until it has an entry. |
 | Forecast kinds (#7708) | None yet | The Forecast Kind registry is not yet on `main`. Once it lands in the registry shape below, the structure guard requires a run for it. |
+
+A registry the factory's own module constructs cannot be recorded: that module
+calls the factory directly, and the mock wraps only its export. Its run passes
+the construction's exported enumeration as `production` instead, for example
+`export const definitions = registry.definitions` beside
+`const registry = createRegistry([...])`. The run then fails any entry that
+enumeration returns and the run does not exercise. A test-built registry or a
+hand-written list is not accepted as `production`.
 
 `scripts/check-structure/pricing-registry-conformance.mjs` finds every
 registry in Pricing production code by code shape: a function that builds a
