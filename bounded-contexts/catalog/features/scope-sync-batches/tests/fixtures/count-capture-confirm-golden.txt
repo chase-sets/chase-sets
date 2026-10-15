@@ -1,0 +1,456 @@
+[
+  {
+    "case": "allowed",
+    "confirm": {
+      "status": "queued",
+      "fastNoOp": false,
+      "circuitOpenProviders": [],
+      "counts": {
+        "queued": 1,
+        "running": 0,
+        "completed": 0,
+        "failed": 0,
+        "cancelled": 0
+      },
+      "units": [
+        {
+          "scopeRecordId": "scope-synthetic-op01",
+          "state": "queued",
+          "syncRunId": null,
+          "providerKeys": [
+            "scrydex"
+          ],
+          "attemptCount": 0,
+          "errorMessage": null
+        }
+      ],
+      "planFingerprint": "preview",
+      "preview": {
+        "budget": {
+          "maxScopesPerTurn": 1,
+          "providerConcurrency": {},
+          "providerRequestLimits": {},
+          "providerFailureThreshold": 3,
+          "defaultProviderConcurrency": 1,
+          "creditedProviderRequestLimits": {
+            "scrydex": 10
+          }
+        },
+        "counts": {
+          "scopes": 1,
+          "readyScopes": 1,
+          "blockedScopes": 0,
+          "providerUnits": 2
+        },
+        "status": "ready",
+        "samples": [
+          {
+            "blockerCount": 0,
+            "providerKeys": [
+              "scrydex"
+            ],
+            "scopeRecordId": "scope-synthetic-op01",
+            "mappingVersions": [
+              {
+                "version": "2026-10-13T07:00:00.000Z",
+                "mappingId": "mapping-synthetic-sealed",
+                "reviewStatus": "accepted"
+              },
+              {
+                "version": "2026-10-13T07:00:00.000Z",
+                "mappingId": "mapping-synthetic-cards",
+                "reviewStatus": "accepted"
+              }
+            ],
+            "profileVersions": [
+              {
+                "unitKey": "scrydex:one-piece:sealed-product:source-observation-import",
+                "profileKey": "one-piece-sealed-product-source-observation",
+                "providerKey": "scrydex",
+                "profileVersion": "2026.06.22"
+              },
+              {
+                "unitKey": "scrydex:one-piece:single-card:source-observation-import",
+                "profileKey": "one-piece-card-print-source-observation",
+                "providerKey": "scrydex",
+                "profileVersion": "2026.06.22"
+              }
+            ],
+            "providerUnitCount": 2,
+            "estimatedRequestCount": 3
+          }
+        ],
+        "blockers": [],
+        "selection": {
+          "mode": "ids",
+          "scopeRecordIds": [
+            "scope-synthetic-op01"
+          ]
+        },
+        "resolvedAt": "2026-10-13T08:04:10.000Z",
+        "confirmAllowed": true,
+        "previewVersion": "scope-sync-batch-preview-v1",
+        "planFingerprint": "preview",
+        "providerUnitTotals": {
+          "scrydex": 2
+        },
+        "providerRequestEstimates": {
+          "scrydex": 3
+        }
+      }
+    },
+    "effects": {
+      "batches": 1,
+      "units": 1,
+      "countHistory": {
+        "approved": 1,
+        "debit": 2,
+        "quoted": 1,
+        "result": 2,
+        "usage": 1
+      },
+      "enqueues": 0,
+      "providerCalls": [
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage"
+      ]
+    }
+  },
+  {
+    "case": "blocked",
+    "confirm": {
+      "refused": "ScopeSyncBatchBlockedPreviewError",
+      "code": "scope_sync_batch_blocked",
+      "message": "Scope Sync Batch confirmation is blocked by current planning evidence.",
+      "currentPreview": {
+        "previewVersion": "scope-sync-batch-preview-v1",
+        "selection": {
+          "mode": "ids",
+          "scopeRecordIds": [
+            "scope-synthetic-op01"
+          ]
+        },
+        "budget": {
+          "maxScopesPerTurn": 1,
+          "defaultProviderConcurrency": 1,
+          "providerConcurrency": {},
+          "providerRequestLimits": {},
+          "creditedProviderRequestLimits": {
+            "scrydex": 1
+          },
+          "providerFailureThreshold": 3
+        },
+        "planFingerprint": "preview",
+        "status": "blocked",
+        "confirmAllowed": false,
+        "counts": {
+          "scopes": 1,
+          "readyScopes": 1,
+          "blockedScopes": 0,
+          "providerUnits": 2
+        },
+        "providerUnitTotals": {
+          "scrydex": 2
+        },
+        "providerRequestEstimates": {
+          "scrydex": 3
+        },
+        "samples": [
+          {
+            "scopeRecordId": "scope-synthetic-op01",
+            "providerUnitCount": 2,
+            "blockerCount": 0,
+            "estimatedRequestCount": 3,
+            "providerKeys": [
+              "scrydex"
+            ],
+            "mappingVersions": [
+              {
+                "mappingId": "mapping-synthetic-sealed",
+                "version": "2026-10-13T07:00:00.000Z",
+                "reviewStatus": "accepted"
+              },
+              {
+                "mappingId": "mapping-synthetic-cards",
+                "version": "2026-10-13T07:00:00.000Z",
+                "reviewStatus": "accepted"
+              }
+            ],
+            "profileVersions": [
+              {
+                "providerKey": "scrydex",
+                "unitKey": "scrydex:one-piece:sealed-product:source-observation-import",
+                "profileKey": "one-piece-sealed-product-source-observation",
+                "profileVersion": "2026.06.22"
+              },
+              {
+                "providerKey": "scrydex",
+                "unitKey": "scrydex:one-piece:single-card:source-observation-import",
+                "profileKey": "one-piece-card-print-source-observation",
+                "profileVersion": "2026.06.22"
+              }
+            ]
+          }
+        ],
+        "blockers": [
+          {
+            "code": "credited-provider-budget-exceeded",
+            "scopeRecordId": null,
+            "providerKey": "scrydex",
+            "message": "scrydex estimated requests (3) exceed the configured batch limit (1)."
+          }
+        ],
+        "resolvedAt": "2026-10-13T08:04:10.000Z"
+      }
+    },
+    "effects": {
+      "batches": 0,
+      "units": 0,
+      "countHistory": {
+        "approved": 1,
+        "debit": 2,
+        "quoted": 1,
+        "result": 2,
+        "usage": 1
+      },
+      "enqueues": 0,
+      "providerCalls": [
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage"
+      ]
+    }
+  },
+  {
+    "case": "stale",
+    "confirm": {
+      "refused": "ScopeSyncBatchStalePreviewError",
+      "code": "scope_sync_batch_stale_preview",
+      "message": "Scope Sync Batch evidence changed after preview. Preview again before confirming.",
+      "currentPreview": {
+        "previewVersion": "scope-sync-batch-preview-v1",
+        "selection": {
+          "mode": "ids",
+          "scopeRecordIds": [
+            "scope-synthetic-op01"
+          ]
+        },
+        "budget": {
+          "maxScopesPerTurn": 1,
+          "defaultProviderConcurrency": 1,
+          "providerConcurrency": {},
+          "providerRequestLimits": {},
+          "creditedProviderRequestLimits": {
+            "scrydex": 10
+          },
+          "providerFailureThreshold": 3
+        },
+        "planFingerprint": "changed",
+        "status": "ready",
+        "confirmAllowed": true,
+        "counts": {
+          "scopes": 1,
+          "readyScopes": 1,
+          "blockedScopes": 0,
+          "providerUnits": 2
+        },
+        "providerUnitTotals": {
+          "scrydex": 2
+        },
+        "providerRequestEstimates": {
+          "scrydex": 3
+        },
+        "samples": [
+          {
+            "scopeRecordId": "scope-synthetic-op01",
+            "providerUnitCount": 2,
+            "blockerCount": 0,
+            "estimatedRequestCount": 3,
+            "providerKeys": [
+              "scrydex"
+            ],
+            "mappingVersions": [
+              {
+                "mappingId": "mapping-synthetic-sealed",
+                "version": "2026-10-13T07:30:00.000Z",
+                "reviewStatus": "accepted"
+              },
+              {
+                "mappingId": "mapping-synthetic-cards",
+                "version": "2026-10-13T07:00:00.000Z",
+                "reviewStatus": "accepted"
+              }
+            ],
+            "profileVersions": [
+              {
+                "providerKey": "scrydex",
+                "unitKey": "scrydex:one-piece:sealed-product:source-observation-import",
+                "profileKey": "one-piece-sealed-product-source-observation",
+                "profileVersion": "2026.06.22"
+              },
+              {
+                "providerKey": "scrydex",
+                "unitKey": "scrydex:one-piece:single-card:source-observation-import",
+                "profileKey": "one-piece-card-print-source-observation",
+                "profileVersion": "2026.06.22"
+              }
+            ]
+          }
+        ],
+        "blockers": [],
+        "resolvedAt": "2026-10-13T08:04:10.000Z"
+      }
+    },
+    "effects": {
+      "batches": 0,
+      "units": 0,
+      "countHistory": {
+        "approved": 1,
+        "debit": 2,
+        "quoted": 1,
+        "result": 2,
+        "usage": 1
+      },
+      "enqueues": 0,
+      "providerCalls": [
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage"
+      ]
+    }
+  },
+  {
+    "case": "already-settled",
+    "confirm": {
+      "status": "completed",
+      "fastNoOp": true,
+      "circuitOpenProviders": [],
+      "counts": {
+        "queued": 0,
+        "running": 0,
+        "completed": 1,
+        "failed": 0,
+        "cancelled": 0
+      },
+      "units": [
+        {
+          "scopeRecordId": "scope-synthetic-op01",
+          "state": "completed",
+          "syncRunId": "run-synthetic-settled",
+          "providerKeys": [
+            "scrydex"
+          ],
+          "attemptCount": 0,
+          "errorMessage": null
+        }
+      ],
+      "planFingerprint": "preview",
+      "preview": {
+        "budget": {
+          "maxScopesPerTurn": 1,
+          "providerConcurrency": {},
+          "providerRequestLimits": {},
+          "providerFailureThreshold": 3,
+          "defaultProviderConcurrency": 1,
+          "creditedProviderRequestLimits": {
+            "scrydex": 10
+          }
+        },
+        "counts": {
+          "scopes": 1,
+          "readyScopes": 1,
+          "blockedScopes": 0,
+          "providerUnits": 2
+        },
+        "status": "ready",
+        "samples": [
+          {
+            "blockerCount": 0,
+            "providerKeys": [
+              "scrydex"
+            ],
+            "scopeRecordId": "scope-synthetic-op01",
+            "mappingVersions": [
+              {
+                "version": "2026-10-13T07:00:00.000Z",
+                "mappingId": "mapping-synthetic-sealed",
+                "reviewStatus": "accepted"
+              },
+              {
+                "version": "2026-10-13T07:00:00.000Z",
+                "mappingId": "mapping-synthetic-cards",
+                "reviewStatus": "accepted"
+              }
+            ],
+            "profileVersions": [
+              {
+                "unitKey": "scrydex:one-piece:sealed-product:source-observation-import",
+                "profileKey": "one-piece-sealed-product-source-observation",
+                "providerKey": "scrydex",
+                "profileVersion": "2026.06.22"
+              },
+              {
+                "unitKey": "scrydex:one-piece:single-card:source-observation-import",
+                "profileKey": "one-piece-card-print-source-observation",
+                "providerKey": "scrydex",
+                "profileVersion": "2026.06.22"
+              }
+            ],
+            "providerUnitCount": 2,
+            "estimatedRequestCount": 3
+          }
+        ],
+        "blockers": [],
+        "selection": {
+          "mode": "ids",
+          "scopeRecordIds": [
+            "scope-synthetic-op01"
+          ]
+        },
+        "resolvedAt": "2026-10-13T08:04:10.000Z",
+        "confirmAllowed": true,
+        "previewVersion": "scope-sync-batch-preview-v1",
+        "planFingerprint": "preview",
+        "providerUnitTotals": {
+          "scrydex": 2
+        },
+        "providerRequestEstimates": {
+          "scrydex": 3
+        }
+      }
+    },
+    "effects": {
+      "batches": 1,
+      "units": 1,
+      "countHistory": {
+        "approved": 1,
+        "debit": 2,
+        "quoted": 1,
+        "result": 2,
+        "usage": 1
+      },
+      "enqueues": 0,
+      "providerCalls": [
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage",
+        "/account/v1/usage"
+      ]
+    }
+  }
+]

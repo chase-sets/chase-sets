@@ -3,7 +3,82 @@ import {
   decodeConsentActivationAuthoritySnapshot,
   type ValidatedConsentActivationAuthoritySnapshot,
 } from "@chase-sets/platform-policy/consent-activation-authority";
-import type { ConsentActivationAuthorityReader } from "../features/consents/domain/consent-bundle";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  assertRegistrationConsentDeclaration,
+  bindRegistrationConsentSubject,
+  identityConsentPolicyPublications,
+  resolveConsentBundleAgainstCorpus,
+  type ConsentActivationAuthorityReader,
+  type ConsentPolicyPublicationCorpus,
+  type RegistrationConsentBundles,
+} from "../features/consents/domain/consent-bundle";
+import {
+  identityConsentActiveVersionPolicies,
+  type IdentityConsentPolicyKey,
+} from "../features/consents/domain/terms-of-service-policy";
+import { createIdentityBootstrapContext } from "../support/runtime-support/bootstrap-context";
+
+export function registrationConsentBundlesFixture(
+  authority: ConsentActivationAuthorityReader = {
+    read: async () => {
+      throw new Error("Dormant publications must not read authority.");
+    },
+  },
+  publications: ConsentPolicyPublicationCorpus = identityConsentPolicyPublications,
+): RegistrationConsentBundles {
+  const bundles: RegistrationConsentBundles = {
+    async resolve() {
+      const declaration = await resolveConsentBundleAgainstCorpus(authority, "registration", publications);
+      assertRegistrationConsentDeclaration(declaration);
+      return declaration;
+    },
+    async forRegistration(subject) {
+      return bindRegistrationConsentSubject(await bundles.resolve(), subject);
+    },
+  };
+  return bundles;
+}
+
+export async function activeRegistrationConsentFixture(
+  eventStore: EventStore,
+  db: PgQueryable,
+  versions: Partial<Record<IdentityConsentPolicyKey, `v${number}`>>,
+) {
+  const policies = createPolicyRuntime({ eventStore, db });
+  const publications = { ...identityConsentPolicyPublications } as Record<
+    IdentityConsentPolicyKey,
+    ConsentPolicyPublicationCorpus[IdentityConsentPolicyKey]
+  >;
+  const context = createIdentityBootstrapContext();
+  for (const policyKey of Object.keys(versions) as IdentityConsentPolicyKey[]) {
+    const version = versions[policyKey]!;
+    publications[policyKey] = {
+      ...publications[policyKey],
+      version,
+      publicationStatus: "published",
+      consentActivatable: true,
+    };
+    const definition = identityConsentActiveVersionPolicies[policyKey];
+    await policies.consentActivation.register(definition, context);
+    await policies.consentActivation.activate(
+      definition,
+      {
+        version,
+        documentId: `pol_test_${policyKey}`,
+        actorUserId: "usr_test_operator",
+      },
+      context,
+    );
+  }
+  return {
+    policies,
+    publications,
+    registrationConsentBundles: registrationConsentBundlesFixture(policies.consentActivation, publications),
+  };
+}
 
 /**
  * Validated Consent Activation Authority snapshots for Identity's consent

@@ -92,6 +92,7 @@ export type RegistrationConsentRejectionReason =
   | "unsigned"
   | "signature-invalid"
   | "stale"
+  | "superseded"
   | "not-yet-valid"
   | "unaffirmed";
 
@@ -107,33 +108,6 @@ export type RegistrationConsentVerification =
 
 export function isRegistrationConsentRejectionCode(value: unknown): value is RegistrationConsentRejectionCode {
   return REGISTRATION_CONSENT_REJECTION_CODES.includes(value as RegistrationConsentRejectionCode);
-}
-
-/**
- * The ordered policy corpus the registration consent bundle activates.
- *
- * Empty today because nothing in the shipped policy corpus is
- * consent-activatable. That emptiness is a value, not a disabled mode: a
- * resolution minted over an empty corpus is still signed, still version-bearing,
- * still carries `resolvedAt`, and is still mandatory on every first-use path. No
- * branch anywhere reads the length of this list to decide whether the
- * resolution itself is required.
- *
- * When the Consent Bundle work lands, it populates this list and the invariant
- * text does not change -- only the resolver's output grows, and the paths that
- * cannot yet carry a human affirmation begin failing closed.
- */
-export const REGISTRATION_CONSENT_ACTIVATABLE_POLICIES: readonly RegistrationConsentRequirement[] = [];
-
-/** Map the activatable policy corpus into the ordered requirement set a resolution carries. */
-export function resolveRegistrationConsentRequirements(
-  corpus: readonly RegistrationConsentRequirement[] = REGISTRATION_CONSENT_ACTIVATABLE_POLICIES,
-): readonly RegistrationConsentRequirement[] {
-  return corpus.map((policy) => ({
-    policyKey: policy.policyKey,
-    version: policy.version,
-    href: policy.href,
-  }));
 }
 
 /**
