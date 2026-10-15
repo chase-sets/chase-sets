@@ -52,7 +52,7 @@ A **Golden Decision** is a Goal Version's recorded decision at default parameter
 
 ## Conformance Kit
 
-The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run reads the production registrations, fails an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `docs/pricing-goal-authoring.md`.
+The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run reads the production registrations, fails an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `bounded-contexts/pricing/docs/pricing-goal-authoring.md`.
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
