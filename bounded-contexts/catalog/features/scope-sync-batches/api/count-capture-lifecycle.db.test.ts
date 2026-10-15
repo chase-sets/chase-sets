@@ -22,6 +22,7 @@ import { createCountCaptureDbFixture } from "../tests/count-capture-db-fixture";
 import { validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
 import {
   createCountCaptureLifecycle,
+  countCaptureSessionOwner,
   observeDeployedScrydexUsage,
   readCountCaptureRoster,
   type CountCaptureLifecycle,
@@ -75,6 +76,19 @@ describe("closed count capture on PostgreSQL", () => {
       budget: f.budget,
       planFingerprint: preview.planFingerprint,
     });
+    const run = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    expect(run.reads.map((read) => read.phase)).toEqual(["preview", "pre-confirm"]);
+    expect(new Set(run.reads.map((read) => read.requestId)).size).toBe(2);
+    expect(run.reads[1]!.comparedFingerprint).toBe(run.reads[0]!.planFingerprint);
+    for (const read of run.reads) {
+      expect(read.eligible).toBe(true);
+      expect(read.winners).toHaveLength(2);
+      expect(read.winners.every((winner) => winner.source !== null)).toBe(true);
+      const sends = run.sends.filter((send) => send.requestId === read.requestId);
+      expect(sends.length).toBeGreaterThanOrEqual(3);
+      expect(sends.length).toBeLessThanOrEqual(4);
+      expect(sends.every((send) => send.status === 200)).toBe(true);
+    }
     const before = f.fetch.mock.calls.length;
     f.clock.now = "2026-10-13T08:04:11.000Z";
     const { receipt } = await f.lifecycle.freeze(captureSession(), {
