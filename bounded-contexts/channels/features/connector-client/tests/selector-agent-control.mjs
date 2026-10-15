@@ -578,9 +578,16 @@ const nativeRemovalStages = [
   "ACTION",
 ];
 const nativeRemovalScript = String.raw`
-import ctypes as c, hashlib, os, pathlib, sys, time
+import ctypes as c, hashlib, json, os, pathlib, sys, time
 stage = 'PROCESS'
-sys.excepthook = lambda kind, value, trace: print('NATIVE_REMOVE_REFUSED:' + stage)
+witness = dict(process=False, bus=False, owner=False, window=False, button=False, action=False, names=0, owners=0, error='NONE')
+until = time.time()
+def emit_witness():
+    print('NATIVE_REMOVE_WITNESS:' + json.dumps(dict(witness, budget='EXHAUSTED' if time.time() >= until else 'WITHIN'), separators=(',', ':')), flush=True)
+def refused(kind, value, trace):
+    emit_witness()
+    print('NATIVE_REMOVE_REFUSED:' + stage)
+sys.excepthook = refused
 profile, executable, digest, address, until, pid = sys.argv[1:]
 until = float(until)
 if not address.startswith('unix:') or not os.path.isabs(profile): raise RuntimeError()
@@ -594,6 +601,8 @@ stage = 'PROCESS_DIGEST'
 if hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest() != digest: raise RuntimeError()
 stage = 'PROCESS_START'
 started = pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19]
+witness['process'] = True
+emit_witness()
 stage = 'LIBRARY'
 gio, glib = c.CDLL('libgio-2.0.so.0'), c.CDLL('libglib-2.0.so.0')
 ptr = c.c_void_p
@@ -618,7 +627,11 @@ error = ptr()
 stage = 'CONNECT'
 connection = api(gio, 'g_dbus_connection_new_for_address_sync', ptr, [c.c_char_p, c.c_int, ptr, ptr, c.POINTER(ptr)])(address.encode(), 9, None, None, c.byref(error))
 if not connection: raise RuntimeError()
+witness['bus'] = True
+emit_witness()
 invoke = api(gio, 'g_dbus_connection_call_sync', ptr, [ptr, c.c_char_p, c.c_char_p, c.c_char_p, c.c_char_p, ptr, ptr, c.c_int, c.c_int, ptr, c.POINTER(ptr)])
+remote_error = api(gio, 'g_dbus_error_get_remote_error', ptr, [ptr])
+free = api(glib, 'g_free', None, [ptr])
 def call(bus, path, interface, method, arguments=None):
     global stage
     stage = {b'ListNames':'LIST', b'GetConnectionUnixProcessID':'OWNER', b'GetChildren':'CHILDREN', b'GetRoleName':'ROLE', b'GetState':'WINDOW', b'Get':'NAME', b'GetName':'ACTIONS', b'DoAction':'ACTION'}[method]
@@ -626,7 +639,16 @@ def call(bus, path, interface, method, arguments=None):
     remaining = int((until - time.time()) * 1000)
     if remaining <= 0: raise RuntimeError()
     reply = invoke(connection, bus, path, interface, method, arguments, None, 0, remaining, None, c.byref(error))
-    if not reply: raise RuntimeError()
+    if not reply:
+        witness['error'] = 'OTHER'
+        if error:
+            remote = remote_error(error)
+            if remote:
+                try:
+                    known = {b'org.freedesktop.DBus.Error.NameHasNoOwner':'NO_OWNER', b'org.freedesktop.DBus.Error.AccessDenied':'ACCESS_DENIED', b'org.freedesktop.DBus.Error.UnknownMethod':'UNKNOWN_METHOD', b'org.freedesktop.DBus.Error.InvalidArgs':'INVALID_ARGS', b'org.freedesktop.DBus.Error.NoReply':'NO_REPLY', b'org.freedesktop.DBus.Error.ServiceUnknown':'SERVICE_UNKNOWN'}
+                    witness['error'] = known.get(c.string_at(remote), 'OTHER')
+                finally: free(remote)
+        raise RuntimeError()
     return reply
 def scalar(reply, reader):
     value = child(reply, 0)
@@ -680,9 +702,15 @@ while time.time() < until:
     matches = []
     names = strings(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'ListNames'))
     if len(names) > 64: raise RuntimeError()
+    witness['names'] = len(names)
+    witness['owners'] = 0
     for bus in names:
         if not bus.startswith(b':'): continue
         if scalar(call(b'org.freedesktop.DBus', b'/org/freedesktop/DBus', b'org.freedesktop.DBus', b'GetConnectionUnixProcessID', params(bus)), uint) != pid: continue
+        witness['owners'] += 1
+        if not witness['owner']:
+            witness['owner'] = True
+            emit_witness()
         try: windows = children(bus, root)
         except RuntimeError: continue
         if len(windows) > 64: raise RuntimeError()
@@ -702,6 +730,9 @@ while time.time() < until:
                 if not states(bus, path, 1, 25, 30): continue
                 actual = name(bus, path); stage = 'DIALOG'
                 if actual != title: raise RuntimeError()
+                if not witness['window']:
+                    witness['window'] = True
+                    emit_witness()
                 buttons, nested, visited = [], children(bus, path), set()
                 while nested:
                     node = nested.pop()
@@ -712,6 +743,9 @@ while time.time() < until:
                     nested.extend(children(bus, node))
                 stage = 'BUTTON'
                 if len(buttons) != 1: raise RuntimeError()
+                if not witness['button']:
+                    witness['button'] = True
+                    emit_witness()
                 matches.append((bus, path, buttons[0]))
     if len(matches) > 1: raise RuntimeError()
     if matches: button = matches[0]; break
@@ -736,8 +770,60 @@ if not states(bus, dialog, 1, 25, 30) or not states(bus, path, 8, 12, 24, 25, 30
 stage = 'IDENTITY'
 if pathlib.Path('/proc', str(pid), 'stat').read_bytes().split(b') ')[1].split()[19] != started: raise RuntimeError()
 if not scalar(call(bus, path, b'org.a11y.atspi.Action', b'DoAction', params(0)), boolean): raise RuntimeError()
+witness['action'] = True
+emit_witness()
 print('NATIVE_REMOVE_SENT')
 `;
+
+function readNativeRemovalOutput(output) {
+  if (typeof output !== "string" || output.length > 4096) return { result: "", witness: null };
+  const lines = output.trim().split("\n");
+  if (lines.length > 9) return { result: "", witness: null };
+  const last = lines.at(-1);
+  const result = last === "NATIVE_REMOVE_SENT" || last.startsWith("NATIVE_REMOVE_REFUSED:") ? last : "";
+  const records = lines.filter((line) => line.startsWith("NATIVE_REMOVE_WITNESS:"));
+  if (records.length !== lines.length - (result ? 1 : 0)) return { result: "", witness: null };
+  let witness = null;
+  if (records.length) {
+    try {
+      for (const record of records) {
+        const value = JSON.parse(record.slice("NATIVE_REMOVE_WITNESS:".length));
+        if (
+          closed(value, [
+            "process",
+            "bus",
+            "owner",
+            "window",
+            "button",
+            "action",
+            "names",
+            "owners",
+            "error",
+            "budget",
+          ]) &&
+          ["process", "bus", "owner", "window", "button", "action"].every((key) => typeof value[key] === "boolean") &&
+          ["names", "owners"].every((key) => Number.isInteger(value[key]) && value[key] >= 0 && value[key] <= 64) &&
+          [
+            "NONE",
+            "OTHER",
+            "NO_OWNER",
+            "ACCESS_DENIED",
+            "UNKNOWN_METHOD",
+            "INVALID_ARGS",
+            "NO_REPLY",
+            "SERVICE_UNKNOWN",
+          ].includes(value.error) &&
+          ["WITHIN", "EXHAUSTED"].includes(value.budget)
+        )
+          witness = value;
+        else return { result: "", witness: null };
+      }
+    } catch {
+      return { result: "", witness: null };
+    }
+  }
+  return { result: records.length && witness === null ? "" : result, witness };
+}
 
 // Raw browser primitives are private to this offline-only Channels adapter.
 export function createPlaywrightSelectorBrowser({
@@ -767,6 +853,7 @@ export function createPlaywrightSelectorBrowser({
     dialogFailure = null,
     cancelBeforeBegin = false;
   let nativeRemovalStage = null;
+  let nativeRemovalWitness = null;
   const saved = [],
     countReads = new Set();
   async function boundary(page, expectedUrl) {
@@ -947,7 +1034,7 @@ export function createPlaywrightSelectorBrowser({
     await item.locator("#removeButton").click({ timeout: remaining() });
     try {
       nativeRemovalStage = "UNKNOWN";
-      if (
+      const output = readNativeRemovalOutput(
         execFileSync(
           "python3",
           [
@@ -961,12 +1048,15 @@ export function createPlaywrightSelectorBrowser({
             String(pid),
           ],
           { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: remaining() },
-        ).trim() !== "NATIVE_REMOVE_SENT"
-      )
-        throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
+        ),
+      );
+      nativeRemovalWitness = output.witness;
+      if (output.result !== "NATIVE_REMOVE_SENT") throw new SelectorFailure("CONTROL_BOUNDARY_LOST");
       nativeRemovalStage = "SENT";
     } catch (error) {
-      const fixed = typeof error.stdout === "string" ? error.stdout.trim().split(":") : [];
+      const output = readNativeRemovalOutput(error.stdout);
+      nativeRemovalWitness = output.witness;
+      const fixed = output.result.split(":");
       if (fixed.length === 2 && fixed[0] === "NATIVE_REMOVE_REFUSED" && nativeRemovalStages.includes(fixed[1]))
         nativeRemovalStage = fixed[1];
       else if (nativeRemovalStage !== "CAPABILITY") nativeRemovalStage = "UNKNOWN";
@@ -982,6 +1072,7 @@ export function createPlaywrightSelectorBrowser({
     identity: structuredClone(binding),
     // Host-only diagnostic, never an endpoint operation or terminal-schema field.
     hostNativeRemovalStage: () => nativeRemovalStage,
+    hostNativeRemovalWitness: () => structuredClone(nativeRemovalWitness),
     pause: async () => {
       paused = true;
     },

@@ -121,7 +121,7 @@ for node in tree.body:
 assert len(parts) == 6
 nodes, touched, clock = input['nodes'], [], [0]
 root, bus = b'/org/a11y/atspi/accessible/root', b':1.1'
-scope = {'stage':'PROCESS', 'pid':42, 'until':4, 'button':None, 'root':root, 'accessible':b'org.a11y.atspi.Accessible'}
+scope = {'stage':'PROCESS', 'pid':42, 'until':4, 'button':None, 'root':root, 'accessible':b'org.a11y.atspi.Accessible', 'witness':{'owner':False,'window':False,'button':False}, 'emit_witness':lambda:None}
 def children(owner, path):
     touched.append(path.decode())
     return [value.encode() for value in (input['roots'] if path == root else nodes[path.decode()]['children'])]
@@ -214,6 +214,54 @@ print(json.dumps({'accepted':accepted, 'stage':scope['stage'], 'touched':touched
       ).toBe(false);
     expect(run(source, { ...nodes, dialog: { ...nodes.dialog, states: [25, 30] } }).accepted).toBe(false);
     expect(run(source, { ...nodes, dialog: { ...nodes.dialog, words: [0] } }).accepted).toBe(false);
+  });
+  it("native discovery admits only closed host witnesses, never private output or an inferred native action", async () => {
+    const exposed = await mutant("function readNativeRemovalOutput(", "export function readNativeRemovalOutput(");
+    const witness = {
+      process: true,
+      bus: true,
+      owner: false,
+      window: false,
+      button: false,
+      action: false,
+      names: 2,
+      owners: 0,
+      error: "NO_OWNER",
+      budget: "WITHIN",
+    };
+    const output = (value: unknown) => `NATIVE_REMOVE_WITNESS:${JSON.stringify(value)}\nNATIVE_REMOVE_REFUSED:OWNER\n`;
+    expect(exposed.readNativeRemovalOutput(output(witness))).toEqual({
+      result: "NATIVE_REMOVE_REFUSED:OWNER",
+      witness,
+    });
+    const partial = `NATIVE_REMOVE_WITNESS:${JSON.stringify(witness)}\n`;
+    expect(exposed.readNativeRemovalOutput(partial)).toEqual({ result: "", witness });
+    expect(exposed.readNativeRemovalOutput(partial + output(witness))).toEqual({
+      result: "NATIVE_REMOVE_REFUSED:OWNER",
+      witness,
+    });
+    expect(
+      exposed.readNativeRemovalOutput('NATIVE_REMOVE_WITNESS:{"private":"SYNTHETIC_PRIVATE"}\n' + output(witness)),
+    ).toEqual({
+      result: "",
+      witness: null,
+    });
+    for (const value of [
+      { ...witness, title: "SYNTHETIC_PRIVATE_TITLE" },
+      { ...witness, error: "SYNTHETIC_PRIVATE_EXCEPTION" },
+      { ...witness, names: 65 },
+      { ...witness, owners: -1 },
+      { ...witness, action: "true" },
+      { ...witness, budget: "UNKNOWN" },
+    ])
+      expect(exposed.readNativeRemovalOutput(output(value))).toEqual({ result: "", witness: null });
+    expect(exposed.readNativeRemovalOutput("SYNTHETIC_PRIVATE_OUTPUT").witness).toBeNull();
+    expect(exposed.readNativeRemovalOutput("SYNTHETIC_PRIVATE_OUTPUT\nNATIVE_REMOVE_SENT")).toEqual({
+      result: "",
+      witness: null,
+    });
+    expect(exposed.readNativeRemovalOutput("x".repeat(4097))).toEqual({ result: "", witness: null });
+    expect(exposed.readNativeRemovalOutput(partial.repeat(10))).toEqual({ result: "", witness: null });
   });
   it("explicitly admits browser-local metadata; missing automation flag mutant fails", async () => {
     expect(control.hermeticChromiumArguments.filter((arg: string) => arg === "--enable-automation")).toHaveLength(1);

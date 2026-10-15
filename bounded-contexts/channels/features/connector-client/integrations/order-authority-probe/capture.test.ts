@@ -1512,6 +1512,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
         const nativeBus = await startNativeBus(control.writeNativeBusConfiguration(hostPackage));
         let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
         let endpoint: Awaited<ReturnType<typeof control.createRunEndpoint>> | undefined;
+        let browser: ReturnType<typeof control.createPlaywrightSelectorBrowser> | undefined;
         try {
           context = await chromium.launchPersistentContext(profile, {
             headless: false,
@@ -1526,7 +1527,7 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
             },
             args: [...control.hermeticChromiumArguments],
           });
-          const browser = control.createPlaywrightSelectorBrowser({
+          browser = control.createPlaywrightSelectorBrowser({
             context,
             preparation: hostPackage,
             binding,
@@ -1629,6 +1630,14 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
             .toBe(false);
           await operate("close");
         } finally {
+          console.log(
+            "selector-native-removal-witness/v1",
+            JSON.stringify({
+              scenario,
+              stage: browser?.hostNativeRemovalStage() ?? null,
+              witness: browser?.hostNativeRemovalWitness() ?? null,
+            }),
+          );
           try {
             await endpoint?.close();
           } finally {
