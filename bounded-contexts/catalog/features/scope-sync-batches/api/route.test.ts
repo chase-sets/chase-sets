@@ -6,6 +6,8 @@ import { createScopeSyncCountRuntime } from "./count-runtime";
 import { ScopeSyncBatchStalePreviewError } from "../domain/batch";
 import { heldSetExportContract } from "../domain/held-set-export";
 import type { ResolvedActor } from "@chase-sets/auth-context";
+import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
+import type { CountCaptureLifecycle } from "./count-capture-lifecycle";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -326,3 +328,108 @@ function concatBytes(left: Uint8Array, right: Uint8Array) {
   result.set(right, left.byteLength);
   return result;
 }
+
+describe("count-capture steps", () => {
+  const stagingAdmin = "https://admin.staging.chasesets.com";
+  const base = `${stagingAdmin}/scope-sync-batches`;
+  function captureApp(
+    capture: Readonly<Record<keyof CountCaptureLifecycle, unknown>> | null,
+    actor: ResolvedActor | null = countActor("platform-admin"),
+  ) {
+    const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();
+    root.use("*", async (c, next) => {
+      c.set("context", context);
+      c.set("actor", actor);
+      await next();
+    });
+    root.route("/scope-sync-batches", scopeSyncBatchRoutes({} as never, capture as CountCaptureLifecycle | null));
+    return root;
+  }
+  const lifecycle = () => ({
+    baseline: vi.fn(async () => ({ providerSends: 0 })),
+    initialNotice: vi.fn(async () => ({ notice: { fingerprint: "a".repeat(64) } })),
+    usage: vi.fn(async () => ({ usage: { state: "skipped" } })),
+  });
+  const post = (
+    root: ReturnType<typeof captureApp>,
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = { "x-catalog-count-capture": "1" },
+  ) =>
+    root.request(`${base}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: stagingAdmin, ...headers },
+      body: JSON.stringify(body),
+    });
+  const baselineBody = { scopeRecordId: "scope-synthetic-op01", authority: { dispatchId: "synthetic-dispatch" } };
+
+  it("reaches each handler with the authenticated session, uncacheable", async () => {
+    const capture = lifecycle();
+    const root = captureApp(capture);
+    const responses = [
+      await post(root, "/count-capture/baseline", baselineBody),
+      await post(root, "/count-capture/initial-notice", {}),
+      await post(root, "/count-capture/usage", {}),
+    ];
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+    expect(responses.every((response) => response.headers.get("cache-control") === "no-store")).toBe(true);
+    await expect(responses[0]!.json()).resolves.toEqual({ providerSends: 0 });
+    const session = expect.objectContaining({
+      actor: countActor("platform-admin"),
+      context,
+      request: expect.any(Request),
+    });
+    expect(capture.baseline).toHaveBeenCalledExactlyOnceWith(session, baselineBody);
+    expect(capture.initialNotice).toHaveBeenCalledExactlyOnceWith(session);
+    expect(capture.usage).toHaveBeenCalledExactlyOnceWith(session);
+  });
+
+  it("leaves unmarked capture paths unrouted, exactly as before", async () => {
+    const capture = lifecycle();
+    const root = captureApp(capture);
+    const unrouted = await root.request(`${base}/not-a-route/at-all`, { method: "POST" });
+    for (const path of ["/count-capture/baseline", "/count-capture/initial-notice", "/count-capture/usage"]) {
+      const response = await post(root, path, path.endsWith("baseline") ? baselineBody : {}, {});
+      expect(response.status).toBe(unrouted.status);
+      expect(await response.text()).toBe(await unrouted.clone().text());
+    }
+    expect(unrouted.status).toBe(404);
+    expect(Object.values(capture).every((handler) => handler.mock.calls.length === 0)).toBe(true);
+  });
+
+  const refusals: Record<string, Readonly<{ headers?: Record<string, string>; body: unknown }>> = {
+    "a malformed marker": { headers: { "x-catalog-count-capture": "true" }, body: baselineBody },
+    "an absent capture composition": { body: baselineBody },
+    "an open body": { body: { ...baselineBody, runId: "client-supplied" } },
+    "a handler refusal": { body: baselineBody },
+  };
+  it.each(Object.keys(refusals))("refuses %s with one support-safe 409", async (name) => {
+    const { headers, body } = refusals[name]!;
+    const capture = lifecycle();
+    if (name === "a handler refusal") capture.baseline.mockRejectedValueOnce(new CountCaptureStopped());
+    const root = captureApp(name === "an absent capture composition" ? null : capture);
+    const response = await post(root, "/count-capture/baseline", body, headers);
+    expect(response.status).toBe(409);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({ error: { code: "capture-stopped" } });
+    if (name !== "a handler refusal") expect(capture.baseline).not.toHaveBeenCalled();
+  });
+
+  it("mirrors the count access guard before any handler runs", async () => {
+    const capture = lifecycle();
+    expect((await post(captureApp(capture, null), "/count-capture/usage", {})).status).toBe(401);
+    expect((await post(captureApp(capture, countActor("seller")), "/count-capture/usage", {})).status).toBe(403);
+    const foreign = await post(
+      captureApp(capture),
+      "/count-capture/usage",
+      {},
+      {
+        "x-catalog-count-capture": "1",
+        origin: "https://foreign.invalid",
+      },
+    );
+    expect(foreign.status).toBe(403);
+    expect(foreign.headers.get("cache-control")).toBe("no-store");
+    expect(capture.usage).not.toHaveBeenCalled();
+  });
+});

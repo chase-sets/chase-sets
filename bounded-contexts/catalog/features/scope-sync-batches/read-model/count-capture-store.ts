@@ -13,6 +13,8 @@ import {
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "../../source-observations/api/providers/scrydex/adapter";
+import { countFingerprint } from "../domain/count-acquisition";
+import { countCaptureFields, countCaptureUnitKeys } from "../domain/count-capture-plan";
 
 // Possible sends per phase; slots never transfer between phases, and the run total is 11.
 export const countCapturePhaseCaps: Readonly<Record<CountCapturePhase, number>> = {
@@ -31,8 +33,8 @@ const planImportUnitKeys: readonly string[] = [
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 ];
 
+const { id, instant, count, hash, sha } = countCaptureFields;
 const phaseSchema = z.enum(countCapturePhases);
-const instant = z.iso.datetime({ offset: true });
 const sendSchema = z
   .object({
     sequence: z.number().int().min(1).max(countCaptureSendCap),
@@ -56,6 +58,82 @@ const sendSchema = z
     respondedAt: instant.nullable(),
   })
   .strict();
+
+// The host authority envelope the run was admitted under, as declared by the host
+// and validated for consistency. The server never observed these deployment facts.
+const hostSchema = z
+  .object({
+    fingerprint: hash,
+    dispatchId: id,
+    packetHash: hash,
+    runnerSha: sha,
+    deployment: z.object({ runId: id, jobId: id, sha, digest: z.string().regex(/^sha256:[a-f0-9]{64}$/) }).strict(),
+    netCredits: count,
+  })
+  .strict();
+const authoritySchema = z.object({ fingerprint: hash, headroom: count.nullable(), allowed: z.boolean() }).strict();
+const effectsSchema = z
+  .object({ at: instant, batches: count, reservations: count, jobs: count, enqueues: count, imports: count })
+  .strict();
+const baselineSchema = z
+  .object({
+    recordedAt: instant,
+    selection: z
+      .object({
+        scopeRecordId: id,
+        scopeRecordVersion: instant,
+        accountRevision: id,
+        productDomain: z.literal("one-piece"),
+        parentValue: z.literal("OP01"),
+        languageCode: z.literal("en"),
+      })
+      .strict(),
+    units: z
+      .array(
+        z
+          .object({
+            unitKey: z.enum(countCaptureUnitKeys),
+            profileKey: id,
+            profileVersion: id,
+            mappingId: id,
+            mappingVersion: instant,
+            setCoordinate: z.literal("OP01"),
+          })
+          .strict(),
+      )
+      .length(countCaptureUnitKeys.length)
+      .refine((units) => units.every((unit, index) => unit.unitKey === countCaptureUnitKeys[index])),
+    countAuthority: authoritySchema,
+    effects: effectsSchema,
+  })
+  .strict();
+const noticeBodySchema = z
+  .object({
+    kind: z.literal("initial"),
+    environment: z.literal("staging"),
+    selection: baselineSchema.shape.selection,
+    host: hostSchema,
+    caps: z
+      .object({
+        count: z.literal(countCapturePhaseCaps.acquisition),
+        usage: z.literal(countCaptureSendCap - countCapturePhaseCaps.acquisition),
+        total: z.literal(countCaptureSendCap),
+        bootstrap: z.literal(countCapturePhaseCaps.bootstrap),
+        preview: z.literal(countCapturePhaseCaps.preview),
+        preConfirm: z.literal(countCapturePhaseCaps["pre-confirm"]),
+        otherProviders: z.literal(0),
+      })
+      .strict(),
+    overage: z.literal("refused"),
+    countDebits: z.literal("separate-from-batch-reservation"),
+    baselineFingerprint: hash,
+  })
+  .strict();
+const noticeSchema = z.object({ recordedAt: instant, fingerprint: hash, body: noticeBodySchema }).strict();
+const usageSchema = z
+  .object({ recordedAt: instant, state: z.enum(["skipped", "persisted"]), required: count, authority: authoritySchema })
+  .strict();
+
 const runSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -64,9 +142,14 @@ const runSchema = z
     admittedAt: instant,
     expiresAt: instant,
     status: z.enum(["open", "stopped"]),
+    scopeRecordId: id,
+    host: hostSchema,
     phases: z.array(phaseSchema).max(countCapturePhases.length),
     request: z.object({ requestId: z.uuid(), phase: phaseSchema }).strict().nullable(),
     sends: z.array(sendSchema).max(countCaptureSendCap),
+    baseline: baselineSchema.nullable(),
+    notice: noticeSchema.nullable(),
+    usage: usageSchema.nullable(),
   })
   .strict()
   .refine(
@@ -81,6 +164,11 @@ const runSchema = z
       ),
   );
 export type CountCaptureRun = z.infer<typeof runSchema>;
+export type CountCaptureHost = z.infer<typeof hostSchema>;
+export type CountCaptureBaseline = z.infer<typeof baselineSchema>;
+export type CountCaptureEffects = z.infer<typeof effectsSchema>;
+export type CountCaptureNotice = z.infer<typeof noticeSchema>;
+export type CountCaptureUsage = z.infer<typeof usageSchema>;
 export type CountCaptureStore = ReturnType<typeof createCountCaptureStore>;
 
 function phaseOrder(phase: CountCapturePhase) {
@@ -120,6 +208,51 @@ function bound(run: CountCaptureRun, binding: CountCaptureBinding) {
     throw new CountCaptureStopped();
 }
 
+// The pre-spend notice is derived from durable run state alone: the declared host
+// authority, the recorded baseline and the fixed caps. No caller input reaches it.
+function initialNoticeBody(run: CountCaptureRun): z.infer<typeof noticeBodySchema> {
+  return {
+    kind: "initial",
+    environment: "staging",
+    selection: run.baseline!.selection,
+    host: run.host,
+    caps: {
+      count: countCapturePhaseCaps.acquisition,
+      usage: countCaptureSendCap - countCapturePhaseCaps.acquisition,
+      total: countCaptureSendCap,
+      bootstrap: countCapturePhaseCaps.bootstrap,
+      preview: countCapturePhaseCaps.preview,
+      preConfirm: countCapturePhaseCaps["pre-confirm"],
+      otherProviders: 0,
+    },
+    overage: "refused",
+    countDebits: "separate-from-batch-reservation",
+    baselineFingerprint: countFingerprint(run.baseline),
+  };
+}
+
+// Bounded local counts of every effect a capture must never cause. No provider I/O.
+export async function readCountCaptureEffects(db: PgQueryable, at: string): Promise<CountCaptureEffects> {
+  const result = await db.query<Record<Exclude<keyof CountCaptureEffects, "at">, string>>(
+    `SELECT
+      (SELECT count(*) FROM catalog_scope_sync_batches)::text AS batches,
+      (SELECT count(*) FROM catalog_scope_sync_batches WHERE status IN ('queued','running')
+        AND COALESCE((budget->'creditedProviderRequestLimits'->>'scrydex')::bigint, 0) > 0)::text AS reservations,
+      (SELECT count(*) FROM catalog_source_observation_integration_durable_jobs WHERE job_kind = 'integration')::text AS jobs,
+      (SELECT count(*) FROM catalog_source_observation_integration_durable_jobs WHERE job_kind = 'catalog-sync-scope')::text AS enqueues,
+      (SELECT count(*) FROM catalog_source_observation_integration_work_units)::text AS imports`,
+  );
+  const row = result.rows[0];
+  return effectsSchema.parse({
+    at,
+    batches: Number(row?.batches),
+    reservations: Number(row?.reservations),
+    jobs: Number(row?.jobs),
+    enqueues: Number(row?.enqueues),
+    imports: Number(row?.imports),
+  });
+}
+
 // Staging-only capture history. Every change is one locked append of the whole run,
 // so two API replicas sharing one database serialize on the same lock.
 export function createCountCaptureStore(pool: PgTransactionalPool, now = () => new Date().toISOString()) {
@@ -146,6 +279,18 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     if (!outcome.accepted) throw new CountCaptureStopped();
     return outcome.value;
   }
+
+  async function runs(db: PgQueryable, ownerHash?: string): Promise<CountCaptureRun[]> {
+    const result = await db.query<{ payload: unknown }>(
+      ownerHash === undefined
+        ? "SELECT DISTINCT ON (run_id) payload FROM catalog_scope_sync_count_capture_history ORDER BY run_id, position DESC"
+        : "SELECT DISTINCT ON (run_id) payload FROM catalog_scope_sync_count_capture_history WHERE owner_hash = $1 ORDER BY run_id, position DESC",
+      ownerHash === undefined ? [] : [ownerHash],
+    );
+    return result.rows.map((row) => parseRun(row.payload));
+  }
+  const active = (run: CountCaptureRun, at: string) =>
+    run.status === "open" && Date.parse(run.expiresAt) > Date.parse(at);
 
   const ledger: CountCaptureLedger = {
     debit: (binding, send) =>
@@ -214,20 +359,15 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
   return {
     ledger,
     read: (runId: string) => latest(pool, runId),
-    // One active run at a time across every replica; an unreadable run blocks admission.
-    admit: (input: Readonly<{ ownerHash: string }>) =>
+    // One active run at a time across every replica, and one run per host dispatch
+    // ever; an unreadable run blocks admission.
+    admit: (input: Readonly<{ ownerHash: string; scopeRecordId: string; host: CountCaptureHost }>) =>
       withPgTransaction(pool, async (db) => {
         await lock(db);
-        const runs = await db.query<{ payload: unknown }>(
-          "SELECT DISTINCT ON (run_id) payload FROM catalog_scope_sync_count_capture_history ORDER BY run_id, position DESC",
-        );
+        const retained = await runs(db);
         const admittedAt = now();
-        if (
-          runs.rows
-            .map((row) => parseRun(row.payload))
-            .some((run) => run.status === "open" && Date.parse(run.expiresAt) > Date.parse(admittedAt))
-        )
-          throw new CountCaptureStopped();
+        if (retained.some((run) => active(run, admittedAt))) throw new CountCaptureStopped();
+        if (retained.some((run) => run.host.dispatchId === input.host.dispatchId)) throw new CountCaptureStopped();
         const run = parseRun({
           schemaVersion: 1,
           runId: randomUUID(),
@@ -235,23 +375,61 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           admittedAt,
           expiresAt: new Date(Date.parse(admittedAt) + countCaptureRunMs).toISOString(),
           status: "open",
+          scopeRecordId: input.scopeRecordId,
+          host: input.host,
           phases: [],
           request: null,
           sends: [],
+          baseline: null,
+          notice: null,
+          usage: null,
         });
         await append(db, run);
         return run;
       }),
-    // Phases advance strictly in order and bind one request at a time.
+    // The owner's one active run. Its identity never comes from the caller.
+    activeRun: async (ownerHash: string): Promise<CountCaptureRun> => {
+      const owned = (await runs(pool, ownerHash)).filter((run) => active(run, now()));
+      if (owned.length !== 1) throw new CountCaptureStopped();
+      return owned[0]!;
+    },
+    // Phases advance strictly in order and bind one request at a time. Every phase
+    // after the baseline follows the recorded initial notice, and every phase after
+    // the targeted usage observation follows its recorded outcome.
     begin: (runId: string, phase: CountCapturePhase) =>
       mutate(runId, (run): CountCaptureBinding => {
         const last = run.phases.at(-1);
         if (run.request || (last !== undefined && phaseOrder(phase) <= phaseOrder(last)))
           throw new CountCaptureStopped();
+        if (phase !== "baseline" && !run.notice) throw new CountCaptureStopped();
+        if (phaseOrder(phase) > phaseOrder("bootstrap") && !run.usage) throw new CountCaptureStopped();
         const binding = { runId, requestId: randomUUID(), phase };
         run.phases.push(phase);
         run.request = { requestId: binding.requestId, phase };
         return binding;
+      }),
+    recordBaseline: (binding: CountCaptureBinding, baseline: CountCaptureBaseline) =>
+      mutate(binding.runId, (run) => {
+        bound(run, binding);
+        if (binding.phase !== "baseline" || run.baseline || baseline.selection.scopeRecordId !== run.scopeRecordId)
+          throw new CountCaptureStopped();
+        run.baseline = baseline;
+        return baseline;
+      }),
+    // Recorded once, after the finished baseline and before any later phase begins.
+    recordInitialNotice: (runId: string) =>
+      mutate(runId, (run): CountCaptureNotice => {
+        if (!run.baseline || run.request || run.notice || run.phases.length !== 1) throw new CountCaptureStopped();
+        const body = initialNoticeBody(run);
+        run.notice = { recordedAt: now(), fingerprint: countFingerprint(body), body };
+        return run.notice;
+      }),
+    recordUsage: (binding: CountCaptureBinding, usage: Omit<CountCaptureUsage, "recordedAt">) =>
+      mutate(binding.runId, (run): CountCaptureUsage => {
+        bound(run, binding);
+        if (binding.phase !== "bootstrap" || run.usage) throw new CountCaptureStopped();
+        run.usage = { ...usage, recordedAt: now() };
+        return run.usage;
       }),
     finish: (binding: CountCaptureBinding) =>
       mutate(binding.runId, (run) => {

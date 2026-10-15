@@ -8,9 +8,11 @@ An **Acquisition Occurrence** is Inventory-owned evidence of when a positive qua
 
 ## Inventory Mutation Attempt
 
-An **Inventory Mutation Attempt** is an opaque identity created by a caller before submitting a stock, Hold, or Storage Location mutation. Inventory binds it to the trusted Tenant, acting User, Account, mutation family, target or draft, and versioned normalized intent. It is not an Inventory Item, Hold, Order, or background-job identity.
+An **Inventory Mutation Attempt** is an opaque identity created by a caller before submitting a stock, Hold, Storage Location, or Restock Decision mutation. Inventory binds it to the trusted Tenant, acting User, Account, mutation family, target or draft, and versioned normalized intent. It is not an Inventory Item, Hold, Order, or background-job identity.
 
 Acceptance, owned facts, child receipts, and the first terminal receipt commit together. An identical accepted intent reads that immutable first result, even after later changes to the item or Hold. Changed binding or intent cannot authorize another write. After a possible send, recovery reads the exact private receipt rather than silently resubmitting.
+
+A Restock Decision attempt includes the expected decision version, outcome and normalized damage note. Restocking commits its stock adjustment and distinct child receipt with the decision and first result; writing off changes no stock quantity. Retained split-write adjustment evidence without a terminal decision requires reconciliation, not another restock.
 
 ## Inventory Item
 

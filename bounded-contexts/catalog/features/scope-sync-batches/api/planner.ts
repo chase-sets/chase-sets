@@ -49,7 +49,30 @@ export function createScopeSyncBatchPlanner(deps: {
 
     for (const record of scopeRecords) {
       const scopeMappings = mappingsByScope.get(record.scope_record_id) ?? [];
-      const scope = catalogSyncScopeFromRecord(record, scopeMappings, selection);
+      let scope = catalogSyncScopeFromRecord(record, scopeMappings, selection);
+      if (scopeMappings.length > 0) {
+        const { providerParticipation, ...requirementScope } = scope;
+        const requirements = await deps.previewCatalogSyncScope({
+          scope: requirementScope,
+          context: input.context,
+          includeOperationalGates: false,
+          acceptedScopeMappings: [],
+        });
+        scope = {
+          ...scope,
+          providerParticipation: {
+            selectedUnitKeys: [
+              ...new Set([
+                ...(providerParticipation?.selectedUnitKeys ?? []),
+                ...requirements.units
+                  .filter((unit) => unit.requirement === "required")
+                  .map((unit) => unit.unitKey)
+                  .sort(),
+              ]),
+            ],
+          },
+        };
+      }
       const participationPreview = await deps.previewCatalogSyncScope({
         scope,
         context: input.context,
