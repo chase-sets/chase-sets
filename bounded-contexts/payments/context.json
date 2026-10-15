@@ -699,7 +699,7 @@
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Payments-owned UCP payment-handler declarations and AP2 guarded-completion decisions coordinated by Checkout sessions.",
+      "purpose": "Provide Payments-owned UCP payment-handler declarations and stored-payment-method completion decisions coordinated by Checkout sessions.",
       "expectedConsumers": ["Checkout UCP completion adapter", "Platform UCP route composition"]
     },
     "ui-support": {

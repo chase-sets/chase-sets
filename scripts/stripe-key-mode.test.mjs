@@ -29,7 +29,7 @@ const ROOTS = Object.freeze([
   ".github/workflows",
 ]);
 const EXPECTED_BASE_ROOT_COUNTS = Object.freeze([6, 0, 1, 0, 0, 15, 7]);
-const EXPECTED_CANDIDATE_ROOT_COUNTS = Object.freeze([6, 0, 1, 1, 0, 13, 4]);
+const EXPECTED_CANDIDATE_ROOT_COUNTS = Object.freeze([6, 0, 1, 1, 0, 12, 4]);
 const PLANNED_FOOTPRINT = Object.freeze(
   [
     ".github/workflows/platform-pr.yml",
@@ -160,7 +160,6 @@ const CLASS_S_BASE_ANCHORS = Object.freeze([
   ["scripts/platform-deploy-incident.mjs", 93],
   ["scripts/platform-kubernetes-deployment.mjs", 577],
   ["scripts/stripe-webhook-endpoint.mjs", 68],
-  ["scripts/ucp-ap2-certification-evidence.mjs", 24],
 ]);
 const NON_PREDICATE_BASE_ANCHORS = Object.freeze([
   ["scripts/platform-compose-smoke.mjs", 87],
@@ -536,11 +535,11 @@ describe("seven-root tracked inventory and closed partition", () => {
   const classSKeys = new Set(classS.map(candidateKey));
   const nonPredicateKeys = new Set(nonPredicates.map(candidateKey));
 
-  it("reproduces the 29-line baseline and exact 25-line D1/D2 candidate partition", () => {
+  it("reproduces the 29-line baseline and exact 24-line D1/D2 candidate partition", () => {
     expect(baseline.candidates).toHaveLength(29);
     expect(baseline.census.map((entry) => entry.candidates)).toEqual(EXPECTED_BASE_ROOT_COUNTS);
     expect(baseline.candidates.filter((entry) => entry.detectors.includes("D2"))).toEqual([]);
-    expect(candidate.candidates).toHaveLength(25);
+    expect(candidate.candidates).toHaveLength(24);
     expect(candidate.census.map((entry) => entry.candidates)).toEqual(EXPECTED_CANDIDATE_ROOT_COUNTS);
     expect(candidate.candidates.filter((entry) => entry.detectors.includes("D2"))).toEqual([]);
     expect(partitionErrors(candidate.candidates, classSKeys, nonPredicateKeys)).toEqual([]);

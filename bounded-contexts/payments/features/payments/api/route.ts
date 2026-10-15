@@ -178,8 +178,6 @@ function readAgenticPayment(value: unknown) {
   return {
     kind: "stripe-shared-payment-token" as const,
     sharedPaymentGrantedToken: token,
-    ap2CheckoutMandateId: typeof source.ap2CheckoutMandateId === "string" ? source.ap2CheckoutMandateId : null,
-    ap2PaymentMandateId: typeof source.ap2PaymentMandateId === "string" ? source.ap2PaymentMandateId : null,
   };
 }
 

@@ -5,7 +5,6 @@ import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runt
 import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
-import { createRemoteUcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider, createEasyPostPostageWebhookGateway } from "@chase-sets/easypost-postage";
 import {
@@ -117,9 +116,6 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
-const ucpAp2MandateVerifier = config.ucpAp2Verifier
-  ? createRemoteUcpAp2MandateVerifier(config.ucpAp2Verifier)
-  : undefined;
 const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
@@ -728,7 +724,6 @@ const app = buildPlatformApiApp(runtime, {
     mcpToolCallLimiter,
     agentGrantRateLimiter,
   },
-  ucpAp2MandateVerifier,
   agentGrantSpendPolicy,
   agentGrantConsent,
   agentGrantActivity: mcpAuditLog,

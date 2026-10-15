@@ -196,7 +196,6 @@ export type AgenticPaymentHandlerDeclaration = Readonly<{
   id: "stripe-shared-payment-token";
   provider: "stripe";
   type: "shared_payment_token";
-  requiresAp2Mandate: true;
   confirmationExperience: "server-confirmed-payment-intent";
 }>;
 
@@ -205,8 +204,6 @@ export type AgenticProcessorPaymentInput = CreateProcessorPaymentInput &
     agenticPayment: Readonly<{
       kind: "stripe-shared-payment-token";
       sharedPaymentGrantedToken: string;
-      ap2CheckoutMandateId?: string | null;
-      ap2PaymentMandateId?: string | null;
     }>;
   }>;
 
