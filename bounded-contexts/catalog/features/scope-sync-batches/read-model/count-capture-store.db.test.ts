@@ -22,6 +22,7 @@ import {
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as cardUnit,
 } from "../../source-observations/api/providers/scrydex/adapter";
 import { countCaptureSchemaMigrations, countCaptureSchemaSql } from "./count-capture-schema";
+import { beginCapturePhase, captureBaseline, captureHost, captureScope } from "../tests/count-capture-session-fixture";
 import { createCountCaptureStore, type CountCaptureStore } from "./count-capture-store";
 
 const base = process.env.TEST_DATABASE_URL;
@@ -30,6 +31,12 @@ const describeDb = base ? describe : describe.skip;
 
 const fingerprint = "d".repeat(64);
 const owner = (seed: string) => seed.repeat(64);
+// One admission per seed: its own owner and its own host dispatch.
+const admission = (seed: string) => ({
+  ownerHash: owner(seed),
+  scopeRecordId: captureScope,
+  host: captureHost(`synthetic-dispatch-${seed}`),
+});
 const usage = (purpose: "bootstrap" | "readiness" | "planImport", unitKey?: string): CountCaptureSend => ({
   category: "usage",
   requestFingerprint: fingerprint,
@@ -124,8 +131,8 @@ describeDb("count-capture possible-send ledger", () => {
   });
 
   async function openPhase(store: CountCaptureStore, phase: CountCapturePhase) {
-    const run = await store.admit({ ownerHash: owner("a") });
-    return { run, binding: await store.begin(run.runId, phase) };
+    const run = await store.admit(admission("a"));
+    return { run, binding: await beginCapturePhase(store, run.runId, phase) };
   }
   const debitRows = async () =>
     Number(
@@ -168,7 +175,7 @@ describeDb("count-capture possible-send ledger", () => {
       const first = createCountCaptureStore(primary.catalog, clock);
       const second = createCountCaptureStore(replica.catalog, clock);
       const outcomes = await Promise.allSettled(
-        ["a", "b", "c", "e"].map((seed, index) => (index % 2 ? second : first).admit({ ownerHash: owner(seed) })),
+        ["a", "b", "c", "e"].map((seed, index) => (index % 2 ? second : first).admit(admission(seed))),
       );
       expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
       const rows = await primary.catalog.query<{ runs: string }>(
@@ -195,15 +202,23 @@ describeDb("count-capture possible-send ledger", () => {
 
     it("admits at most the eleven phase slots of one run, in order", async () => {
       const store = createCountCaptureStore(primary.catalog, clock);
-      const run = await store.admit({ ownerHash: owner("a") });
+      const run = await store.admit(admission("a"));
       for (const phase of ["baseline", "bootstrap", "quote", "acquisition", "preview", "pre-confirm"] as const) {
         const binding = await store.begin(run.runId, phase);
+        if (phase === "baseline") await store.recordBaseline(binding, captureBaseline());
         for (const send of legalSends[phase]) {
           const sequence = await store.ledger.debit(binding, send);
           await store.ledger.result(binding, sequence, 200);
         }
+        if (phase === "bootstrap")
+          await store.recordUsage(binding, {
+            state: "persisted",
+            required: 11,
+            authority: captureBaseline().countAuthority,
+          });
         if (phase !== "pre-confirm") await store.finish(binding);
         else await expect(store.ledger.debit(binding, usage("readiness"))).rejects.toThrow("capture-stopped");
+        if (phase === "baseline") await store.recordInitialNotice(run.runId);
       }
       const retained = await store.read(run.runId);
       expect(retained.sends.map((send) => send.sequence)).toEqual(Array.from({ length: 11 }, (_, index) => index + 1));
@@ -291,28 +306,28 @@ describeDb("count-capture possible-send ledger", () => {
     it("binds sends to the one open request of an open, unexpired run", async () => {
       const store = createCountCaptureStore(primary.catalog, clock);
       const { run, binding } = await openPhase(store, "bootstrap");
-      await expect(store.admit({ ownerHash: owner("b") })).rejects.toThrow("capture-stopped");
+      await expect(store.admit(admission("b"))).rejects.toThrow("capture-stopped");
       await expect(store.begin(run.runId, "preview")).rejects.toThrow("capture-stopped");
       expect((await store.read(run.runId)).status).toBe("stopped");
       await expect(store.ledger.debit(binding, usage("bootstrap"))).rejects.toThrow("capture-stopped");
 
-      const next = await store.admit({ ownerHash: owner("b") });
-      const bootstrap = await store.begin(next.runId, "bootstrap");
+      const next = await store.admit(admission("b"));
+      const bootstrap = await beginCapturePhase(store, next.runId, "bootstrap");
       const pending = await store.ledger.debit(bootstrap, usage("bootstrap"));
       await expect(store.finish(bootstrap)).rejects.toThrow("capture-stopped");
       expect((await store.read(next.runId)).sends[pending - 1]?.status).toBeNull();
 
-      const late = await store.admit({ ownerHash: owner("c") });
-      const preview = await store.begin(late.runId, "preview");
+      const late = await store.admit(admission("c"));
+      const preview = await beginCapturePhase(store, late.runId, "preview");
       await store.finish(preview);
       await expect(store.begin(late.runId, "bootstrap")).rejects.toThrow("capture-stopped");
 
-      const expiring = await store.admit({ ownerHash: owner("d") });
-      const bound = await store.begin(expiring.runId, "bootstrap");
+      const expiring = await store.admit(admission("d"));
+      const bound = await beginCapturePhase(store, expiring.runId, "bootstrap");
       now = new Date(Date.parse(now) + 900_000).toISOString();
       await expect(store.ledger.debit(bound, usage("bootstrap"))).rejects.toThrow("capture-stopped");
       expect(await store.read(expiring.runId)).toMatchObject({ status: "stopped", sends: [] });
-      await store.admit({ ownerHash: owner("e") });
+      await store.admit(admission("e"));
     });
 
     it("refuses a debit from a finished request", async () => {
@@ -341,7 +356,7 @@ describeDb("count-capture possible-send ledger", () => {
       );
       expect(ledger.rows).toHaveLength(1);
       const store = createCountCaptureStore(pool, clock);
-      const run = await store.admit({ ownerHash: owner("a") });
+      const run = await store.admit(admission("a"));
       await bootstrapContextDatabase(catalogModule, pool);
       for (const statement of [countCaptureSchemaSql, ...countCaptureSchemaMigrations.flatMap((m) => m.statements)])
         await pool.query(statement);
@@ -382,14 +397,14 @@ describeDb("count-capture possible-send ledger", () => {
       ["a date-only instant", { expiresAt: "2026-10-14" }],
     ])("refuses %s on read and admission", async (_label, change) => {
       const store = createCountCaptureStore(primary.catalog, clock);
-      const run = await store.admit({ ownerHash: owner("a") });
+      const run = await store.admit(admission("a"));
       await store.ledger.stop({ runId: run.runId, requestId: run.runId, phase: "baseline" });
       await primary.catalog.query(
         "INSERT INTO catalog_scope_sync_count_capture_history (run_id, owner_hash, payload) VALUES ($1, $2, $3::jsonb)",
         [run.runId, run.ownerHash, JSON.stringify({ ...run, status: "stopped", ...change })],
       );
       await expect(store.read(run.runId)).rejects.toThrow("capture-stopped");
-      await expect(store.admit({ ownerHash: owner("b") })).rejects.toThrow("capture-stopped");
+      await expect(store.admit(admission("b"))).rejects.toThrow("capture-stopped");
       const binding: CountCaptureBinding = { runId: run.runId, requestId: run.runId, phase: "bootstrap" };
       await expect(store.ledger.debit(binding, usage("bootstrap"))).rejects.toThrow("capture-stopped");
     });
