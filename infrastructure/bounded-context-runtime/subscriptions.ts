@@ -1386,8 +1386,9 @@ export function createSubscriptionRunner(
         };
         const events = storedEvents.map((storedEvent) => toTransportEvent(storedEvent));
         const progress =
-          storedEvents.length <= checkpointBatchSize
-            ? await applyStoredEventsAsBatch(events).catch((error: unknown) => {
+          handlerKind === "reaction" || storedEvents.length > checkpointBatchSize
+            ? await applyStoredEventsIndividually(events)
+            : await applyStoredEventsAsBatch(events).catch((error: unknown) => {
                 if (!(error instanceof BatchEventApplyError)) {
                   throw error;
                 }
@@ -1411,8 +1412,7 @@ export function createSubscriptionRunner(
                   eventId: error.eventId,
                   error: error.originalError,
                 });
-              })
-            : await applyStoredEventsIndividually(events);
+              });
         let lastGlobalPosition = progress.lastGlobalPosition;
         let lastCheckpointedGlobalPosition = progress.lastCheckpointedGlobalPosition;
         const processed = progress.processed;
