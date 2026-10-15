@@ -145,6 +145,9 @@ describe("read-after-write live wait declarations", () => {
       ).toEqual(module.apiMounts.map(({ mountPath }) => mountPath));
       const app = new Hono();
       for (const { mountPath, router } of entries) {
+        if (!(router instanceof Hono)) {
+          throw new Error(`${contextName}: ${mountPath} must provide a Hono router`);
+        }
         app.route(mountPath, router);
       }
       const getPaths = new Set(app.routes.filter(({ method }) => method === "GET").map(({ path }) => path));
