@@ -223,7 +223,7 @@ describe("Add to Saved List control", () => {
     const test = await setup(() => pending);
     prepare();
     await waitFor(() => expect(test.action).toHaveBeenCalledTimes(1));
-    test.rerender({ ...controlProps, productKey: "another-product" });
+    test.rerender({ ...controlProps, productKey: "cat_card::condition:lightly-played" });
     test.rerender(controlProps);
     await act(async () => {
       resolve({ status: "ready", preparation });
@@ -242,7 +242,7 @@ describe("Add to Saved List control", () => {
     await waitFor(() => expect(test.action).toHaveBeenCalledTimes(1));
     expect((await test.requests[0].formData()).get("intent")).toBe("commit-saved-list");
     expect(screen.getByRole("button", { name: "Add Product" }).hasAttribute("disabled")).toBe(true);
-    test.rerender({ ...controlProps, productKey: "another-product" });
+    test.rerender({ ...controlProps, productKey: "cat_card::condition:lightly-played" });
     await act(async () => {
       resolve({
         status: "saved",
@@ -257,7 +257,7 @@ describe("Add to Saved List control", () => {
   });
 
   describe.each(["prepare", "commit"])("%s error results", (intent) => {
-    it.each([
+    const nonContractResults: ReadonlyArray<readonly [string, () => unknown]> = [
       [
         "HTML",
         () =>
@@ -271,7 +271,8 @@ describe("Add to Saved List control", () => {
       ["non-string error", () => ({ error: { message: "SyntaxError" } })],
       ["unknown status", () => ({ status: "Unexpected token" })],
       ["null", () => null],
-    ] as const)("localizes non-contract action data: %s", async (_name, result) => {
+    ];
+    it.each(nonContractResults)("localizes non-contract action data: %s", async (_name, result) => {
       const test = await setup(result, intent === "commit" ? preparation : null);
       if (intent === "prepare") prepare();
       else fireEvent.click(screen.getByRole("button", { name: "Add Product" }));
