@@ -1,4 +1,7 @@
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import type { ProviderAdapterRegistry } from "../../source-observations/api/provider-adapters/registry";
 import { catalogProviderProfileVersionIngestionUnitKey } from "../../source-observations/api/provider-integration-profiles";
 import {
@@ -22,9 +25,43 @@ import {
   type CountCaptureHost,
   type CountCaptureStore,
 } from "../read-model/count-capture-store";
-import { countCaptureAdminOrigin, countCaptureSessionOwner, type CountCaptureSession } from "./count-capture-session";
-import { retainTargetedCountCaptureUsage } from "./count-capture-usage";
 import { resolveScopeSyncCountMembership } from "./planner";
+
+export const countCaptureAdminOrigin = "https://admin.staging.chasesets.com";
+export type CountCaptureSession = Readonly<{
+  request: Request;
+  actor: ResolvedActor | null;
+  context: EventStoreContext;
+}>;
+
+// The run owner is derived from the authenticated session alone: a real staging
+// platform-admin session with Catalog view and manage, no agent grant, posting
+// from the staging Admin origin. There is no client-supplied run or phase ID.
+export function countCaptureSessionOwner(session: CountCaptureSession, environment: string): string {
+  const { actor, context, request } = session;
+  if (environment !== "staging") throw new CountCaptureStopped();
+  if (!actor || !actor.sessionId) throw new CountCaptureStopped();
+  if (actor.agentGrant) throw new CountCaptureStopped();
+  if (actor.roleKey !== "platform-admin") throw new CountCaptureStopped();
+  if (!actor.permissions.includes("catalog.view")) throw new CountCaptureStopped();
+  if (!actor.permissions.includes("catalog.manage")) throw new CountCaptureStopped();
+  if (
+    actor.tenantId !== context.tenantId ||
+    actor.userId !== context.audit.performedByUserId ||
+    actor.accountId !== context.audit.forAccountId
+  )
+    throw new CountCaptureStopped();
+  if (request.method !== "POST") throw new CountCaptureStopped();
+  if (request.headers.get("origin") !== countCaptureAdminOrigin) throw new CountCaptureStopped();
+  if (resolvePublicRequestOrigin(request) !== countCaptureAdminOrigin) throw new CountCaptureStopped();
+  if (request.headers.get("sec-fetch-site") === "cross-site") throw new CountCaptureStopped();
+  return countFingerprint({
+    session: actor.sessionId,
+    tenant: actor.tenantId,
+    account: actor.accountId,
+    user: actor.userId,
+  });
+}
 
 type Instant = string | Date;
 // The local rows a baseline reads: the selected scope record, its accepted
@@ -91,6 +128,24 @@ export function observeDeployedScrydexUsage(
     const observe = () => adapter.getUsageSnapshot!();
     return providerSendRuntime ? runCatalogProviderWork(providerSendRuntime.admission, observe) : observe();
   };
+}
+
+// Skips the usage read when durable count authority already covers `required`;
+// otherwise makes exactly one deployed adapter usage observation, whose own
+// callback persists the sanitized snapshot. Only the durable authority read back
+// afterwards decides: the raw returned balance is never authority.
+export async function retainTargetedCountCaptureUsage(
+  deps: Readonly<{ authority(): Promise<CountAuthority>; getUsageSnapshot(): Promise<unknown> }>,
+  required: number,
+) {
+  const covers = (authority: CountAuthority) =>
+    authority.allowed && authority.headroom !== null && authority.headroom >= required;
+  const before = await deps.authority();
+  if (covers(before)) return { state: "skipped" as const, required, authority: before };
+  await deps.getUsageSnapshot();
+  const after = await deps.authority();
+  if (!covers(after)) throw new CountCaptureStopped();
+  return { state: "persisted" as const, required, authority: after };
 }
 
 // The full roster: one active One Piece OP01 set whose accepted mappings are

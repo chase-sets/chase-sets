@@ -15,7 +15,7 @@ import {
   type CountCaptureStore,
 } from "../read-model/count-capture-store";
 import { createCountCaptureLifecycle, type CountCaptureRoster } from "../api/count-capture-lifecycle";
-import type { CountCaptureSession } from "../api/count-capture-session";
+import type { CountCaptureSession } from "../api/count-capture-lifecycle";
 
 // Completely synthetic controls: no value here is a live staging, provider,
 // deployment, review, session or spend observation.

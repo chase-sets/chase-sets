@@ -25,8 +25,7 @@ import {
   captureSession,
   createCaptureLifecycleFixture,
 } from "../tests/count-capture-session-fixture";
-import { createCountCaptureLifecycle } from "./count-capture-lifecycle";
-import { retainTargetedCountCaptureUsage } from "./count-capture-usage";
+import { createCountCaptureLifecycle, retainTargetedCountCaptureUsage } from "./count-capture-lifecycle";
 
 const kinds = ["cards", "sealed"] as const;
 const later = (ms: number) => new Date(Date.parse(captureNow) + ms).toISOString();
@@ -351,7 +350,7 @@ describe("targeted usage observation", () => {
     expect(deleted.counts.retainUsage).not.toHaveBeenCalled();
 
     const rawAuthority = guardDisabledMutant<typeof retainTargetedCountCaptureUsage>(
-      "../api/count-capture-usage.ts",
+      "../api/count-capture-lifecycle.ts",
       [
         ["await deps.getUsageSnapshot();", "const observed = await deps.getUsageSnapshot();"],
         ["const after = await deps.authority();", "const after = rawAuthority(observed);"],

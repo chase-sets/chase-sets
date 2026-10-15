@@ -18,10 +18,8 @@ import {
   createCaptureLifecycleFixture,
 } from "../tests/count-capture-session-fixture";
 import * as storeModule from "../read-model/count-capture-store";
+import { countCaptureSessionOwner } from "./count-capture-lifecycle";
 import * as lifecycleModule from "./count-capture-lifecycle";
-import * as usageModule from "./count-capture-usage";
-import { countCaptureSessionOwner } from "./count-capture-session";
-import * as sessionModule from "./count-capture-session";
 
 const input = () => ({ scopeRecordId: captureScope, authority: captureAuthority() });
 const runs = (f: ReturnType<typeof createCaptureLifecycleFixture>) =>
@@ -97,6 +95,7 @@ describe("capture admission", () => {
     "a stale envelope": { input: stale },
     "a non-staging environment": { environment: "production" },
     "a missing permission": { session: { actor: captureActor({ permissions: ["catalog.view"] }) } },
+    "a missing view permission": { session: { actor: captureActor({ permissions: ["catalog.manage"] }) } },
     "a non-admin role": { session: { actor: captureActor({ roleKey: "seller" }) } },
     "no session": { session: { actor: null } },
     "a foreign origin": { session: { origin: "https://foreign.invalid" } },
@@ -237,6 +236,7 @@ describe("guard-disabled bypass mutants", () => {
     "agent grant": ["actor.agentGrant", "an agent grant"],
     role: ['actor.roleKey !== "platform-admin"', "a non-admin role"],
     permission: ['!actor.permissions.includes("catalog.manage")', "a missing permission"],
+    "view permission": ['!actor.permissions.includes("catalog.view")', "a missing view permission"],
     owner: ["actor.accountId !== context.audit.forAccountId", "a session for another account"],
     method: ['request.method !== "POST"', "a non-POST request"],
     origin: ['request.headers.get("origin") !== countCaptureAdminOrigin', "a foreign origin"],
@@ -246,10 +246,10 @@ describe("guard-disabled bypass mutants", () => {
   it.each(Object.entries(sessionGuards))("the %s guard", (_name, [needle, hostile]) => {
     const refusal = refusalSessions[hostile]!;
     const real = () =>
-      sessionModule.countCaptureSessionOwner(captureSession(refusal.session), refusal.environment ?? "staging");
+      countCaptureSessionOwner(captureSession(refusal.session), refusal.environment ?? "staging");
     expect(real).toThrow(CountCaptureStopped);
     const mutant = guardDisabledMutant<typeof countCaptureSessionOwner>(
-      "../api/count-capture-session.ts",
+      "../api/count-capture-lifecycle.ts",
       [needle, "false"],
       "countCaptureSessionOwner",
       sessionBindings,
@@ -298,7 +298,7 @@ describe("guard-disabled bypass mutants", () => {
       "../api/count-capture-lifecycle.ts",
       [needle, "replacement" in hostile ? hostile.replacement : "false"],
       "createCountCaptureLifecycle",
-      { ...transport, ...acquisition, ...plan, ...receipt, ...storeModule, ...sessionModule, ...usageModule },
+      { ...http, ...transport, ...acquisition, ...plan, ...receipt, ...storeModule },
     );
     const mutant = create({ ...f.deps });
     await expect(mutant.baseline(captureSession(), body)).resolves.toMatchObject({ providerSends: 0 });
@@ -311,6 +311,7 @@ const refusalSessions: Record<string, { session?: Parameters<typeof captureSessi
   "an agent grant": { session: { actor: captureActor({ agentGrant: { grantId: "synthetic-grant" } as never }) } },
   "a non-admin role": { session: { actor: captureActor({ roleKey: "seller" }) } },
   "a missing permission": { session: { actor: captureActor({ permissions: ["catalog.view"] }) } },
+  "a missing view permission": { session: { actor: captureActor({ permissions: ["catalog.manage"] }) } },
   "a session for another account": { session: { actor: captureActor({ accountId: "acc_other" }) } },
   "a non-POST request": { session: { method: "PUT" } },
   "a foreign origin": { session: { origin: "https://foreign.invalid" } },
