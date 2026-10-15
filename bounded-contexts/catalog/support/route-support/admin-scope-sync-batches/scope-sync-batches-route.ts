@@ -101,6 +101,20 @@ const captureFields: Readonly<Record<string, readonly string[]>> = {
   "capture-baseline": ["intent", "countCapture", "scopeRecordId", "authority"],
   "capture-initial-notice": ["intent", "countCapture"],
   "capture-usage": ["intent", "countCapture"],
+  "count-quote": ["intent", "countCapture", "selectionMode", "scopeRecordIds", "budget"],
+  "capture-quote-readback": ["intent", "countCapture"],
+  "capture-final-notice": ["intent", "countCapture"],
+  "count-acquire": ["intent", "countCapture", "quoteId", "countFingerprint"],
+  preview: ["intent", "countCapture", "selectionMode", "scopeRecordIds", "budget"],
+  "pre-confirm-planner-read": [
+    "intent",
+    "countCapture",
+    "selectionMode",
+    "scopeRecordIds",
+    "budget",
+    "planFingerprint",
+  ],
+  "capture-freeze": ["intent", "countCapture", "freeze"],
 };
 async function captureAction(api: ReturnType<typeof createCatalogRequestApiClient>, formData: FormData) {
   const headers = { "Cache-Control": "no-store" };
@@ -127,7 +141,45 @@ async function captureAction(api: ReturnType<typeof createCatalogRequestApiClien
     }
     if (intent === "capture-initial-notice")
       return Response.json(await api.captureScopeSyncCountInitialNotice(), { headers });
-    return Response.json(await api.captureScopeSyncCountUsage(), { headers });
+    if (intent === "capture-usage") return Response.json(await api.captureScopeSyncCountUsage(), { headers });
+    if (intent === "capture-quote-readback")
+      return Response.json(await api.readBackScopeSyncCaptureQuote(), { headers });
+    if (intent === "capture-final-notice")
+      return Response.json(await api.recordScopeSyncCaptureFinalNotice(), { headers });
+    if (intent === "count-acquire")
+      return Response.json(
+        await api.acquireScopeSyncCaptureCounts({
+          quoteId: formData.get("quoteId") as string,
+          fingerprint: formData.get("countFingerprint") as string,
+        }),
+        { headers },
+      );
+    if (intent === "capture-freeze") {
+      const freeze = formData.get("freeze") as string;
+      if (freeze.length > 16_384) throw new Error("capture-stopped");
+      return Response.json(
+        await api.freezeScopeSyncCountCapture(
+          JSON.parse(freeze) as Parameters<typeof api.freezeScopeSyncCountCapture>[0],
+        ),
+        { headers },
+      );
+    }
+    if (formData.get("selectionMode") !== "ids") throw new Error("capture-stopped");
+    const encodedBudget = formData.get("budget") as string;
+    if (encodedBudget.length > 4096) throw new Error("capture-stopped");
+    const input = {
+      selection: { mode: "ids" as const, scopeRecordIds: (formData.get("scopeRecordIds") as string).split(",") },
+      budget: JSON.parse(encodedBudget) as Parameters<typeof api.previewScopeSyncCountCapture>[0]["budget"],
+    };
+    if (intent === "count-quote") return Response.json(await api.quoteScopeSyncCaptureCounts(input), { headers });
+    if (intent === "preview") return Response.json(await api.previewScopeSyncCountCapture(input), { headers });
+    return Response.json(
+      await api.preConfirmScopeSyncCountCapture({
+        ...input,
+        planFingerprint: formData.get("planFingerprint") as string,
+      }),
+      { headers },
+    );
   } catch {
     return Response.json(
       { preview: null, heldSetResolution: null, error: "capture-stopped" },

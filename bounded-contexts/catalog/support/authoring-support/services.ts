@@ -34,6 +34,7 @@ import {
   createCountCaptureLifecycle,
   observeDeployedScrydexUsage,
   readCountCaptureRoster,
+  readCountCaptureEvidence,
   type CountCaptureLifecycle,
 } from "../../features/scope-sync-batches/api/count-capture-lifecycle";
 import { createPgCatalogProviderOptionQueryCacheStore } from "../../features/source-observations/api/providers/provider-option-query-cache";
@@ -209,6 +210,8 @@ export function createCatalogServices(
               sourceObservations.providerAdapterRegistry,
               deps.providerSendRuntime,
             ),
+            counts: scopeSyncBatches,
+            readCountEvidence: (quote) => readCountCaptureEvidence(db, countStore.slot, quote),
           })
         : null,
     catalogAliases,
