@@ -1,3 +1,11 @@
+function describe(error: unknown): string {
+  return error instanceof AggregateError
+    ? error.errors.map(describe).join("; ")
+    : error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : String(error);
+}
+
 export function createBrowserProofResources() {
   const releases: Array<() => Promise<void>> = [];
   let beforeDispose: (() => Promise<void>) | undefined;
@@ -23,7 +31,10 @@ export function createBrowserProofResources() {
           [...releases].reverse().map((release) => Promise.resolve().then(release)),
         );
         for (const result of results) if (result.status === "rejected") errors.push(result.reason);
-        if (errors.length) throw new AggregateError(errors, "Invitation proof cleanup failed");
+        if (errors.length)
+          throw new AggregateError(errors, `Invitation proof cleanup failed: ${errors.map(describe).join("; ")}`, {
+            cause: errors[0],
+          });
       });
       return disposal;
     },
@@ -46,5 +57,8 @@ export async function runBrowserProof(
     errors.push(error);
   }
   if (errors.length === 1) throw errors[0];
-  if (errors.length > 1) throw new AggregateError(errors, "Invitation proof and cleanup failed");
+  if (errors.length > 1)
+    throw new AggregateError(errors, `Invitation proof and cleanup failed: ${errors.map(describe).join("; ")}`, {
+      cause: errors[0],
+    });
 }

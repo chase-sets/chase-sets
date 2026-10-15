@@ -16,6 +16,7 @@ describe("Invitation browser proof resource ownership", () => {
     expect(context).toHaveBeenCalledTimes(1);
     expect(server).toHaveBeenCalledTimes(1);
     expect(error).toMatchObject({ errors: [failure] });
+    expect(error).toHaveProperty("message", expect.stringContaining("context rejected"));
     await expect(resources.dispose()).rejects.toMatchObject({ errors: [failure] });
     expect(server).toHaveBeenCalledTimes(1);
   });
@@ -74,7 +75,11 @@ describe("Invitation browser proof resource ownership", () => {
         });
         throw primary;
       });
-      await expect(result).rejects.toMatchObject({ errors: [primary, { errors: [context, server] }] });
+      const error: unknown = await result.catch((error: unknown) => error);
+      expect(error).toMatchObject({ errors: [primary, { errors: [context, server] }] });
+      expect((error as AggregateError).cause).toBe(primary);
+      expect(error).toHaveProperty("message", expect.stringContaining("context close"));
+      expect(error).toHaveProperty("message", expect.stringContaining("server close"));
     },
   );
 
