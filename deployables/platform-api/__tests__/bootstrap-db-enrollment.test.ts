@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -2397,6 +2398,151 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(bindFrozenSourceToCapture({ capture: {}, readSourceFile: readCheckout }).violations).toEqual([
         "capture records no source digests to bind the frozen source to",
       ]);
+    });
+  });
+
+  describe("producer reads only local Git objects", () => {
+    const syntheticEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Synthetic Probe",
+      GIT_AUTHOR_EMAIL: "synthetic@example.invalid",
+      GIT_COMMITTER_NAME: "Synthetic Probe",
+      GIT_COMMITTER_EMAIL: "synthetic@example.invalid",
+    };
+    const syntheticGit = (repository: string, args: string[], input?: string) =>
+      execFileSync("git", ["-C", repository, ...args], { env: syntheticEnv, input, encoding: "utf8" }).trim();
+    const objectStore = (gitDirectory: string) =>
+      readdirSync(join(gitDirectory, "objects"), { recursive: true, encoding: "utf8" }).sort();
+
+    // An unmistakably synthetic origin reachable only as a local file:// remote;
+    // the consumer optionally holds the source commit and tree but never the
+    // promised blob, so any lazy fetch would add objects to its store.
+    async function runProducerInSyntheticClone({
+      present,
+      config,
+    }: {
+      present: boolean;
+      config: Record<string, string>;
+    }) {
+      const root = await mkdtemp(join(tmpdir(), "db-enrollment-local-objects-"));
+      temporaryRoots.push(root);
+      const origin = join(root, "origin.git");
+      const consumer = join(root, "consumer");
+      syntheticGit(root, ["init", "--quiet", "--bare", origin]);
+      syntheticGit(root, ["init", "--quiet", consumer]);
+      const bytes = "unmistakably synthetic local-only fixture\n";
+      const blob = syntheticGit(origin, ["hash-object", "-w", "--stdin"], bytes);
+      const tree = syntheticGit(origin, ["mktree"], `100644 blob ${blob}\tsynthetic-marker.txt\n`);
+      const commit = syntheticGit(origin, ["commit-tree", tree, "-m", "synthetic local-only fixture"]);
+      syntheticGit(origin, ["update-ref", "refs/heads/main", commit]);
+      if (present) {
+        for (const id of [commit, tree]) {
+          const loose = join("objects", id.slice(0, 2), id.slice(2));
+          await mkdir(dirname(join(consumer, ".git", loose)), { recursive: true });
+          await copyFile(join(origin, loose), join(consumer, ".git", loose));
+        }
+      }
+      syntheticGit(consumer, ["config", "remote.synthetic.url", pathToFileURL(origin).href]);
+      for (const [key, value] of Object.entries(config)) syntheticGit(consumer, ["config", key, value]);
+
+      const capturePath = join(root, "synthetic-capture.json");
+      await writeFile(
+        capturePath,
+        JSON.stringify({
+          provenance: { runId: "65449999", sourceBase: commit, captureParent: commit },
+          sourceBindings: { "synthetic-marker.txt": sha256Of(bytes) },
+        }),
+      );
+      const outPath = join(root, "synthetic-baseline.json");
+      const tracePath = join(root, "git-trace.log").replaceAll("\\", "/");
+      const gitDirectory = join(consumer, ".git");
+      const before = objectStore(gitDirectory);
+      const run = spawnSync(
+        process.execPath,
+        [
+          join(testDirectory, "../scripts/db-enrollment-workload.mjs"),
+          "--check",
+          "--capture",
+          capturePath,
+          "--out",
+          outPath,
+        ],
+        { env: { ...syntheticEnv, GIT_DIR: gitDirectory, GIT_TRACE: tracePath }, encoding: "utf8" },
+      );
+      const commands = [...readFileSync(tracePath, "utf8").matchAll(/trace: built-in: git (\S+)/g)].map(
+        ([, command]) => command,
+      );
+      return { run, commit, commands, before, after: objectStore(gitDirectory), outputWritten: existsSync(outPath) };
+    }
+
+    it.each<{ label: string; present: boolean; config: Record<string, string>; names: string }>([
+      {
+        label: "a partial clone missing the source commit",
+        present: false,
+        config: {
+          "remote.synthetic.promisor": "true",
+          "remote.synthetic.partialclonefilter": "blob:none",
+          "extensions.partialClone": "synthetic",
+        },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter, extensions.partialclone",
+      },
+      {
+        label: "a partial clone holding the source commit but not its promised blob",
+        present: true,
+        config: {
+          "remote.synthetic.promisor": "true",
+          "remote.synthetic.partialclonefilter": "blob:none",
+          "extensions.partialClone": "synthetic",
+        },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter, extensions.partialclone",
+      },
+      {
+        label: "a filter-only remote",
+        present: false,
+        config: { "remote.synthetic.partialclonefilter": "blob:none" },
+        names: "remote.synthetic.partialclonefilter",
+      },
+      {
+        label: "a disabled promisor that keeps its filter",
+        present: true,
+        config: { "remote.synthetic.promisor": "false", "remote.synthetic.partialclonefilter": "blob:none" },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter",
+      },
+      {
+        label: "a promisor remote alone",
+        present: true,
+        config: { "remote.synthetic.promisor": "true" },
+        names: "remote.synthetic.promisor",
+      },
+      {
+        label: "the partial-clone extension alone",
+        present: false,
+        config: { "extensions.partialClone": "synthetic" },
+        names: "extensions.partialclone",
+      },
+    ])("refuses $label before any object read", async ({ present, config, names }) => {
+      const { run, commands, before, after, outputWritten } = await runProducerInSyntheticClone({ present, config });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `local Git objects refused: promisor or partial-clone configuration (${names}) could fetch a missing object; materialize the frozen source from a full clone outside CI`,
+      );
+      expect(commands).toEqual(["config"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
+    });
+
+    it("reports an absent source without fetching when no promisor is configured", async () => {
+      const { run, commit, commands, before, after, outputWritten } = await runProducerInSyntheticClone({
+        present: false,
+        config: {},
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `frozen source ${commit} is not available locally; fetch it outside CI (for example its pull request ref)`,
+      );
+      expect(commands).toEqual(["config", "cat-file"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
     });
   });
 

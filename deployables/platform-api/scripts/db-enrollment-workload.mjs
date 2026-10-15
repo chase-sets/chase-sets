@@ -1063,12 +1063,43 @@ function git(repository, args, options = {}) {
   return execFileSync("git", ["-C", repository, ...args], { maxBuffer: 64 * 1024 * 1024, ...options });
 }
 
+// A promisor or partial-clone repository makes any object read lazily fetch a
+// missing object, including filter-only remotes and the older core setting.
+const lazyFetchConfig =
+  /^(?:extensions\.partialclone|core\.partialclonefilter|remote\..+\.(?:promisor|partialclonefilter))$/i;
+
+/**
+ * Reads Git objects only after a metadata-only preflight proves the repository
+ * cannot lazily fetch: promisor or partial-clone configuration is refused
+ * before every object read rather than trusted to stay local. A failed read
+ * reports `failure` when given.
+ */
+function localObjectGit(repository, args, { failure, ...options } = {}) {
+  const names = git(repository, ["config", "--list", "--name-only", "--null"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+    .split("\0")
+    .filter((name) => lazyFetchConfig.test(name));
+  if (names.length > 0) {
+    throw new Error(
+      `local Git objects refused: promisor or partial-clone configuration (${[...new Set(names)].join(", ")}) could fetch a missing object; materialize the frozen source from a full clone outside CI`,
+    );
+  }
+  try {
+    return git(repository, args, options);
+  } catch (error) {
+    if (failure) throw new Error(failure);
+    throw error;
+  }
+}
+
 /**
  * Producer: materializes the capture's frozen source from local Git objects,
  * proves it is the measured source, derives its workload with the same
  * exported derivation the Unit regression uses, and writes or checks the
- * committed baseline. It never fetches; a missing object is a gap to resolve
- * outside CI.
+ * committed baseline. It never fetches; a missing object, or a repository that
+ * could lazily fetch one, is a gap to resolve outside CI.
  */
 async function main() {
   const { values } = parseArgs({
@@ -1093,29 +1124,25 @@ async function main() {
   if (!hex40.test(commit ?? "") || capture.provenance.captureParent !== commit) {
     throw new Error("capture provenance must name one frozen source as both sourceBase and captureParent");
   }
-  try {
-    git(toolingRoot, ["cat-file", "-e", `${commit}^{commit}`], { stdio: "ignore" });
-  } catch {
-    throw new Error(
-      `frozen source ${commit} is not available locally; fetch it outside CI (for example ${values.ref ?? "its pull request ref"})`,
-    );
-  }
+  localObjectGit(toolingRoot, ["cat-file", "-e", `${commit}^{commit}`], {
+    stdio: "ignore",
+    failure: `frozen source ${commit} is not available locally; fetch it outside CI (for example ${values.ref ?? "its pull request ref"})`,
+  });
   const historicalHead = values["historical-head"];
   if (historicalHead !== undefined) {
     if (!hex40.test(historicalHead)) throw new Error("--historical-head must be a full commit SHA");
-    try {
-      git(toolingRoot, ["merge-base", "--is-ancestor", commit, historicalHead], { stdio: "ignore" });
-    } catch {
-      throw new Error(`frozen source ${commit} is not an ancestor of historical head ${historicalHead}`);
-    }
+    localObjectGit(toolingRoot, ["merge-base", "--is-ancestor", commit, historicalHead], {
+      stdio: "ignore",
+      failure: `frozen source ${commit} is not an ancestor of historical head ${historicalHead}`,
+    });
   }
 
   const scratch = mkdtempSync(join(tmpdir(), "bootstrap-db-frozen-"));
   try {
     const index = join(scratch, "index");
     const frozenRoot = join(scratch, "tree");
-    git(toolingRoot, ["read-tree", `--index-output=${index}`, commit]);
-    git(toolingRoot, ["checkout-index", "--all", "--force", `--prefix=${frozenRoot}/`], {
+    localObjectGit(toolingRoot, ["read-tree", `--index-output=${index}`, commit]);
+    localObjectGit(toolingRoot, ["checkout-index", "--all", "--force", `--prefix=${frozenRoot}/`], {
       env: { ...process.env, GIT_INDEX_FILE: index },
     });
     const binding = bindFrozenSourceToCapture({
