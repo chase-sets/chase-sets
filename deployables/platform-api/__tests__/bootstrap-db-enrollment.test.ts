@@ -2212,6 +2212,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     } catch (error) {
       throw refused([`it is unreadable (${(error as Error).message})`]);
     }
+    if (typeof helper !== "object" || helper === null) {
+      throw refused(["it is unreadable (its root is not a JSON object)"]);
+    }
     const files = helper.files ?? {};
     const expected = new Map([
       ...[...capture.files, ...capture.nonBootstrapFiles].map(
@@ -2615,6 +2618,9 @@ describe("Platform API bootstrap DB enrollment", () => {
       );
       expect(() => loadFrozenSource(gzipped.subarray(0, gzipped.length - 1024), capture)).toThrow(
         refusal("it is unreadable (unexpected end of file)"),
+      );
+      expect(() => loadFrozenSource(gzipSync("null"), capture)).toThrow(
+        refusal("it is unreadable (its root is not a JSON object)"),
       );
     });
   });
