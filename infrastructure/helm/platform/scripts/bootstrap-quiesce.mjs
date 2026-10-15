@@ -83,6 +83,7 @@ export async function runQuiescedBootstrap(options) {
       await options.kubernetes.scaleDeployment(deployment, 0);
     }
 
+    const drainDeadline = Date.now() + options.timeoutMs;
     for (const deployment of originals.keys()) {
       await options.kubernetes.waitForReplicas(deployment, 0, {
         timeoutMs: options.timeoutMs,
@@ -90,12 +91,35 @@ export async function runQuiescedBootstrap(options) {
       });
     }
 
-    // Every target now has no pod left, including a first install that has none; the bootstrap
-    // records that every earlier worker process has terminated.
+    // The bootstrap records a worker quiesce only for a target with no pod left, terminating pods
+    // included, within the same drain budget; a missing deployment has none. A pod still exiting, or
+    // a pod list that cannot be read, does not fail the bootstrap; it only withholds that record.
+    const quiescedDeployments = [];
+    for (const deployment of options.deployments) {
+      let gone = !originals.has(deployment);
+      if (!gone) {
+        try {
+          gone = await options.kubernetes.waitForNoPods(deployment, {
+            timeoutMs: Math.max(0, drainDeadline - Date.now()),
+            pollIntervalMs: options.pollIntervalMs,
+          });
+        } catch (error) {
+          await options.log(`Could not list pods of ${deployment}: ${error.message}`);
+        }
+      }
+      if (gone) {
+        quiescedDeployments.push(deployment);
+      } else {
+        await options.log(
+          `Pods of ${deployment} may still be running; the bootstrap will not record a worker quiesce.`,
+        );
+      }
+    }
+
     const exitCode = await options.spawnCommand(options.command, {
       timeoutMs: options.commandTimeoutMs,
       log: options.log,
-      env: { CHASE_SETS_QUIESCED_DEPLOYMENTS: options.deployments.join(",") },
+      env: { CHASE_SETS_QUIESCED_DEPLOYMENTS: quiescedDeployments.join(",") },
     });
     if (exitCode === 0) {
       if (options.restoreOnSuccess) {
@@ -195,8 +219,6 @@ export function createKubernetesClient(options = {}) {
     return `/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments/${encodeURIComponent(name)}`;
   }
 
-  // A Deployment's status stops counting a pod once it is terminating, so only an empty pod list
-  // proves that every worker process has exited.
   async function countPods(name, matchLabels) {
     const labelSelector = Object.entries(matchLabels ?? {})
       .map(([key, value]) => `${key}=${value}`)
@@ -261,9 +283,7 @@ export function createKubernetesClient(options = {}) {
         const status = response.status ?? {};
         const ready =
           replicas === 0
-            ? Number(status.replicas ?? 0) === 0 &&
-              Number(status.availableReplicas ?? 0) === 0 &&
-              (await countPods(name, response.spec?.selector?.matchLabels)) === 0
+            ? Number(status.replicas ?? 0) === 0 && Number(status.availableReplicas ?? 0) === 0
             : Number(status.readyReplicas ?? 0) >= replicas;
 
         if (ready) {
@@ -273,6 +293,21 @@ export function createKubernetesClient(options = {}) {
         await sleep(waitOptions.pollIntervalMs);
       }
       throw new Error(`Timed out waiting for ${name} to reach ${replicas} replicas.`);
+    },
+    // A Deployment's status stops counting a pod once it is terminating, so only an empty pod list
+    // proves that every process of the deployment has exited.
+    async waitForNoPods(name, waitOptions) {
+      const deadline = Date.now() + waitOptions.timeoutMs;
+      const deployment = await request("GET", deploymentPath(name));
+      for (;;) {
+        if ((await countPods(name, deployment.spec?.selector?.matchLabels)) === 0) {
+          return true;
+        }
+        if (Date.now() >= deadline) {
+          return false;
+        }
+        await sleep(waitOptions.pollIntervalMs);
+      }
     },
   };
 }

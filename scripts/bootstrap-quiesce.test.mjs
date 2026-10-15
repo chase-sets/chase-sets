@@ -52,6 +52,7 @@ describe("bootstrap quiesce wrapper", () => {
       ["pauseScaledObject", "release-platform-worker"],
       ["scale", "release-platform-worker", 0],
       ["wait", "release-platform-worker", 0],
+      ["waitForNoPods", "release-platform-worker"],
       ["spawn", ["pnpm", "bootstrap"]],
       ["log", "Bootstrap completed; Helm may continue the rollout."],
       ["log", "Resuming KEDA autoscaling for release-platform-worker."],
@@ -182,21 +183,33 @@ describe("bootstrap quiesce wrapper", () => {
     ]);
   });
 
-  it("tells the bootstrap which deployments it confirmed have no pod left", async () => {
+  it("tells the bootstrap only the deployments it confirmed have no pod left, without failing on the rest", async () => {
+    const calls = [];
     const spawned = [];
+    const podsGone = { "release-platform-worker": true, "release-slow-worker": false };
     const result = await runQuiescedBootstrap({
-      deployments: ["release-platform-worker", "release-missing-worker"],
+      deployments: [
+        "release-platform-worker",
+        "release-missing-worker",
+        "release-slow-worker",
+        "release-hidden-worker",
+      ],
       command: ["pnpm", "bootstrap"],
       timeoutMs: 1000,
       pollIntervalMs: 1,
       restoreOnFailure: true,
       ignoreMissingDeployments: true,
-      log: async () => undefined,
+      log: async (message) => calls.push(["log", message]),
       kubernetes: {
-        ...fakeKubernetesClient([], { "release-platform-worker": 1 }),
+        ...fakeKubernetesClient(calls, {}),
         async readScale(name) {
           if (name === "release-missing-worker") throw Object.assign(new Error("not found"), { statusCode: 404 });
           return { specReplicas: 1 };
+        },
+        async waitForNoPods(name, waitOptions) {
+          expect(waitOptions.timeoutMs).toBeLessThanOrEqual(1000);
+          if (name === "release-hidden-worker") throw new Error("pods is forbidden");
+          return podsGone[name];
         },
       },
       spawnCommand: async (command, spawnOptions) => {
@@ -207,35 +220,51 @@ describe("bootstrap quiesce wrapper", () => {
 
     expect(result).toBe(0);
     expect(spawned).toEqual([{ CHASE_SETS_QUIESCED_DEPLOYMENTS: "release-platform-worker,release-missing-worker" }]);
+    expect(calls).toContainEqual([
+      "log",
+      "Pods of release-slow-worker may still be running; the bootstrap will not record a worker quiesce.",
+    ]);
+    expect(calls).toContainEqual(["log", "Could not list pods of release-hidden-worker: pods is forbidden"]);
   });
 
-  it("waits for terminating worker pods to exit even after the Deployment reports zero replicas", async () => {
+  it("confirms no pod is left, terminating pods included, by listing the Deployment's selector", async () => {
     const requests = [];
     let podLists = 0;
-    const kubernetes = createKubernetesClient({
-      namespace: "synthetic",
-      host: "kubernetes.invalid",
-      token: "synthetic-token",
-      ca: "synthetic-ca",
-      request: async (method, pathname) => {
-        requests.push([method, pathname]);
-        if (pathname.includes("/pods?")) {
-          podLists += 1;
-          return { items: podLists < 3 ? [{ metadata: { name: "release-platform-worker-terminating" } }] : [] };
-        }
-        return {
-          spec: { selector: { matchLabels: { "app.kubernetes.io/name": "platform-worker", tier: "worker" } } },
-          status: { replicas: 0, availableReplicas: 0 },
-        };
-      },
-    });
+    const client = (podsFor) =>
+      createKubernetesClient({
+        namespace: "synthetic",
+        host: "kubernetes.invalid",
+        token: "synthetic-token",
+        ca: "synthetic-ca",
+        request: async (method, pathname) => {
+          requests.push([method, pathname]);
+          if (pathname.includes("/pods?")) {
+            podLists += 1;
+            return { items: podsFor(podLists) };
+          }
+          return {
+            spec: { selector: { matchLabels: { "app.kubernetes.io/name": "platform-worker", tier: "worker" } } },
+            status: { replicas: 0, availableReplicas: 0 },
+          };
+        },
+      });
+    const terminating = [{ metadata: { name: "release-platform-worker-terminating" } }];
 
-    await kubernetes.waitForReplicas("release-platform-worker", 0, { timeoutMs: 1000, pollIntervalMs: 1 });
+    await expect(
+      client((count) => (count < 3 ? terminating : [])).waitForNoPods("release-platform-worker", {
+        timeoutMs: 1000,
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe(true);
     expect(podLists).toBe(3);
     expect(requests).toContainEqual([
       "GET",
       "/api/v1/namespaces/synthetic/pods?labelSelector=app.kubernetes.io%2Fname%3Dplatform-worker%2Ctier%3Dworker",
     ]);
+
+    await expect(
+      client(() => terminating).waitForNoPods("release-platform-worker", { timeoutMs: 5, pollIntervalMs: 1 }),
+    ).resolves.toBe(false);
 
     const selectorless = createKubernetesClient({
       namespace: "synthetic",
@@ -245,7 +274,7 @@ describe("bootstrap quiesce wrapper", () => {
       request: async () => ({ spec: {}, status: { replicas: 0, availableReplicas: 0 } }),
     });
     await expect(
-      selectorless.waitForReplicas("release-platform-worker", 0, { timeoutMs: 1000, pollIntervalMs: 1 }),
+      selectorless.waitForNoPods("release-platform-worker", { timeoutMs: 1000, pollIntervalMs: 1 }),
     ).rejects.toThrow("cannot be confirmed terminated");
   });
 
@@ -287,6 +316,10 @@ function fakeKubernetesClient(calls, replicasByDeployment, options = {}) {
     },
     async waitForReplicas(name, replicas) {
       calls.push(["wait", name, replicas]);
+    },
+    async waitForNoPods(name) {
+      calls.push(["waitForNoPods", name]);
+      return true;
     },
   };
 }

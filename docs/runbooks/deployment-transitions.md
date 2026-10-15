@@ -98,8 +98,10 @@ behind a default-closed admission and roll out in two phases:
 2. Let the worker rollout finish. A stale heartbeat does not retire a worker,
    because a process whose heartbeat writes fail can keep renewing its leases.
    Only the deployment quiesce retires workers: the bootstrap hook scales
-   `platform-worker` to zero, waits until no worker pod is left (terminating
-   pods included), and the bootstrap then records the quiesce. Admission reads
+   `platform-worker` to zero, and the bootstrap records the quiesce only when
+   no worker pod is left, terminating pods included, within the drain budget.
+   A pod still exiting withholds the record without failing the deploy, and a
+   later deploy records it. Admission reads
    the control plane on every request and stays closed until a quiesce is
    recorded, while a worker started before it still owns an unexpired lease,
    while any worker that started or heartbeated since it predates
