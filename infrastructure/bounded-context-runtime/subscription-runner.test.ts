@@ -55,7 +55,11 @@ function createPassBarrier() {
   };
 }
 
-vi.mock("@chase-sets/event-core", () => createEventCoreMock());
+vi.mock("@chase-sets/event-core", async (importOriginal) => {
+  const { getEventCommitMetadata, runWithEventCommitMetadata } =
+    await importOriginal<typeof import("@chase-sets/event-core")>();
+  return { ...createEventCoreMock(), getEventCommitMetadata, runWithEventCommitMetadata };
+});
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
   const eventCorePostgres = createEventCorePostgresMock();

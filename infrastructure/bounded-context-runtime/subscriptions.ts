@@ -34,7 +34,10 @@ import {
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
-import { runInProjectionDbContext, withProjectionTransaction } from "./projection-transactions";
+import {
+  runInProjectionDbContext,
+  withProjectionTransaction as runProjectionTransaction,
+} from "./projection-transactions";
 import {
   applyLagMetrics,
   areSubscribedReceiptEventsApplied,
@@ -62,7 +65,7 @@ import {
   type SubscriptionOutputApplicationStatus,
   recordProjectionDeferredBlockedStreamEvent,
   recordProjectionPoisonEvent,
-  recordSubscriptionApplicationCompleted,
+  recordSubscriptionApplicationCompleted as completeSubscriptionApplication,
   recordSubscriptionApplicationFailure,
   refreshSubscriptionStatus,
   resolveProjectionBlockedStream,
@@ -522,16 +525,33 @@ export function createSubscriptionRunner(
   );
   const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
-  const captureHandlerOutputs = async (action: () => Promise<unknown>): Promise<readonly string[] | null> => {
-    if (handlerKind !== "reaction") {
-      await action();
-      return null;
-    }
-    return runWithEventCommitMetadata(async () => {
-      await action();
-      return [...new Set(getEventCommitMetadata().committedEvents.map((event) => String(event.globalPosition)))];
-    });
-  };
+  const withProjectionTransaction: typeof runProjectionTransaction = (pool, context, work, telemetry, control) =>
+    runProjectionTransaction(
+      pool,
+      context,
+      (client) => (handlerKind === "reaction" ? runWithEventCommitMetadata(() => work(client)) : work(client)),
+      telemetry,
+      control,
+    );
+  const recordSubscriptionApplicationCompleted: typeof completeSubscriptionApplication = (
+    db,
+    projectionKey,
+    eventId,
+    status,
+    error,
+    context,
+  ) =>
+    completeSubscriptionApplication(
+      db,
+      projectionKey,
+      eventId,
+      status,
+      error,
+      context,
+      handlerKind === "reaction"
+        ? [...new Set(getEventCommitMetadata().committedEvents.map((event) => String(event.globalPosition)))]
+        : null,
+    );
   const sourceHistoryReader = (trigger: TransportEvent, context?: ProjectionRunContext) => {
     // Capture the invocation, not a mutable cursor or a caller-selected stream.
     const bound = structuredClone(trigger);
@@ -839,14 +859,12 @@ export function createSubscriptionRunner(
                   return "already-applied" as const;
                 }
 
-                const outputPositions = await captureHandlerOutputs(() =>
-                  runInProjectionDbContext(client, () =>
-                    handler(event, {
-                      db: client,
-                      throwIfLeaseLost: context?.throwIfLeaseLost,
-                      readSourceStreamHistory: sourceHistoryReader(event, context),
-                    }),
-                  ),
+                await runInProjectionDbContext(client, () =>
+                  handler(event, {
+                    db: client,
+                    throwIfLeaseLost: context?.throwIfLeaseLost,
+                    readSourceStreamHistory: sourceHistoryReader(event, context),
+                  }),
                 );
                 context?.throwIfLeaseLost?.();
                 await recordSubscriptionApplicationCompleted(
@@ -856,7 +874,6 @@ export function createSubscriptionRunner(
                   "applied",
                   null,
                   context,
-                  outputPositions,
                 );
                 return "applied" as const;
               },
@@ -1129,15 +1146,13 @@ export function createSubscriptionRunner(
                       eventId: String(event.id),
                       budget: cascadeChunkSize,
                     });
-                    const outputPositions = await captureHandlerOutputs(() =>
-                      runInProjectionCascadeContext(cascadeController, () =>
-                        runInProjectionDbContext(client, () =>
-                          handler(event, {
-                            db: client,
-                            throwIfLeaseLost: context?.throwIfLeaseLost,
-                            readSourceStreamHistory: sourceHistoryReader(event, context),
-                          }),
-                        ),
+                    await runInProjectionCascadeContext(cascadeController, () =>
+                      runInProjectionDbContext(client, () =>
+                        handler(event, {
+                          db: client,
+                          throwIfLeaseLost: context?.throwIfLeaseLost,
+                          readSourceStreamHistory: sourceHistoryReader(event, context),
+                        }),
                       ),
                     );
                     context?.throwIfLeaseLost?.();
@@ -1154,7 +1169,6 @@ export function createSubscriptionRunner(
                       "applied",
                       null,
                       context,
-                      outputPositions,
                     );
                     return "applied" as const;
                   },

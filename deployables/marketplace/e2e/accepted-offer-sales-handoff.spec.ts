@@ -84,6 +84,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
     expect(stockRead.status()).toBe(200);
     const item = await stockRead.json();
     expect(item.item_id).toBe(stock.id);
+    const { verification: _verification, ...shipFromAddress } = item.ship_from_address;
     const listing = await committed(
       await page.request.post("/api/marketplace/account/listings", {
         data: {
@@ -100,7 +101,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
             storageLocationId: item.storage_location_id,
             storageLocationName: item.storage_location_name,
             shipFromCode: item.ship_from_code,
-            shipFromAddress: item.ship_from_address,
+            shipFromAddress,
             totalQuantity: item.total_quantity,
             availableQuantity: item.available_quantity,
             acquisitionCostAmount: item.acquisition_cost_amount,
