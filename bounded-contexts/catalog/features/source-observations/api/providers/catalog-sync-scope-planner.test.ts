@@ -47,8 +47,8 @@ describe("Catalog sync scope planner", () => {
       }),
     );
     const registry = new ProviderAdapterRegistry(
-      [...new Set(catalogProviderIntegrationProfileVersions.map((version) => version.providerKey))].map(
-        (providerKey) => fakeAdapter(providerKey, fakePlanImport(1)),
+      [...new Set(catalogProviderIntegrationProfileVersions.map((version) => version.providerKey))].map((providerKey) =>
+        fakeAdapter(providerKey, fakePlanImport(1)),
       ),
     );
 
