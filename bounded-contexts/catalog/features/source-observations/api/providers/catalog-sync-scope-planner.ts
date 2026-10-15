@@ -225,6 +225,9 @@ export async function previewCatalogSyncProviderParticipation(input: {
     }));
   if (requiredDefaults.size === 0) {
     for (const candidate of matchingCandidates) {
+      if (!selectedUnitKeys.has(candidate.unitKey) && !isActiveProviderProfileVersion(candidate.version)) {
+        continue;
+      }
       if (providerParticipationRole(candidate.version) === "primary-source-observation") {
         requiredDefaults.add(candidate.unitKey);
       }
@@ -565,6 +568,10 @@ async function appendProviderReadinessBlockers(
   return { credentials, transport };
 }
 
+function isActiveProviderProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return version.active && version.lifecycle === "active" && version.profile.status === "active";
+}
+
 function eligibilityBlockers(
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
@@ -572,7 +579,7 @@ function eligibilityBlockers(
   mapping: CatalogSyncAcceptedScopeMapping | null,
 ): CatalogSyncProviderParticipationBlocker[] {
   const blockers: CatalogSyncProviderParticipationBlocker[] = [];
-  if (!(version.active && version.lifecycle === "active" && version.profile.status === "active")) {
+  if (!isActiveProviderProfileVersion(version)) {
     blockers.push({
       code: "inactive-profile-unit",
       severity: "error",

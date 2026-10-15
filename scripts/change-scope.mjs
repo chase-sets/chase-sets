@@ -295,15 +295,6 @@ export function classifyChanges({
       );
     }
 
-    if (filePath === "scripts/verify-static-surfaces.mjs") {
-      addTestOnlyWorkspace(
-        publicPresenceWorkspace,
-        filePath,
-        directlyTestOnlyAffectedWorkspaces,
-        testOnlyFilesByWorkspace,
-      );
-    }
-
     const workspace = workspaceForFile(filePath, workspaces, baseDir);
     if (workspace) {
       nonDocumentationChanged = true;
@@ -376,9 +367,6 @@ export function classifyChanges({
     ...directlyTestOnlyAffectedWorkspaces,
     ...(schedulerOwnedArtifactChanged ? workspaces.map((workspace) => workspace.name) : []),
   ]);
-  const affectedWorkspaces = workspaces
-    .map((workspace) => workspace.name)
-    .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
   const runtimeAffectedWorkspaces = workspaces
     .map((workspace) => workspace.name)
     .filter((workspaceName) => runtimeAffectedWorkspaceSet.has(workspaceName));
@@ -431,7 +419,6 @@ export function classifyChanges({
       .some((relativeFilePath) => testDbScripts.some((script) => script.includes(relativeFilePath)));
   }
 
-  const unitTestsRequired = affectedWorkspaces.length > 0;
   // A scheduler-owned artifact is the process that selects, orders, times, and
   // bounds every DB execution unit, so a change to one must run those units.
   // The fan-out above already unions every workspace into `affectedWorkspaceSet`
@@ -440,7 +427,7 @@ export function classifyChanges({
   // DB-capability rule so it can never require a job with nothing to run.
   const schedulerOwnedChangeRequiresDbTests =
     schedulerOwnedArtifactChanged &&
-    affectedWorkspaces.some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
+    [...affectedWorkspaceSet].some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
     normalizedFiles.includes(".github/workflows/platform-pr.yml") ||
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
@@ -449,6 +436,21 @@ export function classifyChanges({
     }) ||
     [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange) ||
     schedulerOwnedChangeRequiresDbTests;
+  // Public Presence source-authority tests read cited line spans and partition
+  // tracked source across the whole repository, so no path vocabulary can name
+  // every file they read: any nonempty diff enrolls them test-only. Enrolling
+  // after every capability decision above keeps it from adding any, and no
+  // foreign path is recorded as a Public Presence test file. An empty list is
+  // how both DB-profile runners sweep every DB workspace, so enrollment never
+  // narrows that sweep to this one workspace.
+  if (publicPresenceWorkspace && normalizedFiles.length > 0 && !(dbTestsRequired && affectedWorkspaceSet.size === 0)) {
+    directlyTestOnlyAffectedWorkspaces.add(publicPresenceWorkspace);
+    affectedWorkspaceSet.add(publicPresenceWorkspace);
+  }
+  const affectedWorkspaces = workspaces
+    .map((workspace) => workspace.name)
+    .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
+  const unitTestsRequired = affectedWorkspaces.length > 0;
   return {
     changedFiles: normalizedFiles,
     affectedWorkspaces,
