@@ -141,6 +141,7 @@ test.describe("Invitation real browser route @marketplace-account", () => {
       browser,
     }, testInfo) => {
       const started = performance.now();
+      let documentNavigations = 0;
       const diagnostic = (phase: string) =>
         console.log(
           JSON.stringify({
@@ -216,6 +217,12 @@ test.describe("Invitation real browser route @marketplace-account", () => {
           if (!address || typeof address === "string") throw new Error("fixture listener unavailable");
           const page = await context.newPage();
           diagnostic("page:allocated");
+          page.on("request", (request) => {
+            if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+              documentNavigations++;
+              diagnostic("navigation:document-request");
+            }
+          });
           page.on("framenavigated", (frame) =>
             diagnostic(frame === page.mainFrame() ? "navigation:main-frame" : "navigation:child-frame"),
           );
@@ -304,12 +311,30 @@ test.describe("Invitation real browser route @marketplace-account", () => {
           diagnostic("scan:start");
           const scan = await extractAndScan(archive, testInfo.outputPath(`${scenario}-extracted`));
           diagnostic("scan:complete");
+          console.log(
+            JSON.stringify({
+              invitationRouteProof: scenario,
+              phases,
+              counters: {
+                writes: counters.writes,
+                reads: counters.reads,
+                completions: counters.completions,
+                accountLoads: counters.accountLoads,
+                inspect: counters.inspect,
+                attempts: counters.attempts.length,
+                distinctAttempts: new Set(counters.attempts).size,
+              },
+              scan,
+              documentNavigations,
+            }),
+          );
           await testInfo.attach("invitation-route-proof", {
             body: JSON.stringify({
               fixture: "test-only-owner-adapters; production route/action/loader/UI; rollout unchanged",
               phases,
               counters,
               scan,
+              documentNavigations,
             }),
             contentType: "application/json",
           });
@@ -319,6 +344,7 @@ test.describe("Invitation real browser route @marketplace-account", () => {
           throw error;
         }
       });
+      expect(documentNavigations, "one initial document request; history.replaceState is not a reload").toBe(1);
       diagnostic("disposal:complete");
     });
   }
