@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-// Software-only evidence for #9628 AC1/AC2. Every native primitive below the census law is
-// synthetic; the collector, job and actual-host witness (AC3/AC4) belong to the host verifier.
+// Software-only evidence for #9651 AC1/AC2 (#9628's law with R1/R2). Every native primitive below the
+// census law is synthetic; the collector, job and actual-host witness (AC3/AC4) belong to the host verifier.
 const script = fileURLToPath(new URL("./selector-run-profile-census.ps1", import.meta.url));
 const driver = fileURLToPath(new URL("./selector-run-profile-census-witness.mjs", import.meta.url));
 const scratch = mkdtempSync(path.join(tmpdir(), "selector-run-profile-census-"));
@@ -44,6 +44,7 @@ function fs(extra: Record<string, unknown> = {}, omit: string[] = []) {
     [`${ROOT}\\PROFIL~1`]: { short: PROFILE },
     [`${ROOT}\\profile-backup`]: "dir",
     [`${ROOT}\\other`]: "dir",
+    "C:\\tools": "dir",
     "C:\\links\\into": { link: PROFILE },
     "C:\\links\\elsewhere": { link: "C:\\Users\\synthetic" },
     "C:\\links\\userdata": { link: USER_DATA },
@@ -136,6 +137,124 @@ const NOT_REFERENCES: Array<[string, string[]]> = [
   ["non-fixed drive stays lexical", ["Z:\\profile"]],
   ["named pipe device", ["\\\\.\\pipe\\selector-synthetic"]],
 ];
+
+// Compound argv tokens as CommandLineToArgvW returns them from `cmd /c "…"` wrappers: a drive path
+// whose middle component embeds a second drive path or a redirection, which the OS reports as 123.
+const COMPOUND_DRIVE = `C:\\tools\\wrapper.cmd ${PROFILE}`;
+const COMPOUND_REDIRECT = `C:\\tools\\job.cmd > ${PROFILE}\\log.txt`;
+const INVALID_TAIL = "run.cmd > C:\\Temp\\log.txt";
+const NO_ROOT_DRIVE = { fixed: ["C", "S", "T"] };
+// An injected probe result for the existing entry C:\fault, reached after the 123s of an invalid tail.
+const fault = (probe: Spec): Spec => ({
+  fs: fs({ "C:\\fault": "dir" }),
+  faults: { "C:\\fault": probe },
+  ...withProcesses(tool(800, `C:\\fault\\${INVALID_TAIL}`)),
+});
+
+// #9651 R1: an L5 argv candidate's entry-open 123 only continues the canonical-prefix walk.
+function continuationCases(): Case[] {
+  const referenced = (name: string, token: string, overrides: Spec = {}) =>
+    census(`L5 123 (ii) ${name} is REFERENCED`, "RUN_PROFILE_REFERENCED", {
+      ...withProcesses(tool(800, token)),
+      ...overrides,
+    });
+  const unresolved = (name: string, overrides: Spec) =>
+    census(`L5 123 ${name} is UNRESOLVED`, "REFERENCE_UNRESOLVED", overrides);
+  return [
+    census(
+      "L5 123 (i) embedded-drive compound token over an unrelated prefix is CLEAR",
+      "CLEAR",
+      withProcesses(tool(800, COMPOUND_DRIVE)),
+    ),
+    census(
+      "L5 123 (i) redirection compound token over an unrelated prefix is CLEAR",
+      "CLEAR",
+      withProcesses(tool(800, COMPOUND_REDIRECT)),
+    ),
+    referenced("invalid tail under the profile", `${PROFILE}\\Default\\${INVALID_TAIL}`),
+    referenced("invalid tail before the profile exists", `${PROFILE}\\${INVALID_TAIL}`, { fs: NO_PROFILE }),
+    referenced("invalid tail through a junction into the profile", `C:\\links\\into\\${INVALID_TAIL}`),
+    referenced("invalid tail through an 8.3 name of the profile", `${ROOT}\\PROFIL~1\\${INVALID_TAIL}`),
+    referenced("invalid tail through a subst drive", `S:\\profile\\${INVALID_TAIL}`),
+    census(
+      "L5 123 (ii) invalid tail under a non-user-data-dir root ancestor is CLEAR",
+      "CLEAR",
+      withProcesses(tool(800, `${ROOT}\\${INVALID_TAIL}`)),
+    ),
+    unresolved(
+      "(iii) invalid tail under a denied lexically unrelated alias",
+      withProcesses(tool(800, `C:\\gate\\alias\\${INVALID_TAIL}`)),
+    ),
+    unresolved(
+      "(iii) invalid tail behind a reparse loop",
+      withProcesses(tool(800, `C:\\links\\loop\\x\\${INVALID_TAIL}`)),
+    ),
+    unresolved(
+      "(iii) invalid tail under an existing dangling junction",
+      withProcesses(tool(800, `C:\\links\\dangling\\${INVALID_TAIL}`)),
+    ),
+    ...[5, 1920, 1921, 21].map((code) => unresolved(`(iv) entry-open ${code} after a 123`, fault({ entry: code }))),
+    ...[2, 3, 123].map((code) => unresolved(`(iv) failed follow ${code} after a 123`, fault({ follow: code }))),
+    ...[2, 123].map((code) =>
+      unresolved(`(iv) metadata query ${code} on an opened entry`, fault({ entry: code, opened: true })),
+    ),
+    unresolved("(iv) final-path query failure after a 123", fault({ follow: 1 })),
+    unresolved(
+      "(iv) unparseable final path after a 123",
+      fault({ final: "\\\\?\\Volume{00000000-0000-0000-0000-000000000000}\\fault" }),
+    ),
+    ...[3, 123].map((code) =>
+      unresolved(`(iv) no canonical existing prefix (drive root ${code})`, {
+        ...NO_ROOT_DRIVE,
+        faults: { "T:\\": { entry: code } },
+        ...withProcesses(tool(800, `T:\\${INVALID_TAIL}`)),
+      }),
+    ),
+    census("L5 no canonical existing prefix is UNRESOLVED without a 123", "REFERENCE_UNRESOLVED", {
+      ...NO_ROOT_DRIVE,
+      faults: { "T:\\": { entry: 3 } },
+      ...withProcesses(tool(800, "T:\\absent\\x")),
+    }),
+    census(
+      "L5 123 (v) run root 123 refuses before collection",
+      "CENSUS_INCOMPLETE",
+      {},
+      { root: "C:\\Users\\synthetic\\bad:dir\\selector-witness-synthetic" },
+    ),
+    census("L5 123 (v) injected run-root 123 refuses before collection", "CENSUS_INCOMPLETE", {
+      faults: { [ROOT]: { entry: 123 } },
+    }),
+    census("L5 123 (v) default-root 123 refuses before collection", "CENSUS_INCOMPLETE", {
+      localAppData: "C:\\Users\\synthetic\\App:Data\\Local",
+    }),
+    census("L5 123 (v) profile-entry enumeration 123 stays CENSUS_INCOMPLETE", "CENSUS_INCOMPLETE", {
+      entryCodes: { [PROFILE]: 123 },
+    }),
+    census(
+      "L5 123 (v) Chrome user-data-dir 123 stays CHROME_AMBIGUOUS",
+      "CHROME_AMBIGUOUS",
+      withProcesses(chrome(810, `--user-data-dir=C:\\Users\\synthetic\\${INVALID_TAIL}`)),
+    ),
+    census(
+      "L5 123 (v) UNC compound token stays lexical",
+      "CLEAR",
+      withProcesses(tool(800, `\\\\fileserver\\share\\${INVALID_TAIL}`)),
+    ),
+    census(
+      "L5 123 (vi) profile argument beside an unrelated compound token is REFERENCED",
+      "RUN_PROFILE_REFERENCED",
+      withProcesses(tool(800, COMPOUND_DRIVE, PROFILE)),
+    ),
+    census("L5 123 (vi) holder beside an unrelated compound token is HELD", "RUN_PROFILE_HELD", {
+      holders: { [`${PROFILE}\\Default`]: [8100] },
+      ...withProcesses(tool(800, COMPOUND_REDIRECT)),
+    }),
+    unresolved(
+      "(vi) denied alias beside an unrelated compound token",
+      withProcesses(tool(800, COMPOUND_DRIVE), tool(801, "C:\\gate\\alias")),
+    ),
+  ];
+}
 
 function lawCases(): Case[] {
   const job = (pids: number[], open: Record<string, unknown>, limits = "0x0/0x0") => ({ job: { limits, pids, open } });
@@ -293,6 +412,7 @@ function lawCases(): Case[] {
       "RUN_PROFILE_REFERENCED",
       withProcesses(tool(800, "C:\\gate\\alias"), tool(801, PROFILE)),
     ),
+    ...continuationCases(),
     census("L6 non-run file holder", "RUN_PROFILE_HELD", { holders: { [`${PROFILE}\\Default\\Cookies`]: [8100] } }),
     census("L6 non-run directory holder", "RUN_PROFILE_HELD", { holders: { [`${PROFILE}\\Default`]: [8100] } }),
     census("L6 profile directory holder", "RUN_PROFILE_HELD", { holders: { [PROFILE]: [8100] } }),
@@ -358,6 +478,34 @@ const start = (name: string, expected: string, overrides: Spec = {}): Case => ({
   expect: expected,
 });
 
+const SELECTOR_GRANT_TIMEOUT_MS = 30000;
+const WRITES: Array<[string, Spec]> = [
+  ["withheld grant", { inJob: false }],
+  ["failed grant write", { writeOk: false }],
+  ["thrown grant write", { writeOk: "throw" }],
+];
+// #9651 R2: one fixed deadline covers the driver's exit and the held job draining. `active` is the
+// job's count at each poll after exit; `exitMs` is when the exit is observed inside the wait.
+const DRAINS: Array<[string, string, Spec]> = [
+  ["driver exits, then the held job drains 1->0 inside the budget", "REFUSED", { active: [1, 0] }],
+  ["driver exits into an already empty job", "REFUSED", { active: [0] }],
+  ["driver exits, but the job stays nonzero through the deadline", "PENDING", { active: [1] }],
+  [
+    "driver exit spends the budget and zero comes only after the deadline",
+    "PENDING",
+    { exitMs: SELECTOR_GRANT_TIMEOUT_MS, active: [0] },
+  ],
+  ["driver exits, but job accounting throws", "PENDING", { active: "throw" }],
+  ["driver never exits", "PENDING", { exits: false, active: [0] }],
+];
+function drainCases(): Case[] {
+  return WRITES.flatMap(([write, writeSpec]) =>
+    DRAINS.map(([history, expected, drainSpec]) =>
+      start(`start ${write}: ${history}`, expected, { ...writeSpec, ...drainSpec }),
+    ),
+  );
+}
+
 function startCases(): Case[] {
   return [
     start("start grants only after membership, unchanged limits and PID+start", "GRANTED"),
@@ -377,6 +525,17 @@ function startCases(): Case[] {
     start("start keeps an unexited ungranted driver PENDING", "PENDING", { inJob: false, exits: false }),
     start("start keeps a withheld run with live members PENDING", "PENDING", { inJob: false, active: 1 }),
     start("start keeps an owner failure after creation PENDING", "PENDING", { inJob: "throw", exits: "throw" }),
+    start("start keeps a run PENDING when closing the grant pipe throws", "PENDING", {
+      inJob: false,
+      closeThrows: true,
+    }),
+    start("start keeps a failed exit wait PENDING even when the job is empty", "PENDING", {
+      inJob: false,
+      exits: false,
+      exitMs: 0,
+      active: [0],
+    }),
+    ...drainCases(),
   ];
 }
 
@@ -435,6 +594,12 @@ function witnessCases(): Case[] {
       "REFUSED",
       {},
       `${USER_DATA}\\selector-witness-x`,
+    ),
+    witness(
+      "witness refuses a root the OS reports as 123 before any creation or deletion",
+      "REFUSED",
+      {},
+      "C:\\Users\\synthetic\\bad:dir\\selector-witness-x",
     ),
     witness("witness refuses an existing scratch root", "REFUSED", { witness: { exists: [true] } }),
     witness("witness is NOT_EXERCISED without a switchless Chrome root", "NOT_EXERCISED", {
@@ -499,7 +664,12 @@ function Invoke-SyntheticOpen([string]$Path, [bool]$Follow, [int]$Depth) {
   if ($Path -notmatch '^([A-Za-z]):(\\.*)?$') { return @{ Code = 123 } }
   $drive = $Matches[1].ToUpperInvariant() + ':'
   $parts = @(([string]$Matches[2]).Split('\') | Where-Object { $_ })
-  $current = if ($script:current.substs -and $script:current.substs[$drive]) { $script:current.substs[$drive] } else { $drive }
+  # The OS reports 123 (ERROR_INVALID_NAME) for a name no entry can have: a reserved character, a
+  # colon in a middle component or an empty stream name. A final name:stream is an absent stream.
+  for ($i = 0; $i -lt $parts.Count; $i++) {
+    if ($parts[$i] -match '[<>|*?"]' -or ($parts[$i].Contains(':') -and ($i -lt $parts.Count - 1 -or $parts[$i].EndsWith(':')))) { return @{ Code = 123 } }
+  }
+  $current =if ($script:current.substs -and $script:current.substs[$drive]) { $script:current.substs[$drive] } else { $drive }
   $last = $null
   for ($i = 0; $i -lt $parts.Count; $i++) {
     $final = $i -eq $parts.Count - 1
@@ -551,9 +721,20 @@ function New-SyntheticNative($Spec) {
     Open = {
       param($Path, $Follow)
       if ($script:current.slow -and $script:current.slow.path -ceq $Path) { $script:clock = $script:clock.AddMilliseconds([double]$script:current.slow.ms) }
-      Invoke-SyntheticOpen $Path $Follow 0
+      # An injected entry-open or metadata (opened) code, failed follow, or final path for one exact prefix.
+      $fault = if ($script:current.faults) { $script:current.faults[$Path] } else { $null }
+      $probe = if ($fault -and -not $Follow -and $null -ne $fault.entry) { @{ Code = [int]$fault.entry; Opened = [bool]$fault.opened } }
+        elseif ($fault -and $Follow -and $null -ne $fault.follow) { @{ Code = [int]$fault.follow; Opened = $false } }
+        elseif ($fault -and $Follow -and $fault.final) { @{ Code = 0; Opened = $true; Final = $fault.final } }
+        else { Invoke-SyntheticOpen $Path $Follow 0 }
+      $script:calls.Add("Open:$([int][bool]$Follow):$Path=$($probe.Code)")
+      $probe
     }
-    Entry = { param($Path) Invoke-SyntheticOpen $Path $false 0 }
+    Entry = {
+      param($Path)
+      if ($script:current.entryCodes -and $null -ne $script:current.entryCodes[$Path]) { return @{ Code = [int]$script:current.entryCodes[$Path] } }
+      Invoke-SyntheticOpen $Path $false 0
+    }
     List = {
       param($Directory)
       if ($script:current.listThrow -contains $Directory) { throw 'synthetic list failure' }
@@ -605,8 +786,17 @@ function New-SyntheticNative($Spec) {
       if ("$($script:current.start.writeOk)" -ceq 'throw') { throw 'synthetic pipe write failure' }
       $script:calls.Add('Grant:' + $Line); [bool]$script:current.start.writeOk
     }
-    CloseWriter = { param($Writer) $script:calls.Add('CloseWriter') }
-    WaitExit = { param($Process, $Ms) $script:calls.Add('WaitExit'); if ("$($script:current.start.exits)" -ceq 'throw') { throw 'synthetic' }; [bool]$script:current.start.exits }
+    CloseWriter = { param($Writer) $script:calls.Add('CloseWriter'); if ($script:current.start.closeThrows) { throw 'synthetic close failure' } }
+    WaitExit = {
+      param($Process, $Ms)
+      $script:calls.Add("WaitExit:$Ms")
+      if ("$($script:current.start.exits)" -ceq 'throw') { throw 'synthetic' }
+      # The wait ends exitMs in (an exit, or a failed wait), else at once on exit or after the whole wait.
+      $exits = [bool]$script:current.start.exits
+      $script:clock = $script:clock.AddMilliseconds([Math]::Min([double]$Ms, [double]($script:current.start.exitMs ?? $(if ($exits) { 0 } else { $Ms }))))
+      $exits
+    }
+    Sleep = { param($Ms) $script:calls.Add("Sleep:$Ms"); $script:clock = $script:clock.AddMilliseconds([double]$Ms) }
     JobActive = {
       param($Job)
       $script:calls.Add('JobActive')
@@ -614,7 +804,11 @@ function New-SyntheticNative($Spec) {
       if ($null -ne $script:current.job.active) { return [int]$script:current.job.active }
       # The job's own count: every live in-job process, listed or not.
       if ($script:current.job) { return @($script:current.job.open.Values | Where-Object { $_ -isnot [string] -and $_.inJob -and $_.alive }).Count }
-      [int]$script:current.start.active
+      if ("$($script:current.start.active)" -ceq 'throw') { throw 'synthetic job accounting failure' }
+      # A start's counts are read in order; the last one repeats.
+      $counts = @($script:current.start.active)
+      $script:activeReads = 1 + [int]$script:activeReads
+      [int]$counts[[Math]::Min($script:activeReads, $counts.Count) - 1]
     }
     WitnessDriver = { 'C:\seat\selector-run-profile-census-witness.mjs' }
     ScriptSha256 = { 'b' * 64 }
@@ -633,6 +827,7 @@ $results = [ordered]@{}
 foreach ($case in $cases) {
   try {
     $script:limitReads = 0
+    $script:activeReads = 0
     $native = New-SyntheticNative $case.native
     $startCalls = $null
     $value = switch ($case.kind) {
@@ -839,126 +1034,288 @@ describe("selector-run-profile-census-law", () => {
     expect(second.defaultRootDigest).toBe(first.defaultRootDigest);
     expect(third.defaultRootDigest).not.toBe(first.defaultRootDigest);
   });
+
+  it("continues past an L5 candidate's 123 only by opening and following a shorter existing prefix", () => {
+    const continued = (name: string, invalid: string, prefix: string, followCode = 0) => {
+      const calls = outcomes[name].calls;
+      const rejected = calls.indexOf(`Open:0:${invalid}=123`);
+      expect(rejected).toBeGreaterThan(-1);
+      const opened = calls.indexOf(`Open:0:${prefix}=0`, rejected);
+      expect(opened).toBeGreaterThan(rejected);
+      expect(calls.indexOf(`Open:1:${prefix}=${followCode}`, opened)).toBe(opened + 1);
+    };
+    // The compound token itself is no synthetic entry: CLEAR comes from the walk, not a mocked answer.
+    expect(Object.keys(fs())).not.toContain(COMPOUND_DRIVE);
+    continued(
+      "L5 123 (i) embedded-drive compound token over an unrelated prefix is CLEAR",
+      "C:\\tools\\wrapper.cmd C:",
+      "C:\\tools",
+    );
+    continued(
+      "L5 123 (i) redirection compound token over an unrelated prefix is CLEAR",
+      "C:\\tools\\job.cmd > C:",
+      "C:\\tools",
+    );
+    continued(
+      "L5 123 (ii) invalid tail through a junction into the profile is REFERENCED",
+      "C:\\links\\into\\run.cmd > C:",
+      "C:\\links\\into",
+    );
+    continued(
+      "L5 123 (iii) invalid tail under an existing dangling junction is UNRESOLVED",
+      "C:\\links\\dangling\\run.cmd > C:",
+      "C:\\links\\dangling",
+      3,
+    );
+    // Run-root resolution keeps the 2/3-only gate: its 123 never reaches a shorter prefix.
+    const root = outcomes["L5 123 (v) run root 123 refuses before collection"].calls;
+    expect(root).toContain("Open:0:C:\\Users\\synthetic\\bad:dir\\selector-witness-synthetic=123");
+    expect(root.some((call) => call.startsWith("Open:0:C:\\Users\\synthetic\\bad:dir="))).toBe(false);
+    const unc = outcomes["L5 123 (v) UNC compound token stays lexical"].calls;
+    expect(unc.some((call) => call.includes("fileserver"))).toBe(false);
+  });
 });
 
 const PARENT_SNAPSHOT = String.raw`$members = @(& { $rows = @(& $Native.Processes); $tree = @{ [long]$Run.driver.pid = $true }; do { $grew = $false; foreach ($row in $rows) { if ($tree[[long]$row.parentPid] -and -not $tree[[long]$row.pid]) { $tree[[long]$row.pid] = $true; $grew = $true } } } while ($grew); foreach ($row in $rows) { if ($tree[[long]$row.pid]) { @{ pid = [long]$row.pid; created = [long]$row.created } } } })`;
 const NAME_EXCLUSION = String.raw`$selfName = @($processes | Where-Object { $_.pid -eq $self.pid })[0].name; $foreign = @($entries.pids | Where-Object { $holder = $_; $row = @($processes | Where-Object { $_.pid -eq $holder })[0]; -not ($row -and $row.name -eq $selfName) -and -not $memberPids.Contains([long]$holder) })`;
 
-const MUTANTS: Array<{ name: string; from: string; to: string; killedBy: string }> = [
+type Mutant = { name: string; from: string; to: string; killedBy: string[]; wrong: string };
+
+// Each mutant must load, reach the public result and return its named wrong closed code.
+const MUTANTS: Mutant[] = [
   {
     name: "switchless unknown",
     from: "$class = 'DEFAULT'",
     to: "$class = 'CHROME_AMBIGUOUS'",
-    killedBy: "L7 switchless Chrome root is DEFAULT and never blocks",
+    killedBy: ["L7 switchless Chrome root is DEFAULT and never blocks"],
+    wrong: "CHROME_AMBIGUOUS",
   },
   {
     name: "parent-snapshot tree",
     from: "$members = @(Get-SelectorJobMembers $Run $Native $Held)",
     to: PARENT_SNAPSHOT,
-    killedBy: "L4 switchless grandchild after intermediate and driver exit is RUN",
+    killedBy: ["L4 switchless grandchild after intermediate and driver exit is RUN"],
+    wrong: "RUN_TRACKING_INCOMPLETE",
   },
   {
     name: "PID-only membership",
     from: "if ($member.InJob -and $member.Alive) {",
     to: "if ($member.Alive) {",
-    killedBy: "L4 reused PID non-member is not RUN",
+    killedBy: ["L4 reused PID non-member is not RUN"],
+    wrong: "RUN_TREE_ALIVE",
   },
   {
     name: "tracking loss DEFAULT",
     from: "if ($tracking.state -ceq 'LOST') { $result.code = 'RUN_TRACKING_INCOMPLETE'; return $result }",
     to: "",
-    killedBy: "L3 launched run whose job handle fails",
+    killedBy: ["L3 launched run whose job handle fails"],
+    wrong: "CLEAR",
   },
   {
     name: "raw substring",
     from: "return $Inner.Equals($Outer, $script:SelectorPathComparison) -or $Inner.StartsWith($Outer.TrimEnd('\\') + '\\', $script:SelectorPathComparison)",
     to: "return $Inner.IndexOf($Outer, $script:SelectorPathComparison) -ge 0",
-    killedBy: "L5 not a reference: lone profile-backup sibling",
+    killedBy: ["L5 not a reference: lone profile-backup sibling"],
+    wrong: "RUN_PROFILE_REFERENCED",
   },
   {
+    // Retargeted for #9651 R1; every failed entry open still continues the walk.
     name: "lexical failure gate",
-    from: "if ($entry.Code -notin 2, 3) { return $unresolved }",
-    to: "if ($false) { return $unresolved }",
-    killedBy: "L5 denied lexically unrelated alias is UNRESOLVED",
+    from: "if ($entry.Opened -or $entry.Code -notin $absent) { break }",
+    to: "if ($false) { break }",
+    killedBy: [
+      "L5 denied lexically unrelated alias is UNRESOLVED",
+      "L5 123 (iii) invalid tail under a denied lexically unrelated alias is UNRESOLVED",
+    ],
+    wrong: "CLEAR",
   },
   {
     name: "ordinal case",
     from: "$script:SelectorPathComparison = [StringComparison]::OrdinalIgnoreCase",
     to: "$script:SelectorPathComparison = [StringComparison]::Ordinal",
-    killedBy: "L5 case-variant tail before the profile exists",
+    killedBy: ["L5 case-variant tail before the profile exists"],
+    wrong: "CLEAR",
   },
   {
     name: "file-only holders",
     from: "foreach ($holder in @(& $Native.Holders $entry.path)) { [void]$pids.Add([long]$holder) }",
     to: "if (-not $entry.directory) { foreach ($holder in @(& $Native.Holders $entry.path)) { [void]$pids.Add([long]$holder) } }",
-    killedBy: "L6 non-run directory holder",
+    killedBy: ["L6 non-run directory holder"],
+    wrong: "CLEAR",
   },
   {
     name: "name self-exclusion",
     from: "$foreign = @($entries.pids | Where-Object { $_ -ne $self.pid -and -not $memberPids.Contains([long]$_) })",
     to: NAME_EXCLUSION,
-    killedBy: "L6 same-name non-run holder is HELD",
+    killedBy: ["L6 same-name non-run holder is HELD"],
+    wrong: "CLEAR",
   },
   {
     name: "unreadable Chrome DEFAULT",
     from: "$class = 'CHROME_UNREADABLE'",
     to: "$class = 'DEFAULT'",
-    killedBy: "L7 unreadable Chrome command line",
+    killedBy: ["L7 unreadable Chrome command line"],
+    wrong: "CLEAR",
   },
   {
     name: "CLEAR on collector error",
     from: "$result.code = 'CENSUS_INCOMPLETE' # collector or resolver failure",
     to: "$result.code = 'CLEAR'",
-    killedBy: "L2 process enumeration failure",
+    killedBy: ["L2 process enumeration failure"],
+    wrong: "CLEAR",
   },
   {
     name: "stale PID list as empty job",
     from: "if (-not $members.Count -and (& $Native.JobActive $Run.job) -ne 0) { return @{ state = 'LOST'; members = @() } }",
     to: "",
-    killedBy: "L3 member born behind the job PID list as its parent exits",
+    killedBy: ["L3 member born behind the job PID list as its parent exits"],
+    wrong: "CLEAR",
   },
   {
     name: "deadline after root resolution",
     from: "$deadline = (& $Native.Now).AddMilliseconds($script:SelectorCensusTimeoutMs)\n    $context = Get-SelectorRunPaths $Root $Native",
     to: "$context = Get-SelectorRunPaths $Root $Native\n    $deadline = (& $Native.Now).AddMilliseconds($script:SelectorCensusTimeoutMs)",
-    killedBy: "L2 root resolution past the deadline",
+    killedBy: ["L2 root resolution past the deadline"],
+    wrong: "CLEAR",
   },
   {
     name: "no classification deadline",
     from: "if ((& $Native.Now) -gt $deadline) { throw 'CLASSIFICATION_TIMEOUT' }",
     to: "",
-    killedBy: "L2 reference resolution past the deadline",
+    killedBy: ["L2 reference resolution past the deadline"],
+    wrong: "CLEAR",
+  },
+  {
+    name: "123 unresolved",
+    from: "$absent = if ($Candidate) { 2, 3, 123 } else { 2, 3 }",
+    to: "$absent = 2, 3",
+    killedBy: [
+      "L5 123 (i) embedded-drive compound token over an unrelated prefix is CLEAR",
+      "L5 123 (i) redirection compound token over an unrelated prefix is CLEAR",
+    ],
+    wrong: "REFERENCE_UNRESOLVED",
+  },
+  {
+    name: "123 discard candidate",
+    from: "if ($entry.Opened -or $entry.Code -notin $absent) { break }",
+    to: "if ($Candidate -and $entry.Code -eq 123) { $resolved = @{ state = 'RESOLVED'; text = $null }; break }; if ($entry.Opened -or $entry.Code -notin $absent) { break }",
+    killedBy: [
+      "L5 123 (ii) invalid tail under the profile is REFERENCED",
+      "L5 123 (ii) invalid tail before the profile exists is REFERENCED",
+      "L5 123 (ii) invalid tail through a junction into the profile is REFERENCED",
+      "L5 123 (ii) invalid tail through an 8.3 name of the profile is REFERENCED",
+      "L5 123 (ii) invalid tail through a subst drive is REFERENCED",
+    ],
+    wrong: "CLEAR",
+  },
+  {
+    name: "123 anywhere is absent",
+    from: "$entry = & $Context.native.Open $prefix $false",
+    to: "$entry = & $Context.native.Open $prefix $false; if ($entry.Code -eq 123 -or ($entry.Code -eq 0 -and (& $Context.native.Open $prefix $true).Code -eq 123)) { continue }",
+    killedBy: [
+      "L5 123 (iv) failed follow 123 after a 123 is UNRESOLVED",
+      "L5 123 (iv) metadata query 123 on an opened entry is UNRESOLVED",
+    ],
+    wrong: "CLEAR",
+  },
+  {
+    name: "failed-follow skip",
+    from: "$final = if ($followed.Code -eq 0) { ConvertTo-SelectorPath $followed.Final $Context.names } else { $null }",
+    to: "$final = if ($followed.Code -eq 0) { ConvertTo-SelectorPath $followed.Final $Context.names } else { $null }; if ($final -isnot [hashtable]) { continue }",
+    killedBy: [
+      "L5 123 (iii) invalid tail under an existing dangling junction is UNRESOLVED",
+      "L5 123 (iv) failed follow 2 after a 123 is UNRESOLVED",
+      "L5 123 (iv) failed follow 3 after a 123 is UNRESOLVED",
+      "L5 123 (iv) final-path query failure after a 123 is UNRESOLVED",
+      "L5 123 (iv) unparseable final path after a 123 is UNRESOLVED",
+    ],
+    wrong: "CLEAR",
+  },
+  {
+    name: "metadata failure as absent",
+    from: "if ($entry.Opened -or $entry.Code -notin $absent) { break }",
+    to: "if ($entry.Code -notin $absent) { break }",
+    killedBy: [
+      "L5 123 (iv) metadata query 2 on an opened entry is UNRESOLVED",
+      "L5 123 (iv) metadata query 123 on an opened entry is UNRESOLVED",
+    ],
+    wrong: "CLEAR",
+  },
+  {
+    name: "lexical text without a canonical prefix",
+    from: "$resolved = $unresolved",
+    to: "$resolved = @{ state = 'RESOLVED'; text = $text }",
+    killedBy: [
+      "L5 123 (iv) no canonical existing prefix (drive root 3) is UNRESOLVED",
+      "L5 123 (iv) no canonical existing prefix (drive root 123) is UNRESOLVED",
+      "L5 no canonical existing prefix is UNRESOLVED without a 123",
+    ],
+    wrong: "CLEAR",
+  },
+  {
+    name: "123 continues root resolution",
+    from: "$absent = if ($Candidate) { 2, 3, 123 } else { 2, 3 }",
+    to: "$absent = 2, 3, 123",
+    killedBy: [
+      "L5 123 (v) injected run-root 123 refuses before collection",
+      "L5 123 (v) default-root 123 refuses before collection",
+      "L5 123 (v) Chrome user-data-dir 123 stays CHROME_AMBIGUOUS",
+    ],
+    wrong: "CLEAR",
+  },
+  {
+    name: "shared candidate cache",
+    from: "$cache = if ($Candidate) { $Context.candidateCache } else { $Context.cache }",
+    to: "$cache = $Context.cache",
+    killedBy: ["L5 123 (v) Chrome user-data-dir 123 stays CHROME_AMBIGUOUS"],
+    wrong: "CLEAR",
   },
 ];
 
-const WITNESS_MUTANTS: Array<{ name: string; from: string; to: string; killedBy: string }> = [
+const WITNESS_MUTANTS: Mutant[] = [
   {
     name: "W3-bound D1",
     from: "$result.d1 = $result.w4.defaultRootDigest",
     to: "",
-    killedBy: "witness is INVALID when a default Chrome root restarts between W3 and W4",
+    killedBy: ["witness is INVALID when a default Chrome root restarts between W3 and W4"],
+    wrong: "PASS",
   },
   {
     name: "final-only D1",
     from: " -or $Result.w3.defaultRootDigest -cne $Result.d0",
     to: "",
-    killedBy: "witness is INVALID when a W3 default-root removal is restored by W4",
+    killedBy: ["witness is INVALID when a W3 default-root removal is restored by W4"],
+    wrong: "PASS",
+  },
+  {
+    // #9651 R1 (v): the run root is admitted under the strict gate before anything is created.
+    name: "123 continues root resolution before creation",
+    from: "$absent = if ($Candidate) { 2, 3, 123 } else { 2, 3 }",
+    to: "$absent = 2, 3, 123",
+    killedBy: ["witness refuses a root the OS reports as 123 before any creation or deletion"],
+    wrong: "FAIL",
   },
 ];
 
 describe("selector-run-profile-census-law mutants", () => {
   const source = readFileSync(script, "utf8");
   const cases = lawCases();
-  it.each(MUTANTS.map((mutant) => [mutant.name, mutant] as const))("%s FAILS its named law case", (_name, mutant) => {
+  it.each(MUTANTS.map((mutant) => [mutant.name, mutant] as const))("%s FAILS its named law cases", (_name, mutant) => {
     expect(source.split(mutant.from)).toHaveLength(2);
-    const target = cases.find((entry) => entry.name === mutant.killedBy);
-    expect(target).toBeDefined();
-    const mutated = path.join(scratch, `mutant-${mutant.name.replaceAll(/[^a-z]+/gi, "-")}.ps1`);
-    writeFileSync(mutated, source.replace(mutant.from, mutant.to));
-    const outcomes = run([target!], mutated);
-    // Killed behaviourally: the mutant still returns a closed census, just the wrong code.
-    expectClosedCensus(outcomes[target!.name].value);
-    expect(code(outcomes[target!.name])).not.toBe(target!.expect);
+    const targets = mutant.killedBy.map((name) => cases.find((entry) => entry.name === name));
+    for (const target of targets) expect(target).toBeDefined();
+    const mutated = path.join(scratch, `mutant-${mutant.name.replaceAll(/[^a-z0-9]+/gi, "-")}.ps1`);
+    writeFileSync(
+      mutated,
+      source.replace(mutant.from, () => mutant.to),
+    );
+    const outcomes = run(targets as Case[], mutated);
+    for (const target of targets as Case[]) {
+      // Killed behaviourally: the mutant still returns a closed census, with the named wrong code.
+      expectClosedCensus(outcomes[target.name].value);
+      expect(target.expect).not.toBe(mutant.wrong);
+      expect(code(outcomes[target.name])).toBe(mutant.wrong);
+    }
   });
 });
 
@@ -969,15 +1326,72 @@ describe("selector-run-profile-census-witness mutants", () => {
     "%s FAILS its named witness case",
     (_name, mutant) => {
       expect(source.split(mutant.from)).toHaveLength(2);
-      const target = cases.find((entry) => entry.name === mutant.killedBy);
-      expect(target).toBeDefined();
+      const targets = mutant.killedBy.map((name) => cases.find((entry) => entry.name === name));
+      for (const target of targets) expect(target).toBeDefined();
       const mutated = path.join(scratch, `witness-mutant-${mutant.name.replaceAll(/[^a-z0-9]+/gi, "-")}.ps1`);
-      writeFileSync(mutated, source.replace(mutant.from, mutant.to));
-      const value = run([target!], mutated)[target!.name].value as Witness;
-      // Killed behaviourally: a closed witness result that reaches the false PASS.
-      expect(Object.keys(value)).toEqual(WITNESS_KEYS);
-      expect(value.verdict).not.toBe(target!.expect);
-      expect(value.verdict).toBe("PASS");
+      writeFileSync(
+        mutated,
+        source.replace(mutant.from, () => mutant.to),
+      );
+      const outcomes = run(targets as Case[], mutated);
+      for (const target of targets as Case[]) {
+        // Killed behaviourally: a closed witness result with the named wrong verdict.
+        const value = outcomes[target.name].value as Witness;
+        expect(Object.keys(value)).toEqual(WITNESS_KEYS);
+        expect(target.expect).not.toBe(mutant.wrong);
+        expect(value.verdict).toBe(mutant.wrong);
+      }
+    },
+  );
+});
+
+const drainsOf = (history: string) => WRITES.map(([write]) => `start ${write}: ${history}`);
+const START_MUTANTS: Mutant[] = [
+  {
+    name: "instant empty check",
+    from: "& $Native.Sleep $script:SelectorDrainPollMs",
+    to: "break",
+    killedBy: drainsOf("driver exits, then the held job drains 1->0 inside the budget"),
+    wrong: "PENDING",
+  },
+  {
+    name: "timeout reset",
+    from: "while ($exited) {",
+    to: "if ($exited) { $deadline = (& $Native.Now).AddMilliseconds($script:SelectorGrantTimeoutMs) }; while ($exited) {",
+    killedBy: drainsOf("driver exit spends the budget and zero comes only after the deadline"),
+    wrong: "REFUSED",
+  },
+  {
+    name: "drain without exit",
+    from: "while ($exited) {",
+    to: "while ($true) {",
+    killedBy: ["start keeps a failed exit wait PENDING even when the job is empty"],
+    wrong: "REFUSED",
+  },
+];
+
+describe("selector-run-profile-census-boundary mutants", () => {
+  const source = readFileSync(script, "utf8");
+  const cases = startCases();
+  it.each(START_MUTANTS.map((mutant) => [mutant.name, mutant] as const))(
+    "%s FAILS its named start cases",
+    (_name, mutant) => {
+      expect(source.split(mutant.from)).toHaveLength(2);
+      const targets = mutant.killedBy.map((name) => cases.find((entry) => entry.name === name));
+      for (const target of targets) expect(target).toBeDefined();
+      const mutated = path.join(scratch, `start-mutant-${mutant.name.replaceAll(/[^a-z0-9]+/gi, "-")}.ps1`);
+      writeFileSync(
+        mutated,
+        source.replace(mutant.from, () => mutant.to),
+      );
+      const outcomes = run(targets as Case[], mutated);
+      for (const target of targets as Case[]) {
+        // Killed behaviourally: a closed start result with the named wrong state, never a load failure.
+        const value = outcomes[target.name].value as Started;
+        expect(["GRANTED", "PENDING", "REFUSED"]).toContain(value.state);
+        expect(target.expect).not.toBe(mutant.wrong);
+        expect(value.state).toBe(mutant.wrong);
+      }
     },
   );
 });
@@ -1067,6 +1481,34 @@ describe("selector-run-profile-census-boundary", () => {
     // A created driver is released only through EOF on its own grant pipe, never ended.
     expect(outcome.calls.includes("CloseWriter")).toBe(created);
     if (entry.expect === "PENDING") expect(value.censusAfter).toBe("RUN_TRACKING_INCOMPLETE");
+  });
+
+  it("refuses a withheld, failed or thrown grant only after exit and drain inside one fixed budget", () => {
+    const drains = drainCases();
+    expect(drains).toHaveLength(WRITES.length * DRAINS.length);
+    for (const entry of drains) {
+      const calls = outcomes[entry.name].calls;
+      const closed = calls.indexOf("CloseWriter");
+      const waits = calls.filter((call) => call.startsWith("WaitExit:"));
+      // One wait, after EOF on the grant pipe, for no more than the single fixed budget.
+      expect(waits).toHaveLength(1);
+      const waited = calls.indexOf(waits[0]);
+      expect(closed).toBeGreaterThan(-1);
+      expect(closed).toBeLessThan(waited);
+      expect(Number(waits[0].slice("WaitExit:".length))).toBeGreaterThan(SELECTOR_GRANT_TIMEOUT_MS - 10);
+      expect(Number(waits[0].slice("WaitExit:".length))).toBeLessThanOrEqual(SELECTOR_GRANT_TIMEOUT_MS);
+      // Job accounting is polled only after the driver's exit, and only that job's count.
+      expect(calls.slice(0, waited)).not.toContain("JobActive");
+      const polls = calls.slice(waited + 1);
+      expect(polls.every((call) => call === "JobActive" || call.startsWith("Sleep:") || call === "CloseWriter")).toBe(
+        true,
+      );
+      if (entry.name.endsWith("driver never exits")) expect(polls).not.toContain("JobActive");
+      if (entry.name.endsWith("drains 1->0 inside the budget")) {
+        expect(polls.filter((call) => call === "JobActive")).toHaveLength(2);
+        expect(polls).toContain("Sleep:25");
+      }
+    }
   });
 
   it.each(witnesses.map((entry) => [entry.name, entry] as const))("%s", (_name, entry) => {

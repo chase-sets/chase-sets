@@ -1,6 +1,7 @@
 #Requires -Version 7.0
-# selector-run-profile-census/v1 (#9628): a run-owned job and the narrowed Chrome census over one
-# in-process observation. Dot-source for Start-SelectorRunOwned and Get-SelectorRunProfileCensus.
+# selector-run-profile-census/v1 (#9628, amended by #9651): a run-owned job and the narrowed Chrome
+# census over one in-process observation. Dot-source for Start-SelectorRunOwned and
+# Get-SelectorRunProfileCensus.
 # `-Action witness` (admission JSON on stdin, never a path on argv) is the host verifier's witness.
 # Owned processes close normally or exit on their own; the only deletion here is the witness's own
 # scratch root after a CLEAR census.
@@ -11,7 +12,9 @@ $script:SelectorEntryLimit = 20000
 # Checked between primitive calls from root resolution to completion. A native call in progress is
 # not cancelled (CIM enumeration has its own 60 s operation timeout), so it is not a hard wall clock.
 $script:SelectorCensusTimeoutMs = 120000
+# One budget for a refused start: driver exit and the held job draining both fall inside it.
 $script:SelectorGrantTimeoutMs = 30000
+$script:SelectorDrainPollMs = 25
 $script:SelectorLaunchTimeoutMs = 120000
 $script:SelectorCloseTimeoutMs = 120000
 $script:SelectorAdmissionLimit = 4096
@@ -72,32 +75,41 @@ function Test-SelectorPathWithin([string]$Inner, [string]$Outer) {
   return $Inner.Equals($Outer, $script:SelectorPathComparison) -or $Inner.StartsWith($Outer.TrimEnd('\') + '\', $script:SelectorPathComparison)
 }
 
-function Resolve-SelectorPath($Path, $Context) {
+# Canonical = final DOS path of the longest existing prefix plus the retained tail; without one, the
+# path is unresolved. Only an L5 argv candidate (-Candidate, #9651 R1) continues past an entry the OS
+# reports is not nameable (123); its results keep their own cache, so run/default-root and Chrome
+# user-data-dir resolution never see one.
+function Resolve-SelectorPath($Path, $Context, [switch]$Candidate) {
   $unresolved = @{ state = 'UNRESOLVED'; text = $null }
   if ($Path -isnot [hashtable]) { return $unresolved }
   $text = Format-SelectorPath $Path
   # UNC and non-fixed volumes stay lexical; v1 proves no equivalence for them.
   if (-not $Path.drive -or -not (& $Context.native.DriveFixed $Path.drive)) { return @{ state = 'RESOLVED'; text = $text } }
-  if ($Context.cache.ContainsKey($text)) { return $Context.cache[$text] }
-  $resolved = @{ state = 'RESOLVED'; text = $text }
+  $cache = if ($Candidate) { $Context.candidateCache } else { $Context.cache }
+  if ($cache.ContainsKey($text)) { return $cache[$text] }
+  $absent = if ($Candidate) { 2, 3, 123 } else { 2, 3 }
+  $resolved = $unresolved
   $parts = @($Path.parts)
   for ($k = $parts.Count; $k -ge 0; $k--) {
     $head = if ($k) { $parts[0..($k - 1)] } else { @() }
     $prefix = Format-SelectorPath @{ drive = $Path.drive; parts = $head }
-    # Non-traversing, attribute-only open of the entry itself: only 2/3 mean "absent".
+    # Non-traversing, attribute-only open of the entry itself. Only a failed open, never a metadata
+    # query on an opened entry, can mean absent (2/3) or not nameable (123) and try a shorter prefix.
     $entry = & $Context.native.Open $prefix $false
     if ($entry.Code -eq 0) {
+      # A failed follow or unparseable final path of an existing entry leaves the path unresolved.
       $followed = & $Context.native.Open $prefix $true
       $final = if ($followed.Code -eq 0) { ConvertTo-SelectorPath $followed.Final $Context.names } else { $null }
-      if ($final -isnot [hashtable]) { $resolved = $unresolved; break }
-      $tail = if ($k -lt $parts.Count) { $parts[$k..($parts.Count - 1)] } else { @() }
-      $final.parts = @($final.parts) + @($tail)
-      $resolved = @{ state = 'RESOLVED'; text = Format-SelectorPath $final }
+      if ($final -is [hashtable]) {
+        $tail = if ($k -lt $parts.Count) { $parts[$k..($parts.Count - 1)] } else { @() }
+        $final.parts = @($final.parts) + @($tail)
+        $resolved = @{ state = 'RESOLVED'; text = Format-SelectorPath $final }
+      }
       break
     }
-    if ($entry.Code -notin 2, 3) { return $unresolved }
+    if ($entry.Opened -or $entry.Code -notin $absent) { break }
   }
-  $Context.cache[$text] = $resolved
+  $cache[$text] = $resolved
   return $resolved
 }
 
@@ -120,7 +132,7 @@ function Get-SelectorReferenceState([string[]]$Argv, $Context) {
   foreach ($candidate in Get-SelectorReferenceCandidates $Argv) {
     $path = ConvertTo-SelectorPath $candidate.value $Context.names
     if ($null -eq $path) { continue }
-    $resolved = Resolve-SelectorPath $path $Context
+    $resolved = Resolve-SelectorPath $path $Context -Candidate
     if ($resolved.state -ceq 'UNRESOLVED') { $state = 'UNRESOLVED'; continue }
     if ((Test-SelectorPathWithin $resolved.text $Context.profile) -or
         ($candidate.userDataDir -and (Test-SelectorPathWithin $Context.profile $resolved.text))) { return 'REFERENCED' }
@@ -148,7 +160,8 @@ function Get-SelectorRunPaths([string]$Root, $Native) {
     throw 'ROOT_ADMISSION_REFUSED'
   }
   $comparer = [StringComparer]::FromComparison($script:SelectorPathComparison)
-  $context = @{ names = $names; native = $Native; cache = [Collections.Generic.Dictionary[string, object]]::new($comparer) }
+  $context = @{ names = $names; native = $Native; cache = [Collections.Generic.Dictionary[string, object]]::new($comparer);
+    candidateCache = [Collections.Generic.Dictionary[string, object]]::new($comparer) }
   $profilePath = ConvertTo-SelectorPath "$Root\profile" $names
   $context.profileLexical = Format-SelectorPath $profilePath
   $resolvedRoot = Resolve-SelectorPath $rootPath $context
@@ -351,15 +364,27 @@ function Start-SelectorRunOwned {
       if ($written) { $run.state = 'GRANTED'; $run.code = 'RUN_GRANTED'; return $run }
     }
     # Withheld grant, including a failed or thrown write: EOF on the driver's own grant pipe makes it
-    # exit normally.
+    # exit normally. One fixed deadline covers that exit and the held job draining (#9651 R2): REFUSED
+    # needs both inside it; a live driver or a nonzero, failed or late count stays PENDING.
     $run.state = 'PENDING'; $run.code = 'RUN_TRACKING_INCOMPLETE'
+    $deadline = (& $Native.Now).AddMilliseconds($script:SelectorGrantTimeoutMs)
     & $Native.CloseWriter $start.Stdin
-    if ((& $Native.WaitExit $start.Process $script:SelectorGrantTimeoutMs) -and (& $Native.JobActive $run.job) -eq 0) {
-      $run.state = 'REFUSED'; $run.code = 'RUN_START_REFUSED'
+    $exited = & $Native.WaitExit $start.Process ([Math]::Max(0, [int]($deadline - (& $Native.Now)).TotalMilliseconds))
+    # Driver exit is not job exit: after it, poll only the held job's active count for the remaining time.
+    while ($exited) {
+      $active = & $Native.JobActive $run.job
+      $late = (& $Native.Now) -gt $deadline
+      if ($active -eq 0 -and -not $late) { $run.state = 'REFUSED'; $run.code = 'RUN_START_REFUSED' }
+      if ($active -eq 0 -or $late) { break }
+      & $Native.Sleep $script:SelectorDrainPollMs
     }
     return $run
   } catch {
-    if ($null -ne $run.process) { $run.state = 'PENDING'; $run.code = 'RUN_TRACKING_INCOMPLETE' }
+    if ($null -ne $run.process) {
+      # Never granted: keep custody as PENDING and still give the driver EOF so it can exit normally.
+      $run.state = 'PENDING'; $run.code = 'RUN_TRACKING_INCOMPLETE'
+      try { & $Native.CloseWriter $run.stdin } catch { }
+    }
     return $run
   }
 }
@@ -513,7 +538,7 @@ public sealed class SelectorRunMember : IDisposable {
   public long Pid, Created; public bool InJob, Alive; public SafeProcessHandle Handle;
   public void Dispose() { if (Handle != null) Handle.Dispose(); }
 }
-public sealed class SelectorPathProbe { public int Code; public string Final; public bool Directory, Reparse; }
+public sealed class SelectorPathProbe { public int Code; public bool Opened; public string Final; public bool Directory, Reparse; }
 
 public static class SelectorRunProfileNative {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -697,11 +722,13 @@ public static class SelectorRunProfileNative {
     }
   }
 
-  // Attribute-only open; follow=false opens the entry itself without reparse traversal.
+  // Attribute-only open; follow=false opens the entry itself without reparse traversal. Opened tells a
+  // failed open from a failed metadata or final-path query on an opened handle (same Code field).
   public static SelectorPathProbe Probe(string path, bool follow) {
     SelectorPathProbe probe = new SelectorPathProbe();
     using (SafeFileHandle handle = CreateFile(path, READ_ATTRIBUTES, SHARE_ALL, IntPtr.Zero, OPEN_EXISTING, BACKUP_SEMANTICS | (follow ? 0 : OPEN_REPARSE_POINT), IntPtr.Zero)) {
       if (handle.IsInvalid) { probe.Code = Marshal.GetLastWin32Error(); return probe; }
+      probe.Opened = true;
       FILE_INFORMATION info;
       if (!GetFileInformationByHandle(handle, out info)) { probe.Code = Marshal.GetLastWin32Error(); return probe; }
       probe.Directory = (info.Attributes & 0x10) != 0; probe.Reparse = (info.Attributes & 0x400) != 0;
@@ -808,6 +835,7 @@ function New-SelectorRunProfileNative {
     WriteLine = { param($Writer, $Line) [SelectorRunProfileNative]::WriteLine($Writer, $Line) }
     CloseWriter = { param($Writer) $Writer.Dispose() }
     WaitExit = { param($Process, $Ms) [SelectorRunProfileNative]::Exited($Process, $Ms) }
+    Sleep = { param($Ms) Start-Sleep -Milliseconds $Ms }
     JobActive = { param($Job) [int][SelectorRunProfileNative]::Active($Job) }
     WitnessDriver = { $driver }.GetNewClosure()
     ScriptSha256 = { (Get-FileHash -LiteralPath $censusScript -Algorithm SHA256).Hash.ToLowerInvariant() }.GetNewClosure()
