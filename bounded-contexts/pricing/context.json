@@ -62,7 +62,8 @@
     "public-market-pages",
     "bulk-reprice-ingestion",
     "own-sale-observations",
-    "economics"
+    "economics",
+    "forecast-ledger"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
@@ -343,6 +344,13 @@
         "pricing_market_trade_rollup_rederive_queue"
       ],
       "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-forecast-ledger-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_forecast_ledger_entries"],
+      "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
@@ -883,6 +891,11 @@
       "classification": "slice",
       "purpose": "Own seller-scoped observations of external-channel and offline sales projected from Inventory as pricing evidence that remains isolated from the published Market-Value Estimate.",
       "expectedConsumers": ["Internal pricing module composition", "Future Pricing-owned seller analytics"]
+    },
+    "forecast-ledger": {
+      "classification": "slice",
+      "purpose": "Record every incumbent and shadow price's registered sell-time forecasts from RepricingPolicyEvaluated facts, grade each Forecast Kind against realized sales from the trades tape and Own-Sale Observations, publish ForecastGraded facts, and apply the Adoption Gate to goal versions.",
+      "expectedConsumers": ["Internal pricing module composition", "platform-worker", "Pricing Health surface (#7709)"]
     },
     "runtime-support": {
       "classification": "support",

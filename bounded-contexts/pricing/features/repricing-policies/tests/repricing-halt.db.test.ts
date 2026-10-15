@@ -36,7 +36,7 @@ describeDb("Repricing Halt steady-state lifecycle", () => {
   it("engage excludes, repeat emits nothing, release rejoins the next drift sweep without resuming an intended pause", async () => {
     const db = pools.pricing;
     const eventStore = createPostgresEventStore({ pool: db });
-    const controls = createRepricingPolicyRuntime({ db, eventStore });
+    const controls = createRepricingPolicyRuntime({ db, eventStore, goalAdoptions: async () => [] });
     const engine = createRepricingEngineRuntime({ economics: economicsNeverResolved, db, eventStore });
     await seedDryRunListings(db, 2, 1);
     for (const [policyId, listingId, paused] of [

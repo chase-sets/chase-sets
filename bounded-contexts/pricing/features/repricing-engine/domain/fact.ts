@@ -1,4 +1,5 @@
 import type { DomainEvent } from "@chase-sets/event-core";
+import type { Forecast } from "../../forecast-ledger/domain/forecast-kinds";
 import type {
   RepricingAnchorTrace,
   RepricingClampTrace,
@@ -33,11 +34,19 @@ export type RepricingGoalInputs = Readonly<{
   economicsUnavailable: number;
 }>;
 
+/**
+ * Every registered Forecast Kind's forecast at an evaluated price, by kind
+ * name, fixed when the price is evaluated; absent from evaluations recorded
+ * before forecasts were fixed.
+ */
+export type RepricingPriceForecasts = Readonly<Record<string, Forecast>>;
+
 /** The outer goal identifies the substitution; the resolved anchor may belong to a fallback goal. */
 export type ShadowGoalTrace = Readonly<{
   goalId: string;
   goalVersion: number;
   anchorIndex: number;
+  forecasts?: RepricingPriceForecasts;
 }> &
   (
     | Readonly<{
@@ -70,6 +79,10 @@ export type RepricingPolicyListingTrace = Readonly<{
   clamps: RepricingClampTrace;
   flags: readonly string[];
   frozenUntil?: string;
+  /** The listing's quantity when it was evaluated; absent from evaluations recorded before it was traced. */
+  quantity?: number;
+  /** Recorded at a target price read back by a goal. */
+  forecasts?: RepricingPriceForecasts;
   shadow?: readonly ShadowGoalTrace[];
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";
   skipReason: RepricingEvaluationSkipReason | null;
