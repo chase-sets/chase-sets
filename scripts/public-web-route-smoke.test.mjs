@@ -31,7 +31,22 @@ const strictRoutes = STRICT_PUBLIC_ROUTE_MEMBER_IDS.map((memberId) => {
 });
 const strictPaths = new Set(strictRoutes.map((route) => route.path));
 const fetchableRoutes = inventory.members.filter((member) => member.kind !== "INDETERMINATE");
-const cleanupCliArgs = ["--timeout-ms", "120", "--gate-timeout-ms", "1200"];
+const cleanupGateTimeoutMs = 1_200;
+const cleanupCliArgs = ["--timeout-ms", "120", "--gate-timeout-ms", String(cleanupGateTimeoutMs)];
+// Exact signatures, so gate exhaustion, an earlier-route deadline or the safety kill cannot pass.
+const cleanupFailureOutcomes = {
+  "5xx": { reachedPath: "/faq", failure: `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.serverError}] faq (/faq)` },
+  timeout: { reachedPath: "/faq", failure: `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.deadlineExceeded}] faq (/faq)` },
+  "byte-bound": {
+    reachedPath: "/",
+    failure: `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.responseTooLarge}] home (/)`,
+  },
+};
+// Explicitly synthetic: one monotonic step larger than the whole cleanup gate, taken as derivation
+// begins. No sleep; native timers keep real time.
+const derivationClockStepMs = 2 * cleanupGateTimeoutMs;
+const derivationClockStepKey = "chase-sets.public-route-smoke.test.derivation-clock-step";
+const derivationClockStepPrefix = "[derivation-clock-step]";
 const complianceArticlePaths = [
   "/help/buying/community-guidelines-and-enforcement",
   "/help/selling/intellectual-property-and-dmca",
@@ -116,7 +131,10 @@ const clientObserverPrefix = "[client-order-observer]";
 // The opt-in ordering observer reports, at the child's first http(s) dispatch, whether a route
 // deadline is already armed and, if so, fires that deadline synchronously. This forces the
 // cold-client ordering without a sleep or host load, and it never replaces a native timer.
-function childClientPreload({ initializeClient, observeClientInitialization }) {
+//
+// The opt-in derivation clock step offsets only performance.now(), the gate's clock. The cleanup
+// checker calls the installed hook as inventory derivation begins; the offset is then constant.
+function childClientPreload({ initializeClient, observeClientInitialization, derivationClockStepMs }) {
   return `
     import { writeSync } from "node:fs";
     import { createServer } from "node:http";
@@ -160,7 +178,24 @@ function childClientPreload({ initializeClient, observeClientInitialization }) {
       server.closeAllConnections();
       await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
+    if (${derivationClockStepMs} > 0) {
+      const nativeNow = performance.now.bind(performance);
+      let offsetMs = 0;
+      performance.now = () => nativeNow() + offsetMs;
+      globalThis[Symbol.for(${JSON.stringify(derivationClockStepKey)})] = () => {
+        if (offsetMs !== 0) return;
+        offsetMs = ${derivationClockStepMs};
+        writeSync(1, ${JSON.stringify(derivationClockStepPrefix)} + JSON.stringify({ stepMs: offsetMs }) + "\\n");
+      };
+    }
   `;
+}
+
+function derivationClockSteps(result) {
+  return result.stdout
+    .split("\n")
+    .filter((line) => line.startsWith(derivationClockStepPrefix))
+    .map((line) => JSON.parse(line.slice(derivationClockStepPrefix.length)));
 }
 
 function clientInitializationEvents(result) {
@@ -179,10 +214,10 @@ function startCli(
   mode,
   extraArgs = [],
   executablePath = checkerPath,
-  { initializeClient = true, observeClientInitialization = false } = {},
+  { initializeClient = true, observeClientInitialization = false, derivationClockStepMs = 0 } = {},
 ) {
   const preload = `data:text/javascript,${encodeURIComponent(
-    childClientPreload({ initializeClient, observeClientInitialization }),
+    childClientPreload({ initializeClient, observeClientInitialization, derivationClockStepMs }),
   )}`;
   const boundedDefaults = [
     ["--attempts", "1"],
@@ -333,18 +368,101 @@ async function assertRealCliDeadlineProof({ bodyStarted, fixture, running }) {
     await closeAndAssertClean(fixture, result);
     return result;
   } catch (error) {
-    if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
-    const result = await running.result.catch(async () => {
-      if (running.child.exitCode === null && running.child.signalCode === null) {
-        await new Promise((resolve) => running.child.once("close", resolve));
-      }
-      return { code: running.child.exitCode, signal: running.child.signalCode };
-    });
-    await closeAndAssertClean(fixture, result);
+    await reclaimFailedRun({ fixture, running });
     throw error;
   } finally {
     clearTimeout(proofTimer);
   }
+}
+
+async function reclaimFailedRun({ fixture, running }) {
+  if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+  const result = await running.result.catch(async () => {
+    if (running.child.exitCode === null && running.child.signalCode === null) {
+      await new Promise((resolve) => running.child.once("close", resolve));
+    }
+    return { code: running.child.exitCode, signal: running.child.signalCode };
+  });
+  await closeAndAssertClean(fixture, result);
+}
+
+async function reclaimRunOnFailure({ fixture, running }, proof) {
+  try {
+    return await proof();
+  } catch (error) {
+    await reclaimFailedRun({ fixture, running });
+    throw error;
+  }
+}
+
+// Racing target arrival against child completion turns an exit before /faq (an earlier-route
+// failure, gate exhaustion, or the safety kill) into a precise error instead of an endless wait.
+async function abortAfterTargetArrival(running, targetStarted) {
+  await Promise.race([
+    targetStarted,
+    running.result.then((result) => {
+      throw new Error(`real CLI exited before requesting /faq: ${cliExitDiagnostics(result)}`);
+    }),
+  ]);
+  running.child.kill("SIGTERM");
+}
+
+const gateClockStart = [
+  "  const startedAt = performance.now();",
+  "  const gateDeadline = startedAt + gateTimeoutMs;",
+].join("\n");
+const inventoryDerivation = [
+  "  const inventory = options.inventory ?? derivePublicWebRouteInventory({ rootDir: options.rootDir });",
+  "  const prepared = prepareInventory(inventory);",
+].join("\n");
+
+// The cleanup controls prove resource release around each route outcome under 120/1200 ms budgets,
+// so their gate must not also absorb real inventory derivation. This disposable copy of the real
+// checker derives and prepares inventory before the gate timestamp; production still charges it.
+// `isolateDerivation: false` removes only that reordering, keeping every other transform.
+async function createCleanupChecker({ isolateDerivation = true } = {}) {
+  const sourcePath = new URL("./public-web-route-smoke.mjs", import.meta.url);
+  const inventoryModule = new URL("./public-web-route-inventory.mjs", sourcePath).href;
+  const policyValueStateModule = new URL(
+    "../bounded-contexts/public-presence/features/help/domain/policy-value-state.ts",
+    sourcePath,
+  ).href;
+  const transforms = [
+    [
+      'import { derivePublicWebRouteInventory } from "./public-web-route-inventory.mjs";',
+      [
+        `import { derivePublicWebRouteInventory as deriveRealPublicWebRouteInventory } from ${JSON.stringify(inventoryModule)};`,
+        "function derivePublicWebRouteInventory(options) {",
+        `  globalThis[Symbol.for(${JSON.stringify(derivationClockStepKey)})]?.();`,
+        "  return deriveRealPublicWebRouteInventory(options);",
+        "}",
+      ].join("\n"),
+    ],
+    [
+      '"../bounded-contexts/public-presence/features/help/domain/policy-value-state.ts"',
+      JSON.stringify(policyValueStateModule),
+    ],
+    [
+      `${gateClockStart}\n${inventoryDerivation}`,
+      isolateDerivation ? `${inventoryDerivation}\n${gateClockStart}` : `${gateClockStart}\n${inventoryDerivation}`,
+    ],
+  ];
+  let source = await readFile(sourcePath, "utf8");
+  for (const [marker, replacement] of transforms) {
+    if (source.split(marker).length !== 2) {
+      throw new Error(`Cleanup checker could not locate exactly one '${marker.split("\n")[0].trim()}'.`);
+    }
+    source = source.replace(marker, () => replacement);
+  }
+  const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "public-route-smoke-cleanup-checker-"));
+  const cleanupCheckerPath = path.join(temporaryDirectory, "public-web-route-smoke.mjs");
+  await writeFile(cleanupCheckerPath, source, "utf8");
+  return {
+    checkerPath: cleanupCheckerPath,
+    async remove() {
+      await rm(temporaryDirectory, { force: true, recursive: true });
+    },
+  };
 }
 
 async function createDeadlineScopeMutant() {
@@ -751,6 +869,7 @@ describe("public web route smoke real CLI", () => {
     "cleans sockets, listeners, timers, and the checker process after %s",
     async (caseName) => {
       let targetStarted;
+      let targetBodyStarted = false;
       const targetStartedPromise = new Promise((resolve) => {
         targetStarted = resolve;
       });
@@ -759,6 +878,7 @@ describe("public web route smoke real CLI", () => {
         if (pathname === "/faq" && ["timeout", "abort"].includes(caseName)) {
           response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
           response.write("<html><body>partial");
+          targetBodyStarted = true;
           targetStarted();
           return;
         }
@@ -772,38 +892,171 @@ describe("public web route smoke real CLI", () => {
         }
         defaultHealthyHandler(request, response);
       });
-      const running = startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checkerPath, {
-        observeClientInitialization: caseName === "success",
-      });
-      if (caseName === "abort") {
-        await targetStartedPromise;
-        running.child.kill("SIGTERM");
-      }
-      const result = await running.result;
+      const checker = await createCleanupChecker();
+      try {
+        const running = startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath, {
+          observeClientInitialization: caseName === "success",
+        });
+        await reclaimRunOnFailure({ fixture, running }, async () => {
+          if (caseName === "abort") await abortAfterTargetArrival(running, targetStartedPromise);
+          const result = await running.result;
 
-      if (caseName === "success") {
-        console.info("[client-initialization-order]", JSON.stringify(clientOrderProof(result, fixture)));
-        expect(result.code, cliExitDiagnostics(result)).toBe(0);
-        expect(clientInitializationEvents(result)).toEqual([{ kind: "client-initialization", timeoutArmed: false }]);
-        expect(routeResultLines(result)).toHaveLength(fetchableRoutes.length);
-        for (const route of fetchableRoutes) {
-          expect(result.stdout).toContain(`[public-route-smoke] ${route.memberId} ${route.path} -> `);
-        }
-      } else expect(result.code === 1 || result.signal !== null, cliExitDiagnostics(result)).toBe(true);
-      if (caseName === "abort" && process.platform !== "win32") {
-        expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.aborted}] faq (/faq)`);
+          if (caseName === "success") {
+            console.info("[client-initialization-order]", JSON.stringify(clientOrderProof(result, fixture)));
+            expect(result.code, cliExitDiagnostics(result)).toBe(0);
+            expect(clientInitializationEvents(result)).toEqual([
+              { kind: "client-initialization", timeoutArmed: false },
+            ]);
+            expect(routeResultLines(result)).toHaveLength(fetchableRoutes.length);
+            for (const route of fetchableRoutes) {
+              expect(result.stdout).toContain(`[public-route-smoke] ${route.memberId} ${route.path} -> `);
+            }
+          } else if (caseName === "abort") {
+            expect(fixture.requests).toContain("/faq");
+            // Windows delivers SIGTERM as termination, so the child may close without stderr.
+            if (process.platform !== "win32" || result.signal !== "SIGTERM") {
+              expect(result.code, cliExitDiagnostics(result)).toBe(1);
+              expect(result.signal).toBeNull();
+              expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.aborted}] faq (/faq)`);
+            }
+          } else {
+            const { failure, reachedPath } = cleanupFailureOutcomes[caseName];
+            expect(result.code, cliExitDiagnostics(result)).toBe(1);
+            expect(result.signal).toBeNull();
+            expect(result.stderr).toContain(failure);
+            expect(fixture.requests).toContain(reachedPath);
+            if (caseName === "timeout") expect(targetBodyStarted).toBe(true);
+          }
+          await closeAndAssertClean(fixture, result);
+        });
+      } finally {
+        await checker.remove();
       }
-      await closeAndAssertClean(fixture, result);
     },
   );
+
+  it("excludes inventory derivation time from the cleanup gate", async () => {
+    // Governing variable: whether real derivation precedes the gate timestamp. Both arms share the
+    // fixture handler, budgets, warm client and synthetic step; only the isolation transform differs.
+    const runArm = async (isolateDerivation) => {
+      const fixture = await startServer();
+      const checker = await createCleanupChecker({ isolateDerivation });
+      try {
+        const result = await startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath, {
+          derivationClockStepMs,
+        }).result;
+        return { fixture, result };
+      } finally {
+        await checker.remove();
+      }
+    };
+    const candidate = await runArm(true);
+    const bypass = await runArm(false);
+    const [firstRoute] = fetchableRoutes;
+    const armProof = ({ fixture, result }, isolateDerivation) => ({
+      isolateDerivation,
+      code: result.code,
+      signal: result.signal,
+      steps: derivationClockSteps(result),
+      routeResultLines: routeResultLines(result).length,
+      fixtureRequests: fixture.requests.length,
+      gateLines: result.stderr.split(/\r?\n/).filter((line) => line.includes("gate-deadline-exceeded")),
+    });
+    console.info(
+      "[derivation-gate-isolation]",
+      JSON.stringify({
+        governingVariable: "inventory derivation precedes the gate timestamp",
+        derivationClockStepMs,
+        gateTimeoutMs: cleanupGateTimeoutMs,
+        candidate: armProof(candidate, true),
+        bypass: armProof(bypass, false),
+      }),
+    );
+
+    expect(derivationClockSteps(candidate.result)).toEqual([{ stepMs: derivationClockStepMs }]);
+    expect(candidate.result.code, cliExitDiagnostics(candidate.result)).toBe(0);
+    expect(routeResultLines(candidate.result)).toHaveLength(fetchableRoutes.length);
+    for (const route of fetchableRoutes) {
+      expect(candidate.result.stdout).toContain(`[public-route-smoke] ${route.memberId} ${route.path} -> `);
+    }
+    expect(candidate.fixture.requests).toHaveLength(fetchableRoutes.length);
+    await closeAndAssertClean(candidate.fixture, candidate.result);
+
+    expect(derivationClockSteps(bypass.result)).toEqual([{ stepMs: derivationClockStepMs }]);
+    expect(bypass.result.code, cliExitDiagnostics(bypass.result)).toBe(1);
+    expect(bypass.result.signal).toBeNull();
+    expect(bypass.result.stderr.split(/\r?\n/)).toContain(
+      `- [${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.gateDeadlineExceeded}] ${firstRoute.memberId} (${firstRoute.path}) ` +
+        "exhausted the total gate deadline before its request.",
+    );
+    expect(routeResultLines(bypass.result)).toEqual([]);
+    expect(bypass.fixture.requests).toEqual([]);
+    await closeAndAssertClean(bypass.fixture, bypass.result);
+  });
+
+  it("rejects cleanup abort when the child exits before /faq", async () => {
+    const [firstRoute] = fetchableRoutes;
+    expect(firstRoute.path).not.toBe("/faq");
+    let targetStarted;
+    const targetStartedPromise = new Promise((resolve) => {
+      targetStarted = resolve;
+    });
+    const fixture = await startServer((request, response) => {
+      const pathname = new URL(request.url, "http://route-smoke.test").pathname;
+      if (pathname === "/faq") {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.write("<html><body>partial");
+        targetStarted();
+        return;
+      }
+      if (pathname === firstRoute.path) {
+        writeHtml(response, "<html><body>failure</body></html>", 500);
+        return;
+      }
+      defaultHealthyHandler(request, response);
+    });
+    const checker = await createCleanupChecker();
+    try {
+      const startedAt = performance.now();
+      const running = startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath);
+      const error = await reclaimRunOnFailure({ fixture, running }, () =>
+        abortAfterTargetArrival(running, targetStartedPromise),
+      ).catch((error) => error);
+      const elapsedMs = performance.now() - startedAt;
+      const result = await running.result;
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("real CLI exited before requesting /faq");
+      expect(error.message).toContain(cliExitDiagnostics(result));
+      expect(result.code).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stderr).toContain(
+        `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.serverError}] ${firstRoute.memberId} (${firstRoute.path})`,
+      );
+      expect(elapsedMs).toBeLessThan(processExitCeilingMs);
+      expect(fixture.requests).toEqual([firstRoute.path]);
+      expect(fixture.sockets.size).toBe(0);
+      expect(fixture.server.listening).toBe(false);
+      expect(fixture.server.eventNames()).toEqual([]);
+      expect(running.child.exitCode !== null || running.child.signalCode !== null).toBe(true);
+    } finally {
+      await checker.remove();
+    }
+  });
 
   it("reproduces the cold-client deadline signature when client initialization is withheld", async () => {
     const fixture = await startServer();
     const [firstRoute] = fetchableRoutes;
-    const result = await startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checkerPath, {
-      initializeClient: false,
-      observeClientInitialization: true,
-    }).result;
+    const checker = await createCleanupChecker();
+    let result;
+    try {
+      result = await startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath, {
+        initializeClient: false,
+        observeClientInitialization: true,
+      }).result;
+    } finally {
+      await checker.remove();
+    }
 
     console.info("[client-initialization-order]", JSON.stringify(clientOrderProof(result, fixture)));
     expect(result.code, cliExitDiagnostics(result)).toBe(1);
