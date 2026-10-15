@@ -1577,6 +1577,7 @@ describe("inventory import batch runtime", () => {
       { accountId: "acc_1" as AccountId, batchId: batch.batch_id },
       context,
     );
+    const queriesBeforeReplay = db.queries.length;
     const secondCommit = await services.commitBatch(
       { accountId: "acc_1" as AccountId, batchId: batch.batch_id },
       context,
@@ -1585,6 +1586,10 @@ describe("inventory import batch runtime", () => {
     expect(itemIds).toHaveLength(1);
     expect(firstCommit.rows[0]?.committed_inventory_item_id).toBe(itemIds[0]);
     expect(firstCommit.rows[0]?.committed_listing_id).toBeDefined();
+    expect(secondCommit).toEqual(firstCommit);
+    expect(db.queries.slice(queriesBeforeReplay).some((query) => query.sql.trimStart().startsWith("UPDATE"))).toBe(
+      false,
+    );
     expect(secondCommit.rows[0]).toMatchObject(firstCommit.rows[0] ?? {});
     const existingTargetQuery = db.queries.find(
       (query) => query.sql.includes("FROM inventory_items AS item") && query.sql.includes("inventory_holds"),

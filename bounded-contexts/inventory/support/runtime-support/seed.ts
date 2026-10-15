@@ -723,6 +723,18 @@ export async function inspectInventorySeedState(db: PgQueryable): Promise<readon
 
 export async function seedInventoryDatabase(pool: PgTransactionalPool) {
   const services = createInventoryServices(pool);
+  const retained = await inspectInventorySeedState(pool);
+  const absent = new Set(retained.filter((state) => state.kind === "absent").map((state) => state.streamId));
+  for (const item of inventoryItems) {
+    if (!absent.has(inventoryItemStreamId(item.itemId))) continue;
+    const catalogItem = await services.catalogItems.getCatalogItem(item.catalogItemId);
+    if (!catalogItem) throw new Error(`Inventory seed could not load catalog item ${item.catalogItemId}.`);
+    createInventoryProductDescriptor({
+      catalogItemId: item.catalogItemId,
+      productSchema: catalogItem.product_schema,
+      selection: item.selectedOptions,
+    });
+  }
   async function sendSeedCommand<Command>(
     handler: InventorySeedCommandHandler<Command>,
     streamId: string,

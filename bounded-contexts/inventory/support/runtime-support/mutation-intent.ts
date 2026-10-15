@@ -11,6 +11,7 @@ export const inventoryMutationFamilies = [
   "location-create",
   "location-update",
   "location-archive",
+  "restock-record",
 ] as const;
 export type InventoryMutationFamily = (typeof inventoryMutationFamilies)[number];
 export type InventoryMutationIntent = Readonly<Record<string, unknown>>;
@@ -186,6 +187,17 @@ export function normalizeInventoryMutationIntent(
   value: unknown,
 ): InventoryMutationIntent {
   switch (family) {
+    case "restock-record": {
+      const input = object(value, ["accountId", "decisionId", "expectedVersion", "outcome", "damageNote"]);
+      assert(input.outcome === "restocked" || input.outcome === "written-off", "Unsupported restock outcome.");
+      return {
+        accountId: text(input.accountId),
+        decisionId: text(input.decisionId),
+        expectedVersion: integer(input.expectedVersion, 1),
+        outcome: input.outcome,
+        damageNote: optionalText(input.damageNote),
+      };
+    }
     case "item-create": {
       const input = object(value, [
         "accountId",
