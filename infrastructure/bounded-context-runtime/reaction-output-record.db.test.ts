@@ -30,29 +30,39 @@ describeDb("reaction application output record", () => {
       await bootstrapContextDatabase({ contextName, schemaSql: "" }, pools[contextName]);
     }
   });
-  afterAll(async () => { await closeMultiContextTestPools(pools); });
+  afterAll(async () => {
+    await closeMultiContextTestPools(pools);
+  });
 
   it.each(["one Order", "none", "throw after append", "projection"])("atomically records %s", async (control) => {
     const source = createPostgresEventStore({ pool: pools.marketplace });
     const target = createPostgresEventStore({ pool: createProjectionAwarePool(pools.ordering) });
+    let shouldThrow = control === "throw after append";
     const [accepted] = await source.appendToStream({
-      streamId: "marketplace.offer-test", expectedVersion: "no_stream", context: createAccountUserTestRequestContext().context!,
+      streamId: "marketplace.offer-test",
+      expectedVersion: "no_stream",
+      context: createAccountUserTestRequestContext().context!,
       events: [{ eventType: "marketplace.offer.accepted", payload: { offerId: "test" } }],
     });
     const runner = createSubscriptionRunner("ordering", pools.ordering, pools.marketplace, {
-      subscriptionName: "ordering.accepted-offer", projectionName: "ordering.accepted-offer",
-      sourceContextName: "marketplace", subscriptionVersion: 1,
+      subscriptionName: "ordering.accepted-offer",
+      projectionName: "ordering.accepted-offer",
+      sourceContextName: "marketplace",
+      subscriptionVersion: 1,
       handlerKind: control === "projection" ? "projection" : "reaction",
-      errorPolicy: "strict-per-stream", eventTypes: ["marketplace.offer.accepted"],
+      errorPolicy: "strict-per-stream",
+      eventTypes: ["marketplace.offer.accepted"],
       handlers: {
         "marketplace.offer.accepted": async () => {
           if (control === "none") return;
           const events = await target.appendToStream({
-            streamId: "ordering.order-test", expectedVersion: "no_stream", context: createAccountUserTestRequestContext().context!,
+            streamId: "ordering.order-test",
+            expectedVersion: "no_stream",
+            context: createAccountUserTestRequestContext().context!,
             events: [{ eventType: "ordering.order.created", payload: { orderId: "test" } }],
           });
           recordCommittedEvents(events);
-          if (control === "throw after append") throw new Error("rollback after append");
+          if (shouldThrow) throw new Error("rollback after append");
         },
       },
     });
@@ -65,14 +75,35 @@ describeDb("reaction application output record", () => {
     if (control === "throw after append") {
       expect(outputs).toHaveLength(0);
       expect(rows.rows).toEqual([{ status: "poison", output_global_positions: null }]);
+      shouldThrow = false;
       await runner.retryBlockedStream("marketplace.offer-test");
-      expect(await target.readStream({ streamId: "ordering.order-test" })).toHaveLength(0);
+      const retriedOutputs = await target.readStream({ streamId: "ordering.order-test" });
+      expect(retriedOutputs).toHaveLength(1);
+      expect(await runner.readReceiptApplicationOutputs!([String(accepted!.eventId)])).toEqual({
+        state: "applied",
+        outputPositions: retriedOutputs.map((event) => event.globalPosition),
+      });
     } else {
       expect(outputs).toHaveLength(control === "none" ? 0 : 1);
-      expect(rows.rows).toEqual([{
-        status: "applied",
-        output_global_positions: control === "projection" ? null : outputs.map((event) => event.globalPosition),
-      }]);
+      expect(rows.rows).toEqual([
+        {
+          status: "applied",
+          output_global_positions: control === "projection" ? null : outputs.map((event) => event.globalPosition),
+        },
+      ]);
+      if (control === "none") {
+        const ids = [String(accepted!.eventId)];
+        expect(await runner.readReceiptApplicationOutputs!(ids)).toEqual({ state: "applied", outputPositions: [] });
+        await pools.ordering.query(
+          "UPDATE event_subscription_applications SET output_global_positions = NULL WHERE projection_key = $1",
+          [runner.checkpointKey],
+        );
+        expect(await runner.readReceiptApplicationOutputs!(ids)).toEqual({ state: "pending", outputPositions: [] });
+        await pools.ordering.query("DELETE FROM event_subscription_applications WHERE projection_key = $1", [
+          runner.checkpointKey,
+        ]);
+        expect(await runner.readReceiptApplicationOutputs!(ids)).toEqual({ state: "pending", outputPositions: [] });
+      }
     }
   });
 });

@@ -10,6 +10,8 @@ import {
   isTransientProjectionError,
   ZERO_GLOBAL_POSITION,
   toTransportEvent,
+  getEventCommitMetadata,
+  runWithEventCommitMetadata,
 } from "@chase-sets/event-core";
 import { createTransientProjectionError } from "@chase-sets/event-core/projector";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
@@ -54,6 +56,10 @@ import {
   markProjectionBlockedStreamBlocked,
   markProjectionBlockedStreamRetrying,
   readSourceHeadGlobalPosition,
+  readReceiptApplicationOutputs,
+  readOutputApplicationStatus,
+  type SubscriptionReceiptApplicationOutputs,
+  type SubscriptionOutputApplicationStatus,
   recordProjectionDeferredBlockedStreamEvent,
   recordProjectionPoisonEvent,
   recordSubscriptionApplicationCompleted,
@@ -184,6 +190,8 @@ export type ContextSubscriptionRunner = Readonly<{
   getStatus: () => ContextSubscriptionStatus;
   refreshStatus: () => Promise<ContextSubscriptionStatus>;
   areReceiptEventsApplied?: (eventIds: readonly string[]) => Promise<boolean>;
+  readReceiptApplicationOutputs?: (eventIds: readonly string[]) => Promise<SubscriptionReceiptApplicationOutputs>;
+  readOutputApplicationStatus?: (positions: readonly string[]) => Promise<SubscriptionOutputApplicationStatus>;
   reset: (context?: ProjectionRunContext, options?: SubscriptionResetOptions) => Promise<void>;
   retryBlockedStream: (streamId: string, context?: ProjectionRunContext) => Promise<ProjectionStreamRetryResult>;
 }>;
@@ -514,6 +522,16 @@ export function createSubscriptionRunner(
   );
   const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
+  const captureHandlerOutputs = async (action: () => Promise<unknown>): Promise<readonly string[] | null> => {
+    if (handlerKind !== "reaction") {
+      await action();
+      return null;
+    }
+    return runWithEventCommitMetadata(async () => {
+      await action();
+      return [...new Set(getEventCommitMetadata().committedEvents.map((event) => String(event.globalPosition)))];
+    });
+  };
   const sourceHistoryReader = (trigger: TransportEvent, context?: ProjectionRunContext) => {
     // Capture the invocation, not a mutable cursor or a caller-selected stream.
     const bound = structuredClone(trigger);
@@ -693,6 +711,24 @@ export function createSubscriptionRunner(
     eventTypes: subscriptionEventTypes,
     streamPrefixes: subscription.streamPrefixes,
     order: subscription.order ?? 0,
+    readReceiptApplicationOutputs: (eventIds) =>
+      readReceiptApplicationOutputs(
+        sourcePool,
+        targetPool,
+        checkpointKey,
+        eventIds,
+        subscriptionEventTypes,
+        subscription.streamPrefixes,
+      ),
+    readOutputApplicationStatus: (positions) =>
+      readOutputApplicationStatus(
+        sourcePool,
+        targetPool,
+        checkpointKey,
+        positions,
+        subscriptionEventTypes,
+        subscription.streamPrefixes,
+      ),
     getStatus: () => ({ ...status }),
     refreshStatus: async () => {
       const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
@@ -803,12 +839,14 @@ export function createSubscriptionRunner(
                   return "already-applied" as const;
                 }
 
-                await runInProjectionDbContext(client, () =>
-                  handler(event, {
-                    db: client,
-                    throwIfLeaseLost: context?.throwIfLeaseLost,
-                    readSourceStreamHistory: sourceHistoryReader(event, context),
-                  }),
+                const outputPositions = await captureHandlerOutputs(() =>
+                  runInProjectionDbContext(client, () =>
+                    handler(event, {
+                      db: client,
+                      throwIfLeaseLost: context?.throwIfLeaseLost,
+                      readSourceStreamHistory: sourceHistoryReader(event, context),
+                    }),
+                  ),
                 );
                 context?.throwIfLeaseLost?.();
                 await recordSubscriptionApplicationCompleted(
@@ -818,6 +856,7 @@ export function createSubscriptionRunner(
                   "applied",
                   null,
                   context,
+                  outputPositions,
                 );
                 return "applied" as const;
               },
@@ -1090,13 +1129,15 @@ export function createSubscriptionRunner(
                       eventId: String(event.id),
                       budget: cascadeChunkSize,
                     });
-                    await runInProjectionCascadeContext(cascadeController, () =>
-                      runInProjectionDbContext(client, () =>
-                        handler(event, {
-                          db: client,
-                          throwIfLeaseLost: context?.throwIfLeaseLost,
-                          readSourceStreamHistory: sourceHistoryReader(event, context),
-                        }),
+                    const outputPositions = await captureHandlerOutputs(() =>
+                      runInProjectionCascadeContext(cascadeController, () =>
+                        runInProjectionDbContext(client, () =>
+                          handler(event, {
+                            db: client,
+                            throwIfLeaseLost: context?.throwIfLeaseLost,
+                            readSourceStreamHistory: sourceHistoryReader(event, context),
+                          }),
+                        ),
                       ),
                     );
                     context?.throwIfLeaseLost?.();
@@ -1113,6 +1154,7 @@ export function createSubscriptionRunner(
                       "applied",
                       null,
                       context,
+                      outputPositions,
                     );
                     return "applied" as const;
                   },
