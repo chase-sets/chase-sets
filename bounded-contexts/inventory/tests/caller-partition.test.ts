@@ -17,6 +17,42 @@ describe("issue-7169-ac1-caller-partition", () => {
       discoverInventoryCallers([{ path: "bounded-contexts/arbitrary/api/dynamic-restock.ts", source }]),
     ).toThrow("Unresolved Inventory call");
   });
+  it.each([
+    ["bare dot call", "services.$F[method]({}, context);", true, true],
+    ["bare dot extraction", "const m = services.$F[method]; m({}, context);", true, true],
+    ["parenthesized dot call", "(services.$F)[method]({}, context);", true, true],
+    ["parenthesized dot extraction", "const m = (services.$F)[method]; m({}, context);", true, true],
+    ["non-null dot call", "services.$F![method]({}, context);", true, true],
+    ["non-null dot extraction", "const m = services.$F![method]; m({}, context);", true, true],
+    ["asserted dot call", "(services.$F as T)[method]({}, context);", true, true],
+    ["asserted dot extraction", "const m = (services.$F as T)[method]; m({}, context);", true, true],
+    ["bare bracket call", 'services["$F"][method]({}, context);', false, true],
+    ["bare bracket extraction", 'const m = services["$F"][method]; m({}, context);', false, true],
+    ["parenthesized bracket call", '(services["$F"])[method]({}, context);', false, false],
+    ["parenthesized bracket extraction", 'const m = (services["$F"])[method]; m({}, context);', false, false],
+    ["non-null bracket call", 'services["$F"]![method]({}, context);', false, false],
+    ["non-null bracket extraction", 'const m = services["$F"]![method]; m({}, context);', false, false],
+    ["asserted bracket call", '(services["$F"] as T)[method]({}, context);', false, false],
+    ["asserted bracket extraction", 'const m = (services["$F"] as T)[method]; m({}, context);', false, false],
+  ])("freezes M16 C1 parity and g7 gains: %s", (_shape, template, rejectsHolds, rejectsRestock) => {
+    for (const [family, rejected] of [
+      ["holds", rejectsHolds],
+      ["restockDecisions", rejectsRestock],
+    ] as const) {
+      const scan = () =>
+        partitionInventoryCallers(
+          discoverInventoryCallers([
+            {
+              path: "bounded-contexts/arbitrary/api/dynamic-parity.ts",
+              source: template.replaceAll("$F", family),
+            },
+          ]),
+          {},
+        );
+      if (rejected) expect(scan).toThrow("Unresolved Inventory call");
+      else expect(scan).not.toThrow();
+    }
+  });
   it("discovers restock service aliases, HTTP clients and direct decision commands", () => {
     const discovery = discoverInventoryCallers([
       {

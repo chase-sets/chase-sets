@@ -72,7 +72,7 @@ function name(node) {
 
 function isInventoryService(node, source) {
   return (
-    /\binventory\b|\.holds\b|\.storageLocations\b/.test(node.getText(source)) ||
+    /\binventory\b|\.holds\b|\.storageLocations\b|\.restockDecisions\b/.test(node.getText(source)) ||
     (ts.isPropertyAccessExpression(node) && name(node.name) === "restockDecisions") ||
     (ts.isElementAccessExpression(node) &&
       ts.isStringLiteralLike(node.argumentExpression) &&
