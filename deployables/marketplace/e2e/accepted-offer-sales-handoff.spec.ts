@@ -132,7 +132,7 @@ test("accepted Offer is present on the first receipted Sales read @marketplace-s
       201,
     );
     // Establish only setup-input readiness before acceptance. There is no Sales read or extra write after acceptance.
-    const inputRead = await page.request.get("/api/marketplace/account/sales/order-capacity", {
+    const inputRead = await page.request.get("/api/marketplace/account/purchases", {
       headers: headers("ordering"),
     });
     expect(inputRead.status()).toBe(200);

@@ -120,7 +120,7 @@ describe("bounded context read consistency middleware", () => {
           pending: [expect.objectContaining({ projectionName: failedGroup })],
         }),
       );
-      const request = appendFreshWriteToken("http://localhost/account/sales", { sources });
+      const request = appendFreshWriteToken("http://localhost/account/sales", { commitPositions: sources });
       expect(
         classifyFreshWriteReadError({
           request,
@@ -128,7 +128,12 @@ describe("bounded context read consistency middleware", () => {
           getStatus: () => 500,
           getBody: () => (result as { body: unknown }).body,
         }),
-      ).toMatchObject({ transient: false, errorCode: "internal_error" });
+      ).toMatchObject({
+        kind: "fresh-write-unhandled",
+        transient: false,
+        errorCode: "internal_error",
+        receipt: expect.objectContaining({ sources }),
+      });
     },
   );
 
