@@ -105,6 +105,28 @@ describe("Discovery UCP catalog handlers", () => {
     } as never);
     expect(mcp).toEqual(result);
   });
+  it("returns interpreted final rows without interpretation metadata in REST and MCP search_catalog", async () => {
+    const items = buildItems();
+    const original = await items.search.searchItems();
+    vi.mocked(items.search.searchItems).mockResolvedValue({
+      ...original,
+      nextCursor: null,
+      interpretation: {
+        remainingQuery: "charizard",
+        applied: [{ param: "dimension.dim_seed_grade", optionId: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10" }],
+      },
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const input = (url: string) =>
+      ({
+        request: new Request(url, { method: "POST", body: JSON.stringify({ query: "charizard psa 10" }) }),
+        params: {},
+      }) as never;
+    const rest = await handlers.restHandlers.search_catalog(input("https://marketplace.example/ucp/v1/catalog/search"));
+    expect(rest).toMatchObject({ products: [{ id: "cat_1" }], count: 1, next_cursor: null });
+    expect(JSON.stringify(rest)).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
+    expect(await handlers.mcpToolHandlers.search_catalog(input("https://marketplace.example/mcp"))).toEqual(rest);
+  });
   it("maps discovery search rows to UCP product envelopes", async () => {
     const items = buildItems();
     const handlers = createDiscoveryUcpHandlers(items);

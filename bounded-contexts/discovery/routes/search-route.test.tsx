@@ -422,6 +422,300 @@ describe("marketplace search route", () => {
     expect(options).toMatchObject({ preventScrollReset: true, replace: false });
   });
 
+  describe("search interpretation", () => {
+    const company = "dimension.dim_seed_grading_company";
+    const grade = "dimension.dim_seed_grade";
+    const interpretation = {
+      remainingQuery: "charizard",
+      applied: [
+        { param: company, optionId: "psa", label: "PSA" },
+        { param: grade, optionId: "gm10", label: "Gem Mint 10" },
+        { param: grade, optionId: "test10", label: "Test Ten" },
+        { param: "language", language: "ja", label: "Japanese" },
+      ],
+    };
+    function stubSearchApi(response: Record<string, unknown>) {
+      const requests: URL[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+          requests.push(url);
+          return Response.json({
+            items: [],
+            facets: [],
+            total: 0,
+            count: 0,
+            nextCursor: null,
+            retrievalMode: "lexical",
+            lexicalCount: 0,
+            ...response,
+          });
+        }),
+      );
+      return requests;
+    }
+    const load = (url: string, params: Record<string, string> = {}) =>
+      loader({ request: new Request(url), params, context: {} } as unknown as Parameters<typeof loader>[0]);
+
+    it("redirects once to the canonical URL with newly applied keys and every other param", async () => {
+      const requests = stubSearchApi({ interpretation });
+      const thrown = await load(
+        "http://localhost/search?q=charzard+psa+10+japanese&sort=newest&dimension.dim_finish=foil",
+      ).catch((error: unknown) => error);
+      expect(thrown).toBeInstanceOf(Response);
+      const response = thrown as Response;
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get("Location") ?? "", "http://localhost");
+      expect(location.pathname).toBe("/search");
+      expect(location.searchParams.get("q")).toBe("charizard");
+      expect(location.searchParams.get("sort")).toBe("newest");
+      expect(location.searchParams.getAll("dimension.dim_finish")).toEqual(["foil"]);
+      expect(location.searchParams.getAll(company)).toEqual(["psa"]);
+      expect(location.searchParams.getAll(grade)).toEqual(["gm10", "test10"]);
+      expect(location.searchParams.get("language")).toBe("ja");
+      expect(location.searchParams.get("interpreted")).toBe(`${company},${grade},language`);
+      expect(requests.filter((url) => url.pathname.endsWith("/items"))).toHaveLength(1);
+      expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
+    });
+
+    it("forwards the marker to the dispatcher and never redirects a marked URL", async () => {
+      const requests = stubSearchApi({ interpretation });
+      const result = await load(`http://localhost/search?q=charizard&${company}=psa&interpreted=${company}`);
+      expect(result).toMatchObject({ search: "charizard", interpreted: company, interpretedFilters: [company] });
+      expect(requests[0]?.searchParams.get("interpreted")).toBe(company);
+    });
+
+    it.each([
+      ["a marked page loads more under its marker", `${grade},language`, `${grade},language`],
+      ["an empty marker still loads more under its marker", "", ""],
+      ["an unmarked page loads more without a marker", null, null],
+    ])("%s", async (_name, marker, expected) => {
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+        Response.json({ items: [], facets: [], total: null, count: 0, nextCursor: null, retrievalMode: "lexical" }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      mockUseLoaderData.mockReturnValue({
+        ...searchDataWithCursor("charizard"),
+        interpreted: marker,
+        interpretedFilters: marker?.split(",") ?? [],
+      });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([new URLSearchParams("q=charizard"), vi.fn()]);
+
+      render(<SearchRoute />);
+      fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      const requested = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
+      expect(requested.searchParams.get("cursor")).toBe("cursor_2");
+      expect(requested.searchParams.get("interpreted")).toBe(expected);
+    });
+
+    it("an uninterpreted response renders without a redirect or notice keys", async () => {
+      stubSearchApi({});
+      await expect(load("http://localhost/search?q=charizard")).resolves.toMatchObject({ interpretedFilters: [] });
+    });
+
+    it.each([
+      ["removing a marked chip keeps the marker", "Remove Grade: Gem Mint 10", true],
+      ["removing the marked language keeps the marker", "Remove Language: Japanese", true],
+    ])("%s", (_name, button, kept) => {
+      const setSearchParams = vi.fn();
+      const current = new URLSearchParams(`q=charizard&language=ja&${grade}=gm10&interpreted=${grade},language`);
+      mockUseLoaderData.mockReturnValue({
+        ...searchDataWithResults("charizard", "ja"),
+        dynamicFilters: [{ kind: "dimension", id: "dim_seed_grade", value: "gm10" }],
+        interpretedFilters: [grade, "language"],
+        data: {
+          ...searchDataWithResults("charizard", "ja").data,
+          facets: [
+            {
+              id: "dim_seed_grade",
+              kind: "dimension",
+              label: "Grade",
+              values: [{ id: "gm10", label: "Gem Mint 10", count: 1, selected: true }],
+            },
+          ],
+        },
+      });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+      render(<SearchRoute />);
+      expect(screen.getByText("Filters applied from your search: Grade: Gem Mint 10, Japanese")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: button }));
+      const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
+      expect(next.get("interpreted")).toBe(kept ? `${grade},language` : null);
+    });
+
+    it.each(["a new query", "an added filter"] as const)("%s drops the marker", (change) => {
+      const setSearchParams = vi.fn();
+      const current = new URLSearchParams(`q=charizard&${grade}=gm10&interpreted=${grade}`);
+      mockUseLoaderData.mockReturnValue({ ...searchDataWithResults("charizard"), interpretedFilters: [grade] });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+      render(<SearchRoute />);
+      if (change === "a new query") {
+        fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blastoise" } });
+        fireEvent.submit(screen.getByRole("search"));
+      } else {
+        fireEvent.click(
+          within(screen.getByRole("complementary", { name: "Desktop search filters" })).getByRole("button", {
+            name: "Language",
+          }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Japanese" }));
+      }
+      const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
+      expect(next.has("interpreted")).toBe(false);
+      expect(next.getAll(grade)).toEqual(["gm10"]);
+    });
+
+    describe("marked and unmarked Result Sets", () => {
+      // The same words and filters under each retrieval policy; only the marker differs.
+      const lexical = ["cat_lexical", "lexical-charizard", "Lexical Charizard"] as const;
+      const lexicalNext = ["cat_lexical_next", "lexical-charizard-2", "Lexical Charizard 2"] as const;
+      const semanticOnly = ["cat_semantic", "semantic-only-charizard", "Semantic-only Charizard"] as const;
+      let routeData: ReturnType<typeof policyData>;
+
+      function policyData(
+        interpreted: string | null,
+        rows: ReadonlyArray<readonly [string, string, string]>,
+        nextCursor: string | null,
+      ) {
+        return {
+          ...searchData("charizard"),
+          dynamicFilters: [{ kind: "dimension" as const, id: "dim_seed_grade", value: "gm10" }],
+          interpreted,
+          interpretedFilters: (interpreted ?? "").split(",").filter(Boolean),
+          data: resultPage(rows, nextCursor),
+        };
+      }
+
+      function show(data: ReturnType<typeof policyData>) {
+        routeData = data;
+        mockUseLoaderData.mockImplementation(() => routeData);
+        mockUseNavigate.mockReturnValue(vi.fn());
+        mockUseNavigation.mockReturnValue({ state: "idle" });
+        mockUseSearchParams.mockReturnValue([new URLSearchParams(`q=charizard&${grade}=gm10`), vi.fn()]);
+        return render(<SearchRoute />);
+      }
+
+      function revisit(
+        view: ReturnType<typeof render>,
+        mode: "mounted" | "remounted",
+        data: ReturnType<typeof policyData>,
+      ) {
+        routeData = data;
+        if (mode === "mounted") {
+          view.rerender(<SearchRoute />);
+        } else {
+          view.unmount();
+          render(<SearchRoute />);
+        }
+      }
+
+      function stubPages(pages: Record<string, DiscoverySearchResponse>) {
+        const requests: URL[] = [];
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: RequestInfo | URL) => {
+            const url = new URL(String(input), "http://localhost");
+            requests.push(url);
+            const page = pages[url.searchParams.get("cursor") ?? ""];
+            if (!page) {
+              throw new Error(`Unexpected search request ${url.search}`);
+            }
+            return jsonResponse(page);
+          }),
+        );
+        return requests;
+      }
+
+      async function loadMore(expected: readonly string[]) {
+        fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+        await waitFor(() => expect(renderedItemSlugs()).toEqual(expected));
+      }
+
+      it.each([
+        ["mounted", "a marked page", grade, [lexical], ["lexical-charizard"]],
+        ["remounted", "a marked page", grade, [lexical], ["lexical-charizard"]],
+        ["mounted", "a final-empty marked page", grade, [], []],
+        ["remounted", "a final-empty marked page", grade, [], []],
+        ["mounted", "an empty-marker page", "", [lexical], ["lexical-charizard"]],
+        ["remounted", "an empty-marker page", "", [lexical], ["lexical-charizard"]],
+      ] as const)(
+        "a %s route shows %s without the unmarked pages it loaded",
+        async (mode, _name, marker, rows, expected) => {
+          const requests = stubPages({ "hybrid-2": resultPage([semanticOnly], null) });
+          const view = show(policyData(null, [lexical], "hybrid-2"));
+          await loadMore(["lexical-charizard", "semantic-only-charizard"]);
+          expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
+
+          revisit(view, mode, policyData(marker, rows, null));
+
+          expect(renderedItemSlugs()).toEqual(expected);
+        },
+      );
+
+      it.each(["mounted", "remounted"] as const)(
+        "a %s route drops the marked pages it loaded when the marker is dropped",
+        async (mode) => {
+          const requests = stubPages({ "lexical-2": resultPage([lexicalNext], null) });
+          const view = show(policyData(grade, [lexical], "lexical-2"));
+          await loadMore(["lexical-charizard", "lexical-charizard-2"]);
+          expect(requests[0]?.searchParams.get("interpreted")).toBe(grade);
+
+          revisit(view, mode, policyData(null, [lexical, semanticOnly], null));
+
+          expect(renderedItemSlugs()).toEqual(["lexical-charizard", "semantic-only-charizard"]);
+        },
+      );
+
+      it("discards an unmarked load-more that answers after a marker-only navigation", async () => {
+        let answer: (page: DiscoverySearchResponse) => void = () => undefined;
+        const fetchMock = vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              answer = (page) => resolve(jsonResponse(page));
+            }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const view = show(policyData(null, [lexical], "hybrid-2"));
+        fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+        revisit(view, "mounted", policyData(grade, [lexical], null));
+        await act(async () => {
+          answer(resultPage([semanticOnly], null));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard"]);
+        revisit(view, "remounted", routeData);
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard"]);
+      });
+
+      it("restores a marked Result Set's own pages under any marker it is listed with", async () => {
+        const requests = stubPages({ "lexical-2": resultPage([lexicalNext], null) });
+        const view = show(policyData(grade, [lexical], "lexical-2"));
+        await loadMore(["lexical-charizard", "lexical-charizard-2"]);
+        expect(requests[0]?.searchParams.get("interpreted")).toBe(grade);
+
+        // The retrieval policy, not the listed keys, identifies the Result Set, as it does for the API.
+        revisit(view, "remounted", policyData("", [lexical], "lexical-2"));
+
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard", "lexical-charizard-2"]);
+      });
+    });
+  });
+
   it("round-trips price and in-stock loader state to the Discovery API", async () => {
     const requests: string[] = [];
     vi.stubGlobal(
@@ -1032,6 +1326,7 @@ function resultSetKey(data: {
     inStock: data.inStock,
     sort: data.sort,
     dynamicFilters: [],
+    interpreted: false,
   });
 }
 
