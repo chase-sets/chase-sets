@@ -138,7 +138,7 @@ describe("canonical Ordering review outcomes", () => {
   });
   it("declares canonical opportunity freshness for both detail routes", () => {
     const routes = manifest.apiMounts.flatMap((entry) => entry.readFreshnessRoutes ?? []);
-    for (const routePath of ["/purchases/:id", "/sales/:id"]) {
+    for (const routePath of ["/account/purchases/:id", "/account/sales/:id"]) {
       const dependencies = routes.find((route) => route.routePath === routePath)!.dependencies;
       expect(dependencies).toContainEqual({ readModelTable: "ordering_order_review_opportunity_pages" });
       expect(dependencies).not.toContainEqual({ readModelTable: "ordering_order_review_eligibility_pages" });
