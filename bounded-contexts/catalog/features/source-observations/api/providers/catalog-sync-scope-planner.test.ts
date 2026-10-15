@@ -3,6 +3,7 @@ import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 import type { ProviderAdapter, ProviderImportScope } from "../provider-adapters/provider-adapter";
 import {
   aggregateCatalogSyncProviderParticipationEstimate,
+  catalogSyncAcceptedScopeMappingFromRow,
   previewCatalogSyncProviderParticipation,
   type CatalogSyncAcceptedScopeMapping,
   type CatalogSyncScope,
@@ -21,8 +22,96 @@ import {
 } from "../../../provider-scope-discovery/api/scope-observation-matcher";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
+import { buildProviderScopeMappingCandidate } from "../../../provider-scope-mapping/domain/mapping";
+import { createMtgjsonProviderAdapter, createMtgjsonValidationProviderAdapter } from "./mtgjson/adapter";
 
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
+
+describe("MTGJSON accepted mapping planning parity", () => {
+  it.each(["mtg-card-reference-data", "mtg-set-reference-data"])(
+    "plans the discovered option value for %s without fetching",
+    async (profileKey) => {
+      const profile = requireProfile("mtgjson", profileKey);
+      const unitKey = unitKeyForCatalogProviderProfileVersion(profile);
+      const target = listProviderScopeDiscoveryTargets([profile], classifyProviderScopeDiscoveryTarget).find(
+        (candidate) => candidate.providerScope === "set-name",
+      )!;
+      const {
+        items: [option],
+      } = await createMtgjsonValidationProviderAdapter().listOptions({
+        unitKey,
+        optionKind: target.queryKind,
+      });
+      expect(option).toMatchObject({ value: "TSP", label: "Time Spiral" });
+      const coordinates = providerScopeMappingCoordinates(target, {
+        providerKey: profile.providerKey,
+        unitKey,
+        scopeKind: target.scopeKind,
+        sourceQueryKind: target.queryKind,
+        languageCode: "en",
+        externalId: option!.value,
+        label: option!.label,
+        parents: [],
+        imageUrl: null,
+        metadata: option!.metadata ?? {},
+        scanId: "synthetic-mtgjson-scan",
+        scannedAt: "2026-10-14T00:00:00.000Z",
+        firstObservedAt: "2026-10-14T00:00:00.000Z",
+        observationHash: "synthetic-mtgjson-observation",
+        newlyObserved: true,
+        changed: true,
+      });
+      expect(coordinates).toMatchObject({ setId: null, setName: "TSP" });
+      const candidate = buildProviderScopeMappingCandidate({
+        scopeRecordId: "scope_synthetic_magic_tsp",
+        providerKey: profile.providerKey,
+        unitKey,
+        coordinates: coordinates!,
+        confidence: "exact",
+        reviewStatus: "accepted",
+        provenance: { source: "provider-scope-observation" },
+      });
+      const mapping = catalogSyncAcceptedScopeMappingFromRow({
+        mapping_id: candidate.mappingId,
+        scope_record_id: candidate.scopeRecordId,
+        provider_key: candidate.providerKey,
+        unit_key: candidate.unitKey,
+        product_line_id: candidate.coordinates.productLineId,
+        series_id: candidate.coordinates.seriesId,
+        set_id: candidate.coordinates.setId,
+        set_name: candidate.coordinates.setName,
+        review_status: candidate.reviewStatus,
+        updated_at: "2026-10-14T00:00:00.000Z",
+      });
+      const deniedFetch = vi.fn<typeof fetch>(async () => {
+        throw new Error("Live fetch denied.");
+      });
+      const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+      const planImport = vi.spyOn(adapter, "planImport");
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope: {
+          scopeVersion: "catalog-sync-scope-v2",
+          productDomain: "magic",
+          reference: { kind: "set", scopeRecordId: candidate.scopeRecordId },
+        },
+        acceptedScopeMappings: [mapping],
+        providerProfileVersions: [profile],
+        providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+        includeOperationalGates: true,
+      });
+      expect(deniedFetch).not.toHaveBeenCalled();
+      expect(preview).toMatchObject({ status: "ready", startAllowed: true, blockers: [] });
+      expect(preview.units).toEqual([
+        expect.objectContaining({ unitKey, eligibility: "eligible", selected: true, blockers: [] }),
+      ]);
+      expect(planImport).toHaveBeenCalledOnce();
+      await expect(planImport.mock.results[0]!.value).resolves.toMatchObject({
+        planKey: profileKey === "mtg-set-reference-data" ? "mtgjson:set:TSP" : "mtgjson:cards:set:TSP",
+        scope: { scopeKey: "set", values: { setName: "TSP", setCode: "TSP" } },
+      });
+    },
+  );
+});
 
 describe("Catalog sync scope planner", () => {
   it("defaults every eligible mapped provider role into Pokemon Expansion participation", async () => {
