@@ -18,6 +18,7 @@ import {
   type ProjectionInlineApplyOutcomeSignal,
 } from "./inline-apply";
 import type { ContextProjectionGroup } from "./projection-groups";
+import type { ContextSubscriptionRunner } from "./subscriptions";
 
 export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
   Readonly<{
