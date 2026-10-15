@@ -1,0 +1,1111 @@
+{
+  "provenance": {
+    "checkoutSha": "bc9477d5a4a1f6d55d797318863d43108dc8f6a1",
+    "runId": "38543786543",
+    "runAttempt": "1",
+    "job": "measurement",
+    "event": "push",
+    "workflow": "8396 Product Measures Input Capture Only",
+    "workflowRef": "chase-sets/chase-sets/.github/workflows/8396-product-measures-input-capture.yml@refs/heads/codex/8396-impl-g1",
+    "workflowSha": "bc9477d5a4a1f6d55d797318863d43108dc8f6a1",
+    "repository": "chase-sets/chase-sets",
+    "ref": "refs/heads/codex/8396-impl-g1",
+    "runnerOs": "Linux",
+    "githubSha": "bc9477d5a4a1f6d55d797318863d43108dc8f6a1",
+    "pushAfter": "bc9477d5a4a1f6d55d797318863d43108dc8f6a1",
+    "captureParent": "08e4c976243ac8b52f348143d84e91bd9292a30f",
+    "sourceBase": "08e4c976243ac8b52f348143d84e91bd9292a30f",
+    "jobName": "Diagnostic API Bootstrap Measurement Only",
+    "parents": ["08e4c976243ac8b52f348143d84e91bd9292a30f"],
+    "node": "v24.21.0",
+    "pnpm": "11.0.9",
+    "vitest": "vitest/4.1.5 linux-x64 node-v24.21.0",
+    "imageOS": "ubuntu24",
+    "imageVersion": "20261004.327.1",
+    "runnerImage": "ubuntu-latest",
+    "postgresImage": "pgvector/pgvector:pg16",
+    "postgresImageDigests": [
+      "pgvector/pgvector@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a"
+    ],
+    "laneMode": null,
+    "maxWorkers": 3,
+    "workspaceConcurrency": 2,
+    "serialUnits": 2,
+    "unitDeadlineMs": 600000,
+    "aggregateDeadlineMs": 1800000,
+    "modeledUnitCeilingMs": 420000,
+    "modeledAggregateCeilingMs": 1080000,
+    "sourceManifestSha256": "1de20e2501e230fc49e5b6138c8e8f10c4034fd80d5efa1ad1908b3c4761ac37",
+    "caseManifestSha256": "09a6ca6b585d1c18177b9251d0a77e8223089793d3c0ed79bc2beb826d1c116b",
+    "commandsSha256": "c1a85539b4028bf4bf5c0e0306d1b7eb022c07fac039103022d3284c2d66052f",
+    "censusSha256": "bc6c57c87dace21ce934fe079ceceb2be644e35c6cef95d14f397361ab0ed64a",
+    "referenceJobId": 115784717746,
+    "artifactId": 11883728740,
+    "artifactSha256": "562bdf51fbdd0afc4cfb3384f0e9db75187d93ebf148a335f8d0f181294f1b61"
+  },
+  "jobWallMs": 819000,
+  "model": {
+    "referenceRunId": 38543786543,
+    "referenceJobId": 115784717746,
+    "referenceJobName": "Diagnostic API Bootstrap Measurement Only",
+    "referenceHeadSha": "bc9477d5a4a1f6d55d797318863d43108dc8f6a1",
+    "referenceEvent": "push",
+    "maxWorkersPerExecutionUnit": 3,
+    "testFileFixedCostMs": 1607,
+    "executionUnitFixedCostMs": 4752,
+    "jobOverheadMs": 48385,
+    "executionUnitCeilingMs": 420000,
+    "aggregateCeilingMs": 1080000,
+    "maximumCaseReferenceDurationMs": 600000,
+    "maximumScheduledFileCount": 12,
+    "maximumEnumeratedUnitCount": 4
+  },
+  "measuredUnits": [
+    {
+      "unit": "test:db:1",
+      "observedDurationMs": 340216.539674,
+      "longestWorkerChainMs": 387793,
+      "residualMs": -47576.460326
+    },
+    {
+      "unit": "test:db:2",
+      "observedDurationMs": 430398.601627,
+      "longestWorkerChainMs": 425647,
+      "residualMs": 4751.6016270000255
+    }
+  ],
+  "files": [
+    {
+      "fileName": "bootstrap-production-reconciliation.db.test.ts",
+      "testPath": "__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "executionUnit": "test:db:1",
+      "sourceSha256": "5664ed0ab100d9a24ebd3c94253e7203bd65a5f626a627ce3c32ec598f547972",
+      "observedDurationMs": 253434.916257,
+      "observedCaseSumMs": 251865.03780500003,
+      "residualMs": 1569.8784519999754,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
+          "durationMs": 9359.136832,
+          "referenceDurationMs": 9360,
+          "identity": "fcf65b142a0bbe05"
+        },
+        {
+          "name": "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
+          "durationMs": 17650.924895999997,
+          "referenceDurationMs": 17651,
+          "identity": "f749da3c0ba3e000"
+        },
+        {
+          "name": "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
+          "durationMs": 17695.233076000004,
+          "referenceDurationMs": 17696,
+          "identity": "1e91d11294f92825"
+        },
+        {
+          "name": "limits and reconciles every production-like seed context against current-code state",
+          "durationMs": 23884.586603000003,
+          "referenceDurationMs": 23885,
+          "identity": "91ce1f9bea42efa9"
+        },
+        {
+          "name": "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
+          "durationMs": 23439.193169000006,
+          "referenceDurationMs": 23440,
+          "identity": "5d22ae06208e8106"
+        },
+        {
+          "name": "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
+          "durationMs": 1386.5434550000064,
+          "referenceDurationMs": 1387,
+          "identity": "90b195ccf8bfe4d8"
+        },
+        {
+          "name": "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
+          "durationMs": 660.7883639999927,
+          "referenceDurationMs": 661,
+          "identity": "5faa4bae78495bc7"
+        },
+        {
+          "name": "rejects a conflicting retained representative Account profile with actionable detail",
+          "durationMs": 360.27757200000633,
+          "referenceDurationMs": 361,
+          "identity": "22153693f009807d"
+        },
+        {
+          "name": "rejects a conflicting retained representative User profile with actionable detail",
+          "durationMs": 489.6131219999952,
+          "referenceDurationMs": 490,
+          "identity": "d76b1ce3679034a0"
+        },
+        {
+          "name": "rejects a conflicting retained representative Shipping Address profile with actionable detail",
+          "durationMs": 503.6549890000024,
+          "referenceDurationMs": 504,
+          "identity": "de799f65824dcee1"
+        },
+        {
+          "name": "publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables",
+          "durationMs": 111586.162466,
+          "referenceDurationMs": 111587,
+          "identity": "d92236dde5468bdf"
+        },
+        {
+          "name": "resumes the real representative commerce command after offer acceptance without duplicate creation events",
+          "durationMs": 44848.92326100002,
+          "referenceDurationMs": 44849,
+          "identity": "f9e31ed90041d384"
+        }
+      ]
+    },
+    {
+      "fileName": "connector-mount-gate-isolation.db.test.ts",
+      "testPath": "__tests__/connector-mount-gate-isolation.db.test.ts",
+      "executionUnit": "test:db:1",
+      "sourceSha256": "6b6fe6ed4568966bbe926509fd8aa405b84fd293fcf68aafdec29a454a5e87e9",
+      "observedDurationMs": 16285.062539,
+      "observedCaseSumMs": 16056.993086999997,
+      "residualMs": 228.06945200000337,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at success",
+          "durationMs": 2105.2851530000003,
+          "referenceDurationMs": 2106,
+          "identity": "8e6da445d63de885"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at run-append",
+          "durationMs": 1716.190275,
+          "referenceDurationMs": 1717,
+          "identity": "dc78ebf502f34d74"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at projection",
+          "durationMs": 1709.838656,
+          "referenceDurationMs": 1710,
+          "identity": "ec452b4eda143648"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at receipt",
+          "durationMs": 1752.3567280000007,
+          "referenceDurationMs": 1753,
+          "identity": "2c16372bc3e4e36b"
+        },
+        {
+          "name": "connector-context-free-bound-settlement: real composed route/Postgres atomicity at missing-origin",
+          "durationMs": 1621.677894999999,
+          "referenceDurationMs": 1622,
+          "identity": "a78a2edc4b5ba59c"
+        },
+        {
+          "name": "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
+          "durationMs": 1385.870456999999,
+          "referenceDurationMs": 1386,
+          "identity": "a323ff8a1803c065"
+        },
+        {
+          "name": "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
+          "durationMs": 1391.6993459999994,
+          "referenceDurationMs": 1392,
+          "identity": "1c52c83b94b7148c"
+        },
+        {
+          "name": "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
+          "durationMs": 1371.690504000002,
+          "referenceDurationMs": 1372,
+          "identity": "c32e8f3114e13a9f"
+        },
+        {
+          "name": "audits every OAuth refusal and malformed transport once with unresolved identity",
+          "durationMs": 1552.804441999997,
+          "referenceDurationMs": 1553,
+          "identity": "f4325e300b6b29b5"
+        },
+        {
+          "name": "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
+          "durationMs": 1449.5796310000005,
+          "referenceDurationMs": 1450,
+          "identity": "f239ff43a5fed707"
+        }
+      ]
+    },
+    {
+      "fileName": "authoritative-seed-resume-core.db.test.ts",
+      "testPath": "__tests__/authoritative-seed-resume-core.db.test.ts",
+      "executionUnit": "test:db:1",
+      "sourceSha256": "440433cd2f0030882e9f91cf638d5dc3bd8666332dc077415ecdf4e95f5e74c7",
+      "observedDurationMs": 283740.81605,
+      "observedCaseSumMs": 282134.52939299995,
+      "residualMs": 1606.286657000077,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "derives the exact active and source-only seed universe for every host profile",
+          "durationMs": 564.2089720000004,
+          "referenceDurationMs": 565,
+          "identity": "d81e26884f288aba"
+        },
+        {
+          "name": "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+          "durationMs": 114973.444396,
+          "referenceDurationMs": 114974,
+          "identity": "9e25aef167dc384f"
+        },
+        {
+          "name": "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+          "durationMs": 43540.328542999996,
+          "referenceDurationMs": 43541,
+          "identity": "b8a98c6398a79ad2"
+        },
+        {
+          "name": "does not re-author Settlement while its payout projection lags the stream",
+          "durationMs": 123056.547482,
+          "referenceDurationMs": 123057,
+          "identity": "7be95cff42705d0f"
+        }
+      ]
+    },
+    {
+      "fileName": "bootstrap-lock-contention.db.test.ts",
+      "testPath": "__tests__/bootstrap-lock-contention.db.test.ts",
+      "executionUnit": "test:db:1",
+      "sourceSha256": "87f04964b1b26d1a3a5215d8cc257895047085efe7d2c0aa246797c26f05a36c",
+      "observedDurationMs": 5740.286537000001,
+      "observedCaseSumMs": 4655.337702000001,
+      "residualMs": 1084.9488350000001,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "recovers when bootstrap-touched table locks release within the retry budget",
+          "durationMs": 1249.8279000000002,
+          "referenceDurationMs": 1250,
+          "identity": "bf6e839e420caad8"
+        },
+        {
+          "name": "fails closed when bootstrap-touched table locks exhaust the retry budget",
+          "durationMs": 1304.7119570000004,
+          "referenceDurationMs": 1305,
+          "identity": "d18b9e8333f5c0e7"
+        },
+        {
+          "name": "isolates partition databases and bootstrap advisory locks",
+          "durationMs": 2100.797845,
+          "referenceDurationMs": 2101,
+          "identity": "c31f3a59baae1188"
+        }
+      ]
+    },
+    {
+      "fileName": "seed-command-full-pools.db.test.ts",
+      "testPath": "__tests__/seed-command-full-pools.db.test.ts",
+      "executionUnit": "test:db:1",
+      "sourceSha256": "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356",
+      "observedDurationMs": 38986.218652,
+      "observedCaseSumMs": 37691.704497,
+      "residualMs": 1294.5141550000044,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "completes representative commerce seeds, projections, fan-outs and post-state",
+          "durationMs": 27349.530431,
+          "referenceDurationMs": 27350,
+          "identity": "0204be7639f55534"
+        },
+        {
+          "name": "completes admin-QA fixtures and retains their seeded identity post-state",
+          "durationMs": 10342.174066,
+          "referenceDurationMs": 10343,
+          "identity": "9e7b99abfd2756ab"
+        }
+      ]
+    },
+    {
+      "fileName": "authoritative-seed-resume-reconciliation.db.test.ts",
+      "testPath": "__tests__/authoritative-seed-resume-reconciliation.db.test.ts",
+      "executionUnit": "test:db:1",
+      "sourceSha256": "860f607a29270dacb631db0bafb5b85ed0c2c18c8de120d536bf11780b51b8f2",
+      "observedDurationMs": 326778.906779,
+      "observedCaseSumMs": 325237.274508,
+      "residualMs": 1541.6322710000095,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+          "durationMs": 111270.72623900001,
+          "referenceDurationMs": 111271,
+          "identity": "309fc59ff41d9ee4"
+        },
+        {
+          "name": "enumerates stream-sourced seed-state coverage from the runtime mount list",
+          "durationMs": 1159.8880939999945,
+          "referenceDurationMs": 1160,
+          "identity": "944a32d056bf4f61"
+        },
+        {
+          "name": "resumes every converted context after its UNLOGGED guard projections are truncated",
+          "durationMs": 109055.57972799998,
+          "referenceDurationMs": 109056,
+          "identity": "97c0a8c137819d55"
+        },
+        {
+          "name": "accepts a seeded resolution after the real deadline sweep advances it to closed",
+          "durationMs": 103751.08044700001,
+          "referenceDurationMs": 103752,
+          "identity": "0efa7d5e61dc8603"
+        }
+      ]
+    },
+    {
+      "fileName": "bootstrap-scenario.db.test.ts",
+      "testPath": "__tests__/bootstrap-scenario.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "833dac713818f27c35d04e8abc8d5fd022cd4f811c572930cfb85ff0998d67c0",
+      "observedDurationMs": 116914.316531,
+      "observedCaseSumMs": 115351.70877000001,
+      "residualMs": 1562.607760999992,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "boots with context-owned pools and replays cross-context projections",
+          "durationMs": 111949.60109499999,
+          "referenceDurationMs": 111950,
+          "identity": "d5d72806700dfd1c"
+        },
+        {
+          "name": "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
+          "durationMs": 1689.0102960000077,
+          "referenceDurationMs": 1690,
+          "identity": "d4f92c858dc82bee"
+        },
+        {
+          "name": "records context schema migrations once during concurrent bootstrap",
+          "durationMs": 1713.0973790000135,
+          "referenceDurationMs": 1714,
+          "identity": "5765a6ba4a890be6"
+        }
+      ]
+    },
+    {
+      "fileName": "inventory-seed-resume.db.test.ts",
+      "testPath": "__tests__/inventory-seed-resume.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "6bb69e5513e513a2178cfff34143ed0b28f2f5ee37f992984acabcc58f38ab9a",
+      "observedDurationMs": 207740.551524,
+      "observedCaseSumMs": 207459.00788800005,
+      "residualMs": 281.5436359999585,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
+          "durationMs": 27469.520527000004,
+          "referenceDurationMs": 27470,
+          "identity": "0b053db039f00b7d"
+        },
+        {
+          "name": "appends events only on the first of three same-boot inventory and checkout seed invocations",
+          "durationMs": 22941.011185000003,
+          "referenceDurationMs": 22942,
+          "identity": "9f9a50a07958feca"
+        },
+        {
+          "name": "resumes inventory after only its first storage-location create commits",
+          "durationMs": 25149.649866,
+          "referenceDurationMs": 25150,
+          "identity": "0d059da8303ae139"
+        },
+        {
+          "name": "resumes an archived storage location committed before its archive step",
+          "durationMs": 30306.71346700001,
+          "referenceDurationMs": 30307,
+          "identity": "2f1e5800d580e926"
+        },
+        {
+          "name": "resumes a checkout cart holding only one of its two seeded lines",
+          "durationMs": 30563.998319000006,
+          "referenceDurationMs": 30564,
+          "identity": "6dd2f79404be0d62"
+        },
+        {
+          "name": "fails closed on conflicting retained inventory identity metadata",
+          "durationMs": 25183.374811000016,
+          "referenceDurationMs": 25184,
+          "identity": "c54552620ac0570c"
+        },
+        {
+          "name": "fails closed on a terminal retained inventory aggregate",
+          "durationMs": 25763.982772000018,
+          "referenceDurationMs": 25764,
+          "identity": "5883b8dd80d4e395"
+        },
+        {
+          "name": "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
+          "durationMs": 20080.756941,
+          "referenceDurationMs": 20081,
+          "identity": "35debe29ef133878"
+        }
+      ]
+    },
+    {
+      "fileName": "catalog-seed-aggregate-state.db.test.ts",
+      "testPath": "__tests__/catalog-seed-aggregate-state.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "5ed5c6a7f5bb10eb2585d6dfe22ed8a325a18dc56166bbad7e5f2f27586a4b63",
+      "observedDurationMs": 188733.273847,
+      "observedCaseSumMs": 188634.24355000004,
+      "residualMs": 99.03029699996114,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "reconciles all required aggregates for a clean scenario-seed-only module seed",
+          "durationMs": 13186.549156000001,
+          "referenceDurationMs": 13187,
+          "identity": "f78d626bdd98a1c4"
+        },
+        {
+          "name": "does not re-author unchanged Product Measures facts on scenario-seed repeat",
+          "durationMs": 24306.796333000002,
+          "referenceDurationMs": 24307,
+          "identity": "119d53278b4453d7"
+        },
+        {
+          "name": "NC-1 resumes an undrained Dimension seed without duplicate creation",
+          "durationMs": 17097.758253,
+          "referenceDurationMs": 17098,
+          "identity": "ddeee7bac7384389"
+        },
+        {
+          "name": "NC-2 resumes a Component committed at created version one across two ordinary boots",
+          "durationMs": 21090.990471999998,
+          "referenceDurationMs": 21091,
+          "identity": "d6b487fe4780b81f"
+        },
+        {
+          "name": "NC-3 restores lagging projections without re-authoring active aggregates",
+          "durationMs": 8024.953110999995,
+          "referenceDurationMs": 8025,
+          "identity": "5370dfdb151548b6"
+        },
+        {
+          "name": "rebuilds lost Catalog Item projections from retained streams without appending item events",
+          "durationMs": 29893.014461000013,
+          "referenceDurationMs": 29894,
+          "identity": "f7c024ac13659525"
+        },
+        {
+          "name": "NC-4 ignores populated containers when required aggregates have zero events",
+          "durationMs": 31831.528319999998,
+          "referenceDurationMs": 31832,
+          "identity": "31ea7ebe99c1ec04"
+        },
+        {
+          "name": "NC-5a repairs a draft partial aggregate rather than skipping it",
+          "durationMs": 20839.654683,
+          "referenceDurationMs": 20840,
+          "identity": "da4c8d1fc71a5c6b"
+        },
+        {
+          "name": "NC-5b rejects conflicting retained identity metadata on both boots",
+          "durationMs": 4229.316815000027,
+          "referenceDurationMs": 4230,
+          "identity": "220cd5f763d298b2"
+        },
+        {
+          "name": "NC-5c rejects a terminal retained aggregate on both boots",
+          "durationMs": 18133.681945999997,
+          "referenceDurationMs": 18134,
+          "identity": "547ba56539985bfc"
+        }
+      ]
+    },
+    {
+      "fileName": "authoritative-seed-resume-recovery.db.test.ts",
+      "testPath": "__tests__/authoritative-seed-resume-recovery.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "43b284d738b7817e5e2eebf314bd42697058f120ed8118323cb1b8a13490baee",
+      "observedDurationMs": 217905.29772399997,
+      "observedCaseSumMs": 216812.81759400002,
+      "residualMs": 1092.4801299999526,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
+          "durationMs": 108477.39541900001,
+          "referenceDurationMs": 108478,
+          "identity": "3bd5ce2166de99ce"
+        },
+        {
+          "name": "recreates only a missing review-eligible payment after a sibling payment has completed",
+          "durationMs": 108335.42217500001,
+          "referenceDurationMs": 108336,
+          "identity": "68188141fd171819"
+        }
+      ]
+    },
+    {
+      "fileName": "bootstrap-shared-seed-command.db.test.ts",
+      "testPath": "__tests__/bootstrap-shared-seed-command.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "7e318b7be666a8a157ef907a12cd820490391aee53c90eb00e2430ad7f85be30",
+      "observedDurationMs": 113782.04594,
+      "observedCaseSumMs": 112465.46998,
+      "residualMs": 1316.575960000002,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "boots every non-production profile on one shared max-one seed command pool",
+          "durationMs": 112465.46998,
+          "referenceDurationMs": 112466,
+          "identity": "4d891cb822a0a334"
+        }
+      ]
+    },
+    {
+      "fileName": "catalog-seed-interruption-resume.db.test.ts",
+      "testPath": "__tests__/catalog-seed-interruption-resume.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "9bcb4e559dfd6f0868e962c64d3c7feb19049aef1e79b91381a8ce04120450f4",
+      "observedDurationMs": 197083.81915700002,
+      "observedCaseSumMs": 196987.286806,
+      "residualMs": 96.53235100003076,
+      "bootstrap": true,
+      "cases": [
+        {
+          "name": "resumes after Dimensions under scenario-seed and production-like profiles",
+          "durationMs": 27722.053814000003,
+          "referenceDurationMs": 27723,
+          "identity": "b006b495c2b4a662"
+        },
+        {
+          "name": "resumes after Fields under scenario-seed and production-like profiles",
+          "durationMs": 26732.241777999996,
+          "referenceDurationMs": 26733,
+          "identity": "13b82872bb3ba0b8"
+        },
+        {
+          "name": "resumes after Reference Data under scenario-seed and production-like profiles",
+          "durationMs": 26575.709589000006,
+          "referenceDurationMs": 26576,
+          "identity": "3cfe7d19f03127f2"
+        },
+        {
+          "name": "resumes after Components under scenario-seed and production-like profiles",
+          "durationMs": 26034.925042999996,
+          "referenceDurationMs": 26035,
+          "identity": "7ef841ec166b46d3"
+        },
+        {
+          "name": "resumes after Blueprints under scenario-seed and production-like profiles",
+          "durationMs": 27054.144108000008,
+          "referenceDurationMs": 27055,
+          "identity": "9a1c524b0483b012"
+        },
+        {
+          "name": "resumes after the final Category under scenario-seed and production-like profiles",
+          "durationMs": 23041.179753000004,
+          "referenceDurationMs": 23042,
+          "identity": "cb5ecec3a418a82a"
+        },
+        {
+          "name": "resumes mid catalog.component.created under scenario-seed and production-like profiles",
+          "durationMs": 17443.078787999984,
+          "referenceDurationMs": 17444,
+          "identity": "ea939096e104ab7e"
+        },
+        {
+          "name": "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
+          "durationMs": 11191.002099000005,
+          "referenceDurationMs": 11192,
+          "identity": "2be8f4782fdbd9eb"
+        },
+        {
+          "name": "preserves duplicate CreateDimension rejection through the non-seed command handler",
+          "durationMs": 11192.951834000007,
+          "referenceDurationMs": 11193,
+          "identity": "b21990765232df57"
+        }
+      ]
+    }
+  ],
+  "nonBootstrapFiles": [
+    {
+      "fileName": "operator-session-grant-mint.db.test.ts",
+      "testPath": "__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "93d5571d8dce54e15607ba01dc996c17bbed184f7d69049f36aef0caa2c12fca",
+      "observedDurationMs": 25387.496644,
+      "observedCaseSumMs": 25222.281949000007,
+      "residualMs": 165.21469499999148,
+      "bootstrap": false,
+      "cases": [
+        {
+          "name": "upgrades the registered v1 grant schema with retained rows=false",
+          "durationMs": 1741.431156999999,
+          "referenceDurationMs": 1742
+        },
+        {
+          "name": "upgrades the registered v1 grant schema with retained rows=true",
+          "durationMs": 1787.5831980000003,
+          "referenceDurationMs": 1788
+        },
+        {
+          "name": "mints for Identity-shaped user and membership ids with an idle expiry",
+          "durationMs": 1014.5199070000017,
+          "referenceDurationMs": 1015,
+          "identity": "99671143509a030d"
+        },
+        {
+          "name": "warns once with only the SQLSTATE and operation while returning a custody 503",
+          "durationMs": 976.3893229999994,
+          "referenceDurationMs": 977,
+          "identity": "84f17a6c0115c60b"
+        },
+        {
+          "name": "refuses anonymous without minting",
+          "durationMs": 1049.393788999998,
+          "referenceDurationMs": 1050
+        },
+        {
+          "name": "refuses wrong role without minting",
+          "durationMs": 1095.1154260000003,
+          "referenceDurationMs": 1096
+        },
+        {
+          "name": "refuses view only without minting",
+          "durationMs": 1040.2652250000028,
+          "referenceDurationMs": 1041
+        },
+        {
+          "name": "refuses missing step-up without minting",
+          "durationMs": 998.1767309999996,
+          "referenceDurationMs": 999
+        },
+        {
+          "name": "refuses malformed step-up without minting",
+          "durationMs": 969.2917420000012,
+          "referenceDurationMs": 970
+        },
+        {
+          "name": "enforces the exact ten-minute/future boundary at -600001 ms",
+          "durationMs": 992.5025370000003,
+          "referenceDurationMs": 993
+        },
+        {
+          "name": "enforces the exact ten-minute/future boundary at -600000 ms",
+          "durationMs": 988.8833720000002,
+          "referenceDurationMs": 989
+        },
+        {
+          "name": "enforces the exact ten-minute/future boundary at 0 ms",
+          "durationMs": 1073.882819999999,
+          "referenceDurationMs": 1074
+        },
+        {
+          "name": "enforces the exact ten-minute/future boundary at 1 ms",
+          "durationMs": 1067.6817569999985,
+          "referenceDurationMs": 1068
+        },
+        {
+          "name": "rejects mutation Origin/fetch metadata 0 without writes",
+          "durationMs": 1065.4501930000006,
+          "referenceDurationMs": 1066
+        },
+        {
+          "name": "rejects mutation Origin/fetch metadata 1 without writes",
+          "durationMs": 999.9726719999999,
+          "referenceDurationMs": 1000
+        },
+        {
+          "name": "rejects mutation Origin/fetch metadata 2 without writes",
+          "durationMs": 1104.967829000001,
+          "referenceDurationMs": 1105
+        },
+        {
+          "name": "rejects mutation Origin/fetch metadata 3 without writes",
+          "durationMs": 1019.3416959999995,
+          "referenceDurationMs": 1020
+        },
+        {
+          "name": "stores only a unique hash with creator identity and DB-time instants",
+          "durationMs": 1036.8704020000005,
+          "referenceDurationMs": 1037,
+          "identity": "20a951543208dbdf"
+        },
+        {
+          "name": "metadata prefers the unrevoked replacement with equal creation instants",
+          "durationMs": 1071.3379170000044,
+          "referenceDurationMs": 1072
+        },
+        {
+          "name": "metadata prefers the unrevoked replacement with a backward DB-clock transition",
+          "durationMs": 1006.1033219999954,
+          "referenceDurationMs": 1007
+        },
+        {
+          "name": "metadata retains inactive historical fallback when every grant is revoked",
+          "durationMs": 1044.2586500000034,
+          "referenceDurationMs": 1045,
+          "identity": "a0a726fa47c45aeb"
+        },
+        {
+          "name": "GET requires platform-admin/catalog.view but not recent authentication",
+          "durationMs": 1021.3783260000055,
+          "referenceDurationMs": 1022,
+          "identity": "f8c704f7354db320"
+        },
+        {
+          "name": "concurrent two-replica mint replaces even an expired unrevoked grant",
+          "durationMs": 1057.483957999997,
+          "referenceDurationMs": 1058,
+          "identity": "d50131da6ac7cf56"
+        }
+      ]
+    },
+    {
+      "fileName": "operator-session-grant-scope.db.test.ts",
+      "testPath": "__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "69b1653dc791697231a86674f57939ba8f8d0300cfedf91efdf2ba7127b312cc",
+      "observedDurationMs": 21173.931218,
+      "observedCaseSumMs": 21075.33000000001,
+      "residualMs": 98.60121799999251,
+      "bootstrap": false,
+      "cases": [
+        {
+          "name": "bearer alone authorizes only the two public methods; cookie/actor/query/body never do",
+          "durationMs": 1088.9568999999997,
+          "referenceDurationMs": 1089,
+          "identity": "3c7e8d8d6941fd0b"
+        },
+        {
+          "name": "strict DB expiry never revives and next-day pushes renew only valid grants",
+          "durationMs": 994.5400770000006,
+          "referenceDurationMs": 995,
+          "identity": "f709c4b068b1b0d7"
+        },
+        {
+          "name": "closed request refusal 0 leaves both tables unchanged",
+          "durationMs": 1064.1721869999992,
+          "referenceDurationMs": 1065
+        },
+        {
+          "name": "closed request refusal 1 leaves both tables unchanged",
+          "durationMs": 950.2861919999996,
+          "referenceDurationMs": 951
+        },
+        {
+          "name": "closed request refusal 2 leaves both tables unchanged",
+          "durationMs": 981.3148849999989,
+          "referenceDurationMs": 982
+        },
+        {
+          "name": "closed request refusal 3 leaves both tables unchanged",
+          "durationMs": 1044.8938500000004,
+          "referenceDurationMs": 1045
+        },
+        {
+          "name": "closed request refusal 4 leaves both tables unchanged",
+          "durationMs": 979.5657809999993,
+          "referenceDurationMs": 980
+        },
+        {
+          "name": "closed request refusal 5 leaves both tables unchanged",
+          "durationMs": 993.6432949999999,
+          "referenceDurationMs": 994
+        },
+        {
+          "name": "closed request refusal 6 leaves both tables unchanged",
+          "durationMs": 1001.811565,
+          "referenceDurationMs": 1002
+        },
+        {
+          "name": "closed request refusal 7 leaves both tables unchanged",
+          "durationMs": 972.1383399999995,
+          "referenceDurationMs": 973
+        },
+        {
+          "name": "closed request refusal 8 leaves both tables unchanged",
+          "durationMs": 998.81754,
+          "referenceDurationMs": 999
+        },
+        {
+          "name": "closed request refusal 9 leaves both tables unchanged",
+          "durationMs": 978.4173370000008,
+          "referenceDurationMs": 979
+        },
+        {
+          "name": "largest valid, chunked cap+1, wrong media and empty-route body controls use actual bytes",
+          "durationMs": 1006.8804480000017,
+          "referenceDurationMs": 1007,
+          "identity": "2e58ce8def99ab0c"
+        },
+        {
+          "name": "six PUTs per valid id, no renewal at 429, expiry of the replica window restores admission",
+          "durationMs": 1025.8884690000014,
+          "referenceDurationMs": 1026,
+          "identity": "2ae7ff3a47d665de"
+        },
+        {
+          "name": "renewal-first fault control rolls back renewal on custody-sql refusal",
+          "durationMs": 973.1745220000012,
+          "referenceDurationMs": 974
+        },
+        {
+          "name": "renewal-first fault control rolls back renewal on lost-key refusal",
+          "durationMs": 958.5835939999997,
+          "referenceDurationMs": 959
+        },
+        {
+          "name": "renewal-first fault control rolls back renewal on sealing refusal",
+          "durationMs": 973.4344820000006,
+          "referenceDurationMs": 974
+        },
+        {
+          "name": "accept-first sql renewal refusal rolls back real custody",
+          "durationMs": 1039.5560570000016,
+          "referenceDurationMs": 1040
+        },
+        {
+          "name": "accept-first conditional-expiry renewal refusal rolls back real custody",
+          "durationMs": 1013.1890800000001,
+          "referenceDurationMs": 1014
+        },
+        {
+          "name": "missing write key refuses even stale PUT; actual maximum-revision increment refuses without renewal",
+          "durationMs": 1033.5171760000012,
+          "referenceDurationMs": 1034,
+          "identity": "338ca4de472c7f12"
+        },
+        {
+          "name": "endless authenticated and empty-route bodies cancel without durable effects",
+          "durationMs": 1002.5482230000016,
+          "referenceDurationMs": 1003,
+          "identity": "64c4d729efc6edc3"
+        }
+      ]
+    },
+    {
+      "fileName": "operator-session-grant-lifecycle.db.test.ts",
+      "testPath": "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "82757533ab191b7094e093463e22777eabb494974cd5fd83280ee87858c67837",
+      "observedDurationMs": 16303.079838999998,
+      "observedCaseSumMs": 16199.999896999998,
+      "residualMs": 103.0799420000003,
+      "bootstrap": false,
+      "cases": [
+        {
+          "name": "Disconnect returns a stale clear without retry and keeps its acknowledged revoke",
+          "durationMs": 1012.9748900000004,
+          "referenceDurationMs": 1013,
+          "identity": "a9489449a64511f8"
+        },
+        {
+          "name": "stored renews exactly from DB time only after COMMIT acknowledgement",
+          "durationMs": 997.5135789999995,
+          "referenceDurationMs": 998
+        },
+        {
+          "name": "unchanged renews exactly from DB time only after COMMIT acknowledgement",
+          "durationMs": 1029.917222,
+          "referenceDurationMs": 1030
+        },
+        {
+          "name": "stale-revision renews exactly from DB time only after COMMIT acknowledgement",
+          "durationMs": 1153.579205,
+          "referenceDurationMs": 1154
+        },
+        {
+          "name": "two apps serialize unpair through a paused custody write",
+          "durationMs": 1190.1301170000006,
+          "referenceDurationMs": 1191
+        },
+        {
+          "name": "two apps serialize disconnect through a paused custody write",
+          "durationMs": 1137.336557999999,
+          "referenceDurationMs": 1138
+        },
+        {
+          "name": "two apps serialize replace through a paused custody write",
+          "durationMs": 1108.9288309999993,
+          "referenceDurationMs": 1109
+        },
+        {
+          "name": "kills the SAME paused accept backend before another app revokes; no late write or leaked slot",
+          "durationMs": 1043.4043060000004,
+          "referenceDurationMs": 1044,
+          "identity": "0fcaf678a1e3984e"
+        },
+        {
+          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for stored",
+          "durationMs": 1085.4069419999996,
+          "referenceDurationMs": 1086
+        },
+        {
+          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for unchanged",
+          "durationMs": 1107.5705509999989,
+          "referenceDurationMs": 1108
+        },
+        {
+          "name": "lost COMMIT acknowledgement discriminates both durable outcomes for stale-revision",
+          "durationMs": 1145.9365850000013,
+          "referenceDurationMs": 1146
+        },
+        {
+          "name": "Disconnect metadata failure preserves its asymmetric commit contract",
+          "durationMs": 1025.7098539999988,
+          "referenceDurationMs": 1026
+        },
+        {
+          "name": "Disconnect clear failure preserves its asymmetric commit contract",
+          "durationMs": 981.0387230000015,
+          "referenceDurationMs": 982
+        },
+        {
+          "name": "Disconnect revoke-ack failure preserves its asymmetric commit contract",
+          "durationMs": 1095.3771039999992,
+          "referenceDurationMs": 1096
+        },
+        {
+          "name": "Disconnect clear-ack failure preserves its asymmetric commit contract",
+          "durationMs": 1085.1754299999993,
+          "referenceDurationMs": 1086
+        }
+      ]
+    },
+    {
+      "fileName": "operator-session-push.db.test.ts",
+      "testPath": "__tests__/operator-session/operator-session-push.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "58d699d56dfe7e2869d159c4fd4f0166d72c634cc6e62a7bfe9a0ef01ecf91c0",
+      "observedDurationMs": 4120.2289,
+      "observedCaseSumMs": 4019.1235249999995,
+      "residualMs": 101.10537500000055,
+      "bootstrap": false,
+      "cases": [
+        {
+          "name": "stored 1, cleared 2, new-grant stale 0, stored 3, replay stale and unchanged preserve the fence",
+          "durationMs": 1060.4782460000001,
+          "referenceDurationMs": 1061,
+          "identity": "0f6ea58c9137db6c"
+        },
+        {
+          "name": "direct same-key delayed clear reaches resume and cannot damage HTTP replacement",
+          "durationMs": 958.1867510000002,
+          "referenceDurationMs": 959
+        },
+        {
+          "name": "direct same-key delayed accept reaches resume and cannot damage HTTP replacement",
+          "durationMs": 995.9190769999996,
+          "referenceDurationMs": 996
+        },
+        {
+          "name": "key-loss clear needs no decrypt and repeated cleared/absent DELETE is inert",
+          "durationMs": 1004.5394509999996,
+          "referenceDurationMs": 1005,
+          "identity": "fe25da22e2aede1f"
+        }
+      ]
+    },
+    {
+      "fileName": "operator-extension-route-contract.db.test.ts",
+      "testPath": "__tests__/operator-session/operator-extension-route-contract.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "48334a8bcca7ee10afd1d5db3c8bb326063dbbc459e0bea20e1560fb3caf4bf7",
+      "observedDurationMs": 1209.3828240000003,
+      "observedCaseSumMs": 1110.4218059999998,
+      "residualMs": 98.96101800000042,
+      "bootstrap": false,
+      "cases": [
+        {
+          "name": "stored 1 -> Disconnect cleared 2 -> NEW grant stale 2 -> fresh cookie stored 3; unpair preserves custody",
+          "durationMs": 1110.4218059999998,
+          "referenceDurationMs": 1111,
+          "identity": "67cb0c1de031423a"
+        }
+      ]
+    },
+    {
+      "fileName": "seed-command-catalog.db.test.ts",
+      "testPath": "__tests__/seed-command-catalog.db.test.ts",
+      "executionUnit": "test:db:2",
+      "sourceSha256": "74bc17a6fbddf60537a2c9024ec991b53e86f16cf7b55eb8c7cc92860e9fbfdb",
+      "observedDurationMs": 10617.610332,
+      "observedCaseSumMs": 10614.807036999999,
+      "residualMs": 2.803295000001526,
+      "bootstrap": false,
+      "cases": [
+        {
+          "name": "seeds Catalog scenario items with the actual direct command pool options",
+          "durationMs": 10614.807036999999,
+          "referenceDurationMs": 10615,
+          "identity": "58d2b3df409f276c"
+        }
+      ]
+    }
+  ],
+  "sourceBindings": {
+    "bounded-contexts/catalog/features/product-measures/api/publication.ts": "97c25d439698649ed33a183827065581a3ea8e4e8d6275af66f20b810159f06a",
+    "bounded-contexts/catalog/features/product-measures/api/runtime.ts": "23e37b8c4fd5f2867b6c0be6b0a93a952b5d7be3dd5cfacba4e3c0ace780d805",
+    "bounded-contexts/catalog/features/product-measures/api/seed.ts": "319456e71b6d4eedc9d2ce837be48d9862e4a44b13355ca6ad9e36b1aed66f91",
+    "contracts/product-measures/publication.ts": "c6d652c802ab4ab474fdbe7239704b2fc9f3262d3b1ec07c6993bdad17fc05cc",
+    "contracts/catalog-seed/representative-commerce-state.ts": "6f9aabb33b32f6c5288f683aecdc4cf76fc638f56cde015aa8bae9d5ce3929b2",
+    "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "3d140da11b9fbee8f50781a0737050ea9a8f8e7f10a44dc76971ca051490d511",
+    "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "38f698fcffcbebef8c07ec6d247acb98cbe9880e60d002d1702d8cc530178690",
+    "deployables/platform-api/src/representative-commerce-state.ts": "b69a4b1fc803d04b0f3a959c0df42cae5a7f614978ded670aaebda47f13477d8",
+    "deployables/platform-api/__tests__/operator-session/fixture.ts": "73bf8bf5ef676379b972312cb1b0bcdfee9a5d15fc74e79845bb39703524b4ae",
+    "bounded-contexts/catalog/features/operator-session/api/operation.ts": "e7c799f32e9534f36681112171bf98b8e1e615afb1004b72defe9ee41c31274a",
+    "bounded-contexts/catalog/features/operator-session/read-model/grant-schema.ts": "9ecac72fe83e114aad559e8a3769df41e37681f685f01c9de6045914af5bac63",
+    "bounded-contexts/inventory/api.ts": "c5004386c84d37e70c6bd5b0b7745628aa98bbdd35a4e62c3318828fb4e00323",
+    "bounded-contexts/inventory/index.ts": "e00bad148c2571d6d3217cd7f05992d5e4fe596f6e8592149b0bdff81e12cebf",
+    "bounded-contexts/inventory/context.json": "b74a47bb8fa489e25f0153e300ecacb7c905fd4f0f7626f28a0ea4c5ee706413",
+    "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts": "0f2f882cf6b2629a555209ce6e5c27a33160a1c739373c2edeaf190f2426e7f6",
+    "bounded-contexts/inventory/features/holds/api/runtime.ts": "63e077f8aa45a1ecd1aa54729a402167a76574e7c0f3861cba249fdb768cd5b9",
+    "bounded-contexts/inventory/features/holds/api/route.ts": "97d609fbf243bc102e2ccfb3469f0786faa70c54fd6d3ee4a83df7ae6685360e",
+    "bounded-contexts/inventory/features/holds/api/checkout-reservation-authority.ts": "b16e96e6eadb79b138847f86897f3eccd8c6c9be64b7df77d4e5f93b1acfbbd0",
+    "bounded-contexts/inventory/features/holds/read-model/schema.ts": "ca7d0be07134affd10d10d9c2b37a072dbe6e52640c5174cce104273f5315a92",
+    "bounded-contexts/inventory/features/inventory-items/api/runtime.ts": "cc1aebd31b011fd93e3334c22d5502ecedcab8877a755f70534f9a30c6513c67",
+    "bounded-contexts/inventory/features/storage-locations/api/runtime.ts": "58ab1974298f3e113aeb44463ef2119c47c93db649cee60a9315479da0f1af81",
+    "bounded-contexts/checkout/features/sessions/api/inventory-reservation-authority.ts": "788b430eb13ef74dd90c5075f12d9d297ea253a56c5a8b83da39da2848fc381e",
+    "bounded-contexts/checkout/support/request-support/checkout-confirmation.ts": "13608a102447780ade04a6278b032695d6929965c12d05a106152ab8cf0aff63",
+    "deployables/platform-api/src/app.ts": "ed43b9a3a783c44b8744cf50fc98d4b31024cb21d4cb9457f041b4331d399198",
+    "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts": "4346dd98746681bb168f080d43ac0e84f99f1f2f450309eacca3e3934651e4f9",
+    "bounded-contexts/auth/features/invitation-acceptance/read-model/schema.ts": "b6a978c5cf0bbacee91b4a5811d46d26efbe3c0ccddffcdb1d91c314c2b3c491",
+    "bounded-contexts/auth/support/runtime-support/schema.ts": "0bcf6c8f1e63be564309f738813d8f785d209d2d0b6345f8508a45037d38c8ad",
+    "bounded-contexts/auth/support/runtime-support/services.ts": "77165efad7c782a0a066d0a662bc424a7932ca8e1b43f6618225744f0e9ecf59",
+    "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts": "f9e17661e5f412f8266a61eb7664e23c3da0883a4fdd92c765f7ee3a1abaf5d7",
+    "bounded-contexts/identity/server.ts": "37572b32120483fc1f913e38a2fca6b9f118088ec465343a63613412cd279ea4",
+    "bounded-contexts/auth/support/ucp-support/oauth.ts": "2a1c4a90c65962d79acfa21157a4b3c6abf99913b877e59f2b11587cd0ac6114",
+    "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-registration.ts": "05d57e3b2e60bbec0e01aa36313fec726a92cb0d0643c2e5ea31509ca8371c80",
+    "bounded-contexts/auth/support/ucp-support/agent-webhooks/order-update-payload.ts": "021239327286009de8433d4ffc58c24dce136ec49ff0d25f560d3433b0c2d072",
+    "bounded-contexts/identity/features/agent-grants/api/revocation.ts": "3e27fdc53a2dbfe220aa52c8de05ec52571763f3d30f20abdf86967a4facf263",
+    "bounded-contexts/marketplace/context.json": "21771721fefc94abcc2aa7a739d7026006c5f98d18675bd755c49ae64d66eb81",
+    "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts": "69cf13223d40de001d3c32122d0e8e0222566b308c13eae1eef467d9796e3eaa",
+    "bounded-contexts/marketplace/features/offers/api/runtime.ts": "c34eb9426747c2ca11eb80f28726ef5389d4e84819fd3fc75cf1b551d1f02fe9",
+    "bounded-contexts/payments/features/payments/api/mcp.ts": "cb5b5fbb7b31d885e365aef83f981df3492925e73f2d23bbaa138ae19c5e9d66",
+    "contracts/auth-context/index.ts": "2f010c456490b8fc912e3b4af45ede1c9798d8297d1148a6a31465cb5f03c50a",
+    "infrastructure/platform-runtime/ucp-contracts.ts": "a7c65e92016f1c7c9d2a555a1f11300c39dc27bb28c68645a78208463b2bb0f1",
+    "pnpm-lock.yaml": "dc24c289c58903fc69db5a037891cced6373d91ae7fac583bfac27b59711aac5",
+    "vitest.shared.mjs": "81156409658a87902a6b731976f88423e6a142d08556877937ec46a49e064903"
+  },
+  "acceptedAssignment": {
+    "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
+    "connector-mount-gate-isolation.db.test.ts": "test:db:1",
+    "authoritative-seed-resume-core.db.test.ts": "test:db:1",
+    "bootstrap-lock-contention.db.test.ts": "test:db:1",
+    "seed-command-full-pools.db.test.ts": "test:db:1",
+    "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
+    "bootstrap-scenario.db.test.ts": "test:db:2",
+    "inventory-seed-resume.db.test.ts": "test:db:2",
+    "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
+    "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
+    "bootstrap-shared-seed-command.db.test.ts": "test:db:2",
+    "catalog-seed-interruption-resume.db.test.ts": "test:db:3"
+  },
+  "acceptedBootBearingCeilings": {
+    "test:db:1": 33,
+    "test:db:2": 24,
+    "test:db:3": 9
+  }
+}

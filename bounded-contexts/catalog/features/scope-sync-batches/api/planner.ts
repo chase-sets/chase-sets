@@ -9,6 +9,7 @@ import {
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import { observeCountCapturePlan } from "./count-capture-context";
 import {
   buildScopeSyncBatchPreview,
   normalizeScopeSyncBatchSelection,
@@ -98,7 +99,7 @@ export function createScopeSyncBatchPlanner(deps: {
       });
     }
 
-    return {
+    const result = {
       preview: buildScopeSyncBatchPreview({
         selection,
         budget: input.budget,
@@ -107,6 +108,8 @@ export function createScopeSyncBatchPlanner(deps: {
       }),
       plans,
     };
+    observeCountCapturePlan(result);
+    return result;
   }
 
   return { resolve };
