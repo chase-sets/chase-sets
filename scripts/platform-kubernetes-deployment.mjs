@@ -2259,18 +2259,10 @@ async function runHelmUpgradeAttempt(options, args, record) {
       stderrTailBytes: helmUpgradeStderrTailBytes,
     });
   } catch (error) {
-    const line = classifyAdmissionWebhookTransient(error?.stderr);
-    attempt.admissionWebhookTransient = isAdmissionWebhookTransientLine(line) ? line : null;
+    attempt.admissionWebhookTransient = classifyAdmissionWebhookTransient(error?.stderr);
     throw error;
   }
   attempt.result = "success";
-}
-
-// The record's only text is the matcher's own bounded line. Re-matching that line
-// reproduces it, up to a trailing space its 500-character cut can leave, so the producer
-// and the record boundary accept exactly the same canonical form.
-function isAdmissionWebhookTransientLine(value) {
-  return typeof value === "string" && value !== "" && classifyAdmissionWebhookTransient(value) === value.trimEnd();
 }
 
 // Returns the refusal code, or null once the retry is admitted. Nothing here retries a
@@ -2484,7 +2476,7 @@ function hasExactKeys(value, keys) {
 }
 
 // Closed platform-kubernetes-deploy-attempts/v1: one terminal result, at most two
-// attempts, and no text except each attempt's canonical admission transient line; the
+// attempts, and no text except each attempt's bounded admission transient line; the
 // pre-retry history keeps descriptions only as fingerprints.
 export function assertDeployAttemptsRecord(record) {
   assertDeployAttemptsShape(hasExactKeys(record, deployAttemptsKeys), "must contain exactly its v1 fields");
@@ -2508,7 +2500,8 @@ export function assertDeployAttemptsRecord(record) {
           ["success", "failure"].includes(attempt.result) &&
           (attempt.admissionWebhookTransient === null ||
             (attempt.result === "failure" &&
-              isAdmissionWebhookTransientLine(attempt.admissionWebhookTransient) &&
+              typeof attempt.admissionWebhookTransient === "string" &&
+              attempt.admissionWebhookTransient.length > 0 &&
               attempt.admissionWebhookTransient.length <= 500)) &&
           (index === attempts.length - 1 || attempt.result === "failure"),
       ),

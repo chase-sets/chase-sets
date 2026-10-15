@@ -5083,6 +5083,34 @@ describe("admission transient retry", () => {
       preRetryHistory: fingerprintedHistory(atomicRolledBackHistory),
     });
   });
+
+  it("retries a matched transient whose bounded line is cut before `No agent available`", async () => {
+    // Synthetic: a webhook path long enough that the 500-character bound drops `No agent available`.
+    // Eligibility comes from the match on the complete original error, not from the bounded line.
+    const longCall = admissionNoAgentCall.replace("/validate", `/synthetic-${"x".repeat(250)}`);
+    const stderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${longCall}: ${longCall}\n`;
+    const line = classifyAdmissionWebhookTransient(stderr);
+    expect(line).toHaveLength(500);
+    expect(line).not.toContain("No agent available");
+    const { error, calls, records } = await runRetryDeploy(
+      retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
+    );
+
+    expect(error).toBeUndefined();
+    const upgrades = upgradeCalls(calls);
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1].args).toEqual(upgrades[0].args);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      result: "success",
+      retry: "performed",
+      refusal: null,
+      attempts: [
+        { attempt: 1, result: "failure", admissionWebhookTransient: line },
+        { attempt: 2, result: "success", admissionWebhookTransient: null },
+      ],
+    });
+  });
 });
 
 describe("admission transient refusals", () => {
@@ -5102,23 +5130,6 @@ describe("admission transient refusals", () => {
   it("rethrows a non-transient upgrade failure without reading history", async () => {
     const stderr =
       "Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition\n";
-    const { calls, records } = await expectRefusal(
-      retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
-      "not-transient",
-      {},
-      stderr,
-    );
-    expect(calls).toHaveLength(1);
-    expect(records[0].attempts).toEqual([{ attempt: 1, result: "failure", admissionWebhookTransient: null }]);
-  });
-
-  it("records no transient, and never retries, when the bounded line cannot reproduce itself", async () => {
-    // Synthetic: a resource name long enough that the 500-character cut drops `No agent available`.
-    const longCall = admissionNoAgentCall.replace("chase-sets-platform-doks-tls", `synthetic-${"x".repeat(300)}`);
-    const stderr = `Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: ${longCall}\n`;
-    const cut = classifyAdmissionWebhookTransient(stderr);
-    expect(cut).toHaveLength(500);
-    expect(classifyAdmissionWebhookTransient(cut)).toBeNull();
     const { calls, records } = await expectRefusal(
       retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
       "not-transient",
@@ -5370,17 +5381,6 @@ describe("attempts record", () => {
         (value) => Object.assign(value.preRetryHistory[0], { descriptionSha256: "a".repeat(64) }),
       ],
       ["an unnormalized status", (value) => Object.assign(value.preRetryHistory[0], { status: "Superseded" })],
-      [
-        "a non-matcher transient line",
-        (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "synthetic arbitrary non-AC1 text" }),
-      ],
-      [
-        "a transient line behind other text",
-        (value) =>
-          Object.assign(value.attempts[0], {
-            admissionWebhookTransient: `synthetic TOKEN=planted ${admissionTransientLine}`.slice(0, 500),
-          }),
-      ],
     ]) {
       const mutated = structuredClone(record);
       mutate(mutated);
