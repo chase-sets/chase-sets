@@ -14,7 +14,7 @@ const expectedInventory = [
     "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
     "recoverInventoryAdjustmentIdempotency",
   ],
-  ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", "resolveCatalogItemMeasures"],
+  ["bounded-contexts/catalog/features/product-measures/api/publication.ts", "publishProductMeasures"],
   ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "replaceProductContents"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "findReplayedListingMutation"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "listSellerListingFeeHistory"],
@@ -138,13 +138,13 @@ describe("issue-6299-acceptance-control", () => {
   });
 
   it("rejects count-derived expected-version and authority-boundary bypasses", () => {
-    for (const relativeFile of [
-      "bounded-contexts/catalog/features/product-measures/api/runtime.ts",
-      "bounded-contexts/catalog/features/product-contents/api/runtime.ts",
+    for (const [relativeFile, history] of [
+      ["bounded-contexts/catalog/features/product-measures/api/publication.ts", "history"],
+      ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "existingEvents"],
     ]) {
       const source = readFileSync(path.join(repoRoot, relativeFile), "utf8");
-      expect(source).toContain("existingEvents.at(-1)?.streamVersion ?? 0");
-      expect(source).not.toMatch(/currentVersion\s*=\s*existingEvents\.length/);
+      expect(source).toContain(`${history}.at(-1)?.streamVersion ?? 0`);
+      expect(source).not.toMatch(new RegExp(`(?:currentVersion\\s*=|expectedVersion\\s*:)\\s*${history}\\.length`));
     }
 
     const authoritySource = readFileSync(
