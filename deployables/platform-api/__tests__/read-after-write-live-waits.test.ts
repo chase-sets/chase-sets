@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
 import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
@@ -14,6 +15,7 @@ import type { BcReadFreshnessRoute } from "@chase-sets/bounded-context-module";
 import { projectionFreshnessWakeEnqueueMetricRecord } from "@chase-sets/observability";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { CRITICAL_READ_CONSISTENCY_ROUTE_TUNING } from "../src/config";
+import { createRouteInventoryRuntime } from "./route-inventory-test-support";
 
 /**
  * Guards issues #1225/#1233: every read-after-write inventory entry must be
@@ -129,6 +131,31 @@ function expectCriticalRouteTuning(mountPath: string, routePath: string) {
 }
 
 describe("read-after-write live wait declarations", () => {
+  it("registers every declared freshness route as GET on its assembled context mount", () => {
+    const runtime = createRouteInventoryRuntime();
+    expect(runtime.mountedContexts).toHaveLength(apiContextRegistry.length);
+    const violations: string[] = [];
+
+    for (const { contextName, module, services } of runtime.mountedContexts) {
+      const entries = module.buildApis(services as never);
+      expect(entries.map(({ mountPath }) => mountPath), `${contextName} mount coverage`).toEqual(
+        module.apiMounts.map(({ mountPath }) => mountPath),
+      );
+      for (const [index, mount] of module.apiMounts.entries()) {
+        const app = new Hono().route(mount.mountPath, entries[index].router);
+        const getPaths = new Set(app.routes.filter(({ method }) => method === "GET").map(({ path }) => path));
+        for (const route of mount.readFreshnessRoutes ?? []) {
+          const path = `${mount.mountPath}${route.routePath}`;
+          if (!getPaths.has(path)) {
+            violations.push(`${contextName}: GET ${path} is not registered on its assembled mount`);
+          }
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   it.each(["/account/offers/matches/:id", "/account/offers/matches"])(
     "pins %s to Offer, policy and managed audit projection dependencies",
     (routePath) => {
