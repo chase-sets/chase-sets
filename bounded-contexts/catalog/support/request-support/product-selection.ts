@@ -97,7 +97,5 @@ const storedBlueprintSchema = z.object({
 
 export function parseBlueprint(dimensionRules: unknown, canonicalOrder: unknown): ProductDefiningBlueprint | null {
   const result = storedBlueprintSchema.safeParse({ dimensionRules, canonicalDimensionOrder: canonicalOrder });
-  return result.success
-    ? { ...result.data, dimensionRules: result.data.dimensionRules.map((rule) => ({ ...rule, allowedOptionIds: [] })) }
-    : null;
+  return result.success ? result.data : null;
 }
