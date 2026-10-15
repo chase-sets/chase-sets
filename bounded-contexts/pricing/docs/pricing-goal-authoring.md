@@ -155,7 +155,7 @@ registers them:
 | Guardrail kinds (#9308) | `guardrail-conformance.test.ts` | Parameter validation, pure `apply` over `GuardrailContext`, acts on its hit and is inert otherwise, idempotent, records its hit in the evaluation, never raises a price above the seller's ceiling. Each authorable kind declares its scenario, which the `RepricingGuardrail` union enforces at compile time. |
 | Curve builders | `curve-builder-conformance.test.ts` | Identity, deterministic loads over frozen inputs, sales of the requested variant and language in one sale shape, the window's sales limit, no sales when no evidence is stored. |
 | Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. |
-| Forecast kinds (#7708) | None yet | The Forecast Kind registry is not yet on `main`. The structure guard requires a run once it lands. |
+| Forecast kinds (#7708) | None yet | The Forecast Kind registry is not yet on `main`. Once it lands in the registry shape below, the structure guard requires a run for it. |
 
 `scripts/check-structure/pricing-registry-conformance.mjs` finds every
 registry under `bounded-contexts/pricing` by code shape: a function that builds
