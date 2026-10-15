@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { createIdentityOperatorAuthority } from "@chase-sets/identity/server";
-import { createMcpRoutes } from "@chase-sets/platform-runtime/mcp";
+import { createMcpRoutes, type McpToolHandlerInput } from "@chase-sets/platform-runtime/mcp";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { createAuthServices, type AuthServices } from "./services";
@@ -608,7 +608,7 @@ describe("operator authority reads aggregate", () => {
     actor: ResolvedActor,
     operatorAuthority: AuthServices["identity"]["operatorAuthority"],
   ) {
-    const handler = vi.fn(async () => ({ snapshot: {} }));
+    const handler = vi.fn(async (_input: McpToolHandlerInput) => ({ snapshot: {} }));
     const app = new Hono<{ Variables: { actor: ResolvedActor } }>();
     app.use("*", async (c, next) => {
       c.set("actor", actor);

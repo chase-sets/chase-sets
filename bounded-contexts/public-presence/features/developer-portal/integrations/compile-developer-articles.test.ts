@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { flattenMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
 import { compileDeveloperArticleCorpus, compileMcpToolCatalog } from "./compile-developer-articles.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -66,8 +67,7 @@ describe("developer article compiler", () => {
     );
   });
 
-  it("publishes no operator capability or operator scope", async () => {
-    const { flattenMcpTools } = await import("../../../../../infrastructure/platform-runtime/mcp-contracts.ts");
+  it("publishes no operator capability or operator scope", () => {
     const operatorToolNames = flattenMcpTools()
       .filter((tool) => tool.permissionBoundary.scope === "operator")
       .map((tool) => tool.name);
@@ -75,7 +75,9 @@ describe("developer article compiler", () => {
 
     expect(operatorToolNames).toContain("platform-operations.get-offer-economics-summary");
     for (const name of operatorToolNames) expect(catalog.map((tool) => tool.name)).not.toContain(name);
-    expect(catalog.filter((tool) => tool.permissionBoundary.scope === "operator")).toEqual([]);
+    expect(
+      catalog.filter((tool) => (tool.permissionBoundary as { scope?: unknown } | undefined)?.scope === "operator"),
+    ).toEqual([]);
     expect(JSON.stringify(catalog)).not.toContain("operations:");
   });
 
