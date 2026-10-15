@@ -30,19 +30,33 @@ function bottomNav(page: Page) {
   return page.locator("nav.fixed.inset-x-0.bottom-0");
 }
 
-// Every rendered navigation control must sit inside the viewport and show its whole label.
+// Every rendered navigation control must sit inside the viewport, and every label glyph and icon must sit
+// inside the control's overflow-hidden clip box. `compression` records how far flex shrinking ate into the
+// control's own padding; it is reported, not asserted, because it does not hide content.
 async function expectUnclipped(region: Locator, testInfo: TestInfo, name: string) {
   const controls = await region.evaluate((root) =>
     [...root.querySelectorAll("a, button, summary")]
       .filter((element) => element.closest("details:not([open]) > div") === null && element.checkVisibility())
       .map((element) => {
         const box = element.getBoundingClientRect();
+        const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const parts: DOMRect[] = [...element.querySelectorAll("svg")].map((icon) => icon.getBoundingClientRect());
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (!node.textContent?.trim() || !(node.parentElement?.checkVisibility() ?? false)) continue;
+          if (node.parentElement?.closest(".sr-only")) continue;
+          const range = element.ownerDocument.createRange();
+          range.selectNodeContents(node);
+          parts.push(range.getBoundingClientRect());
+        }
         return {
           label: element.textContent?.trim() ?? "",
           left: box.left,
           right: box.right,
           width: box.width,
-          overflow: element.scrollWidth - element.clientWidth,
+          compression: element.scrollWidth - element.clientWidth,
+          hiddenContent: parts.filter(
+            (part) => part.width > 0 && (part.left < box.left - 0.5 || part.right > box.right + 0.5),
+          ).length,
         };
       }),
   );
@@ -57,8 +71,8 @@ async function expectUnclipped(region: Locator, testInfo: TestInfo, name: string
     `${name} controls outside the viewport`,
   ).toEqual([]);
   expect(
-    controls.filter((control) => control.overflow > 1),
-    `${name} clipped labels`,
+    controls.filter((control) => control.hiddenContent > 0),
+    `${name} clipped labels or icons`,
   ).toEqual([]);
 }
 
@@ -89,8 +103,8 @@ async function expectPopulatedBottomNav(page: Page, testInfo: TestInfo, viewport
 
 async function expectBottomNavInteractions(page: Page) {
   const bottom = bottomNav(page);
-  const sell = bottom.locator("details > summary").filter({ hasText: "Sell" });
-  const sellGroup = bottom.locator("details").filter({ has: sell });
+  const sellGroup = bottom.locator("details").filter({ has: page.locator(":scope > summary", { hasText: /^Sell$/ }) });
+  const sell = sellGroup.locator(":scope > summary");
   await sell.click();
   await expect(sellGroup).toHaveAttribute("open", "");
   for (const label of sellingChildren) {
