@@ -10,7 +10,7 @@ import { riskAlertsSchemaSql } from "../../features/risk-alerts/read-model/schem
 import { sellerComplianceSalesSchemaSql } from "../../features/seller-compliance-sales/read-model/schema";
 import { supportSourceProjectionSchemaSql } from "../../features/support-requests/integrations/source/source-schema";
 import { supportRequestSchemaSql } from "../../features/support-requests/read-model/schema";
-import { supportEvidenceCleanupLocatorSchemaSql } from "../../features/support-requests/api/attachment-cleanup";
+import { supportEvidenceCleanupLocatorSchemaSql } from "../../features/support-requests/read-model/cleanup-locator-schema";
 
 export const platformOperationsSchemaSql = [
   eventCorePostgresSchemaSql,

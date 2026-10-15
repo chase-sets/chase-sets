@@ -90,13 +90,15 @@ import {
 import { validateSupportAttachmentOperationId } from "./attachment-intake";
 import {
   assertSupportEvidenceCleanupCapability,
-  buildSupportEvidenceCleanupLocatorHandlers,
   createSupportEvidenceCleanupRunner,
   requestSupportAttachmentCleanup,
-  supportEvidenceCleanupLocatorProjection,
   type SupportEvidenceCleanupCapability,
   type SupportEvidenceCleanupRunner,
 } from "./attachment-cleanup";
+import {
+  buildSupportEvidenceCleanupLocatorHandlers,
+  supportEvidenceCleanupLocatorProjection,
+} from "../read-model/cleanup-locator";
 import type { SupportEvidenceCanonicalizationQueue } from "./evidence-canonicalization";
 import { parseSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
 import {

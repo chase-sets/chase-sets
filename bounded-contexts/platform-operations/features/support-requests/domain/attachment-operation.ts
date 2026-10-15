@@ -126,6 +126,8 @@ export class AttachmentOperationError extends Error {
 
 /** A put may hold the key until its 30-second storage deadline; cleanup waits five more minutes beyond it. */
 export const SUPPORT_EVIDENCE_CLEANUP_PUT_GRACE_MS = 30_000 + 5 * 60_000;
+/** An unreferenced operation with no activity for 24 hours is abandoned and requires cleanup. */
+export const SUPPORT_EVIDENCE_ABANDONMENT_MS = 24 * 60 * 60 * 1000;
 const cleanupReasons: readonly string[] = [
   "verification-conflict",
   "verification-absent",

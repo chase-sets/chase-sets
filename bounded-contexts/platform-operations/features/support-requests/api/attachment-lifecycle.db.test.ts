@@ -29,8 +29,8 @@ import {
   createSupportRequestRuntime,
   type SupportRequestServices,
 } from "./runtime";
+import { buildSupportEvidenceCleanupLocatorHandlers } from "../read-model/cleanup-locator";
 import {
-  buildSupportEvidenceCleanupLocatorHandlers,
   createSupportEvidenceCleanupRunner,
   parseSupportEvidenceCleanupBinding,
   requestSupportAttachmentCleanup,

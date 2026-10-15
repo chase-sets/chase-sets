@@ -2,7 +2,7 @@ import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import {
   supportEvidenceCleanupLocatorIndexSql,
   supportEvidenceCleanupLocatorSchemaSql,
-} from "../../features/support-requests/api/attachment-cleanup";
+} from "../../features/support-requests/read-model/cleanup-locator-schema";
 
 export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
@@ -50,7 +50,8 @@ export const platformOperationsUnloggedProjectionSchemaMigrations: readonly BcSc
   },
   {
     migrationId: "20261015_support_evidence_cleanup_locators",
-    description: "Locate Support evidence upload operations for cleanup by state and eligibility (replayable, unlogged).",
+    description:
+      "Locate Support evidence upload operations for cleanup by state and eligibility (replayable, unlogged).",
     statements: [supportEvidenceCleanupLocatorSchemaSql, supportEvidenceCleanupLocatorIndexSql],
   },
 ];
