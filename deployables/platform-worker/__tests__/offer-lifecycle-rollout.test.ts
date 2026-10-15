@@ -13,6 +13,7 @@ import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import {
   createEventConsumerAdmission,
   listConsumedEventTypes,
+  PLATFORM_WORKER_KIND,
   WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY,
 } from "@chase-sets/platform-runtime/worker-event-capability";
 import { describe, expect, it, vi } from "vitest";
@@ -57,17 +58,48 @@ function unusedPool() {
   return { query: fail, connect: fail } as never;
 }
 
-function heartbeat(workerId: string, secondsAgo: number, consumedEventTypes?: readonly string[]) {
+const secondsAgo = (seconds: number) => new Date(Date.parse(snapshotAt) - seconds * 1000).toISOString();
+
+function heartbeat(
+  workerId: string,
+  times: Readonly<{ startedSecondsAgo: number; heartbeatSecondsAgo: number }>,
+  consumedEventTypes?: readonly string[],
+) {
   return {
     worker_id: workerId,
-    worker_kind: "platform-worker",
-    heartbeat_at: new Date(Date.parse(snapshotAt) - secondsAgo * 1000).toISOString(),
+    worker_kind: PLATFORM_WORKER_KIND,
+    started_at: secondsAgo(times.startedSecondsAgo),
+    heartbeat_at: secondsAgo(times.heartbeatSecondsAgo),
     metadata: consumedEventTypes ? { [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes } : {},
   };
 }
 
+/** The control-plane rows the admission reads, answered the way its query selects them. */
+function createControlPlaneState() {
+  const state = {
+    quiescedAt: null as string | null,
+    workers: [] as ReturnType<typeof heartbeat>[],
+    leases: [] as { ownerId: string; expiresAt: string }[],
+  };
+  const db = {
+    query: async () => ({
+      rows: [
+        {
+          snapshot_at: snapshotAt,
+          quiesced_at: state.quiescedAt,
+          workers: state.workers,
+          lease_owner_ids: state.leases
+            .filter((lease) => Date.parse(lease.expiresAt) > Date.parse(snapshotAt))
+            .map((lease) => lease.ownerId),
+        },
+      ],
+    }),
+  } as never;
+  return { state, db };
+}
+
 describe("Offer lifecycle mixed-version rollout", () => {
-  it("appends nothing while an old worker can own a checkpoint, then reaches all five consumers once admitted", async () => {
+  it("appends nothing while an old worker with an expired heartbeat still renews its lease, then reaches all five consumers once a quiesce retires it", async () => {
     const discoverySql: string[] = [];
     const discoveryPool = {
       query: async (sql: string) => {
@@ -118,13 +150,20 @@ describe("Offer lifecycle mixed-version rollout", () => {
     });
 
     // A capable worker advertises what the production heartbeat advertises; a pre-capability build advertises nothing.
-    const capableWorker = (secondsAgo: number) =>
-      heartbeat("wrk_capable", secondsAgo, listConsumedEventTypes(runtime.subscriptionRunners));
-    let workers = [heartbeat("wrk_old", 5), capableWorker(5)];
+    const capableTypes = listConsumedEventTypes(runtime.subscriptionRunners);
+    // The old worker started after the latest quiesce. Its heartbeat writes have failed for 601 seconds, past
+    // the old ten-minute window, but it keeps renewing the lease of a consumer it hosts.
+    const controlPlane = createControlPlaneState();
+    controlPlane.state.quiescedAt = secondsAgo(30 * 60);
+    controlPlane.state.workers = [
+      heartbeat("wrk_old", { startedSecondsAgo: 25 * 60, heartbeatSecondsAgo: 10 * 60 + 1 }),
+      heartbeat("wrk_capable", { startedSecondsAgo: 20 * 60, heartbeatSecondsAgo: 5 }, capableTypes),
+    ];
+    controlPlane.state.leases = [{ ownerId: "wrk_old", expiresAt: secondsAgo(-20) }];
     const admission = createEventConsumerAdmission({
       // The operator switch is opened early on purpose: worker readiness alone must hold the producer closed.
       open: true,
-      controlPlane: { readWorkerHeartbeatHistory: async () => ({ snapshotAt, workers, summary: {} as never }) },
+      db: controlPlane.db,
       requirement: {
         anchorEventType: MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE,
         requiredEventTypes: MARKETPLACE_OFFER_LIFECYCLE_EVENT_TYPES,
@@ -168,7 +207,7 @@ describe("Offer lifecycle mixed-version rollout", () => {
         buyerContext,
       );
 
-    // Phase 1: the old worker is live, so every producer refuses before any append.
+    // Phase 1: the old worker is still running, so every producer refuses before any append.
     for (const action of ["pause", "resume", "withdraw"] as const)
       await expect(change(action)).rejects.toMatchObject({
         code: "offer_lifecycle_closed",
@@ -187,8 +226,25 @@ describe("Offer lifecycle mixed-version rollout", () => {
       oldTailCheckpoints.set(consumer.key, sourceHead);
     }
 
-    // Phase 2: the old heartbeat has aged past the expired window and the capable worker is active.
-    workers = [heartbeat("wrk_old", 10 * 60 + 1), capableWorker(5)];
+    // The next deployment quiesce confirms no worker pod remains, but admission waits for the old lease to drain.
+    controlPlane.state.quiescedAt = secondsAgo(60);
+    controlPlane.state.workers = [
+      heartbeat("wrk_old", { startedSecondsAgo: 25 * 60, heartbeatSecondsAgo: 10 * 60 + 1 }),
+      // The quiesce stopped the earlier capable worker too, so it no longer counts as a consumer.
+      heartbeat("wrk_capable", { startedSecondsAgo: 20 * 60, heartbeatSecondsAgo: 90 }, capableTypes),
+    ];
+    await expect(change("pause")).rejects.toMatchObject({
+      code: "offer_lifecycle_closed",
+      reason: "retired_worker_holds_lease",
+    });
+    expect(await store.eventStore.readAll({ eventTypes: lifecycleTypes })).toEqual([]);
+
+    // Phase 2: the old lease has expired and a capable worker started since the quiesce is active.
+    controlPlane.state.leases = [{ ownerId: "wrk_old", expiresAt: secondsAgo(1) }];
+    await expect(change("pause")).rejects.toMatchObject({ reason: "no_capable_worker" });
+    controlPlane.state.workers.push(
+      heartbeat("wrk_capable_next", { startedSecondsAgo: 30, heartbeatSecondsAgo: 5 }, capableTypes),
+    );
     expect(await change("pause")).toMatchObject({ outcome: "changed", status: "paused" });
     expect(await change("resume")).toMatchObject({ outcome: "changed", status: "submitted" });
     expect(await change("withdraw")).toMatchObject({ outcome: "changed", status: "withdrawn" });
@@ -216,17 +272,26 @@ describe("Offer lifecycle mixed-version rollout", () => {
   });
 
   it("closes again when an old worker returns after admission opened", async () => {
-    let workers = [heartbeat("wrk_capable", 5, ["marketplace.offer.submitted", ...lifecycleTypes])];
+    const controlPlane = createControlPlaneState();
+    controlPlane.state.quiescedAt = secondsAgo(30 * 60);
+    controlPlane.state.workers = [
+      heartbeat("wrk_capable", { startedSecondsAgo: 20 * 60, heartbeatSecondsAgo: 5 }, [
+        "marketplace.offer.submitted",
+        ...lifecycleTypes,
+      ]),
+    ];
     const admission = createEventConsumerAdmission({
       open: true,
-      controlPlane: { readWorkerHeartbeatHistory: async () => ({ snapshotAt, workers, summary: {} as never }) },
+      db: controlPlane.db,
       requirement: {
         anchorEventType: MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE,
         requiredEventTypes: MARKETPLACE_OFFER_LIFECYCLE_EVENT_TYPES,
       },
     });
     await expect(admission.check()).resolves.toEqual({ admitted: true });
-    workers = [...workers, heartbeat("wrk_rolled_back", 1, ["marketplace.offer.submitted"])];
+    controlPlane.state.workers.push(
+      heartbeat("wrk_rolled_back", { startedSecondsAgo: 1, heartbeatSecondsAgo: 1 }, ["marketplace.offer.submitted"]),
+    );
     await expect(admission.check()).resolves.toMatchObject({
       admitted: false,
       reason: "worker_without_capability",

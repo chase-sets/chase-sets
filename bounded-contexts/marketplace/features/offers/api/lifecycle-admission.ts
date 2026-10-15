@@ -14,7 +14,7 @@ export const MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE =
 /**
  * Admits Pause, Resume and Withdraw. An old worker filters these events out of its unchanged
  * subscription and can checkpoint past them, losing them for good, so the host opens admission only
- * after every live worker reads them. Without this port the lifecycle commands stay closed.
+ * once every worker that can still be running reads them. Without this port the lifecycle commands stay closed.
  */
 export type MarketplaceOfferLifecycleAdmission = Readonly<{
   check: () => Promise<Readonly<{ admitted: true }> | Readonly<{ admitted: false; reason: string }>>;

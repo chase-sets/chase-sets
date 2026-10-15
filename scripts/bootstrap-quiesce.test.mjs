@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createKubernetesClient,
   parseDeploymentList,
   parseQuiesceOptions,
   runQuiescedBootstrap,
@@ -179,6 +180,73 @@ describe("bootstrap quiesce wrapper", () => {
       ["spawn", ["pnpm", "bootstrap"]],
       ["log", "Bootstrap completed; Helm may continue the rollout."],
     ]);
+  });
+
+  it("tells the bootstrap which deployments it confirmed have no pod left", async () => {
+    const spawned = [];
+    const result = await runQuiescedBootstrap({
+      deployments: ["release-platform-worker", "release-missing-worker"],
+      command: ["pnpm", "bootstrap"],
+      timeoutMs: 1000,
+      pollIntervalMs: 1,
+      restoreOnFailure: true,
+      ignoreMissingDeployments: true,
+      log: async () => undefined,
+      kubernetes: {
+        ...fakeKubernetesClient([], { "release-platform-worker": 1 }),
+        async readScale(name) {
+          if (name === "release-missing-worker") throw Object.assign(new Error("not found"), { statusCode: 404 });
+          return { specReplicas: 1 };
+        },
+      },
+      spawnCommand: async (command, spawnOptions) => {
+        spawned.push(spawnOptions.env);
+        return 0;
+      },
+    });
+
+    expect(result).toBe(0);
+    expect(spawned).toEqual([{ CHASE_SETS_QUIESCED_DEPLOYMENTS: "release-platform-worker,release-missing-worker" }]);
+  });
+
+  it("waits for terminating worker pods to exit even after the Deployment reports zero replicas", async () => {
+    const requests = [];
+    let podLists = 0;
+    const kubernetes = createKubernetesClient({
+      namespace: "synthetic",
+      host: "kubernetes.invalid",
+      token: "synthetic-token",
+      ca: "synthetic-ca",
+      request: async (method, pathname) => {
+        requests.push([method, pathname]);
+        if (pathname.includes("/pods?")) {
+          podLists += 1;
+          return { items: podLists < 3 ? [{ metadata: { name: "release-platform-worker-terminating" } }] : [] };
+        }
+        return {
+          spec: { selector: { matchLabels: { "app.kubernetes.io/name": "platform-worker", tier: "worker" } } },
+          status: { replicas: 0, availableReplicas: 0 },
+        };
+      },
+    });
+
+    await kubernetes.waitForReplicas("release-platform-worker", 0, { timeoutMs: 1000, pollIntervalMs: 1 });
+    expect(podLists).toBe(3);
+    expect(requests).toContainEqual([
+      "GET",
+      "/api/v1/namespaces/synthetic/pods?labelSelector=app.kubernetes.io%2Fname%3Dplatform-worker%2Ctier%3Dworker",
+    ]);
+
+    const selectorless = createKubernetesClient({
+      namespace: "synthetic",
+      host: "kubernetes.invalid",
+      token: "synthetic-token",
+      ca: "synthetic-ca",
+      request: async () => ({ spec: {}, status: { replicas: 0, availableReplicas: 0 } }),
+    });
+    await expect(
+      selectorless.waitForReplicas("release-platform-worker", 0, { timeoutMs: 1000, pollIntervalMs: 1 }),
+    ).rejects.toThrow("cannot be confirmed terminated");
   });
 
   it("requires at least one deployment and a bootstrap command", async () => {

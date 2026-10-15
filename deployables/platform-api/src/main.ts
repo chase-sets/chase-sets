@@ -336,7 +336,7 @@ const runtime = createPlatformApiHost({
     deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
     ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
-    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, controlPlane }),
+    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,

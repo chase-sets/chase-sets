@@ -1165,6 +1165,7 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain("activeDeadlineSeconds");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
     expect(chartText).toContain("deployments/scale");
+    expect(chartText).toContain('resources: ["pods"]');
     expect(chartText).toContain('apiGroups: ["keda.sh"]');
     expect(chartText).toContain('resources: ["scaledobjects"]');
     expect(chartText).toContain("global.imagePullSecrets");

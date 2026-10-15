@@ -2273,6 +2273,11 @@ export function buildScenarioSeedAccessManifest(options = {}) {
             verbs: ["get", "patch"],
           },
           {
+            apiGroups: [""],
+            resources: ["pods"],
+            verbs: ["list"],
+          },
+          {
             apiGroups: ["keda.sh"],
             resources: ["scaledobjects"],
             resourceNames: [workerDeployment],

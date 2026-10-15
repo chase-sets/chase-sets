@@ -108,6 +108,7 @@ import {
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   listConsumedEventTypes,
+  PLATFORM_WORKER_KIND,
   WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY,
 } from "@chase-sets/platform-runtime/worker-event-capability";
 import {
@@ -162,7 +163,7 @@ import {
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
-const workerKind = "platform-worker";
+const workerKind = PLATFORM_WORKER_KIND;
 const platformWorkerGroupsEnabled = config.runtimeProfile !== "landing";
 const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>

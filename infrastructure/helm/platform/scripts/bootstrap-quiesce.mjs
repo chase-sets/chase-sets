@@ -90,9 +90,12 @@ export async function runQuiescedBootstrap(options) {
       });
     }
 
+    // Every target now has no pod left, including a first install that has none; the bootstrap
+    // records that every earlier worker process has terminated.
     const exitCode = await options.spawnCommand(options.command, {
       timeoutMs: options.commandTimeoutMs,
       log: options.log,
+      env: { CHASE_SETS_QUIESCED_DEPLOYMENTS: options.deployments.join(",") },
     });
     if (exitCode === 0) {
       if (options.restoreOnSuccess) {
@@ -139,7 +142,9 @@ export function createKubernetesClient(options = {}) {
     throw new Error("KUBERNETES_SERVICE_HOST is required for bootstrap quiesce.");
   }
 
-  async function request(method, pathname, body) {
+  const request = options.request ?? httpsRequest;
+
+  async function httpsRequest(method, pathname, body) {
     const payload = body == null ? null : JSON.stringify(body);
     const response = await new Promise((resolve, reject) => {
       const req = https.request(
@@ -190,6 +195,25 @@ export function createKubernetesClient(options = {}) {
     return `/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments/${encodeURIComponent(name)}`;
   }
 
+  // A Deployment's status stops counting a pod once it is terminating, so only an empty pod list
+  // proves that every worker process has exited.
+  async function countPods(name, matchLabels) {
+    const labelSelector = Object.entries(matchLabels ?? {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join(",");
+    if (!labelSelector) {
+      throw new Error(`Deployment ${name} has no selector labels, so its pods cannot be confirmed terminated.`);
+    }
+    const response = await request(
+      "GET",
+      `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
+    );
+    if (!Array.isArray(response.items)) {
+      throw new Error(`Kubernetes pod list for ${name} did not return items.`);
+    }
+    return response.items.length;
+  }
+
   function scalePath(name) {
     return `${deploymentPath(name)}/scale`;
   }
@@ -237,7 +261,9 @@ export function createKubernetesClient(options = {}) {
         const status = response.status ?? {};
         const ready =
           replicas === 0
-            ? Number(status.replicas ?? 0) === 0 && Number(status.availableReplicas ?? 0) === 0
+            ? Number(status.replicas ?? 0) === 0 &&
+              Number(status.availableReplicas ?? 0) === 0 &&
+              (await countPods(name, response.spec?.selector?.matchLabels)) === 0
             : Number(status.readyReplicas ?? 0) >= replicas;
 
         if (ready) {
@@ -253,7 +279,10 @@ export function createKubernetesClient(options = {}) {
 
 export function spawnShellCommand(command, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("sh", ["-lc", command.join(" ")], { stdio: "inherit" });
+    const child = spawn("sh", ["-lc", command.join(" ")], {
+      stdio: "inherit",
+      env: { ...process.env, ...options.env },
+    });
     let timedOut = false;
     let forceKillTimeout = null;
     const commandTimeout =

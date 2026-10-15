@@ -6,8 +6,10 @@ import { createOfferLifecycleAdmission } from "../src/offer-lifecycle-admission"
 afterEach(() => vi.restoreAllMocks());
 
 const snapshotAt = "2026-10-14T12:00:00.000Z";
+const quiescedAt = "2026-10-14T11:00:00.000Z";
 const heartbeat = (workerId: string, consumed?: readonly string[]) => ({
   worker_id: workerId,
+  started_at: "2026-10-14T11:05:00.000Z",
   heartbeat_at: snapshotAt,
   metadata: consumed ? { [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumed } : {},
 });
@@ -21,11 +23,12 @@ const capable = [
 describe("platform API Offer lifecycle admission", () => {
   it("stays closed by default and logs why", async () => {
     const info = vi.spyOn(getObservabilityRuntime().logger, "info");
-    const readWorkerHeartbeatHistory = vi.fn();
-    await expect(
-      createOfferLifecycleAdmission({ open: false, controlPlane: { readWorkerHeartbeatHistory } }).check(),
-    ).resolves.toEqual({ admitted: false, reason: "switch_closed" });
-    expect(readWorkerHeartbeatHistory).not.toHaveBeenCalled();
+    const query = vi.fn();
+    await expect(createOfferLifecycleAdmission({ open: false, db: { query } as never }).check()).resolves.toEqual({
+      admitted: false,
+      reason: "switch_closed",
+    });
+    expect(query).not.toHaveBeenCalled();
     expect(info).toHaveBeenCalledWith("offer_lifecycle_closed_refusal", {
       type: "offer_lifecycle_closed_refusal",
       reason: "switch_closed",
@@ -33,13 +36,20 @@ describe("platform API Offer lifecycle admission", () => {
     });
   });
 
-  it("requires every live worker to read the Marketplace lifecycle events once the switch is open", async () => {
+  it("requires every worker since the deployment quiesce to read the Marketplace lifecycle events once the switch is open", async () => {
     const info = vi.spyOn(getObservabilityRuntime().logger, "info");
+    let quiesced: string | null = null;
     let workers = [heartbeat("wrk_capable", capable), heartbeat("wrk_old")];
     const admission = createOfferLifecycleAdmission({
       open: true,
-      controlPlane: { readWorkerHeartbeatHistory: async () => ({ snapshotAt, workers, summary: {} as never }) },
+      db: {
+        query: async () => ({
+          rows: [{ snapshot_at: snapshotAt, quiesced_at: quiesced, workers, lease_owner_ids: [] }],
+        }),
+      } as never,
     });
+    await expect(admission.check()).resolves.toMatchObject({ admitted: false, reason: "workers_not_quiesced" });
+    quiesced = quiescedAt;
     await expect(admission.check()).resolves.toMatchObject({ admitted: false, reason: "worker_without_capability" });
     expect(info).toHaveBeenLastCalledWith("offer_lifecycle_closed_refusal", {
       type: "offer_lifecycle_closed_refusal",
