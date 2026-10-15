@@ -79,9 +79,9 @@ describe("invitation-acceptance-terminal-history", () => {
     const store = createInMemoryEventStore();
     await beginAttempt(store, binding, context);
     const event = store.streams.get(`auth.invitation-acceptance-${binding.attemptId}`)![0];
-    expect(() =>
-      foldAttempt([{ ...event, payload: { ...event.payload, extra: "x".repeat(32769) } }], context.tenantId),
-    ).toThrow(expect.objectContaining({ code: "invitation_attempt_ambiguous" }));
+    expect(() => foldAttempt([{ ...event, metadata: { padding: "x".repeat(32769) } }], context.tenantId)).toThrow(
+      expect.objectContaining({ code: "invitation_attempt_ambiguous" }),
+    );
     const tooLong = Array.from({ length: 17 }, (_, index) => ({ ...event, streamVersion: index + 1 }));
     expect(() => foldAttempt(tooLong, context.tenantId)).toThrow(
       expect.objectContaining({ code: "invitation_attempt_ambiguous" }),

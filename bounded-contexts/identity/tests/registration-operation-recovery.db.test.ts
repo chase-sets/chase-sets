@@ -22,6 +22,7 @@ import { createUserRuntime } from "../features/users/api/runtime";
 import { identityAccountSchemaSql } from "../features/accounts/read-model/schema";
 import {
   mintRegistrationConsentResolution,
+  REGISTRATION_CONSENT_FRESHNESS_WINDOW_MS,
   type RegistrationConsentRequirement,
 } from "../features/consents/domain/registration-consent";
 import { createBootstrapContext } from "../api";
@@ -33,6 +34,8 @@ import {
 } from "../support/runtime-support/registration-operation";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { activeRegistrationConsentFixture } from "./consent-activation-authority-fixtures";
+import { identityConsentActiveVersionPolicies } from "../features/consents/domain/terms-of-service-policy";
 
 // Exercised against a real Postgres sandbox, never mocked.
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -88,6 +91,7 @@ describeDb("registration operation recovery", () => {
       db: pool,
     } as const;
     services = {
+      ...(await activeRegistrationConsentFixture(eventStore, pool, { "terms-of-service": "v1" })),
       eventStore,
       db: pool,
       accounts: createAccountRuntime(deps),
@@ -265,6 +269,95 @@ describeDb("registration operation recovery", () => {
     return [...new Set(events.filter((e: StoredEvent) => e.streamId.startsWith(prefix)).map((e) => e.streamId))];
   }
 
+  it("retains every participant version guard on complete committed recovery", async () => {
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(eventStore, pool, {
+        "terms-of-service": "v1",
+        "privacy-policy": "v3",
+      }),
+    );
+    const first = await register([TERMS_V1, PRIVACY_V3]);
+    expect(first.status).toBe(201);
+    const isParticipant = (event: StoredEvent) =>
+      /^identity\.(registration-operation|account|user|membership|consent)-/.test(event.streamId);
+    const history = (await eventStore.readAll({ limit: 500 })).filter(isParticipant);
+    const expectedGuards = [...new Set(history.map(({ streamId }) => streamId))].map((streamId) => ({
+      streamId,
+      expectedVersion: history.filter((event) => event.streamId === streamId).at(-1)!.streamVersion,
+      events: [],
+    }));
+    expect(expectedGuards).toHaveLength(6);
+    const append = vi.spyOn(eventStore, "appendToStreams");
+    const resolve = vi.spyOn(services.registrationConsentBundles, "resolve");
+    const bind = vi.spyOn(services.registrationConsentBundles, "forRegistration");
+    const authority = vi.spyOn(services.policies.consentActivation, "read");
+    const second = await register(
+      [TERMS_V1, PRIVACY_V3].map((requirement) => ({ ...requirement, href: "/equivalent-link" })),
+    );
+    expect(second.status).toBe(201);
+    expect(second.body).toMatchObject({
+      accountId: first.body.accountId,
+      userId: first.body.userId,
+      membershipId: first.body.membershipId,
+    });
+    expect(append).toHaveBeenCalledOnce();
+    expect(
+      append.mock.calls[0][0].map(({ streamId, expectedVersion, events }) => ({ streamId, expectedVersion, events })),
+    ).toEqual(expect.arrayContaining(expectedGuards));
+    expect(append.mock.calls[0][0]).toHaveLength(expectedGuards.length);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(bind).not.toHaveBeenCalled();
+    expect(authority).not.toHaveBeenCalled();
+    expect((await eventStore.readAll({ limit: 500 })).filter(isParticipant)).toEqual(history);
+  });
+
+  it("rejects a stale committed retry before reading the claim or current authority", async () => {
+    expect((await register([TERMS_V1])).status).toBe(201);
+    const read = vi.spyOn(eventStore, "readStream");
+    const bind = vi.spyOn(services.registrationConsentBundles, "forRegistration");
+    const append = vi.spyOn(eventStore, "appendToStreams");
+    const rejected = await register([TERMS_V1], {
+      registrationConsent: {
+        resolution: mintRegistrationConsentResolution({
+          requirements: [TERMS_V1],
+          resolvedAt: new Date(Date.now() - REGISTRATION_CONSENT_FRESHNESS_WINDOW_MS - 1000).toISOString(),
+          signingKeys: resolveRegistrationConsentSigningKeys(),
+        }),
+        affirmed: true,
+      },
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body).toEqual({
+      error: {
+        code: "registration_consent_expired",
+        reason: "stale",
+        message: "The registration consent resolution is older than the freshness window.",
+      },
+    });
+    expect(read).not.toHaveBeenCalled();
+    expect(bind).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it("resolves once and rejects claimed-incomplete disagreement without writing missing participants", async () => {
+    await writePartialRegistration([TERMS_V1], { account: true });
+    await services.policies.consentActivation.deactivate(
+      identityConsentActiveVersionPolicies["terms-of-service"],
+      { actorUserId: "usr_test_operator" },
+      context,
+    );
+    const before = await eventStore.readAll({ limit: 500 });
+    const bind = vi.spyOn(services.registrationConsentBundles, "forRegistration");
+    const append = vi.spyOn(eventStore, "appendToStreams");
+    const rejected = await register([TERMS_V1]);
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error).toMatchObject({ code: "registration_operation_consent_disagreement" });
+    expect(bind).toHaveBeenCalledOnce();
+    expect(append).not.toHaveBeenCalled();
+    expect(await eventStore.readAll({ limit: 500 })).toEqual(before);
+  });
+
   const partialShapes = [
     ["account only", { account: true }],
     ["account and user", { account: true, user: true }],
@@ -273,6 +366,13 @@ describeDb("registration operation recovery", () => {
   ] as const;
 
   it.each(partialShapes)("completes a pre-existing partial that had committed %s", async (_label, committed) => {
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(eventStore, pool, {
+        "terms-of-service": "v1",
+        "privacy-policy": "v3",
+      }),
+    );
     const bundle = [TERMS_V1, PRIVACY_V3];
     const partial = await writePartialRegistration(bundle, committed);
 

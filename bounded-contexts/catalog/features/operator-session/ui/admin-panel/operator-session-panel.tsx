@@ -16,6 +16,11 @@ import {
 import { formatDateTime, t } from "@chase-sets/localization";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { validateOperatorSessionInstant, validateOperatorSessionRevision } from "../../domain/value";
+import {
+  awaitOperatorExtensionHandoff,
+  handOffToOperatorExtension,
+  type OperatorExtensionHandoff,
+} from "./operator-extension-handoff";
 import type { OperatorSessionGrantMetadata, OperatorSessionMetadata } from "./operator-session-admin-types";
 
 // The panel only renders on the TCGplayer provider page, so re-authentication
@@ -29,17 +34,28 @@ type MetadataState =
 
 type Notice =
   | Readonly<{ kind: "failure"; failure: OperatorSessionFailure }>
+  | Readonly<{ kind: "paired" }>
   | Readonly<{ kind: "disconnect-incomplete"; failure: OperatorSessionFailure }>
   | Readonly<{ kind: "disconnected"; outcome: OperatorSessionDisconnectOutcome }>;
 
 type Mutation = "pair" | "disconnect";
 
+type PairResult =
+  | Readonly<{ kind: "failed"; failure: OperatorSessionFailure }>
+  | Readonly<{ kind: "paired" }>
+  | Readonly<{ kind: "not-confirmed"; grant: OperatorSessionMintedGrant }>
+  | Readonly<{ kind: "obsolete" }>;
+
 // Operator session status, extension pairing and Disconnect for the TCGplayer
-// provider detail page. The minted grant lives only in this component's state:
-// it is never written to loader data, storage, the URL or an error, and it is
-// dropped on dismissal, Disconnect, a newer mutation or unmount (the route
-// remounts this panel on navigation or actor change).
-export function OperatorSessionPanel() {
+// provider detail page. A minted grant is first handed to the operator
+// extension once, held unrendered in the pairing operation. A timely `paired`
+// drops it unseen; otherwise it lives only in this component's state as the
+// once-shown paste fallback. It is never written to loader data, storage, the
+// URL or an error, and it is dropped on dismissal, Disconnect, a newer mutation
+// or unmount (the route remounts this panel on navigation or actor change).
+export function OperatorSessionPanel({
+  extensionHandoff = handOffToOperatorExtension,
+}: Readonly<{ extensionHandoff?: OperatorExtensionHandoff }>) {
   const [metadataState, setMetadataState] = useState<MetadataState>({ kind: "loading" });
   const [busy, setBusy] = useState<Mutation | null>(null);
   const [grant, setGrant] = useState<OperatorSessionMintedGrant | null>(null);
@@ -80,7 +96,7 @@ export function OperatorSessionPanel() {
     };
   }, [refresh]);
 
-  async function mutate<T>(kind: Mutation, run: () => Promise<T>, settle: (result: T) => void) {
+  async function mutate<T>(kind: Mutation, run: (isCurrent: () => boolean) => Promise<T>, settle: (result: T) => void) {
     const current = live.current;
     if (current.busy) return;
     current.busy = true;
@@ -89,7 +105,7 @@ export function OperatorSessionPanel() {
     setBusy(kind);
     setGrant(null);
     setNotice(null);
-    const result = await run();
+    const result = await run(() => current.mounted && mutation === current.mutation);
     if (!current.mounted) return;
     current.busy = false;
     setBusy(null);
@@ -97,15 +113,31 @@ export function OperatorSessionPanel() {
     void refresh();
   }
 
+  // One send, only after a successful mint and only while this pairing is
+  // still current. A late reply after the bounded wait is discarded: nothing
+  // retries or mints again, because an unacknowledged handoff may still have
+  // been committed.
   const pair = () =>
-    mutate("pair", mintOperatorSessionGrant, (result) => {
-      if (!result.ok) {
-        setNotice({ kind: "failure", failure: result.failure });
-        return;
-      }
-      setGrant(result.value);
-      setDisconnectable(true);
-    });
+    mutate(
+      "pair",
+      async (isCurrent): Promise<PairResult> => {
+        const minted = await mintOperatorSessionGrant();
+        if (!minted.ok) return { kind: "failed", failure: minted.failure };
+        if (!isCurrent()) return { kind: "obsolete" };
+        const handoff = await awaitOperatorExtensionHandoff(extensionHandoff, minted.value.grant);
+        return handoff === "paired" ? { kind: "paired" } : { kind: "not-confirmed", grant: minted.value };
+      },
+      (result) => {
+        if (result.kind === "obsolete") return;
+        if (result.kind === "failed") {
+          setNotice({ kind: "failure", failure: result.failure });
+          return;
+        }
+        setDisconnectable(true);
+        if (result.kind === "paired") setNotice({ kind: "paired" });
+        else setGrant(result.grant);
+      },
+    );
 
   const disconnect = () =>
     mutate("disconnect", disconnectOperatorSession, (result) => {
@@ -321,6 +353,7 @@ function MintedGrant({ grant, onDismiss }: Readonly<{ grant: OperatorSessionMint
   return (
     <Stack gap={2} data-operator-session-grant="true">
       <Subheading level={4}>{t("catalog.features.operatorSession.ui.adminPanel.pair.grant.heading")}</Subheading>
+      <Text size="sm">{t("catalog.features.operatorSession.ui.adminPanel.pair.handoff.notConfirmed")}</Text>
       <Text size="sm">{t("catalog.features.operatorSession.ui.adminPanel.pair.grant.once")}</Text>
       <Text size="sm">{t("catalog.features.operatorSession.ui.adminPanel.pair.grant.paste")}</Text>
       <Text weight="semibold" wrap="anywhere">
@@ -342,6 +375,10 @@ function MintedGrant({ grant, onDismiss }: Readonly<{ grant: OperatorSessionMint
 }
 
 function OperatorSessionNotice({ notice }: Readonly<{ notice: Notice }>) {
+  if (notice.kind === "paired") {
+    return <Text role="status">{t("catalog.features.operatorSession.ui.adminPanel.pair.handoff.paired")}</Text>;
+  }
+
   if (notice.kind === "disconnected") {
     const { outcome, revision } = notice.outcome;
     if (outcome === "stale-revision") {
