@@ -903,11 +903,13 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "route-action:bounded-contexts/discovery/routes/search.tsx",
-        "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1"
+        "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1",
+        "fetcher-submit:bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.tsx:H7f1ccc11975d#1",
+        "fetcher-submit:bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.tsx:H7f1ccc11975d#2"
       ],
       "visibleDestination": {
-        "routeId": "search",
-        "description": "Search bulk add and Add to List stay on the browse page and render command-owned Checkout or Collections snapshots. Client-side request keys suppress stale snapshots when the visible Result Set or Product changes before the POST resolves."
+        "routeIds": ["search", "item-detail"],
+        "description": "Search bulk add and Add to List stay on their Search or Item Detail host and render command-owned Checkout or Collections snapshots. Client-side request keys suppress stale snapshots when the visible Result Set or Product changes before the POST resolves."
       },
       "proof": {
         "authoritativeResponse": "The route action returns the Discovery preview plus Checkout bulk counts or the Collections Saved List aggregate snapshot from the owning command response.",
