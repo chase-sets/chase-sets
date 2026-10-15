@@ -1635,7 +1635,7 @@ function reconcileCapturedTransitionHistory({
   }
 }
 
-// A performed admission retry (#9662) moves the transition's baseline from the captured
+// A performed admission-webhook retry moves the transition's baseline from the captured
 // head to the recorded pre-retry head; the record must chain from the captured target.
 function retriedDeploymentBaseline(deployAttempts, captured, options) {
   const record = assertDeployAttemptsRecord(deployAttempts);
@@ -2129,7 +2129,7 @@ export async function deployPlatformToKubernetes(options = {}) {
   });
 }
 
-// #9662: the DOKS control plane can briefly lose its konnectivity bridge to an admission
+// The DOKS control plane can briefly lose its konnectivity bridge to an admission
 // webhook mid-upgrade. Production then restores the captured source with the exact
 // workflow rollback, waits for two consecutive server dry-run admissions inside one
 // fixed monotonic window, and retries the identical upgrade once.
@@ -2261,7 +2261,7 @@ async function admitAdmissionRetry(options, record) {
     record.recovery = { sourceRevision, resultingRevision: admitted.recovered.revision, rolledBack: false };
   } else {
     // Helm's atomic rollback targets the newest deployed or superseded revision, which is
-    // the failed candidate here (#6261), so the source is restored exactly first.
+    // the failed candidate here, so the source is restored exactly first.
     const rollback = await rollbackPlatformOnKubernetes({
       ...options,
       revision: sourceRevision,
@@ -3618,7 +3618,7 @@ export function parseArgs(argv, env = process.env) {
     rollbackTargetPath: readOption(rest, "--rollback-target", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET),
     outPath: readOption(rest, "--out", env.PLATFORM_KUBERNETES_ROLLBACK_TARGET_OUT),
     admissionOutPath: readOption(rest, "--admission-out", env.PLATFORM_KUBERNETES_RECOVERY_ADMISSION_OUT),
-    // Production-only #9662 flags have no environment fallback, so no other deploy inherits them.
+    // The production-only admission-retry flags have no environment fallback, so no other deploy inherits them.
     attemptsOutPath: readOption(rest, "--attempts-out"),
     admissionRetryRollbackTargetPath: readOption(rest, "--admission-retry-rollback-target"),
     deployAttemptsPath: readOption(rest, "--deploy-attempts"),
