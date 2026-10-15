@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
+import { consentActivationGuardAppendInput } from "@chase-sets/platform-policy/consent-activation-authority";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
@@ -94,11 +95,15 @@ import {
 } from "./features/consents/domain/consent-recording-authorization";
 import {
   mintRegistrationConsentResolution,
-  resolveRegistrationConsentRequirements,
   verifyRegistrationConsentSubmission,
   type RegistrationConsentRejection,
   type RegistrationConsentSubmission,
 } from "./features/consents/domain/registration-consent";
+import {
+  assertBoundRegistrationConsentDeclaration,
+  assertRegistrationConsentDeclaration,
+  type BoundRegistrationConsentDeclaration,
+} from "./features/consents/domain/consent-bundle";
 import { resolveRegistrationConsentSigningKeys } from "./support/runtime-support/registration-consent-signing";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
@@ -644,6 +649,34 @@ async function createPersonalIdentityForAuth(
       phone,
     });
 
+    let registrationConsent: BoundRegistrationConsentDeclaration | null = null;
+    if (
+      plan.claimedVersion === null ||
+      plan.accountEvents.length > 0 ||
+      plan.userEvents.length > 0 ||
+      plan.membershipEvents.length > 0 ||
+      plan.consentPlans.some(({ consentEvents }) => consentEvents.length > 0)
+    ) {
+      registrationConsent = await services.registrationConsentBundles.forRegistration(identity);
+      assertBoundRegistrationConsentDeclaration(registrationConsent, identity);
+      const currentRequirements = registrationConsent.declaration.requirements;
+      if (
+        requirements.length !== currentRequirements.length ||
+        requirements.some(
+          (requirement, index) =>
+            requirement.policyKey !== currentRequirements[index].policyKey ||
+            requirement.version !== currentRequirements[index].version,
+        )
+      ) {
+        if (claimed) throw new RegistrationOperationConsentDisagreementError();
+        throw new RegistrationConsentRejectedError({
+          code: "registration_consent_expired",
+          reason: "superseded",
+          message: "The registration consent resolution no longer matches the current required bundle.",
+        });
+      }
+    }
+
     await reservePersonalAccountDisplayName(services, eventStore, {
       accountId: identity.accountId,
       displayName: identity.displayName,
@@ -658,6 +691,7 @@ async function createPersonalIdentityForAuth(
         operation,
         identity,
         plan,
+        registrationConsent,
       });
     } catch (error) {
       // Whichever way this attempt ends, it committed nothing, so the
@@ -1029,6 +1063,7 @@ async function appendPersonalIdentityRegistration(
     operation: RegistrationOperation;
     identity: RegistrationIdentity;
     plan: PersonalIdentityRegistrationPlan;
+    registrationConsent: BoundRegistrationConsentDeclaration | null;
   }>,
 ) {
   const { eventStore, identity, operation, params, plan } = args;
@@ -1058,6 +1093,9 @@ async function appendPersonalIdentityRegistration(
         params.context,
       ),
     ),
+    ...(args.registrationConsent?.declaration.guards.map(({ guard }) =>
+      consentActivationGuardAppendInput(guard, params.context),
+    ) ?? []),
   ]);
 
   const snapshots: IdentityMutationSnapshot[] = [
@@ -1596,15 +1634,17 @@ export function buildIdentityApi(
   // The mint. Anonymous by design: knowing what must be agreed to in order to
   // register is public information, and the value's authority comes from the
   // signature, not from who asked for it.
-  app.get("/internal/auth/registration-consent", (c) =>
-    c.json(
+  app.get("/internal/auth/registration-consent", async (c) => {
+    const declaration = await services.registrationConsentBundles.resolve();
+    assertRegistrationConsentDeclaration(declaration);
+    return c.json(
       mintRegistrationConsentResolution({
-        requirements: resolveRegistrationConsentRequirements(),
+        requirements: declaration.requirements,
         resolvedAt: new Date().toISOString(),
         signingKeys: resolveRegistrationConsentSigningKeys(),
       }),
-    ),
-  );
+    );
+  });
 
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();

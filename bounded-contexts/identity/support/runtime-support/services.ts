@@ -14,6 +14,12 @@ import { createAccountRuntime } from "../../features/accounts/api/runtime";
 import { createAccessHubRuntime } from "../../features/access-hub/api/runtime";
 import { createApiKeyRuntime } from "../../features/api-keys/api/runtime";
 import { createConsentRuntime } from "../../features/consents/api/runtime";
+import {
+  assertRegistrationConsentDeclaration,
+  bindRegistrationConsentSubject,
+  resolveConsentBundle,
+  type RegistrationConsentBundles,
+} from "../../features/consents/domain/consent-bundle";
 import { createInvitationRuntime } from "../../features/invitations/api/runtime";
 import { createFoundersCohortRuntime } from "../../features/founders-cohort/api/runtime";
 import { createMembershipRuntime } from "../../features/memberships/api/runtime";
@@ -40,6 +46,7 @@ export type IdentityServices = Readonly<{
   foundersCohort: ReturnType<typeof createFoundersCohortRuntime>;
   apiKeys: ReturnType<typeof createApiKeyRuntime>;
   consents: ReturnType<typeof createConsentRuntime>;
+  registrationConsentBundles: RegistrationConsentBundles;
   preferences: ReturnType<typeof createUserPreferencesRuntime>;
   linkedPlatformAuthorizations: ReturnType<typeof createLinkedPlatformAuthorizationStore>;
   agentGrantRevocations: AgentGrantRevocations;
@@ -76,6 +83,16 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
   const policies = createPolicyRuntime({ eventStore, db });
+  const registrationConsentBundles: RegistrationConsentBundles = {
+    async resolve() {
+      const declaration = await resolveConsentBundle(policies.consentActivation, "registration");
+      assertRegistrationConsentDeclaration(declaration);
+      return declaration;
+    },
+    async forRegistration(subject) {
+      return bindRegistrationConsentSubject(await registrationConsentBundles.resolve(), subject);
+    },
+  };
   const deps = {
     eventStore,
     checkpointStore,
@@ -133,6 +150,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     foundersCohort,
     apiKeys,
     consents,
+    registrationConsentBundles,
     preferences,
     linkedPlatformAuthorizations,
     shippingAddresses,

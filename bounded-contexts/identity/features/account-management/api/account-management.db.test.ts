@@ -22,6 +22,7 @@ import { mintRegistrationConsentResolution } from "../../consents/domain/registr
 import { resolveRegistrationConsentSigningKeys } from "../../../support/runtime-support/registration-consent-signing";
 import { bootstrapPlatformAdminIdentity } from "../../../support/runtime-support/production-bootstrap";
 import { upsertApiKeySecret } from "../../api-keys/api/secret-store";
+import { activeRegistrationConsentFixture } from "../../../tests/consent-activation-authority-fixtures";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for issue #7168 DB proof.");
@@ -226,7 +227,11 @@ describeDb("issue-7168 PostgreSQL authority", () => {
   });
 
   it("issue-7168-ac11-caller-compatibility: fenced production registration rolls back on second Consent and converges; boot twice is authoritative", async () => {
-    const app = buildIdentityApi(services);
+    const { registrationConsentBundles } = await activeRegistrationConsentFixture(services.eventStore!, pool, {
+      "terms-of-service": "v1",
+      "privacy-policy": "v1",
+    });
+    const app = buildIdentityApi({ ...services, registrationConsentBundles });
     const body = {
       email: "synthetic-registration7168@example.test",
       displayName: "Synthetic Registration7168",
@@ -234,8 +239,8 @@ describeDb("issue-7168 PostgreSQL authority", () => {
         affirmed: true,
         resolution: mintRegistrationConsentResolution({
           requirements: [
-            { policyKey: "synthetic-first7168", version: "v1", href: "/terms" },
-            { policyKey: "synthetic-second7168", version: "v1", href: "/privacy" },
+            { policyKey: "terms-of-service", version: "v1", href: "/terms" },
+            { policyKey: "privacy-policy", version: "v1", href: "/privacy" },
           ],
           resolvedAt: new Date().toISOString(),
           signingKeys: resolveRegistrationConsentSigningKeys(),
@@ -249,7 +254,7 @@ describeDb("issue-7168 PostgreSQL authority", () => {
         body: JSON.stringify(body),
       });
     const count = await eventCount();
-    await pool.query(`CREATE FUNCTION issue7168_registration_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type = 'identity.consent.recorded' AND NEW.payload->>'policyKey' = 'synthetic-second7168' THEN RAISE EXCEPTION 'synthetic second Consent failure'; END IF; RETURN NEW; END $$;
+    await pool.query(`CREATE FUNCTION issue7168_registration_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type = 'identity.consent.recorded' AND NEW.payload->>'policyKey' = 'privacy-policy' THEN RAISE EXCEPTION 'synthetic second Consent failure'; END IF; RETURN NEW; END $$;
       CREATE TRIGGER issue7168_registration_fail BEFORE INSERT ON event_store_events FOR EACH ROW EXECUTE FUNCTION issue7168_registration_fail()`);
     expect((await register()).status).toBe(500);
     expect(await eventCount()).toBe(count);
@@ -265,7 +270,7 @@ describeDb("issue-7168 PostgreSQL authority", () => {
     expect(
       (
         await pool.query(
-          "SELECT event_id FROM event_store_events WHERE event_type = 'identity.consent.recorded' AND payload->>'policyKey' LIKE 'synthetic-%7168'",
+          "SELECT event_id FROM event_store_events WHERE event_type = 'identity.consent.recorded' AND payload->>'policyKey' IN ('terms-of-service', 'privacy-policy')",
         )
       ).rows,
     ).toHaveLength(2);
