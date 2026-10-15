@@ -5148,10 +5148,10 @@ describe("admission transient refusals", () => {
   });
 
   it("refuses the retry when the post-restore baseline is not the recorded chain", async () => {
-    const movedBaseline = [
-      ...retryBaselineHistory.slice(1),
-      { revision: 696, status: "failed", description: 'Upgrade "chase-sets-platform" failed: concurrent' },
-    ];
+    // Still a well-formed chain, but its failed rollback is not the one admitted before the restore.
+    const movedBaseline = retryBaselineHistory.map((entry) =>
+      entry.revision === 694 ? { ...entry, description: 'Rollback "chase-sets-platform" failed: concurrent' } : entry,
+    );
     const scenario = retryScenario({
       histories: [...retryScenario().histories.slice(0, 5), movedBaseline],
     });
