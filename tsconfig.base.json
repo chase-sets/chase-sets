@@ -870,6 +870,9 @@
       "@chase-sets/platform-runtime/worker-capacity": [
         "./infrastructure/platform-runtime/worker-capacity.ts"
       ],
+      "@chase-sets/platform-runtime/worker-event-capability": [
+        "./infrastructure/platform-runtime/worker-event-capability.ts"
+      ],
       "@chase-sets/platform-runtime/worker-observer": [
         "./infrastructure/platform-runtime/worker-observer.ts"
       ],
