@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -420,7 +420,8 @@ const inventoryDerivation = [
 // so their gate must not also absorb real inventory derivation. This disposable copy of the real
 // checker derives and prepares inventory before the gate timestamp; production still charges it.
 // `isolateDerivation: false` removes only that reordering, keeping every other transform.
-async function createCleanupChecker({ isolateDerivation = true } = {}) {
+// `writeCheckerSource` lets a control inject a synthetic write failure after allocation.
+async function createCleanupChecker({ isolateDerivation = true, writeCheckerSource = writeFile } = {}) {
   const sourcePath = new URL("./public-web-route-smoke.mjs", import.meta.url);
   const inventoryModule = new URL("./public-web-route-inventory.mjs", sourcePath).href;
   const policyValueStateModule = new URL(
@@ -455,14 +456,32 @@ async function createCleanupChecker({ isolateDerivation = true } = {}) {
     source = source.replace(marker, () => replacement);
   }
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "public-route-smoke-cleanup-checker-"));
+  const remove = () => rm(temporaryDirectory, { force: true, recursive: true });
   const cleanupCheckerPath = path.join(temporaryDirectory, "public-web-route-smoke.mjs");
-  await writeFile(cleanupCheckerPath, source, "utf8");
+  try {
+    await writeCheckerSource(cleanupCheckerPath, source, "utf8");
+  } catch (error) {
+    await remove();
+    throw error;
+  }
   return {
     checkerPath: cleanupCheckerPath,
     async remove() {
-      await rm(temporaryDirectory, { force: true, recursive: true });
+      await remove();
     },
   };
+}
+
+// Runs one disposable cleanup checker to completion. A rejected run, including the safety kill,
+// awaits the child's close and reclaims the fixture before the checker copy is removed.
+async function runCleanupChecker(fixture, checkerOptions, cliOptions, launch = startCli) {
+  const checker = await createCleanupChecker(checkerOptions);
+  try {
+    const running = launch(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath, cliOptions);
+    return await reclaimRunOnFailure({ fixture, running }, () => running.result);
+  } finally {
+    await checker.remove();
+  }
 }
 
 async function createDeadlineScopeMutant() {
@@ -940,15 +959,8 @@ describe("public web route smoke real CLI", () => {
     // fixture handler, budgets, warm client and synthetic step; only the isolation transform differs.
     const runArm = async (isolateDerivation) => {
       const fixture = await startServer();
-      const checker = await createCleanupChecker({ isolateDerivation });
-      try {
-        const result = await startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath, {
-          derivationClockStepMs,
-        }).result;
-        return { fixture, result };
-      } finally {
-        await checker.remove();
-      }
+      const result = await runCleanupChecker(fixture, { isolateDerivation }, { derivationClockStepMs });
+      return { fixture, result };
     };
     const candidate = await runArm(true);
     const bypass = await runArm(false);
@@ -1045,16 +1057,7 @@ describe("public web route smoke real CLI", () => {
   it("reproduces the cold-client deadline signature when client initialization is withheld", async () => {
     const fixture = await startServer();
     const [firstRoute] = fetchableRoutes;
-    const checker = await createCleanupChecker();
-    let result;
-    try {
-      result = await startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checker.checkerPath, {
-        initializeClient: false,
-        observeClientInitialization: true,
-      }).result;
-    } finally {
-      await checker.remove();
-    }
+    const result = await runCleanupChecker(fixture, {}, { initializeClient: false, observeClientInitialization: true });
 
     console.info("[client-initialization-order]", JSON.stringify(clientOrderProof(result, fixture)));
     expect(result.code, cliExitDiagnostics(result)).toBe(1);
@@ -1067,4 +1070,93 @@ describe("public web route smoke real CLI", () => {
     expect(clientInitializationEvents(result)).toEqual([{ kind: "client-initialization", timeoutArmed: true }]);
     await closeAndAssertClean(fixture, result);
   });
+});
+
+describe("public web route smoke cleanup checker lifecycle", () => {
+  it("removes the allocated checker directory before propagating a write failure", async () => {
+    const writeFailure = new Error("synthetic write failure after a partial checker copy");
+    let partialPath;
+    await expect(
+      createCleanupChecker({
+        async writeCheckerSource(filePath, source, encoding) {
+          partialPath = filePath;
+          await writeFile(filePath, source.slice(0, 64), encoding);
+          throw writeFailure;
+        },
+      }),
+    ).rejects.toBe(writeFailure);
+    await expect(access(path.dirname(partialPath))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // Explicitly synthetic child: its result rejects like the safety kill while its close is withheld.
+  it.each([
+    ["inventory derivation arm", { isolateDerivation: true }, { derivationClockStepMs }],
+    ["cold-client control", {}, { initializeClient: false, observeClientInitialization: true }],
+  ])(
+    "awaits the child's close and the fixture before removing the checker after a safety rejection: %s",
+    async (_control, checkerOptions, cliOptions) => {
+      const fixture = await startServer();
+      const safetyRejection = new Error("synthetic safety rejection while the child is still closing");
+      const killSignals = [];
+      let launchArgs;
+      let closeChild;
+      let signalCloseAwaited;
+      const closeAwaited = new Promise((resolve) => {
+        signalCloseAwaited = resolve;
+      });
+      const child = {
+        exitCode: null,
+        signalCode: null,
+        kill(signal) {
+          killSignals.push(signal);
+        },
+        once(event, listener) {
+          expect(event).toBe("close");
+          closeChild = () => {
+            child.signalCode = "SIGKILL";
+            listener(null, "SIGKILL");
+          };
+          signalCloseAwaited();
+        },
+      };
+      let checkerPresentAtFixtureClose;
+      const closeFixture = fixture.close;
+      fixture.close = async () => {
+        checkerPresentAtFixtureClose = await access(launchArgs[3]).then(
+          () => true,
+          () => false,
+        );
+        await closeFixture();
+      };
+      let settled = false;
+      const run = runCleanupChecker(fixture, checkerOptions, cliOptions, (...args) => {
+        launchArgs = args;
+        return { child, result: Promise.reject(safetyRejection) };
+      }).finally(() => {
+        settled = true;
+      });
+
+      // An earlier rejection, such as checker construction, fails here instead of waiting forever.
+      await Promise.race([closeAwaited, run]);
+      const [baseUrl, mode, extraArgs, checkerPath, launchedCliOptions] = launchArgs;
+      expect([baseUrl, mode, extraArgs, launchedCliOptions]).toEqual([
+        fixture.baseUrl,
+        "healthy",
+        cleanupCliArgs,
+        cliOptions,
+      ]);
+      expect(settled).toBe(false);
+      await expect(access(checkerPath)).resolves.toBeUndefined();
+      expect(fixture.server.listening).toBe(true);
+
+      closeChild();
+      await expect(run).rejects.toBe(safetyRejection);
+      expect(killSignals).toEqual(["SIGKILL"]);
+      expect(checkerPresentAtFixtureClose).toBe(true);
+      expect(fixture.sockets.size).toBe(0);
+      expect(fixture.server.listening).toBe(false);
+      expect(fixture.server.eventNames()).toEqual([]);
+      await expect(access(checkerPath)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
 });
