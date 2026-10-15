@@ -1,5 +1,5 @@
 {
-  "schema": "bootstrap-db-workload/v1",
+  "schema": "db-enrollment-workload/v1",
   "capture": {
     "fileName": "bootstrap-db-capture-38641988070.json",
     "fixtureSha256": "2f2732a5b9d2047be5f698595e21d92f5912f4cf9881b190098f4fc46c1b9b41",
@@ -14,7 +14,7 @@
     "historicalBranch": "codex/8396-impl-g1",
     "historicalHead": "2742ea6ea97b9995630431c95cf0d4228b63e614"
   },
-  "selectorsSha256": "1d32463b04323c1ef29d2c280943c250fbb466061396e0672a9de212ef957c46",
+  "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
   "bindingsSha256": "aaa7f581cefeb5a960d48acf8334a64e4b823af06da1a192aacd84bae540a4f6",
   "bindings": [
     [

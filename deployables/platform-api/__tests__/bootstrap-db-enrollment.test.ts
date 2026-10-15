@@ -32,7 +32,7 @@ import {
   type BootstrapDbWorkloadBinding,
   type BootstrapDbWorkloadCaptureBinding,
   type BootstrapDbWorkloadDerivation,
-} from "../scripts/bootstrap-db-workload.mjs";
+} from "../scripts/db-enrollment-workload.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = join(testDirectory, "../../..");
@@ -511,7 +511,7 @@ function liveWorkload() {
 }
 
 function readWorkloadBaseline(provenance: Readonly<Record<string, unknown>>): BootstrapDbWorkloadBaseline {
-  const fileName = `bootstrap-db-workload-${String(provenance.runId)}.json`;
+  const fileName = `db-enrollment-workload-${String(provenance.runId)}.json`;
   return JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as BootstrapDbWorkloadBaseline;
 }
 
@@ -572,7 +572,7 @@ const editFirstCaseTimeout = editCase(
  * cleanup, and `.git` is absent, so derivation cannot lean on history.
  */
 async function createWorkloadMirror(edits: Readonly<Record<string, WorkloadEdit>>): Promise<string> {
-  const mirror = await mkdtemp(join(tmpdir(), "bootstrap-db-workload-"));
+  const mirror = await mkdtemp(join(tmpdir(), "db-enrollment-workload-"));
   temporaryRoots.push(mirror);
   const edited = Object.keys(edits);
   async function populate(path: string) {
@@ -2727,9 +2727,9 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(deletedHelper.violations.every((violation) => violation.startsWith("workload input refused: "))).toBe(
         true,
       );
-      expect(deletedHelper.violations).toContainEqual(
-        expect.stringMatching(/workload import '@chase-sets\/payment-processing\/test-support' is unresolved$/),
-      );
+      // A string, not a regex literal: lexical import scanners misread a regex.
+      const unresolvedHelper = "workload import '@chase-sets/payment-processing/test-support' is unresolved";
+      expect(deletedHelper.violations.some((violation) => violation.endsWith(unresolvedHelper))).toBe(true);
 
       const unreadable = await mirrorFreshness({
         "infrastructure/platform-runtime/context-pools.ts": null,
@@ -2785,7 +2785,7 @@ describe("Platform API bootstrap DB enrollment", () => {
           if (statSync(absolute).isDirectory()) visit(path);
           else if (
             /\.(?:[cm]?[jt]sx?)$/.test(entry) &&
-            readFileSync(absolute, "utf8").includes("bootstrap-db-workload")
+            readFileSync(absolute, "utf8").includes("db-enrollment-workload")
           ) {
             callers.push(path);
           }
@@ -2794,7 +2794,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       for (const directory of ["deployables/platform-api", "scripts"]) visit(directory);
       expect(callers.sort()).toEqual([
         "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
-        "deployables/platform-api/scripts/bootstrap-db-workload.mjs",
+        "deployables/platform-api/scripts/db-enrollment-workload.mjs",
       ]);
       const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
         scripts: Record<string, string>;

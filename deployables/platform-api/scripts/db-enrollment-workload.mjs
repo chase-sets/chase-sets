@@ -53,7 +53,7 @@ const workflowPath = ".github/workflows/platform-pr.yml";
 const lockfilePath = "pnpm-lock.yaml";
 
 export const bootstrapDbWorkloadSelectors = Object.freeze({
-  schema: "bootstrap-db-workload/v1",
+  schema: "db-enrollment-workload/v1",
   w1: Object.freeze({
     census: `${platformApiPath} derivePlatformApiDbTestCensus dbEntries and bootstrapEntries`,
     scripts: `${platformApiPath}/package.json test:db:* scripts`,
@@ -638,7 +638,7 @@ async function deriveHostedVitestConfig(tree, units, installedVitest, gaps) {
   );
   if (hostedConfigCache.has(key)) return hostedConfigCache.get(key);
 
-  const scratchParent = join(toolingRoot, "node_modules", ".cache", "bootstrap-db-workload");
+  const scratchParent = join(toolingRoot, "node_modules", ".cache", "db-enrollment-workload");
   mkdirSync(scratchParent, { recursive: true });
   const scratch = mkdtempSync(join(scratchParent, "w4-"));
   try {
@@ -1083,7 +1083,7 @@ async function main() {
   });
   if (!values.capture || !values.out) {
     throw new Error(
-      "usage: bootstrap-db-workload.mjs --capture <capture.json> --out <baseline.json> [--check] [--ref <ref>]",
+      "usage: db-enrollment-workload.mjs --capture <capture.json> --out <baseline.json> [--check] [--ref <ref>]",
     );
   }
   const capturePath = resolve(values.capture);
