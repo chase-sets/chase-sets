@@ -24,7 +24,7 @@ import { parseCLI } from "vitest/node";
  */
 export const bootstrapDbEnrollmentManifest = Object.freeze({
   "bootstrap-shared-seed-command.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_bootstrap_shared_seed_command",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -465,7 +465,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  * unit — or newly classified as boot-bearing — fails closed and forces the
  * schedule model to be re-derived rather than silently absorbing the load.
  */
-export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "test:db:1": 34, "test:db:2": 32 });
+export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "test:db:1": 33, "test:db:2": 33 });
 
 /**
  * Measured timing inputs: run 38737899795, attempt 1, job 116431778262.
@@ -476,8 +476,8 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "
  * Each case reference is ceil(observed passing duration), never a copied cost.
  * File/unit fixed costs use ceil(max(0, observed residuals)), including zero
  * only when every measured residual at that level is nonpositive.
- * This measured source assignment remains minimal under unchanged limits,
- * not product qualification.
+ * That capture measured bootstrap-shared-seed-command in test:db:1; its move to
+ * test:db:2 is a candidate topology pending recapture, not measured here.
  * Historical captures remain immutable; normal final-head DB CI owns qualification.
  */
 export const bootstrapDbScheduleModel = Object.freeze({

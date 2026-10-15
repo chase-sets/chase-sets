@@ -2736,8 +2736,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         edits: {
           "deployables/platform-api/package.json": (source: string) =>
             replaceOnce(
-              "__tests__/bootstrap-shared-seed-command.db.test.ts --maxWorkers=3",
-              "__tests__/bootstrap-shared-seed-command.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
+              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
             )(
               replaceOnce(
                 "__tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
@@ -2751,8 +2751,8 @@ describe("Platform API bootstrap DB enrollment", () => {
         label: "a hosted CLI override",
         edits: {
           "deployables/platform-api/package.json": replaceOnce(
-            "__tests__/bootstrap-shared-seed-command.db.test.ts --maxWorkers=3",
-            "__tests__/bootstrap-shared-seed-command.db.test.ts --testTimeout=1 --maxWorkers=3",
+            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --testTimeout=1 --maxWorkers=3",
           ),
         },
         expected: [changed("W1 partition test:db:1"), changed("W4 unit test:db:1")],
