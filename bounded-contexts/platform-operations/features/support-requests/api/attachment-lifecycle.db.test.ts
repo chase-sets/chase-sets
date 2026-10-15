@@ -38,7 +38,12 @@ import {
 } from "./attachment-cleanup";
 import { attachmentStorageKey, storeSupportEvidenceAttachments } from "./attachments";
 import { createEvidenceAccessAudit } from "./evidence-access-audit";
-import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
+import {
+  decideSupportRequest,
+  evolveSupportRequest,
+  initialSupportRequestState,
+  type SupportRequestEvent,
+} from "../domain/domain";
 import { hashParticipantRequest } from "../domain/participant-attempt";
 import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 
@@ -58,6 +63,7 @@ const owner = {
 };
 const operationStream = attachmentOperationStreamId(owner);
 const operationCodec = createPassthroughDomainEventCodec<AttachmentOperationEvent>();
+const caseCodec = createPassthroughDomainEventCodec<SupportRequestEvent>();
 const caseStream = `support.support-request-${owner.supportRequestId}`;
 const manifest = createAttachmentManifest({
   owner,
@@ -672,15 +678,41 @@ describeDb("Support evidence cleanup claims on real PostgreSQL (AC-E1, AC-E2, AC
     expect(await operationTypes()).toHaveLength(4);
   });
 
-  it("referenced bytes survive resolve, close, cancel, replay, restart and the day after", async () => {
+  const resolve = {
+    type: "ResolveSupportRequest",
+    resolutionType: "support-reviewed",
+    summary: "Support reviewed the damage evidence.",
+    responsibility: "carrier",
+    evidenceBasis: { type: "operator-finding", reference: "support-test.operator-adjudication.v1" },
+    responsibilityReasonCode: "product-damaged.carrier-damage",
+    resolvedByAccountId: "acc_support",
+    resolvedByRole: "support",
+    resolvedAt: "2026-10-13T13:00:00.000Z",
+  };
+  const caseStatus = async (eventStore: EventStore) =>
+    (await readCompleteStream(eventStore, { streamId: caseStream }))
+      .map(caseCodec.decode)
+      .reduce(evolveSupportRequest, initialSupportRequestState).status;
+
+  // Resolution and cancellation are mutually exclusive, so each terminal state is its own legal case.
+  it.each([
+    ["resolved", [resolve]],
+    ["closed", [resolve, { type: "CloseSupportRequest", closedAt: "2026-10-13T14:00:00.000Z" }]],
+    [
+      "cancelled",
+      [
+        {
+          type: "CancelSupportRequest",
+          cancelledAt: "2026-10-13T13:00:00.000Z",
+          reason: "Buyer withdrew the request.",
+        },
+      ],
+    ],
+  ] as const)("referenced bytes survive a %s case, replay, restart and the day after", async (status, commands) => {
     await submitCommand(store);
-    for (const fact of ["resolved", "closed", "cancelled"])
-      await store.appendToStream({
-        streamId: caseStream,
-        expectedVersion: "any",
-        context,
-        events: [{ eventType: `support.support-request.test-${fact}`, payload: {} }],
-      });
+    const runtime = createSupportRequestRuntime({ eventStore: store, db: pool, checkpointStore });
+    for (const command of commands) await runtime.commandHandler({ streamId: caseStream, context, command } as never);
+    expect(await caseStatus(store)).toBe(status);
     const { objects, storage } = objectStore();
     await project();
     await pool.query("TRUNCATE support_evidence_cleanup_locators");
@@ -689,6 +721,7 @@ describeDb("Support evidence cleanup claims on real PostgreSQL (AC-E1, AC-E2, AC
       { operation_stream_id: operationStream, state: "reference-held", stream_version: 5 },
     ]);
     store = createPostgresEventStore({ pool });
+    expect(await caseStatus(store)).toBe(status);
     for (const offset of [25 * hour, 48 * hour]) {
       expect(await cleanup(cleanupRuntime(store, storage)).run({ now: later(offset) })).toMatchObject({ examined: 0 });
       expect(await forcedRunner(storage).run({ now: later(offset) })).toMatchObject({ referenced: 1 });
