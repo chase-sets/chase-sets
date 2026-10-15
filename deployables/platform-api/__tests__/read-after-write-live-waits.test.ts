@@ -2,18 +2,21 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 
 import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import {
   attachReadConsistencyMiddleware,
   resolveReadConsistencyDependency,
+  type ReadConsistencyAuditRecord,
   type ReadConsistencyProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
 import type { BcReadFreshnessRoute } from "@chase-sets/bounded-context-module";
 import { projectionFreshnessWakeEnqueueMetricRecord } from "@chase-sets/observability";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { CRITICAL_READ_CONSISTENCY_ROUTE_TUNING } from "../src/config";
+import { createRouteInventoryRuntime } from "./route-inventory-test-support";
 
 /**
  * Guards issues #1225/#1233: every read-after-write inventory entry must be
@@ -129,6 +132,38 @@ function expectCriticalRouteTuning(mountPath: string, routePath: string) {
 }
 
 describe("read-after-write live wait declarations", () => {
+  it("registers every declared freshness route as GET on its assembled context mount", () => {
+    const runtime = createRouteInventoryRuntime();
+    expect(runtime.mountedContexts).toHaveLength(apiContextRegistry.length);
+    const violations: string[] = [];
+
+    for (const { contextName, module, services } of runtime.mountedContexts) {
+      const entries = module.buildApis(services as never);
+      expect(
+        entries.map(({ mountPath }) => mountPath),
+        `${contextName} mount coverage`,
+      ).toEqual(module.apiMounts.map(({ mountPath }) => mountPath));
+      const app = new Hono();
+      for (const { mountPath, router } of entries) {
+        if (!(router instanceof Hono)) {
+          throw new Error(`${contextName}: ${mountPath} must provide a Hono router`);
+        }
+        app.route(mountPath, router);
+      }
+      const getPaths = new Set(app.routes.filter(({ method }) => method === "GET").map(({ path }) => path));
+      for (const mount of module.apiMounts) {
+        for (const route of mount.readFreshnessRoutes ?? []) {
+          const path = `${mount.mountPath}${route.routePath}`;
+          if (!getPaths.has(path)) {
+            violations.push(`${contextName}: GET ${path} is not registered on its assembled mount`);
+          }
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   it.each(["/account/offers/matches/:id", "/account/offers/matches"])(
     "pins %s to Offer, policy and managed audit projection dependencies",
     (routePath) => {
@@ -477,12 +512,12 @@ describe("critical exact read-after-write waits", () => {
   });
 
   it("backs accepted-offer sales list freshness with the offer process and sale list read models", () => {
-    const salesLiveRoutes = findLiveFreshnessRoutes("ordering", "/sales");
+    const salesLiveRoutes = findLiveFreshnessRoutes("ordering", "/account/sales");
     expect(salesLiveRoutes).toEqual([
       {
         mountPath: "/api/marketplace",
         route: {
-          routePath: "/sales",
+          routePath: "/account/sales",
           methods: ["GET", "HEAD"],
           dependencies: [
             { projectionName: "ordering-marketplace-offer-acceptance" },
@@ -508,6 +543,116 @@ describe("critical exact read-after-write waits", () => {
     expect(resolvedDependencies).toEqual([
       { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
       { targetContextName: "ordering", projectionName: "ordering-order-projection" },
+    ]);
+  });
+
+  it.each([
+    {
+      routePath: "/account/sales",
+      sourceContextName: "marketplace",
+      dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
+      polled: ["ordering-marketplace-offer-acceptance"],
+    },
+    {
+      routePath: "/account/sales",
+      sourceContextName: "ordering",
+      dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
+      polled: ["ordering-order-projection"],
+    },
+    ...["/account/sales/:id", "/account/purchases/:id"].map((routePath) => ({
+      routePath,
+      sourceContextName: "ordering",
+      dependencies: ["ordering-order-projection", "ordering-order-review-opportunity-projection"],
+      polled: ["ordering-order-projection", "ordering-order-review-opportunity-projection"],
+    })),
+  ])("resolves $routePath with a $sourceContextName receipt to exact Ordering waits", async (testCase) => {
+    const polled: string[] = [];
+    const audits: ReadConsistencyAuditRecord[] = [];
+    const groups = apiContextRegistry.flatMap((entry) =>
+      (entry.module.projectionGroups ?? []).map((group) => ({
+        targetContextName: entry.contextName as string,
+        projectionName: group.projectionName,
+        ownedTables: group.ownedTables,
+        subscriptionRunners: group.sourceContextNames.map((sourceContextName) => ({
+          sourceContextName,
+          refreshStatus: async () => {
+            polled.push(group.projectionName);
+            return { lastGlobalPosition: "7", sourceHeadGlobalPosition: "42", state: "behind" };
+          },
+        })),
+      })),
+    );
+    const mounts = apiContextRegistry.flatMap((entry) =>
+      entry.module.apiMounts.map((mount) => ({ ...mount, contextName: entry.contextName as string })),
+    );
+    const app = new Hono();
+    attachReadConsistencyMiddleware(app, mounts, groups, {
+      timeoutMs: 0,
+      pollIntervalMs: 1,
+      exactDependencyMode: "enabled",
+      recordReadConsistencyAudit: (record) => audits.push(record),
+    });
+    const path = `/api/marketplace${testCase.routePath.replace(":id", "ord_1")}`;
+    let handlerRan = false;
+    app.get(path, (context) => {
+      handlerRan = true;
+      return context.json({});
+    });
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: testCase.sourceContextName, maxGlobalPosition: "42", eventIds: ["evt_order"] }],
+    });
+
+    const response = await app.request(path, { headers: { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt } });
+
+    expect(response.status).toBe(503);
+    expect(handlerRan).toBe(false);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      outcome: "timeout",
+      routePaths: [testCase.routePath],
+      waitMode: "exact-dependency",
+      dependencies: testCase.dependencies.map((projectionName) => ({ targetContextName: "ordering", projectionName })),
+      pending: testCase.polled.map((projectionName) => ({
+        targetContextName: "ordering",
+        projectionName,
+        sourceContextName: testCase.sourceContextName,
+      })),
+    });
+    expect([...new Set(polled)].sort()).toEqual([...testCase.polled].sort());
+  });
+
+  it("keeps Ordering account sales as the only freshness route depending on a reaction group", () => {
+    const reactionGroups = new Set(
+      apiContextRegistry.flatMap((entry) =>
+        (entry.module.projectionGroups ?? [])
+          .filter((group) => group.handlerKind === "reaction")
+          .map((group) => `${entry.contextName}:${group.projectionName}`),
+      ),
+    );
+    const reactionRoutes = apiContextRegistry.flatMap((entry) =>
+      entry.module.apiMounts.flatMap((mount) =>
+        (mount.readFreshnessRoutes ?? []).flatMap((route) => {
+          const reactions = route.dependencies
+            .flatMap((dependency) =>
+              resolveReadConsistencyDependency(entry.contextName, dependency, mountedProjectionGroups),
+            )
+            .filter((dependency) => reactionGroups.has(`${dependency.targetContextName}:${dependency.projectionName}`));
+          return reactions.length > 0
+            ? [{ contextName: entry.contextName, mountPath: mount.mountPath, routePath: route.routePath, reactions }]
+            : [];
+        }),
+      ),
+    );
+
+    expect(reactionGroups.size).toBeGreaterThan(0);
+    expect(reactionRoutes).toEqual([
+      {
+        contextName: "ordering",
+        mountPath: "/api/marketplace",
+        routePath: "/account/sales",
+        reactions: [{ targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" }],
+      },
     ]);
   });
 
