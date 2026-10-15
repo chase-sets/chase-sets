@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type RunnerTestCase } from "vitest";
@@ -2165,20 +2166,124 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   const currentCaptures = measuredCaptures.filter((capture) => capture.current);
 
+  type CaptureFixture = {
+    provenance: Record<string, unknown>;
+    files: { testPath: string; sourceSha256: string; cases: { name: string; identity: string }[] }[];
+    nonBootstrapFiles: { testPath: string; sourceSha256: string }[];
+    sourceBindings: Record<string, string>;
+  };
+
   function readCurrentCapture() {
     const [{ fileName, fixtureSha256 }] = currentCaptures as [(typeof measuredCaptures)[number]];
-    const capture = JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as {
-      provenance: Record<string, unknown>;
-      files: { testPath: string; sourceSha256: string; cases: { name: string; identity: string }[] }[];
-      nonBootstrapFiles: { testPath: string; sourceSha256: string }[];
-      sourceBindings: Record<string, string>;
-    };
+    const capture = JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as CaptureFixture;
     const binding: BootstrapDbWorkloadCaptureBinding = { fileName, fixtureSha256, provenance: capture.provenance };
     return { capture, binding };
   }
 
   function currentBaseline() {
     return readWorkloadBaseline(readCurrentCapture().capture.provenance);
+  }
+
+  // The old broad pins, the producer's frozen-source proof and every collision
+  // reference belong to capture 38641988070 and read its committed frozen
+  // source. Only W1-W5 follows the current capture, so a recapture neither
+  // rebinds them nor regenerates the helper.
+  const historicalCaptureFileName = "bootstrap-db-capture-38641988070.json";
+  const frozenSourceFileName = "bootstrap-db-frozen-source-38641988070.json.gz";
+
+  function readHistoricalCapture() {
+    return JSON.parse(
+      readFileSync(join(testDirectory, "fixtures", historicalCaptureFileName), "utf8"),
+    ) as CaptureFixture;
+  }
+
+  /**
+   * The capture's frozen source as exactly the members it measured, each with
+   * the bytes its digest names. The gzip helper is generated outside CI from
+   * provenance.sourceBase; a missing, corrupt or partial helper is refused.
+   */
+  function loadFrozenSource(gzipped: Uint8Array | null, capture: CaptureFixture): ReadonlyMap<string, Buffer> {
+    const refused = (gaps: readonly string[]) =>
+      new Error(`frozen source ${frozenSourceFileName} refused: ${gaps.join("; ")}`);
+    if (!gzipped) throw refused(["it is missing"]);
+    let helper: { sourceBase?: unknown; files?: Record<string, unknown> };
+    try {
+      helper = JSON.parse(gunzipSync(gzipped).toString("utf8"));
+    } catch (error) {
+      throw refused([`it is unreadable (${(error as Error).message})`]);
+    }
+    if (typeof helper !== "object" || helper === null) {
+      throw refused(["it is unreadable (its root is not a JSON object)"]);
+    }
+    const files = helper.files ?? {};
+    const expected = new Map([
+      ...[...capture.files, ...capture.nonBootstrapFiles].map(
+        ({ testPath, sourceSha256 }) => [`deployables/platform-api/${testPath}`, sourceSha256] as const,
+      ),
+      ...Object.entries(capture.sourceBindings),
+    ]);
+    const gaps = [
+      ...(helper.sourceBase === capture.provenance.sourceBase
+        ? []
+        : [`it was not generated from ${String(capture.provenance.sourceBase)}`]),
+      ...[...expected.keys()].filter((path) => !Object.hasOwn(files, path)).map((path) => `it is missing ${path}`),
+      ...Object.keys(files)
+        .filter((path) => !expected.has(path))
+        .map((path) => `it adds ${path}, which the capture does not bind`),
+      ...[...expected]
+        .filter(([path, digest]) => {
+          const text = files[path];
+          return Object.hasOwn(files, path) && (typeof text !== "string" || sha256Of(text) !== digest);
+        })
+        .map(([path]) => `${path} differs from the capture`),
+    ];
+    if (gaps.length > 0) throw refused(gaps);
+    return new Map(Object.entries(files as Record<string, string>).map(([path, text]) => [path, Buffer.from(text)]));
+  }
+
+  let frozenSource: ReadonlyMap<string, Buffer> | undefined;
+
+  function readFrozenSourceFile(path: string) {
+    const helper = join(testDirectory, "fixtures", frozenSourceFileName);
+    frozenSource ??= loadFrozenSource(existsSync(helper) ? readFileSync(helper) : null, readHistoricalCapture());
+    return frozenSource.get(path) ?? null;
+  }
+
+  // An unmistakably synthetic recapture of this checkout: W1-W5 must follow
+  // it, while the old pins and frozen reads stay on capture 38641988070.
+  async function newerCurrentCapture() {
+    const derivation = await liveWorkload();
+    const { binding } = readCurrentCapture();
+    const sourceBase = "0000000000000000000000000000000000006547";
+    const captureBytes = Buffer.from(
+      JSON.stringify({
+        provenance: {
+          ...binding.provenance,
+          runId: "65440004",
+          checkoutSha: "0000000000000000000000000000000000006548",
+          sourceBase,
+          captureParent: sourceBase,
+        },
+      }),
+    );
+    const newer: BootstrapDbWorkloadCaptureBinding = {
+      fileName: "bootstrap-db-capture-65440004.json",
+      fixtureSha256: sha256Of(captureBytes),
+      provenance: JSON.parse(captureBytes.toString("utf8")).provenance,
+    };
+    expect(
+      checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
+    ).toEqual([
+      `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+      `baseline was derived from ${currentBaseline().source.commit}, not the capture's frozen source ${sourceBase}`,
+    ]);
+    const baseline = createBootstrapDbWorkloadBaseline({
+      captureFileName: newer.fileName,
+      captureBytes,
+      source: { commit: sourceBase },
+      derivation,
+    }) as BootstrapDbWorkloadBaseline;
+    return { binding: newer, baseline };
   }
 
   const runId = "38737899795";
@@ -2191,21 +2296,19 @@ describe("Platform API bootstrap DB enrollment", () => {
   async function mirrorFreshness(
     edits: Readonly<Record<string, WorkloadEdit>>,
     baseline: BootstrapDbWorkloadBaseline = currentBaseline(),
+    capture: BootstrapDbWorkloadCaptureBinding = readCurrentCapture().binding,
   ) {
     const mirror = await createWorkloadMirror(edits);
     const derivation = await deriveBootstrapDbWorkload({ repositoryRoot: mirror });
-    const { violations } = checkBootstrapDbWorkloadFreshness({
-      baseline,
-      capture: readCurrentCapture().binding,
-      derivation,
-    });
+    const { violations } = checkBootstrapDbWorkloadFreshness({ baseline, capture, derivation });
     return { mirror, violations: [...violations].sort() };
   }
 
   // The superseded live loop, kept only as the control that shows each
-  // provenance-only edit below was rejected by the old broad pins.
+  // provenance-only edit below was rejected by the old broad pins, which were
+  // capture 38641988070's.
   function broadSourceBindingMismatches(root: string) {
-    return Object.entries(readCurrentCapture().capture.sourceBindings)
+    return Object.entries(readHistoricalCapture().sourceBindings)
       .filter(([path, digest]) => sha256Of(readFileSync(join(root, path))) !== digest)
       .map(([path]) => path);
   }
@@ -2358,7 +2461,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     it("refuses a substituted or missing capture, frozen source or baseline", async () => {
       const derivation = await liveWorkload();
       const baseline = currentBaseline();
-      const { capture, binding } = readCurrentCapture();
+      const { binding } = readCurrentCapture();
       expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: binding, derivation }).violations).toEqual([]);
 
       expect(
@@ -2400,27 +2503,125 @@ describe("Platform API bootstrap DB enrollment", () => {
         checkBootstrapDbWorkloadFreshness({ baseline: undefined, capture: binding, derivation }).violations,
       ).toContain("baseline is missing");
 
-      // The producer's frozen-source proof: the capture's own digests decide.
-      const readCheckout = (path: string) => readFileSync(join(repositoryRoot, path));
-      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readCheckout }).violations).toEqual([]);
+      // The producer's frozen-source proof: capture 38641988070's own digests
+      // decide over its committed frozen source, never this checkout's bytes.
+      const capture = readHistoricalCapture();
+      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readFrozenSourceFile }).violations).toEqual([]);
       expect(
         bindFrozenSourceToCapture({
           capture,
-          readSourceFile: (path) => (path === "deployables/platform-api/src/app.ts" ? null : readCheckout(path)),
+          readSourceFile: (path) =>
+            path === "deployables/platform-api/src/app.ts" ? null : readFrozenSourceFile(path),
         }).violations,
       ).toEqual(["frozen source is missing deployables/platform-api/src/app.ts"]);
       expect(
         bindFrozenSourceToCapture({
           capture,
           readSourceFile: (path) =>
-            path.endsWith("bootstrap-scenario.db.test.ts") ? Buffer.from("substituted") : readCheckout(path),
+            path.endsWith("bootstrap-scenario.db.test.ts") ? Buffer.from("substituted") : readFrozenSourceFile(path),
         }).violations,
       ).toEqual([
         "frozen source deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts differs from the capture; substituted source",
       ]);
-      expect(bindFrozenSourceToCapture({ capture: {}, readSourceFile: readCheckout }).violations).toEqual([
+      expect(bindFrozenSourceToCapture({ capture: {}, readSourceFile: readFrozenSourceFile }).violations).toEqual([
         "capture records no source digests to bind the frozen source to",
       ]);
+    });
+
+    it("keeps the producer proof on capture 38641988070's frozen source while W1-W5 follows a newer capture", async () => {
+      const newer = await newerCurrentCapture();
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline: newer.baseline,
+          capture: newer.binding,
+          derivation: await liveWorkload(),
+        }).violations,
+      ).toEqual([]);
+      const capture = readHistoricalCapture();
+      expect(capture.provenance.runId).toBe("38641988070");
+      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readFrozenSourceFile }).violations).toEqual([]);
+
+      // A recapture that measured other bytes cannot certify, or be served by,
+      // the historical helper.
+      const app = "deployables/platform-api/src/app.ts";
+      const remeasured = {
+        ...capture,
+        provenance: newer.binding.provenance,
+        sourceBindings: { ...capture.sourceBindings, [app]: "0".repeat(64) },
+      };
+      expect(
+        bindFrozenSourceToCapture({ capture: remeasured, readSourceFile: readFrozenSourceFile }).violations,
+      ).toEqual([`frozen source ${app} differs from the capture; substituted source`]);
+      expect(() =>
+        loadFrozenSource(readFileSync(join(testDirectory, "fixtures", frozenSourceFileName)), remeasured),
+      ).toThrow(
+        new Error(
+          `frozen source ${frozenSourceFileName} refused: it was not generated from ${String(newer.binding.provenance.sourceBase)}; ${app} differs from the capture`,
+        ),
+      );
+    });
+
+    it("refuses a missing or corrupt frozen source and any deleted, substituted, added or truncated member", () => {
+      const capture = readHistoricalCapture();
+      const gzipped = readFileSync(join(testDirectory, "fixtures", frozenSourceFileName));
+      const helper = JSON.parse(gunzipSync(gzipped).toString("utf8")) as {
+        sourceBase: string;
+        files: Record<string, string>;
+      };
+      expect(helper.sourceBase).toBe(capture.provenance.sourceBase);
+      expect(Object.keys(helper.files)).toHaveLength(61);
+      expect([...loadFrozenSource(gzipped, capture).keys()].sort()).toEqual(Object.keys(helper.files).sort());
+
+      const rewritten = (edit: (files: Record<string, string>) => void, sourceBase = helper.sourceBase) => {
+        const files = { ...helper.files };
+        edit(files);
+        return gzipSync(JSON.stringify({ sourceBase, files }));
+      };
+      const refusal = (gap: string) => new Error(`frozen source ${frozenSourceFileName} refused: ${gap}`);
+      const app = "deployables/platform-api/src/app.ts";
+      expect(() => loadFrozenSource(null, capture)).toThrow(refusal("it is missing"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => delete files[app]),
+          capture,
+        ),
+      ).toThrow(refusal(`it is missing ${app}`));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files[app] = "substituted")),
+          capture,
+        ),
+      ).toThrow(refusal(`${app} differs from the capture`));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files["synthetic/added.ts"] = "export {};\n")),
+          capture,
+        ),
+      ).toThrow(refusal("it adds synthetic/added.ts, which the capture does not bind"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files["pnpm-lock.yaml"] = files["pnpm-lock.yaml"]!.slice(0, -1))),
+          capture,
+        ),
+      ).toThrow(refusal("pnpm-lock.yaml differs from the capture"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten(() => {}, "1".repeat(40)),
+          capture,
+        ),
+      ).toThrow(refusal(`it was not generated from ${helper.sourceBase}`));
+
+      const corrupt = Buffer.from(gzipped);
+      corrupt[corrupt.length >> 1]! ^= 0xff;
+      expect(() => loadFrozenSource(corrupt, capture)).toThrow(
+        /^frozen source bootstrap-db-frozen-source-38641988070\.json\.gz refused: it is unreadable \(.+\)$/,
+      );
+      expect(() => loadFrozenSource(gzipped.subarray(0, gzipped.length - 1024), capture)).toThrow(
+        refusal("it is unreadable (unexpected end of file)"),
+      );
+      expect(() => loadFrozenSource(gzipSync("null"), capture)).toThrow(
+        refusal("it is unreadable (its root is not a JSON object)"),
+      );
     });
   });
 
@@ -2570,7 +2771,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   describe("unrelated source edits preserve workload enrollment", () => {
-    it.each([
+    const controls = [
       {
         label: "an unrelated lockfile entry",
         path: "pnpm-lock.yaml",
@@ -2604,10 +2805,68 @@ describe("Platform API bootstrap DB enrollment", () => {
         path: "bounded-contexts/auth/support/runtime-support/services.ts",
         edit: replaceOnce('  "pricing.manage",\n]);', '  "pricing.manage",\n  "inventory.manage",\n]);'),
       },
-    ])("accepts $label with W1-W5 fixed while the old broad pins reject it", async ({ path, edit }) => {
-      const { mirror, violations } = await mirrorFreshness({ [path]: edit });
-      expect(violations).toEqual([]);
-      expect(broadSourceBindingMismatches(mirror)).toEqual([path]);
+    ];
+
+    // A W1-W5-neutral drift that no control's edit makes.
+    const preDrift = (path: string) => (source: string) =>
+      `${source}${path.endsWith(".yaml") ? "#" : "//"} synthetic pre-drift\n`;
+
+    /**
+     * The old broad pins reject `edit`: against a paired reference, the edited
+     * mirror adds exactly `path` to the historical mismatches. `base` is the
+     * unnormalized source and keeps all of its drift; a target it already drifted
+     * is restored to its captured bytes in the reference only, and the edit
+     * applies to those bytes.
+     */
+    async function expectOldPinRejection(
+      { path, edit }: (typeof controls)[number],
+      base: Readonly<Record<string, WorkloadEdit>> = {},
+      current = { binding: readCurrentCapture().binding, baseline: currentBaseline() },
+    ) {
+      const freshness = (edits: Readonly<Record<string, WorkloadEdit>>) =>
+        mirrorFreshness(edits, current.baseline, current.binding);
+      const captured = readFrozenSourceFile(path);
+      expect(captured, path).not.toBeNull();
+      const withTarget = (bytes: string) => {
+        const retained = Object.fromEntries(Object.entries(base).filter(([key]) => key !== path));
+        return readFileSync(join(repositoryRoot, path), "utf8") === bytes ? retained : { ...retained, [path]: bytes };
+      };
+
+      const unnormalized = await freshness(base);
+      expect(unnormalized.violations).toEqual([]);
+      const collision = !readFileSync(join(unnormalized.mirror, path)).equals(captured!);
+      const referenceEdits = collision ? withTarget(captured!.toString("utf8")) : base;
+      const reference = collision ? await freshness(referenceEdits) : unnormalized;
+      expect(reference.violations, "historical paired reference violates current W1-W5").toEqual([]);
+      const edited = await freshness(withTarget(edit(captured!.toString("utf8"))));
+      expect(edited.violations).toEqual([]);
+
+      const before = broadSourceBindingMismatches(reference.mirror);
+      const after = broadSourceBindingMismatches(edited.mirror);
+      expect(before).not.toContain(path);
+      expect([...after].sort()).toEqual([...before, path].sort());
+      return { collision, before };
+    }
+
+    it.each(controls)("accepts $label with W1-W5 fixed while the old broad pins reject it", async (control) => {
+      await expectOldPinRejection(control);
+    });
+
+    it.each(controls.map((control, index) => ({ ...control, drift: controls[(index + 1) % controls.length]! })))(
+      "accepts $label beside retained drift in $drift.path",
+      async ({ drift, ...control }) => {
+        const { before } = await expectOldPinRejection(control, { [drift.path]: drift.edit });
+        expect(before).toContain(drift.path);
+      },
+    );
+
+    it.each(controls)("accepts $label over a pre-drifted target restored to its captured bytes", async (control) => {
+      const { collision } = await expectOldPinRejection(control, { [control.path]: preDrift(control.path) });
+      expect(collision).toBe(true);
+    });
+
+    it.each(controls)("accepts $label while W1-W5 follows a newer current capture", async (control) => {
+      await expectOldPinRejection(control, {}, await newerCurrentCapture());
     });
   });
 
