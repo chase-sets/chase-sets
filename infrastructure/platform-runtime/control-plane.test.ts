@@ -302,10 +302,10 @@ describe("platform control plane", () => {
   });
 
   it("records the latest worker quiesce and reads every heartbeat of the kind with every unexpired lease owner", async () => {
-    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const queries: Array<{ sql: string; params: readonly unknown[] }> = [];
     let lease_owner_ids: unknown = '["wrk_new","wrk_old"]';
     const db = {
-      query: async (sql: string, params: unknown[] = []) => {
+      query: async (sql: string, params: readonly unknown[] = []) => {
         queries.push({ sql, params });
         return {
           rows: [
