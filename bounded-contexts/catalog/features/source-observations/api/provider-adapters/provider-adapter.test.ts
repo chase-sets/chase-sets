@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 import type {
   CatalogIntegrationUnitDescriptor,
@@ -193,14 +194,18 @@ describe("MTGJSON coordinate compatibility and refusal", () => {
     "does not substitute the canonical TSP id for a %s mapping",
     async (status) => {
       const unitKey = MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY;
-      const query = vi.fn(async <Row>(sql: string, values?: readonly unknown[]) => {
-        expect(sql).toContain("review_status IN ('accepted', 'auto-accepted')");
-        expect(values).toEqual(["TSP"]);
-        const storedRows = status === "absent" ? [] : [{ review_status: status, set_name: "TSP" }];
-        return { rows: storedRows.filter((row) => ["accepted", "auto-accepted"].includes(row.review_status)) as Row[] };
-      });
+      const db: PgQueryable = {
+        async query<Row>(sql: string, values?: readonly unknown[]) {
+          expect(sql).toContain("review_status IN ('accepted', 'auto-accepted')");
+          expect(values).toEqual(["TSP"]);
+          const storedRows = status === "absent" ? [] : [{ review_status: status, set_name: "TSP" }];
+          return {
+            rows: storedRows.filter((row) => ["accepted", "auto-accepted"].includes(row.review_status)) as Row[],
+          };
+        },
+      };
       const mappings: readonly ProviderScopeMappingRow[] = await listAcceptedProviderScopeMappingsByScopeRecord(
-        { query },
+        db,
         "TSP",
       );
       const deniedFetch = vi.fn<typeof fetch>(async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
 import { ProviderAdapterRegistry } from "../../source-observations/api/provider-adapters/registry";
@@ -19,7 +20,7 @@ const selection = {
   mode: "matching-scope",
   query: { productDomain: "magic", scopeKind: "set", languageCode: null },
 } as const;
-const context = {
+const context: EventStoreContext = {
   tenantId: "tnt_synthetic_9645",
   audit: { performedByUserId: "usr_synthetic_9645", forAccountId: "acc_synthetic_9645" },
 };
