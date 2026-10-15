@@ -208,6 +208,27 @@ export function classifyAdmissionWebhookTransient(text) {
   return redactDeployDiagnosticText(failure).replace(/\s+/g, " ").slice(0, ADMISSION_WEBHOOK_TRANSIENT_MAX_LENGTH);
 }
 
+// The only recognition code a deploy attempt carries. The producer sets it exactly when the
+// complete original error matched above; the bounded line can lose `No agent available`, so
+// readers trust this code and never match the line again.
+export const ADMISSION_WEBHOOK_TRANSIENT_CODE = "doks-admission-webhook-unreachable";
+
+// A recognized failure carries the code with its nonempty bounded line; every other
+// attempt carries neither.
+export function hasAdmissionWebhookTransientPair(attempt) {
+  const { admissionWebhookTransient: line, admissionWebhookTransientCode: code } = attempt;
+  if (code === null) {
+    return line === null;
+  }
+  return (
+    code === ADMISSION_WEBHOOK_TRANSIENT_CODE &&
+    attempt.result === "failure" &&
+    typeof line === "string" &&
+    line.length > 0 &&
+    line.length <= ADMISSION_WEBHOOK_TRANSIENT_MAX_LENGTH
+  );
+}
+
 const DEPLOY_ATTEMPTS_SCHEMA_VERSION = "platform-kubernetes-deploy-attempts/v1";
 const deployAttemptsRecordKeys = [
   "attempts",
@@ -221,7 +242,7 @@ const deployAttemptsRecordKeys = [
   "retry",
   "schemaVersion",
 ];
-const deployAttemptKeys = ["admissionWebhookTransient", "attempt", "result"];
+const deployAttemptKeys = ["admissionWebhookTransient", "admissionWebhookTransientCode", "attempt", "result"];
 const hasExactKeys = (value, keys) =>
   value !== null &&
   typeof value === "object" &&
@@ -229,23 +250,30 @@ const hasExactKeys = (value, keys) =>
   JSON.stringify(Object.keys(value).sort()) === JSON.stringify(keys);
 
 // The production deploy's closed attempts record names the admission transient only
-// when its last attempt failed with an AC1 line; anything else keeps today's taxonomy.
+// when its last attempt failed carrying the recognition code; a malformed record is not
+// evidence, and anything else keeps today's taxonomy.
 function admissionWebhookTransientFromAttempts(diagnostics) {
   for (const record of diagnostics ?? []) {
     if (
       !hasExactKeys(record, deployAttemptsRecordKeys) ||
       record.schemaVersion !== DEPLOY_ATTEMPTS_SCHEMA_VERSION ||
       !Array.isArray(record.attempts) ||
-      !record.attempts.every((attempt) => hasExactKeys(attempt, deployAttemptKeys))
+      record.attempts.length < 1 ||
+      record.attempts.length > 2 ||
+      !record.attempts.every(
+        (attempt, index) =>
+          hasExactKeys(attempt, deployAttemptKeys) &&
+          attempt.attempt === index + 1 &&
+          ["success", "failure"].includes(attempt.result) &&
+          hasAdmissionWebhookTransientPair(attempt),
+      ) ||
+      record.result !== record.attempts.at(-1).result
     ) {
       continue;
     }
     const last = record.attempts.at(-1);
-    if (record.result === "failure" && last?.result === "failure") {
-      const line = classifyAdmissionWebhookTransient(last.admissionWebhookTransient);
-      if (line) {
-        return line;
-      }
+    if (record.result === "failure" && last.admissionWebhookTransientCode === ADMISSION_WEBHOOK_TRANSIENT_CODE) {
+      return last.admissionWebhookTransient;
     }
   }
   return null;

@@ -324,8 +324,9 @@ describe("same-release retry admission", () => {
               attempt: 1,
               result: "failure",
               admissionWebhookTransient: `UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionCall}`,
+              admissionWebhookTransientCode: "doks-admission-webhook-unreachable",
             },
-            { attempt: 2, result: "success", admissionWebhookTransient: null },
+            { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
           ],
           probeSamples: [
             { outcome: "success", elapsedMs: 0 },

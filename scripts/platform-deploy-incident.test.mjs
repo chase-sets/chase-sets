@@ -440,6 +440,18 @@ function deployAttemptsRecord(attempts) {
 describe("admission webhook root cause", () => {
   // The record carries the matcher's bounded line, asserted against the same text above.
   const transientLine = productionAdmissionTransientLine.slice("Error: ".length, "Error: ".length + 500);
+  const transient = (attempt) => ({
+    attempt,
+    result: "failure",
+    admissionWebhookTransient: transientLine,
+    admissionWebhookTransientCode: "doks-admission-webhook-unreachable",
+  });
+  const untagged = (attempt, result = "failure") => ({
+    attempt,
+    result,
+    admissionWebhookTransient: null,
+    admissionWebhookTransientCode: null,
+  });
 
   it("places doks-admission-webhook-unreachable immediately before unknown", () => {
     expect(DEPLOY_ROOT_CAUSE_CODES.indexOf("doks-admission-webhook-unreachable")).toBe(
@@ -448,16 +460,9 @@ describe("admission webhook root cause", () => {
   });
 
   it.each([
-    ["a refused retry", [{ attempt: 1, result: "failure", admissionWebhookTransient: "" }]],
-    [
-      "a failed retry",
-      [
-        { attempt: 1, result: "failure", admissionWebhookTransient: "" },
-        { attempt: 2, result: "failure", admissionWebhookTransient: "" },
-      ],
-    ],
+    ["a refused retry", [transient(1)]],
+    ["a failed retry", [transient(1), transient(2)]],
   ])("maps the attempts record of %s whose last attempt is transient", (_name, attempts) => {
-    for (const attempt of attempts) attempt.admissionWebhookTransient = transientLine;
     const result = classifyDeploymentRootCause({
       phase: "production-deploy",
       diagnostics: [
@@ -477,50 +482,69 @@ describe("admission webhook root cause", () => {
     ).toMatchObject({ reason: "doks-admission-webhook-unreachable", action: "create-or-update" });
   });
 
+  it("trusts the recorded code for a bounded line cut before `No agent available`", () => {
+    // Synthetic: a webhook path long enough that the 500-character bound drops the suffix.
+    const longLine = platformDeployIncident.classifyAdmissionWebhookTransient(
+      productionAdmissionTransientLine.replaceAll("/validate", `/synthetic-${"x".repeat(250)}`),
+    );
+    expect(longLine).toHaveLength(500);
+    expect(longLine).not.toContain("No agent available");
+    expect(platformDeployIncident.classifyAdmissionWebhookTransient(longLine)).toBeNull();
+    const attempts = [1, 2].map((attempt) => ({ ...transient(attempt), admissionWebhookTransient: longLine }));
+    expect(
+      classifyDeploymentRootCause({ phase: "production-deploy", diagnostics: [deployAttemptsRecord(attempts)] }),
+    ).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
+  });
+
+  // The existing invalid line: neither its text nor an unknown code is recognition.
+  const invalidLine = "UPGRADE FAILED: timed out waiting for the condition";
+  const longInvalidLine = `${invalidLine}: ${"synthetic-".repeat(60)}`.slice(0, 500);
+
   it.each([
-    ["a non-transient last attempt", [{ attempt: 1, result: "failure", admissionWebhookTransient: null }]],
+    ["a non-transient last attempt", [untagged(1)]],
+    ["a transient first attempt followed by a non-transient retry failure", [transient(1), untagged(2)]],
+    ["a recovered retry", [transient(1), untagged(2, "success")]],
+    ["an invalid line without a code", [{ ...untagged(1), admissionWebhookTransient: invalidLine }]],
+    ["a long invalid line without a code", [{ ...untagged(1), admissionWebhookTransient: longInvalidLine }]],
     [
-      "a transient first attempt followed by a non-transient retry failure",
-      [
-        { attempt: 1, result: "failure", admissionWebhookTransient: "TRANSIENT" },
-        { attempt: 2, result: "failure", admissionWebhookTransient: null },
-      ],
+      "an untagged attempt carrying a transient line",
+      [{ attempt: 1, result: "failure", admissionWebhookTransient: transientLine }],
     ],
-    [
-      "a recovered retry",
-      [
-        { attempt: 1, result: "failure", admissionWebhookTransient: "TRANSIENT" },
-        { attempt: 2, result: "success", admissionWebhookTransient: null },
-      ],
-    ],
-    [
-      "a last attempt whose line is not an admission transient",
-      [
-        {
-          attempt: 1,
-          result: "failure",
-          admissionWebhookTransient: "UPGRADE FAILED: timed out waiting for the condition",
-        },
-      ],
-    ],
+    ["an unknown code", [{ ...transient(1), admissionWebhookTransientCode: "unknown" }]],
+    ["another root-cause code", [{ ...transient(1), admissionWebhookTransientCode: "production-verification" }]],
+    ["a code without its line", [{ ...transient(1), admissionWebhookTransient: null }]],
+    ["a code with an empty line", [{ ...transient(1), admissionWebhookTransient: "" }]],
+    ["a code with an unbounded line", [{ ...transient(1), admissionWebhookTransient: "x".repeat(501) }]],
+    ["a code on a successful last attempt", [transient(1), { ...transient(2), result: "success" }]],
+    ["an unknown attempt field", [{ ...transient(1), message: transientLine }]],
   ])("leaves %s to the existing classification", (_name, attempts) => {
-    for (const attempt of attempts) {
-      if (attempt.admissionWebhookTransient === "TRANSIENT") attempt.admissionWebhookTransient = transientLine;
-    }
     expect(
       classifyDeploymentRootCause({ phase: "production-deploy", diagnostics: [deployAttemptsRecord(attempts)] })
         .rootCauseCode,
     ).toBe("unknown");
   });
 
+  it.each([
+    ["a terminal result that is not its last attempt's", (record) => Object.assign(record, { result: "success" })],
+    ["a third attempt", (record) => record.attempts.push(transient(3))],
+    ["a misnumbered attempt", (record) => Object.assign(record.attempts[0], { attempt: 2 })],
+    [
+      "another schema version",
+      (record) => Object.assign(record, { schemaVersion: "platform-kubernetes-deploy-attempts/v2" }),
+    ],
+  ])("rejects a record with %s", (_name, mutate) => {
+    const record = deployAttemptsRecord([transient(1), transient(2)]);
+    mutate(record);
+    expect(classifyDeploymentRootCause({ phase: "production-deploy", diagnostics: [record] }).rootCauseCode).toBe(
+      "unknown",
+    );
+  });
+
   it("reads the attempts record file the production classify step passes", () => {
     const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
     const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
     try {
-      writeFileSync(
-        attemptsPath,
-        `${JSON.stringify(deployAttemptsRecord([{ attempt: 1, result: "failure", admissionWebhookTransient: transientLine }]))}\n`,
-      );
+      writeFileSync(attemptsPath, `${JSON.stringify(deployAttemptsRecord([transient(1)]))}\n`);
       expect(
         classifyDeploymentRootCause({
           phase: "production-deploy",

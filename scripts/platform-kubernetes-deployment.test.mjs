@@ -54,7 +54,12 @@ import {
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
 import * as platformKubernetesDeployment from "./platform-kubernetes-deployment.mjs";
-import { classifyAdmissionWebhookTransient, redactDeployDiagnosticText } from "./platform-deploy-incident.mjs";
+import {
+  classifyAdmissionWebhookTransient,
+  classifyDeploymentRootCause,
+  readDeployDiagnostics,
+  redactDeployDiagnosticText,
+} from "./platform-deploy-incident.mjs";
 import { assertExclusiveMarkerWriter } from "./production-release-marker.mjs";
 
 const sampleValues = {
@@ -4770,6 +4775,9 @@ const admissionNoAgentCall =
   'cannot patch "chase-sets-platform-doks-tls" with kind Certificate: Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": No agent available';
 const admissionTransientStderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionNoAgentCall}: ${admissionNoAgentCall}\n`;
 const admissionTransientLine = admissionTransientStderr.trim().slice("Error: ".length, "Error: ".length + 500);
+const admissionCode = "doks-admission-webhook-unreachable";
+// Synthetic: a webhook path long enough that the 500-character bound drops `No agent available`.
+const longAdmissionTransientStderr = admissionTransientStderr.replaceAll("/validate", `/synthetic-${"x".repeat(250)}`);
 const plantedEnvOverride = "planted-override-9662.invalid";
 const retryCapturedHistory = Array.from({ length: 10 }, (_, index) => ({
   revision: 683 + index,
@@ -5056,8 +5064,13 @@ describe("admission transient retry", () => {
       retry: "performed",
       refusal: null,
       attempts: [
-        { attempt: 1, result: "failure", admissionWebhookTransient: admissionTransientLine },
-        { attempt: 2, result: "success", admissionWebhookTransient: null },
+        {
+          attempt: 1,
+          result: "failure",
+          admissionWebhookTransient: admissionTransientLine,
+          admissionWebhookTransientCode: admissionCode,
+        },
+        { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
       ],
       probeSamples: [
         { outcome: "success", elapsedMs: 900 },
@@ -5085,10 +5098,8 @@ describe("admission transient retry", () => {
   });
 
   it("retries a matched transient whose bounded line is cut before `No agent available`", async () => {
-    // Synthetic: a webhook path long enough that the 500-character bound drops `No agent available`.
     // Eligibility comes from the match on the complete original error, not from the bounded line.
-    const longCall = admissionNoAgentCall.replace("/validate", `/synthetic-${"x".repeat(250)}`);
-    const stderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${longCall}: ${longCall}\n`;
+    const stderr = longAdmissionTransientStderr;
     const line = classifyAdmissionWebhookTransient(stderr);
     expect(line).toHaveLength(500);
     expect(line).not.toContain("No agent available");
@@ -5106,8 +5117,13 @@ describe("admission transient retry", () => {
       retry: "performed",
       refusal: null,
       attempts: [
-        { attempt: 1, result: "failure", admissionWebhookTransient: line },
-        { attempt: 2, result: "success", admissionWebhookTransient: null },
+        {
+          attempt: 1,
+          result: "failure",
+          admissionWebhookTransient: line,
+          admissionWebhookTransientCode: admissionCode,
+        },
+        { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
       ],
     });
   });
@@ -5137,7 +5153,9 @@ describe("admission transient refusals", () => {
       stderr,
     );
     expect(calls).toHaveLength(1);
-    expect(records[0].attempts).toEqual([{ attempt: 1, result: "failure", admissionWebhookTransient: null }]);
+    expect(records[0].attempts).toEqual([
+      { attempt: 1, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+    ]);
   });
 
   it("classifies but never retries a transient failure without the retry flag", async () => {
@@ -5145,7 +5163,14 @@ describe("admission transient refusals", () => {
       admissionRetryRollbackTarget: undefined,
     });
     expect(calls).toHaveLength(1);
-    expect(records[0].attempts[0].admissionWebhookTransient).toBe(admissionTransientLine);
+    expect(records[0].attempts).toEqual([
+      {
+        attempt: 1,
+        result: "failure",
+        admissionWebhookTransient: admissionTransientLine,
+        admissionWebhookTransientCode: admissionCode,
+      },
+    ]);
   });
 
   it.each([
@@ -5283,10 +5308,12 @@ describe("admission transient refusals", () => {
     expect(records[0]).toMatchObject({
       result: "failure",
       retry: "performed",
-      attempts: [
-        { attempt: 1, result: "failure", admissionWebhookTransient: admissionTransientLine },
-        { attempt: 2, result: "failure", admissionWebhookTransient: admissionTransientLine },
-      ],
+      attempts: [1, 2].map((attempt) => ({
+        attempt,
+        result: "failure",
+        admissionWebhookTransient: admissionTransientLine,
+        admissionWebhookTransientCode: admissionCode,
+      })),
     });
   });
 
@@ -5353,9 +5380,54 @@ describe("attempts record", () => {
       ["second terminal result", (value) => Object.assign(value, { result: "failure" })],
       [
         "third attempt",
-        (value) => value.attempts.push({ attempt: 3, result: "success", admissionWebhookTransient: null }),
+        (value) =>
+          value.attempts.push({
+            attempt: 3,
+            result: "success",
+            admissionWebhookTransient: null,
+            admissionWebhookTransientCode: null,
+          }),
       ],
       ["unbounded line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "x".repeat(501) })],
+      ["empty line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "" })],
+      ["missing code", (value) => delete value.attempts[0].admissionWebhookTransientCode],
+      ["unknown code", (value) => Object.assign(value.attempts[0], { admissionWebhookTransientCode: "unknown" })],
+      ["line without its code", (value) => Object.assign(value.attempts[0], { admissionWebhookTransientCode: null })],
+      ["code without its line", (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: null })],
+      [
+        "code on a successful attempt",
+        (value) =>
+          Object.assign(value.attempts[1], {
+            admissionWebhookTransient: admissionTransientLine,
+            admissionWebhookTransientCode: admissionCode,
+          }),
+      ],
+      [
+        "unrecognized failure refused as anything but not-transient",
+        (value) =>
+          Object.assign(value, {
+            retry: "refused",
+            refusal: "probe-deadline",
+            attempts: [
+              { attempt: 1, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+            ],
+            result: "failure",
+            recovery: null,
+            preRetryHistory: null,
+          }),
+      ],
+      [
+        "recognized not-transient refusal",
+        (value) =>
+          Object.assign(value, {
+            retry: "refused",
+            refusal: "not-transient",
+            attempts: value.attempts.slice(0, 1),
+            result: "failure",
+            recovery: null,
+            preRetryHistory: null,
+          }),
+      ],
       ["retry without recovery", (value) => Object.assign(value, { recovery: null })],
       [
         "unknown refusal",
@@ -5655,7 +5727,9 @@ describe("transition with retry record", () => {
       result: "success",
       retry: "not-needed",
       refusal: null,
-      attempts: [{ attempt: 1, result: "success", admissionWebhookTransient: null }],
+      attempts: [
+        { attempt: 1, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
       probeSamples: [],
       recovery: null,
       preRetryHistory: null,
@@ -5663,5 +5737,177 @@ describe("transition with retry record", () => {
     expect(await verify({ rollbackTarget, deployAttempts }, observed)).toEqual(
       await verify({ rollbackTarget }, observed),
     );
+  });
+});
+
+describe("admission webhook root cause", () => {
+  // The actual producer writes the record through --attempts-out and the production classify
+  // step reads that file; only the recorded code of a failed last attempt names the cause.
+  async function classifiedDeploy(scenario, { retryFlag = true } = {}) {
+    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
+    const targetPath = join(directory, "production-rollback-target.json");
+    const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
+    const calls = [];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      writeFileSync(targetPath, JSON.stringify(await retryRollbackTarget()));
+      const exitCode = await runOnClock(
+        scenario.clock,
+        platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+          [
+            "--",
+            "deploy",
+            "--image",
+            `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+            "--runtime-env",
+            "DEPLOYMENT_ENVIRONMENT=production",
+            "--managed-postgres-ca-sha256",
+            managedPostgresCaSha256,
+            "--namespace",
+            retryNamespace,
+            "--release",
+            retryRelease,
+            "--timeout",
+            "30s",
+            "--attempts-out",
+            attemptsPath,
+            ...(retryFlag ? ["--admission-retry-rollback-target", targetPath] : []),
+          ],
+          {},
+          {
+            values: rollbackValues,
+            spawn: retrySpawn(calls, scenario),
+            clock: scenario.clock,
+            stderrSink: stderrSink(),
+          },
+        ),
+      );
+      const record = JSON.parse(readFileSync(attemptsPath, "utf8"));
+      const rootCause = classifyDeploymentRootCause({
+        phase: "production-deploy",
+        diagnostics: readDeployDiagnostics([attemptsPath]),
+      });
+      return { exitCode, calls, record, rootCause, errors: error.mock.calls.flat() };
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  const longLine = classifyAdmissionWebhookTransient(longAdmissionTransientStderr);
+  const longCall = admissionNoAgentCall.replace("/validate", `/synthetic-${"x".repeat(250)}`);
+  // Synthetic long originals that are not AC1: a condition timeout and a no-agent rollback-only error.
+  const longTimeoutStderr = `Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition: ${"synthetic-".repeat(60)}\n`;
+  const longRollbackOnlyStderr = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: timed out waiting for the condition: ${longCall}\n`;
+  const recognized = (attempt) => ({
+    attempt,
+    result: "failure",
+    admissionWebhookTransient: longLine,
+    admissionWebhookTransientCode: admissionCode,
+  });
+
+  it("names the cause when a long transient's retry fails the same way", async () => {
+    expect(longLine).toHaveLength(500);
+    expect(longLine).not.toContain("No agent available");
+    const scenario = retryScenario({
+      upgrades: [
+        { code: 1, stderr: longAdmissionTransientStderr },
+        { code: 1, stderr: longAdmissionTransientStderr },
+        { code: 0 },
+      ],
+    });
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(scenario);
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(platformKubernetesDeployment.assertDeployAttemptsRecord(structuredClone(record))).toEqual(record);
+    expect(record).toMatchObject({ result: "failure", retry: "performed", attempts: [recognized(1), recognized(2)] });
+    expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
+  });
+
+  it.each([
+    [
+      "refused for its history",
+      retryScenario({
+        upgrades: [{ code: 1, stderr: longAdmissionTransientStderr }],
+        histories: [[...retryAdmissionHistory.slice(0, -1), { ...retryRollbackFailure, status: "pending-rollback" }]],
+      }),
+      {},
+      "history-unexpected",
+    ],
+    [
+      "without the retry flag",
+      retryScenario({ upgrades: [{ code: 1, stderr: longAdmissionTransientStderr }] }),
+      { retryFlag: false },
+      "retry-not-eligible",
+    ],
+  ])("names the cause of a long transient %s", async (_name, scenario, options, refusal) => {
+    const { exitCode, calls, record, rootCause, errors } = await classifiedDeploy(scenario, options);
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(1);
+    expect(errors).toEqual(["helm upgrade exited with code 1."]);
+    expect(record).toMatchObject({ result: "failure", retry: "refused", refusal, attempts: [recognized(1)] });
+    expect(rootCause).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
+  });
+
+  it.each([
+    ["condition timeout", longTimeoutStderr],
+    ["no-agent rollback-only error", longRollbackOnlyStderr],
+  ])("leaves a long %s original untagged", async (_name, stderr) => {
+    expect(stderr.length).toBeGreaterThan(500);
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(
+      retryScenario({ upgrades: [{ code: 1, stderr }] }),
+    );
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(1);
+    expect(record).toMatchObject({
+      retry: "refused",
+      refusal: "not-transient",
+      attempts: [
+        { attempt: 1, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+    expect(rootCause.rootCauseCode).toBe("unknown");
+  });
+
+  it("reads only the last attempt after a long transient retry fails otherwise", async () => {
+    const scenario = retryScenario({
+      upgrades: [
+        { code: 1, stderr: longAdmissionTransientStderr },
+        { code: 1, stderr: longTimeoutStderr },
+        { code: 0 },
+      ],
+    });
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(scenario);
+    expect(exitCode).toBe(1);
+    expect(upgradeCalls(calls)).toHaveLength(2);
+    expect(scenario.upgrades).toEqual([{ code: 0 }]);
+    expect(record).toMatchObject({
+      result: "failure",
+      retry: "performed",
+      attempts: [
+        recognized(1),
+        { attempt: 2, result: "failure", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+    expect(rootCause.rootCauseCode).toBe("unknown");
+  });
+
+  it("names no cause after a long transient recovers", async () => {
+    const scenario = retryScenario({ upgrades: [{ code: 1, stderr: longAdmissionTransientStderr }, { code: 0 }] });
+    const { exitCode, calls, record, rootCause } = await classifiedDeploy(scenario);
+    expect(exitCode).toBe(0);
+    const upgrades = upgradeCalls(calls);
+    expect(upgrades).toHaveLength(2);
+    expect(upgrades[1].args).toEqual(upgrades[0].args);
+    expect(record).toMatchObject({
+      result: "success",
+      retry: "performed",
+      attempts: [
+        recognized(1),
+        { attempt: 2, result: "success", admissionWebhookTransient: null, admissionWebhookTransientCode: null },
+      ],
+    });
+    expect(rootCause.rootCauseCode).toBe("unknown");
   });
 });

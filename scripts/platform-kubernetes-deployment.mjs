@@ -18,7 +18,11 @@ import {
 } from "./render-platform-helm-values.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { MERGE_GATE_NAMESPACE_PATTERN, VERIFICATION_NAMESPACE_PATTERN } from "./ephemeral-verification-namespace.mjs";
-import { classifyAdmissionWebhookTransient } from "./platform-deploy-incident.mjs";
+import {
+  ADMISSION_WEBHOOK_TRANSIENT_CODE,
+  classifyAdmissionWebhookTransient,
+  hasAdmissionWebhookTransientPair,
+} from "./platform-deploy-incident.mjs";
 
 export const PLATFORM_KUBERNETES_DEPLOYMENT_VERSION = "platform-kubernetes-deployment/v1";
 export const PLATFORM_KUBERNETES_ROLLBACK_TARGET_VERSION = "platform-kubernetes-rollback-target/v2";
@@ -2247,7 +2251,12 @@ async function upgradeWithAdmissionRetry(options, args) {
 }
 
 async function runHelmUpgradeAttempt(options, args, record) {
-  const attempt = { attempt: record.attempts.length + 1, result: "failure", admissionWebhookTransient: null };
+  const attempt = {
+    attempt: record.attempts.length + 1,
+    result: "failure",
+    admissionWebhookTransient: null,
+    admissionWebhookTransientCode: null,
+  };
   record.attempts.push(attempt);
   try {
     // Helm's stderr still reaches the job log; only a bounded tail stays in memory.
@@ -2259,7 +2268,11 @@ async function runHelmUpgradeAttempt(options, args, record) {
       stderrTailBytes: helmUpgradeStderrTailBytes,
     });
   } catch (error) {
+    // Recognized once, on the complete original error, before any retry decision; the
+    // code keeps that recognition when the bounded line loses its `No agent available`.
     attempt.admissionWebhookTransient = classifyAdmissionWebhookTransient(error?.stderr);
+    attempt.admissionWebhookTransientCode =
+      attempt.admissionWebhookTransient === null ? null : ADMISSION_WEBHOOK_TRANSIENT_CODE;
     throw error;
   }
   attempt.result = "success";
@@ -2268,7 +2281,7 @@ async function runHelmUpgradeAttempt(options, args, record) {
 // Returns the refusal code, or null once the retry is admitted. Nothing here retries a
 // stage; any unexpected state refuses and the caller rethrows the original error.
 async function admitAdmissionRetry(options, record) {
-  if (record.attempts[0].admissionWebhookTransient === null) {
+  if (record.attempts[0].admissionWebhookTransientCode === null) {
     return "not-transient";
   }
   const rollbackTarget = options.admissionRetryRollbackTarget;
@@ -2476,8 +2489,9 @@ function hasExactKeys(value, keys) {
 }
 
 // Closed platform-kubernetes-deploy-attempts/v1: one terminal result, at most two
-// attempts, and no text except each attempt's bounded admission transient line; the
-// pre-retry history keeps descriptions only as fingerprints.
+// attempts, and no text except each attempt's bounded admission transient line, paired
+// with its closed recognition code; the pre-retry history keeps descriptions only as
+// fingerprints.
 export function assertDeployAttemptsRecord(record) {
   assertDeployAttemptsShape(hasExactKeys(record, deployAttemptsKeys), "must contain exactly its v1 fields");
   assertDeployAttemptsShape(
@@ -2495,14 +2509,10 @@ export function assertDeployAttemptsRecord(record) {
       attempts.length <= 2 &&
       attempts.every(
         (attempt, index) =>
-          hasExactKeys(attempt, ["admissionWebhookTransient", "attempt", "result"]) &&
+          hasExactKeys(attempt, ["admissionWebhookTransient", "admissionWebhookTransientCode", "attempt", "result"]) &&
           attempt.attempt === index + 1 &&
           ["success", "failure"].includes(attempt.result) &&
-          (attempt.admissionWebhookTransient === null ||
-            (attempt.result === "failure" &&
-              typeof attempt.admissionWebhookTransient === "string" &&
-              attempt.admissionWebhookTransient.length > 0 &&
-              attempt.admissionWebhookTransient.length <= 500)) &&
+          hasAdmissionWebhookTransientPair(attempt) &&
           (index === attempts.length - 1 || attempt.result === "failure"),
       ),
     "must contain one or two closed attempts that end at the first success",
@@ -2561,10 +2571,11 @@ export function assertDeployAttemptsRecord(record) {
         attempts.length === 1 &&
         record.result === "failure" &&
         admissionRetryRefusals.has(record.refusal) &&
+        (record.refusal === "not-transient") === (attempts[0].admissionWebhookTransientCode === null) &&
         record.preRetryHistory === null) ||
       (performed &&
         attempts.length === 2 &&
-        attempts[0].admissionWebhookTransient !== null &&
+        attempts[0].admissionWebhookTransientCode === ADMISSION_WEBHOOK_TRANSIENT_CODE &&
         record.refusal === null &&
         record.recovery?.resultingRevision != null &&
         record.preRetryHistory !== null),
