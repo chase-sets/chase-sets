@@ -69,6 +69,7 @@ const EMPTY_SEARCH_RESULT = {
   inStock: false,
   sort: "relevance",
   dynamicFilters: [],
+  interpreted: null,
   interpretedFilters: [],
   data: null,
   categories: [],
@@ -334,6 +335,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     inStock,
     sort,
     dynamicFilters,
+    interpreted,
     interpretedFilters: readInterpretedFilters(url.searchParams),
     data,
     categories: categories.items,
@@ -1136,6 +1138,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       sort: data.sort,
       dynamicFilters,
       cursor: visibleData.nextCursor,
+      // A marked page pages under its marker, so a continuation or restart keeps its policy.
+      interpreted: data.interpreted,
     });
 
     loadMoreInFlightRef.current = true;

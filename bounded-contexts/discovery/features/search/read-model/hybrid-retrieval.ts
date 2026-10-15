@@ -100,7 +100,8 @@ export async function retrieveDiscoveryItems(
 
 /**
  * Effective cursor state: hybrid cursors classify first and continue only under enabled
- * hybrid retrieval; any other cursor must decode for the lexical ordering it continues.
+ * hybrid retrieval of an unmarked request; any other cursor must decode for the lexical
+ * ordering it continues.
  */
 export function classifyDiscoverySearchCursor(
   dependencies: Pick<DiscoveryHybridRetrievalDependencies, "provider" | "cache" | "hybridEnabled">,
@@ -405,12 +406,17 @@ function lexicalResult(result: ListResult<DiscoverySearchItemRow>): DiscoveryRet
   return { ...result, retrievalMode: "lexical", lexicalCount: result.total };
 }
 
+/**
+ * A marked (already interpreted) request continues an interpreted result, which is lexical or
+ * corrected only, so it never adds rescue or hybrid rows and a hybrid cursor restarts it.
+ */
 function isSemanticEligible(
   dependencies: Pick<DiscoveryHybridRetrievalDependencies, "provider" | "cache">,
   params: DiscoverySearchParams,
 ): boolean {
   return (
     Boolean(dependencies.provider && dependencies.cache && params.search?.trim()) &&
+    !params.interpreted &&
     (params.sort === undefined || params.sort === "relevance")
   );
 }

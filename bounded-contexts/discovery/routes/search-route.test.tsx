@@ -483,8 +483,34 @@ describe("marketplace search route", () => {
     it("forwards the marker to the dispatcher and never redirects a marked URL", async () => {
       const requests = stubSearchApi({ interpretation });
       const result = await load(`http://localhost/search?q=charizard&${company}=psa&interpreted=${company}`);
-      expect(result).toMatchObject({ search: "charizard", interpretedFilters: [company] });
+      expect(result).toMatchObject({ search: "charizard", interpreted: company, interpretedFilters: [company] });
       expect(requests[0]?.searchParams.get("interpreted")).toBe(company);
+    });
+
+    it.each([
+      ["a marked page loads more under its marker", `${grade},language`, `${grade},language`],
+      ["an unmarked page loads more without a marker", null, null],
+    ])("%s", async (_name, marker, expected) => {
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+        Response.json({ items: [], facets: [], total: null, count: 0, nextCursor: null, retrievalMode: "lexical" }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      mockUseLoaderData.mockReturnValue({
+        ...searchDataWithCursor("charizard"),
+        interpreted: marker,
+        interpretedFilters: marker?.split(",") ?? [],
+      });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([new URLSearchParams("q=charizard"), vi.fn()]);
+
+      render(<SearchRoute />);
+      fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      const requested = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
+      expect(requested.searchParams.get("cursor")).toBe("cursor_2");
+      expect(requested.searchParams.get("interpreted")).toBe(expected);
     });
 
     it("an uninterpreted response renders without a redirect or notice keys", async () => {

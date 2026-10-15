@@ -2,7 +2,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
-import { classifyDiscoverySearchCursor, retrieveDiscoveryItems } from "./hybrid-retrieval";
+import { classifyDiscoverySearchCursor, retrieveDiscoveryItems, type DiscoverySearchResult } from "./hybrid-retrieval";
 import {
   searchDiscoveryItems,
   type DiscoverySearchItemRow,
@@ -973,6 +973,125 @@ describe("Discovery search interpretation retrieval", () => {
     );
     expect(searchLexical.mock.calls.map(([, params]) => params?.search)).toEqual(["psa 10"]);
     expect(actual).not.toHaveProperty("interpretation");
+  });
+
+  // A deterministic provider with a distinct semantic-only row, so any rescue or hybrid work
+  // on the marked canonical request would change its rows.
+  const semanticDependencies = (
+    hybridEnabled: boolean,
+    searchLexical: (db: PgQueryable, params?: DiscoverySearchParams) => Promise<ListResult<DiscoverySearchItemRow>>,
+    searchCorrected: (
+      db: PgQueryable,
+      params: DiscoverySearchParams,
+    ) => Promise<ListResult<DiscoverySearchItemRow> | null>,
+  ) => ({
+    db: emptyDb(),
+    provider: fakeProvider(),
+    cache: createQueryEmbeddingCache(),
+    rescueEnabled: true,
+    hybridEnabled,
+    searchLexical: vi.fn(searchLexical),
+    searchCorrected: vi.fn(searchCorrected),
+    loadInterpretationVocabulary: async () => vocabulary,
+    searchSemantic: vi.fn(async () => [{ item: row("semantic-only"), similarity: 0.99 }]),
+    hydrateItems: async (_db: PgQueryable, items: readonly DiscoverySearchItemRow[]) => [...items],
+  });
+  const marked = (remainingQuery: string) => ({
+    search: remainingQuery,
+    dimensionFilters: inferred,
+    interpreted: true,
+  });
+  const gemMint10Only = (params: DiscoverySearchParams = {}) =>
+    params.dimensionFilters?.some((filter) => filter.optionId === "gem-mint-10") ?? false;
+  const summarize = (page: DiscoverySearchResult) => ({
+    items: page.items,
+    total: page.total,
+    nextCursor: page.nextCursor,
+    retrievalMode: page.retrievalMode,
+  });
+
+  it.each([false, true])(
+    "a marked canonical request returns the interpreted rows without semantic work (hybrid=%s)",
+    async (hybridEnabled) => {
+      const lexicalHit = semanticDependencies(
+        hybridEnabled,
+        async (_db, params) => result(params?.search === "zard" && gemMint10Only(params) ? [row("lexical")] : []),
+        async () => null,
+      );
+      const correctionHit = semanticDependencies(
+        hybridEnabled,
+        async () => result([]),
+        async (_db, params) =>
+          params.search === "charzard" && gemMint10Only(params) ? result([row("corrected")]) : null,
+      );
+      for (const [dependencies, search] of [
+        [lexicalHit, "zard psa 10"],
+        [correctionHit, "charzard psa 10"],
+      ] as const) {
+        const direct = await retrieveDiscoveryItems(dependencies, { search });
+        expect(direct.interpretation?.applied.map((value) => value.param)).toEqual([
+          "dimension.dim_company",
+          "dimension.dim_grade",
+        ]);
+        const canonical = await retrieveDiscoveryItems(
+          dependencies,
+          marked(direct.interpretation?.remainingQuery ?? ""),
+        );
+        expect(summarize(canonical)).toEqual(summarize(direct));
+        expect(canonical).not.toHaveProperty("interpretation");
+        expect(dependencies.provider.embed).not.toHaveBeenCalled();
+        expect(dependencies.searchSemantic).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "a marked canonical request that later finds nothing stays empty (hybrid=%s)",
+    async (hybridEnabled) => {
+      const dependencies = semanticDependencies(
+        hybridEnabled,
+        async () => result([]),
+        async () => null,
+      );
+      const actual = await retrieveDiscoveryItems(dependencies, marked("zard"));
+      expect(actual).toMatchObject({ retrievalMode: "lexical", items: [], nextCursor: null });
+      expect(dependencies.searchCorrected).toHaveBeenCalledOnce();
+      expect(dependencies.provider.embed).not.toHaveBeenCalled();
+      expect(dependencies.searchSemantic).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [false, "rescue"],
+    [true, "hybrid"],
+  ] as const)("the same unmarked request keeps semantic retrieval (hybrid=%s)", async (hybridEnabled, mode) => {
+    const dependencies = semanticDependencies(
+      hybridEnabled,
+      async (_db, params) => result(params?.search === "zard" ? [row("lexical")] : []),
+      async () => null,
+    );
+    const actual = await retrieveDiscoveryItems(dependencies, { search: "zard", dimensionFilters: inferred });
+    expect(actual.retrievalMode).toBe(mode);
+    expect(actual.items.map((item) => item.catalog_item_id)).toEqual(["lexical", "semantic-only"]);
+    expect(dependencies.provider.embed).toHaveBeenCalledOnce();
+  });
+
+  it("a marked request restarts a hybrid cursor and continues a lexical cursor lexically", async () => {
+    const hybrid = { provider: fakeProvider(), cache: createQueryEmbeddingCache(), hybridEnabled: true };
+    expect(classifyDiscoverySearchCursor(hybrid, { ...marked("zard"), cursor: hybridCursor(24) })).toBe("restarted");
+    expect(classifyDiscoverySearchCursor(hybrid, { ...marked("zard"), cursor: relevanceCursor() })).toBe("cursor");
+
+    const dependencies = semanticDependencies(
+      true,
+      async (_db, params) => result(params?.search === "zard" ? [row("lexical")] : []),
+      async () => null,
+    );
+    const restarted = await retrieveDiscoveryItems(dependencies, { ...marked("zard"), cursor: hybridCursor(24) });
+    expect(restarted).toMatchObject({ cursorState: "restarted", retrievalMode: "lexical" });
+    expect(restarted.items.map((item) => item.catalog_item_id)).toEqual(["lexical"]);
+    expect(dependencies.searchLexical.mock.calls.at(-1)?.[1]).toMatchObject({ cursor: undefined, includeTotal: true });
+    expect(dependencies.provider.embed).not.toHaveBeenCalled();
+    expect(dependencies.searchSemantic).not.toHaveBeenCalled();
   });
 });
 

@@ -166,6 +166,17 @@ describe("Discovery search runtime telemetry", () => {
     expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toMatch(/chraizard|japanese|Japanese/);
   });
 
+  it("keys a marked request as its own Result Set", async () => {
+    const runtime = createDiscoveryItemSearchRuntime(deps(), {});
+    const request = { search: "zard", dimensionFilters: [{ dimensionId: "dim_seed_grade", optionId: "gm10" }] };
+    const unmarked = await runtime.searchItems(request);
+    const absentMarker = await runtime.searchItems({ ...request, interpreted: undefined });
+    const marked = await runtime.searchItems({ ...request, interpreted: true });
+    expect(absentMarker.resultSetKey).toBe(unmarked.resultSetKey);
+    expect(marked.resultSetKey).not.toBe(unmarked.resultSetKey);
+    expect(marked.queryHash).toBe(unmarked.queryHash);
+  });
+
   it("outcome/timing matrix separates owner, joined, and warm reuse", async () => {
     vi.useFakeTimers();
     const recordSearchQuery = vi.fn();
