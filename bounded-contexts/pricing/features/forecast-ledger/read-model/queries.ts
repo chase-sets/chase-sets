@@ -1,7 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { listDemandCurvePoints } from "../../market-estimates/read-model/demand-curve-queries";
 import type { RealizedOutcomes } from "../domain/cohort";
-import type { ForecastCurve } from "../domain/forecast-kinds";
+import type { ConditionSaleBucket } from "../domain/condition-rate";
 import type { ForecastGrade } from "../domain/grading";
 import type { ForecastGradeScope, GradedForecast, GradedLedgerEntry } from "../domain/grade-ledger";
 import type { ForecastLedgerEntry } from "../domain/ledger";
@@ -11,45 +10,23 @@ const CONDITION_SALES_DAYS = 364 + 7;
 const PROVIDER = "tcgplayer";
 
 /**
- * The Demand Curve versions a priced evaluation names, each with its points
- * and its own product's weekly provider sales from weeks begun no later than
- * the pricing instant. Curve versions are immutable; a provider week's count
- * is the latest observed when the entry is first projected.
+ * A product's weekly provider sales from weeks begun by `asOf`, as observed
+ * now. A later observation replaces a week's count, so these are read when a
+ * price is evaluated and its forecasts are fixed, never afterwards.
  */
-export async function loadForecastCurves(
+export async function loadConditionSales(
   db: PgQueryable,
-  input: Readonly<{ catalogItemId: string; productId: string; versions: readonly number[]; pricedAt: string }>,
-): Promise<ReadonlyMap<number, ForecastCurve>> {
-  if (input.versions.length === 0) return new Map();
-  // One transaction client: reads run in turn.
-  const versions = await db.query<{ version: string; model_version: string }>(
-    `SELECT version::text, model_version FROM pricing_demand_curve_versions
-     WHERE catalog_item_id = $1 AND product_id = $2 AND version = ANY($3::bigint[])`,
-    [input.catalogItemId, input.productId, [...input.versions]],
-  );
+  input: Readonly<{ catalogItemId: string; productId: string; asOf: string }>,
+): Promise<readonly ConditionSaleBucket[]> {
   const sales = await db.query<{ week_start: string; transaction_count: number }>(
     `SELECT week_start::text, sum(transaction_count)::integer AS transaction_count
      FROM pricing_external_weekly_sale_buckets
      WHERE provider_key = $1 AND catalog_item_id = $2 AND catalog_product_key = $3
        AND week_start > ($4::timestamptz - make_interval(days => $5::integer))::date AND week_start <= $4::timestamptz
      GROUP BY week_start ORDER BY week_start`,
-    [PROVIDER, input.catalogItemId, input.productId, input.pricedAt, CONDITION_SALES_DAYS],
+    [PROVIDER, input.catalogItemId, input.productId, input.asOf, CONDITION_SALES_DAYS],
   );
-  const conditionSales = sales.rows.map((row) => ({
-    weekStart: row.week_start,
-    transactionCount: row.transaction_count,
-  }));
-  const curves = new Map<number, ForecastCurve>();
-  for (const row of versions.rows) {
-    const version = Number(row.version);
-    const points = await listDemandCurvePoints(db, {
-      catalogItemId: input.catalogItemId,
-      productId: input.productId,
-      version,
-    });
-    curves.set(version, { modelVersion: row.model_version, points, conditionSales });
-  }
-  return curves;
+  return sales.rows.map((row) => ({ weekStart: row.week_start, transactionCount: row.transaction_count }));
 }
 
 export async function insertForecastLedgerEntries(
@@ -212,19 +189,25 @@ export async function loadRealizedOutcomes(db: PgQueryable, scope: ScopeWindow):
   return { saleTimesByListing, inStockListingIds: new Set(stock.rows.map((row) => row.listing_id)) };
 }
 
-export type ForecastGradingInput = Readonly<{ inputVersion: string; checkedAt: string }>;
+export type ForecastGradingInput = Readonly<{ rulesVersion: string; inputVersion: string; checkedAt: string }>;
 
 export async function getForecastGradingInput(
   db: PgQueryable,
   scope: ForecastGradeScope & Readonly<{ closedOn: string }>,
 ): Promise<ForecastGradingInput | null> {
-  const result = await db.query<{ input_version: string; checked_at: Date }>(
-    `SELECT input_version, checked_at FROM pricing_forecast_grading_inputs
+  const result = await db.query<{ rules_version: string; input_version: string; checked_at: Date }>(
+    `SELECT rules_version, input_version, checked_at FROM pricing_forecast_grading_inputs
      WHERE goal_id = $1 AND goal_version = $2 AND role = $3 AND closed_on = $4::date`,
     [scope.goalId, scope.goalVersion, scope.role, scope.closedOn],
   );
   const row = result.rows[0];
-  return row ? { inputVersion: row.input_version, checkedAt: new Date(row.checked_at).toISOString() } : null;
+  return row
+    ? {
+        rulesVersion: row.rules_version,
+        inputVersion: row.input_version,
+        checkedAt: new Date(row.checked_at).toISOString(),
+      }
+    : null;
 }
 
 /** Records that the scope's inputs were found unchanged. */
@@ -239,10 +222,11 @@ export async function touchForecastGradingInput(
   );
 }
 
-/** Replaces one scope's grades for the closed day, and records the inputs they read. */
+/** Replaces one scope's grades for the closed day, and records the rules they followed and the inputs they read. */
 export async function replaceForecastGrades(
   db: PgQueryable,
-  scope: ForecastGradeScope & Readonly<{ closedOn: string; inputVersion: string; gradedAt: string }>,
+  scope: ForecastGradeScope &
+    Readonly<{ closedOn: string; rulesVersion: string; inputVersion: string; gradedAt: string }>,
   grades: readonly GradedForecast[],
 ): Promise<void> {
   const key = [scope.goalId, scope.goalVersion, scope.role, scope.closedOn];
@@ -254,13 +238,15 @@ export async function replaceForecastGrades(
   for (const graded of grades) {
     await db.query(
       `INSERT INTO pricing_forecast_grades (
-         goal_id, goal_version, role, forecast_kind, model, horizon_days, closed_on, input_version, grade, graded_at
-       ) VALUES ($1, $2, $3, $5, $6, $7, $4::date, $8, $9::jsonb, $10)`,
+         goal_id, goal_version, role, forecast_kind, model, horizon_days, closed_on, rules_version, input_version,
+         grade, graded_at
+       ) VALUES ($1, $2, $3, $5, $6, $7, $4::date, $8, $9, $10::jsonb, $11)`,
       [
         ...key,
         graded.forecastKind,
         graded.model,
         graded.horizonDays,
+        scope.rulesVersion,
         scope.inputVersion,
         JSON.stringify(graded.grade),
         scope.gradedAt,
@@ -269,12 +255,12 @@ export async function replaceForecastGrades(
   }
   await db.query(
     `INSERT INTO pricing_forecast_grading_inputs
-       (goal_id, goal_version, role, closed_on, input_version, graded_at, checked_at)
-     VALUES ($1, $2, $3, $4::date, $5, $6, $6)
+       (goal_id, goal_version, role, closed_on, rules_version, input_version, graded_at, checked_at)
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, $7)
      ON CONFLICT (goal_id, goal_version, role, closed_on)
-     DO UPDATE SET input_version = EXCLUDED.input_version, graded_at = EXCLUDED.graded_at,
-       checked_at = EXCLUDED.checked_at`,
-    [...key, scope.inputVersion, scope.gradedAt],
+     DO UPDATE SET rules_version = EXCLUDED.rules_version, input_version = EXCLUDED.input_version,
+       graded_at = EXCLUDED.graded_at, checked_at = EXCLUDED.checked_at`,
+    [...key, scope.rulesVersion, scope.inputVersion, scope.gradedAt],
   );
 }
 
@@ -286,16 +272,17 @@ export type StoredForecastGrade = Readonly<{
   grade: ForecastGrade;
 }>;
 
-/** One scope's grades of a Forecast Kind at a horizon, newest closed day first. */
+/** One scope's grades of a Forecast Kind at a horizon under one set of grading rules, newest closed day first. */
 export async function listForecastGrades(
   db: PgQueryable,
-  input: ForecastGradeScope & Readonly<{ forecastKind: string; horizonDays: number }>,
+  input: ForecastGradeScope & Readonly<{ forecastKind: string; horizonDays: number; rulesVersion: string }>,
 ): Promise<readonly StoredForecastGrade[]> {
   const result = await db.query<{ closed_on: string; model: string; grade: ForecastGrade }>(
     `SELECT closed_on::text, model, grade FROM pricing_forecast_grades
      WHERE goal_id = $1 AND goal_version = $2 AND role = $3 AND forecast_kind = $4 AND horizon_days = $5
+       AND rules_version = $6
      ORDER BY closed_on DESC, model`,
-    [input.goalId, input.goalVersion, input.role, input.forecastKind, input.horizonDays],
+    [input.goalId, input.goalVersion, input.role, input.forecastKind, input.horizonDays, input.rulesVersion],
   );
   return result.rows.map((row) => ({
     closedOn: row.closed_on,

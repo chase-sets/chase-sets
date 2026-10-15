@@ -40,11 +40,11 @@ A **Shadow Evaluation** compares the whole matched directive on the incumbent ro
 
 ## Forecast Kind
 
-A **Forecast Kind** is a registered sell-time forecast model that, given one priced Forecast Ledger entry, its goal's read-back and the Demand Curve version it names, returns a median sell time and the model that produced it. `curve` is the goal's own read-back under the curve's builder model, `buyer-choice` is the parity app's buyer-choice forecast under its calibration name, and `condition-rate` is the condition's own sale interval over the Store Win Share at the price under its method. Registering a kind is the whole contract for adding one: the ledger records it and grading scores it with no other change.
+A **Forecast Kind** is a registered sell-time forecast model that, given one evaluated price, its goal's read-back, and the Demand Curve version and provider weeks its evaluation read, returns a median sell time and the model that produced it. Every kind's forecast is fixed when the price is evaluated and carried on the `pricing.repricing-policy.evaluated` fact. `curve` is the goal's own read-back under the curve's builder model, `buyer-choice` is the parity app's buyer-choice forecast under its calibration name, and `condition-rate` is the condition's own sale interval over the Store Win Share at the price under its method. Registering a kind is the whole contract for adding one: the ledger records it and grading scores it with no other change.
 
 ## Forecast Ledger
 
-The **Forecast Ledger** is the read model of every price whose forecasts are graded, projected once from `pricing.repricing-policy.evaluated`: one incumbent entry per emitted price, or price held within tolerance, that a goal read back, and one shadow entry per priced shadow trace, which is never emitted. Each entry records the listing, price, goal id and version, curve version, the listing's quantity, and every registered Forecast Kind's forecast. An entry is never rewritten.
+The **Forecast Ledger** is the read model of every price whose forecasts are graded, projected once from `pricing.repricing-policy.evaluated`: one incumbent entry per emitted price, or price held within tolerance, that a goal read back, and one shadow entry per priced shadow trace, which is never emitted. Each entry records the listing, price, goal id and version, curve version, the listing's quantity, and the forecasts its evaluation recorded, so a late or replayed projection records the same ones; an evaluation recorded before forecasts were fixed keeps entries with none, which are never graded. An entry is never rewritten.
 
 ## Forecast Cohort
 
@@ -52,11 +52,11 @@ A **Forecast Cohort** is the set of a goal version's listings in one role follow
 
 ## Forecast Grade
 
-A **Forecast Grade** scores one Forecast Kind and model at one horizon over its Forecast Cohort: the sold share, the share the forecasts implied, the Brier score beside the base rate's Brier, and fastest-to-slowest deciles. The grading job records each grade as a `pricing.forecast.graded` fact and keeps it until the cohort's ledger entries, realized sales or stock change.
+A **Forecast Grade** scores one Forecast Kind and model at one horizon over its Forecast Cohort: the sold share, the share the forecasts implied, the Brier score beside the base rate's Brier, and fastest-to-slowest deciles. The grading job records each grade as a `pricing.forecast.graded` fact naming its grading rules (the grace, every horizon, and the grading implementation) and keeps it until those rules or the cohort's ledger entries, realized sales or stock change.
 
 ## Adoption Gate
 
-The **Adoption Gate** decides whether a goal version above 1 may be selected: its latest closed shadow grade for the policy's adopted Forecast Kind and horizon must be at or below the Brier of its incumbent, the newest earlier version not in shadow, on the same day and model. A shadow version reports whether it is promotable; a version registered selectable that fails is refused in the Authoring Prerequisites with its reason. The gate never changes a Goal Lifecycle.
+The **Adoption Gate** decides whether a goal version above 1 may be selected: its latest closed shadow grade for the policy's adopted Forecast Kind and horizon must be at or below the Brier of its incumbent, the newest earlier version not in shadow, on the same day and model, both under the grading rules in force; until a rule change is regraded the grade is missing. A shadow version reports whether it is promotable; a version registered selectable that fails is refused in the Authoring Prerequisites with its reason. The gate never changes a Goal Lifecycle.
 
 ## Goal Decision
 

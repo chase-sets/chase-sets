@@ -1,4 +1,5 @@
 import type { CurvePoint } from "../../market-estimates/domain/demand-curve/curve";
+import type { RepricingGoalTrace } from "../../repricing-engine/domain/evaluate";
 import { pointAtPrice, toGoalCurveViews, type GoalForecast } from "../../repricing-policies/domain/goals/curve-math";
 import { BUYER_CHOICE_CALIBRATION, buyerChoiceInputs, estimateBuyerChoiceSellDays } from "./buyer-choice";
 import {
@@ -8,15 +9,15 @@ import {
   type ConditionSaleBucket,
 } from "./condition-rate";
 
-/** The Demand Curve version a ledger entry names, with the sales of its own provider condition. */
+/** The Demand Curve version an evaluation read, with the sales of its own provider condition. */
 export type ForecastCurve = Readonly<{
   modelVersion: string;
   points: readonly CurvePoint[];
-  /** Weeks observed no later than the entry was priced. */
+  /** Weeks begun by the time the evaluation read its inputs, as observed then. */
   conditionSales: readonly ConditionSaleBucket[];
 }>;
 
-/** Everything a Forecast Kind may read for one priced entry; every field is fixed when the entry is priced. */
+/** Everything a Forecast Kind may read for one evaluated price; every field is fixed when the price is evaluated. */
 export type ForecastInput = Readonly<{
   priceAmount: string;
   pricedAt: string;
@@ -59,11 +60,31 @@ export function createForecastKindRegistry(initial: readonly ForecastKindDefinit
 
 export type ForecastKindRegistry = ReturnType<typeof createForecastKindRegistry>;
 
-/** Every forecast of an entry by kind name; a kind without a usable input is absent. */
-export function forecastEntry(
+/** An evaluated price, and the goal read-back that chose it when a goal did. */
+export type EvaluatedPrice = Readonly<{
+  targetPriceAmount: string | null;
+  anchor: Readonly<{ goal?: RepricingGoalTrace }> | null;
+}>;
+
+/**
+ * Takes every registered forecast at an evaluated price from the inputs its
+ * evaluation read, so the evaluated fact carries them and the Forecast Ledger
+ * never reads an input that changes later. A kind without a usable input is
+ * absent; a trace without a price is left alone.
+ */
+export function withForecasts<Price extends EvaluatedPrice>(
   kinds: readonly ForecastKindDefinition[],
-  input: ForecastInput,
-): Readonly<Record<string, Forecast>> {
+  price: Price,
+  evaluation: Readonly<{ pricedAt: string; curve: ForecastCurve | null }>,
+): Price & Readonly<{ forecasts?: Readonly<Record<string, Forecast>> }> {
+  if (price.targetPriceAmount === null) return price;
+  const goal = price.anchor?.goal;
+  const input: ForecastInput = {
+    priceAmount: price.targetPriceAmount,
+    pricedAt: evaluation.pricedAt,
+    goalForecast: goal ? { medianSellDays: goal.forecastMedianSellDays, status: goal.forecastStatus } : null,
+    curve: evaluation.curve,
+  };
   const forecasts: Record<string, Forecast> = {};
   for (const kind of kinds) {
     const forecast = kind.forecast(input);
@@ -71,7 +92,7 @@ export function forecastEntry(
       forecasts[kind.name] = forecast;
     }
   }
-  return forecasts;
+  return { ...price, forecasts };
 }
 
 /** The goal's own Demand Curve read-back, from an observed supply, under the curve's builder model. */

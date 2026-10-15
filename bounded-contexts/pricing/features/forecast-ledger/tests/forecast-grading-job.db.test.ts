@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -10,9 +10,13 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
+import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
+import { targetHorizonGoal } from "../../repricing-policies/domain/goals/target-horizon";
 import { createForecastLedgerRuntime } from "../api/runtime";
 import { forecastGradedEventType, type ForecastGradedEvent } from "../domain/fact";
-import type { ForecastGrade } from "../domain/grading";
+import { gradingRulesVersion } from "../domain/grade-ledger";
+import { saleProbability, type ForecastGrade } from "../domain/grading";
+import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE, type ForecastLedgerPolicyValue } from "../domain/policy";
 import { insertForecastLedgerEntries } from "../read-model/queries";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -182,4 +186,154 @@ describeDb("Forecast grading job (#7708)", () => {
     expect(regraded.find((row) => row.horizon_days === 21)!.grade).toMatchObject({ count: 4, soldShare: 1 });
     expect(await facts(eventStore)).toHaveLength(6);
   });
+
+  async function addListings(listings: readonly Readonly<{ listingId: string; soldOn?: number }>[]) {
+    await pools.pricing.query(
+      `INSERT INTO pricing_market_listing_inputs
+         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount,
+          price_currency_code, quantity_cap, status, updated_at, last_stream_version)
+       SELECT listing_id, 'acc_seller', 'inv_' || listing_id, 'cat_grading', 'prod_grading', 5, 'USD', 1, 'active',
+         now(), 1
+       FROM unnest($1::text[]) AS listing(listing_id)`,
+      [listings.map((listing) => listing.listingId)],
+    );
+    for (const { listingId, soldOn } of listings.filter((listing) => listing.soldOn !== undefined)) {
+      await pools.pricing.query(
+        `INSERT INTO pricing_market_trades
+           (order_id, line_id, inventory_item_id, seller_account_id, buyer_account_id, catalog_catalog_item_id,
+            product_id, unit_price_amount, currency_code, quantity, sale_channel, sold_at, excluded, exclusion_reason,
+            updated_at)
+         VALUES ($1, 'line_1', $2, 'acc_seller', 'acc_buyer', 'cat_grading', 'prod_grading', 5, 'USD', 1,
+                 'listing', $3, false, NULL, $3)`,
+        [`ord_${listingId}`, `inv_${listingId}`, at(soldOn!)],
+      );
+    }
+  }
+
+  const entries = (
+    scope: Readonly<{ goalId: string; goalVersion: number; role: "incumbent" | "shadow" }>,
+    listingId: string,
+    days: readonly number[],
+    medianSellDays: number,
+  ) =>
+    days.map((day) => ({
+      entryId: `evl_${day}:${listingId}:${scope.role}:${scope.goalId}@${scope.goalVersion}`,
+      evaluationId: `evl_${day}`,
+      sellerAccountId: "acc_seller",
+      catalogItemId: "cat_grading",
+      productId: "prod_grading",
+      listingId,
+      ...scope,
+      curveVersion: 1,
+      priceAmount: "5.00",
+      quantity: 1,
+      pricedAt: at(day),
+      forecasts: { curve: { medianSellDays, model: "builder-v1" } },
+    }));
+
+  function runtimeUnder(
+    policy: () => ForecastLedgerPolicyValue,
+    goalDefinitions: () => readonly PricingGoalDefinition[] = pricingGoalDefinitions,
+  ) {
+    const pool = pools.pricing;
+    const eventStore = createPostgresEventStore({ pool });
+    const policies = { resolvePolicy: async () => ({ value: policy() }) } as unknown as Pick<
+      PolicyRuntime,
+      "resolvePolicy"
+    >;
+    return { eventStore, forecastLedger: createForecastLedgerRuntime({ pool, eventStore, policies, goalDefinitions }) };
+  }
+
+  it("regrades a closed day whose grading rules change though its inputs do not, and keeps it while rules and inputs stay", async () => {
+    // lst_f stops being priced twenty days in while still in stock: within two days' grace it stayed priced.
+    await addListings([{ listingId: "lst_f" }]);
+    await insertForecastLedgerEntries(
+      pools.pricing,
+      entries({ goalId: "fixed-percentile", goalVersion: 1, role: "incumbent" }, "lst_f", range(18, 38), 10),
+      "2",
+    );
+    let policy: ForecastLedgerPolicyValue = FORECAST_LEDGER_LAUNCH_POLICY_VALUE;
+    const { eventStore, forecastLedger } = runtimeUnder(() => policy);
+    expect(await forecastLedger.runForecastGrading({ now })).toMatchObject({ scopesGraded: 1, scopesUnchanged: 0 });
+    const day21 = async () => (await grades()).find((row) => row.horizon_days === 21)!.grade;
+    expect(await day21()).toMatchObject({ count: 5, soldShare: 0.6 });
+
+    // Without grace lst_f left early in stock and is censored; the hourly recheck does not keep the old grade.
+    policy = { ...FORECAST_LEDGER_LAUNCH_POLICY_VALUE, graceDays: 0 };
+    expect(await forecastLedger.runForecastGrading({ now })).toMatchObject({ scopesGraded: 1, scopesUnchanged: 0 });
+    expect(await day21()).toMatchObject({ count: 4, soldShare: 0.75 });
+    const published = await facts(eventStore);
+    expect(published.map((fact) => [fact.horizonDays, fact.rulesVersion])).toEqual([
+      ...[14, 21, 28].map((horizon) => [horizon, gradingRulesVersion(FORECAST_LEDGER_LAUNCH_POLICY_VALUE)]),
+      ...[14, 21, 28].map((horizon) => [horizon, gradingRulesVersion(policy)]),
+    ]);
+    expect(new Set(published.map((fact) => fact.inputVersion)).size).toBe(1);
+    expect(published[4]!.grade).toEqual(await day21());
+
+    // Unchanged rules and inputs keep the grade and publish nothing.
+    expect(await forecastLedger.runForecastGrading({ now: hoursLater(1) })).toMatchObject({
+      scopesGraded: 0,
+      scopesUnchanged: 1,
+    });
+    expect(await facts(eventStore)).toHaveLength(6);
+
+    // A horizon added below the longest leaves the cohort window alone and is still graded.
+    policy = { ...policy, horizonsDays: [14, 21, 25, 28] };
+    expect(await forecastLedger.runForecastGrading({ now: hoursLater(1) })).toMatchObject({
+      scopesGraded: 1,
+      scopesUnchanged: 0,
+    });
+    expect((await grades()).map((row) => row.horizon_days)).toEqual([14, 21, 25, 28]);
+    expect(await facts(eventStore)).toHaveLength(10);
+  });
+
+  it("refuses a shadow version that won under the old grading rules, while it is regraded and once it grades worse", async () => {
+    // The shadow version forecasts slow sales: one listing sells, the other stops being priced in stock on day 38.
+    await addListings([
+      { listingId: "lst_shadow_sold", soldOn: 25 },
+      { listingId: "lst_shadow_left" },
+      { listingId: "lst_incumbent_sold", soldOn: 25 },
+    ]);
+    const shadow = { goalId: "target-horizon", goalVersion: 2, role: "shadow" as const };
+    const incumbent = { goalId: "target-horizon", goalVersion: 1, role: "incumbent" as const };
+    await insertForecastLedgerEntries(
+      pools.pricing,
+      [
+        ...entries(shadow, "lst_shadow_sold", range(18, 59), 140),
+        ...entries(shadow, "lst_shadow_left", range(18, 38), 140),
+        ...entries(incumbent, "lst_incumbent_sold", range(18, 59), 40),
+      ],
+      "2",
+    );
+    let policy: ForecastLedgerPolicyValue = FORECAST_LEDGER_LAUNCH_POLICY_VALUE;
+    const { forecastLedger } = runtimeUnder(
+      () => policy,
+      () => [targetHorizonGoal, { ...targetHorizonGoal, version: 2, lifecycle: "shadow" }],
+    );
+    const shadowVersion = async () => {
+      const adoption = (await forecastLedger.listGoalAdoptions({ now }))[1]!;
+      return { promotable: adoption.promotable, reason: adoption.reason, grades: adoption.grades };
+    };
+    const slow = saleProbability(140, 21);
+    const incumbentBrier = (1 - saleProbability(40, 21)) ** 2;
+
+    await forecastLedger.runForecastGrading({ now });
+    const won = await shadowVersion();
+    expect(won).toMatchObject({ promotable: true, reason: null });
+    expect(won.grades!.shadow!.brier).toBeCloseTo(((1 - slow) ** 2 + slow ** 2) / 2, 12);
+    expect(won.grades!.incumbent!.brier).toBeCloseTo(incumbentBrier, 12);
+
+    policy = { ...FORECAST_LEDGER_LAUNCH_POLICY_VALUE, graceDays: 0 };
+    expect(await shadowVersion()).toMatchObject({ promotable: false, reason: "shadow-grade-missing", grades: null });
+
+    await forecastLedger.runForecastGrading({ now });
+    const lost = await shadowVersion();
+    expect(lost).toMatchObject({ promotable: false, reason: "shadow-grade-worse-than-incumbent" });
+    expect(lost.grades!.shadow!.brier).toBeCloseTo((1 - slow) ** 2, 12);
+    expect(lost.grades!.incumbent!.brier).toBeCloseTo(incumbentBrier, 12);
+  });
 });
+
+function range(first: number, last: number): readonly number[] {
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+}

@@ -6,11 +6,12 @@ import {
   createForecastKindRegistry,
   curveForecastKind,
   forecastKindDefinitions,
+  withForecasts,
   type ForecastCurve,
   type ForecastKindDefinition,
 } from "../domain/forecast-kinds";
 import { gradeLedgerScope, type GradedLedgerEntry } from "../domain/grade-ledger";
-import { pricedLedgerEntries, toForecastLedgerEntries } from "../domain/ledger";
+import { pricedLedgerEntries } from "../domain/ledger";
 import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../domain/policy";
 import { evaluatedData, goalTrace, listingTrace } from "./fixtures/evaluated-event";
 
@@ -47,13 +48,14 @@ const weekForecastKind: ForecastKindDefinition = {
 
 /** Daily evaluations of three listings over sixty days; the first listing sells on day 25. */
 function ledgerHistory(kinds: readonly ForecastKindDefinition[]): readonly GradedLedgerEntry[] {
-  return Array.from({ length: 60 }, (_, day) =>
-    evaluatedData(
-      ["lst_a", "lst_b", "lst_c"].map((listingId) => listingTrace({ listingId })),
-      { evaluationId: `evl_${day}`, evaluatedAt: new Date(start + day * DAY_MS).toISOString() },
-    ),
-  ).flatMap((data) =>
-    toForecastLedgerEntries(pricedLedgerEntries(data), () => curve, kinds).map((entry) => ({
+  return Array.from({ length: 60 }, (_, day) => {
+    const evaluation = { pricedAt: new Date(start + day * DAY_MS).toISOString(), curve };
+    return evaluatedData(
+      ["lst_a", "lst_b", "lst_c"].map((listingId) => withForecasts(kinds, listingTrace({ listingId }), evaluation)),
+      { evaluationId: `evl_${day}`, evaluatedAt: evaluation.pricedAt },
+    );
+  }).flatMap((data) =>
+    pricedLedgerEntries(data).map((entry) => ({
       listingId: entry.listingId,
       pricedAt: Date.parse(entry.pricedAt),
       quantity: entry.quantity,

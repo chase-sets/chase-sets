@@ -1,13 +1,10 @@
-import type { GoalForecast } from "../../repricing-policies/domain/goals/curve-math";
-import type { RepricingGoalTrace } from "../../repricing-engine/domain/evaluate";
 import type { RepricingPolicyEvaluatedEvent } from "../../repricing-engine/domain/fact";
-import { forecastEntry, type Forecast, type ForecastCurve, type ForecastKindDefinition } from "./forecast-kinds";
+import type { Forecast } from "./forecast-kinds";
 
 /** Incumbent entries price the listing; shadow entries record a shadow goal version's price and are never emitted. */
 export type ForecastLedgerRole = "incumbent" | "shadow";
 
-/** One priced entry of an evaluation, before its forecasts are taken. */
-export type PricedLedgerEntry = Readonly<{
+export type ForecastLedgerEntry = Readonly<{
   entryId: string;
   evaluationId: string;
   sellerAccountId: string;
@@ -21,20 +18,20 @@ export type PricedLedgerEntry = Readonly<{
   priceAmount: string;
   quantity: number | null;
   pricedAt: string;
-  goalForecast: GoalForecast | null;
+  forecasts: Readonly<Record<string, Forecast>>;
 }>;
-
-export type ForecastLedgerEntry = Omit<PricedLedgerEntry, "goalForecast"> &
-  Readonly<{ forecasts: Readonly<Record<string, Forecast>> }>;
 
 /**
  * The Forecast Ledger's entries of one evaluation: one per incumbent price
- * read back by a goal, and one per shadow goal version's price. An incumbent
- * price counts when it was emitted or the listing already stands within
- * tolerance of it, so a listing held at its goal price stays priced in the
- * ledger; a skip that left the listing at another price does not count.
+ * read back by a goal, and one per shadow goal version's price, each with the
+ * forecasts its evaluation recorded. An incumbent price counts when it was
+ * emitted or the listing already stands within tolerance of it, so a listing
+ * held at its goal price stays priced in the ledger; a skip that left the
+ * listing at another price does not count. An evaluation recorded before its
+ * forecasts were fixed keeps its entries with none: they count as pricing and
+ * are never graded.
  */
-export function pricedLedgerEntries(data: RepricingPolicyEvaluatedEvent["data"]): readonly PricedLedgerEntry[] {
+export function pricedLedgerEntries(data: RepricingPolicyEvaluatedEvent["data"]): readonly ForecastLedgerEntry[] {
   const evaluation = {
     evaluationId: data.evaluationId,
     sellerAccountId: data.sellerAccountId,
@@ -42,7 +39,7 @@ export function pricedLedgerEntries(data: RepricingPolicyEvaluatedEvent["data"])
     productId: data.productId,
     pricedAt: data.evaluatedAt,
   };
-  return data.listings.flatMap((trace): PricedLedgerEntry[] => {
+  return data.listings.flatMap((trace): ForecastLedgerEntry[] => {
     const listing = { ...evaluation, listingId: trace.listingId, quantity: trace.quantity ?? null };
     const goal = trace.anchor?.goal;
     const priced = trace.outcome === "changed" || trace.skipReason === "within-tolerance";
@@ -59,11 +56,11 @@ export function pricedLedgerEntries(data: RepricingPolicyEvaluatedEvent["data"])
               goalVersion: goal.goalVersion,
               curveVersion: goal.curveVersion,
               priceAmount: trace.targetPriceAmount,
-              goalForecast: goalForecast(goal),
+              forecasts: trace.forecasts ?? {},
             },
           ]
         : [];
-    const shadows = (trace.shadow ?? []).flatMap((shadow): PricedLedgerEntry[] =>
+    const shadows = (trace.shadow ?? []).flatMap((shadow): ForecastLedgerEntry[] =>
       shadow.skipped === null && shadow.targetPriceAmount !== null
         ? [
             {
@@ -80,32 +77,11 @@ export function pricedLedgerEntries(data: RepricingPolicyEvaluatedEvent["data"])
               goalVersion: shadow.goalVersion,
               curveVersion: shadow.curveVersion,
               priceAmount: shadow.targetPriceAmount,
-              goalForecast: shadow.anchor?.goal ? goalForecast(shadow.anchor.goal) : null,
+              forecasts: shadow.forecasts ?? {},
             },
           ]
         : [],
     );
     return [...incumbent, ...shadows];
   });
-}
-
-/** Takes every registered forecast of each entry once, from the Demand Curve version the entry names. */
-export function toForecastLedgerEntries(
-  entries: readonly PricedLedgerEntry[],
-  curveFor: (curveVersion: number) => ForecastCurve | null,
-  kinds: readonly ForecastKindDefinition[],
-): readonly ForecastLedgerEntry[] {
-  return entries.map(({ goalForecast, ...entry }) => ({
-    ...entry,
-    forecasts: forecastEntry(kinds, {
-      priceAmount: entry.priceAmount,
-      pricedAt: entry.pricedAt,
-      goalForecast,
-      curve: entry.curveVersion === null ? null : curveFor(entry.curveVersion),
-    }),
-  }));
-}
-
-function goalForecast(goal: RepricingGoalTrace): GoalForecast {
-  return { medianSellDays: goal.forecastMedianSellDays, status: goal.forecastStatus };
 }

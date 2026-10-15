@@ -8,8 +8,9 @@ import type { PricingGoalDefinition } from "../../repricing-policies/domain/goal
 import { targetHorizonGoal } from "../../repricing-policies/domain/goals/target-horizon";
 import { createForecastLedgerRuntime, latestGradePair } from "../api/runtime";
 import { decideAdoption, goalAdoptions, type AdoptionGradePair } from "../domain/adoption-gate";
+import { gradingRulesVersion } from "../domain/grade-ledger";
 import type { ForecastGrade } from "../domain/grading";
-import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE } from "../domain/policy";
+import { FORECAST_LEDGER_LAUNCH_POLICY_VALUE, type ForecastLedgerPolicyValue } from "../domain/policy";
 import type { StoredForecastGrade } from "../read-model/queries";
 
 const grade = (brier: number, count = 40): ForecastGrade => ({
@@ -180,11 +181,12 @@ describe("Adoption Gate", () => {
         },
       ],
     });
-    // The gate reads the policy's adopted Forecast Kind at its horizon.
+    // The gate reads the policy's adopted Forecast Kind at its horizon, under the grading rules in force.
     const { adoptedForecastKind, adoptionHorizonDays } = FORECAST_LEDGER_LAUNCH_POLICY_VALUE;
+    const rulesVersion = gradingRulesVersion(FORECAST_LEDGER_LAUNCH_POLICY_VALUE);
     expect(reads).toEqual([
-      ["fixed-percentile", 2, "shadow", adoptedForecastKind, adoptionHorizonDays],
-      ["fixed-percentile", 1, "incumbent", adoptedForecastKind, adoptionHorizonDays],
+      ["fixed-percentile", 2, "shadow", adoptedForecastKind, adoptionHorizonDays, rulesVersion],
+      ["fixed-percentile", 1, "incumbent", adoptedForecastKind, adoptionHorizonDays, rulesVersion],
     ]);
     // The gate compared the newest closed day's grades, which stay out of the seller's response.
     expect((await forecastLedger.listGoalAdoptions())[1]!.grades).toMatchObject({
@@ -192,5 +194,83 @@ describe("Adoption Gate", () => {
       shadow: { brier: 0.24 },
       incumbent: { brier: 0.2 },
     });
+  });
+
+  it("identifies grading rules by their grace, every horizon, and the grading implementation", () => {
+    const launch = gradingRulesVersion(FORECAST_LEDGER_LAUNCH_POLICY_VALUE);
+    expect(gradingRulesVersion({ ...FORECAST_LEDGER_LAUNCH_POLICY_VALUE })).toBe(launch);
+    expect(gradingRulesVersion({ ...FORECAST_LEDGER_LAUNCH_POLICY_VALUE, graceDays: 0 })).not.toBe(launch);
+    // A horizon added below the longest leaves the cohort window alone but still changes the rules.
+    expect(gradingRulesVersion({ ...FORECAST_LEDGER_LAUNCH_POLICY_VALUE, horizonsDays: [14, 21, 25, 28] })).not.toBe(
+      launch,
+    );
+    // Which grade the gate compares is not a grading rule.
+    const adoptedAt14: ForecastLedgerPolicyValue = { ...FORECAST_LEDGER_LAUNCH_POLICY_VALUE, adoptionHorizonDays: 14 };
+    expect(gradingRulesVersion(adoptedAt14)).toBe(launch);
+  });
+
+  it("compares only grades taken under the grading rules in force, so a rule change refuses a shadow version until it is regraded", async () => {
+    const launch = FORECAST_LEDGER_LAUNCH_POLICY_VALUE;
+    const noGrace = { ...launch, graceDays: 0 };
+    const stored: Array<
+      Readonly<{ scope: string; rules_version: string; closed_on: string; model: string; grade: ForecastGrade }>
+    > = [
+      {
+        scope: "fixed-percentile@2:shadow",
+        rules_version: gradingRulesVersion(launch),
+        closed_on: "2026-09-02",
+        model: "pooled-supply-v1",
+        grade: grade(0.18),
+      },
+      {
+        scope: "fixed-percentile@1:incumbent",
+        rules_version: gradingRulesVersion(launch),
+        closed_on: "2026-09-02",
+        model: "pooled-supply-v1",
+        grade: grade(0.2),
+      },
+    ];
+    const db = {
+      query: async (_sql: string, params: readonly unknown[] = []) => ({
+        rows: stored.filter(
+          (row) => row.scope === `${params[0]}@${params[1]}:${params[2]}` && row.rules_version === params[5],
+        ),
+      }),
+    } as unknown as PgQueryable & PgTransactionalPool;
+    let policy = launch;
+    const { eventStore } = createInMemoryEventStore();
+    const forecastLedger = createForecastLedgerRuntime({
+      pool: db,
+      eventStore,
+      policies: { resolvePolicy: async () => ({ value: policy }) } as unknown as Pick<PolicyRuntime, "resolvePolicy">,
+      goalDefinitions: () => [fixedPercentileGoal, version(fixedPercentileGoal, 2, "shadow")],
+    });
+    const shadowVersion = async () => {
+      const { promotable, reason } = (await forecastLedger.listGoalAdoptions())[1]!;
+      return { promotable, reason };
+    };
+
+    expect(await shadowVersion()).toEqual({ promotable: true, reason: null });
+    // Grace drops to zero: the grades taken with two days of grace no longer count.
+    policy = noGrace;
+    expect(await shadowVersion()).toEqual({ promotable: false, reason: "shadow-grade-missing" });
+    // Regraded without grace, the shadow version grades worse than its incumbent.
+    stored.push(
+      {
+        scope: "fixed-percentile@2:shadow",
+        rules_version: gradingRulesVersion(noGrace),
+        closed_on: "2026-09-02",
+        model: "pooled-supply-v1",
+        grade: grade(0.3),
+      },
+      {
+        scope: "fixed-percentile@1:incumbent",
+        rules_version: gradingRulesVersion(noGrace),
+        closed_on: "2026-09-02",
+        model: "pooled-supply-v1",
+        grade: grade(0.2),
+      },
+    );
+    expect(await shadowVersion()).toEqual({ promotable: false, reason: "shadow-grade-worse-than-incumbent" });
   });
 });

@@ -4,6 +4,19 @@ import { gradeForecast, type ForecastGrade } from "./grading";
 import type { ForecastLedgerRole } from "./ledger";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Raised whenever a change to grading or its cohorts changes what a grade means. */
+const GRADING_RULES_VERSION = 1;
+
+type GradingRules = Readonly<{ horizonsDays: readonly number[]; graceDays: number }>;
+
+/**
+ * Identifies the rules a grade was taken under: its grace, every horizon, and
+ * the grading implementation. A grade under other rules is never kept, reused,
+ * or compared.
+ */
+export function gradingRulesVersion({ horizonsDays, graceDays }: GradingRules): string {
+  return `grading-v${GRADING_RULES_VERSION};grace=${graceDays};horizons=${horizonsDays.join(",")}`;
+}
 
 /** The ledger entries of one goal version in one role, as grading reads them. */
 export type GradedLedgerEntry = Readonly<{
@@ -35,7 +48,7 @@ export type GradedForecast = Readonly<{
 export function gradeLedgerScope(
   entries: readonly GradedLedgerEntry[],
   outcomes: RealizedOutcomes,
-  input: Readonly<{ horizonsDays: readonly number[]; graceDays: number; closedAt: number }>,
+  input: GradingRules & Readonly<{ closedAt: number }>,
 ): readonly GradedForecast[] {
   return input.horizonsDays.flatMap((horizonDays) => {
     const windowStart = input.closedAt - 2 * horizonDays * DAY_MS;

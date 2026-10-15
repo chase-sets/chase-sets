@@ -197,16 +197,20 @@ compared are not returned to a seller.
 
 ### Forecast Ledger and Forecast Grades
 
-`pricing-forecast-ledger-projection` writes one Forecast Ledger entry per emitted or within-tolerance
-incumbent price a goal read back and per priced shadow trace of each `pricing.repricing-policy.evaluated`
-fact, with every registered Forecast Kind's forecast; each entry is written once. Evaluations trace the
-listing's `quantity`; older evaluations without it are not graded. The daily closer then grades each goal
-version and role over the cohorts closed at the start of the UTC day, reading realized sales only from the
-trades tape (excluded trades are not sales) and Own-Sale Observations through the listing's inventory item.
-A scope whose inputs are unchanged keeps its cached grade; otherwise each grade is first appended as
-`pricing.forecast.graded` v1 and then cached. The `pricing.forecast-ledger` platform policy sets the
-horizons (14, 21 and 28 days), the two-day grace, and the Adoption Gate's Forecast Kind (`curve`) and
-horizon (21 days). Grading never changes a Goal Lifecycle.
+The repricing engine fixes every registered Forecast Kind's forecast at each goal-read incumbent price and
+each priced shadow trace from the Demand Curve and provider weeks the round read, and records them as the
+trace's `forecasts`. `pricing-forecast-ledger-projection` writes one Forecast Ledger entry per emitted or
+within-tolerance incumbent price a goal read back and per priced shadow trace of each
+`pricing.repricing-policy.evaluated` fact, with those recorded forecasts, so a late or replayed projection
+records the same ones; each entry is written once. Evaluations trace the listing's `quantity`; older
+evaluations without it, or without recorded forecasts, are not graded. The daily closer then grades each
+goal version and role over the cohorts closed at the start of the UTC day, reading realized sales only from
+the trades tape (excluded trades are not sales) and Own-Sale Observations through the listing's inventory
+item. A scope whose grading rules (grace, horizons and grading implementation) and inputs are unchanged
+keeps its cached grade; otherwise each grade is first appended as `pricing.forecast.graded` v1 and then
+cached. The `pricing.forecast-ledger` platform policy sets the horizons (14, 21 and 28 days), the two-day
+grace, and the Adoption Gate's Forecast Kind (`curve`) and horizon (21 days); the gate compares only grades
+taken under the rules in force. Grading never changes a Goal Lifecycle.
 
 ## Incoming Dependencies
 

@@ -17,6 +17,8 @@ export type ForecastGradedEvent = DomainEvent<
     horizonDays: number;
     /** The cohort closed at the start of this UTC day. */
     closedOn: string;
+    /** Identifies the grace, horizons, and grading implementation the grade followed. */
+    rulesVersion: string;
     /** Identifies the ledger and realized-sale inputs graded; a regrade of the same day carries a new one. */
     inputVersion: string;
     grade: ForecastGrade;

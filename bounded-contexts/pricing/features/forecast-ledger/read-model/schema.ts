@@ -1,7 +1,8 @@
 /**
  * The Forecast Ledger, projected from `pricing.repricing-policy.evaluated`,
  * and the grading job's versioned cache. An entry is written once and never
- * rewritten; a grade is replaced only when the inputs its cohort read change.
+ * rewritten; a grade is replaced only when its grading rules or the inputs its
+ * cohort read change.
  */
 export const pricingForecastLedgerSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_forecast_ledger_entries (
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS pricing_forecast_grading_inputs (
   goal_version integer NOT NULL,
   role text NOT NULL CHECK (role IN ('incumbent', 'shadow')),
   closed_on date NOT NULL,
+  rules_version text NOT NULL,
   input_version text NOT NULL,
   graded_at timestamptz NOT NULL,
   checked_at timestamptz NOT NULL,
@@ -50,6 +52,7 @@ CREATE TABLE IF NOT EXISTS pricing_forecast_grades (
   model text NOT NULL,
   horizon_days integer NOT NULL CHECK (horizon_days > 0),
   closed_on date NOT NULL,
+  rules_version text NOT NULL,
   input_version text NOT NULL,
   grade jsonb NOT NULL,
   graded_at timestamptz NOT NULL,

@@ -25,7 +25,6 @@ import {
   conditionRateMedianSellDays,
   estimateConditionSaleIntervalDays,
 } from "../domain/condition-rate";
-import { forecastKindDefinitions } from "../domain/forecast-kinds";
 import { buildForecastLedgerProjectionHandlers } from "../read-model/projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -165,7 +164,7 @@ describeDb("the Forecast Ledger records every emitted and every shadow price (#7
       )
     ).rows;
 
-  it("writes one row per emitted incumbent price and per shadow price, with every registered forecast and the goal and curve versions", async () => {
+  it("writes one row per emitted incumbent price and per shadow price, with the forecasts fixed at evaluation and the goal and curve versions, however late or often it is projected", async () => {
     await seed();
     registerShadowGoals([
       shadowGoal("fixed-percentile", {
@@ -182,7 +181,9 @@ describeDb("the Forecast Ledger records every emitted and every shadow price (#7
       ["lst_7910_00000003", "changed", 4, 1],
     ]);
 
-    const handler = buildForecastLedgerProjectionHandlers(pools.pricing, forecastKindDefinitions)[event.eventType]!;
+    // The provider observes the weeks again before the ledger first projects the evaluation.
+    await pools.pricing.query("UPDATE pricing_external_weekly_sale_buckets SET transaction_count = 40");
+    const handler = buildForecastLedgerProjectionHandlers(pools.pricing)[event.eventType]!;
     await handler(toTransportEvent(event));
 
     const pricedAt = Date.parse(data.evaluatedAt);
@@ -207,6 +208,7 @@ describeDb("the Forecast Ledger records every emitted and every shadow price (#7
         quantity: trace.quantity,
       });
       expect(new Date(incumbent.priced_at).getTime()).toBe(pricedAt);
+      expect(incumbent.forecasts).toEqual(trace.forecasts);
       expect(incumbent.forecasts).toEqual({
         curve: { medianSellDays: trace.anchor!.goal!.forecastMedianSellDays, model: "synthetic-builder-v1" },
         "buyer-choice": {
@@ -226,6 +228,7 @@ describeDb("the Forecast Ledger records every emitted and every shadow price (#7
         price_amount: "30.00",
         quantity: trace.quantity,
       });
+      expect(shadow.forecasts).toEqual(shadowTrace.forecasts);
       expect(shadow.forecasts).toEqual({
         curve: { medianSellDays: shadowTrace.anchor!.goal!.forecastMedianSellDays, model: "synthetic-builder-v1" },
         "buyer-choice": {
@@ -239,8 +242,14 @@ describeDb("the Forecast Ledger records every emitted and every shadow price (#7
       });
     }
 
-    // A redelivered evaluation, even after the provider weeks change, never rewrites an entry.
-    await pools.pricing.query("UPDATE pricing_external_weekly_sale_buckets SET transaction_count = 40");
+    // A redelivered evaluation, even after the provider weeks change again, never rewrites an entry.
+    await pools.pricing.query("UPDATE pricing_external_weekly_sale_buckets SET transaction_count = 7");
+    await handler(toTransportEvent(event));
+    expect(await ledger()).toEqual(rows);
+
+    // Replaying into the projection's cleared table, after yet another change, records the same forecasts.
+    await pools.pricing.query("DELETE FROM pricing_forecast_ledger_entries");
+    await pools.pricing.query("UPDATE pricing_external_weekly_sale_buckets SET transaction_count = 3");
     await handler(toTransportEvent(event));
     expect(await ledger()).toEqual(rows);
   });

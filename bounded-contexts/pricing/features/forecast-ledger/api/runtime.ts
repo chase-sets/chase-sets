@@ -7,8 +7,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { PricingGoalDefinition } from "../../repricing-policies/domain/goals/registry";
 import { goalAdoptions, type AdoptionGradePair, type GoalAdoption } from "../domain/adoption-gate";
 import { forecastGradedEventType, type ForecastGradedEvent } from "../domain/fact";
-import { forecastKindDefinitions } from "../domain/forecast-kinds";
-import { gradeLedgerScope, type ForecastGradeScope } from "../domain/grade-ledger";
+import { gradeLedgerScope, gradingRulesVersion, type ForecastGradeScope } from "../domain/grade-ledger";
 import { forecastLedgerPolicy, type ForecastLedgerPolicyValue } from "../domain/policy";
 import { buildForecastLedgerProjectionHandlers } from "../read-model/projection";
 import {
@@ -46,16 +45,17 @@ export function createForecastLedgerRuntime(
 
   /**
    * Grades every goal version and role over the cohorts that closed at the
-   * start of today's UTC day. A scope checked within the hour, or whose ledger
-   * entries, realized sales, and stock are unchanged since its last grade for
-   * the day, keeps that grade; otherwise each Forecast Grade is recorded as a
-   * ForecastGraded fact before the cache moves, so a crash between the two
-   * re-emits nothing new.
+   * start of today's UTC day. A scope graded under the same grading rules
+   * keeps its grade for the day while it was checked within the hour, or while
+   * its ledger entries, realized sales, and stock are unchanged; otherwise each
+   * Forecast Grade is recorded as a ForecastGraded fact before the cache moves,
+   * so a crash between the two re-emits nothing new.
    */
   const runForecastGrading = async (input: Readonly<{ now?: string }> = {}): Promise<ForecastGradingResult> => {
     const now = Date.parse(input.now ?? new Date().toISOString());
     const nowIso = new Date(now).toISOString();
     const policy = await resolvePolicy(nowIso);
+    const rulesVersion = gradingRulesVersion(policy);
     const closedAtMs = Math.floor(now / DAY_MS) * DAY_MS;
     const closedAt = new Date(closedAtMs).toISOString();
     const closedOn = closedAt.slice(0, 10);
@@ -65,12 +65,13 @@ export function createForecastLedgerRuntime(
     for (const scope of await listForecastGradeScopes(deps.pool, { since, closedAt })) {
       const window = { ...scope, since, closedAt };
       const cached = await getForecastGradingInput(deps.pool, { ...scope, closedOn });
-      if (cached && now - Date.parse(cached.checkedAt) < RECHECK_MS) {
+      const sameRules = cached?.rulesVersion === rulesVersion;
+      if (sameRules && now - Date.parse(cached.checkedAt) < RECHECK_MS) {
         scopesUnchanged += 1;
         continue;
       }
       const inputVersion = await getForecastGradingInputVersion(deps.pool, window);
-      if (cached?.inputVersion === inputVersion) {
+      if (sameRules && cached.inputVersion === inputVersion) {
         await touchForecastGradingInput(deps.pool, { ...scope, closedOn, checkedAt: nowIso });
         scopesUnchanged += 1;
         continue;
@@ -91,6 +92,7 @@ export function createForecastLedgerRuntime(
           ...scope,
           ...graded,
           closedOn,
+          rulesVersion,
           inputVersion,
           gradedAt,
         });
@@ -99,17 +101,23 @@ export function createForecastLedgerRuntime(
         await tx.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
           JSON.stringify(["pricing:forecast-grading", scope.goalId, scope.goalVersion, scope.role, closedOn]),
         ]);
-        if ((await getForecastGradingInput(tx, { ...scope, closedOn }))?.inputVersion === inputVersion) return;
-        await replaceForecastGrades(tx, { ...scope, closedOn, inputVersion, gradedAt }, grades);
+        const current = await getForecastGradingInput(tx, { ...scope, closedOn });
+        if (current?.rulesVersion === rulesVersion && current.inputVersion === inputVersion) return;
+        await replaceForecastGrades(tx, { ...scope, closedOn, rulesVersion, inputVersion, gradedAt }, grades);
       });
       scopesGraded += 1;
     }
     return { closedOn, scopesGraded, scopesUnchanged };
   };
 
-  /** The Adoption Gate over the registered goals, from each version's latest closed grades. */
+  /**
+   * The Adoption Gate over the registered goals, from each version's latest
+   * closed grades under the grading rules in force; until a rule change is
+   * regraded, a version refuses for a missing grade.
+   */
   const listGoalAdoptions = async (input: Readonly<{ now?: string }> = {}): Promise<readonly GoalAdoption[]> => {
     const policy = await resolvePolicy(input.now ?? new Date().toISOString());
+    const rulesVersion = gradingRulesVersion(policy);
     const definitions = deps.goalDefinitions();
     const pairs = new Map<string, AdoptionGradePair | null>();
     for (const goal of definitions) {
@@ -123,6 +131,7 @@ export function createForecastLedgerRuntime(
             role,
             forecastKind: policy.adoptedForecastKind,
             horizonDays: policy.adoptionHorizonDays,
+            rulesVersion,
           });
         const [shadow, incumbentGrades] = await Promise.all([
           grades("shadow", goal.version),
@@ -143,7 +152,7 @@ export function createForecastLedgerRuntime(
     projectors: [
       createProjectionHandlerSet({
         projectionName: "pricing-forecast-ledger-projection",
-        handlers: buildForecastLedgerProjectionHandlers(deps.pool, forecastKindDefinitions),
+        handlers: buildForecastLedgerProjectionHandlers(deps.pool),
       }),
     ],
   };
@@ -195,6 +204,7 @@ async function appendForecastGraded(eventStore: EventStore, data: ForecastGraded
     data.model,
     data.horizonDays,
     data.closedOn,
+    data.rulesVersion,
     data.inputVersion,
   ];
   try {
