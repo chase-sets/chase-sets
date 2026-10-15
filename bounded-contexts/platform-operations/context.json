@@ -734,6 +734,7 @@
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/close",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/escalate",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/evidence",
+        "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/attachment-operations/:operationId/cleanup",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/resolve",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/responses",
         "api-route:bounded-contexts/platform-operations/features/support-requests/api/route.ts:POST /ops/:id/remedy-proposals/preview",
@@ -771,7 +772,7 @@
         "description": "Support request writes return lifecycle id/version/status snapshots, private attachment references, and overdue escalation counts; account routes refetch their list while operator actions keep the selected request drawer open and refetch both the deadline-ordered queue and authoritative request detail."
       },
       "proof": {
-        "authoritativeResponse": "Support request lifecycle commands return the committed request id and aggregate version, evidence attachment upload returns the successfully persisted private references, and overdue escalation returns command-owned escalated/skipped counts; operator route actions preserve queue filters and selected request identity before the queue and drawer refetch. Remedy preview remains a command response rendered directly in the open drawer. Upload, download, attachment-bearing submissions and GET /ops/:id/attachments/access-audit authorize against complete case streams and append a durable access decision before parsing attachments or provider access; the audit read returns at most 50 records with an explicit continuation cursor.",
+        "authoritativeResponse": "Support request lifecycle commands return the committed request id and aggregate version, evidence attachment upload returns the successfully persisted private references, and overdue escalation returns command-owned escalated/skipped counts; operator route actions preserve queue filters and selected request identity before the queue and drawer refetch. Remedy preview remains a command response rendered directly in the open drawer. Upload, download, attachment-bearing submissions and GET /ops/:id/attachments/access-audit authorize against complete case streams and append a durable access decision before parsing attachments or provider access; the audit read returns at most 50 records with an explicit continuation cursor. POST /ops/:id/attachment-operations/:operationId/cleanup authorizes support.manage with any-case evidence access against the complete case stream, appends the access decision, then records CleanupRequired and returns the operation id and status; it never claims, deletes or calls storage.",
         "tests": [
           "bounded-contexts/platform-operations/features/support-requests/api/attachments.test.ts",
           "bounded-contexts/platform-operations/features/support-requests/api/route.test.ts",
