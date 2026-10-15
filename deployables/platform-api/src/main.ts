@@ -105,6 +105,7 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { createOfferLifecycleAdmission } from "./offer-lifecycle-admission";
 import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {
@@ -336,6 +337,7 @@ const runtime = createPlatformApiHost({
     deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
     ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
+    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, controlPlane }),
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,
@@ -643,7 +645,6 @@ const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,
-  offerLifecycleOpen: config.offerLifecycleOpen,
   controlPlane,
   ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
     ? {

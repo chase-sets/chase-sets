@@ -244,6 +244,7 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
   delete process.env.CHASE_SETS_CHECKOUT_CLOSED;
+  delete process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN;
 }
 
 beforeEach(resetConfigEnv);
@@ -359,6 +360,12 @@ describe("platform api config", () => {
     expect(loadConfig().checkoutClosed).toBe(true);
     process.env.CHASE_SETS_CHECKOUT_CLOSED = "false";
     expect(loadConfig().checkoutClosed).toBe(false);
+  });
+  it("defaults the Offer lifecycle switch closed and parses the explicit opening", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().offerLifecycleOpen).toBe(false);
+    process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN = "true";
+    expect(loadConfig().offerLifecycleOpen).toBe(true);
   });
   it("loads the shared database url", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";

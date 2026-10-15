@@ -1,6 +1,5 @@
 import { Hono, type Context, type Next } from "hono";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
-import { createOfferLifecycleAdmission } from "./offer-lifecycle-admission";
 import { module as authModule } from "@chase-sets/auth";
 import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
 import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
@@ -306,8 +305,6 @@ export type BuildPlatformApiOptions = Readonly<{
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
   checkoutClosed?: boolean;
-  /** Operator switch for Offer Pause/Resume/Withdraw; admission also waits for every live worker to read them. */
-  offerLifecycleOpen?: boolean;
   controlPlane?: PlatformControlPlane;
   evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
   evidenceWindowSourceRecovery?: Omit<EvidenceWindowSourceRecoveryRoutesOptions, "sources">;
@@ -694,10 +691,6 @@ export function createPlatformApiHost(
     hostPorts: {
       ...options.hostPorts,
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
-      offerLifecycleAdmission: createOfferLifecycleAdmission({
-        open: options.offerLifecycleOpen ?? false,
-        ...(options.controlPlane ? { controlPlane: options.controlPlane } : {}),
-      }),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),

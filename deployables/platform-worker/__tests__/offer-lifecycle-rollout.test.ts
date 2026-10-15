@@ -177,7 +177,7 @@ describe("Offer lifecycle mixed-version rollout", () => {
     expect(await store.eventStore.readAll({ eventTypes: lifecycleTypes })).toEqual([]);
     const sourceHead = (await store.eventStore.readAll()).at(-1)!.globalPosition;
     // Each old consumer reads only the submission through its old filter and checkpoints at the source head.
-    const oldTailCheckpoints = new Map<string, string>();
+    const oldTailCheckpoints = new Map<string, typeof sourceHead>();
     for (const consumer of consumers) {
       const read = await store.eventStore.readAll({ eventTypes: consumer.oldFilter });
       expect(
