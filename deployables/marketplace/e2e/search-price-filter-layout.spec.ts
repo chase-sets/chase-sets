@@ -37,15 +37,17 @@ type HydrationObservation = {
   barrier: boolean;
 };
 
-type HydrationWindow = Window & {
-  __priceFilterHydration: HydrationObservation;
-  __REACT_DEVTOOLS_GLOBAL_HOOK__: {
-    supportsFiber: boolean;
-    inject: () => number;
-    onCommitFiberRoot: (id: number, root: unknown, priority: unknown, didError: boolean) => void;
-    onPostCommitFiberRoot: () => void;
-  };
-};
+declare global {
+  interface Window {
+    __priceFilterHydration: HydrationObservation;
+    __REACT_DEVTOOLS_GLOBAL_HOOK__: {
+      supportsFiber: boolean;
+      inject: () => number;
+      onCommitFiberRoot: (id: number, root: unknown, priority: unknown, didError: boolean) => void;
+      onPostCommitFiberRoot: () => void;
+    };
+  }
+}
 
 test("Open filters drops clicks before hydration at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 360, height: 800 });
@@ -57,7 +59,7 @@ test("Open filters drops clicks before hydration at 360x800 @marketplace-browse"
       errors: [],
       barrier: false,
     };
-    const observedWindow = window as HydrationWindow;
+    const observedWindow = window;
     observedWindow.__priceFilterHydration = observation;
     const recordError = (value: string) => {
       if (!observation.barrier) observation.errors.push(value);
@@ -93,16 +95,16 @@ test("Open filters drops clicks before hydration at 360x800 @marketplace-browse"
     const button = page.getByRole("button", { name: "Open filters", exact: true });
     await expect(button).toBeVisible();
     await button.evaluate((node) => {
-      const observation = (window as HydrationWindow).__priceFilterHydration;
+      const observation = window.__priceFilterHydration;
       observation.clickedNode = node;
       observation.hydratedAtClick = Object.keys(node).some((key) => key.startsWith("__reactProps$"));
       if (observation.hydratedAtClick) throw new Error("Open filters must be unhydrated for the raw click");
       (node as HTMLElement).click();
     });
     hydration.release();
-    await expect.poll(() => page.evaluate(() => (window as HydrationWindow).__priceFilterHydration.barrier)).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.__priceFilterHydration.barrier)).toBe(true);
     const observation = await button.evaluate((node) => {
-      const observation = (window as HydrationWindow).__priceFilterHydration;
+      const observation = window.__priceFilterHydration;
       return {
         hydratedAtClick: observation.hydratedAtClick,
         commitsAtBarrier: observation.commits.length,
