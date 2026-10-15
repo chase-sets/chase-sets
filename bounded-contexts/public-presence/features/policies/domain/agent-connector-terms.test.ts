@@ -140,7 +140,7 @@ const assertionToSourceMatrix = [
   {
     id: "agent-rate-limit-refusal",
     subjectId: "permitted-purposes-and-rate-limits",
-    ref: "infrastructure/platform-runtime/agent-guardrails.ts:180-204",
+    ref: "infrastructure/platform-runtime/agent-guardrails.ts:181-205",
     fragments: ["agent-grant.write", "allowed: false", "sending writes too quickly"],
   },
   {
@@ -158,7 +158,7 @@ const assertionToSourceMatrix = [
   {
     id: "transaction-spend-guardrails",
     subjectId: "agent-transactions",
-    ref: "infrastructure/platform-runtime/agent-guardrails.ts:207-318",
+    ref: "infrastructure/platform-runtime/agent-guardrails.ts:208-319",
     fragments: ["humanPresentRequired", "per-order limit", "daily-cap", "monthly-cap"],
   },
   {

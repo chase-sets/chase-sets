@@ -491,9 +491,10 @@ describe("public policy corpus compiler", () => {
     ).toBe("sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98");
     // Baseline: current Terms with the electronic-agents-and-automated-access developer-manifest ref reverted.
     // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
+    // Re-derived again for the #9721 byte-identical Stripe payment citation relocations.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:16f8f0a7c6765d67f1cf774075acd715cb274b292026c7c7da8011a7433a3ed3");
+    ).toBe("sha256:8aa7afdf9f23267096e0a155fbe69dc4ffa4278be267cbd6af03955ed40f9c52");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
