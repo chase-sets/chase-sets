@@ -30,6 +30,8 @@ const strictRoutes = STRICT_PUBLIC_ROUTE_MEMBER_IDS.map((memberId) => {
   return member;
 });
 const strictPaths = new Set(strictRoutes.map((route) => route.path));
+const fetchableRoutes = inventory.members.filter((member) => member.kind !== "INDETERMINATE");
+const cleanupCliArgs = ["--timeout-ms", "120", "--gate-timeout-ms", "1200"];
 const complianceArticlePaths = [
   "/help/buying/community-guidelines-and-enforcement",
   "/help/selling/intellectual-property-and-dmca",
@@ -103,7 +105,85 @@ afterEach(async () => {
   }
 });
 
-function startCli(baseUrl, mode, extraArgs = [], executablePath = checkerPath) {
+const clientObserverPrefix = "[client-order-observer]";
+
+// Test-local child preload. Node initializes its fetch client and first HTTP connection lazily, so
+// a cold child would pay that one-time cost inside route 1's deadline. The preload completes one
+// fetch over a real loopback connection to its own server, never the fixture, and closes that
+// server and socket before the CLI module evaluates. A data: URL fetch alone leaves the first
+// connection cold.
+//
+// The opt-in ordering observer reports, at the child's first http(s) dispatch, whether a route
+// deadline is already armed and, if so, fires that deadline synchronously. This forces the
+// cold-client ordering without a sleep or host load, and it never replaces a native timer.
+function childClientPreload({ initializeClient, observeClientInitialization }) {
+  return `
+    import { writeSync } from "node:fs";
+    import { createServer } from "node:http";
+    if (${observeClientInitialization}) {
+      const nativeSetTimeout = globalThis.setTimeout;
+      let pendingDeadline;
+      globalThis.setTimeout = (callback, milliseconds, ...args) => {
+        const handle = nativeSetTimeout(callback, milliseconds, ...args);
+        // fetchRoute arms its deadline and dispatches in one synchronous turn, so a timer
+        // still pending from this turn is the dispatching request's deadline.
+        pendingDeadline = callback;
+        queueMicrotask(() => {
+          if (pendingDeadline === callback) pendingDeadline = undefined;
+        });
+        return handle;
+      };
+      const nativeFetch = globalThis.fetch;
+      let clientInitialized = false;
+      globalThis.fetch = (input, init) => {
+        if (!clientInitialized && /^https?:/.test(String(input))) {
+          clientInitialized = true;
+          const event = { kind: "client-initialization", timeoutArmed: pendingDeadline !== undefined };
+          writeSync(1, ${JSON.stringify(clientObserverPrefix)} + JSON.stringify(event) + "\\n");
+          pendingDeadline?.();
+        }
+        return nativeFetch(input, init);
+      };
+    }
+    // Runs after the observer, so this warm-up is the observed first dispatch.
+    if (${initializeClient}) {
+      const server = createServer((request, response) => {
+        response.writeHead(200, { "Content-Type": "text/plain", Connection: "close" });
+        response.end("client initialized");
+      });
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const response = await fetch("http://127.0.0.1:" + server.address().port + "/client-initialization");
+      await response.text();
+      server.closeAllConnections();
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  `;
+}
+
+function clientInitializationEvents(result) {
+  return result.stdout
+    .split("\n")
+    .filter((line) => line.startsWith(clientObserverPrefix))
+    .map((line) => JSON.parse(line.slice(clientObserverPrefix.length)));
+}
+
+function routeResultLines(result) {
+  return result.stdout.split("\n").filter((line) => line.includes("->"));
+}
+
+function startCli(
+  baseUrl,
+  mode,
+  extraArgs = [],
+  executablePath = checkerPath,
+  { initializeClient = true, observeClientInitialization = false } = {},
+) {
+  const preload = `data:text/javascript,${encodeURIComponent(
+    childClientPreload({ initializeClient, observeClientInitialization }),
+  )}`;
   const boundedDefaults = [
     ["--attempts", "1"],
     ["--retry-delay-ms", "1"],
@@ -112,7 +192,7 @@ function startCli(baseUrl, mode, extraArgs = [], executablePath = checkerPath) {
   ].flatMap(([option, value]) => (extraArgs.includes(option) ? [] : [option, value]));
   const child = spawn(
     process.execPath,
-    [executablePath, "--base-url", baseUrl, "--mode", mode, ...boundedDefaults, ...extraArgs],
+    ["--import", preload, executablePath, "--base-url", baseUrl, "--mode", mode, ...boundedDefaults, ...extraArgs],
     {
       cwd: repoRoot,
       env: { ...process.env, NO_COLOR: "1" },
@@ -170,6 +250,17 @@ function startCli(baseUrl, mode, extraArgs = [], executablePath = checkerPath) {
       if (stderr.includes(needle)) return Promise.resolve(performance.now());
       return new Promise((resolve) => stderrWaiters.add({ needle, resolve }));
     },
+  };
+}
+
+function clientOrderProof(result, fixture) {
+  return {
+    code: result.code,
+    elapsedMs: Math.round(result.elapsedMs),
+    events: clientInitializationEvents(result),
+    routeResultLines: routeResultLines(result).length,
+    fixtureRequests: fixture.requests.length,
+    deadlineLines: result.stderr.split(/\r?\n/).filter((line) => line.includes("deadline-exceeded")),
   };
 }
 
@@ -681,19 +772,48 @@ describe("public web route smoke real CLI", () => {
         }
         defaultHealthyHandler(request, response);
       });
-      const running = startCli(fixture.baseUrl, "healthy", ["--timeout-ms", "120", "--gate-timeout-ms", "1200"]);
+      const running = startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checkerPath, {
+        observeClientInitialization: caseName === "success",
+      });
       if (caseName === "abort") {
         await targetStartedPromise;
         running.child.kill("SIGTERM");
       }
       const result = await running.result;
 
-      if (caseName === "success") expect(result.code, cliExitDiagnostics(result)).toBe(0);
-      else expect(result.code === 1 || result.signal !== null, cliExitDiagnostics(result)).toBe(true);
+      if (caseName === "success") {
+        console.info("[client-initialization-order]", JSON.stringify(clientOrderProof(result, fixture)));
+        expect(result.code, cliExitDiagnostics(result)).toBe(0);
+        expect(clientInitializationEvents(result)).toEqual([{ kind: "client-initialization", timeoutArmed: false }]);
+        expect(routeResultLines(result)).toHaveLength(fetchableRoutes.length);
+        for (const route of fetchableRoutes) {
+          expect(result.stdout).toContain(`[public-route-smoke] ${route.memberId} ${route.path} -> `);
+        }
+      } else expect(result.code === 1 || result.signal !== null, cliExitDiagnostics(result)).toBe(true);
       if (caseName === "abort" && process.platform !== "win32") {
         expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.aborted}] faq (/faq)`);
       }
       await closeAndAssertClean(fixture, result);
     },
   );
+
+  it("reproduces the cold-client deadline signature when client initialization is withheld", async () => {
+    const fixture = await startServer();
+    const [firstRoute] = fetchableRoutes;
+    const result = await startCli(fixture.baseUrl, "healthy", cleanupCliArgs, checkerPath, {
+      initializeClient: false,
+      observeClientInitialization: true,
+    }).result;
+
+    console.info("[client-initialization-order]", JSON.stringify(clientOrderProof(result, fixture)));
+    expect(result.code, cliExitDiagnostics(result)).toBe(1);
+    expect(result.stderr.split(/\r?\n/)).toContain(
+      `- [${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.deadlineExceeded}] ${firstRoute.memberId} (${firstRoute.path}) ` +
+        "did not complete headers and body within 120ms.",
+    );
+    expect(routeResultLines(result)).toEqual([]);
+    expect(fixture.requests).toEqual([]);
+    expect(clientInitializationEvents(result)).toEqual([{ kind: "client-initialization", timeoutArmed: true }]);
+    await closeAndAssertClean(fixture, result);
+  });
 });

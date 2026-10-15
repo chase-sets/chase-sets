@@ -397,6 +397,76 @@ describe("invitation-acceptance-stage-recovery", () => {
     }
 });
 
+describe("invitation-acceptance-compatibility-floor", () => {
+  for (const kind of ["password", "passkey"] as const)
+    for (const existing of [false, true]) {
+      it.each(ATTEMPT_STAGES)(
+        `${kind} ${existing ? "existing" : "new"} User keeps the recorded attempt after deactivation at %s`,
+        async (stage) => {
+          const f = fixture(kind, existing);
+          const append = f.store.appendToStream;
+          let interrupted = false;
+          const interruptedServices = {
+            ...f.services,
+            eventStore: {
+              ...f.store,
+              appendToStream: async (input: Parameters<typeof append>[0]) => {
+                const result = await append(input);
+                if (!interrupted && input.events[0]?.payload.stage === stage) {
+                  interrupted = true;
+                  throw new Error("synthetic activation handoff");
+                }
+                return result;
+              },
+            },
+          };
+          await expect(
+            acceptInvitationAttempt(interruptedServices, f.identity, f.input, request, context),
+          ).rejects.toThrow("synthetic activation handoff");
+          const recorded = await readAttempt(f.store, attemptId, context);
+          const beforeLookup = { ...f.counts };
+          Object.assign(invitationAttemptRollout, { active: false });
+          expect(await lookupInvitationAttempt(f.services, f.identity, f.input, context)).toEqual({
+            type: beforeLookup.acceptance ? "accepted-reauth-required" : "confirming",
+            attemptId,
+          });
+          expect(f.counts).toEqual(beforeLookup);
+          expect((await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).type).toBe(
+            stage === "completed" ? "accepted-reauth-required" : "session-started",
+          );
+          expect((await readAttempt(f.store, attemptId, context))?.binding).toEqual(recorded?.binding);
+          expect(f.counts).toEqual({
+            registration: existing ? 0 : 1,
+            acceptance: 1,
+            email: 1,
+            credential: 1,
+            session: 1,
+            token: 1,
+            store: 1,
+          });
+          const completed = await readAttempt(f.store, attemptId, context);
+          expect(completed?.stage).toBe("completed");
+          const counts = { ...f.counts };
+          expect((await acceptInvitationAttempt(f.services, f.identity, f.input, request, context)).type).toBe(
+            "accepted-reauth-required",
+          );
+          expect(await readAttempt(f.store, attemptId, context)).toEqual(completed);
+          expect(f.counts).toEqual(counts);
+          expect(
+            await acceptInvitationAttempt(
+              f.services,
+              f.identity,
+              { ...f.input, attemptId: "fe477381-15cc-4ca8-9a40-a004a01ee107" },
+              request,
+              context,
+            ),
+          ).toEqual({ type: "attempts-not-active" });
+          expect(f.counts).toEqual(counts);
+        },
+      );
+    }
+});
+
 describe("invitation-acceptance-response-loss", () => {
   it("F2 an accepted in-flight attempt with an expired token cannot issue a Session", async () => {
     const f = fixture("password", true);
