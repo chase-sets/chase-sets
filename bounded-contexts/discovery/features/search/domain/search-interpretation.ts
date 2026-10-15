@@ -178,6 +178,9 @@ function buildPhraseIndex(options: readonly SearchInterpretationOption[]): Reado
   const add = (phrase: string, target: PhraseTarget) => {
     const tokens = tokenizeSearchText(phrase).map((token) => foldSearchDiacritics(token.raw).toLowerCase());
     if (tokens.length === 0 || tokens.length > MAX_PHRASE_TOKENS) return;
+    // A label or code made only of numbers never matches words: a bare number names a Grade
+    // only through the qualified exact-numeric path.
+    if (tokens.every((token) => BARE_NUMBER.test(token))) return;
     const key = tokens.join(" ");
     const targets = index.get(key) ?? [];
     const duplicate = targets.some(

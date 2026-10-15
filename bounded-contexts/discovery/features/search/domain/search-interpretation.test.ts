@@ -170,6 +170,34 @@ describe("search interpretation", () => {
     expect(await interpret(search, {}, SEED_OPTIONS, ["base"])).toBeNull();
   });
 
+  it("never lets a numeric option code or label consume a number outside the exact numeric path", async () => {
+    // Synthetic active Grade options whose numeric code or label differs from their numericValue.
+    const numericOptions: readonly SearchInterpretationOption[] = [
+      ...SEED_OPTIONS,
+      { ...gemMint10, optionId: "chc_synthetic_code_10", code: "10", label: "Synthetic Pristine", numericValue: 10.5 },
+      { ...gemMint10, optionId: "chc_synthetic_label_8", code: "synthetic-eight", label: "8", numericValue: 8.25 },
+    ];
+    for (const search of ["charizard 10", "charizard 8", "10 charizard"]) {
+      expect(await interpret(search, {}, numericOptions)).toBeNull();
+    }
+    expect((await interpret("charizard psa 10", {}, numericOptions))?.dimensionFilters).toEqual([psa, gemMint10]);
+    expect(summary(await interpret("charizard psa 8", {}, numericOptions))?.applied).toEqual([
+      `dimension.${gradingCompany.dimensionId}=PSA`,
+      `dimension.${grade.dimensionId}=NM-MT 8`,
+    ]);
+    for (const [search, label] of [
+      ["charizard grade 9.5", "Mint 9.5"],
+      ["charizard pristine 10", "Pristine 10"],
+      ["charizard mint 9", "Mint 9"],
+      ["charizard gem-mint-10", "Gem Mint 10"],
+    ]) {
+      expect(summary(await interpret(search, {}, numericOptions))).toEqual({
+        q: "charizard",
+        applied: [`dimension.${grade.dimensionId}=${label}`],
+      });
+    }
+  });
+
   it("qualifies only a number that follows its company", async () => {
     expect(summary(await interpret("charizard 10 psa"))).toEqual({
       q: "charizard 10",
