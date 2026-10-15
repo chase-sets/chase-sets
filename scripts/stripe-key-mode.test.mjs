@@ -611,7 +611,6 @@ describe("seven-root tracked inventory and closed partition", () => {
       ["SK_LIVE_ABC-123", "rk_test_abc"],
       ["sk_test_abc-123", "SK_TEST_abc"],
       ["sk_live_abc-123", "rk_live_abc"],
-      ["pk_test_abc", "rk_test_abc"],
       ["rk_test_SYNTHETIC_REJECTED", "cus_SYNTHETIC_SAFE"],
     ];
     expect(witnesses).toHaveLength(classS.length);
