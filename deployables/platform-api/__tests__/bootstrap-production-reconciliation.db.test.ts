@@ -12,6 +12,7 @@ import { module as identityModule } from "@chase-sets/identity";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
   productionLikeDataProfiles,
+  nonProductionDataProfiles,
   representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
@@ -19,6 +20,15 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import { settlementPayoutFeePolicy, type SettlementServices } from "@chase-sets/settlement/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import {
+  assembleProductMeasurePublication,
+  parseProductMeasurePublicationPart,
+  productMeasurePublicationCompleted,
+  productMeasurePublicationPartRecorded,
+  type ProductMeasureSnapshot,
+} from "@chase-sets/product-measures";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -31,6 +41,24 @@ import {
   listingPhotoStorage,
 } from "./bootstrap-db-test-support";
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
+
+const measureAppendTrace = vi.hoisted(() => ({ inputs: null as AppendToStreamInput[] | null }));
+vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
+  return {
+    ...original,
+    createPostgresEventStore: (...args: Parameters<typeof original.createPostgresEventStore>) => {
+      const store = original.createPostgresEventStore(...args);
+      return {
+        ...store,
+        appendToStream: async (input: AppendToStreamInput) => {
+          measureAppendTrace.inputs?.push(input);
+          return store.appendToStream(input);
+        },
+      };
+    },
+  };
+});
 
 const identityApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "identity");
 const retainedRepresentativeAccount = {
@@ -1208,6 +1236,115 @@ describe("platform api bootstrap production reconciliation", () => {
     );
     expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(beforeCounts);
   }, 120_000);
+
+  it("publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables", async () => {
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "test",
+    });
+    await drainContextRuntime(runtime);
+    await ensureRepresentativeProductContentsTestMeasureProfile(runtime);
+    const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+    const catalogItemId = catalogSeedIds.items.pikachuPrismaticEvolutions;
+    const streamId = `catalog.product-measures-${catalogItemId}`;
+    const store = createPostgresEventStore({ pool: pools.catalog });
+    const before = await store.readStream({ streamId });
+    const version = before.at(-1)?.streamVersion ?? 0;
+    measureAppendTrace.inputs = [];
+    try {
+      await catalogServices.productMeasures.resolveCatalogItemMeasures(catalogItemId, {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+      });
+      const authored = measureAppendTrace.inputs.filter((input) => input.streamId === streamId);
+      expect(authored).toHaveLength(1);
+      expect(authored[0]!.expectedVersion).toBe(version);
+      expect(authored[0]!.events.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      measureAppendTrace.inputs = null;
+    }
+    const publication = await store.readStream({ streamId, fromVersion: version + 1 });
+    const completion = publication.at(-1)!;
+    const parts = publication.slice(0, -1);
+    expect(completion.eventType).toBe(productMeasurePublicationCompleted);
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(parts.every((event) => event.eventType === productMeasurePublicationPartRecorded)).toBe(true);
+    expect(parts.map(({ streamVersion }) => streamVersion)).toEqual(
+      parts.map((_, index) => completion.streamVersion - parts.length + index),
+    );
+    expect(completion.streamVersion).toBe(version + parts.length + 1);
+    const ledger = publication.map((event) => ({
+      version: event.streamVersion,
+      bytes: Buffer.byteLength(JSON.stringify(event.payload), "utf8"),
+      productIds:
+        event.eventType === productMeasurePublicationPartRecorded
+          ? parseProductMeasurePublicationPart(event.payload).products.map(({ productId }) => productId)
+          : [],
+    }));
+    expect(
+      ledger.every(({ bytes }) => bytes <= 64_512),
+      JSON.stringify(ledger),
+    ).toBe(true);
+    const products = await assembleProductMeasurePublication(
+      { ...completion, data: completion.payload },
+      parts.map((event) => ({ ...event, data: event.payload })),
+    );
+    expect(products).toHaveLength(85);
+    console.info("[8396-publication-ledger]", JSON.stringify(ledger));
+    expect(Buffer.byteLength(JSON.stringify({ catalogItemId, products }), "utf8")).toBeGreaterThan(65_536);
+    await drainContextRuntime(runtime);
+    const catalog = await pools.catalog.query<{ measure_snapshot: ProductMeasureSnapshot }>(
+      "SELECT measure_snapshot FROM catalog_resolved_product_measures WHERE catalog_item_id = $1 ORDER BY product_id",
+      [catalogItemId],
+    );
+    const discovery = await pools.discovery.query<{ measure_snapshot: ProductMeasureSnapshot }>(
+      "SELECT measure_snapshot FROM discovery_market_product_measures WHERE catalog_item_id = $1 ORDER BY product_id",
+      [catalogItemId],
+    );
+    const supply = await pools.marketplace.query<{ product_measure_snapshots: ProductMeasureSnapshot[] }>(
+      "SELECT product_measure_snapshots FROM marketplace_catalog_items WHERE catalog_item_id = $1",
+      [catalogItemId],
+    );
+    const ordered = [...products].sort((left, right) => left.productId.localeCompare(right.productId));
+    expect(catalog.rows.map(({ measure_snapshot }) => measure_snapshot)).toEqual(ordered);
+    expect(discovery.rows.map(({ measure_snapshot }) => measure_snapshot)).toEqual(ordered);
+    expect(supply.rows).toHaveLength(1);
+    expect(supply.rows[0]!.product_measure_snapshots).toEqual(products);
+    const measures = new Map(products.map((product) => [product.productId, product]));
+    for (const [pool, table] of [
+      [pools.checkout, "checkout_marketplace_seller_options"],
+      [pools.marketplace, "marketplace_listing_pages"],
+      [pools.ordering, "ordering_market_listing_inputs"],
+    ] as const) {
+      const snapshots = await pool.query<{
+        product_id: string;
+        product_measure_snapshot: ProductMeasureSnapshot | null;
+      }>(`SELECT product_id, product_measure_snapshot FROM ${table} WHERE catalog_catalog_item_id = $1`, [
+        catalogItemId,
+      ]);
+      expect(snapshots.rows.length, table).toBeGreaterThan(0);
+      for (const row of snapshots.rows)
+        expect(row.product_measure_snapshot, `${table}:${row.product_id}`).toEqual(
+          measures.get(row.product_id) ?? null,
+        );
+    }
+    for (const pool of [pools.catalog, pools.discovery, pools.marketplace, pools.checkout, pools.ordering]) {
+      const staged = await pool.query<{ count: string }>(
+        "SELECT count(*) AS count FROM event_projection_measure_publication_parts WHERE stream_id = $1",
+        [streamId],
+      );
+      expect(Number(staged.rows[0]!.count)).toBe(0);
+    }
+  }, 300_000);
 
   it("resumes the real representative commerce command after offer acceptance without duplicate creation events", async () => {
     const runtime = createPlatformApiHost({

@@ -1,2 +1,2 @@
-// Release (9a): compatible support only. Activation and legacy refusal are later releases.
-export const invitationAttemptRollout = { active: false, requireAttempt: false } as const;
+// Activation release: legacy refusal follows promotion.
+export const invitationAttemptRollout = { active: true, requireAttempt: false } as const;

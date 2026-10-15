@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { countQueryKey, countQuerySchema } from "./count-acquisition";
+import {
+  assertScopeSyncBatchPreviewCurrent,
+  ScopeSyncBatchBlockedPreviewError,
+  type ScopeSyncBatchPlannedScope,
+  type ScopeSyncBatchPreview,
+} from "./batch";
+import { countQueryKey, countQuerySchema, type ScrydexCountQuery, type ScrydexCountSource } from "./count-acquisition";
 
 // Closed vocabulary of the one combined count-lifecycle staging capture:
 // one One Piece OP01 English scope and its three Scrydex units. Card and sealed
@@ -265,3 +271,102 @@ export const countCapturePlannerReadSchema = z
     );
   });
 export type CountCapturePlannerRead = z.infer<typeof countCapturePlannerReadSchema>;
+
+type ResolvedPlan = Readonly<{ preview: ScopeSyncBatchPreview; plans: readonly ScopeSyncBatchPlannedScope[] }>;
+
+// Projects one resolved plan: its complete unit roster, each estimate and the ID
+// of the source it consumed. Diagnostic prose, samples and payloads are dropped.
+export function captureCountPlan(plan: ResolvedPlan): CountCapturePlan {
+  const blockers = (values: readonly ScopeSyncBatchPreview["blockers"][number][]) =>
+    values.map(({ code, scopeRecordId, providerKey }) => ({ code, scopeRecordId, providerKey }));
+  // Postgres returns record and mapping versions as Date despite their string type.
+  const instant = (value: unknown) => (value instanceof Date ? value.toISOString() : value);
+  return countCapturePlanSchema.parse({
+    selection: plan.preview.selection,
+    budget: plan.preview.budget,
+    resolvedAt: plan.preview.resolvedAt,
+    status: plan.preview.status,
+    blockers: blockers(plan.preview.blockers),
+    scopes: plan.plans.map((entry) => ({
+      scopeRecordId: entry.scopeRecordId,
+      scopeRecordVersion: instant(entry.scopeRecordVersion),
+      mappingVersions: entry.mappingVersions.map((mapping) => ({ ...mapping, version: instant(mapping.version) })),
+      profileVersions: entry.profileVersions,
+      scope: entry.scope,
+      providerUnitCount: entry.providerUnitCount,
+      status: entry.participationPreview.status,
+      startAllowed: entry.participationPreview.startAllowed,
+      blockers: blockers(entry.blockers),
+      participationBlockers: entry.participationPreview.blockers.map((blocker) => blocker.code),
+      units: entry.participationPreview.units.map((unit) => ({
+        providerKey: unit.providerKey,
+        unitKey: unit.unitKey,
+        profileKey: unit.profileKey,
+        profileVersion: unit.profileVersion,
+        selected: unit.selected,
+        defaultSelected: unit.defaultSelected,
+        eligibility: unit.eligibility,
+        requirement: unit.requirement,
+        role: unit.role,
+        estimate: {
+          countSourceId: unit.estimate.countSource?.sourceId ?? null,
+          targetCount: unit.estimate.targetCount,
+          estimatedRequestCount: unit.estimate.estimatedRequestCount,
+          requestStrategy: unit.estimate.requestStrategy,
+          estimateState: unit.estimate.estimateState,
+          usageCheckState: unit.estimate.usageCheckState ?? null,
+        },
+        blockers: unit.blockers.map((blocker) => blocker.code),
+      })),
+    })),
+  });
+}
+
+// Projects one observed planner read into its row. A pre-confirm read carries
+// its confirmation check; an ordinary preview compares no fingerprint, so the
+// same check on its own fingerprint can refuse it only as blocked.
+export function captureCountPlannerRead(input: {
+  requestId: string;
+  plan: ResolvedPlan;
+  winners: readonly Readonly<{ query: ScrydexCountQuery; source: ScrydexCountSource | null; readAt: string }>[];
+  preConfirm: Readonly<{
+    comparedFingerprint: string;
+    currentFingerprint: string;
+    eligible: boolean;
+    refusal: string | null;
+  }> | null;
+}): CountCapturePlannerRead {
+  const { preview } = input.plan;
+  if (input.preConfirm && input.preConfirm.currentFingerprint !== preview.planFingerprint)
+    throw new Error("The pre-confirm check did not resolve this plan.");
+  const refusal = input.preConfirm ? input.preConfirm.refusal : previewRefusal(preview);
+  return countCapturePlannerReadSchema.parse({
+    phase: input.preConfirm ? "pre-confirm" : "preview",
+    requestId: input.requestId,
+    planFingerprint: preview.planFingerprint,
+    comparedFingerprint: input.preConfirm?.comparedFingerprint ?? null,
+    eligible: input.preConfirm ? input.preConfirm.eligible : refusal === null,
+    // Row ids carry no underscores; the refusal code keeps its words.
+    refusal: refusal?.replaceAll("_", "-") ?? null,
+    effectsCapability: false,
+    plan: captureCountPlan(input.plan),
+    winners: [...input.winners]
+      .sort((left, right) => left.query.kind.localeCompare(right.query.kind))
+      .map((winner) => ({
+        kind: winner.query.kind,
+        query: winner.query,
+        source: winner.source,
+        readAt: winner.readAt,
+      })),
+  });
+}
+
+function previewRefusal(preview: ScopeSyncBatchPreview): string | null {
+  try {
+    assertScopeSyncBatchPreviewCurrent(preview.planFingerprint, preview);
+    return null;
+  } catch (error) {
+    if (error instanceof ScopeSyncBatchBlockedPreviewError) return error.code;
+    throw error;
+  }
+}

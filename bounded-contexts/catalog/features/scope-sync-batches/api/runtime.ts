@@ -7,13 +7,9 @@ import type {
   CatalogSyncScope,
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogSyncRun, SourceObservationIntegrationJob } from "../../source-observations/api/runtime";
-import {
-  assertScopeSyncBatchPreviewCurrent,
-  type ScopeSyncBatchBudget,
-  type ScopeSyncBatchPreview,
-  type ScopeSyncBatchSelection,
-} from "../domain/batch";
+import type { ScopeSyncBatchBudget, ScopeSyncBatchPreview, ScopeSyncBatchSelection } from "../domain/batch";
 import { createScopeSyncBatchStore, type ScopeSyncBatchSnapshot } from "../read-model/store";
+import { createScopeSyncBatchConfirmationCheck } from "./count-capture-planner";
 import { resolveHeldSetExport } from "./held-set-resolution";
 import { createScopeSyncBatchPlanner } from "./planner";
 import { createScopeSyncBatchWorker } from "./worker";
@@ -48,6 +44,7 @@ export function createScopeSyncBatchRuntime(deps: {
     enqueueCatalogSyncRun: deps.enqueueCatalogSyncRun,
     getCatalogSyncRun: deps.getCatalogSyncRun,
   });
+  const confirmation = createScopeSyncBatchConfirmationCheck(planner);
 
   async function preview(input: {
     selection: ScopeSyncBatchSelection;
@@ -63,8 +60,7 @@ export function createScopeSyncBatchRuntime(deps: {
     planFingerprint: string;
     context: EventStoreContext;
   }): Promise<ScopeSyncBatchSnapshot> {
-    const current = await planner.resolve(input);
-    assertScopeSyncBatchPreviewCurrent(input.planFingerprint, current.preview);
+    const current = await confirmation.resolveConfirmation(input);
     const settled = await store.findCompletedByFingerprint(current.preview.planFingerprint, input.context);
     if (settled && (await remainsSettled(settled, input.context))) return settled;
     return (deps.counts?.reserveBatch ?? store.create)({
@@ -125,6 +121,7 @@ export function createScopeSyncBatchRuntime(deps: {
     resolveHeldSets: (input: { bytes: Uint8Array; context: EventStoreContext }) =>
       resolveHeldSetExport(deps.db, input.bytes),
     preview,
+    preConfirmPlannerRead: confirmation.preConfirmPlannerRead,
     confirm,
     get: (input: { batchId: string; context: EventStoreContext }) => store.get(input.batchId, input.context),
     cancel,
