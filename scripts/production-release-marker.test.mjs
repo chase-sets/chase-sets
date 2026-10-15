@@ -332,7 +332,12 @@ describe("same-release retry admission", () => {
             { outcome: "success", elapsedMs: 10_000 },
           ],
           recovery: { sourceRevision: 20, resultingRevision: 23, rolledBack: true },
-          preRetryHistory: baseline,
+          // The record keeps each description only as its SHA-256; the verifier rebuilds the text.
+          preRetryHistory: baseline.map(({ revision, status, description }) => ({
+            revision,
+            status,
+            descriptionSha256: `sha256:${createHash("sha256").update(description).digest("hex")}`,
+          })),
         },
         spawn: (_command, _args, _options) => {
           const child = new EventEmitter();

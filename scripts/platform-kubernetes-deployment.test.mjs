@@ -54,6 +54,7 @@ import {
   verifyStalePendingRecoveryTransition,
 } from "./platform-kubernetes-deployment.mjs";
 import * as platformKubernetesDeployment from "./platform-kubernetes-deployment.mjs";
+import { classifyAdmissionWebhookTransient, redactDeployDiagnosticText } from "./platform-deploy-incident.mjs";
 import { assertExclusiveMarkerWriter } from "./production-release-marker.mjs";
 
 const sampleValues = {
@@ -4809,6 +4810,28 @@ const atomicRolledBackHistory = [
   { ...retryUpgradeFailure, status: "failed" },
   { revision: 694, status: "deployed", description: "Rollback to 692" },
 ];
+// The attempts record's representation of a history: each exact description only as its SHA-256.
+const descriptionSha256 = (description) => `sha256:${createHash("sha256").update(description).digest("hex")}`;
+const fingerprintedHistory = (history) =>
+  history.map(({ revision, status, description }) => ({
+    revision,
+    status,
+    descriptionSha256: descriptionSha256(description),
+  }));
+// Synthetic: error text that a retained captured revision (690) and a failed intermediate (694)
+// can carry in their Helm descriptions; neither may reach the attempts record.
+const retainedHistorySentinel = "SYNTHETIC_RETAINED_HISTORY_VALUE_9662";
+const intermediateFailureSentinel = "SYNTHETIC_INTERMEDIATE_FAILURE_VALUE_9662";
+const withHistorySentinels = (history, intermediateValue = intermediateFailureSentinel) =>
+  history.map((entry) => {
+    if (entry.revision === 690) {
+      return { ...entry, description: `Synthetic retained Helm failure: TOKEN=${retainedHistorySentinel}` };
+    }
+    if (entry.revision === 694) {
+      return { ...entry, description: `${entry.description}: synthetic API_TOKEN=${intermediateValue}` };
+    }
+    return entry;
+  });
 const retryWorkloadList = rollbackWorkloadList().replaceAll('"proof', `"${retryRelease}`);
 const probeCertificate = "certificate/chase-sets-platform-doks-tls";
 
@@ -5042,7 +5065,7 @@ describe("admission transient retry", () => {
       ],
       recovery: { sourceRevision: 692, resultingRevision: 695, rolledBack: true },
       // The real 683-692 -> 686-695 trim: only the oldest unprotected prefix disappeared.
-      preRetryHistory: retryBaselineHistory,
+      preRetryHistory: fingerprintedHistory(retryBaselineHistory),
     });
   });
 
@@ -5057,7 +5080,7 @@ describe("admission transient retry", () => {
       result: "success",
       retry: "performed",
       recovery: { sourceRevision: 692, resultingRevision: 694, rolledBack: false },
-      preRetryHistory: atomicRolledBackHistory,
+      preRetryHistory: fingerprintedHistory(atomicRolledBackHistory),
     });
   });
 });
@@ -5079,6 +5102,23 @@ describe("admission transient refusals", () => {
   it("rethrows a non-transient upgrade failure without reading history", async () => {
     const stderr =
       "Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition\n";
+    const { calls, records } = await expectRefusal(
+      retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
+      "not-transient",
+      {},
+      stderr,
+    );
+    expect(calls).toHaveLength(1);
+    expect(records[0].attempts).toEqual([{ attempt: 1, result: "failure", admissionWebhookTransient: null }]);
+  });
+
+  it("records no transient, and never retries, when the bounded line cannot reproduce itself", async () => {
+    // Synthetic: a resource name long enough that the 500-character cut drops `No agent available`.
+    const longCall = admissionNoAgentCall.replace("chase-sets-platform-doks-tls", `synthetic-${"x".repeat(300)}`);
+    const stderr = `Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: ${longCall}\n`;
+    const cut = classifyAdmissionWebhookTransient(stderr);
+    expect(cut).toHaveLength(500);
+    expect(classifyAdmissionWebhookTransient(cut)).toBeNull();
     const { calls, records } = await expectRefusal(
       retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }),
       "not-transient",
@@ -5317,6 +5357,30 @@ describe("attempts record", () => {
           }),
       ],
       ["untyped probe sample", (value) => Object.assign(value.probeSamples[0], { outcome: "pending" })],
+      [
+        "a raw history description",
+        (value) => Object.assign(value.preRetryHistory[0], { description: retryBaselineHistory[0].description }),
+      ],
+      [
+        "a description in place of its fingerprint",
+        (value) => Object.assign(value.preRetryHistory[0], { descriptionSha256: retryBaselineHistory[0].description }),
+      ],
+      [
+        "an unprefixed fingerprint",
+        (value) => Object.assign(value.preRetryHistory[0], { descriptionSha256: "a".repeat(64) }),
+      ],
+      ["an unnormalized status", (value) => Object.assign(value.preRetryHistory[0], { status: "Superseded" })],
+      [
+        "a non-matcher transient line",
+        (value) => Object.assign(value.attempts[0], { admissionWebhookTransient: "synthetic arbitrary non-AC1 text" }),
+      ],
+      [
+        "a transient line behind other text",
+        (value) =>
+          Object.assign(value.attempts[0], {
+            admissionWebhookTransient: `synthetic TOKEN=planted ${admissionTransientLine}`.slice(0, 500),
+          }),
+      ],
     ]) {
       const mutated = structuredClone(record);
       mutate(mutated);
@@ -5326,67 +5390,102 @@ describe("attempts record", () => {
     }
   });
 
+  it("keeps a matcher line whose 500-character cut ends in a space", async () => {
+    // Synthetic: padding that puts a space at the cut, which re-matching trims.
+    const head = `UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionNoAgentCall}: `;
+    const stderr = `Error: ${head}${"p".repeat(499 - head.length)} synthetic tail beyond the cut\n`;
+    const line = classifyAdmissionWebhookTransient(stderr);
+    expect(line).toHaveLength(500);
+    expect(line.endsWith(" ")).toBe(true);
+    const { error, records } = await runRetryDeploy(retryScenario({ upgrades: [{ code: 1, stderr }, { code: 0 }] }));
+    expect(error).toBeUndefined();
+    expect(records[0]).toMatchObject({
+      retry: "performed",
+      attempts: [{ admissionWebhookTransient: line }, { result: "success" }],
+    });
+  });
+
   it.each([
     ["recovered", [{ code: 1, stderr: admissionTransientStderr }, { code: 0 }], 0],
     ["refused", [{ code: 1, stderr: admissionTransientStderr }], 1],
-  ])("keeps a planted env-override value out of the %s record and CLI output", async (_name, upgrades, exitCode) => {
-    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
-    const targetPath = join(directory, "production-rollback-target.json");
-    const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
-    const scenario = retryScenario({
-      upgrades,
-      ...(exitCode ? { probes: [{ hang: true }] } : {}),
-    });
-    const calls = [];
-    const sink = stderrSink();
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      writeFileSync(targetPath, JSON.stringify(await retryRollbackTarget()));
-      const code = await runOnClock(
-        scenario.clock,
-        platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
-          [
-            "--",
-            "deploy",
-            "--image",
-            `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
-            "--runtime-env",
-            "DEPLOYMENT_ENVIRONMENT=production",
-            "--runtime-env",
-            `ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${plantedEnvOverride}`,
-            "--managed-postgres-ca-sha256",
-            managedPostgresCaSha256,
-            "--namespace",
-            retryNamespace,
-            "--release",
-            retryRelease,
-            "--timeout",
-            "30s",
-            "--attempts-out",
-            attemptsPath,
-            "--admission-retry-rollback-target",
-            targetPath,
-          ],
-          {},
-          { values: rollbackValues, spawn: retrySpawn(calls, scenario), clock: scenario.clock, stderrSink: sink },
-        ),
-      );
-      expect(code).toBe(exitCode);
-      expect(upgradeCalls(calls)[0].args.join(" ")).toContain(plantedEnvOverride);
-      const record = readFileSync(attemptsPath, "utf8");
-      expect(JSON.parse(record)).toMatchObject({ result: exitCode ? "failure" : "success" });
-      const output = [record, sink.text(), ...log.mock.calls.flat(), ...error.mock.calls.flat()].map(String).join("\n");
-      expect(output).toContain("No agent available");
-      expect(output).not.toContain(plantedEnvOverride);
-      expect(output).not.toContain("--set-string");
-      if (exitCode) expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
-    } finally {
-      log.mockRestore();
-      error.mockRestore();
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+  ])(
+    "keeps planted override and history values out of the %s record and CLI output",
+    async (_name, upgrades, exitCode) => {
+      const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
+      const targetPath = join(directory, "production-rollback-target.json");
+      const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
+      const histories = retryScenario().histories.map((history) => withHistorySentinels(history));
+      const scenario = retryScenario({
+        upgrades,
+        histories: [...histories],
+        ...(exitCode ? { probes: [{ hang: true }] } : {}),
+      });
+      const calls = [];
+      const sink = stderrSink();
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        writeFileSync(
+          targetPath,
+          JSON.stringify(await retryRollbackTarget(withHistorySentinels(retryCapturedHistory))),
+        );
+        const code = await runOnClock(
+          scenario.clock,
+          platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+            [
+              "--",
+              "deploy",
+              "--image",
+              `registry.digitalocean.com/chase-sets/chase-sets-platform:${"e".repeat(40)}@sha256:${"d".repeat(64)}`,
+              "--runtime-env",
+              "DEPLOYMENT_ENVIRONMENT=production",
+              "--runtime-env",
+              `ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${plantedEnvOverride}`,
+              "--managed-postgres-ca-sha256",
+              managedPostgresCaSha256,
+              "--namespace",
+              retryNamespace,
+              "--release",
+              retryRelease,
+              "--timeout",
+              "30s",
+              "--attempts-out",
+              attemptsPath,
+              "--admission-retry-rollback-target",
+              targetPath,
+            ],
+            {},
+            { values: rollbackValues, spawn: retrySpawn(calls, scenario), clock: scenario.clock, stderrSink: sink },
+          ),
+        );
+        expect(code).toBe(exitCode);
+        expect(upgradeCalls(calls)[0].args.join(" ")).toContain(plantedEnvOverride);
+        const record = readFileSync(attemptsPath, "utf8");
+        expect(JSON.parse(record)).toMatchObject({
+          result: exitCode ? "failure" : "success",
+          preRetryHistory: exitCode ? null : fingerprintedHistory(withHistorySentinels(retryBaselineHistory)),
+        });
+        // No raw description of any history the deploy read reaches the record, JSON-escaped or not.
+        for (const { description } of new Set(histories.flat())) {
+          expect(record).not.toContain(description);
+          expect(record).not.toContain(JSON.stringify(description).slice(1, -1));
+        }
+        const output = [record, sink.text(), ...log.mock.calls.flat(), ...error.mock.calls.flat()]
+          .map(String)
+          .join("\n");
+        expect(output).toContain("No agent available");
+        for (const planted of [plantedEnvOverride, retainedHistorySentinel, intermediateFailureSentinel]) {
+          expect(output).not.toContain(planted);
+        }
+        expect(output).not.toContain("--set-string");
+        if (exitCode) expect(error.mock.calls.flat()).toEqual(["helm upgrade exited with code 1."]);
+      } finally {
+        log.mockRestore();
+        error.mockRestore();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("parses the production deploy and verifier record flags without environment fallbacks", () => {
     expect(
@@ -5414,9 +5513,13 @@ describe("attempts record", () => {
 });
 
 describe("transition with retry record", () => {
-  async function retriedChain() {
-    const { records } = await runRetryDeploy(retryScenario());
-    return { rollbackTarget: await retryRollbackTarget(), deployAttempts: JSON.parse(JSON.stringify(records[0])) };
+  async function retriedChain(withHistory = (history) => history) {
+    const rollbackTarget = await retryRollbackTarget(withHistory(retryCapturedHistory));
+    const { records } = await runRetryDeploy(
+      retryScenario({ histories: retryScenario().histories.map((history) => withHistory(history)) }),
+      { admissionRetryRollbackTarget: rollbackTarget },
+    );
+    return { rollbackTarget, deployAttempts: JSON.parse(JSON.stringify(records[0])) };
   }
   const verify = (chain, observed, extra = {}) =>
     verifyKubernetesDeploymentTransition({
@@ -5462,6 +5565,41 @@ describe("transition with retry record", () => {
     await expect(verify(await retriedChain(), observed)).rejects.toThrow();
   });
 
+  it("rebuilds recorded descriptions from observed history without the record carrying them", async () => {
+    const chain = await retriedChain(withHistorySentinels);
+    const record = JSON.stringify(chain.deployAttempts);
+    expect(record).not.toContain(retainedHistorySentinel);
+    expect(record).not.toContain(intermediateFailureSentinel);
+    // 686 was pruned before verification, so its description comes from the captured target.
+    expect(await verify(chain, withHistorySentinels(retryObservedHistory))).toMatchObject({
+      capturedHeadRevision: 695,
+      resultingHeadRevision: 696,
+      capturedHistory: withHistorySentinels(retryBaselineHistory),
+    });
+  });
+
+  it.each([690, 692, 693, 694, 695])("refuses a changed observed description at revision %i", async (revision) => {
+    const observed = retryObservedHistory.map((entry) =>
+      entry.revision === revision ? { ...entry, description: `${entry.description} (synthetic change)` } : entry,
+    );
+    await expect(verify(await retriedChain(), observed)).rejects.toThrow();
+  });
+
+  it("refuses an intermediate whose different description redacts identically", async () => {
+    const chain = await retriedChain((history) => withHistorySentinels(history, "synthetic-recorded-value"));
+    const observed = withHistorySentinels(retryObservedHistory, "synthetic-observed-value");
+    const recorded = withHistorySentinels(retryBaselineHistory, "synthetic-recorded-value").find(
+      (entry) => entry.revision === 694,
+    ).description;
+    const changed = observed.find((entry) => entry.revision === 694).description;
+    expect(changed).not.toBe(recorded);
+    expect(redactDeployDiagnosticText(changed)).toBe(redactDeployDiagnosticText(recorded));
+    await expect(verify(chain, observed)).rejects.toThrow("pre-retry revision 694 does not match");
+    expect(await verify(chain, withHistorySentinels(retryObservedHistory, "synthetic-recorded-value"))).toMatchObject({
+      resultingHeadRevision: 696,
+    });
+  });
+
   it.each([
     ["an unrecorded intermediate", (record) => record.preRetryHistory.splice(-2, 1)],
     [
@@ -5482,6 +5620,14 @@ describe("transition with retry record", () => {
         }),
     ],
     ["another release", (record) => Object.assign(record, { release: "proof" })],
+    [
+      "another pruned captured description",
+      (record) => Object.assign(record.preRetryHistory[0], { descriptionSha256: descriptionSha256("Other") }),
+    ],
+    [
+      "another recorded head description",
+      (record) => Object.assign(record.preRetryHistory.at(-1), { descriptionSha256: descriptionSha256("Other") }),
+    ],
   ])("refuses a record with %s before emission", async (_name, mutate) => {
     const chain = await retriedChain();
     mutate(chain.deployAttempts);

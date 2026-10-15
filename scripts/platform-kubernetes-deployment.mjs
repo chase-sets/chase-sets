@@ -1390,6 +1390,22 @@ function compactHelmHistory(history) {
   return history.map(({ revision, status, description }) => ({ revision, status, description }));
 }
 
+const helmDescriptionFingerprintPattern = /^sha256:[0-9a-f]{64}$/;
+
+function helmDescriptionFingerprint(description) {
+  return `sha256:${createHash("sha256").update(description, "utf8").digest("hex")}`;
+}
+
+// A retained Helm description can carry any prior error text, so the attempts record keeps
+// only an opaque fingerprint of each exact normalized description; the text stays in memory.
+function fingerprintHelmHistory(history) {
+  return history.map(({ revision, status, description }) => ({
+    revision,
+    status,
+    descriptionSha256: helmDescriptionFingerprint(description),
+  }));
+}
+
 export async function recoverStableStalePendingUpgrade(options = {}) {
   const checkedAt = options.checkedAt ?? new Date().toISOString();
   const sourceRevision = positiveHelmRevision(options.sourceRevision, "sourceRevision");
@@ -1635,9 +1651,7 @@ function reconcileCapturedTransitionHistory({
   }
 }
 
-// A performed admission-webhook retry moves the transition's baseline from the captured
-// head to the recorded pre-retry head; the record must chain from the captured target.
-function retriedDeploymentBaseline(deployAttempts, captured, options) {
+function performedRetryRecord(deployAttempts, options) {
   const record = assertDeployAttemptsRecord(deployAttempts);
   if (
     record.release !== (options.release ?? defaultRelease) ||
@@ -1648,10 +1662,29 @@ function retriedDeploymentBaseline(deployAttempts, captured, options) {
   if (record.result !== "success") {
     throw new Error("Deployment transition requires a deploy attempts record whose deploy succeeded.");
   }
-  if (record.retry !== "performed") {
-    return null;
-  }
-  const baseline = admissionRetryChain(captured, record.preRetryHistory, record.release, 3);
+  return record.retry === "performed" ? record : null;
+}
+
+// A performed admission-webhook retry moves the transition's baseline from the captured
+// head to the recorded pre-retry head; the record must chain from the captured target.
+// Each recorded description is rebuilt from the observed history (or, for a captured
+// revision pruned since, the captured target) and must match its recorded fingerprint;
+// a redacted form is never compared, since different descriptions can redact alike.
+function retriedDeploymentBaseline(record, captured, observedHistory) {
+  const capturedByRevision = new Map(captured.history.map((entry) => [entry.revision, entry]));
+  const observedByRevision = new Map(observedHistory.map((entry) => [entry.revision, entry]));
+  const history = record.preRetryHistory.map(({ revision, status, descriptionSha256 }) => {
+    const raw =
+      observedByRevision.get(revision) ??
+      (revision <= captured.capturedHeadRevision ? capturedByRevision.get(revision) : undefined);
+    if (!raw || helmDescriptionFingerprint(raw.description) !== descriptionSha256) {
+      throw new Error(
+        `Deploy attempts record pre-retry revision ${revision} does not match an observed or captured Helm description.`,
+      );
+    }
+    return { revision, status, description: raw.description };
+  });
+  const baseline = admissionRetryChain(captured, history, record.release, 3);
   if (
     !baseline?.recovered ||
     record.recovery.sourceRevision !== captured.source.revision ||
@@ -1689,10 +1722,11 @@ function reconcileRetriedTransitionHistory(captured, baseline, observedHistory) 
 
 export async function verifyKubernetesDeploymentTransition(options = {}) {
   const captured = capturedTransitionHistory(options.rollbackTarget);
-  const retried = options.deployAttempts ? retriedDeploymentBaseline(options.deployAttempts, captured, options) : null;
+  const retryRecord = options.deployAttempts ? performedRetryRecord(options.deployAttempts, options) : null;
   const { history: capturedHistory, source, terminalFailedSuffix } = captured;
-  const capturedHeadRevision = retried ? retried.recovered.revision : captured.capturedHeadRevision;
   const observedHistory = await readHelmHistory(options);
+  const retried = retryRecord ? retriedDeploymentBaseline(retryRecord, captured, observedHistory) : null;
+  const capturedHeadRevision = retried ? retried.recovered.revision : captured.capturedHeadRevision;
   const expectedRevision = capturedHeadRevision + 1;
   const newEntries = observedHistory.filter((entry) => entry.revision > capturedHeadRevision);
   if (newEntries.length !== 1 || newEntries[0].revision !== expectedRevision) {
@@ -2225,10 +2259,18 @@ async function runHelmUpgradeAttempt(options, args, record) {
       stderrTailBytes: helmUpgradeStderrTailBytes,
     });
   } catch (error) {
-    attempt.admissionWebhookTransient = classifyAdmissionWebhookTransient(error?.stderr);
+    const line = classifyAdmissionWebhookTransient(error?.stderr);
+    attempt.admissionWebhookTransient = isAdmissionWebhookTransientLine(line) ? line : null;
     throw error;
   }
   attempt.result = "success";
+}
+
+// The record's only text is the matcher's own bounded line. Re-matching that line
+// reproduces it, up to a trailing space its 500-character cut can leave, so the producer
+// and the record boundary accept exactly the same canonical form.
+function isAdmissionWebhookTransientLine(value) {
+  return typeof value === "string" && value !== "" && classifyAdmissionWebhookTransient(value) === value.trimEnd();
 }
 
 // Returns the refusal code, or null once the retry is admitted. Nothing here retries a
@@ -2307,7 +2349,7 @@ async function admitAdmissionRetry(options, record) {
   ) {
     return "baseline-unexpected";
   }
-  record.preRetryHistory = compactHelmHistory(baseline.history);
+  record.preRetryHistory = fingerprintHelmHistory(baseline.history);
   return null;
 }
 
@@ -2442,7 +2484,8 @@ function hasExactKeys(value, keys) {
 }
 
 // Closed platform-kubernetes-deploy-attempts/v1: one terminal result, at most two
-// attempts, and no text except each attempt's bounded admission transient line.
+// attempts, and no text except each attempt's canonical admission transient line; the
+// pre-retry history keeps descriptions only as fingerprints.
 export function assertDeployAttemptsRecord(record) {
   assertDeployAttemptsShape(hasExactKeys(record, deployAttemptsKeys), "must contain exactly its v1 fields");
   assertDeployAttemptsShape(
@@ -2465,8 +2508,7 @@ export function assertDeployAttemptsRecord(record) {
           ["success", "failure"].includes(attempt.result) &&
           (attempt.admissionWebhookTransient === null ||
             (attempt.result === "failure" &&
-              typeof attempt.admissionWebhookTransient === "string" &&
-              attempt.admissionWebhookTransient.length > 0 &&
+              isAdmissionWebhookTransientLine(attempt.admissionWebhookTransient) &&
               attempt.admissionWebhookTransient.length <= 500)) &&
           (index === attempts.length - 1 || attempt.result === "failure"),
       ),
@@ -2502,13 +2544,16 @@ export function assertDeployAttemptsRecord(record) {
         record.preRetryHistory.length > 0 &&
         record.preRetryHistory.every(
           (entry, index) =>
-            hasExactKeys(entry, ["description", "revision", "status"]) &&
+            hasExactKeys(entry, ["descriptionSha256", "revision", "status"]) &&
             Number.isSafeInteger(entry.revision) &&
             entry.revision > (index === 0 ? 0 : record.preRetryHistory[index - 1].revision) &&
             typeof entry.status === "string" &&
-            typeof entry.description === "string",
+            entry.status !== "" &&
+            entry.status === entry.status.trim().toLowerCase() &&
+            typeof entry.descriptionSha256 === "string" &&
+            helmDescriptionFingerprintPattern.test(entry.descriptionSha256),
         )),
-    "preRetryHistory must be null or closed, strictly increasing revisions",
+    "preRetryHistory must be null or closed, strictly increasing revisions with normalized statuses and description fingerprints",
   );
   const performed = record.retry === "performed";
   assertDeployAttemptsShape(

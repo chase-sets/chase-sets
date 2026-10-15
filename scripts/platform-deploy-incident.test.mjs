@@ -424,7 +424,16 @@ function deployAttemptsRecord(attempts) {
       { outcome: performed ? "success" : "failure", elapsedMs: 10_900 },
     ],
     recovery: performed ? { sourceRevision: 692, resultingRevision: 695, rolledBack: true } : null,
-    preRetryHistory: performed ? [{ revision: 695, status: "deployed", description: "Rollback to 692" }] : null,
+    preRetryHistory: performed
+      ? [
+          {
+            revision: 695,
+            status: "deployed",
+            // SHA-256 of "Rollback to 692": the record never carries a Helm description itself.
+            descriptionSha256: "sha256:4c8dd2a754b6178a1e0b18fd3ccbda4b144635b3da140b76dffd50586950f3d4",
+          },
+        ]
+      : null,
   };
 }
 
