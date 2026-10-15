@@ -162,6 +162,85 @@ describe("whole Magic mapping preview", () => {
   });
 });
 
+describe("held-set batch required participation", () => {
+  it("retains required units across the four held-set product domains", async () => {
+    const domains = [
+      ["magic", "mtg", "set"],
+      ["pokemon", "pokemon", "expansion"],
+      ["yugioh", "yugioh", "set"],
+      ["one-piece", "one-piece", "set"],
+    ] as const;
+    const records = domains.map(([productDomain, , kind]) => ({
+      ...scopeRecord(`scope_synthetic_held_${productDomain}`),
+      product_domain: productDomain,
+      scope_kind: kind,
+      reference_record_id: `ref_synthetic_held_${productDomain}`,
+      reference_record_key: `synthetic_held_${productDomain}`,
+      name: `Synthetic ${productDomain} held set`,
+      official_set_code: null,
+    }));
+    const fixture = await magicFixture();
+    const tcgplayerMapping = fixture.mappings.find(
+      (mapping) => mapping.unit_key === "tcgplayer:mtg:single-card:source-observation-import",
+    )!;
+    const mappings = domains.map(([domain, unitDomain]) => ({
+      ...tcgplayerMapping,
+      mapping_id: `mapping_synthetic_held_${domain}`,
+      scope_record_id: `scope_synthetic_held_${domain}`,
+      unit_key: `tcgplayer:${unitDomain}:single-card:source-observation-import`,
+    }));
+    const db: PgQueryable = {
+      async query<Row>(sql: string) {
+        return { rows: (sql.includes("FROM catalog_scope_records") ? records : mappings) as Row[] };
+      },
+    };
+    const planner = createScopeSyncBatchPlanner({
+      db,
+      now: () => timestamp,
+      previewCatalogSyncScope: (input) =>
+        previewCatalogSyncProviderParticipation({
+          ...input,
+          acceptedScopeMappings: input.acceptedScopeMappings ?? [],
+          providerProfileVersions: catalogProviderIntegrationProfileVersions,
+          providerAdapterRegistry: new ProviderAdapterRegistry([
+            {
+              ...offlineAdapter("tcgplayer"),
+              getCredentialReadiness: async () => {
+                throw new Error("Synthetic TCGplayer readiness unavailable.");
+              },
+            },
+          ]),
+        }),
+    });
+    const { preview, plans } = await planner.resolve({
+      selection: { mode: "ids", scopeRecordIds: records.map((record) => record.scope_record_id) },
+      context,
+    });
+    expect(plans.map((plan) => plan.participationPreview.units.map((unit) => unit.unitKey).sort())).toEqual([
+      [
+        "scryfall:mtg:single-card:reference-data",
+        "tcgplayer:mtg:sealed-product:source-observation-import",
+        "tcgplayer:mtg:single-card:source-observation-import",
+      ],
+      [
+        "tcgdex:pokemon:single-card:source-observation-import",
+        "tcgplayer:pokemon:sealed-product:source-observation-import",
+        "tcgplayer:pokemon:single-card:source-observation-import",
+      ],
+      ["tcgplayer:yugioh:single-card:source-observation-import"],
+      [
+        "scrydex:one-piece:sealed-product:source-observation-import",
+        "scrydex:one-piece:single-card:source-observation-import",
+        "tcgplayer:one-piece:single-card:source-observation-import",
+      ],
+    ]);
+    expect(preview).toMatchObject({
+      confirmAllowed: false,
+      counts: { scopes: 4, readyScopes: 0, blockedScopes: 4, providerUnits: 10 },
+    });
+  });
+});
+
 async function magicFixture(providerProfiles: readonly CatalogProviderIntegrationProfileVersionRecord[] = profiles) {
   expect(profiles).toHaveLength(5);
   const {
