@@ -29,6 +29,195 @@ test("Maximum price stays typeable at 360x800 @marketplace-browse", async ({ pag
   await assertSettledResults(page, testInfo, fixture, response);
 });
 
+type HydrationObservation = {
+  clickedNode: Element | null;
+  hydratedAtClick: boolean;
+  commits: Array<{ didError: boolean; hydrated: boolean }>;
+  errors: string[];
+  barrier: boolean;
+};
+
+type HydrationWindow = Window & {
+  __priceFilterHydration: HydrationObservation;
+  __REACT_DEVTOOLS_GLOBAL_HOOK__: {
+    supportsFiber: boolean;
+    inject: () => number;
+    onCommitFiberRoot: (id: number, root: unknown, priority: unknown, didError: boolean) => void;
+    onPostCommitFiberRoot: () => void;
+  };
+};
+
+test("Open filters drops clicks before hydration at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.addInitScript(() => {
+    const observation: HydrationObservation = {
+      clickedNode: null,
+      hydratedAtClick: false,
+      commits: [],
+      errors: [],
+      barrier: false,
+    };
+    const observedWindow = window as HydrationWindow;
+    observedWindow.__priceFilterHydration = observation;
+    const recordError = (value: string) => {
+      if (!observation.barrier) observation.errors.push(value);
+    };
+    window.addEventListener("error", (event) => recordError(String(event.error ?? event.message)));
+    const consoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      recordError(args.map(String).join(" "));
+      consoleError.apply(console, args);
+    };
+    observedWindow.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      supportsFiber: true,
+      inject: () => 1,
+      onCommitFiberRoot: (_id, _root, _priority, didError) => {
+        if (observation.barrier) return;
+        const button = Array.from(document.querySelectorAll("button")).find(
+          (node) => node.textContent?.trim() === "Open filters",
+        );
+        observation.commits.push({
+          didError,
+          hydrated: button !== undefined && Object.keys(button).some((key) => key.startsWith("__reactProps$")),
+        });
+      },
+      onPostCommitFiberRoot: () => {
+        if (observation.commits.some((commit) => commit.hydrated)) observation.barrier = true;
+      },
+    };
+  });
+  const hydration = await withholdSearchHydration(page);
+  try {
+    await page.goto("/search?q=charizard", { waitUntil: "commit" });
+    await expect.poll(hydration.hasBlockedScript).toBe(true);
+    const button = page.getByRole("button", { name: "Open filters", exact: true });
+    await expect(button).toBeVisible();
+    await button.evaluate((node) => {
+      const observation = (window as HydrationWindow).__priceFilterHydration;
+      observation.clickedNode = node;
+      observation.hydratedAtClick = Object.keys(node).some((key) => key.startsWith("__reactProps$"));
+      if (observation.hydratedAtClick) throw new Error("Open filters must be unhydrated for the raw click");
+      (node as HTMLElement).click();
+    });
+    hydration.release();
+    await expect.poll(() => page.evaluate(() => (window as HydrationWindow).__priceFilterHydration.barrier)).toBe(true);
+    const observation = await button.evaluate((node) => {
+      const observation = (window as HydrationWindow).__priceFilterHydration;
+      return {
+        hydratedAtClick: observation.hydratedAtClick,
+        commitsAtBarrier: observation.commits.length,
+        didError: observation.commits.map((commit) => commit.didError),
+        sameNode: observation.clickedNode === node && node.isConnected,
+        reactErrors: observation.errors.filter((error) => /react\.dev\/errors\/|hydrat/i.test(error)),
+      };
+    });
+    const evidence = {
+      ...observation,
+      dialogCount: await page.getByRole("dialog", { name: "Filters", exact: true }).count(),
+    };
+    await testInfo.attach("pre-hydration-click", { body: JSON.stringify(evidence), contentType: "application/json" });
+    expect(evidence.hydratedAtClick).toBe(false);
+    expect(evidence.commitsAtBarrier).toBeGreaterThan(0);
+    expect(evidence.dialogCount, "the pre-hydration click must be dropped (H1)").toBe(0);
+    expect(evidence.sameNode, "hydration must preserve the clicked node (not H2/H3)").toBe(true);
+    expect(evidence.didError.every((didError) => didError === false)).toBe(true);
+    expect(evidence.reactErrors).toEqual([]);
+  } finally {
+    await hydration.dispose();
+  }
+});
+
+test("Open filters waits for hydration at 360x800 @marketplace-browse", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  const hydration = await withholdSearchHydration(page);
+  let result: Promise<unknown> | undefined;
+  try {
+    await page.goto("/search?q=charizard", { waitUntil: "commit" });
+    await expect.poll(hydration.hasBlockedScript).toBe(true);
+    const button = page.getByRole("button", { name: "Open filters", exact: true });
+    await expect(button).toBeVisible();
+    let observedUnhydrated = false;
+    const clicks: Array<{ scriptsHeld: boolean; hydrated: boolean }> = [];
+    const interaction = clickWhenHydrated(button, {
+      onUnhydrated: () => {
+        observedUnhydrated = true;
+      },
+      click: async () => {
+        const scriptsHeld = hydration.scriptsHeld();
+        const record = { scriptsHeld, hydrated: false };
+        clicks.push(record);
+        record.hydrated = await button.evaluate((node) =>
+          Object.keys(node).some((key) => key.startsWith("__reactProps$")),
+        );
+        await button.click();
+      },
+    });
+    result = interaction.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await expect.poll(() => observedUnhydrated).toBe(true);
+    const heldClicks = clicks.filter((click) => click.scriptsHeld);
+    expect(heldClicks).toEqual([]);
+    hydration.release();
+    expect(await result).toBeNull();
+    expect(clicks).toEqual([{ scriptsHeld: false, hydrated: true }]);
+    await expect(page.getByRole("dialog", { name: "Filters", exact: true })).toBeVisible();
+    await testInfo.attach("hydrated-click", {
+      body: JSON.stringify({ heldClicks, clicks }),
+      contentType: "application/json",
+    });
+  } finally {
+    await hydration.dispose();
+    await result;
+  }
+});
+
+async function withholdSearchHydration(page: Page) {
+  let releaseScripts!: () => void;
+  const released = new Promise<void>((resolve) => {
+    releaseScripts = resolve;
+  });
+  let scriptBlocked = false;
+  let scriptsHeld = true;
+  const release = () => {
+    scriptsHeld = false;
+    releaseScripts();
+  };
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() === "script") {
+      scriptBlocked = true;
+      await released;
+    }
+    await route.continue();
+  });
+  return {
+    hasBlockedScript: () => scriptBlocked,
+    scriptsHeld: () => scriptsHeld,
+    release,
+    async dispose() {
+      release();
+      await page.unrouteAll({ behavior: "wait" });
+    },
+  };
+}
+
+async function clickWhenHydrated(
+  locator: Locator,
+  { onUnhydrated, click = () => locator.click() }: { onUnhydrated?: () => void; click?: () => Promise<void> } = {},
+) {
+  await expect
+    .poll(async () => {
+      const hydrated = await locator.evaluate((node) =>
+        Object.keys(node).some((key) => key.startsWith("__reactProps$")),
+      );
+      if (!hydrated) onUnhydrated?.();
+      return hydrated;
+    })
+    .toBe(true);
+  await click();
+}
+
 async function openPriceFilters(page: Page, testInfo: TestInfo, viewport: { width: number; height: number }) {
   await page.setViewportSize(viewport);
   const query = new URLSearchParams({ search: "charizard", sort: "relevance", limit: "24" });
@@ -53,7 +242,7 @@ async function openPriceFilters(page: Page, testInfo: TestInfo, viewport: { widt
   await page.goto(`/search?${params}`, { waitUntil: "domcontentloaded" });
   const mobile = viewport.width === 360;
   if (mobile) {
-    await page.getByRole("button", { name: "Open filters", exact: true }).click();
+    await clickWhenHydrated(page.getByRole("button", { name: "Open filters", exact: true }));
     await expect(page.getByRole("dialog", { name: "Filters", exact: true })).toBeVisible();
   }
   const owner = page.locator(`[data-facet-list-presentation="${mobile ? "mobile" : "desktop"}"]`);
@@ -150,7 +339,7 @@ async function readSearch(page: Page, query: URLSearchParams): Promise<SearchRes
 async function expand(trigger: Locator) {
   await expect(trigger).toBeVisible();
   if ((await trigger.getAttribute("aria-expanded")) === "false") {
-    await trigger.click();
+    await clickWhenHydrated(trigger);
   }
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
 }
