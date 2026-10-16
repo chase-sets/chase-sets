@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { StoredEvent } from "@chase-sets/event-core/storage";
 import { marketplaceOfferRecoveryCodec } from "./recovery-codec";
 
 describe("Offer lifecycle recovery facts", () => {
@@ -7,7 +6,7 @@ describe("Offer lifecycle recovery facts", () => {
     const event = {
       eventType: `marketplace.offer.${status}`,
       payload: { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-16T00:00:00.000Z" },
-    } as StoredEvent;
+    };
     expect(marketplaceOfferRecoveryCodec.decode(event)).toMatchObject({ type: event.eventType, data: event.payload });
     for (const extra of [{ at: "invalid" }, { buyerAccountId: "" }, { offerId: "" }]) {
       expect(() =>

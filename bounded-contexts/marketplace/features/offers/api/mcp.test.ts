@@ -118,6 +118,7 @@ function services(): MarketplaceOfferServices {
     listSubmittedOffers: vi.fn(async () => ({
       items: [offerRow({ buyer_account_id: "acc_1" })],
       total: 1,
+      statusCounts: { submitted: 1, paused: 0, withdrawn: 0, accepted: 0 },
     })),
     listOfferMatches: vi.fn(async () => ({
       items: [
