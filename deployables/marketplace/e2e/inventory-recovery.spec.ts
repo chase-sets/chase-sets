@@ -5,7 +5,7 @@ import { captureAccessibilityEvidence } from "@chase-sets/playwright-evidence";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 import { registerRestockRecoveryBrowserTests } from "@chase-sets/inventory/seed-support/restock-recovery-browser";
-import { registerImportRecoveryBrowserTests } from "@chase-sets/inventory/seed-support/import-recovery-browser";
+import { registerImportRecoveryBrowserTests } from "@chase-sets/inventory/test-support/import-recovery-browser";
 
 registerImportRecoveryBrowserTests(async (page, baseUrl) => {
   await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());

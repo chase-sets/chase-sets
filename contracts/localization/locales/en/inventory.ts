@@ -43,6 +43,9 @@ export const inventoryEnglishTranslations = {
     "Only manual inventory holds can be released by sellers.",
   "inventory.features.inventoryItems.api.route.inventory.item.not.found": "Inventory item not found.",
   "inventory.features.inventoryItems.api.route.request.failed": "Request failed.",
+  "inventory.features.importBatches.api.route.import.source.not.accepted":
+    "Import source was not accepted. Check the file and attempt identity.",
+  "inventory.features.importBatches.api.route.import.row.page.invalid": "Import row page is invalid.",
   "inventory.features.inventoryItems.api.route.units.committed.to.open.orders":
     "{count} units are committed to open orders.",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code": "Adjustment reason",

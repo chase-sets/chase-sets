@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+import { t } from "@chase-sets/localization";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 
 export function registerImportRecoveryBrowserTests(
@@ -33,11 +34,6 @@ export function registerImportRecoveryBrowserTests(
         attemptId =
           /name="inventoryMutationAttemptId"\r\n\r\n([a-f0-9-]{36})/.exec(route.request().postData() ?? "")?.[1] ?? "";
         expect(attemptId).toMatch(/^[a-f0-9-]{36}$/);
-        const metadata = await page.evaluate(() =>
-          Object.entries(sessionStorage).filter(([key]) => key.startsWith("inventory-mutation/v1:")),
-        );
-        expect(JSON.stringify(metadata)).not.toContain(sentinel);
-        expect(JSON.stringify(metadata)).not.toContain("private-upload.csv");
         const response = await route.fetch({ maxRedirects: 0 });
         expect(response.status()).toBe(302);
         await route.abort("failed");
@@ -45,6 +41,11 @@ export function registerImportRecoveryBrowserTests(
       });
       await submit.click();
       await accepted;
+      const metadata = await page.evaluate(() =>
+        Object.entries(sessionStorage).filter(([key]) => key.startsWith("inventory-mutation/v1:")),
+      );
+      expect(JSON.stringify(metadata)).not.toContain(sentinel);
+      expect(JSON.stringify(metadata)).not.toContain("private-upload.csv");
       await page.goto("/account/inventory/imports");
       const status = page.getByRole("status").filter({ hasText: "original Inventory change is confirmed" });
       await expect(status).toBeVisible();
@@ -92,7 +93,12 @@ export function registerImportRecoveryBrowserTests(
           await route.fulfill({
             status: recovery === "reauth-required" ? 401 : 404,
             contentType: "application/json",
-            body: JSON.stringify({ error: { code: "not_found", message: "Not found" } }),
+            body: JSON.stringify({
+              error: {
+                code: "not_found",
+                message: t("inventory.features.importBatches.api.route.import.batch.not.found"),
+              },
+            }),
           });
         });
         const writes: string[] = [];

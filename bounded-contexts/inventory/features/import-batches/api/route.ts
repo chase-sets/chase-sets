@@ -136,7 +136,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         {
           error: {
             code: "validation_failed",
-            message: "Import source was not accepted. Check the file and attempt identity.",
+            message: t("inventory.features.importBatches.api.route.import.source.not.accepted"),
           },
         },
         400,
@@ -194,7 +194,15 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
     const limit = Number(c.req.query("limit") ?? 100);
     const offset = Number(c.req.query("offset") ?? 0);
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0) {
-      return c.json({ error: { code: "invalid_page", message: "Import row page is invalid." } }, 400);
+      return c.json(
+        {
+          error: {
+            code: "invalid_page",
+            message: t("inventory.features.importBatches.api.route.import.row.page.invalid"),
+          },
+        },
+        400,
+      );
     }
     const detail = await services.getBatch(c.req.param("id"), actor.accountId, { limit, offset });
     if (!detail) {

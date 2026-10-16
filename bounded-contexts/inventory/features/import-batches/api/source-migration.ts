@@ -105,7 +105,7 @@ async function convertSource(
 async function bindJobs(db: PgQueryable, inputId: string, accountId: string, hash: string, rowCount: number) {
   await db.query(
     `UPDATE inventory_import_batch_jobs SET payload = jsonb_set(payload, '{create}',
-      (payload->'create' - 'normalizedRows') || jsonb_build_object('snapshotVersion', 1, 'snapshotHash', $3::text, 'rowCount', $4::integer))
+      (payload->'create' - 'normalizedRows'::text) || jsonb_build_object('snapshotVersion', 1, 'snapshotHash', $3::text, 'rowCount', $4::integer))
       WHERE payload->>'accountId' = $2 AND payload #>> '{create,inputId}' = $1`,
     [inputId, accountId, hash, rowCount],
   );
