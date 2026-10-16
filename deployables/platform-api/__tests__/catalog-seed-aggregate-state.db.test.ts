@@ -12,6 +12,7 @@ import {
   prepareCatalog,
   catalogServices,
   ordinaryBoot,
+  directCatalogSeed,
   interruptCatalogSeed,
   requiredEventCounts,
   scenarioCatalogItemIds,
@@ -41,12 +42,34 @@ describe("Catalog integration aggregate-state seed", () => {
       environmentName: "test",
     };
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
+    await expectCatalogOnlyHarnessConnections();
     await expectAllRequiredAggregatesActive();
     expect((await inspectCatalogIntegrationSeedState(pools.catalog)).length).toBe(130);
     const afterBootOne = await requiredEventCounts();
 
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
+    await expectCatalogOnlyHarnessConnections();
     expect(await requiredEventCounts()).toEqual(afterBootOne);
+  });
+
+  it("NC-9146 rejects a seed-owned connection left checked out after completion", async () => {
+    const runtime = await prepareCatalog();
+    await expectCatalogOnlyHarnessConnections();
+    const client = await pools.catalog.connect();
+    try {
+      await client.query("SELECT set_config('application_name', 'catalog-seed-leaking-connection-control', false)");
+      await directCatalogSeed(catalogServices(runtime), profileShapes[0]);
+      await expect(expectCatalogOnlyHarnessConnections()).rejects.toThrow(
+        /catalog-seed-leaking-connection-control.*"busy":\[\{/u,
+      );
+    } finally {
+      try {
+        await client.query("RESET application_name");
+      } finally {
+        client.release();
+      }
+    }
+    await expectCatalogOnlyHarnessConnections();
   });
 
   it("does not re-author unchanged Product Measures facts on scenario-seed repeat", async () => {

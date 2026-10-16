@@ -12,6 +12,8 @@ import {
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { resetMultiContextTestSchemas } from "@chase-sets/bounded-context-runtime/test-support";
 import { expect } from "vitest";
+import pg from "pg";
+import { trackCatalogSeedConnections, type CatalogSeedBackend } from "./catalog-seed-connection-support";
 import { createPlatformApiHost } from "../src/app";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import {
@@ -54,6 +56,7 @@ export const profileShapes = [
 export let databaseUrls: Readonly<Record<PlatformApiContextName, string>>;
 
 export let pools: PlatformApiTestPools;
+let inspectConnections: ReturnType<typeof trackCatalogSeedConnections>;
 
 export function createCatalogSeedHost() {
   const runtime = createPlatformApiHost({
@@ -294,20 +297,34 @@ export async function expectCatalogOnlyHarnessConnections(): Promise<void> {
   const ownedDatabaseNames = Object.values(databaseUrls).map((databaseUrl) =>
     new URL(databaseUrl).pathname.replace(/^\//u, ""),
   );
-  const catalogDatabaseName = new URL(databaseUrls.catalog).pathname.replace(/^\//u, "");
-  const result = await pools.catalog.query<Readonly<{ datname: string; connection_count: string }>>(
-    `SELECT datname, COUNT(*) AS connection_count
-     FROM pg_stat_activity
-     WHERE datname = ANY($1::text[])
-     GROUP BY datname
-     ORDER BY datname`,
-    [ownedDatabaseNames],
-  );
-
-  expect(result.rows).toEqual([{ datname: catalogDatabaseName, connection_count: "1" }]);
+  // Observe from the provisioner's database: this adds no connection to an
+  // owned database and can see system-worker metadata hidden from test roles.
+  const observer = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
+  try {
+    await observer.connect();
+    const result = await observer.query<CatalogSeedBackend>(
+      `SELECT datname, pid, application_name, backend_type, state
+       FROM pg_stat_activity
+       WHERE datname = ANY($1::text[])
+       ORDER BY datname, pid`,
+      [ownedDatabaseNames],
+    );
+    const snapshot = inspectConnections(result.rows);
+    console.info("[catalog-seed-connections]", JSON.stringify(snapshot));
+    expect(snapshot.unexpected, JSON.stringify(snapshot)).toEqual([]);
+    expect(snapshot.busy, JSON.stringify(snapshot)).toEqual([]);
+    expect(snapshot.missing, JSON.stringify(snapshot)).toEqual([]);
+  } finally {
+    await observer.end();
+  }
 }
 
 export function assignCatalogSeedState(state: PlatformApiBootstrapTestState): void {
   databaseUrls = state.databaseUrls;
   pools = state.pools;
+  const namedPools = Object.fromEntries([
+    ...Object.entries(pools).filter(([name]) => name !== "contextWaiters"),
+    ...Object.entries(pools.contextWaiters).map(([name, pool]) => [`${name}:waiter`, pool]),
+  ]) as Record<string, pg.Pool>;
+  inspectConnections = trackCatalogSeedConnections(namedPools);
 }
