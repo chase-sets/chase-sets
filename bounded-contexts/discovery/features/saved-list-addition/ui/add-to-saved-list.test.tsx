@@ -138,7 +138,9 @@ describe("Add to Saved List control", () => {
         status: "saved",
         result: { listId: "svl_new", title: "New Favorites", lineStatus: "added" },
         trackedQuantity: 1,
+        postWriteToken: "pwt_test0000000001",
       });
+      const replaceState = vi.spyOn(window.history, "replaceState");
       fireEvent.click(screen.getByRole("button", { name: "Add Product" }));
       await act(async () => waitForRouterIdle(test.router));
       expect(test.action).toHaveBeenCalledTimes(2);
@@ -153,6 +155,11 @@ describe("Add to Saved List control", () => {
       expect(screen.getByRole("status").textContent).toContain("New Favorites");
       expect(screen.getByRole("link", { name: "View in My Collection" }).getAttribute("href")).toContain(
         "section=lists",
+      );
+      expect(replaceState).toHaveBeenCalled();
+      const retainedUrl = String(replaceState.mock.calls.at(-1)?.[2] ?? "");
+      expect(new URL(retainedUrl, "http://localhost").searchParams.get("postWriteToken")).toBe(
+        "pwt_test0000000001",
       );
       expect(test.loader).toHaveBeenCalledTimes(1);
       expect(test.router.state.errors).toBeNull();

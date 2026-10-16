@@ -77,6 +77,11 @@ export function AddToSavedListControl({
         return;
       }
       if (data.status === "saved") {
+        if (data.postWriteToken && typeof window !== "undefined") {
+          const url = new URL(window.location.href);
+          url.searchParams.set("postWriteToken", data.postWriteToken);
+          window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+        }
         setSaved(data);
         return;
       }
