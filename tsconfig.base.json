@@ -528,6 +528,9 @@
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
       ],
+      "@chase-sets/inventory/test-support/import-recovery-browser": [
+        "./bounded-contexts/inventory/features/import-batches/tests/recovery.browser.ts"
+      ],
       "@chase-sets/inventory/web": [
         "./bounded-contexts/inventory/web.ts"
       ],
