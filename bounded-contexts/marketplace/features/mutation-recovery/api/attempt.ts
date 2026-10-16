@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { t } from "@chase-sets/localization";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -48,7 +49,7 @@ export function completedMarketplaceAttemptSchema<T>(resultSchema: z.ZodType<T>)
         receipt.id !== (result.offerId ?? result.policyId) ||
         receipt.version !== result.version
       )
-        ctx.addIssue({ code: "custom", message: "Attempt receipt does not match the first result." });
+        ctx.addIssue({ code: "custom", message: t("marketplace.recovery.receiptMismatch") });
       if (completed.recovery.mutationKind === "offer.accept") {
         const acceptance = completed.acceptance;
         const accepted = offerAcceptanceResultSchema.safeParse(completed.result);
@@ -63,8 +64,9 @@ export function completedMarketplaceAttemptSchema<T>(resultSchema: z.ZodType<T>)
           acceptance.evidenceSnapshotHash !== accepted.data.listingEvidenceSnapshot.snapshotHash ||
           acceptance.requestHash !== completed.recovery.canonicalRequestHash
         )
-          ctx.addIssue({ code: "custom", message: "Invalid Offer acceptance binding." });
-      } else if (completed.acceptance) ctx.addIssue({ code: "custom", message: "Unexpected acceptance binding." });
+          ctx.addIssue({ code: "custom", message: t("marketplace.recovery.acceptanceBindingInvalid") });
+      } else if (completed.acceptance)
+        ctx.addIssue({ code: "custom", message: t("marketplace.recovery.acceptanceBindingUnexpected") });
     });
 }
 

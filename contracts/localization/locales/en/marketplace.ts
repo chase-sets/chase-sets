@@ -1,4 +1,7 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.recovery.receiptMismatch": "Attempt receipt does not match the first result.",
+  "marketplace.recovery.acceptanceBindingInvalid": "Invalid Offer acceptance binding.",
+  "marketplace.recovery.acceptanceBindingUnexpected": "Unexpected acceptance binding.",
   "marketplace.recovery.submitting": "Sending your Offer action...",
   "marketplace.recovery.confirming": "Confirming your first result. Do not submit this action again.",
   "marketplace.recovery.succeeded": "Your Offer action is confirmed.",
