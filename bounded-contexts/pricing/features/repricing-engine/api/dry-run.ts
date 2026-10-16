@@ -399,6 +399,11 @@ export function createRepricingDryRunServices(
           if (products.length < 500) break;
         }
         checkLease();
+        const healthRows = await db.query<{ health: RepricingHealthContribution | null }>(
+          `SELECT health FROM pricing_repricing_dry_run_traces WHERE seller_account_id = $1 AND dry_run_id = $2 AND health IS NOT NULL ORDER BY listing_id`,
+          [sellerAccountId, dryRunId],
+        );
+        const health = summarizeHealth(healthRows.rows.map((row) => row.health!).filter(Boolean), capturedAt);
         const completed = await db.query<RepricingDryRun>(
           `WITH items AS MATERIALIZED (
              SELECT item.* FROM pricing_repricing_dry_run_traces AS item
@@ -421,33 +426,15 @@ export function createRepricingDryRunServices(
                  FROM items WHERE items.outcome = 'changed' GROUP BY key) AS counts), '{}'::jsonb)
            ) AS value)
            UPDATE pricing_repricing_dry_runs AS run
-           SET status = 'completed', completed_at = clock_timestamp(), summary = summary.value, updated_at = clock_timestamp()
+           SET status = 'completed', completed_at = clock_timestamp(), summary = summary.value, health = $6::jsonb,
+             updated_at = clock_timestamp()
            FROM summary
            WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
              AND run.status = 'running' AND ${claimSql} RETURNING ${columns}`,
-          [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount],
+          [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount, JSON.stringify(health)],
         );
         requireOwned(completed.rows[0]);
-        const healthRows = await db.query<{ health: RepricingHealthContribution | null }>(
-          `SELECT health FROM pricing_repricing_dry_run_traces WHERE seller_account_id = $1 AND dry_run_id = $2 AND health IS NOT NULL ORDER BY listing_id`,
-          [sellerAccountId, dryRunId],
-        );
-        const health = summarizeHealth(healthRows.rows.map((row) => row.health!).filter(Boolean), capturedAt);
-        const persisted = await db.query<RepricingDryRun>(
-          `UPDATE pricing_repricing_dry_runs AS run SET health = $6::jsonb, updated_at = clock_timestamp()
-           WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
-             AND run.status = 'completed' AND ${claimSql} RETURNING ${columns}`,
-          [
-            sellerAccountId,
-            dryRunId,
-            completed.rows[0]!.updatedAt,
-            input.claimOwnerId,
-            claimed.attemptCount,
-            JSON.stringify(health),
-          ],
-        );
-        requireOwned(persisted.rows[0]);
-        run = persisted.rows[0]!;
+        run = completed.rows[0]!;
       }
       checkLease();
       requireOwned(
