@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runCountCaptureJourney } from "./count-capture-runner";
+import { runCountCaptureJourney, type CountCaptureDeploymentCollection } from "./count-capture-runner";
 import { syntheticCountLifecycleReceipt } from "../tests/count-lifecycle-receipt-fixture";
 
 const identity = { sha: "a".repeat(40), dispatchId: "synthetic-dispatch", scopeRecordId: "synthetic-scope" };
@@ -68,7 +68,7 @@ describe("isolates the count capture runner", () => {
       if (intent === "capture-freeze") return { receipt };
       return { retained: true };
     });
-    const collect = vi.fn(async () => receipt.freezeCollection);
+    const collect = vi.fn<CountCaptureDeploymentCollection>(async () => receipt.freezeCollection);
     return { receipt, baseline, quote, action, collect };
   }
 
