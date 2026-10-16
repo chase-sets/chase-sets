@@ -358,6 +358,16 @@ function summarizeCurrency(
     .map((item) => Date.parse(capturedAt) - Date.parse(item.modeled!.builtAt))
     .filter(Number.isFinite)
     .map((ms) => ms / 86_400_000);
+  const capitalTurnUnavailableReason =
+    economicsItems.length === 0
+      ? "no-economics"
+      : cycle === null || cycle.cycleDays <= 0
+        ? "non-positive-cycle"
+        : net <= 0
+          ? "non-positive-net-proceeds"
+          : cost <= 0
+            ? "non-positive-cost"
+            : null;
   return {
     listedValueAmount: money(listed * 100),
     modeledValueAmount: money(modeled * 100),
@@ -419,12 +429,7 @@ function summarizeCurrency(
         0.5,
       ),
       dailyReturnHurdleSourceKinds: hurdleSources,
-      unavailableReason:
-        economicsItems.length === 0
-          ? "no-economics"
-          : cycle && (!Number.isFinite(cycle.dailyReturn) || cycle.dailyReturn <= 0)
-            ? "non-positive-net-proceeds"
-            : null,
+      unavailableReason: capitalTurnUnavailableReason,
     },
   };
 }
