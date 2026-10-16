@@ -269,6 +269,8 @@
     "bounded-contexts/inventory/features/holds/read-model/queries.ts",
     "bounded-contexts/inventory/features/import-batches/api/product-resolution-maintenance.ts",
     "bounded-contexts/inventory/features/import-batches/api/runtime.ts",
+    "bounded-contexts/inventory/features/import-batches/api/safe-snapshot.ts",
+    "bounded-contexts/inventory/features/import-batches/api/source-migration.ts",
     "bounded-contexts/inventory/features/import-batches/read-model/account-sku-mappings.ts",
     "bounded-contexts/inventory/features/import-batches/read-model/queries.ts",
     "bounded-contexts/inventory/features/import-batches/read-model/seller-attention-source.ts",
@@ -515,7 +517,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 299,
+    "count": 301,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -568,7 +570,7 @@
       "bounded-contexts/identity/features/memberships/api/route.ts": 1,
       "bounded-contexts/identity/features/shipping-addresses/api/route.ts": 1,
       "bounded-contexts/identity/features/users/api/route.ts": 1,
-      "bounded-contexts/inventory/features/import-batches/api/route.ts": 2,
+      "bounded-contexts/inventory/features/import-batches/api/route.ts": 4,
       "bounded-contexts/inventory/features/inventory-items/api/route.ts": 2,
       "bounded-contexts/inventory/features/recovered-items/api/route.ts": 3,
       "bounded-contexts/inventory/features/restock-decisions/api/route.ts": 2,

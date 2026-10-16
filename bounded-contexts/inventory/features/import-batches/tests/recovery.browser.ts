@@ -43,9 +43,13 @@ export function registerImportRecoveryBrowserTests(
         await route.abort("failed");
         finish();
       });
+      const abortedNavigation = page.waitForEvent("framenavigated", {
+        predicate: (frame) => frame === page.mainFrame(),
+      });
       await submit.click();
       await accepted;
       await responseLoss;
+      await abortedNavigation;
       await page.goto("/account/inventory/imports");
       const metadata = await page.evaluate(() =>
         Object.entries(sessionStorage).filter(([key]) => key.startsWith("inventory-mutation/v1:")),

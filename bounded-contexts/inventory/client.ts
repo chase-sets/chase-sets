@@ -74,6 +74,10 @@ export interface InventoryApiClientOptions {
   recoverTransportErrorsAsGatewayTimeout?: boolean;
 }
 
+export interface InventoryMutationAttemptReadOptions {
+  force?: boolean;
+}
+
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
@@ -170,12 +174,23 @@ export function createInventoryApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
+  const mutationAttemptReads = new Map<string, Promise<InventoryMutationReceipt | null>>();
 
   return {
-    async getMutationAttempt(id: string): Promise<InventoryMutationReceipt | null> {
-      const response = await client["mutation-attempts"][":id"].$get({ param: { id }, header: headers });
-      if (response.status === 404) return null;
-      return parseJsonResponse<InventoryMutationReceipt>(response);
+    async getMutationAttempt(
+      id: string,
+      { force = false }: InventoryMutationAttemptReadOptions = {},
+    ): Promise<InventoryMutationReceipt | null> {
+      if (force) mutationAttemptReads.delete(id);
+      const existing = mutationAttemptReads.get(id);
+      if (existing) return existing;
+      const read = (async () => {
+        const response = await client["mutation-attempts"][":id"].$get({ param: { id }, header: headers });
+        if (response.status === 404) return null;
+        return parseJsonResponse<InventoryMutationReceipt>(response);
+      })();
+      mutationAttemptReads.set(id, read);
+      return read;
     },
     async listImportSources(): Promise<ListResponse<InventoryImportSourceProfile>> {
       return parseJsonResponse(

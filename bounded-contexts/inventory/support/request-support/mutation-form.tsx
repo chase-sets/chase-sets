@@ -148,7 +148,7 @@ export function InventoryMutationProvider({
               <Button
                 type="button"
                 onClick={() => {
-                  void controller.confirm((id) => inventoryApi.getMutationAttempt(id)).then(changed);
+                  void controller.confirm((id) => inventoryApi.getMutationAttempt(id, { force: true })).then(changed);
                 }}
               >
                 {t("inventory.recovery.check")}
