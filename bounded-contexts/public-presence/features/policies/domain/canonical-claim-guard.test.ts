@@ -830,9 +830,9 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  // Includes #7422 revocation, #9499 Inventory recovery storage and #9721 byte-identical citation
-  // relocations; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "9ebe05a925a22c33afeedb451c1efd2a44b779b487583c82ed3c84446ddd9c32",
+  // Includes #7422 revocation, #9499 Inventory recovery storage, the #9106 Search Interpretation marker in
+  // stored search restoration, and #9721 byte-identical citation relocations; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "458b04e7594d16a9ffcbc0eacf38bb0d0db92a99f9701d0739824d2819ed6fc0",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };

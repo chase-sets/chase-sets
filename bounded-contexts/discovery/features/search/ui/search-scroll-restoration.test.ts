@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DiscoverySearchResponse } from "../../../support/request-support/api-client";
 import {
+  buildSearchResultSetKey,
   MAX_PERSISTED_SEARCH_EXTRA_PAGES,
   persistSearchRestoration,
   restoreSearchRestoration,
@@ -42,6 +43,39 @@ describe("search scroll restoration", () => {
     const v2Pages = [page("v2-second", "v2_3")];
     persistSearchRestoration(window.sessionStorage, "charizard", v2Pages, 1_200);
     expect(restoreSearchRestoration(window.sessionStorage, "charizard")).toEqual({ pages: v2Pages, scrollY: 1_200 });
+  });
+
+  it("keys a marked request as its own Result Set and leaves unmarked keys unchanged", () => {
+    const identity = {
+      search: "charizard",
+      category: "",
+      tag: "",
+      language: "",
+      marketActivity: "",
+      priceMin: "",
+      priceMax: "",
+      inStock: false,
+      sort: "relevance",
+      dynamicFilters: [{ kind: "dimension", id: "grade", value: "ten" }],
+    };
+    const unmarked = buildSearchResultSetKey({ ...identity, interpreted: false });
+    const marked = buildSearchResultSetKey({ ...identity, interpreted: true });
+
+    // Byte for byte the key stored before the marker existed, so stored restoration stays valid.
+    expect(unmarked).toBe(
+      '["charizard","","","","","","",false,"relevance",[{"kind":"dimension","id":"grade","value":"ten"}]]',
+    );
+    expect(marked).not.toBe(unmarked);
+
+    persistSearchRestoration(window.sessionStorage, unmarked, [page("semantic-only", null)], 640);
+    expect(restoreSearchRestoration(window.sessionStorage, marked)).toEqual({ pages: [], scrollY: null });
+    persistSearchRestoration(window.sessionStorage, marked, [page("lexical", null)], 320);
+    expect(restoreSearchRestoration(window.sessionStorage, unmarked)).toEqual({ pages: [], scrollY: null });
+    persistSearchRestoration(window.sessionStorage, marked, [page("lexical", null)], 320);
+    expect(restoreSearchRestoration(window.sessionStorage, marked)).toEqual({
+      pages: [page("lexical", null)],
+      scrollY: 320,
+    });
   });
 
   it("caps persisted pages at a contiguous prefix so its final cursor remains resumable", () => {

@@ -101,6 +101,82 @@ describe("Discovery search runtime telemetry", () => {
     expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
   });
 
+  it("an interpreted hit records one final signal without text, labels, or an embedding", async () => {
+    const recordSearchQuery = vi.fn();
+    const embed = vi.fn(async () => ({ vectors: [[1]], totalTokens: 1 }));
+    const db = interpretationDb((sql, values) =>
+      sql.startsWith("SELECT * FROM") && values.includes("dim_seed_grade") ? [{ catalog_item_id: "zard-psa-10" }] : [],
+    );
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db },
+      {
+        provider: { model: "synthetic-interpretation", dimensions: 1, embed },
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: false,
+        recordSearchQuery,
+      },
+    );
+
+    const result = await runtime.searchItems({ search: "zard psa 10" });
+    expect(result.items.map((item) => item.catalog_item_id)).toEqual(["zard-psa-10"]);
+    expect(result.interpretation).toEqual({
+      remainingQuery: "zard",
+      applied: [
+        { param: "dimension.dim_seed_grading_company", optionId: "chc_seed_grading_company_psa", label: "PSA" },
+        { param: "dimension.dim_seed_grade", optionId: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10" },
+      ],
+    });
+    expect(embed).not.toHaveBeenCalled();
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        outcome: "success",
+        retrievalMode: "lexical",
+        resultCount: 1,
+        filterState: "none",
+        queryEmbeddingOutcome: "not-attempted",
+      }),
+    );
+    for (const text of ["zard", "psa", "PSA", "Gem Mint", "chc_seed", "dim_seed"]) {
+      expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain(text);
+    }
+  });
+
+  it("an interpreted miss records one signal with the original-text owner outcome", async () => {
+    const recordSearchQuery = vi.fn();
+    const embed = vi.fn(async () => ({ vectors: [[1]], totalTokens: 1 }));
+    const db = interpretationDb(() => []);
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db },
+      {
+        provider: { model: "synthetic-interpretation-miss", dimensions: 1, embed },
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: false,
+        recordSearchQuery,
+      },
+    );
+
+    await expect(runtime.searchItems({ search: "chraizard japanese" })).resolves.not.toHaveProperty("interpretation");
+    expect(embed).toHaveBeenCalledExactlyOnceWith(["chraizard japanese"], "query", expect.anything());
+    expect(db.correctionLookups).toBeLessThanOrEqual(3);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ outcome: "success", retrievalMode: "lexical", queryEmbeddingOutcome: "loaded" }),
+    );
+    expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toMatch(/chraizard|japanese|Japanese/);
+  });
+
+  it("keys a marked request as its own Result Set", async () => {
+    const runtime = createDiscoveryItemSearchRuntime(deps(), {});
+    const request = { search: "zard", dimensionFilters: [{ dimensionId: "dim_seed_grade", optionId: "gm10" }] };
+    const unmarked = await runtime.searchItems(request);
+    const absentMarker = await runtime.searchItems({ ...request, interpreted: undefined });
+    const marked = await runtime.searchItems({ ...request, interpreted: true });
+    expect(absentMarker.resultSetKey).toBe(unmarked.resultSetKey);
+    expect(marked.resultSetKey).not.toBe(unmarked.resultSetKey);
+    expect(marked.queryHash).toBe(unmarked.queryHash);
+  });
+
   it("outcome/timing matrix separates owner, joined, and warm reuse", async () => {
     vi.useFakeTimers();
     const recordSearchQuery = vi.fn();
@@ -366,6 +442,36 @@ function deps() {
     query: async <Row>() => ({ rows: [] as Row[], rowCount: 0 }),
   };
   return { db, eventStore: {} as never, checkpointStore: {} as never };
+}
+
+// Serves the seed PSA and Gem Mint 10 options from the option mirror and counts correction
+// candidate lookups; every other read answers `rows`.
+function interpretationDb(rows: (sql: string, values: readonly unknown[]) => unknown[]) {
+  const db = {
+    correctionLookups: 0,
+    query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes("FROM discovery_search_catalog_dimension_options")) {
+        const options = [
+          ["dim_seed_grading_company", "chc_seed_grading_company_psa", "psa", "PSA", null],
+          ["dim_seed_grade", "chc_seed_grade_gem_mint_10", "gem-mint-10", "Gem Mint 10", "10"],
+        ].map(([dimension_id, option_id, code, label, numeric_value]) => ({
+          dimension_id,
+          option_id,
+          code,
+          label,
+          numeric_value,
+        }));
+        return { rows: options as Row[], rowCount: options.length };
+      }
+      if (sql.startsWith("SELECT EXISTS")) {
+        db.correctionLookups++;
+        return { rows: [{ literal: false, prefix: false, candidates: [] }] as Row[], rowCount: 1 };
+      }
+      const page = rows(sql, values);
+      return { rows: page as Row[], rowCount: page.length };
+    },
+  };
+  return db;
 }
 
 function encodeCursorJson(value: unknown): string {

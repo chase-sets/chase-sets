@@ -717,12 +717,15 @@
       "slot": "top-nav",
       "placements": ["top-nav", "bottom-nav"],
       "key": "money",
-      "label": "Money",
+      "label": "Seller money",
+      "labelKey": "settlement.shell.money.label",
       "icon": "wallet",
       "href": "/account/desk/money",
       "order": 180,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.view"]
+      "requiredPermissions": ["payouts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 500
     }
   ],
   "directoryIntent": {

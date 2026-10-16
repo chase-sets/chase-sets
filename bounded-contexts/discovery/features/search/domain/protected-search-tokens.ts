@@ -1,17 +1,23 @@
 export type ServedSearchSetCodeLookup = (candidates: readonly string[]) => Promise<ReadonlySet<string>>;
 export type ProtectedSearchToken = Readonly<{ raw: string; protected: boolean }>;
+export type SearchTextToken = Readonly<{ raw: string; digitBearing: boolean }>;
 
-export async function classifyProtectedSearchTokens(
-  value: string,
-  lookup: ServedSearchSetCodeLookup,
-): Promise<readonly ProtectedSearchToken[]> {
-  const tokens = (value.match(/\S+/gu) ?? []).flatMap((rawInput) => {
+/** Splits search text into the word tokens that protection, correction, and interpretation share. */
+export function tokenizeSearchText(value: string): readonly SearchTextToken[] {
+  return (value.match(/\S+/gu) ?? []).flatMap((rawInput) => {
     const digitBearing = /\p{N}/u.test(rawInput);
     const safeTokens = rawInput.match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*(?:[./-][\p{L}\p{N}][\p{L}\p{M}\p{N}]*)*/gu) ?? [];
     return safeTokens
       .flatMap((token) => (digitBearing ? [token] : token.split(/[./-]/u)))
       .map((raw) => ({ raw, digitBearing }));
   });
+}
+
+export async function classifyProtectedSearchTokens(
+  value: string,
+  lookup: ServedSearchSetCodeLookup,
+): Promise<readonly ProtectedSearchToken[]> {
+  const tokens = tokenizeSearchText(value);
   const isCodeCandidate = (index: number) =>
     !tokens[index].digitBearing &&
     /^\p{L}[\p{L}\p{M}]*$/u.test(tokens[index].raw) &&
