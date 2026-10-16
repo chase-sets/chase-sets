@@ -49,9 +49,6 @@ export function InventoryMutationProvider({
       .confirm((id) => inventoryApi.getMutationAttempt(id))
       .then(() => {
         if (current) changed();
-      })
-      .finally(() => {
-        automaticallyConfirmedAttempts.delete(attemptId);
       });
   };
   useEffect(() => {

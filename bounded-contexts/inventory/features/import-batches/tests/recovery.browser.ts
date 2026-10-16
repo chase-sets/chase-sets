@@ -46,12 +46,12 @@ export function registerImportRecoveryBrowserTests(
       await submit.click();
       await accepted;
       await responseLoss;
+      await page.goto("/account/inventory/imports");
       const metadata = await page.evaluate(() =>
         Object.entries(sessionStorage).filter(([key]) => key.startsWith("inventory-mutation/v1:")),
       );
       expect(JSON.stringify(metadata)).not.toContain(sentinel);
       expect(JSON.stringify(metadata)).not.toContain("private-upload.csv");
-      await page.goto("/account/inventory/imports");
       const status = page.getByRole("status").filter({ hasText: "original Inventory change is confirmed" });
       await expect(status).toBeVisible();
       await expect(status).toBeFocused();
