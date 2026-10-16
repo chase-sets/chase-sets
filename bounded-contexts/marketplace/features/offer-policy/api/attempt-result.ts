@@ -8,7 +8,10 @@ export const offerPolicyAttemptResultSchema: z.ZodType<ReturnType<typeof seriali
   status: z.enum(["draft", "active", "paused", "stopped"]),
   version: z.number().int().nonnegative().safe(),
   revision: z.number().int().nonnegative().safe(),
-  currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
+  currency: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .nullable(),
   consumedItemAmount: z.string().refine(isCanonicalMoneyAmount),
   remainingItemAllowance: z
     .string()
