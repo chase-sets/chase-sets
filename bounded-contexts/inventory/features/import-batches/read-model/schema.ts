@@ -164,7 +164,7 @@ export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] 
     description: "Install safe versioned import source readers and bounded row storage before writer cutover.",
     statements: [
       inventoryImportSnapshotSchemaSql,
-      `CREATE INDEX IF NOT EXISTS inventory_import_batch_jobs_batch_state_idx
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_jobs_batch_state_idx
         ON inventory_import_batch_jobs ((payload->>'accountId'), (payload->>'batchId'), job_kind, status)`,
     ],
   },

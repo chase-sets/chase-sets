@@ -1,9 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { identitySeedIds } from "@chase-sets/identity-seed";
-import { captureAccessibilityEvidence } from "@chase-sets/playwright-evidence";
 
-export function registerImportRecoveryBrowserTests(signIn: (page: Page, baseUrl: string) => Promise<void>) {
+export function registerImportRecoveryBrowserTests(
+  signIn: (page: Page, baseUrl: string) => Promise<void>,
+  captureAccessibilityEvidence: (input: { page: Page; testInfo: TestInfo; surface: string }) => Promise<void>,
+) {
   test.describe("@marketplace-seller issue-7169-c3-upload-recovery", () => {
     test("real upload response loss restores one private acceptance without retaining or resending the file", async ({
       page,

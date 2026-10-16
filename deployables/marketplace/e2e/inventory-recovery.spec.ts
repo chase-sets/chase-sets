@@ -9,7 +9,7 @@ import { registerImportRecoveryBrowserTests } from "@chase-sets/inventory/seed-s
 
 registerImportRecoveryBrowserTests(async (page, baseUrl) => {
   await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());
-});
+}, captureAccessibilityEvidence);
 
 registerRestockRecoveryBrowserTests(async (page, baseUrl) => {
   await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());
