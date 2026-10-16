@@ -144,7 +144,7 @@ const repairControls = [
   ],
   [
     "F2-K3c",
-    "export function route(svc: H) { let fn: unknown; ({ [method]: fn } = svc); return fn; }",
+    "export function route(svc: H) { let fn: unknown; ({ [method]: fn } = svc as H & Record<string, Fn>); return fn; }",
     "FAMILY_DYNAMIC_KEY",
   ],
   [
