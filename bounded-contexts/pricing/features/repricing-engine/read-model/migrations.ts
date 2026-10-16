@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_dry_runs (
   completed_at timestamptz NULL,
   consumed_at timestamptz NULL,
   summary jsonb NULL,
+  health jsonb NULL,
   cursor jsonb NULL,
   updated_at timestamptz NOT NULL
 );
@@ -114,5 +115,10 @@ export const pricingRepricingDryRunSchemaMigrations: readonly BcSchemaMigration[
     migrationId: "20261016_pricing_repricing_health_summary",
     description: "Store additive health contributions and the durable Pricing Health Summary without changing traces.",
     statements: [`ALTER TABLE pricing_repricing_dry_run_traces ADD COLUMN IF NOT EXISTS health jsonb NULL`],
+  },
+  {
+    migrationId: "20261016_pricing_repricing_health_run",
+    description: "Store the durable Pricing Health Summary as a nullable top-level dry-run field.",
+    statements: [`ALTER TABLE pricing_repricing_dry_runs ADD COLUMN IF NOT EXISTS health jsonb NULL`],
   },
 ];

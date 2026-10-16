@@ -1,4 +1,3 @@
-import { centsToMoneyAmount } from "@chase-sets/primitives/money";
 import type { EconomicsResolution } from "../../economics/domain/resolution";
 import { toEconomicsForPricingGoal } from "../../economics/domain/resolution";
 import { capitalCycle } from "../../repricing-policies/domain/portfolio/capital-cycle";
@@ -282,7 +281,15 @@ function summarizeCurrency(
   items: readonly RepricingHealthContribution[],
   capturedAt: string,
 ): RepricingHealthCurrencySummary {
-  const money = (cents: number) => centsToMoneyAmount(BigInt(Math.round(cents))) as string;
+  // Summary totals are aggregates, so they may exceed the bounded single-money
+  // value accepted by the primitives package. Keep the display contract while
+  // formatting the aggregate directly.
+  const money = (cents: number) => {
+    const amount = cents / 100;
+    if (!Number.isFinite(amount)) return "0.00";
+    const formatted = amount.toFixed(2);
+    return formatted === "-0.00" ? "0.00" : formatted;
+  };
   const units = items.reduce((sum, item) => sum + Math.max(0, item.quantity), 0);
   const listed = items.reduce((sum, item) => sum + Math.max(0, item.quantity) * Number(item.currentPriceAmount), 0);
   const modeled = items.reduce((sum, item) => sum + Math.max(0, item.quantity) * Number(item.effectivePriceAmount), 0);

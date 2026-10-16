@@ -31,7 +31,6 @@ export type RepricingDryRunSummary = Readonly<{
   flags: Readonly<Record<string, number>>;
   deltaBuckets: Readonly<Record<string, number>>;
   withinTolerance: number;
-  health?: RepricingHealthSummary | null;
 }>;
 export type RepricingDryRun = Readonly<{
   dryRunId: string;
@@ -43,6 +42,7 @@ export type RepricingDryRun = Readonly<{
   completedAt: string | null;
   consumedAt: string | null;
   summary: RepricingDryRunSummary | null;
+  health?: RepricingHealthSummary | null;
   cursor: RepricingProductKey | null;
   updatedAt: string;
 }>;
@@ -53,7 +53,7 @@ function publicDryRun({ jobStatus, ...run }: ReadRow): RepricingDryRun {
   return {
     ...run,
     status: jobStatus === "failed" ? "failed" : run.status,
-    summary: run.summary === null ? null : { ...run.summary, health: run.summary.health ?? null },
+    health: run.health ?? null,
   };
 }
 const tables = { jobsTable: "pricing_repricing_dry_run_jobs", eventsTable: "pricing_repricing_dry_run_job_events" };
@@ -61,7 +61,7 @@ const jobKind = "repricing-dry-run";
 const columns = `run.dry_run_id AS "dryRunId", run.body, run.body_hash AS "bodyHash",
   run.replacing_policy_id AS "replacingPolicyId", run.status, run.requested_at::text AS "requestedAt",
   run.completed_at::text AS "completedAt", run.consumed_at::text AS "consumedAt",
-  run.summary, run.cursor, run.updated_at::text AS "updatedAt"`;
+  run.summary, run.health, run.cursor, run.updated_at::text AS "updatedAt"`;
 
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
@@ -434,7 +434,7 @@ export function createRepricingDryRunServices(
         );
         const health = summarizeHealth(healthRows.rows.map((row) => row.health!).filter(Boolean), capturedAt);
         const persisted = await db.query<RepricingDryRun>(
-          `UPDATE pricing_repricing_dry_runs AS run SET summary = run.summary || jsonb_build_object('health', $6::jsonb), updated_at = clock_timestamp()
+          `UPDATE pricing_repricing_dry_runs AS run SET health = $6::jsonb, updated_at = clock_timestamp()
            WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
              AND run.status = 'completed' AND ${claimSql} RETURNING ${columns}`,
           [
