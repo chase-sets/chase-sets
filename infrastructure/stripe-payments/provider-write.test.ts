@@ -67,8 +67,6 @@ it.each([
     agenticPayment: {
       kind: "stripe-shared-payment-token",
       sharedPaymentGrantedToken: "spt_SYNTHETIC",
-      ap2CheckoutMandateId: "ap2_checkout_SYNTHETIC",
-      ap2PaymentMandateId: "ap2_payment_SYNTHETIC",
     },
   });
   await gateway.createRefund({

@@ -1813,8 +1813,6 @@ describe("Stripe payment processor gateway", () => {
       agenticPayment: {
         kind: "stripe-shared-payment-token",
         sharedPaymentGrantedToken: "spt_123",
-        ap2CheckoutMandateId: "ap2_checkout_1",
-        ap2PaymentMandateId: "ap2_payment_1",
       },
       marketplaceRiskMetadata: {
         seller_account_ids: "acc_seller",
@@ -1831,7 +1829,9 @@ describe("Stripe payment processor gateway", () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Headers).get("Stripe-Version")).toBe(STRIPE_API_VERSION);
     expect((init.headers as Headers).get("Idempotency-Key")).toBe("idem_agentic");
-    expect(formSnapshot(init.body)).toMatchObject({
+    const submitted = formSnapshot(init.body);
+    expect(Object.keys(submitted).filter((key) => key.includes("mandate"))).toEqual([]);
+    expect(submitted).toMatchObject({
       amount: "2000",
       currency: "usd",
       shared_payment_granted_token: "spt_123",
@@ -1841,8 +1841,6 @@ describe("Stripe payment processor gateway", () => {
       "metadata[payment_id]": "pay_agentic",
       "metadata[order_ids]": "ord_agentic",
       "metadata[ucp_payment_handler]": "stripe-shared-payment-token",
-      "metadata[ap2_checkout_mandate_id]": "ap2_checkout_1",
-      "metadata[ap2_payment_mandate_id]": "ap2_payment_1",
       "metadata[seller_account_ids]": "acc_seller",
       "metadata[high_dollar_order]": "false",
     });

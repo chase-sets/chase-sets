@@ -1115,7 +1115,7 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 138,
+      "platform-api": 135,
       "platform-bootstrap": 64,
       "platform-worker": 134,
       "public-web": 13,

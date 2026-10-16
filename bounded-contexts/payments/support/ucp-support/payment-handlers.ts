@@ -1,100 +1,29 @@
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
-import type { AgenticProcessorPaymentInput, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
+import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 
-export type UcpAp2MandateVerificationInput = Readonly<{
-  checkout: Readonly<Record<string, unknown>>;
-  checkoutMandate: UcpAp2MandateArtifact;
-  paymentTokenPresent: boolean;
-  verifiedAt: string;
+// Off-session completion against a payment method the buyer saved through the hosted setup rail.
+// The buyer's off-session consent was captured during setup, and the agent grant's spending mandate
+// governs the money movement. Payments still validates the instrument's readiness at charge time,
+// so a removed or not-ready instrument can never be charged.
+export type UcpPaymentCompletionDecision = Readonly<{
+  kind: "headless-stored-payment-method";
+  savedCheckoutInstrumentId: string;
 }>;
-
-export type UcpAp2MandateArtifact = Readonly<{
-  id: string | null;
-  token: string;
-}>;
-
-export type UcpAp2MandateVerificationResult =
-  | Readonly<{
-      ok: true;
-      mode: "human-present" | "human-not-present";
-      evidence?: Readonly<Record<string, unknown>>;
-    }>
-  | Readonly<{
-      ok: false;
-      code:
-        | "mandate_required"
-        | "agent_missing_key"
-        | "mandate_invalid_signature"
-        | "mandate_expired"
-        | "mandate_scope_mismatch"
-        | "merchant_authorization_invalid"
-        | "merchant_authorization_missing"
-        | "mandate_verification_unavailable";
-      message: string;
-    }>;
-
-export type UcpAp2MandateVerifier = Readonly<{
-  verify: (
-    input: UcpAp2MandateVerificationInput,
-  ) => Promise<UcpAp2MandateVerificationResult> | UcpAp2MandateVerificationResult;
-}>;
-
-export type UcpPaymentCompletionDecision =
-  | Readonly<{
-      kind: "respond";
-      response: UcpEnvelope;
-    }>
-  | Readonly<{
-      kind: "headless-agentic-payment";
-      agenticPayment: AgenticProcessorPaymentInput["agenticPayment"];
-      humanPresent: true;
-      evidence?: Readonly<Record<string, unknown>>;
-    }>
-  | Readonly<{
-      // Off-session completion against a payment method the buyer saved through the hosted
-      // setup rail. No AP2 mandate is required: the buyer's off-session consent was
-      // captured during setup, and the agent grant's spending mandate governs the money movement.
-      // Payments still validates the instrument's readiness at charge time, so a removed or
-      // not-ready instrument can never be charged.
-      kind: "headless-stored-payment-method";
-      savedCheckoutInstrumentId: string;
-    }>;
 
 export type UcpPaymentHandlerHandoff = Readonly<{
   payment: Readonly<{
     handlers: readonly Readonly<Record<string, unknown>>[];
-    ap2: Readonly<{
-      mandate_verification: "enabled" | "not-enabled";
-      merchant_authorization: "enabled" | "not-enabled";
-      shared_payment_token: "enabled" | "not-enabled";
-      headless_completion_enabled: boolean;
-      supported_modes: readonly ["human-present"];
-    }>;
     stored_payment_method: Readonly<{
       off_session_completion_enabled: boolean;
       setup_tools: readonly string[];
     }>;
   }>;
-  evaluateCompleteRequest: (
-    body: Readonly<Record<string, unknown>>,
-    checkout: Readonly<Record<string, unknown>>,
-  ) => Promise<UcpPaymentCompletionDecision | null> | UcpPaymentCompletionDecision | null;
+  // Returns null when the request names no saved checkout instrument; Checkout then answers with
+  // its trusted checkout handoff, so an agent-provided instrument never reaches a processor payment.
+  evaluateCompleteRequest: (body: Readonly<Record<string, unknown>>) => UcpPaymentCompletionDecision | null;
 }>;
 
-export function createPaymentsUcpHandoff(
-  publicConfig: PaymentProcessorPublicConfig,
-  options: Readonly<{
-    ap2Verifier?: UcpAp2MandateVerifier;
-    merchantAuthorizationEnabled?: boolean;
-  }> = {},
-): UcpPaymentHandlerHandoff {
+export function createPaymentsUcpHandoff(publicConfig: PaymentProcessorPublicConfig): UcpPaymentHandlerHandoff {
   const agenticHandlers = publicConfig.agenticPaymentHandlers ?? [];
-  const sharedPaymentTokenEnabled = agenticHandlers.some(
-    (handler) => handler.provider === "stripe" && handler.type === "shared_payment_token",
-  );
-  const canHeadlessComplete = Boolean(
-    options.ap2Verifier && options.merchantAuthorizationEnabled && sharedPaymentTokenEnabled,
-  );
   return {
     payment: {
       handlers: [
@@ -112,12 +41,7 @@ export function createPaymentsUcpHandoff(
           type: handler.type,
           processor: handler.provider,
           confirmation_experience: handler.confirmationExperience,
-          requires_ap2_mandate: handler.requiresAp2Mandate,
-          requires_trusted_ui: !(
-            canHeadlessComplete &&
-            handler.provider === "stripe" &&
-            handler.type === "shared_payment_token"
-          ),
+          requires_trusted_ui: true,
         })),
         {
           // Stored-payment-method rail: an agent completes off-session with a card the buyer saved
@@ -127,249 +51,25 @@ export function createPaymentsUcpHandoff(
           type: "stored_payment_method",
           processor: publicConfig.processorName,
           confirmation_experience: "off-session-token",
-          requires_ap2_mandate: false,
           requires_trusted_ui: false,
           supports_challenge_handoff: true,
         },
       ],
-      ap2: {
-        mandate_verification: options.ap2Verifier ? "enabled" : "not-enabled",
-        merchant_authorization: options.merchantAuthorizationEnabled ? "enabled" : "not-enabled",
-        shared_payment_token: sharedPaymentTokenEnabled ? "enabled" : "not-enabled",
-        headless_completion_enabled: canHeadlessComplete,
-        supported_modes: ["human-present"],
-      },
       stored_payment_method: {
         off_session_completion_enabled: true,
         setup_tools: ["payments.start-payment-method-setup", "payments.confirm-payment-method-setup"],
       },
     },
-    evaluateCompleteRequest: async (body, checkout) => {
-      const ap2 = readObject(body.ap2);
-      const payment = readObject(body.payment);
-      const paymentData = readObject(body.payment_data);
-
-      // A stored-payment-method reference is an explicit instruction to charge a saved instrument
-      // off-session. It stands on the buyer's setup-time consent, so it is recognized before the
-      // AP2-mandate gate below.
+    evaluateCompleteRequest: (body) => {
       const savedCheckoutInstrumentId = readStoredPaymentMethodId(body);
-      if (savedCheckoutInstrumentId) {
-        return { kind: "headless-stored-payment-method", savedCheckoutInstrumentId };
-      }
-
-      if (!ap2 && !payment && !paymentData) {
-        return null;
-      }
-
-      if (!ap2) {
-        return {
-          kind: "respond",
-          response: createUcpEnvelope(
-            "requires_action",
-            {
-              action: {
-                type: "trusted_checkout_handoff",
-                reason:
-                  "Agent-provided payment instruments require AP2 checkout mandates before headless processor submission.",
-              },
-            },
-            [
-              {
-                severity: "warning",
-                code: "mandate_required",
-                message: "AP2 checkout mandate is required for agentic payment-handler completion.",
-              },
-            ],
-          ),
-        };
-      }
-
-      const mandateShape = readAp2Mandates(ap2);
-      if (mandateShape.kind === "invalid") {
-        return { kind: "respond", response: mandateShape.response };
-      }
-
-      if (!options.ap2Verifier || !options.merchantAuthorizationEnabled) {
-        return {
-          kind: "respond",
-          response: createUcpEnvelope(
-            "requires_action",
-            {
-              action: {
-                type: "trusted_checkout_handoff",
-                reason:
-                  "AP2 checkout mandates require production mandate verification and merchant authorization signing before headless completion.",
-              },
-            },
-            [
-              {
-                severity: "warning",
-                code: "mandate_verification_unavailable",
-                message:
-                  "Continue through trusted checkout UI; AP2 verification or merchant authorization signing is not enabled for headless money movement.",
-              },
-            ],
-          ),
-        };
-      }
-
-      const sharedPaymentToken = readSharedPaymentToken(body);
-      if (!sharedPaymentToken || !sharedPaymentTokenEnabled) {
-        return {
-          kind: "respond",
-          response: createUcpEnvelope(
-            "requires_action",
-            {
-              action: {
-                type: "trusted_checkout_handoff",
-                reason:
-                  "Payment instruments from agents require trusted UI until a provider-backed payment handler is configured.",
-              },
-            },
-            [
-              {
-                severity: "warning",
-                code: "payment_handler_handoff_required",
-                message: "Payment handler handoff is declared but headless processor submission is disabled.",
-              },
-            ],
-          ),
-        };
-      }
-
-      let verification: UcpAp2MandateVerificationResult;
-      try {
-        verification = await options.ap2Verifier.verify({
-          checkout,
-          checkoutMandate: mandateShape.checkoutMandate,
-          paymentTokenPresent: true,
-          verifiedAt: new Date().toISOString(),
-        });
-      } catch {
-        verification = {
-          ok: false,
-          code: "mandate_verification_unavailable",
-          message: "AP2 mandate verification is temporarily unavailable.",
-        };
-      }
-      if (!verification.ok) {
-        return {
-          kind: "respond",
-          response: createUcpEnvelope(
-            "requires_action",
-            {
-              action: {
-                type: "trusted_checkout_handoff",
-                reason: "AP2 mandate verification did not authorize headless completion.",
-              },
-            },
-            [{ severity: "error", code: verification.code, message: safeVerificationMessage(verification.code) }],
-          ),
-        };
-      }
-
-      if (verification.mode !== "human-present") {
-        return {
-          kind: "respond",
-          response: createUcpEnvelope(
-            "requires_action",
-            {
-              action: {
-                type: "trusted_checkout_handoff",
-                reason: "Human-not-present AP2 completion waits for spending-mandate enforcement.",
-              },
-            },
-            [
-              {
-                severity: "error",
-                code: "mandate_scope_mismatch",
-                message: "Only verified human-present AP2 mandates are enabled for headless completion.",
-              },
-            ],
-          ),
-        };
-      }
-
-      return {
-        kind: "headless-agentic-payment",
-        humanPresent: true,
-        agenticPayment: {
-          kind: "stripe-shared-payment-token",
-          sharedPaymentGrantedToken: sharedPaymentToken,
-          ap2CheckoutMandateId: mandateShape.checkoutMandate.id,
-          ap2PaymentMandateId: mandateShape.paymentMandate?.id ?? null,
-        },
-        evidence: verification.evidence,
-      };
+      return savedCheckoutInstrumentId ? { kind: "headless-stored-payment-method", savedCheckoutInstrumentId } : null;
     },
-  };
-}
-
-function readAp2Mandates(ap2: Readonly<Record<string, unknown>>):
-  | Readonly<{
-      kind: "valid";
-      checkoutMandate: UcpAp2MandateArtifact;
-      paymentMandate: UcpAp2MandateArtifact | null;
-    }>
-  | Readonly<{ kind: "invalid"; response: UcpEnvelope }> {
-  const checkoutMandate = readMandateArtifact(ap2.checkout_mandate);
-  const paymentMandate = readMandateArtifact(ap2.payment_mandate);
-
-  if (!checkoutMandate) {
-    return {
-      kind: "invalid",
-      response: createUcpEnvelope(
-        "requires_action",
-        {
-          action: {
-            type: "trusted_checkout_handoff",
-            reason: "A valid AP2 Checkout Mandate is required for headless completion.",
-          },
-        },
-        [
-          {
-            severity: "error",
-            code: "mandate_required",
-            message: "AP2 completion requires checkout_mandate details.",
-          },
-        ],
-      ),
-    };
-  }
-
-  return { kind: "valid", checkoutMandate, paymentMandate };
-}
-
-function readMandateArtifact(value: unknown): UcpAp2MandateArtifact | null {
-  const stringValue = readString(value);
-  if (stringValue) {
-    return {
-      id: readMandateId(stringValue),
-      token: stringValue,
-    };
-  }
-
-  const objectValue = readObject(value);
-  if (!objectValue) {
-    return null;
-  }
-  const token =
-    readString(objectValue.token) ??
-    readString(objectValue.sd_jwt) ??
-    readString(objectValue.jwt) ??
-    readString(objectValue.signature);
-  if (!token) {
-    return null;
-  }
-  return {
-    id: readString(objectValue.id) ?? readMandateId(token),
-    token,
   };
 }
 
 // A saved checkout instrument id (`sci_...`) from the hosted setup rail. Accepts the id from
 // `payment_data`, a `payment.instruments[]` entry, or a top-level field so agents can supply it in
-// whichever shape their connector emits. The `sci_` prefix disambiguates it from AP2 shared payment
+// whichever shape their connector emits. The `sci_` prefix disambiguates it from Stripe shared payment
 // tokens (`spt_`) and matches the id that `payments.confirm-payment-method-setup` returns.
 function readStoredPaymentMethodId(body: Readonly<Record<string, unknown>>) {
   const isStoredInstrumentId = (value: unknown) => {
@@ -403,52 +103,6 @@ function readStoredPaymentMethodId(body: Readonly<Record<string, unknown>>) {
     isStoredInstrumentId(body.stored_payment_method_id) ??
     null
   );
-}
-
-function readSharedPaymentToken(body: Readonly<Record<string, unknown>>) {
-  const paymentData = readObject(body.payment_data);
-  if (readString(paymentData?.provider) === "stripe") {
-    const token = readString(paymentData?.token) ?? readString(readObject(paymentData?.credential)?.token);
-    if (token?.startsWith("spt_")) {
-      return token;
-    }
-  }
-
-  const payment = readObject(body.payment);
-  const instruments = Array.isArray(payment?.instruments) ? payment?.instruments : [];
-  for (const instrument of instruments) {
-    const entry = readObject(instrument);
-    const credential = readObject(entry?.credential);
-    const token =
-      readString(credential?.shared_payment_granted_token) ??
-      readString(credential?.token) ??
-      readString(entry?.shared_payment_granted_token);
-    const provider = readString(entry?.provider) ?? readString(credential?.provider);
-    if (token?.startsWith("spt_") && (!provider || provider === "stripe")) {
-      return token;
-    }
-  }
-
-  return null;
-}
-
-function readMandateId(token: string) {
-  const hash = token.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
-  return hash ? `ap2_${hash}` : null;
-}
-
-function safeVerificationMessage(code: Extract<UcpAp2MandateVerificationResult, { ok: false }>["code"]) {
-  const messages: Record<typeof code, string> = {
-    mandate_required: "AP2 mandate verification requires a Checkout Mandate.",
-    agent_missing_key: "The AP2 agent verification key is unavailable.",
-    mandate_invalid_signature: "The AP2 mandate signature is invalid.",
-    mandate_expired: "The AP2 mandate has expired.",
-    mandate_scope_mismatch: "The AP2 mandate does not authorize this checkout.",
-    merchant_authorization_invalid: "The AP2 merchant authorization is invalid.",
-    merchant_authorization_missing: "The AP2 merchant authorization is missing.",
-    mandate_verification_unavailable: "AP2 mandate verification is temporarily unavailable.",
-  };
-  return messages[code];
 }
 
 function readObject(value: unknown): Readonly<Record<string, unknown>> | null {

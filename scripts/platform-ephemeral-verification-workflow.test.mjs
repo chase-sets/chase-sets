@@ -263,9 +263,6 @@ describe("platform ephemeral verification workflow", () => {
       "UCP_BUSINESS_SIGNING_ALG",
       "UCP_BUSINESS_SIGNING_PRIVATE_JWK",
       "UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS",
-      "UCP_AP2_VERIFIER_URL",
-      "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "UCP_AP2_VERIFIER_TIMEOUT_MS",
     ]) {
       expect(runtimeSecrets).toContain(`${environmentName}:`);
     }

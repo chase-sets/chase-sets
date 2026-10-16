@@ -109,7 +109,6 @@ describe("agentGrantPaymentRailLabel", () => {
   it("has a plain-language label for every supported rail", () => {
     expect(agentGrantPaymentRailLabel("handoff-only")).toBe("Trusted checkout handoff");
     expect(agentGrantPaymentRailLabel("stored-pm")).toBe("Saved payment method");
-    expect(agentGrantPaymentRailLabel("ap2")).toBe("AP2 mandate");
   });
 });
 
@@ -125,7 +124,7 @@ describe("agentGrantSpendSummary", () => {
         daily_cap_cents: 5_000,
         monthly_cap_cents: 20_000,
         human_present_required: false,
-        allowed_rails: ["ap2"],
+        allowed_rails: ["stored-pm"],
       },
       spend: { daily_cents: 1_250, monthly_cents: 1_250 },
     });

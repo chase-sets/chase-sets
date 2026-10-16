@@ -1139,35 +1139,20 @@ describe("platform api config", () => {
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(120_000);
   });
 
-  it("loads a complete AP2 verifier configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
-    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
-    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "2400";
-
-    expect(loadConfig().ucpAp2Verifier).toEqual({
-      endpoint: "https://verifier.example/verify",
-      authorizationToken: "verifier-secret",
-      timeoutMs: 2_400,
-    });
-  });
-
-  it("rejects partial AP2 verifier configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
-
-    expect(() => loadConfig()).toThrow(
-      "UCP_AP2_VERIFIER_URL and UCP_AP2_VERIFIER_AUTH_TOKEN must be configured together.",
-    );
-  });
-
-  it("requires HTTPS for a staging AP2 verifier", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  it("ignores retired AP2 settings", () => {
+    setSyntheticStripeTestModeEnv();
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
     process.env.UCP_AP2_VERIFIER_URL = "http://verifier.example/verify";
-    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
+    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "not-a-number";
 
-    expect(() => loadConfig()).toThrow("UCP_AP2_VERIFIER_URL must use HTTPS in staging and production.");
+    const config = loadConfig();
+
+    expect(config.deploymentEnvironment).toBe("staging");
+    expect(config).not.toHaveProperty("ucpAp2Verifier");
+    expect(config.ucpBusinessSigningKeys).toBeUndefined();
   });
 
   it("loads social login provider credentials", () => {
