@@ -18,7 +18,6 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as platformOperationsModule } from "../../../index";
-import { createPlatformOperationsServices } from "../../../support/runtime-support/services";
 import { createSupportEvidenceAttachmentReference } from "../domain/attachment-reference";
 import { LEGACY_DELETION_CLAIMED, LEGACY_RECONSTRUCTION_STREAM } from "../domain/legacy-evidence";
 import { attachmentStorageKey } from "./attachments";
@@ -82,7 +81,9 @@ describe("complete legacy reference authority and guarded claims (Postgres)", ()
       await append([evidence([reference, "seed://support/placeholder"])]);
       const horizon = await readGapSafeEventStoreHead(pool);
       const original = await readCompleteStream(store, { streamId });
-      const authority = await createPlatformOperationsServices(pool).supportEvidenceLegacy.reconstruct({ horizon });
+      const authority = await platformOperationsModule
+        .createServices(pool, {})
+        .supportEvidenceLegacy.reconstruct({ horizon });
       expect(authority).toMatchObject({ status: "complete", horizon, count: 1, references: [key], operationKeys: [] });
       const firstReceipt = await readCompleteStream(store, { streamId: LEGACY_RECONSTRUCTION_STREAM });
       expect(firstReceipt).toHaveLength(1);
@@ -122,7 +123,7 @@ describe("complete legacy reference authority and guarded claims (Postgres)", ()
       expect(await readCompleteStream(store, { streamId: LEGACY_RECONSTRUCTION_STREAM })).toHaveLength(0);
       const deps = {
         legacy: service(broken),
-        storage: { listPrivate: async () => ({ status: "page", entries: [], nextContinuationToken: null }) },
+        storage: { listPrivate: async () => ({ status: "page" as const, entries: [], nextContinuationToken: null }) },
         options: {
           environment: "test",
           implementationSha: "a".repeat(40),
