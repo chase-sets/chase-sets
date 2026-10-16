@@ -2261,6 +2261,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "attemptId",
+          "requestHash",
           "accountId",
           "catalogItemId",
           "productId",
@@ -2273,6 +2275,14 @@
           "confirmationText"
         ],
         "properties": {
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt id (22-128 base64url characters), retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace command, excluding rail and actor identity."
+          },
           "accountId": {
             "type": "string",
             "description": "Authenticated buyer account scope."
@@ -2479,6 +2489,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "attemptId",
+          "requestHash",
           "accountId",
           "catalogItemId",
           "productId",
@@ -2492,6 +2504,14 @@
           "counteredOfferId"
         ],
         "properties": {
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt id (22-128 base64url characters), retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace command, excluding rail and actor identity."
+          },
           "accountId": {
             "type": "string",
             "description": "Authenticated buyer account scope."
@@ -2706,7 +2726,9 @@
           "offerId",
           "priceAmount",
           "priceCurrencyCode",
-          "confirmationText"
+          "confirmationText",
+          "attemptId",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -2716,6 +2738,14 @@
           "offerId": {
             "type": "string",
             "description": "Submitted Offer identifier."
+          },
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt identity retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace command."
           },
           "priceAmount": {
             "type": "string",
@@ -3264,7 +3294,9 @@
           "listingId",
           "feeQuoteFingerprint",
           "idempotencyKey",
-          "confirmationText"
+          "confirmationText",
+          "attemptId",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -3283,9 +3315,13 @@
             "type": "string",
             "description": "Current marketplace sales-fee quote fingerprint."
           },
-          "sourceActionKey": {
+          "attemptId": {
             "type": "string",
-            "description": "Optional source action key for semantic handoffs."
+            "description": "Marketplace attempt identity, consumed as sourceActionKey; never actor authority."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace acceptance command."
           },
           "reason": {
             "type": "string",
@@ -3384,7 +3420,9 @@
           "offerId",
           "reason",
           "idempotencyKey",
-          "confirmationText"
+          "confirmationText",
+          "attemptId",
+          "requestHash"
         ],
         "properties": {
           "accountId": {
@@ -3410,6 +3448,14 @@
           "dryRun": {
             "type": "boolean",
             "description": "Validate the action without committing it."
+          },
+          "attemptId": {
+            "type": "string",
+            "description": "Opaque Marketplace attempt identity retained across retries."
+          },
+          "requestHash": {
+            "type": "string",
+            "description": "SHA-256 of the canonical Marketplace decline command."
           }
         }
       },
