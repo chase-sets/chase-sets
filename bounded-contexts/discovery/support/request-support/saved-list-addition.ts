@@ -1,5 +1,11 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { UnresolvedPostWriteTokenError } from "@chase-sets/platform-runtime/http";
+import {
+  navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
 import { t } from "@chase-sets/localization";
+import { readApiErrorCode } from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "./api-client";
 import {
   CollectionsApiError,
@@ -28,10 +34,14 @@ export async function prepareSavedListAddition(
     sourceSurface: SavedListDiscoverySurface;
   }>,
 ) {
-  const api = createCollectionsRequestApiClient(input.request);
-  const actor = await resolveActorFromAuthApi({ request: input.request });
+  // The route action has already consumed this POST body before calling the
+  // helper. Resolve the compact handoff against metadata only so the token
+  // resolver cannot clone or re-read the consumed form payload.
+  const request = await resolvePlatformPostWriteRequest(requestMetadata(input.request));
+  const api = createCollectionsRequestApiClient(request);
+  const actor = await resolveActorFromAuthApi({ request });
   if (actor) {
-    const recent = await createDiscoveryRequestApiClient(input.request).listRecentSavedLists();
+    const recent = await createDiscoveryRequestApiClient(request).listRecentSavedLists();
     return Response.json({
       status: "ready",
       preparation: {
@@ -47,8 +57,8 @@ export async function prepareSavedListAddition(
     } satisfies SavedListRouteActionData);
   }
 
-  const anonymousOwnerId = ensureAnonymousSavedListOwnerId(input.request);
-  const sourcePath = cleanSourcePath(input.request);
+  const anonymousOwnerId = ensureAnonymousSavedListOwnerId(request);
+  const sourcePath = cleanSourcePath(request);
   const created = await api.createAnonymousSavedListIntent(anonymousOwnerId, {
     sourcePath,
     sourceSurface: input.sourceSurface,
@@ -63,6 +73,14 @@ export async function prepareSavedListAddition(
   } satisfies SavedListRouteActionData);
   appendAnonymousSavedListCookie(response.headers, anonymousOwnerId, input.request);
   return response;
+}
+
+function requestMetadata(request: Request) {
+  return new Request(request.url, {
+    method: "GET",
+    headers: request.headers,
+    signal: request.signal,
+  });
 }
 
 export async function commitSavedListAddition(request: Request, formData: FormData) {
@@ -85,7 +103,17 @@ export async function commitSavedListAddition(request: Request, formData: FormDa
           trackedQuantity,
           sourceSurface: preparation.sourceSurface,
         });
-    return Response.json({ status: "saved", result, trackedQuantity } satisfies SavedListRouteActionData);
+    const tokenDestination = await navigateAfterWriteFromSourcesWithPlatformPostWriteToken(
+      [result],
+      currentRoutePath(request),
+    );
+    const postWriteToken = new URL(tokenDestination, request.url).searchParams.get("postWriteToken");
+    return Response.json({
+      status: "saved",
+      result,
+      trackedQuantity,
+      ...(postWriteToken ? { postWriteToken } : {}),
+    } satisfies SavedListRouteActionData);
   } catch (error) {
     return savedListActionError(error);
   }
@@ -129,10 +157,26 @@ export async function loadSavedListClaimPreparation(
 }
 
 export function savedListActionError(error: unknown) {
+  if (
+    error instanceof UnresolvedPostWriteTokenError ||
+    (error instanceof CollectionsApiError &&
+      error.status === 503 &&
+      readApiErrorCode(error.body) === "projection_freshness_timeout")
+  ) {
+    return Response.json(
+      { error: t("collections.features.savedLists.ui.addToList.error.description") },
+      { status: 503 },
+    );
+  }
   return Response.json(
     { error: apiErrorMessage(error) },
     { status: error instanceof CollectionsApiError ? error.status : 400 },
   );
+}
+
+function currentRoutePath(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
 }
 
 function parsePreparation(value: FormDataEntryValue | null): SavedListPickerPreparation {

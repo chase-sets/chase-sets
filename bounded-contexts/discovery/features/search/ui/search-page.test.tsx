@@ -4,6 +4,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createContext, useContext } from "react";
+import { createMemoryRouter, RouterProvider, useRouteError } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
@@ -23,6 +25,7 @@ vi.mock("@chase-sets/localization", async (importOriginal) => {
 
 afterEach(() => {
   cleanup();
+  routers.splice(0).forEach((router) => router.dispose());
   titleOverrides.clear();
   vi.unstubAllGlobals();
 });
@@ -355,6 +358,29 @@ function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCat
   };
 }
 
+const routers: ReturnType<typeof createMemoryRouter>[] = [];
+
+function renderRoutedSearchPage(props: Parameters<typeof SearchPage>[0]) {
+  const SearchPageProps = createContext(props);
+  const router = createMemoryRouter([
+    {
+      path: "*",
+      Component: () => <SearchPage {...useContext(SearchPageProps)} />,
+      ErrorBoundary: () => {
+        throw useRouteError();
+      },
+    },
+  ]);
+  routers.push(router);
+  const tree = (value: Parameters<typeof SearchPage>[0]) => (
+    <SearchPageProps.Provider value={value}>
+      <RouterProvider router={router} />
+    </SearchPageProps.Provider>
+  );
+  const view = render(tree(props));
+  return { ...view, rerender: (value: Parameters<typeof SearchPage>[0]) => view.rerender(tree(value)) };
+}
+
 function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> = {}) {
   const props: Parameters<typeof SearchPage>[0] = {
     search: "",
@@ -387,7 +413,7 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
     ...overrides,
   };
 
-  render(<SearchPage {...props} />);
+  renderRoutedSearchPage(props);
 
   return props;
 }
@@ -528,7 +554,7 @@ describe("SearchPage", () => {
       };
       const props = renderSearchPage({ committedSearch: "abra", data: { ...searchResponse, facets: [facet] } });
       cleanup();
-      const view = render(<SearchPage {...props} />);
+      const view = renderRoutedSearchPage(props);
       const openMobile = () => fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
       const root = (name: string) => document.querySelector<HTMLElement>(`[data-facet-list-presentation="${name}"]`)!;
       const defaults = ["categories", "price-and-stock"];
@@ -561,10 +587,10 @@ describe("SearchPage", () => {
       toggle("dimension:condition");
       assertState(presentation, ["price-and-stock", "language", "dimension:condition"]);
       assertState(other, defaults);
-      view.rerender(<SearchPage {...props} data={{ ...searchResponse, facets: [] }} />);
+      view.rerender({ ...props, data: { ...searchResponse, facets: [] } });
       assertState(presentation, ["price-and-stock", "language"]);
       assertState(other, defaults);
-      view.rerender(<SearchPage {...props} />);
+      view.rerender(props);
       assertState(presentation, ["price-and-stock", "language"]);
       assertState(other, defaults);
       fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
@@ -572,7 +598,7 @@ describe("SearchPage", () => {
       assertState(presentation, ["price-and-stock", "language"]);
       assertState(other, defaults);
       view.unmount();
-      render(<SearchPage {...props} />);
+      renderRoutedSearchPage(props);
       openMobile();
       assertState("desktop", defaults);
       assertState("mobile", defaults);
