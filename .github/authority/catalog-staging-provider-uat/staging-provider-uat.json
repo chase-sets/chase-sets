@@ -38,6 +38,13 @@
     {
       "file": ".github/workflows/catalog-staging-provider-uat.yml",
       "jobId": "scope-sync-count-lifecycle",
+      "stepAnchor": "name:Capture count lifecycle without confirmation#4",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scope-sync-count-lifecycle",
       "stepAnchor": "name:Validate exact runner-scanned receipt#5",
       "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
       "purpose": "application-runtime"
@@ -47,6 +54,13 @@
       "jobId": "scope-sync-count-lifecycle",
       "stepAnchor": "name:Validate exact runner-scanned receipt#5",
       "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-provider-uat.yml",
+      "jobId": "scope-sync-count-lifecycle",
+      "stepAnchor": "name:Validate exact runner-scanned receipt#5",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "application-runtime"
     }
   ]

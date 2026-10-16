@@ -104,7 +104,8 @@ export async function runCountCaptureJourney(
     if (!collectDeployment) return stop("deployment-unknown");
     const collection = await collectDeployment(baseline.authority, now());
     if ((collection as { complete?: boolean } | null)?.complete === false) return stop("deployment-unknown");
-    if (!validateCountCaptureAuthority({ ...baseline.authority, collection }, now())) return stop("deployment-unknown");
+    if (!validateCountCaptureAuthority({ ...baseline.authority, collection }, now()).ok)
+      return stop("deployment-unknown");
     acknowledgementSchema.parse(await action("capture-initial-notice", {}));
     if (baseline.bootstrapRequired) {
       phase = "bootstrap";
