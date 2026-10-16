@@ -1903,37 +1903,68 @@
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "slot": "account-menu",
       "key": "account",
       "label": "Account",
       "icon": "user",
       "href": "/account",
       "order": 200,
       "visibility": "signed-in",
-      "requiredPermissions": ["accounts.view"]
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
+      "slot": "bottom-nav",
+      "key": "account-menu",
+      "label": "Account",
+      "icon": "user",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 450,
+      "children": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "account",
+      "label": "Account",
+      "icon": "user",
+      "href": "/account",
+      "parentKey": "account-menu",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 0
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
       "key": "security",
       "label": "Security",
       "icon": "settings",
       "href": "/account/security",
       "order": 220,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
+      "slot": "account-menu",
       "key": "consents",
       "label": "Consent History",
       "icon": "clock",
       "href": "/account/consents",
       "order": 230,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"]
     }
   ],
   "directoryIntent": {

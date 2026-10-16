@@ -19,6 +19,7 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
 import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
+import type { DiscoverySearchInterpretation } from "../support/client-support/contracts";
 import {
   appendAnonymousCartCookie,
   createCheckoutRequestApiClient,
@@ -51,6 +52,7 @@ import {
 } from "../support/request-support/saved-list-addition";
 
 const PAGE_SIZE = 24;
+const INTERPRETED_PARAM = "interpreted";
 const HOME_FEATURED_CATEGORY_LIMIT = 4;
 const HOME_NEW_ARRIVALS_LIMIT = 3;
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -67,6 +69,8 @@ const EMPTY_SEARCH_RESULT = {
   inStock: false,
   sort: "relevance",
   dynamicFilters: [],
+  interpreted: null,
+  interpretedFilters: [],
   data: null,
   categories: [],
   homeMerchandising: null,
@@ -101,6 +105,7 @@ function buildSearchQuery({
   cursor,
   limit = PAGE_SIZE,
   dynamicFilters,
+  interpreted = null,
 }: {
   search: string;
   category: string;
@@ -114,6 +119,7 @@ function buildSearchQuery({
   cursor?: string | null;
   limit?: number;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
+  interpreted?: string | null;
 }) {
   const params = new URLSearchParams();
   if (search) {
@@ -148,7 +154,64 @@ function buildSearchQuery({
     params.set("includeTotal", "true");
   }
   appendDynamicSearchFilters(params, dynamicFilters);
+  if (interpreted !== null) {
+    params.set(INTERPRETED_PARAM, interpreted);
+  }
   return params.toString();
+}
+
+/**
+ * The one canonical URL for an interpreted search: the remaining words as `q`, each newly
+ * applied value as its stable filter param, every other param preserved, and the marker
+ * listing the newly applied param keys so no later load interprets the words again.
+ */
+function buildInterpretedSearchPath(url: URL, interpretation: DiscoverySearchInterpretation): string {
+  const next = new URLSearchParams(url.searchParams);
+  next.delete("search");
+  next.set("q", interpretation.remainingQuery);
+  const keys: string[] = [];
+  for (const value of interpretation.applied) {
+    if (value.param === "language") {
+      next.set("language", value.language);
+    } else {
+      next.append(value.param, value.optionId);
+    }
+    if (!keys.includes(value.param)) {
+      keys.push(value.param);
+    }
+  }
+  next.set(INTERPRETED_PARAM, keys.join(","));
+  return `${url.pathname}?${next.toString()}`;
+}
+
+function readInterpretedFilters(searchParams: URLSearchParams): string[] {
+  return (searchParams.get(INTERPRETED_PARAM) ?? "").split(",").filter(Boolean);
+}
+
+/**
+ * Keeps the interpretation marker only while the change removes marked filter values: a
+ * removed chip drops out of the notice, but a new query or any other filter change is a new
+ * search whose words were never interpreted.
+ */
+function retainInterpretationMarker(current: URLSearchParams, next: URLSearchParams): URLSearchParams {
+  if (!next.has(INTERPRETED_PARAM)) {
+    return next;
+  }
+  const marked = new Set(readInterpretedFilters(current));
+  const ignored = new Set([INTERPRETED_PARAM, "sort", "page", "cursor"]);
+  const keys = new Set([...current.keys(), ...next.keys()].filter((key) => !ignored.has(key)));
+  const retained = [...keys].every((key) => {
+    const before = current.getAll(key);
+    const after = next.getAll(key);
+    if (before.join("\n") === after.join("\n")) {
+      return true;
+    }
+    return marked.has(key) && after.every((value) => before.includes(value)) && after.length < before.length;
+  });
+  if (!retained) {
+    next.delete(INTERPRETED_PARAM);
+  }
+  return next;
 }
 
 function buildCategoryPath(categorySlug: string, current: URLSearchParams) {
@@ -177,6 +240,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const inStock = url.searchParams.get("inStock") === "true";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
+  const interpreted = url.searchParams.get(INTERPRETED_PARAM);
   const isHomeLanding =
     url.pathname === "/" &&
     !search &&
@@ -225,6 +289,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           inStock,
           sort,
           dynamicFilters,
+          interpreted,
         }),
       )
       .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE),
@@ -249,6 +314,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       : Promise.resolve(EMPTY_DISCOVERY_SEARCH_RESPONSE),
     loadSavedListClaimPreparation(request, (product) => product.productId),
   ]);
+  // Interpreted rows are never shown here: the canonical URL is loaded as its own request,
+  // whose marker keeps the dispatcher from interpreting again.
+  if (data.interpretation && interpreted === null) {
+    throw redirect(buildInterpretedSearchPath(url, data.interpretation), { status: 302 });
+  }
   const canonicalPath =
     params.categorySlug && resolvedCategory
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -265,6 +335,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     inStock,
     sort,
     dynamicFilters,
+    interpreted,
+    interpretedFilters: readInterpretedFilters(url.searchParams),
     data,
     categories: categories.items,
     homeMerchandising: isHomeLanding
@@ -572,6 +644,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     inStock: data.inStock,
     sort: data.sort,
     dynamicFilters,
+    // Presence, as the API reads it: an empty marker is still marked.
+    interpreted: data.interpreted != null,
   });
   const resultSetKeyRef = useRef(resultSetKey);
   const pendingScrollRestorationRef = useRef<{
@@ -800,6 +874,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
           current.delete("search");
         }
         current.delete("page");
+        current.delete(INTERPRETED_PARAM);
         navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
         return;
       }
@@ -892,7 +967,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
             next.delete("page");
           }
 
-          return next;
+          return retainInterpretationMarker(current, next);
         },
         { preventScrollReset: true, replace },
       );
@@ -1065,6 +1140,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       sort: data.sort,
       dynamicFilters,
       cursor: visibleData.nextCursor,
+      // A marked page pages under its marker, so a continuation or restart keeps its policy.
+      interpreted: data.interpreted,
     });
 
     loadMoreInFlightRef.current = true;
@@ -1169,6 +1246,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       inStock={data.inStock}
       sort={data.sort}
       dynamicFilters={dynamicFilters}
+      interpretedFilters={data.interpretedFilters}
       data={visibleData}
       resultSetKey={activeFirstPage?.resultSetKey}
       categories={[...data.categories]}

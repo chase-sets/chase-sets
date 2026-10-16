@@ -53,6 +53,13 @@ A **Corrected Result Set** recovers close spellings only after a fresh relevance
 Every query term remains required, protected collector numbers and served set codes stay literal, and the result is
 one bounded page with no cursor. It is distinct from semantic Rescue and is labelled "Showing close spellings."
 
+### Search Interpretation
+
+A **Search Interpretation** turns Condition, Grading Company, Grade, and language words in a zero-result query into
+Filter State, once, before spelling correction. It keeps explicit filters authoritative and never feeds semantic
+Rescue; the marketplace canonicalizes it to a marked URL. It is Discovery's reading of the words, not Catalog truth.
+See `bounded-contexts/discovery/docs/dynamic-search-filters.md`.
+
 ### Facet
 
 A **Facet** is a discovery-oriented dimension of navigation used to summarize or refine a Result Set.

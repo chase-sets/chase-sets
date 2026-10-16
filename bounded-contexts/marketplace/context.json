@@ -2134,14 +2134,41 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
       "key": "seller-desk",
       "label": "Seller Desk",
       "icon": "dashboard",
       "href": "/account/desk",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": ["listings.view"]
+      "requiredPermissions": ["listings.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "selling-workspace",
+      "label": "Sell",
+      "labelKey": "marketplace.shell.sellingWorkspace.label",
+      "icon": "store",
+      "order": 800,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"],
+      "children": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "selling-workspace",
+      "label": "Sell",
+      "labelKey": "marketplace.shell.sellingWorkspace.label",
+      "icon": "store",
+      "order": 170,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 550,
+      "children": []
     },
     {
       "deployable": "admin-web",
@@ -2157,25 +2184,31 @@
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
+      "slot": "account-menu",
       "key": "reviews",
       "label": "Reviews",
+      "labelKey": "marketplace.shell.reviews.label",
       "icon": "star",
       "href": "/account/reviews",
-      "order": 160,
+      "order": 250,
       "visibility": "signed-in",
-      "requiredPermissions": ["reputation.view"]
+      "requiredPermissions": ["reputation.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "reviews",
       "label": "Reviews",
+      "labelKey": "marketplace.shell.reviews.label",
       "icon": "star",
       "href": "/account/reviews",
-      "order": 160,
+      "parentKey": "account-menu",
+      "order": 250,
       "visibility": "signed-in",
-      "requiredPermissions": ["reputation.view"]
+      "requiredPermissions": ["reputation.view", "accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -2183,11 +2216,15 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "listings",
       "label": "Listings",
+      "labelKey": "marketplace.shell.listings.label",
       "icon": "store",
       "href": "/account/listings",
-      "order": 120,
+      "parentKey": "selling-workspace",
+      "order": 125,
       "visibility": "signed-in",
-      "requiredPermissions": ["listings.view"]
+      "requiredPermissions": ["listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -2195,23 +2232,43 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "offer-matches",
       "label": "Offer Matches",
+      "labelKey": "marketplace.shell.offerMatches.label",
       "icon": "tag",
       "href": "/account/offers/matches",
+      "parentKey": "selling-workspace",
       "order": 130,
       "visibility": "signed-in",
-      "requiredPermissions": ["offers.view", "listings.view"]
+      "requiredPermissions": ["offers.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "slot": "account-menu",
       "key": "submitted-offers",
       "label": "Submitted Offers",
+      "labelKey": "marketplace.shell.submittedOffers.label",
       "icon": "message",
       "href": "/account/offers/submitted",
-      "order": 140,
+      "order": 240,
       "visibility": "signed-in",
-      "requiredPermissions": ["offers.view"]
+      "requiredPermissions": ["offers.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "submitted-offers",
+      "label": "Submitted Offers",
+      "labelKey": "marketplace.shell.submittedOffers.label",
+      "icon": "message",
+      "href": "/account/offers/submitted",
+      "parentKey": "account-menu",
+      "order": 240,
+      "visibility": "signed-in",
+      "requiredPermissions": ["offers.view", "accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

@@ -1295,7 +1295,8 @@
       "href": "/search",
       "order": 10,
       "visibility": "always",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "packingPriority": 700
     },
     {
       "deployable": "admin-web",

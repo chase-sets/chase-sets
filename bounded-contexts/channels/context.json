@@ -554,14 +554,14 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
       "key": "channels-publication",
       "label": "Channels",
       "icon": "store",
       "href": "/account/channels",
       "order": 150,
       "visibility": "signed-in",
-      "requiredPermissions": ["channels.view"]
+      "requiredPermissions": ["channels.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "admin-web",

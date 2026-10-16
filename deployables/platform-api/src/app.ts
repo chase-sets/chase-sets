@@ -120,6 +120,7 @@ import {
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   demandCurvePolicy,
+  forecastLedgerPolicy,
   marketStatHygienePolicy,
   economicsPolicy,
   priceSignalPolicy,
@@ -524,6 +525,7 @@ export function createPlatformApiHost(
         providerObservationPolicy,
         repricingEnginePolicy,
         repricingManagementPolicy,
+        forecastLedgerPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,

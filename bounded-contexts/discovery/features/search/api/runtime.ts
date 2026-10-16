@@ -172,6 +172,8 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
     referenceFilters: params.referenceFilters ?? [],
     dimensionFilters: params.dimensionFilters ?? [],
     sort: params.sort ?? "relevance",
+    // A marked request has its own retrieval policy, so it is a different Result Set.
+    ...(params.interpreted ? { interpreted: true } : {}),
   };
 }
 

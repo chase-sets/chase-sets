@@ -53,6 +53,7 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       queryHash: result.queryHash,
       resultSetKey: result.resultSetKey,
       ...(result.cursorState === "restarted" ? { cursorRestarted: true as const } : {}),
+      ...(result.interpretation ? { interpretation: result.interpretation } : {}),
     });
   });
 
@@ -92,6 +93,7 @@ function searchParamsFromRequest(requestUrl: string, query: (name: string) => st
     offset: offset ? Number.parseInt(offset, 10) : undefined,
     cursor: cursor || undefined,
     includeTotal: includeTotal === "true",
+    interpreted: url.searchParams.has("interpreted") || undefined,
     fieldFilters: readFieldFilters(url.searchParams),
     referenceFilters: readReferenceFilters(url.searchParams),
     dimensionFilters: readDimensionFilters(url.searchParams),

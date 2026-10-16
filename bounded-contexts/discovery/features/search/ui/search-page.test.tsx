@@ -1234,6 +1234,71 @@ describe("SearchPage", () => {
     },
   );
 
+  describe("interpretation notice", () => {
+    const gradeFacet = {
+      id: "dim_seed_grade",
+      kind: "dimension" as const,
+      label: "Grade",
+      values: [{ id: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10", count: 1, selected: true }],
+    };
+    const companyFacet = {
+      id: "dim_seed_grading_company",
+      kind: "dimension" as const,
+      label: "Grading Company",
+      values: [{ id: "chc_seed_grading_company_psa", label: "PSA", count: 1, selected: true }],
+    };
+    const grade = { kind: "dimension" as const, id: "dim_seed_grade", value: "chc_seed_grade_gem_mint_10" };
+    const company = {
+      kind: "dimension" as const,
+      id: "dim_seed_grading_company",
+      value: "chc_seed_grading_company_psa",
+    };
+    const notice = (filters: string) => `Filters applied from your search: ${filters}`;
+
+    it.each(["success", "empty"] as const)("lists only marked filters still present (%s)", (state) => {
+      renderSearchPage({
+        committedSearch: "charizard",
+        language: "ja",
+        dynamicFilters: [grade, company],
+        interpretedFilters: ["dimension.dim_seed_grade", "language", "dimension.dim_seed_finish"],
+        data: {
+          ...searchResponse,
+          facets: [gradeFacet, companyFacet],
+          ...(state === "empty" ? { items: [], count: 0, total: 0 } : {}),
+        },
+      });
+      expect(screen.getByText(notice("Grade: Gem Mint 10, Japanese"))).toBeTruthy();
+      expect(screen.queryByText(/Grading Company: PSA,/)).toBeNull();
+      if (state === "empty") expect(screen.getByText("No items found")).toBeTruthy();
+    });
+
+    it("dismissing hides the notice and keeps every filter applied", () => {
+      const props = renderSearchPage({
+        committedSearch: "charizard",
+        dynamicFilters: [grade],
+        interpretedFilters: ["dimension.dim_seed_grade"],
+        data: { ...searchResponse, facets: [gradeFacet] },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+      expect(screen.queryByText(notice("Grade: Gem Mint 10"))).toBeNull();
+      expect(screen.getByRole("button", { name: "Remove Grade: Gem Mint 10" })).toBeTruthy();
+      expect(props.onDynamicFilterChange).not.toHaveBeenCalled();
+      expect(props.onDynamicFilterClear).not.toHaveBeenCalled();
+    });
+
+    it("renders no notice without a marker or once every marked filter was removed", () => {
+      const view = renderSearchPage({
+        committedSearch: "charizard",
+        dynamicFilters: [grade],
+        data: { ...searchResponse, facets: [gradeFacet] },
+      });
+      expect(screen.queryByText(/Filters applied from your search/)).toBeNull();
+      cleanup();
+      renderSearchPage({ ...view, dynamicFilters: [], interpretedFilters: ["dimension.dim_seed_grade"] });
+      expect(screen.queryByText(/Filters applied from your search/)).toBeNull();
+    });
+  });
+
   it("renders variant badges that distinguish same-title search results", () => {
     renderSearchPage({
       committedSearch: "abra",

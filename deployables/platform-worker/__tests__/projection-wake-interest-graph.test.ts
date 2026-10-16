@@ -317,8 +317,8 @@ describe("platform worker projection wake interest graph", () => {
     expect(
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
-      count: 254,
-      sha256: "edd07092ca19870223d34bead85750ed4d971ccdec660ea7aca9df666a3a60b6",
+      count: 255,
+      sha256: "bc4cd0180105da4e03a5287d32d0d34b91d6aca50b6346f29b529e1996d32f6d",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -346,8 +346,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 254,
-      sha256: "c41a35ae55ec97bd1a2c40b918d4f7298db9f15dce07c96909986bb638f09c55",
+      count: 255,
+      sha256: "d2a992a56b9ba60f364078816610ca29c498b99483c9fef2bc19f084fa3158db",
     });
     expect(
       fingerprint(
@@ -368,8 +368,8 @@ describe("platform worker projection wake interest graph", () => {
       sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 254,
-      sha256: "2d223ed968afe34f83860c79f106a23f85c0b29ca4d2baf7581074891e6ffcbe",
+      count: 255,
+      sha256: "32886869040e0a7fffaa6639af27f7bfee2799e88f07c8051bce869c0b9aaf09",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 123,
