@@ -137,7 +137,11 @@ const repairControls = [
     "export function route(svc: H) { const { [method]: fn } = svc as H & Record<string, Fn>; return fn(); }",
     "FAMILY_DYNAMIC_KEY",
   ],
-  ["F2-K3b", "export function route(svc: H) { const { [method]: fn } = svc; return fn; }", "FAMILY_DYNAMIC_KEY"],
+  [
+    "F2-K3b",
+    "export function route(svc: H) { const { [method]: fn } = svc as H & Record<string, Fn>; return fn; }",
+    "FAMILY_DYNAMIC_KEY",
+  ],
   [
     "F2-K3c",
     "export function route(svc: H) { let fn: unknown; ({ [method]: fn } = svc); return fn; }",
