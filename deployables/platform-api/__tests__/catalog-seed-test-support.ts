@@ -303,13 +303,14 @@ export async function expectCatalogOnlyHarnessConnections(): Promise<void> {
   try {
     await observer.connect();
     const result = await observer.query<CatalogSeedBackend>(
-      `SELECT datname, pid, application_name, backend_type, state
+      `SELECT datname, pid, usename, application_name, backend_type, state, backend_start
        FROM pg_stat_activity
        WHERE datname = ANY($1::text[])
        ORDER BY datname, pid`,
       [ownedDatabaseNames],
     );
     const snapshot = inspectConnections(result.rows);
+    // Keep accepted workers and extra idle clients visible for AC1 diagnosis.
     console.info("[catalog-seed-connections]", JSON.stringify(snapshot));
     expect(snapshot.unexpected, JSON.stringify(snapshot)).toEqual([]);
     expect(snapshot.busy, JSON.stringify(snapshot)).toEqual([]);

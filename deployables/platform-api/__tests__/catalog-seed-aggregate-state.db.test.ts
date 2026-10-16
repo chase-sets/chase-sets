@@ -3,10 +3,12 @@ import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogIntegrationSeedRequirements, inspectCatalogIntegrationSeedState } from "@chase-sets/catalog/server";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { ApiHostSeedOptions } from "@chase-sets/platform-runtime/api";
+import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { createPlatformApiBootstrapTestHarness } from "./bootstrap-db-test-support";
 import {
   assignCatalogSeedState,
+  databaseUrls,
   profileShapes,
   pools,
   prepareCatalog,
@@ -68,6 +70,20 @@ describe("Catalog integration aggregate-state seed", () => {
       } finally {
         client.release();
       }
+    }
+    await expectCatalogOnlyHarnessConnections();
+  });
+
+  it("rejects an unregistered raw client and accepts the database after it closes", async () => {
+    const client = new pg.Client({ connectionString: databaseUrls.catalog });
+    await client.connect();
+    try {
+      await client.query("SELECT set_config('application_name', 'catalog-seed-unregistered-client-control', false)");
+      await expect(expectCatalogOnlyHarnessConnections()).rejects.toThrow(
+        /\"usename\".*\"backend_start\".*catalog-seed-unregistered-client-control.*\"owner\":null/u,
+      );
+    } finally {
+      await client.end();
     }
     await expectCatalogOnlyHarnessConnections();
   });

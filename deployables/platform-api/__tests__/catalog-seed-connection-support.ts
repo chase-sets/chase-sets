@@ -3,10 +3,25 @@ import type { Pool } from "pg";
 export type CatalogSeedBackend = Readonly<{
   datname: string;
   pid: number;
+  usename: string | null;
   application_name: string | null;
   backend_type: string | null;
   state: string | null;
+  backend_start: Date | string | null;
 }>;
+
+const SERVER_BACKEND_TYPES = new Set([
+  "archiver",
+  "autovacuum launcher",
+  "autovacuum worker",
+  "background writer",
+  "checkpointer",
+  "logical replication launcher",
+  "parallel worker",
+  "startup",
+  "walreceiver",
+  "walwriter",
+]);
 
 function backendPid(client: object): number {
   const pid: unknown = Reflect.get(client, "processID");
@@ -42,15 +57,22 @@ export function trackCatalogSeedConnections(namedPools: Readonly<Record<string, 
       ...backend,
       owner: owners.get(backend.pid) ?? null,
     }));
-    const unexpected = connections.filter(
-      (backend) =>
-        !backend.backend_type ||
-        (backend.backend_type === "client backend" &&
-          (!backend.owner?.pools.includes("catalog") || backend.state !== "idle")),
-    );
+    const unexpected = connections.filter((backend) => {
+      if (backend.backend_type === "client backend") {
+        return !backend.owner?.pools.includes("catalog") || backend.state !== "idle";
+      }
+      return !backend.backend_type || !SERVER_BACKEND_TYPES.has(backend.backend_type);
+    });
     const busy = poolStates.filter((pool) => pool.total !== pool.idle || pool.waiting !== 0);
-    const observedPids = new Set(backends.map(({ pid }) => pid));
-    const missing = [...owners].filter(([pid, owner]) => !owner.removed && !observedPids.has(pid));
+    const missing = poolStates
+      .map((pool) => ({
+        ...pool,
+        observed: connections.filter(
+          (backend) =>
+            backend.owner && !backend.owner.removed && backend.owner.pools.some((name) => pool.names.includes(name)),
+        ).length,
+      }))
+      .filter((pool) => pool.observed < pool.total);
     return { connections, poolStates, unexpected, busy, missing };
   };
 }
