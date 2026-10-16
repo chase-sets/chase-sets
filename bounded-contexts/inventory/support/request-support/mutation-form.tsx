@@ -20,6 +20,26 @@ const families: readonly InventoryMutationFamily[] = [
 ];
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
+const AUTOMATIC_CONFIRMATION_TTL_MS = 5_000;
+
+function recentlyAutomaticallyConfirmed(attemptId: string) {
+  try {
+    const marker = document.documentElement.dataset.inventoryMutationAutoConfirm;
+    const separator = marker?.lastIndexOf("|") ?? -1;
+    const previous = separator === -1 ? NaN : Number(marker?.slice(separator + 1));
+    if (
+      marker?.slice(0, separator) === attemptId &&
+      Number.isFinite(previous) &&
+      Date.now() - previous < AUTOMATIC_CONFIRMATION_TTL_MS
+    )
+      return true;
+    document.documentElement.dataset.inventoryMutationAutoConfirm = `${attemptId}|${Date.now()}`;
+  } catch {
+    // Recovery remains fail-safe if browser storage is unavailable.
+  }
+  return false;
+}
+
 function automaticallyConfirmedAttempts() {
   const key = "__chaseSetsInventoryAutomaticallyConfirmedAttempts";
   const global = globalThis as typeof globalThis & {
@@ -53,7 +73,7 @@ export function InventoryMutationProvider({
   const confirmAutomatically = (controller: Controller, current: boolean) => {
     const attemptId = controller.snapshot().record?.attemptId;
     const confirmedAttempts = automaticallyConfirmedAttempts();
-    if (!attemptId || confirmedAttempts.has(attemptId)) return;
+    if (!attemptId || confirmedAttempts.has(attemptId) || recentlyAutomaticallyConfirmed(attemptId)) return;
     confirmedAttempts.add(attemptId);
     void controller
       .confirm((id) => inventoryApi.getMutationAttempt(id))
