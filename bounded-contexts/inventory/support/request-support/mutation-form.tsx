@@ -21,30 +21,14 @@ const families: readonly InventoryMutationFamily[] = [
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
 const AUTOMATIC_CONFIRMATION_TTL_MS = 5_000;
+const AUTOMATIC_CONFIRMATION_STORAGE_KEY_PREFIX = "inventory-mutation/v1:";
 
 function recentlyAutomaticallyConfirmed(attemptId: string) {
   try {
-    const prefix = "chase-sets:inventory-auto-confirm:";
-    const key = `${prefix}${attemptId}`;
-    const previous = Number(window.localStorage.getItem(key));
+    const previous = Number(window.localStorage.getItem(`${AUTOMATIC_CONFIRMATION_STORAGE_KEY_PREFIX}${attemptId}`));
     if (Number.isFinite(previous) && Date.now() - previous < AUTOMATIC_CONFIRMATION_TTL_MS) return true;
-    window.localStorage.setItem(key, String(Date.now()));
+    window.localStorage.setItem(`${AUTOMATIC_CONFIRMATION_STORAGE_KEY_PREFIX}${attemptId}`, String(Date.now()));
     return false;
-  } catch {
-    // Recovery remains fail-safe if browser storage is unavailable.
-  }
-  try {
-    const prefix = "chase-sets:inventory-auto-confirm:";
-    const marker = window.name.startsWith(prefix) ? window.name.slice(prefix.length) : "";
-    const separator = marker?.lastIndexOf("|") ?? -1;
-    const previous = separator === -1 ? NaN : Number(marker?.slice(separator + 1));
-    if (
-      marker?.slice(0, separator) === attemptId &&
-      Number.isFinite(previous) &&
-      Date.now() - previous < AUTOMATIC_CONFIRMATION_TTL_MS
-    )
-      return true;
-    window.name = `${prefix}${attemptId}|${Date.now()}`;
   } catch {
     // Recovery remains fail-safe if browser storage is unavailable.
   }
