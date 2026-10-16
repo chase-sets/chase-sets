@@ -16,6 +16,14 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
 
+## Legacy Referenced
+
+**Legacy Referenced** means a storage key occurs in a v1 evidence reference in a complete Support Request history at a recorded gap-safe global horizon, whether or not an Attachment Operation exists. `seed://support/` placeholders are not storage references.
+
+## Legacy Evidence Inventory
+
+A **Legacy Evidence Inventory** is a private, digest-bound, one-shot classification of the `support-evidence/` namespace against reconstructed history. Listing exhaustion is not snapshot authority. Missing history, listing, drained-deployment boundary or separate snapshot authority requires indefinite retention. Only the exact approved manifest may enter guarded deletion; legacy bytes are never moved or rewritten.
+
 ## Support Request Participant Attempt
 
 A **Support Request Participant Attempt** is one account's intended mutation of one Support Request within its authenticated tenant. Its opaque attempt id locates a private receipt; action and canonical request hash are immutable comparisons, not identity partitions. An exact retry returns the first result without another command. Another authorized owner may independently use the same opaque id. Attachment Operations remain separate staging identities.
