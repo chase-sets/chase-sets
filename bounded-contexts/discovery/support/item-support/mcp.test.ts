@@ -148,6 +148,26 @@ describe("Discovery item MCP handlers", () => {
     expect(feed).not.toHaveProperty("retrievalMode");
     expect(feed).not.toHaveProperty("lexicalCount");
   });
+  it("returns interpreted final rows through search-market and feed without interpretation metadata", async () => {
+    const fakeServices = services();
+    const original = await fakeServices.search.searchItems();
+    vi.mocked(fakeServices.search.searchItems).mockResolvedValue({
+      ...original,
+      nextCursor: null,
+      interpretation: {
+        remainingQuery: "charizard",
+        applied: [{ param: "dimension.dim_seed_grade", optionId: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10" }],
+      },
+    });
+    const handlers = createDiscoveryItemMcpHandlers(fakeServices);
+    const result = await handlers.toolHandlers["discovery.search-market"]?.(toolInput({ query: "charizard psa 10" }));
+    expect(result).toMatchObject({ items: [{ catalog_item_id: "cat_1" }], count: 1, nextCursor: null });
+    const feed = await handlers.toolHandlers["discovery.get-chatgpt-product-feed"]?.(
+      toolInput({ query: "charizard psa 10" }),
+    );
+    expect(feed).toMatchObject({ products: [{ id: "cat_1" }], count: 1, nextCursor: null });
+    expect(JSON.stringify([result, feed])).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
+  });
   it("searches only active public discovery rows for anonymous callers", async () => {
     const fakeServices = services();
     const handlers = createDiscoveryItemMcpHandlers(fakeServices);

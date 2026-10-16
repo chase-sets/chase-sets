@@ -1151,18 +1151,8 @@
       "href": "/account/support",
       "order": 200,
       "visibility": "signed-in",
-      "requiredPermissions": ["support.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "support",
-      "label": "Support",
-      "icon": "help",
-      "href": "/account/support",
-      "order": 200,
-      "visibility": "signed-in",
-      "requiredPermissions": ["support.view"]
+      "requiredPermissions": ["support.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "admin-web",
