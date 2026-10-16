@@ -264,7 +264,7 @@ describeDb("curve-objective rounds through live, preview and dry-run pages", () 
     const capturedAt = new Date(run!.requestedAt).toISOString();
     expect(resolve.mock.calls).toEqual([
       [expectedRequest(capturedAt)],
-      [{ ...expectedRequest(capturedAt), inventoryItemId: listings.percentile }],
+      [{ ...expectedRequest(capturedAt), inventoryItemId: "inv_goal_percentile" }],
     ]);
     const dry = await services.listDryRunTraces(seller, run!.dryRunId);
 
