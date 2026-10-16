@@ -5,7 +5,7 @@ import type {
   InventoryImportSourceKey,
 } from "../domain/import-source-adapters";
 
-export type InventoryImportBatchStatus = "uploaded" | "committed";
+export type InventoryImportBatchStatus = "uploaded" | "committed" | "expired";
 export type InventoryImportRowStatus = "accepted" | "rejected" | "committed";
 export type InventoryImportResolutionStatus = "native" | "resolved" | "unresolved";
 
@@ -77,6 +77,7 @@ type RawImportBatchRow = Omit<
   }>;
 
 const IMPORT_BATCH_STATUS_SQL = `CASE
+  WHEN status = 'expired' THEN 'expired'
   WHEN total_count > 0
    AND accepted_count > 0
    AND committed_count = accepted_count
@@ -114,6 +115,7 @@ export async function getImportBatch(
   db: PgQueryable,
   batchId: string,
   accountId: string,
+  page?: Readonly<{ limit: number; offset?: number }>,
 ): Promise<InventoryImportBatchDetail | null> {
   const batchResult = await db.query<InventoryImportBatch>(
     `SELECT
@@ -176,8 +178,8 @@ export async function getImportBatch(
        updated_at
      FROM inventory_import_batch_rows
      WHERE batch_id = $1
-     ORDER BY row_number ASC`,
-    [batchId],
+     ORDER BY row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
+    page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],
   );
 
   return {

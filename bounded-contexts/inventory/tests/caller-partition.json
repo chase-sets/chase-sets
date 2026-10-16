@@ -128,23 +128,23 @@
     "status": "cutover"
   },
   "bounded-contexts/inventory/features/import-batches/api/mcp.ts": {
-    "families": ["location-read"],
-    "authority": "trusted account-scoped reader",
-    "attempt": "no mutation",
-    "read": "existing Inventory reader",
+    "families": ["location-read", "import-create"],
+    "authority": "authenticated MCP actor/account",
+    "attempt": "caller idempotencyKey through owner import-create receipt",
+    "read": "private original attempt and bounded batch reader",
     "consumer": "inventory",
-    "status": "retained-reader"
+    "status": "cutover"
   },
   "bounded-contexts/inventory/features/import-batches/api/route.ts": {
-    "families": ["item-read"],
-    "authority": "trusted account-scoped reader",
-    "attempt": "no mutation",
-    "read": "existing Inventory reader",
+    "families": ["item-read", "import-create"],
+    "authority": "authenticated HTTP actor/account",
+    "attempt": "caller Inventory-Mutation-Attempt through owner receipt",
+    "read": "private job/SSE and bounded account batch reader",
     "consumer": "inventory",
-    "status": "retained-reader"
+    "status": "cutover"
   },
   "bounded-contexts/inventory/features/import-batches/api/runtime.ts": {
-    "families": ["item-adjust", "item-create", "location-read"],
+    "families": ["item-adjust", "item-create", "location-read", "import-create"],
     "authority": "existing Inventory account authority",
     "attempt": "existing path retained until #9500 or #9503",
     "read": "existing Inventory reader retained",
@@ -304,10 +304,11 @@
       "hold-release",
       "location-create",
       "location-update",
+      "import-create",
       "restock-record"
     ],
     "authority": "Inventory owner context",
-    "attempt": "composed by createInventoryServices; only pending imports receive separate raw services",
+    "attempt": "composed owner transaction; import create cut over, commit/resolve pending #9503",
     "read": "private actor/requesting-account-bound mutation receipt; retained account-scoped queries",
     "consumer": "Inventory recovery composition",
     "status": "cutover"

@@ -25,22 +25,13 @@ const legacyMcpProtocol = {
 
 function services(): InventoryImportBatchServices {
   return {
-    createBatch: vi.fn(async (params) => ({
-      batch_id: "imb_1",
-      account_id: params.accountId,
-      status: "uploaded",
-      source_key: "shopify-csv",
-      adapter_version: 1,
-      quantity_mode: params.quantityMode ?? "replace",
-      default_storage_location_id: params.defaultStorageLocationId ?? null,
-      source_filename: params.sourceFilename ?? null,
-      total_count: params.parsedRows?.length ?? 1,
-      accepted_count: 1,
-      rejected_count: 0,
-      committed_count: 0,
-      created_at: "2026-05-28T00:00:00.000Z",
-      updated_at: "2026-05-28T00:00:00.000Z",
-      rows: [],
+    enqueueCreateBatchJob: vi.fn<InventoryImportBatchServices["enqueueCreateBatchJob"]>(async (params, context) => ({
+      jobId: "job_c3_synthetic", jobKind: "create", status: "queued",
+      payload: { accountId: params.accountId, batchId: "imb_1", create: { inputId: "input_synthetic", batchId: "imb_1" } },
+      progress: { phase: "queued", completed: 0, total: params.parsedRows?.length ?? 1, currentRowId: null, message: null },
+      result: null, errorMessage: null, eventContext: context, claimOwnerId: null, claimedUntil: null,
+      attemptCount: 0, nextEligibleAt: "2026-10-16T00:00:00.000Z", createdAt: "2026-10-16T00:00:00.000Z",
+      startedAt: null, completedAt: null, updatedAt: "2026-10-16T00:00:00.000Z",
     })),
     getBatch: vi.fn(async (batchId, accountId) => ({
       batch_id: batchId,
@@ -132,14 +123,16 @@ describe("inventory import batch MCP handlers", () => {
         quantityMode: "replace",
         defaultStorageLocationId: "loc_1",
         sourceFilename: "shopify-api-sync",
-        parsedRows: [{ rowNumber: 1, values: { "Variant ID": "987", "Variant Inventory Qty": 2 } }],
+        idempotencyKey: "d56cccd7-29dd-4815-929a-d79c49a3b51f",
+        parsedRows: [{ rowNumber: 1, values: { "Variant ID": "987", "Variant Inventory Qty": "2" } }],
       },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
     });
 
-    expect(result).toMatchObject({ batch_id: "imb_1", total_count: 1 });
-    expect(fakeServices.createBatch).toHaveBeenCalledWith(
+    expect(result).toEqual({ receiptVersion: 1, jobId: "job_c3_synthetic", batchId: "imb_1", status: "accepted" });
+    expect("createBatch" in fakeServices).toBe(false);
+    expect(fakeServices.enqueueCreateBatchJob).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "acc_1" as AccountId,
         parsedRows: [{ rowNumber: 1, values: { "Variant ID": "987", "Variant Inventory Qty": "2" } }],
@@ -168,6 +161,7 @@ describe("inventory import batch MCP handlers", () => {
         sourceKey: "shopify-csv",
         quantityMode: "replace",
         defaultStorageLocationName: "back room",
+        idempotencyKey: "d56cccd7-29dd-4815-929a-d79c49a3b51f",
       },
       request: new Request("https://api.test/mcp"),
       protocol: legacyMcpProtocol,
@@ -177,7 +171,7 @@ describe("inventory import batch MCP handlers", () => {
       accountId: "acc_1",
       includeArchived: false,
     });
-    expect(fakeServices.createBatch).toHaveBeenCalledWith(
+    expect(fakeServices.enqueueCreateBatchJob).toHaveBeenCalledWith(
       expect.objectContaining({ defaultStorageLocationId: "loc_9" }),
       expect.anything(),
     );
@@ -205,7 +199,7 @@ describe("inventory import batch MCP handlers", () => {
         protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow(/Multiple storage locations are named "Warehouse": loc_1 \(Warehouse\), loc_2 \(Warehouse\)/);
-    expect(fakeServices.createBatch).not.toHaveBeenCalled();
+    expect(fakeServices.enqueueCreateBatchJob).not.toHaveBeenCalled();
   });
 
   it("rejects account id mismatches before calling Inventory", async () => {
@@ -242,7 +236,7 @@ describe("inventory import batch MCP handlers", () => {
         protocol: legacyMcpProtocol,
       }),
     ).rejects.toThrow("dryRun is not supported for inventory import batch MCP writes yet.");
-    expect(fakeServices.createBatch).not.toHaveBeenCalled();
+    expect(fakeServices.enqueueCreateBatchJob).not.toHaveBeenCalled();
   });
 
   it("reads import batch resources by URI", async () => {

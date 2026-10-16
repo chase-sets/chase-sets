@@ -2,24 +2,36 @@ import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { InventoryApiEnv } from "../../../api";
-import { toInventoryImportBatchJobStatus, type InventoryImportBatchServices } from "./runtime";
+import { toInventoryImportBatchJobStatus, type InventoryImportBatchServices, type InventoryImportBatchJob } from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
 import { listInventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { parseSelectedOptionsInput } from "../../inventory-items/integrations/catalog/versioning";
+import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("inventory.features.importBatches.api.route.request.failed");
+}
+
+function canReadJob(job: InventoryImportBatchJob | null, context: EventStoreContext): job is InventoryImportBatchJob {
+  return Boolean(job && job.payload.accountId === context.audit.forAccountId &&
+    job.eventContext?.tenantId === context.tenantId &&
+    job.eventContext.audit.performedByUserId === context.audit.performedByUserId);
 }
 
 async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
   const contentType = c.req.header("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const formData = await c.req.formData();
+    const allowed = ["file", "csvText", "sourceFilename", "sourceKey", "quantityMode", "defaultStorageLocationId"];
+    if ([...formData.keys()].some((key) => !allowed.includes(key) || formData.getAll(key).length !== 1)) {
+      throw new Error("Invalid import request.");
+    }
     const file = formData.get("file");
     const uploadedFile = file instanceof File ? file : null;
-    const csvText = uploadedFile ? await uploadedFile.text() : String(formData.get("csvText") ?? "");
+    const csvText = uploadedFile ? new TextDecoder("utf-8", { fatal: true }).decode(await uploadedFile.arrayBuffer()) : String(formData.get("csvText") ?? "");
     const sourceFilename = uploadedFile
       ? uploadedFile.name
       : String(formData.get("sourceFilename") ?? "").trim() || null;
@@ -33,32 +45,17 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
     };
   }
 
-  const body = (await c.req.json().catch(() => ({}))) as Readonly<Record<string, unknown>>;
-  const parsedRows = Array.isArray(body.parsedRows)
-    ? body.parsedRows
-        .map((row): ImportCsvRow | null => {
-          if (typeof row !== "object" || row === null) {
-            return null;
-          }
-
-          const record = row as Readonly<Record<string, unknown>>;
-          const values =
-            typeof record.values === "object" && record.values !== null && !Array.isArray(record.values)
-              ? Object.fromEntries(Object.entries(record.values).map(([key, value]) => [key, String(value ?? "")]))
-              : null;
-
-          return values
-            ? {
-                rowNumber: Number(record.rowNumber ?? 0),
-                values,
-              }
-            : null;
-        })
-        .filter((row): row is ImportCsvRow => row !== null && row.rowNumber > 0)
-    : undefined;
+  const value: unknown = await c.req.json();
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid import request.");
+  const body = value as Readonly<Record<string, unknown>>;
+  const textKeys = ["csvText", "sourceKey", "quantityMode", "defaultStorageLocationId", "sourceFilename"];
+  if (Object.keys(body).some((key) => ![...textKeys, "parsedRows"].includes(key)) ||
+    textKeys.some((key) => body[key] != null && typeof body[key] !== "string") ||
+    (body.parsedRows !== undefined && !Array.isArray(body.parsedRows))) throw new Error("Invalid import request.");
+  const parsedRows = body.parsedRows as readonly ImportCsvRow[] | undefined;
 
   return {
-    csvText: String(body.csvText ?? ""),
+    csvText: typeof body.csvText === "string" ? body.csvText : undefined,
     parsedRows,
     sourceKey: typeof body.sourceKey === "string" ? body.sourceKey : undefined,
     quantityMode: typeof body.quantityMode === "string" ? body.quantityMode : undefined,
@@ -103,9 +100,9 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
 
   app.post("/", async (c) => {
     const actor = c.get("actor");
-    const body = await parseCreateBatchRequest(c);
-
     try {
+      const body = await parseCreateBatchRequest(c);
+      if (c.req.raw.signal.aborted) throw new Error("Import request was aborted before acceptance.");
       const job = await services.enqueueCreateBatchJob(
         {
           accountId: actor.accountId as AccountId,
@@ -116,15 +113,15 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
           defaultStorageLocationId: body.defaultStorageLocationId,
           sourceFilename: body.sourceFilename,
         },
-        c.get("context"),
+        withInventoryMutationAttempt(c.get("context"), c.req.header("Inventory-Mutation-Attempt") ?? ""),
       );
-      return c.json(toInventoryImportBatchJobStatus(job), 202);
+      return c.json({ ...toInventoryImportBatchJobStatus(job), receiptVersion: 1 as const, batchId: job.payload.batchId }, 202);
     } catch (error) {
       return c.json(
         {
           error: {
             code: "validation_failed",
-            message: errorMessage(error),
+            message: "Import source was not accepted. Check the file and attempt identity.",
           },
         },
         400,
@@ -179,7 +176,12 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
 
   app.get("/:id", async (c) => {
     const actor = c.get("actor");
-    const detail = await services.getBatch(c.req.param("id"), actor.accountId);
+    const limit = Number(c.req.query("limit") ?? 100);
+    const offset = Number(c.req.query("offset") ?? 0);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0) {
+      return c.json({ error: { code: "invalid_page", message: "Import row page is invalid." } }, 400);
+    }
+    const detail = await services.getBatch(c.req.param("id"), actor.accountId, { limit, offset });
     if (!detail) {
       return c.json(
         {
@@ -251,7 +253,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
 
   app.get("/jobs/:jobId", async (c) => {
     const job = await services.getImportBatchJob(c.req.param("jobId"));
-    if (!job || job.payload.accountId !== c.get("actor").accountId) {
+    if (!canReadJob(job, c.get("context"))) {
       return c.json(
         {
           error: {
@@ -269,7 +271,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
   app.get("/jobs/:jobId/events", async (c) => {
     const jobId = c.req.param("jobId");
     const job = await services.getImportBatchJob(jobId);
-    if (!job || job.payload.accountId !== c.get("actor").accountId) {
+    if (!canReadJob(job, c.get("context"))) {
       return c.json(
         {
           error: {
@@ -293,7 +295,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         })),
       loadCurrentSnapshot: async () => {
         const current = await services.getImportBatchJob(jobId);
-        return current && current.payload.accountId === c.get("actor").accountId
+        return canReadJob(current, c.get("context")) && current
           ? toInventoryImportBatchJobStatus(current)
           : null;
       },

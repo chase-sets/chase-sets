@@ -2,6 +2,34 @@ import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-st
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+export const inventoryImportSnapshotSchemaSql = `
+ALTER TABLE inventory_import_batch_job_inputs
+  ADD COLUMN IF NOT EXISTS snapshot_version integer NULL,
+  ADD COLUMN IF NOT EXISTS snapshot_hash text NULL,
+  ADD COLUMN IF NOT EXISTS row_count integer NULL,
+  ADD COLUMN IF NOT EXISTS adapter_version integer NULL;
+
+CREATE TABLE IF NOT EXISTS inventory_import_snapshot_rows (
+  input_id text NOT NULL REFERENCES inventory_import_batch_job_inputs(input_id) ON DELETE CASCADE,
+  row_number integer NOT NULL CHECK (row_number > 0),
+  snapshot_version integer NOT NULL CHECK (snapshot_version = 1),
+  row_hash text NOT NULL CHECK (row_hash ~ '^[a-f0-9]{64}$'),
+  snapshot_row jsonb NOT NULL,
+  row_index integer NOT NULL CHECK (row_index >= 0),
+  row_proof jsonb NOT NULL,
+  UNIQUE (input_id, row_index),
+  PRIMARY KEY (input_id, row_number)
+);
+
+CREATE TABLE IF NOT EXISTS inventory_import_source_cleanup (
+  input_id text PRIMARY KEY,
+  snapshot_version integer NOT NULL,
+  snapshot_hash text NOT NULL,
+  reason text NOT NULL,
+  deleted_at timestamptz NOT NULL
+);
+`;
+
 export const inventoryImportBatchSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_import_batches (
   batch_id text PRIMARY KEY,
@@ -74,6 +102,8 @@ CREATE TABLE IF NOT EXISTS inventory_import_batch_job_inputs (
 CREATE INDEX IF NOT EXISTS inventory_import_batch_job_inputs_account_idx
   ON inventory_import_batch_job_inputs (account_id, created_at DESC);
 
+${inventoryImportSnapshotSchemaSql}
+
 CREATE TABLE IF NOT EXISTS inventory_import_account_sku_mappings (
   mapping_id text PRIMARY KEY,
   account_id text NOT NULL,
@@ -131,6 +161,11 @@ ${durableJobWorkUnitSchemaSql({
 `;
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261016_inventory_import_safe_snapshots",
+    description: "Install safe versioned import source readers and bounded row storage before writer cutover.",
+    statements: [inventoryImportSnapshotSchemaSql],
+  },
   {
     migrationId: "20261006_inventory_import_product_resolution_scan",
     description: "Index the bounded rejected/uncommitted Product resolution keyset scan.",

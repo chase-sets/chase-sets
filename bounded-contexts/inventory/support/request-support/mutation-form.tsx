@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { Button, Form, HiddenInput, Stack, Text } from "@chase-sets/design-system";
+import { Button, Form, HiddenInput, LinkButton, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
 import { inventoryApi } from "../../client";
@@ -16,6 +16,7 @@ const families: readonly InventoryMutationFamily[] = [
   "location-update",
   "location-archive",
   "restock-record",
+  "import-create",
 ];
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
@@ -131,6 +132,17 @@ export function InventoryMutationProvider({
         <Text ref={status} role="status" aria-live="polite" tabIndex={-1}>
           {message}
         </Text>
+        {[...controllers.entries()]
+          .filter(([family, controller]) => family === "import-create" && controller.snapshot().state === "succeeded")
+          .map(([family, controller]) => {
+            const result = controller.snapshot().result;
+            const jobId = result && typeof result === "object" && "jobId" in result ? result.jobId : null;
+            return typeof jobId === "string" && /^job_[A-Za-z0-9_-]+$/.test(jobId) ? (
+              <LinkButton key={family} href={`/account/inventory/imports?jobId=${encodeURIComponent(jobId)}`}>
+                {t("inventory.features.importBatches.ui.importBatchPage.latest.batch")}
+              </LinkButton>
+            ) : null;
+          })}
         {[...controllers.entries()]
           .filter(([, controller]) => ["ambiguous", "reauth-required"].includes(controller.snapshot().state))
           .map(([family, controller]) => (

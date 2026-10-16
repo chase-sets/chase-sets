@@ -10,12 +10,15 @@ import type {
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
 import {
   createInventoryImportBatchRuntime,
+  createInventoryImportRowValidator,
+  type CreateInventoryImportBatch,
   serializeCreateBatchInputForIdempotency,
   shouldDeferImportBatchParentClaimForCreateUnitMiss,
 } from "./runtime";
 import { inventoryImportBatchSchemaSql, inventoryImportBatchSchemaMigrations } from "../read-model/schema";
 import { inventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import { readFileSync } from "node:fs";
+import { prepareInventoryImportSnapshot } from "./safe-snapshot";
 
 type StoredBatch = Readonly<{
   batch_id: string;
@@ -532,7 +535,7 @@ function runtime(
   creations: Array<Parameters<InventoryItemServices["createItem"]>[0]> = [],
   catalogItems: InventoryCatalogItemServices = catalogServices(),
 ) {
-  return createInventoryImportBatchRuntime({
+  const services = createInventoryImportBatchRuntime({
     db,
     catalogItems,
     items: itemServices(
@@ -548,6 +551,41 @@ function runtime(
       feeQuoteFingerprint: "fee_1",
     })),
   });
+  const validateRow = createInventoryImportRowValidator({ db, catalogItems });
+  return {
+    ...services,
+    // These unit tests seed review fixtures through the production validator.
+    // Durable acceptance and worker transactions are exercised by the DB suite.
+    createBatch: async (params: CreateInventoryImportBatch, _context: EventStoreContext) => {
+      const snapshot = prepareInventoryImportSnapshot(params);
+      const batchId = `imb_unit_${db.batches.size + 1}`;
+      for (const sourceRow of snapshot.rows) {
+        const row = await validateRow(params.accountId, sourceRow, snapshot.header.quantityMode);
+        db.rows.push({
+          row_id: `imr_${batchId.slice(4)}_${sourceRow.rowNumber}`, batch_id: batchId, row_number: sourceRow.rowNumber,
+          status: row.status, raw_row: { ...sourceRow.rawRow,
+            ...(row.acquisitionCostCurrencyCode ? { acquisitionCostCurrencyCode: row.acquisitionCostCurrencyCode } : {}),
+            ...(row.listingPriceCurrencyCode ? { listingPriceCurrencyCode: row.listingPriceCurrencyCode } : {}) },
+          external_reference: row.externalReference, row_fingerprint: row.rowFingerprint, quantity_mode: row.quantityMode,
+          quantity_delta: row.quantityDelta, set_quantity: row.setQuantity, source_price_amount: row.sourcePriceAmount,
+          resolution_status: row.resolutionStatus, catalog_item_id: row.catalogItemId, product_id: row.productId,
+          selected_options: row.selectedOptions, storage_location_id: row.storageLocationId, total_quantity: row.totalQuantity,
+          acquisition_occurred_at: row.acquisitionOccurredAt, acquisition_cost_amount: row.acquisitionCostAmount,
+          acquisition_cost_currency_code: row.acquisitionCostCurrencyCode, seller_sku: row.sellerSku,
+          listing_price_amount: row.listingPriceAmount, listing_price_currency_code: row.listingPriceCurrencyCode,
+          listing_quantity_cap: row.listingQuantityCap, row_note: row.rowNote, validation_errors: row.validationErrors,
+          committed_inventory_item_id: null, committed_listing_id: null, committed_at: null, created_at: now, updated_at: now,
+        });
+      }
+      const rows = db.rows.filter((row) => row.batch_id === batchId);
+      db.batches.set(batchId, { batch_id: batchId, account_id: params.accountId, status: "uploaded",
+        source_key: snapshot.header.sourceKey, adapter_version: snapshot.header.adapterVersion, quantity_mode: snapshot.header.quantityMode,
+        default_storage_location_id: snapshot.header.defaultStorageLocationId, source_filename: null,
+        total_count: rows.length, accepted_count: rows.filter((row) => row.status === "accepted").length,
+        rejected_count: rows.filter((row) => row.status === "rejected").length, committed_count: 0, created_at: now, updated_at: now });
+      return (await services.getBatch(batchId, params.accountId))!;
+    },
+  };
 }
 
 const context = {
@@ -848,9 +886,9 @@ describe("inventory import batch runtime", () => {
     expect(product).not.toHaveBeenCalled();
   });
 
-  it("AC-09 all three live callers retain the one validator; deleting any caller fails the census", () => {
+  it("AC-09 both live callers retain the one validator; deleting either caller fails the census", () => {
     const source = readFileSync(new URL("./runtime.ts", import.meta.url), "utf8");
-    const callerNames = ["resolveBatchRow", "createBatchRows", "validateAndStoreCreateBatchRow"];
+    const callerNames = ["resolveBatchRow", "processNextCreateBatchWorkUnit"];
     const census = (text: string) =>
       callerNames.every((name) => {
         const start = text.indexOf(`async function ${name}(`);
@@ -1755,7 +1793,7 @@ describe("inventory import batch runtime", () => {
         csvText: [
           "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
           "cat_active,loc_active,2,near_mint,4.44,USD,1",
-          "cat_unknown,loc_active,2,near_mint,,,,,",
+          "cat_unknown,loc_active,2,near_mint,,,",
         ].join("\n"),
       },
       context,

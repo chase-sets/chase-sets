@@ -580,6 +580,11 @@ export function createPostgresDurableJobWorkUnitStore<
     },
     recordTerminal: async (input) => {
       return runDurableWorkUnitWrite(db, async (queryable) => {
+        const activeParent = await queryable.query<Readonly<{ job_id: string }>>(
+          `SELECT job_id FROM ${jobsTable} WHERE job_id = $1 AND status IN ('queued', 'running') FOR UPDATE`,
+          [input.jobId],
+        );
+        if (!activeParent.rows[0]) return "parent-already-terminal";
         const terminalResult = await queryable.query<Readonly<{ job_id: string }>>(
           `WITH terminal_unit AS (
              UPDATE ${workUnitsTable}
@@ -615,7 +620,6 @@ export function createPostgresDurableJobWorkUnitStore<
           return "unit-claim-missing";
         }
 
-        await queryable.query(`SELECT job_id FROM ${jobsTable} WHERE job_id = $1 FOR UPDATE`, [input.jobId]);
         const parentUpdate = input.resolveParentUpdate ? await input.resolveParentUpdate(queryable) : input;
         const result = await queryable.query<PrefixedJobRow>(
           `UPDATE ${jobsTable} AS job

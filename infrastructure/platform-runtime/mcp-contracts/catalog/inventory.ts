@@ -216,7 +216,7 @@ export const inventoryService = {
         "inventory",
         "create-import-batch",
         "Create Inventory Import Batch",
-        "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+        "Accept a recoverable import validation job from CSV text or pre-parsed provider rows. Read the exact attempt receipt after a possible send; acceptance is not validation or stock commit.",
         "inventory.manage",
         objectSchema(
           {
@@ -227,7 +227,12 @@ export const inventoryService = {
             parsedRows: arrayProperty("Pre-parsed rows to normalize through the configured source profile.", {
               type: "object",
               description: "Parsed row with rowNumber and string values.",
-              additionalProperties: true,
+              additionalProperties: false,
+              required: ["rowNumber", "values"],
+              properties: {
+                rowNumber: integerProperty("Distinct positive source row identity."),
+                values: { type: "object", description: "Text cells normalized by the selected source adapter; unknown upload fields are not retained.", additionalProperties: true },
+              },
             }),
             defaultStorageLocationId: stringProperty(
               "Default Inventory Storage Location (ULID) for rows that omit one. Alternative to defaultStorageLocationName.",
@@ -235,7 +240,7 @@ export const inventoryService = {
             defaultStorageLocationName: stringProperty(
               "Default Inventory Storage Location name (case-insensitive, active locations only) for rows that omit one. Alternative to defaultStorageLocationId; if the name matches more than one active location, the tool returns a disambiguation error listing the candidate ids.",
             ),
-            sourceFilename: stringProperty("Original file or connector source name."),
+            sourceFilename: stringProperty("Optional display hint, discarded and never retained with the import."),
             idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),
@@ -246,7 +251,13 @@ export const inventoryService = {
         ["Use after source rows are fetched and before committing stock or draft listings."],
       ),
       availability: "available",
-      outputSchema: inventoryImportBatchDetailOutputSchema,
+      guardrails: guardrails("sensitive", { idempotencyAuthority: "owner", dryRunSupported: false }),
+      outputSchema: objectSchema({
+        receiptVersion: integerProperty("Durable import acceptance receipt version (1)."),
+        jobId: stringProperty("Durable validation job identity."),
+        batchId: stringProperty("Recoverable import batch identity."),
+        status: stringProperty("Acceptance does not assert validation or stock commit.", ["accepted"]),
+      }, ["receiptVersion", "jobId", "batchId", "status"]),
     },
     {
       ...readTool(

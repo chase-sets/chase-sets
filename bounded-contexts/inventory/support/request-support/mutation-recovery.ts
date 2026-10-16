@@ -32,6 +32,7 @@ const families: readonly InventoryMutationFamily[] = [
   "location-update",
   "location-archive",
   "restock-record",
+  "import-create",
 ];
 
 const fields = ["version", "attemptId", "accountId", "actorUserId", "family", "targetId", "createdAt"];
