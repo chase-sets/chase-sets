@@ -228,12 +228,12 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts",
-          line: 42,
+          line: 48,
         }),
         expect.objectContaining({
           category: "type-position",
           file: "bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts",
-          line: 42,
+          line: 48,
         }),
         expect.objectContaining({
           category: "member-declaration",
