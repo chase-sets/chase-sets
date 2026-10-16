@@ -37,6 +37,14 @@ CREATE INDEX IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx
   ON pricing_catalog_reference_inputs (reference_id);
 `;
 
+const pricingCatalogProductLineTablesSql = pricingCatalogProductLineSchemaSql.replace(
+  /\nCREATE INDEX IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx[\s\S]*?\n`$/,
+  "\n",
+);
+
+const pricingCatalogProductLineIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx
+  ON pricing_catalog_reference_inputs (reference_id)`;
+
 export const pricingRecommendationSourceSchemaSql = `
 ${pricingCatalogCategorySchemaSql}
 ${pricingCatalogProductLineSchemaSql}
@@ -226,7 +234,8 @@ export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigra
     migrationId: "20261016_pricing_product_line_inputs",
     description: "Project Catalog-owned Product Line references onto Pricing catalog inputs.",
     statements: [
-      pricingCatalogProductLineSchemaSql,
+      pricingCatalogProductLineTablesSql,
+      pricingCatalogProductLineIndexSql,
       `ALTER TABLE pricing_catalog_item_inputs ADD COLUMN IF NOT EXISTS product_line_reference_id text NULL`,
       `ALTER TABLE pricing_catalog_item_inputs ADD COLUMN IF NOT EXISTS product_line_name text NULL`,
       `ALTER TABLE pricing_catalog_item_inputs ADD COLUMN IF NOT EXISTS product_line_version integer NULL`,

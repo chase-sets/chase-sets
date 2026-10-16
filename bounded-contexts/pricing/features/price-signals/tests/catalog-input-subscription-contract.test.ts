@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { contextManifest as context } from "../../../index";
 
-describe("Pricing Catalog input subscription v7", () => {
-  it("replays product-reference and category facts into their owned tables", () => {
+describe("Pricing Catalog input subscription v8", () => {
+  it("replays product-reference, category and Product Line facts into their owned tables", () => {
     const subscription = context.eventSubscriptions.find(
       (entry) => entry.projectionName === "pricing-catalog-input-projection",
     );
     const group = context.projectionGroups.find((entry) => entry.projectionName === "pricing-catalog-input-projection");
-    expect(subscription?.subscriptionVersion).toBe(7);
+    expect(subscription?.subscriptionVersion).toBe(8);
     expect(subscription?.eventTypes).toEqual(
       expect.arrayContaining([
         "catalog.catalog-item.external-catalog-item-reference-linked",
@@ -17,6 +17,11 @@ describe("Pricing Catalog input subscription v7", () => {
         "catalog.category.published",
         "catalog.category.deprecated",
         "catalog.category.archived",
+        "catalog.reference-record.created",
+        "catalog.reference-record.revised",
+        "catalog.reference-record.published",
+        "catalog.reference-record.deprecated",
+        "catalog.reference-record.archived",
       ]),
     );
     expect(group).toMatchObject({ resetStrategy: "replay-only", requiredDuringBootstrap: true });
